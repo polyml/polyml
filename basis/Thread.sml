@@ -1,12 +1,11 @@
 (*
     Title:      Thread package for ML.
     Author:     David C. J. Matthews
-    Copyright (c) 2007-2014
+    Copyright (c) 2007-2014, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -690,7 +689,7 @@ struct
             if andb(oldAttrs, 0w6) = 0w0 (* Already deferred? *)
             then ()
             else RunCall.storeWord (self(), 0w1,
-                    orb(andb(notb 0w6, oldAttrs), 0w4))
+                    orb(andb(notb 0w6, oldAttrs), 0w2))
         fun restoreAttrs() =
         (
             RunCall.storeWord (self(), 0w1, oldAttrs);
