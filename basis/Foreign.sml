@@ -636,7 +636,14 @@ struct
         let
             val r = System.externalFunctionSymbol name
         in
-            fn () => r
+            (* An external symbol is not exactly a Sysword.word value but once it has been
+               set the first word contains its value so it can be treated that way.  It will
+               only be set by the linker so if it used in the code that created it the value
+               will still be zero. *)
+            fn () =>
+               if Memory.voidStar2Sysword r = 0w0
+               then raise Foreign "External symbol has not been set"
+               else r
         end
 
     structure LowLevel =
