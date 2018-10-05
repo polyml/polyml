@@ -225,8 +225,9 @@ void CopyScan::initialise(bool isExport/*=true*/)
         // Limit the segment size for Mac OS X.  The linker has a limit of 2^24 relocations
         // in a segment so this is a crude way of ensuring the limit isn't exceeded.
         // It's unlikely to be exceeded by the code itself.
-        if (defaultMutSize > 16 * 1024 * 1024) defaultMutSize = 16 * 1024 * 1024;
-        if (defaultImmSize > 16 * 1024 * 1024) defaultImmSize = 16 * 1024 * 1024;
+        // Actually, from trial-and-error, the limit seems to be around 6M.
+        if (defaultMutSize > 6 * 1024 * 1024) defaultMutSize = 6 * 1024 * 1024;
+        if (defaultImmSize > 6 * 1024 * 1024) defaultImmSize = 6 * 1024 * 1024;
 #endif
         if (defaultNoOverSize < 4096) defaultNoOverSize = 4096; // Except for the no-overwrite area
     }
