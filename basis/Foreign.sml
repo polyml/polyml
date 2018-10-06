@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: main part
     Author:     David Matthews
-    Copyright   David Matthews 2015-16
+    Copyright   David Matthews 2015-16, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -68,11 +68,13 @@ sig
     structure System:
     sig
         type voidStar = Memory.voidStar
+        type externalSymbol
         val loadLibrary: string -> voidStar
         and loadExecutable: unit -> voidStar
         and freeLibrary: voidStar -> unit
         and getSymbol: voidStar * string -> voidStar
-        and externalFunctionSymbol: string -> voidStar
+        and externalFunctionSymbol: string -> externalSymbol
+        and addressOfExternal: externalSymbol -> voidStar
     end
     
     structure LibFFI:
@@ -481,6 +483,7 @@ struct
     structure System =
     struct
         type voidStar = Memory.voidStar
+        type externalSymbol = voidStar
         fun loadLibrary(s: string): voidStar = ffiGeneral (2, s)
         and loadExecutable(): voidStar = ffiGeneral (3, ())
         and freeLibrary(s: voidStar): unit = ffiGeneral (4, s)
@@ -488,7 +491,17 @@ struct
         
         (* Create an external symbol object.  The first word of this is filled in with the
            address after the code is exported and linked.  *)
-        val externalFunctionSymbol: string -> voidStar = RunCall.rtsCallFull1 "PolyFFICreateExtFn"
+        val externalFunctionSymbol: string -> externalSymbol = RunCall.rtsCallFull1 "PolyFFICreateExtFn"
+        
+        (* An external symbol is a memory cell containing the value in the first word
+           followed by the symbol name.  Because the first word is the value it can
+           be treated as a Sysword.word value.
+           When it is created the value is zero and the address of the target is only
+           set once the symbol has been exported and the value set by the linker. *)
+        fun addressOfExternal(ext: externalSymbol): voidStar =
+            if Memory.voidStar2Sysword ext = 0w0
+            then raise Foreign "External symbol has not been set"
+            else ext
     end
     
     structure Error =
@@ -636,14 +649,7 @@ struct
         let
             val r = System.externalFunctionSymbol name
         in
-            (* An external symbol is not exactly a Sysword.word value but once it has been
-               set the first word contains its value so it can be treated that way.  It will
-               only be set by the linker so if it used in the code that created it the value
-               will still be zero. *)
-            fn () =>
-               if Memory.voidStar2Sysword r = 0w0
-               then raise Foreign "External symbol has not been set"
-               else r
+            fn () => System.addressOfExternal r
         end
 
     structure LowLevel =
