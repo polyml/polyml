@@ -289,11 +289,11 @@ enum {
 };
 
 // Add an external reference to the RTS
-void ELFExport::addExternalReference(void *relocAddr, const char *name)
+void ELFExport::addExternalReference(void *relocAddr, const char *name, bool isFuncPtr)
 {
     externTable.makeEntry(name);
     // The symbol is added after the memory table entries and poly_exports
-    writeRelocation(0, relocAddr, symbolNum++, true);
+    writeRelocation(0, relocAddr, symbolNum++, isFuncPtr);
 }
 
 // Generate the address relative to the start of the segment.

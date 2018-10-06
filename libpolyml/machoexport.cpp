@@ -93,7 +93,7 @@ void MachoExport::adjustOffset(unsigned area, POLYUNSIGNED &offset)
     }
 }
 
-void MachoExport::addExternalReference(void *relocAddr, const char *name)
+void MachoExport::addExternalReference(void *relocAddr, const char *name, bool /*isFuncPtr*/)
 {
     externTable.makeEntry(name);
     writeRelocation(0, relocAddr, symbolNum++, true);

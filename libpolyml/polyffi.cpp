@@ -1,7 +1,7 @@
 /*
     Title:  New Foreign Function Interface
 
-    Copyright (c) 2015  David C.J. Matthews
+    Copyright (c) 2015, 2018  David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -95,6 +95,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetError(PolyWord addr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(PolyWord err);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtData(PolyObject *threadId, PolyWord arg);
 }
 
 static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
@@ -639,6 +640,28 @@ POLYUNSIGNED PolyFFICreateExtFn(PolyObject *threadId, PolyWord arg)
     Handle result = 0;
 
     try {
+        result = creatEntryPointObject(taskData, pushedArg, true);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Create an external reference to data.  On a small number of platforms
+// different forms of relocation are needed for data and for functions.
+POLYUNSIGNED PolyFFICreateExtData(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
         result = creatEntryPointObject(taskData, pushedArg, false);
     }
     catch (...) {} // If an ML exception is raised
@@ -657,6 +680,7 @@ struct _entrypts polyFFIEPT[] =
     { "PolyFFIGetError",                (polyRTSFunction)&PolyFFIGetError},
     { "PolyFFISetError",                (polyRTSFunction)&PolyFFISetError},
     { "PolyFFICreateExtFn",             (polyRTSFunction)&PolyFFICreateExtFn},
+    { "PolyFFICreateExtData",           (polyRTSFunction)&PolyFFICreateExtData },
 
     { NULL, NULL} // End of list.
 };

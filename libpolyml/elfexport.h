@@ -105,7 +105,7 @@ private:
     virtual void ScanConstant(PolyObject *base, byte *addrOfConst, ScanRelocationKind code);
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
-    virtual void addExternalReference(void *addr, const char *name);
+    virtual void addExternalReference(void *addr, const char *name, bool isFuncPtr);
 
 private:
     void setRelocationAddress(void *p, ElfXX_Addr *reloc);

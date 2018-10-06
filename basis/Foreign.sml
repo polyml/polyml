@@ -74,6 +74,7 @@ sig
         and freeLibrary: voidStar -> unit
         and getSymbol: voidStar * string -> voidStar
         and externalFunctionSymbol: string -> externalSymbol
+        and externalDataSymbol: string -> externalSymbol
         and addressOfExternal: externalSymbol -> voidStar
     end
     
@@ -161,6 +162,7 @@ sig
     val getSymbol: library -> string  -> symbol
     val symbolAsAddress: symbol -> Memory.voidStar
     val externalFunctionSymbol: string -> symbol
+    and externalDataSymbol: string -> symbol
 
     structure LowLevel:
     sig
@@ -490,8 +492,11 @@ struct
         and getSymbol(lib: voidStar, s: string): voidStar = ffiGeneral (5, (lib, s))
         
         (* Create an external symbol object.  The first word of this is filled in with the
-           address after the code is exported and linked.  *)
+           address after the code is exported and linked.
+           On a small number of platforms different relocations are required for functions
+           and for data. *)
         val externalFunctionSymbol: string -> externalSymbol = RunCall.rtsCallFull1 "PolyFFICreateExtFn"
+        and externalDataSymbol: string -> externalSymbol = RunCall.rtsCallFull1 "PolyFFICreateExtData"
         
         (* An external symbol is a memory cell containing the value in the first word
            followed by the symbol name.  Because the first word is the value it can
@@ -648,6 +653,13 @@ struct
     fun externalFunctionSymbol(name: string): symbol =
         let
             val r = System.externalFunctionSymbol name
+        in
+            fn () => System.addressOfExternal r
+        end
+    
+    and externalDataSymbol(name: string): symbol =
+        let
+            val r = System.externalDataSymbol name
         in
             fn () => System.addressOfExternal r
         end

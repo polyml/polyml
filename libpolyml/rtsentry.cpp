@@ -102,34 +102,31 @@ extern "C" {
 
 // Create an entry point containing the address of the entry and the
 // string name.  Having the string in there allows us to export the entry.
-Handle creatEntryPointObject(TaskData *taskData, Handle entryH, bool initialise)
+Handle creatEntryPointObject(TaskData *taskData, Handle entryH, bool isFuncPtr)
 {
     TempCString entryName(Poly_string_to_C_alloc(entryH->Word()));
     if ((const char *)entryName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
     // Create space for the address followed by the name as a C string.
-    uintptr_t space = 1 + (strlen(entryName) + 1 + sizeof(polyRTSFunction*) - 1) / sizeof(PolyWord);
+    uintptr_t space = 1 + (strlen(entryName) + 1 + (isFuncPtr ? 0 : 1) + sizeof(polyRTSFunction*) - 1) / sizeof(PolyWord);
     // Allocate a byte, weak, mutable, no-overwrite cell.  It's not clear if
     // it actually needs to be mutable but if it is it needs to be no-overwrite.
     Handle refH = alloc_and_save(taskData, space, F_BYTE_OBJ|F_WEAK_BIT|F_MUTABLE_BIT|F_NO_OVERWRITE);
-    strcpy((char*)(refH->WordP()->AsBytePtr() + sizeof(polyRTSFunction*)), entryName);
-    if (initialise)
-    {
-        if (!setEntryPoint(refH->WordP()))
-            raise_fail(taskData, "entry point not found");
-    }
-    else
-    {
-        PolyObject *p = refH->WordP();
-        if (p->Length() != 0) *(polyRTSFunction*)p = 0; // Clear it
-    }
+    PolyObject *p = refH->WordP();
+    *(polyRTSFunction*)p = 0; // Clear it
+    char *entryPtr = (char*)(p->AsBytePtr() + sizeof(polyRTSFunction*));
+    if (! isFuncPtr) *entryPtr++ = 1; // Put in a type entry
+    strcpy(entryPtr, entryName);
     return refH;
 }
 
 // Return the string entry point.
-const char *getEntryPointName(PolyObject *p)
+const char *getEntryPointName(PolyObject *p, bool *isFuncPtr)
 {
     if (p->Length() <= sizeof(polyRTSFunction*)/sizeof(PolyWord)) return 0; // Doesn't contain an entry point
-    return (const char *)(p->AsBytePtr() + sizeof(polyRTSFunction*));
+    const char *entryPtr = (const char*)(p->AsBytePtr() + sizeof(polyRTSFunction*));
+    *isFuncPtr = *entryPtr != 1; // If the type is 1 it is a data entry point
+    if (*entryPtr < ' ') entryPtr++; // Skip the type byte
+    return entryPtr;
 }
 
 // Sets the address of the entry point in an entry point object.
@@ -139,6 +136,7 @@ bool setEntryPoint(PolyObject *p)
     *(polyRTSFunction*)p = 0; // Clear it by default
     if (p->Length() == 1) return false;
     const char *entryName = (const char*)(p->AsBytePtr()+sizeof(polyRTSFunction*));
+    if (*entryName < ' ') entryName++; // Skip the type byte
 
     // Search the entry point table list.
     for (entrypts *ept=entryPointTable; *ept != NULL; ept++)
@@ -172,7 +170,9 @@ POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg)
     Handle result = 0;
 
     try {
-        result = creatEntryPointObject(taskData, pushedArg, true);
+        result = creatEntryPointObject(taskData, pushedArg, true /* Always functions */);
+        if (!setEntryPoint(result->WordP()))
+            raise_fail(taskData, "entry point not found");
     } catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset

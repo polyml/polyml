@@ -741,8 +741,9 @@ void Exporter::relocateObject(PolyObject *p)
         {
             // Weak mutable byte refs are used for external references and
             // also in the FFI for non-persistent values.
-            const char *entryName = getEntryPointName(p);
-            if (entryName != 0) addExternalReference(p, entryName);
+            bool isFuncPtr = true;
+            const char *entryName = getEntryPointName(p, &isFuncPtr);
+            if (entryName != 0) addExternalReference(p, entryName, isFuncPtr);
             // Clear the first word of the data.
             ASSERT(p->Length() > 0);
             p->Set(0, PolyWord::FromSigned(0));

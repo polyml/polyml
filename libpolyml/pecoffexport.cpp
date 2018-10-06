@@ -76,7 +76,7 @@
 #define RELATIVE_32BIT_RELOCATION   IMAGE_REL_I386_REL32
 #endif
 
-void PECOFFExport::addExternalReference(void *relocAddr, const char *name)
+void PECOFFExport::addExternalReference(void *relocAddr, const char *name, bool/* isFuncPtr*/)
 {
     externTable.makeEntry(name);
     IMAGE_RELOCATION reloc;
