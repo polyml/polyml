@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: String Structure
-    Copyright   David Matthews 1999, 2005, 2016
+    Copyright   David Matthews 1999, 2005, 2016, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -61,13 +61,31 @@ local
     fun unsafeStringSub(s: string, i: word): char =
         RunCall.loadByteFromImmutable(s, i + wordSize)
 
+    fun unsafeSubstring(s: string, i: word, l: word) : string =
+    let
+        val baseLen = sizeAsWord s (* Length of base string. *)
+    in
+        if i = 0w0 andalso l = baseLen then s
+        else if l = 0w0 then "" (* Empty string. *)
+        else if l = 0w1
+        (* Single character string - use pre-built strings. *)
+        then charAsString(unsafeStringSub(s, i))
+        else
+        let
+            (* Multiple character string. *)
+            val vec = allocString l
+        in
+            RunCall.moveBytes(s, vec, wordSize+i, wordSize, l);
+            RunCall.clearMutableBit vec;
+            vec
+        end
+    end
+
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
     and wordAsInt: word -> int = RunCall.unsafeCast
 
-    (* String concatenation is currently built into the RTS although
-       it doesn't need to be. *)
-(*  val op ^ : string * string -> string = op ^ *)(* In prelude. *) 
+    (* String concatenation. *) 
     fun op ^ (a: string, b: string): string =
         let
             val a_length = sizeAsWord a
@@ -178,7 +196,6 @@ local
         val size : string -> int = RunCall.unsafeCast o LibrarySupport.sizeAsWord
         val maxSize: int = RunCall.unsafeCast LibrarySupport.maxString
    
-        (* A one character string is simply the character itself. *)
         val str: char ->string = charAsString
 
         (* Concatentate a list of strings. *)
