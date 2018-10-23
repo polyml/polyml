@@ -92,6 +92,7 @@
 	<source name="basis\Windows.sml" />
 	<source name="basis\Word32.sml" />
 	<source name="basis\Word32In64.sml" />
+	<source name="basis\Word16.sml" />
 	<source name="basis\Word8.sml" />
 	<source name="basis\Word8Array.sml" />
 	<source name="basis\WordSignature.sml" />

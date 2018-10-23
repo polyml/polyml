@@ -65,6 +65,7 @@ val () =
     then Bootstrap.use "basis/Word32In64.sml"
     else ();
 
+val () = Bootstrap.use "basis/Word16.sml";
 val () = Bootstrap.use "basis/Word8.sml";
 val () = Bootstrap.use "basis/IntInf.sml";
 val () = Bootstrap.use "basis/Int32.sml";
