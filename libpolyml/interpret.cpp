@@ -279,8 +279,10 @@ extern "C" {
     typedef POLYUNSIGNED(*callFullRts1)(PolyObject *, PolyWord);
     typedef POLYUNSIGNED(*callFullRts2)(PolyObject *, PolyWord, PolyWord);
     typedef POLYUNSIGNED(*callFullRts3)(PolyObject *, PolyWord, PolyWord, PolyWord);
-    typedef double (*callRTSFtoF) (double);
-    typedef double (*callRTSGtoF) (PolyWord);
+    typedef double (*callRTSRtoR) (double);
+    typedef double (*callRTSRRtoR) (double, double);
+    typedef double (*callRTSGtoR) (PolyWord);
+    typedef double (*callRTSRGtoR) (double, PolyWord);
 }
 
 void IntTaskData::InterruptCode()
@@ -1002,13 +1004,13 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_callFastFtoF:
+        case INSTR_callFastRtoR:
             {
                 // Floating point call.  The call itself does not allocate but we
                 // need to put the result into a "box".
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg1 = *sp++;
-                callRTSFtoF doCall = (callRTSFtoF)rtsCall.AsCodePtr();
+                callRTSRtoR doCall = (callRTSRtoR)rtsCall.AsCodePtr();
                 double argument = unboxDouble(rtsArg1);
                 // Allocate memory for the result.
                 double result = doCall(argument);
@@ -1018,12 +1020,29 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_callFastGtoF:
+        case INSTR_callFastRRtoR:
+        {
+            // Floating point call.
+            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+            PolyWord rtsArg2 = *sp++;
+            PolyWord rtsArg1 = *sp++;
+            callRTSRRtoR doCall = (callRTSRRtoR)rtsCall.AsCodePtr();
+            double argument1 = unboxDouble(rtsArg1);
+            double argument2 = unboxDouble(rtsArg2);
+            // Allocate memory for the result.
+            double result = doCall(argument1, argument2);
+            PolyObject *t = boxDouble(result, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *(--sp) = t;
+            break;
+        }
+
+        case INSTR_callFastGtoR:
             {
                 // Call that takes a POLYUNSIGNED argument and returns a double.
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg1 = *sp++;
-                callRTSGtoF doCall = (callRTSGtoF)rtsCall.AsCodePtr();
+                callRTSGtoR doCall = (callRTSGtoR)rtsCall.AsCodePtr();
                 // Allocate memory for the result.
                 double result = doCall(rtsArg1);
                 PolyObject *t = boxDouble(result, pc, sp);
@@ -1031,6 +1050,22 @@ int IntTaskData::SwitchToPoly()
                 *(--sp) = t;
                 break;
             }
+
+        case INSTR_callFastRGtoR:
+        {
+            // Call that takes a POLYUNSIGNED argument and returns a double.
+            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+            PolyWord rtsArg2 = *sp++;
+            PolyWord rtsArg1 = *sp++;
+            callRTSRGtoR doCall = (callRTSRGtoR)rtsCall.AsCodePtr();
+            double argument1 = unboxDouble(rtsArg1);
+            // Allocate memory for the result.
+            double result = doCall(argument1, rtsArg2);
+            PolyObject *t = boxDouble(result, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *(--sp) = t;
+            break;
+        }
 
         case INSTR_notBoolean:
             *sp = (*sp == True) ? False : True; break;

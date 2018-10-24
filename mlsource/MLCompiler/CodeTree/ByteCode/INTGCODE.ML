@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Further development copyright David C.J. Matthews 2016-17
+    Further development copyright David C.J. Matthews 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1119,10 +1119,14 @@ struct
             val rtsCallFast = rtsCall genRTSCallFast
             and rtsCallFull = rtsCall genRTSCallFull
             
-            fun rtsCallFastFloattoFloat(entryName, debugArgs) =
-                rtsCall (fn (_, c) => genRTSCallFastFloatFloat c) (entryName, 1, debugArgs)
-            fun rtsCallFastGeneraltoFloat(entryName, debugArgs) =
-                rtsCall (fn (_, c) => genRTSCallFastGeneralFloat c) (entryName, 1, debugArgs)
+            fun rtsCallFastRealtoReal(entryName, debugArgs) =
+                rtsCall (fn (_, c) => genRTSCallFastRealtoReal c) (entryName, 1, debugArgs)
+            and rtsCallFastRealRealtoReal(entryName, debugArgs) =
+                rtsCall (fn (_, c) => genRTSCallFastRealRealtoReal c) (entryName, 2, debugArgs)
+            and rtsCallFastGeneraltoReal(entryName, debugArgs) =
+                rtsCall (fn (_, c) => genRTSCallFastGeneraltoReal c) (entryName, 1, debugArgs)
+            and rtsCallFastRealGeneraltoReal(entryName, debugArgs) =
+                rtsCall (fn (_, c) => genRTSCallFastRealGeneraltoReal c) (entryName, 2, debugArgs)
         end
     end
 

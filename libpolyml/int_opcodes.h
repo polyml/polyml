@@ -49,6 +49,8 @@
 #define INSTR_reset_r_w     0x19
 #define INSTR_constAddr16   0x1a
 #define INSTR_const_int_w   0x1b
+#define INSTR_callFastRRtoR 0x1c
+#define INSTR_callFastRGtoR 0x1d
 #define INSTR_jump_back8    0x1e
 #define INSTR_return_b      0x1f
 #define INSTR_jump_back16   0x20
@@ -136,8 +138,8 @@
 #define INSTR_callFullRTS3      0x8c
 #define INSTR_callFullRTS4      0x8d
 #define INSTR_callFullRTS5      0x8e
-#define INSTR_callFastFtoF      0x8f
-#define INSTR_callFastGtoF      0x90
+#define INSTR_callFastRtoR      0x8f
+#define INSTR_callFastGtoR      0x90
 #define INSTR_notBoolean        0x91
 #define INSTR_isTagged          0x92
 #define INSTR_cellLength        0x93

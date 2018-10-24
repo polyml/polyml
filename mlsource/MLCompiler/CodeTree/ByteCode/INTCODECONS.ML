@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015-17 David C.J. Matthews
+    Copyright (c) 2015-18 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -72,6 +72,8 @@ struct
     and opcode_resetR_w          = 0wx19
     and opcode_constAddr16       = 0wx1a
     and opcode_constIntW         = 0wx1b
+    and opcode_callFastRTSRRtoR  = 0wx1c
+    and opcode_callFastRTSRGtoR  = 0wx1d
     and opcode_jumpBack8         = 0wx1e   (* 8-bit unsigned jump backwards - relative to end of instr. *)
     and opcode_returnB           = 0wx1f
     and opcode_jumpBack16        = 0wx20    (* 16-bit unsigned jump backwards - relative to end of instr. *)
@@ -161,8 +163,8 @@ struct
     and opcode_callFullRTS4      = 0wx8d
     and opcode_callFullRTS5      = 0wx8e
 
-    and opcode_callFastRTSFtoF   = 0wx8f
-    and opcode_callFastRTSGtoF   = 0wx90
+    and opcode_callFastRTSRtoR   = 0wx8f
+    and opcode_callFastRTSGtoR   = 0wx90
     
     and opcode_notBoolean        = 0wx91
     and opcode_isTagged          = 0wx92
@@ -300,6 +302,8 @@ struct
         val () = repUpdate(opcode_resetR_w,      "resetR_w");
         val () = repUpdate(opcode_constAddr16,   "constAddr16");
         val () = repUpdate(opcode_constIntW,     "constIntW");
+        val () = repUpdate(opcode_callFastRTSRRtoR,  "callFullRTSRRtoR")
+        val () = repUpdate(opcode_callFastRTSRGtoR,  "callFullRTSRGtoR")
         val () = repUpdate(opcode_jumpBack8,     "jumpBack8");
         val () = repUpdate(opcode_returnB,       "returnB");
         val () = repUpdate(opcode_jumpBack16,    "jumpBack16");
@@ -385,8 +389,8 @@ struct
         val () = repUpdate(opcode_callFullRTS3,  "callFullRTS3")
         val () = repUpdate(opcode_callFullRTS4,  "callFullRTS4")
         val () = repUpdate(opcode_callFullRTS5,  "callFullRTS5")
-        val () = repUpdate(opcode_callFastRTSFtoF,  "callFullRTSFtoF")
-        val () = repUpdate(opcode_callFastRTSGtoF,  "callFullRTSGtoF")
+        val () = repUpdate(opcode_callFastRTSRtoR,  "callFullRTSRtoR")
+        val () = repUpdate(opcode_callFastRTSGtoR,  "callFullRTSGtoR")
         val () = repUpdate(opcode_notBoolean, "notBoolean")
         val () = repUpdate(opcode_isTagged, "isTagged")
         val () = repUpdate(opcode_cellLength, "cellLength")
@@ -1221,8 +1225,10 @@ struct
             else (* address or large short *)
                 addItemToList(PushConstant{constNum = addConstToVec(value, cvec), size=ref Size32}, cvec)
 
-        fun genRTSCallFastFloatFloat cvec = genOpc (opcode_callFastRTSFtoF, cvec)
-        and genRTSCallFastGeneralFloat cvec = genOpc (opcode_callFastRTSGtoF, cvec)
+        fun genRTSCallFastRealtoReal cvec = genOpc (opcode_callFastRTSRtoR, cvec)
+        and genRTSCallFastRealRealtoReal cvec = genOpc (opcode_callFastRTSRRtoR, cvec)
+        and genRTSCallFastGeneraltoReal cvec = genOpc (opcode_callFastRTSGtoR, cvec)
+        and genRTSCallFastRealGeneraltoReal cvec = genOpc (opcode_callFastRTSRGtoR, cvec)
     end
     
     local

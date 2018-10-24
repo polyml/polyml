@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-17 David C.J. Matthews
+    Copyright (c) 2016-18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -145,8 +145,10 @@ sig
 
    val genRTSCallFast:    int * code -> unit
    val genRTSCallFull:    int * code -> unit
-   val genRTSCallFastFloatFloat: code -> unit
-   val genRTSCallFastGeneralFloat: code -> unit
+   val genRTSCallFastRealtoReal: code -> unit
+   val genRTSCallFastRealRealtoReal: code -> unit
+   val genRTSCallFastGeneraltoReal: code -> unit
+   val genRTSCallFastRealGeneraltoReal: code -> unit
    
    val genOpcode: opcode * code -> unit
 
