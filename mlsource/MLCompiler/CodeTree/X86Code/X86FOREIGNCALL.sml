@@ -305,7 +305,7 @@ struct
        First version.  This will probably be merged into the above code in due
        course.
        Currently ML always uses boxed values for floats.  *)
-    fun rtsCallFastFloattoFloat (functionName, debugSwitches) =
+    fun rtsCallFastRealtoReal (functionName, debugSwitches) =
     let
         val entryPointAddr = makeEntryPoint functionName
 
@@ -399,11 +399,222 @@ struct
         lock closure;
         closure
     end
+    
+    (* RTS call with two double-precision floating point arguments and a floating point result.
+       First version.  This will probably be merged into the above code in due
+       course.
+       Currently ML always uses boxed values for floats.  *)
+    fun rtsCallFastRealRealtoReal (functionName, debugSwitches) =
+    let
+        val entryPointAddr = makeEntryPoint functionName
+
+        (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
+        val abi = getABI()
+
+        val (entryPtrReg, saveMLStackPtrReg) =
+            if isX64 then (r11, r13) else (ecx, edi)
+        
+        val stackSpace =
+            case abi of
+                X64Unix => memRegSize
+            |   X64Win => memRegSize + 32 (* Requires 32-byte save area. *)
+            |   X86_32 =>
+                let
+                    (* GCC likes to keep the stack on a 16-byte alignment. *)
+                    val argSpace = 8 (*nArgs*4*) (* One "double" value. *)
+                    val align = argSpace mod 16
+                in
+                    (* Add sufficient space so that esp will be 16-byte aligned *)
+                    if align = 0
+                    then memRegSize
+                    else memRegSize + 16 - align
+                end
+
+        (* Constants for a box for a float *)
+        val fpBoxSize = 8 div Word.toInt wordSize
+        val fpBoxLengthWord32 = IntInf.orb(IntInf.fromInt fpBoxSize, IntInf.<<(Word8.toLargeInt F_bytes, 0w24))
+
+        val code =
+            [
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
+                moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
+                loadMemory(esp, ebp, memRegCStackPtr),
+                (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
+                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
+            ] @
+            (
+                case abi of
+                    (* X64 on both Windows and Unix take the first arg in xmm0 and the second in xmm1.
+                       We need to unbox the values pointed at by rax and rbx. *)
+                    X64Unix =>
+                        [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
+                          XMMArith { opc= SSE2Move, source=MemoryArg{base=ebx, offset=0, index=NoIndex}, output=xmm1 } ]
+                |   X64Win =>
+                        [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
+                          XMMArith { opc= SSE2Move, source=MemoryArg{base=ebx, offset=0, index=NoIndex}, output=xmm1 } ]
+                |   X86_32 =>
+                     (* eax and ebx contain the addresses of the values.  They must be unboxed onto the stack. *)
+                    [
+                        FPLoadFromMemory{address={base=ebx, offset=0, index=NoIndex}, precision=DoublePrecision},
+                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8, opSize=nativeWordOpSize},
+                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
+                        FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision},
+                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8, opSize=nativeWordOpSize},
+                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
+                    ]
+            ) @
+            [
+                CallFunction(DirectReg entryPtrReg), (* Call the function *)
+                moveRR{source=saveMLStackPtrReg, output=esp} (* Restore the ML stack pointer *)
+            ] @
+            (
+                (* Put the floating point result into a box. *)
+                case abi of
+                   X86_32 =>
+                    [
+                        AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
+                        StoreConstToMemory{toStore=fpBoxLengthWord32,
+                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                        FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
+                        StoreInitialised
+                    ]
+                |   _ => (* X64 The result is in xmm0 *)
+                    [
+                        AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
+                        StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
+                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
+                        StoreInitialised
+                    ]                    
+            ) @
+            [
+                (* Remove any arguments that have been passed on the stack. *)
+                ReturnFromFunction 0
+            ]
+ 
+        val profileObject = createProfileObject functionName
+        val newCode = codeCreate (functionName, profileObject, debugSwitches)
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
+        (* Have to create a closure for this *)
+        open Address
+        val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+    in
+        assignWord(closure, 0w0, toMachineWord createdCode);
+        lock closure;
+        closure
+    end
+
+    (* RTS call with one double-precision floating point argument, one fixed point argument and a
+       floating point result.
+       First version.  This will probably be merged into the above code in due
+       course.
+       Currently ML always uses boxed values for floats.  *)
+    fun rtsCallFastRealGeneraltoReal (functionName, debugSwitches) =
+    let
+        val entryPointAddr = makeEntryPoint functionName
+
+        (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
+        val abi = getABI()
+
+        val (entryPtrReg, saveMLStackPtrReg) =
+            if isX64 then (r11, r13) else (ecx, edi)
+        
+        val stackSpace =
+            case abi of
+                X64Unix => memRegSize
+            |   X64Win => memRegSize + 32 (* Requires 32-byte save area. *)
+            |   X86_32 =>
+                let
+                    (* GCC likes to keep the stack on a 16-byte alignment. *)
+                    val argSpace = 8 (*nArgs*4*) (* One "double" value. *)
+                    val align = argSpace mod 16
+                in
+                    (* Add sufficient space so that esp will be 16-byte aligned *)
+                    if align = 0
+                    then memRegSize
+                    else memRegSize + 16 - align
+                end
+
+        (* Constants for a box for a float *)
+        val fpBoxSize = 8 div Word.toInt wordSize
+        val fpBoxLengthWord32 = IntInf.orb(IntInf.fromInt fpBoxSize, IntInf.<<(Word8.toLargeInt F_bytes, 0w24))
+
+        val code =
+            [
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
+                moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
+                loadMemory(esp, ebp, memRegCStackPtr),
+                (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
+                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
+            ] @
+            (
+                case abi of
+                    (* X64 on both Windows and Unix take the first arg in xmm0.  On Unix the integer argument is treated
+                       as the first argument and goes into edi.  On Windows it's treated as the second and goes into edx. *)
+                    X64Unix =>
+                        [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
+                          moveRR{source=ebx, output=edi} ]
+                |   X64Win =>
+                        [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
+                          moveRR{source=ebx, output=edx} ]
+                |   X86_32 =>
+                     (* ebx must be pushed to the stack but eax must be unboxed.. *)
+                    [
+                        pushR ebx,
+                        FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision},
+                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8, opSize=nativeWordOpSize},
+                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
+                    ]
+            ) @
+            [
+                CallFunction(DirectReg entryPtrReg), (* Call the function *)
+                moveRR{source=saveMLStackPtrReg, output=esp} (* Restore the ML stack pointer *)
+            ] @
+            (
+                (* Put the floating point result into a box. *)
+                case abi of
+                   X86_32 =>
+                    [
+                        AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
+                        StoreConstToMemory{toStore=fpBoxLengthWord32,
+                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                        FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
+                        StoreInitialised
+                    ]
+                |   _ => (* X64 The result is in xmm0 *)
+                    [
+                        AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
+                        StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
+                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
+                        StoreInitialised
+                    ]                    
+            ) @
+            [
+                (* Remove any arguments that have been passed on the stack. *)
+                ReturnFromFunction 0
+            ]
+ 
+        val profileObject = createProfileObject functionName
+        val newCode = codeCreate (functionName, profileObject, debugSwitches)
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
+        (* Have to create a closure for this *)
+        open Address
+        val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+    in
+        assignWord(closure, 0w0, toMachineWord createdCode);
+        lock closure;
+        closure
+    end
 
     (* RTS call with one general (i.e. ML word) argument and a floating point result.
        This is used only to convert arbitrary precision values to floats.
        In due course this will be merged into the other functions. *)
-    fun rtsCallFastGeneraltoFloat (functionName, debugSwitches) =
+    fun rtsCallFastGeneraltoReal (functionName, debugSwitches) =
     let
         val entryPointAddr = makeEntryPoint functionName
 

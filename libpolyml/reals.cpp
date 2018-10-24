@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C.J. Matthews 2011, 2016, 2017
+    Further work copyright David C.J. Matthews 2011, 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -137,6 +137,12 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYSIGNED PolyGetRoundingMode(PolyWord);
     POLYEXTERNALSYMBOL POLYSIGNED PolySetRoundingMode(PolyWord);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealSize(PolyWord);
+    POLYEXTERNALSYMBOL double PolyRealAtan2(double arg1, double arg2);
+    POLYEXTERNALSYMBOL double PolyRealPow(double arg1, double arg2);
+    POLYEXTERNALSYMBOL double PolyRealCopySign(double arg1, double arg2);
+    POLYEXTERNALSYMBOL double PolyRealNextAfter(double arg1, double arg2);
+    POLYEXTERNALSYMBOL double PolyRealLdexp(double arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealFrexp(PolyObject *threadId, PolyWord arg);
 }
 
 static Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg);
@@ -324,6 +330,84 @@ double PolyRealRound(double arg)
 
 }
 
+double PolyRealAtan2(double arg1, double arg2)
+{
+    return atan2(arg1, arg2);
+}
+
+double PolyRealPow(double x, double y)
+{
+    /* Some of the special cases are defined and don't seem to match
+    the C pow function (at least as implemented in MS C). */
+    /* Maybe handle all this in ML? */
+    if (isnan(x))
+    {
+        if (y == 0.0) return 1.0;
+        else return notANumber;
+    }
+    else if (isnan(y)) return y; /* i.e. nan. */
+    else if (x == 0.0 && y < 0.0)
+    {
+        /* This case is not handled correctly in Solaris. It always
+        returns -infinity. */
+        int iy = (int)floor(y);
+        /* If x is -0.0 and y is an odd integer the result is -infinity. */
+        if (copysign(1.0, x) < 0.0 && (double)iy == y && (iy & 1))
+            return negInf; /* -infinity. */
+        else return posInf; /* +infinity. */
+    }
+    return pow(x, y);
+}
+
+double PolyRealCopySign(double arg1, double arg2)
+{
+    return copysign(arg1, arg2);
+}
+
+double PolyRealNextAfter(double arg1, double arg2)
+{
+    return nextafter(arg1, arg2);
+}
+
+double PolyRealLdexp(double arg1, PolyWord arg2)
+{
+    POLYSIGNED exponent = arg2.UnTagged();
+#if (SIZEOF_VOIDP > SIZEOF_INT)
+    // We've already checked for arbitrary precision values where necessary and
+    // for zero and non-finite mantissa.  Check the exponent fits in an int.
+    if (exponent > 2 * DBL_MAX_EXP) return copysign(INFINITY, arg1);
+    if (exponent < -2 * DBL_MAX_EXP) return copysign(0.0, arg1);
+#endif
+    return ldexp(arg1, (int)exponent);
+}
+
+// Return the normalised fraction and the exponent.
+POLYUNSIGNED PolyRealFrexp(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        int exp = 0; // The value of exp is not always defined.
+        Handle mantH = real_result(taskData, frexp(real_arg(pushedArg), &exp));
+        // Allocate a pair for the result
+        result = alloc_and_save(taskData, 2);
+
+        result->WordP()->Set(0, TAGGED(exp));
+        result->WordP()->Set(1, mantH->Word());
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 /* CALL_IO1(Real_conv, REF, NOIND) */
 Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
 {
@@ -394,26 +478,7 @@ static double real_arg2(Handle x)
 static Handle powerOf(TaskData *mdTaskData, Handle args)
 {
     double x = real_arg1(args), y = real_arg2(args);
-    /* Some of the special cases are defined and don't seem to match
-       the C pow function (at least as implemented in MS C). */
-    /* Maybe handle all this in ML? */
-    if (isnan(x))
-    {
-        if (y == 0.0) return real_result(mdTaskData, 1.0);
-        else return real_result(mdTaskData, notANumber);
-    }
-    else if (isnan(y)) return real_result(mdTaskData, y); /* i.e. nan. */
-    else if (x == 0.0 && y < 0.0)
-    {
-        /* This case is not handled correctly in Solaris. It always
-           returns -infinity. */
-        int iy = (int)floor(y);
-        /* If x is -0.0 and y is an odd integer the result is -infinity. */
-        if (copysign(1.0, x) < 0.0 && (double)iy == y && (iy & 1))
-            return real_result(mdTaskData, negInf); /* -infinity. */
-        else return real_result(mdTaskData, posInf); /* +infinity. */
-    }
-    return real_result(mdTaskData, pow(x, y));
+    return real_result(mdTaskData, PolyRealPow(x, y));
 }
 
 #define POLY_ROUND_TONEAREST    0
@@ -624,14 +689,16 @@ POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord 
     else return result->Word().AsUnsigned();
 }
 
-/* Functions added for Standard Basis Library are all indirected through here. */
+// This used to be used for all the functions.  It now only contains calls
+// used when the Real structure is defined to get the values of constants.
+// It also still has some legacy functions.
 static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(mdTaskData, code->Word());
     switch (c)
     {
-    case 3: /* atan2 */ return real_result(mdTaskData, atan2(real_arg1(args), real_arg2(args)));
-    case 4: /* pow */ return powerOf(mdTaskData, args);
+    case 3: /* Legacy: atan2 */ return real_result(mdTaskData, atan2(real_arg1(args), real_arg2(args)));
+    case 4: /* Legacy: pow */ return powerOf(mdTaskData, args);
     /* Floating point representation queries. */
 #ifdef _DBL_RADIX
     case 11: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(_DBL_RADIX));
@@ -645,27 +712,27 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
        number which can be represented is DBL_MIN*2**(-DBL_MANT_DIG) */
     case 14: /* Minimum normalised number. */
         return real_result(mdTaskData, DBL_MIN);
-    case 17: /* Get sign bit.  There may be better ways to find this. */
+    case 17: /* Legacy: Get sign bit.  Now implemented in ML. */
         return mdTaskData->saveVec.push(copysign(1.0, real_arg(args)) < 0.0 ? TAGGED(1) : TAGGED(0));
-    case 18: /* Copy sign. */
+    case 18: /* Legacy: Copy sign. */
         return real_result(mdTaskData, copysign(real_arg1(args), real_arg2(args)));
-    case 23: /* Compute ldexp */
+    case 23: /* Legacy: Compute ldexp */
         {
             int exp = get_C_int(mdTaskData, DEREFHANDLE(args)->Get(1));
             return real_result(mdTaskData, ldexp(real_arg1(args), exp));
         }
-    case 24: /* Get mantissa. */
+    case 24: /* Legacy: Get mantissa. */
         {
             int exp;
             return real_result(mdTaskData, frexp(real_arg(args), &exp));
         }
-    case 25: /* Get exponent. */
+    case 25: /* Legacy: Get exponent. */
         {
             int exp;
             (void)frexp(real_arg(args), &exp);
             return mdTaskData->saveVec.push(TAGGED(exp));
         }
-    case 26: /* nextafter */ return real_result(mdTaskData, nextafter(real_arg1(args), real_arg2(args)));
+    case 26: /* Legacy: nextafter */ return real_result(mdTaskData, nextafter(real_arg1(args), real_arg2(args)));
 
     default:
         {
@@ -730,6 +797,12 @@ struct _entrypts realsEPT[] =
     { "PolyGetRoundingMode",            (polyRTSFunction)&PolyGetRoundingMode},
     { "PolySetRoundingMode",            (polyRTSFunction)&PolySetRoundingMode},
     { "PolyRealSize",                   (polyRTSFunction)&PolyRealSize},
+    { "PolyRealAtan2",                  (polyRTSFunction)&PolyRealAtan2 },
+    { "PolyRealPow",                    (polyRTSFunction)&PolyRealPow },
+    { "PolyRealCopySign",               (polyRTSFunction)&PolyRealCopySign },
+    { "PolyRealNextAfter",              (polyRTSFunction)&PolyRealNextAfter },
+    { "PolyRealLdexp",                  (polyRTSFunction)&PolyRealLdexp },
+    { "PolyRealFrexp",                  (polyRTSFunction)&PolyRealFrexp },
 
     { NULL, NULL} // End of list.
 };

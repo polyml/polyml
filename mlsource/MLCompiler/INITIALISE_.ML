@@ -496,6 +496,8 @@ struct
             val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type)
             val quotRemCall = makeRunCallTupledWithContainer(2, 2, toMachineWord(makeFullCall 3))
+            
+            val makeRunCallTupled = makeRunCallTupled (* Needed for reals. *)
         end
 
         local
@@ -748,17 +750,25 @@ struct
                rtsCallFastGeneraltoFloat is used for Real.fromLargeInt. *)
             val debugOpts = [] (* Place to add debugging if necessary. *)
 
-            fun makeFastRealRealCall entryName = CODETREE.Foreign.rtsCallFastFloattoFloat (entryName, debugOpts)
-            and makeFastIntInfRealCall entryName = CODETREE.Foreign.rtsCallFastGeneraltoFloat (entryName, debugOpts)
-                
-            val rtsCallFastF_FEntry =
+            fun makeFastRealRealCall entryName = CODETREE.Foreign.rtsCallFastRealtoReal (entryName, debugOpts)
+            and makeFastRealRealRealCall entryName = CODETREE.Foreign.rtsCallFastRealRealtoReal (entryName, debugOpts)
+            and makeFastIntInfRealCall entryName = CODETREE.Foreign.rtsCallFastGeneraltoReal (entryName, debugOpts)
+            and makeFastRealGeneralRealCall entryName = CODETREE.Foreign.rtsCallFastRealGeneraltoReal (entryName, debugOpts)
+
+            val rtsCallFastR_REntry =
                 mkInlproc (mkEval(mkConst(toMachineWord makeFastRealRealCall), [mkLoadArgument 0]), 1, "rtsCallFastRealReal", [], 0)
 
-            val rtsCallFastI_FEntry =
+            (* This needs to be tupled. *)
+            val rtsCallFastRR_REntry = makeRunCallTupled(2, toMachineWord makeFastRealRealRealCall)
+            and rtsCallFastRI_REntry = makeRunCallTupled(2, toMachineWord makeFastRealGeneralRealCall)
+
+            val rtsCallFastI_REntry =
                 mkInlproc (mkEval(mkConst(toMachineWord makeFastIntInfRealCall), [mkLoadArgument 0]), 1, "rtsCallFastIntInfReal", [], 0)
 
-            val rtsCallFastF_F = mkGvar ("rtsCallFastF_F", String ->> Real ->> Real, rtsCallFastF_FEntry, declInBasis)
-            val rtsCallFastG_F = mkGvar ("rtsCallFastI_F", String ->> intInfType ->> Real, rtsCallFastI_FEntry, declInBasis)
+            val rtsCallFastF_F = mkGvar ("rtsCallFastR_R", String ->> Real ->> Real, rtsCallFastR_REntry, declInBasis)
+            val rtsCallFastFF_F = mkGvar ("rtsCallFastRR_R", String ->> Real ** Real ->> Real, rtsCallFastRR_REntry, declInBasis)
+            val rtsCallFastFG_F = mkGvar ("rtsCallFastRI_R", String ->> Real ** Int ->> Real, rtsCallFastRI_REntry, declInBasis)
+            val rtsCallFastG_F = mkGvar ("rtsCallFastI_R", String ->> intInfType ->> Real, rtsCallFastI_REntry, declInBasis)
 
             fun enterUnary(name, oper, typ) =
             let
@@ -786,8 +796,10 @@ struct
                 enterBinary(name, RealArith oper, binaryType)
         in
             val () = #enterType realEnv ("real", TypeConstrSet(realConstr, []))
-            val () = #enterVal realEnv ("rtsCallFastF_F", rtsCallFastF_F)
-            val () = #enterVal realEnv ("rtsCallFastI_F", rtsCallFastG_F)
+            val () = #enterVal realEnv ("rtsCallFastR_R", rtsCallFastF_F)
+            val () = #enterVal realEnv ("rtsCallFastRR_R", rtsCallFastFF_F)
+            val () = #enterVal realEnv ("rtsCallFastRI_R", rtsCallFastFG_F)
+            val () = #enterVal realEnv ("rtsCallFastI_R", rtsCallFastG_F)
             val () = enterComparison("<",   TestLess)
             val () = enterComparison("<=",  TestLessEqual)
             val () = enterComparison(">",   TestGreater)
