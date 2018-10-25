@@ -89,6 +89,11 @@ struct
     open MISC;
     open EXPORTTREE
     open DATATYPEREP
+
+    val intInfType = mkTypeConstruction ("int",     intInfConstr,    [], [])
+    and realType   = mkTypeConstruction ("real",    realConstr,   [], [])
+    and charType   = mkTypeConstruction ("char",    charConstr,   [], [])
+    and wordType   = mkTypeConstruction ("word",    wordConstr,   [], [])
     
     val declInBasis = [DeclaredAt inBasis]
 
@@ -811,7 +816,25 @@ struct
             val () = enterBinaryOp("/",     ArithDiv)
             val () = enterUnary("~",   RealNeg, unaryType)
             val () = enterUnary("abs", RealAbs, unaryType)
-            val () = enterUnary("fromFixedInt", FloatFixedInt, fixedIntType ->> Real)
+            val () = enterUnary("fromFixedInt", RealFixedInt, fixedIntType ->> Real)
+        end
+        
+        local
+            val real32Env = makeStructure(globalEnv, "Real32")
+            val floatType  = mkTypeConstruction ("real", floatConstr, [], [])
+
+            fun enterUnary(name, oper, typ) =
+            let
+                val value = mkGvar (name, typ, mkUnaryFn oper, declInBasis)
+            in
+                #enterVal real32Env (name, value)
+            end
+        in
+            val () = #enterType real32Env ("real", TypeConstrSet(floatConstr, []))
+            val () = enterUnary("toLarge", BuiltIns.DoubleFromFloat, floatType ->> Real)
+            (* This converts using the current rounding.  The fromLarge function takes
+               a specific rounding mode as an argument. *)
+            and () = enterUnary("fromReal", BuiltIns.FloatFromDouble, Real  ->> floatType)
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")
@@ -945,7 +968,7 @@ struct
                to define these.  Once we've rebuilt the compiler this can be removed
                along with the code that uses it. *)
             val () = addVal ("convStringName", "convString": string, String)
-            val () = addVal ("convInt", intOfString : string -> int, String ->> TYPETREE.intInfType)
+            val () = addVal ("convInt", intOfString : string -> int, String ->> intInfType)
             val () = addVal ("convWord", wordOfString : string -> word, String ->> Word)
             (* Convert a string, recognising and converting the escape codes. *)
             val () = addVal ("convString", unescapeString: string -> string, String ->> String)

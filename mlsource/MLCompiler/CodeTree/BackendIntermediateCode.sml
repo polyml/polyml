@@ -63,7 +63,9 @@ struct
         |   UnsignedToLongWord
         |   RealAbs
         |   RealNeg
-        |   FloatFixedInt
+        |   RealFixedInt
+        |   DoubleFromFloat
+        |   FloatFromDouble
 
         and binaryOps =
             WordComparison of { test: testConditions, isSigned: bool }
@@ -92,7 +94,9 @@ struct
         |   unaryRepr UnsignedToLongWord = "UnsignedToLongWord"
         |   unaryRepr RealAbs = "RealAbs"
         |   unaryRepr RealNeg = "RealNeg"
-        |   unaryRepr FloatFixedInt = "FloatFixedInt"
+        |   unaryRepr RealFixedInt = "RealFixedInt"
+        |   unaryRepr DoubleFromFloat = "DoubleFromFloat"
+        |   unaryRepr FloatFromDouble = "FloatFromDouble"
 
         and binaryRepr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")

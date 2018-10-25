@@ -1435,7 +1435,7 @@ struct
                  load :: code @ [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.FloatFixedInt, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.RealFixedInt, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val untagReg = newUReg() and fpReg = newUReg()
@@ -1449,6 +1449,13 @@ struct
                   BlockSimple(BoxValue{boxKind=boxFloat, source=fpReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
+        |   codeToICodeUnary({oper=BuiltIns.DoubleFromFloat, arg1}, context, _, destination) =
+                raise InternalError "TODO: DoubleFromFloat"
+
+        |   codeToICodeUnary({oper=BuiltIns.FloatFromDouble, arg1}, context, _, destination) =
+                raise InternalError "TODO: FloatFromDouble"
+
+ 
         and codeToICodeBinary(instr as {oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(BICBinary instr, context, isTail, destination)
 

@@ -1,7 +1,7 @@
 (*
     Signature for built-in functions
 
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -59,7 +59,9 @@ sig
     |   UnsignedToLongWord (* Convert a tagged value to a LargeWord without sign extension. *)
     |   RealAbs     (* Set the sign bit of a real to positive. *)
     |   RealNeg     (* Invert the sign bit of a real. *)
-    |   FloatFixedInt (* Convert an integer value into a floating point value. *)
+    |   RealFixedInt (* Convert an integer value into a real (double precision floating point) value. *)
+    |   DoubleFromFloat (* Convert a single precision floating point value to double precision. *)
+    |   FloatFromDouble (* Convert a double precision floating point value to single precision. *)
 
     and binaryOps =
         (* Compare two words and return the result.  This is used for both
