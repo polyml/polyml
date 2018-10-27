@@ -1248,8 +1248,12 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
                 // These are SSE2 instructions
                 case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
-                case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a:
+                case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a: case 0x6e:
+                case 0x7e:
                     pt++; skipea(addr, &pt, process, false); break;
+
+                case 0x73: // PSRLDQ - EA,imm
+                    pt++; skipea(addr, &pt, process, false); pt++;  break;
 
                 default: Crash("Unknown opcode %d at %p\n", *pt, pt);
                 }

@@ -348,8 +348,8 @@ struct
                 case abi of
                     (* X64 on both Windows and Unix take the first arg in xmm0.  We need to
                        unbox the value pointed at by rax. *)
-                    X64Unix => [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 } ]
-                |   X64Win => [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 } ]
+                    X64Unix => [ XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 } ]
+                |   X64Win => [ XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 } ]
                 |   X86_32 =>
                      (* eax contains the address of the value.  This must be unboxed onto the stack. *)
                     [
@@ -448,11 +448,11 @@ struct
                     (* X64 on both Windows and Unix take the first arg in xmm0 and the second in xmm1.
                        We need to unbox the values pointed at by rax and rbx. *)
                     X64Unix =>
-                        [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
-                          XMMArith { opc= SSE2Move, source=MemoryArg{base=ebx, offset=0, index=NoIndex}, output=xmm1 } ]
+                        [ XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
+                          XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=ebx, offset=0, index=NoIndex}, output=xmm1 } ]
                 |   X64Win =>
-                        [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
-                          XMMArith { opc= SSE2Move, source=MemoryArg{base=ebx, offset=0, index=NoIndex}, output=xmm1 } ]
+                        [ XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
+                          XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=ebx, offset=0, index=NoIndex}, output=xmm1 } ]
                 |   X86_32 =>
                      (* eax and ebx contain the addresses of the values.  They must be unboxed onto the stack. *)
                     [
@@ -555,10 +555,10 @@ struct
                     (* X64 on both Windows and Unix take the first arg in xmm0.  On Unix the integer argument is treated
                        as the first argument and goes into edi.  On Windows it's treated as the second and goes into edx. *)
                     X64Unix =>
-                        [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
+                        [ XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
                           moveRR{source=ebx, output=edi} ]
                 |   X64Win =>
-                        [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
+                        [ XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
                           moveRR{source=ebx, output=edx} ]
                 |   X86_32 =>
                      (* ebx must be pushed to the stack but eax must be unboxed.. *)

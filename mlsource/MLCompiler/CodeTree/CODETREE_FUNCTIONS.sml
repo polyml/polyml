@@ -117,7 +117,10 @@ struct
                     |   RealNeg => applicative (* Does not depend on rounding setting. *)
                         (* If we float a 64-bit int to a 64-bit floating point value we may
                            lose precision so this depends on the current rounding mode. *)
-                    |   FloatFixedInt => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   RealFixedInt => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   DoubleFromFloat => applicative
+                        (* This also depends on the rounding mode. *)
+                    |   FloatFromDouble => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1
             end

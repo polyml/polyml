@@ -1059,11 +1059,12 @@ struct
                                We can't cache X87 values because there's effectively only one register
                                and this box instruction uses FSTP (store and POP). *)
                             val cacheCode =
-                                if Vector.sub(pushVec, dReg) orelse boxKind = BoxX87 then []
+                                if Vector.sub(pushVec, dReg) orelse boxKind = BoxX87Double orelse boxKind = BoxX87Float then []
                                 else
                                 let
                                     val newCacheReg = newPReg RegPropCacheUntagged
-                                    val moveKind = case boxKind of BoxLargeWord => MoveWord | BoxX87 => MoveDouble | BoxSSE2 => MoveDouble
+                                    val moveKind =
+                                        case boxKind of BoxLargeWord => MoveWord | BoxX87Double => MoveDouble | BoxX87Float => MoveFloat | BoxSSE2 => MoveDouble
                                     (* The value we're putting in the cache is untagged. *)
                                     val _ = setMemoryCache(dReg, 0, newCacheReg, false, moveKind)
                                 in
@@ -1152,14 +1153,42 @@ struct
                             destCode @ SSE2Float{dest=destVal, source=sourceVal} :: sourceCode @ code
                         end
     
-                    |   pushRegisters({instr=SSE2FPArith{opc, resultReg, arg1, arg2}, ...}, code) =
+                    |   pushRegisters({instr=SSE2FPUnary{opc, resultReg, source}, ...}, code) =
+                        let
+                            val (argVal, argCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @ SSE2FPUnary{opc=opc, resultReg=destVal, source=argVal} ::
+                                    argCode @ code
+                        end
+
+                    |   pushRegisters({instr=SSE2FPBinary{opc, resultReg, arg1, arg2}, ...}, code) =
                         let
                             val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                             val (destVal, destCode) = mapDestReg resultReg
                         in
-                            destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
+                            destCode @ SSE2FPBinary{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
                                     arg2Code @ arg1Code @ code
+                        end
+
+                    |   pushRegisters({instr=TagFloat{source, dest}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                            (*val _ = setTagCache(dReg, isSigned, sourceVal)*)
+                        in
+                            destCode @ TagFloat{source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=UntagFloat{source, dest, ...}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg dest
+                            (* Ignore this for the moment. *)
+                            val newCache = NONE
+                        in
+                            destCode @ UntagFloat{source=sourceVal, dest=destVal, cache=newCache} :: sourceCode @ code
                         end
         
 

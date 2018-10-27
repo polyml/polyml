@@ -266,9 +266,19 @@ struct
     |   getInstructionState(SSE2Float{dest, source}) =
             { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(SSE2FPArith{resultReg, arg1, arg2, ...}) =
+    |   getInstructionState(SSE2FPUnary{resultReg, source, ...}) =
+            { sources=argRegs source, dests=[resultReg],
+              sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(SSE2FPBinary{resultReg, arg1, arg2, ...}) =
             { sources=arg1 :: argRegs arg2, dests=[resultReg],
               sStacks=argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(TagFloat{source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(UntagFloat{source, dest, cache, ...}) =
+            { sources=case cache of NONE => argRegs source | SOME cr => cr :: argRegs source, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     fun identifyRegisters(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let

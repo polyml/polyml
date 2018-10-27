@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -71,10 +71,14 @@ struct
     (* The reference to a condition code. *)
     and ccRef = CcRef of int
 
-    datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87
+    datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87Double | BoxX87Float
     
     (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
     datatype opSize = datatype opSize
+    
+    datatype sse2UnaryOps = SSE2UDoubleToFloat | SSE2UFloatToDouble
+    and      sse2BinaryOps = SSE2BAddDouble | SSE2BSubDouble | SSE2BMulDouble |
+                SSE2BDivDouble | SSE2BXor | SSE2BAnd
  
     datatype x86ICode =
         (* Move a value into a register. *)
@@ -264,7 +268,19 @@ struct
     |   SSE2Float of { dest: preg, source: argument }
 
         (* Binary floating point operations using SSE2 instructions. *)
-    |   SSE2FPArith of { opc: sse2Operations, resultReg: preg, arg1: preg, arg2: argument }
+    |   SSE2FPUnary of { opc: sse2UnaryOps, resultReg: preg, source: argument }
+
+        (* Binary floating point operations using SSE2 instructions. *)
+    |   SSE2FPBinary of { opc: sse2BinaryOps, resultReg: preg, arg1: preg, arg2: argument }
+
+        (* Tag a 32-bit floating point value.  This is tagged by shifting left
+           32-bits and then setting the bottom bit.  This allows memory operands
+           to be untagged simply by loading the high-order word. *)
+    |   TagFloat of { source: preg, dest: preg }
+
+        (* Untag a 32-bit floating point value into a XMM register.  If the source
+           is in memory we just need to load the high-order word. *)
+    |   UntagFloat of { source: argument, dest: preg, cache: preg option }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -302,11 +318,13 @@ struct
     datatype destinations = RegDest of reg | StackDest of int
 
     local        
-        fun printIndex(NoMemIndex, _, _) = ()
-        |   printIndex(MemIndex1 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*1]")
-        |   printIndex(MemIndex2 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*2]")
-        |   printIndex(MemIndex4 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*4]")
-        |   printIndex(MemIndex8 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*8]")
+        fun printReg(PReg i, stream) = stream("R" ^ Int.toString i)
+
+        fun printIndex(NoMemIndex, _) = ()
+        |   printIndex(MemIndex1 i, stream) = (stream "["; printReg(i, stream); stream "*1]")
+        |   printIndex(MemIndex2 i, stream) = (stream "["; printReg(i, stream); stream "*2]")
+        |   printIndex(MemIndex4 i, stream) = (stream "["; printReg(i, stream); stream "*4]")
+        |   printIndex(MemIndex8 i, stream) = (stream "["; printReg(i, stream); stream "*8]")
         
         fun printStackLoc(StackLoc{size, rno}, stream) =
             (stream "S"; stream(Int.toString rno); stream "("; stream(Int.toString size); stream ")")
@@ -314,34 +332,34 @@ struct
         fun printOpsize(OpSize32, stream) = stream "32"
         |   printOpsize(OpSize64, stream) = stream "64"
 
-        fun printArg(RegisterArgument reg, stream, printReg) = printReg(reg, stream)
-        |   printArg(AddressConstant m, stream, _) = stream(stringOfWord m)
-        |   printArg(IntegerConstant i, stream, _) = stream(LargeInt.toString i)
-        |   printArg(MemoryLocation{base, offset, index, cache, ...}, stream, printReg) =
+        fun printArg(RegisterArgument reg, stream) = printReg(reg, stream)
+        |   printArg(AddressConstant m, stream) = stream(stringOfWord m)
+        |   printArg(IntegerConstant i, stream) = stream(LargeInt.toString i)
+        |   printArg(MemoryLocation{base, offset, index, cache, ...}, stream) =
             (
                 stream(Int.toString offset ^ "(");
                 printReg(base, stream);
                 stream ")";
-                printIndex(index, stream, printReg);
+                printIndex(index, stream);
                 case cache of NONE => () | SOME r => (stream " cache "; printReg(r, stream))
             )
-        |   printArg(StackLocation{wordOffset, container, field, cache, ...}, stream, printReg) =
+        |   printArg(StackLocation{wordOffset, container, field, cache, ...}, stream) =
             (
                 printStackLoc(container, stream); stream " + ";
                 stream(Int.toString field);
                 stream " (";  stream(Int.toString wordOffset); stream ")";
                 case cache of NONE => () | SOME r => (stream " cache "; printReg(r, stream))
             )
-        |   printArg(ContainerAddr{stackOffset, container}, stream, _) =
+        |   printArg(ContainerAddr{stackOffset, container}, stream) =
             (
                 stream "@"; printStackLoc(container, stream);
                 stream " (";  stream(Int.toString stackOffset); stream ")"
             )
             
-        fun printSaves([], _, _) = ()
-        |   printSaves([areg], printReg, stream) = printReg(areg, stream)
-        |   printSaves(areg::more, printReg, stream) =
-                (printReg(areg, stream); stream ","; printSaves(more, printReg, stream))
+        fun printSaves([], _) = ()
+        |   printSaves([areg], stream) = printReg(areg, stream)
+        |   printSaves(areg::more, stream) =
+                (printReg(areg, stream); stream ","; printSaves(more, stream))
         
         fun printKind(MoveWord, stream) = stream "Word"
         |   printKind(MoveByte, stream) = stream "Byte"
@@ -350,15 +368,15 @@ struct
         |   printKind(MoveFloat, stream) = stream "Float"
         |   printKind(MoveDouble, stream) = stream "Double";
 
-        fun printICode(LoadArgument{source, dest, kind}, stream, printReg) =
+        fun printICode(LoadArgument{source, dest, kind}, stream) =
             (
                 stream "\tLoad"; printKind(kind, stream); stream "\t";
-                printArg(source,  stream, printReg);
+                printArg(source,  stream);
                 stream " => ";
                 printReg(dest, stream)
             )
 
-        |   printICode(StoreArgument{source, base, offset, index, kind, ...}, stream, printReg) =
+        |   printICode(StoreArgument{source, base, offset, index, kind, ...}, stream) =
             (
                 case kind of
                     MoveWord => stream "\tStoreWord\t"
@@ -367,25 +385,25 @@ struct
                 |   Move32Bit => stream "\tStore32Bit\t"
                 |   MoveFloat => stream "\tStoreFloat\t"
                 |   MoveDouble => stream "\tStoreDouble\t";
-                printArg(source,  stream, printReg);
+                printArg(source,  stream);
                 stream " => ";
                 stream(Int.toString offset ^ "(");
                 printReg(base, stream);
                 stream ")";
-                printIndex(index, stream, printReg)
+                printIndex(index, stream)
             )
 
-        |   printICode(LoadMemReg { offset, dest}, stream, printReg) =
+        |   printICode(LoadMemReg { offset, dest}, stream) =
                 ( stream "\tLoadMemReg\t"; stream(Int.toString offset); stream " => "; printReg(dest, stream) )
 
-        |   printICode(BeginFunction {regArgs, stackArgs}, stream, printReg) =
+        |   printICode(BeginFunction {regArgs, stackArgs}, stream) =
             (
                 stream "\tBeginFunction\t";
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printReg(arg, stream); stream " ")) regArgs;
                 List.app(fn s => printStackLoc(s, stream)) stackArgs
             )
 
-        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, saveRegs}, stream, printReg) =
+        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, saveRegs}, stream) =
             (
                 stream "\tFunctionCall\t";
                 case callKind of
@@ -393,13 +411,13 @@ struct
                 |   ConstantCode m => (stream(stringOfWord m); stream " ")
                 |   FullCall => ()
                 |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
-                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
-                List.app(fn arg => (stream "p="; printArg(arg, stream, printReg); stream " ")) stackArgs;
+                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs;
+                List.app(fn arg => (stream "p="; printArg(arg, stream); stream " ")) stackArgs;
                 stream "=> "; printReg(dest, stream);
-                stream " save="; printSaves(saveRegs, printReg, stream)
+                stream " save="; printSaves(saveRegs, stream)
             )
 
-        |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize, workReg}, stream, printReg) =
+        |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize, workReg}, stream) =
             (
                 stream "\tTailCall\t";
                 case callKind of
@@ -407,30 +425,30 @@ struct
                 |   ConstantCode m => (stream(stringOfWord m); stream " ")
                 |   FullCall => ()
                 |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
-                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
-                List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream, printReg); stream " ")) stackArgs;
+                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs;
+                List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream); stream " ")) stackArgs;
                 stream "adjust="; stream(Int.toString stackAdjust);
                 stream "stackSize="; stream(Int.toString currStackSize);
                 stream " work reg="; printReg(workReg, stream)
             )
 
-        |   printICode(AllocateMemoryOperation{size, flags, dest, saveRegs}, stream, printReg) =
+        |   printICode(AllocateMemoryOperation{size, flags, dest, saveRegs}, stream) =
             (
                 stream "\tAllocateMemory\t";
                 stream(concat["s=", Int.toString size, ",f=", Word8.toString flags, " => "]);
                 printReg(dest, stream);
-                stream " save="; printSaves(saveRegs, printReg, stream)
+                stream " save="; printSaves(saveRegs, stream)
             )
 
-        |   printICode(AllocateMemoryVariable{size, dest, saveRegs}, stream, printReg) =
+        |   printICode(AllocateMemoryVariable{size, dest, saveRegs}, stream) =
             (
                 stream "\tAllocateMemory\t";
                 stream "s="; printReg(size, stream);
                 stream " => "; printReg(dest, stream);
-                stream " save="; printSaves(saveRegs, printReg, stream)
+                stream " save="; printSaves(saveRegs, stream)
             )
 
-        |   printICode(InitialiseMem{size, addr, init}, stream, printReg) =
+        |   printICode(InitialiseMem{size, addr, init}, stream) =
             (
                 stream "\tInitialiseMem\t";
                 stream "s="; printReg(size, stream);
@@ -438,71 +456,71 @@ struct
                 stream ",a="; printReg(addr, stream)
             )
 
-        |   printICode(InitialisationComplete, stream, _) = stream "\tInitComplete"
+        |   printICode(InitialisationComplete, stream) = stream "\tInitComplete"
 
-        |   printICode(JumpLoop{regArgs, stackArgs, checkInterrupt, workReg, ... }, stream, printReg) =
+        |   printICode(JumpLoop{regArgs, stackArgs, checkInterrupt, workReg, ... }, stream) =
             (
                 stream "\tJumpLoop\t";
                 List.app(
-                    fn (source, loopReg) => (printReg(loopReg, stream); stream "="; printArg(source, stream, printReg); stream " ")
+                    fn (source, loopReg) => (printReg(loopReg, stream); stream "="; printArg(source, stream); stream " ")
                     ) regArgs;
                 List.app(
                     fn (source, stack, stackLocn) =>
-                        (printStackLoc(stackLocn, stream); stream("(sp" ^ Int.toString stack); stream ")="; printArg(source, stream, printReg); stream " ")
+                        (printStackLoc(stackLocn, stream); stream("(sp" ^ Int.toString stack); stream ")="; printArg(source, stream); stream " ")
                     ) stackArgs;
                 case checkInterrupt of
                     NONE => ()
-                |   SOME saveRegs => (stream " Check:save="; printSaves(saveRegs, printReg, stream));
+                |   SOME saveRegs => (stream " Check:save="; printSaves(saveRegs, stream));
                 case workReg of NONE => () | SOME r => (stream " work reg="; printReg(r, stream))
             )
 
-        |   printICode(RaiseExceptionPacket{packetReg}, stream, printReg) = (stream "\tRaise\t"; printReg(packetReg, stream))
+        |   printICode(RaiseExceptionPacket{packetReg}, stream) = (stream "\tRaise\t"; printReg(packetReg, stream))
 
-        |   printICode(ReserveContainer{size, container}, stream, _) =
+        |   printICode(ReserveContainer{size, container}, stream) =
             (stream "\tReserveContainer\t"; stream(Int.toString size); stream " => "; printStackLoc(container, stream))
 
-        |   printICode(IndexedCaseOperation{testReg, workReg}, stream, printReg) =
+        |   printICode(IndexedCaseOperation{testReg, workReg}, stream) =
             (
                 stream "\tIndexedCase\t";
                 stream "test="; printReg(testReg, stream);
                 stream "work="; printReg(workReg, stream)
             )
 
-        |   printICode(LockMutable{addr}, stream, printReg) = (stream "\tLockMutable\t"; printReg(addr, stream))
+        |   printICode(LockMutable{addr}, stream) = (stream "\tLockMutable\t"; printReg(addr, stream))
 
-        |   printICode(WordComparison{arg1, arg2, ...}, stream, printReg) =
-                (stream "\tWordComparison\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
+        |   printICode(WordComparison{arg1, arg2, ...}, stream) =
+                (stream "\tWordComparison\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream))
 
-        |   printICode(CompareLiteral{arg1, arg2, opSize, ...}, stream, printReg) =
+        |   printICode(CompareLiteral{arg1, arg2, opSize, ...}, stream) =
             (
                 stream "\tCompareLiteral"; printOpsize(opSize, stream); stream "\t";
-                printArg(arg1, stream, printReg); stream ","; stream(LargeInt.toString arg2)
+                printArg(arg1, stream); stream ","; stream(LargeInt.toString arg2)
             )
 
-        |   printICode(CompareByteMem{arg1={base, offset, index, ...}, arg2,...}, stream, printReg) =
+        |   printICode(CompareByteMem{arg1={base, offset, index, ...}, arg2,...}, stream) =
             (
                 stream "\tCompareByteMem\t";
                 stream(Int.toString offset ^ "(");
                 printReg(base, stream);
                 stream ")";
-                printIndex(index, stream, printReg);
+                printIndex(index, stream);
                 stream ","; stream(Word8.toString arg2)
             )
 
-        |   printICode(PushExceptionHandler{workReg }, stream, printReg) =
+        |   printICode(PushExceptionHandler{workReg }, stream) =
             (
                 stream "\tPushExcHandler\twith ";
                 printReg(workReg, stream)
             )
 
-        |   printICode(PopExceptionHandler{workReg}, stream, printReg) =
+        |   printICode(PopExceptionHandler{workReg}, stream) =
             (
                 stream "\tPopExceptionHandler\t";
                 stream "with ";
                 printReg(workReg, stream)
             )
 
-        |   printICode(BeginHandler{packetReg, workReg}, stream, printReg) =
+        |   printICode(BeginHandler{packetReg, workReg}, stream) =
             (
                 stream "\tBeginHandler\t";
                 printReg(packetReg, stream);
@@ -510,10 +528,10 @@ struct
                 printReg(workReg, stream)
             )
 
-        |   printICode(ReturnResultFromFunction{resultReg, numStackArgs}, stream, printReg) =
+        |   printICode(ReturnResultFromFunction{resultReg, numStackArgs}, stream) =
                 (stream "\tReturnFromFunction\t"; printReg(resultReg, stream); stream("," ^ Int.toString numStackArgs))
 
-        |   printICode(ArithmeticFunction{oper, resultReg, operand1, operand2, ...}, stream, printReg) =
+        |   printICode(ArithmeticFunction{oper, resultReg, operand1, operand2, ...}, stream) =
             (
                 case oper of
                     ADD => stream "\tAdd\t"
@@ -524,102 +542,108 @@ struct
                 |   CMP => stream "\tCompare\t";
                 printReg(operand1, stream);
                 stream ",";
-                printArg(operand2, stream, printReg);
+                printArg(operand2, stream);
                 stream " => ";
                 printReg(resultReg, stream)
             )
 
-        |   printICode(TestTagBit{arg, ...}, stream, printReg) = (stream "\tTestTagBit\t"; printArg(arg, stream, printReg))
+        |   printICode(TestTagBit{arg, ...}, stream) = (stream "\tTestTagBit\t"; printArg(arg, stream))
 
-        |   printICode(PushValue{arg, container}, stream, printReg) =
-                (stream "\tPushValue\t"; printArg(arg, stream, printReg); stream " => "; printStackLoc(container, stream))
+        |   printICode(PushValue{arg, container}, stream) =
+                (stream "\tPushValue\t"; printArg(arg, stream); stream " => "; printStackLoc(container, stream))
 
-        |   printICode(CopyToCache{source, dest, kind}, stream, printReg) =
+        |   printICode(CopyToCache{source, dest, kind}, stream) =
                 (stream "\tCopyToCache"; printKind(kind, stream); stream "\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
 
-        |   printICode(ResetStackPtr{numWords, preserveCC}, stream, _) =
+        |   printICode(ResetStackPtr{numWords, preserveCC}, stream) =
             (
                 stream "\tResetStackPtr\t";
                 stream(Int.toString numWords);
                 if preserveCC then stream " preserve CC" else ()
             )
 
-        |   printICode(StoreToStack{source, container, field, stackOffset}, stream, printReg) =
+        |   printICode(StoreToStack{source, container, field, stackOffset}, stream) =
             (
-                stream "\tStoreToStack\t"; printArg(source, stream, printReg);
+                stream "\tStoreToStack\t"; printArg(source, stream);
                 stream " => "; printStackLoc(container, stream); stream "+";
                 stream (Int.toString field); stream "(";
                 stream(Int.toString stackOffset); stream ")"
             )
 
-        |   printICode(TagValue{source, dest, ...}, stream, printReg) =
+        |   printICode(TagValue{source, dest, ...}, stream) =
                 (stream "\tTagValue\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
 
-        |   printICode(UntagValue{source, dest, isSigned, cache}, stream, printReg) =
+        |   printICode(UntagValue{source, dest, isSigned, cache}, stream) =
             (
                 stream "\tUntag"; stream(if isSigned then "Signed\t" else "Unsigned\t");
                 printReg(source, stream); stream " => "; printReg(dest, stream);
                 case cache of NONE => () | SOME c => (stream " cache "; printReg(c, stream))
             )
 
-        |   printICode(LoadEffectiveAddress{base, offset, index, dest}, stream, printReg) =
+        |   printICode(LoadEffectiveAddress{base, offset, index, dest}, stream) =
             (
                 stream "\tLoadEffectiveAddr\t"; 
                 stream(Int.toString offset ^ "(");
                 case base of NONE => stream "_" | SOME b => printReg(b, stream);
                 stream ")";
-                printIndex(index, stream, printReg);
+                printIndex(index, stream);
                 stream " => ";
                 printReg(dest, stream)
             )
 
-        |   printICode(ShiftOperation{shift, resultReg, operand, shiftAmount, ...}, stream, printReg) =
+        |   printICode(ShiftOperation{shift, resultReg, operand, shiftAmount, ...}, stream) =
             (
                 case shift of
                     SHL => stream "\tShiftLeft\t"
                 |   SHR => stream "\tShiftRLogical\t"
                 |   SAR => stream "\tShiftRArith\t";
                 printReg(operand, stream); stream ",";
-                printArg(shiftAmount, stream, printReg); stream " => ";
+                printArg(shiftAmount, stream); stream " => ";
                 printReg(resultReg, stream)
             )
 
-        |   printICode(Multiplication{resultReg, operand1, operand2, ...}, stream, printReg) =
+        |   printICode(Multiplication{resultReg, operand1, operand2, ...}, stream) =
             (
                 stream "\tMultiplication\t";
                 printReg(operand1, stream);
                 stream ",";
-                printArg(operand2, stream, printReg);
+                printArg(operand2, stream);
                 stream " => ";
                 printReg(resultReg, stream)
             )
 
-        |   printICode(Division{isSigned, dividend, divisor, quotient, remainder}, stream, printReg) =
+        |   printICode(Division{isSigned, dividend, divisor, quotient, remainder}, stream) =
             (
                 stream "\tDivision"; stream(if isSigned then "Signed\t" else "Unsigned\t");
                 printReg(dividend, stream); stream " by ";
-                printArg(divisor, stream, printReg); stream " => ";
+                printArg(divisor, stream); stream " => ";
                 printReg(quotient, stream); stream " rem ";
                 printReg(remainder, stream)
             )
 
-        |   printICode(AtomicExchangeAndAdd{base, source}, stream, printReg) =
+        |   printICode(AtomicExchangeAndAdd{base, source}, stream) =
             (
                 stream "\tAtomicExchangeAndAdd\t";
                 stream "addr=0("; printReg(base, stream);
                 stream "),with="; printReg(source, stream)
             )
 
-        |   printICode(BoxValue{boxKind, source, dest, saveRegs}, stream, printReg) =
+        |   printICode(BoxValue{boxKind, source, dest, saveRegs}, stream) =
             (
-                stream(case boxKind of BoxLargeWord => "\tBoxLarge\t" | BoxX87 => "\tBoxX87\t" | BoxSSE2 => "\tBoxSSE2\t");
+                stream(
+                    case boxKind of
+                        BoxLargeWord => "\tBoxLarge\t"
+                    |   BoxX87Double => "\tBoxX87Double\t"
+                    |   BoxX87Float => "\tBoxX87Float\t"
+                    |   BoxSSE2 => "\tBoxSSE2\t"
+                );
                 printReg(source, stream);
                 stream " => ";
                 printReg(dest, stream);
-                stream " save="; printSaves(saveRegs, printReg, stream)
+                stream " save="; printSaves(saveRegs, stream)
             )
 
-        |   printICode(CompareByteVectors{vec1Addr, vec2Addr, length, ...}, stream, printReg) =
+        |   printICode(CompareByteVectors{vec1Addr, vec2Addr, length, ...}, stream) =
             (
                 stream "\tCompareByteVectors\t";
                 printReg(vec1Addr, stream); stream ",";
@@ -627,7 +651,7 @@ struct
                 printReg(length, stream)
             )
 
-        |   printICode(BlockMove{srcAddr, destAddr, length, isByteMove}, stream, printReg) =
+        |   printICode(BlockMove{srcAddr, destAddr, length, isByteMove}, stream) =
             (
                 stream(if isByteMove then "\tBlockByteMove\t" else "\tBlockWordMove\t");
                 stream "src="; printReg(srcAddr, stream);
@@ -635,15 +659,15 @@ struct
                 stream ",len="; printReg(length, stream)
             )
 
-        |   printICode(X87Compare{arg1, arg2, ...}, stream, printReg) =
-                (stream "\tX87Compare\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
+        |   printICode(X87Compare{arg1, arg2, ...}, stream) =
+                (stream "\tX87Compare\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream))
 
-        |   printICode(SSE2Compare{arg1, arg2, ...}, stream, printReg) =
-                (stream "\tSSE2Compare\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
+        |   printICode(SSE2Compare{arg1, arg2, ...}, stream) =
+                (stream "\tSSE2Compare\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream))
 
-        |   printICode(X87FPGetCondition{dest, ...}, stream, printReg) = (stream "\tX87FPGetCondition\t=> "; printReg(dest, stream))
+        |   printICode(X87FPGetCondition{dest, ...}, stream) = (stream "\tX87FPGetCondition\t=> "; printReg(dest, stream))
 
-        |   printICode(X87FPArith{opc, resultReg, arg1, arg2}, stream, printReg) =
+        |   printICode(X87FPArith{opc, resultReg, arg1, arg2}, stream) =
             (
                 case opc of
                     FADD => stream "\tX87FPAdd\t"
@@ -655,11 +679,11 @@ struct
                 |   FDIV => stream "\tX87FPDiv\t"
                 |   FDIVR => stream "\tX87FPRevDiv\t";
                 printReg(arg1, stream); stream ",";
-                printArg(arg2, stream, printReg); stream " => ";
+                printArg(arg2, stream); stream " => ";
                 printReg(resultReg, stream)
             )
         
-        |   printICode(X87FPUnaryOps{fpOp, dest, source}, stream, printReg) =
+        |   printICode(X87FPUnaryOps{fpOp, dest, source}, stream) =
             (
                 case fpOp of
                     FABS => stream "\tX87FPAbs\t"
@@ -670,38 +694,51 @@ struct
                 printReg(dest, stream)
             )
 
-        |   printICode(X87Float{dest, source}, stream, printReg) =
-                (stream "\tX87Float\t"; printArg(source, stream, printReg); stream " => "; printReg(dest, stream))
+        |   printICode(X87Float{dest, source}, stream) =
+                (stream "\tX87Float\t"; printArg(source, stream); stream " => "; printReg(dest, stream))
 
-        |   printICode(SSE2Float{dest, source}, stream, printReg) =
-                (stream "\tSSE2Float\t"; printArg(source, stream, printReg); stream " => "; printReg(dest, stream))
+        |   printICode(SSE2Float{dest, source}, stream) =
+                (stream "\tSSE2Float\t"; printArg(source, stream); stream " => "; printReg(dest, stream))
         
-        |   printICode(SSE2FPArith{opc, resultReg, arg1, arg2}, stream, printReg) =
+        |   printICode(SSE2FPUnary{opc, resultReg, source}, stream) =
             (
                 case opc of
-                    SSE2Move => stream "\tSSE2FPMove\t"
-                |   SSE2Comp => stream "\tSSE2FPComp\t"
-                |   SSE2Add => stream "\tSSE2FPAdd\t"
-                |   SSE2Sub => stream "\tSSE2FPSub\t"
-                |   SSE2Mul => stream "\tSSE2FPMul\t"
-                |   SSE2Div => stream "\tSSE2FPDiv\t"
-                |   SSE2Xor => stream "\tSSE2FPXor\t"
-                |   SSE2And => stream "\tSSE2FPAnd\t"
-                |   SSE2MoveSingle => stream "\tSSE2FPMoveSingle\t"
-                |   SSE2DoubleToFloat => stream "\tSSE2FPDoubleToFloat\t";
-                printReg(arg1, stream); stream ",";
-                printArg(arg2, stream, printReg); stream " => ";
+                    SSE2UDoubleToFloat => stream "\tSSE2UDoubleToFloat\t"
+                |   SSE2UFloatToDouble => stream "\tSSE2UFloatToDouble\t";
+                printArg(source, stream); stream " => ";
                 printReg(resultReg, stream)
             )
-            
-        fun printAbstractReg(PReg i, stream) = stream("R" ^ Int.toString i)
+        
+        |   printICode(SSE2FPBinary{opc, resultReg, arg1, arg2}, stream) =
+            (
+                case opc of
+                    SSE2BAddDouble => stream "\tSSE2BAddDouble\t"
+                |   SSE2BSubDouble => stream "\tSSE2BSubDouble\t"
+                |   SSE2BMulDouble => stream "\tSSE2BMulDouble\t"
+                |   SSE2BDivDouble => stream "\tSSE2BDivDouble\t"
+                |   SSE2BXor => stream "\tSSE2BXor\t"
+                |   SSE2BAnd => stream "\tSSE2BAnd\t";
+                printReg(arg1, stream); stream ",";
+                printArg(arg2, stream); stream " => ";
+                printReg(resultReg, stream)
+            )
+
+        |   printICode(TagFloat{source, dest, ...}, stream) =
+                (stream "\tTagFloat\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
+
+        |   printICode(UntagFloat{source, dest, cache}, stream) =
+            (
+                stream "\tUntagFloat\t";
+                printArg(source, stream); stream " => "; printReg(dest, stream);
+                case cache of NONE => () | SOME c => (stream " cache "; printReg(c, stream))
+            )
         
         (* Print a basic block. *)
-        fun printBlock (printItem, stream) (blockNo, BasicBlock{block, flow, ...}) =
+        fun printBlock stream (blockNo, BasicBlock{block, flow, ...}) =
         (
             (* Put a label on all but the first. *)
             if blockNo <> 0 then stream("L" ^ Int.toString blockNo ^ ":") else ();
-            List.app (fn icode => (printICode(icode, stream, printItem); stream "\n")) block;
+            List.app (fn icode => (printICode(icode, stream); stream "\n")) block;
             case flow of
                 Unconditional l => stream("\tJump\tL" ^ Int.toString l ^ "\n")
             |   Conditional {condition, trueJump, falseJump, ...} =>
@@ -734,7 +771,7 @@ struct
         )
     in
         fun printICodeAbstract(blockVec, stream) =
-            Vector.appi(printBlock(printAbstractReg, stream)) blockVec
+            Vector.appi(printBlock stream) blockVec
     end
 
     (* We frequently just want to know the register. *)
@@ -764,7 +801,8 @@ struct
         and repOps          = repOps
         and fpOps           = fpOps
         and fpUnaryOps      = fpUnaryOps
-        and sse2Operations  = sse2Operations
+        and sse2UnaryOps    = sse2UnaryOps
+        and sse2BinaryOps   = sse2BinaryOps
         and ccRef           = ccRef
         and opSize          = opSize
     end

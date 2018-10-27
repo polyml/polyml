@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016-17
+    Copyright David C. J. Matthews 2010, 2012, 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -86,8 +86,8 @@ sig
     and      branchOps =
                 JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA | JP | JNP
     and      sse2Operations =
-        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
-        SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
+        SSE2MoveDouble | SSE2MoveFloat | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
+        SSE2And | SSE2FloatToDouble | SSE2DoubleToFloat
 
     val invertTest: branchOps -> branchOps
 
@@ -175,6 +175,9 @@ sig
     |   Negative of { output: genReg }
     |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
     |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }
+    |   MoveXMMRegToGenReg of { source: xmmReg, output: genReg }
+    |   MoveGenRegToXMMReg of { source: genReg, output: xmmReg }
+    |   XMMShiftRight of { output: xmmReg, shift: Word8.word }
 
     and jumpSize = JumpSize2 | JumpSize8
 

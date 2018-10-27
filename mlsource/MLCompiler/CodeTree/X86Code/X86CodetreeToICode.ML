@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1410,8 +1410,8 @@ struct
                             [BlockSimple(X87FPUnaryOps{ fpOp=FCHS, dest=fpRegDest, source=fpRegSrc})]
                     |   FPModeSSE2 =>
                             [BlockSimple(LoadArgument{source=AddressConstant realSignBit, dest=sse2ConstReg, kind=MoveDouble}),
-                             BlockSimple(SSE2FPArith{opc=SSE2Xor, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
-                val boxFloat = case fpMode of FPModeX87 => BoxX87 | FPModeSSE2 => BoxSSE2
+                             BlockSimple(SSE2FPBinary{opc=SSE2BXor, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
             in
                 (argCode @
                  load :: code @ [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
@@ -1428,8 +1428,8 @@ struct
                         FPModeX87 => [BlockSimple(X87FPUnaryOps{ fpOp=FABS, dest=fpRegDest, source=fpRegSrc})]
                     |   FPModeSSE2 =>
                             [BlockSimple(LoadArgument{source=AddressConstant realAbsMask, dest=sse2ConstReg, kind=MoveDouble}),
-                             BlockSimple(SSE2FPArith{opc=SSE2And, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
-                val boxFloat = case fpMode of FPModeX87 => BoxX87 | FPModeSSE2 => BoxSSE2
+                             BlockSimple(SSE2FPBinary{opc=SSE2BAnd, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
             in
                 (argCode @
                  load :: code @ [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
@@ -1441,7 +1441,7 @@ struct
                 val untagReg = newUReg() and fpReg = newUReg()
                 val (argCode, aReg1) = codeToPReg(arg1, context)
                 val floatOp = case fpMode of FPModeX87 => X87Float | FPModeSSE2 => SSE2Float
-                val boxFloat = case fpMode of FPModeX87 => BoxX87 | FPModeSSE2 => BoxSSE2
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
             in
                 (argCode @
                  [BlockSimple(UntagValue{source=aReg1, dest=untagReg, isSigned=true, cache=NONE}),
@@ -1450,10 +1450,41 @@ struct
             end
 
         |   codeToICodeUnary({oper=BuiltIns.DoubleFromFloat, arg1}, context, _, destination) =
-                raise InternalError "TODO: DoubleFromFloat"
+            let
+                (* Convert a single precision floating point value to double precision. *)
+                val target = asTarget destination
+                val fpReg = newUReg() and fpReg2 = newUReg()
+                val (argCode, aReg1) = codeToPReg(arg1, context)
+                (* MoveFloat always converts from single to double-precision. *)
+                val unboxOrUntag =
+                    case fpMode of
+                        FPModeX87 => [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg2, kind=MoveFloat})]
+                    |   FPModeSSE2 =>
+                        [BlockSimple(UntagFloat{source=RegisterArgument aReg1, dest=fpReg, cache=NONE}),
+                         BlockSimple(SSE2FPUnary{opc=SSE2UFloatToDouble, resultReg=fpReg2, source=RegisterArgument fpReg})]
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+            in
+                (argCode @ unboxOrUntag @
+                    [BlockSimple(BoxValue{boxKind=boxFloat, source=fpReg2, dest=target, saveRegs=[]})], RegisterArgument target, false)
+            end
 
         |   codeToICodeUnary({oper=BuiltIns.FloatFromDouble, arg1}, context, _, destination) =
-                raise InternalError "TODO: FloatFromDouble"
+            let
+                (* Convert a double precision value to a single precision value using the
+                   current rounding mode. *)
+                val target = asTarget destination
+                val fpReg = newUReg() and fpReg2 = newUReg()
+                val (argCode, aReg1) = codeToPReg(arg1, context)
+                (* In 32-bit mode we need to box the float.  In 64-bit mode we can tag it. *)
+                val boxOrTag =
+                    case fpMode of
+                        FPModeX87 => [BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]})]
+                    |   FPModeSSE2 => [
+                            BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
+                            BlockSimple(TagFloat{source=fpReg2, dest=target}) ]
+            in
+                (argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @ boxOrTag, RegisterArgument target, false)
+            end
 
  
         and codeToICodeBinary(instr as {oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
@@ -1960,15 +1991,15 @@ struct
                         let
                             val fpOp =
                                 case fpOper of
-                                    ArithAdd => SSE2Add
-                                |   ArithSub => SSE2Sub
-                                |   ArithMult => SSE2Mul
-                                |   ArithDiv => SSE2Div
+                                    ArithAdd => SSE2BAddDouble
+                                |   ArithSub => SSE2BSubDouble
+                                |   ArithMult => SSE2BMulDouble
+                                |   ArithDiv => SSE2BDivDouble
                                 |   _ => raise InternalError "codeToICodeNonRev: RealArith - unimplemented operation"
                         in
-                            BlockSimple(SSE2FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=fpRegSrc, arg2=wordAt aReg2})
+                            BlockSimple(SSE2FPBinary{ opc=fpOp, resultReg=fpRegDest, arg1=fpRegSrc, arg2=wordAt aReg2})
                         end
-                val boxFloat = case fpMode of FPModeX87 => BoxX87 | FPModeSSE2 => BoxSSE2
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
             in
                 (arg1Code @ arg2Code @
                     [load, arith, BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
@@ -2134,10 +2165,15 @@ struct
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w4, context)
                 val untaggedResReg = newUReg()
-                val boxFloat = case fpMode of FPModeX87 => BoxX87 | FPModeSSE2 => BoxSSE2
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+                (* We need to convert the float into a double. *)
+                val loadArg =
+                    case fpMode of
+                        FPModeX87 => BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveFloat})
+                    |   FPModeSSE2 => BlockSimple(SSE2FPUnary { source=MemoryLocation memLoc, resultReg=untaggedResReg, opc=SSE2UFloatToDouble})
             in
                 (codeBaseIndex @ codeUntag @
-                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveFloat}),
+                    [loadArg,
                      BlockSimple(BoxValue{boxKind=boxFloat, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -2146,7 +2182,7 @@ struct
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w8, context)
                 val untaggedResReg = newUReg()
-                val boxFloat = case fpMode of FPModeX87 => BoxX87 | FPModeSSE2 => BoxSSE2
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveDouble}),
@@ -2265,7 +2301,7 @@ struct
                     case fpMode of
                         FPModeSSE2 =>
                             (float2Reg,
-                                [BlockSimple(SSE2FPArith{opc=SSE2DoubleToFloat, resultReg=float2Reg, arg1=floatReg, arg2=RegisterArgument floatReg})])
+                                [BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=float2Reg, source=RegisterArgument floatReg})])
                     |   FPModeX87 => (floatReg, [])
                 val code =
                     codeBaseIndex @ valueCode @ codeUntag @

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -122,7 +122,7 @@ struct
 
                 (* Load or move from an XMM reg. *)
         |   llLoadArgument({source, dest=XMMReg xmmRegReg, kind=MoveDouble}, code) =
-                XMMArith { opc= SSE2Move, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code
+                XMMArith { opc= SSE2MoveDouble, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code
 
                 (* Load a floating point value. *)
         |   llLoadArgument({source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveFloat}, code) =
@@ -131,7 +131,7 @@ struct
 
                 (* Load or move from an XMM reg. *)
         |   llLoadArgument({source, dest=XMMReg xmmRegReg, kind=MoveFloat}, code) =
-                XMMArith { opc= SSE2MoveSingle, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code
+                XMMArith { opc= SSE2MoveFloat, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code
 
             (* Any other combinations are not allowed. *)
         |   llLoadArgument _ = raise InternalError "codeGenICode: LoadArgument"
@@ -571,7 +571,11 @@ struct
             |   instructionUses(X87FPUnaryOps{source, ...}) = used source
             |   instructionUses(X87Float{source, ...}) = argUses source
             |   instructionUses(SSE2Float{source, ...}) = argUses source
-            |   instructionUses(SSE2FPArith{arg1, arg2, ...}) = (used arg1; argUses arg2)
+            |   instructionUses(SSE2FPUnary{source, ...}) = argUses source
+            |   instructionUses(SSE2FPBinary{arg1, arg2, ...}) = (used arg1; argUses arg2)
+            |   instructionUses(TagFloat{source, dest, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(UntagFloat{dest, cache=SOME cacheR, ...}) = if isUsed dest then used cacheR else ()
+            |   instructionUses(UntagFloat{source, dest, cache=NONE, ...}) = if isUsed dest then argUses source else ()
             
             
            (* Depth-first scan. *)
@@ -1240,7 +1244,8 @@ struct
                 val (srcReg, boxSize, moveKind) =
                     case boxKind of
                         BoxLargeWord => (getAllocatedReg sReg, 1, MoveWord)
-                    |   BoxX87 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
+                    |   BoxX87Double => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
+                    |   BoxX87Float => (getAllocatedReg sReg, Word.toInt(0w4 div wordSize), MoveFloat)
                     |   BoxSSE2 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
                 val dstReg = getAllocatedReg dReg
             in
@@ -1340,7 +1345,19 @@ struct
                 XMMConvertFromInt{ output=xmmResReg, source=srcReg} :: code
             end
 
-        |   codeExtended _ ({instr=SSE2FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
+        |   codeExtended _ ({instr=SSE2FPUnary{opc, resultReg=PReg resReg, source}, ...}, code) =
+            let
+                val realDestReg = getAllocatedXMMReg resReg
+                val opArg = codeExtArgumentAsXMMReg source
+                val sse2Op =
+                    case opc of
+                        SSE2UDoubleToFloat  => SSE2DoubleToFloat
+                    |   SSE2UFloatToDouble  => SSE2FloatToDouble
+            in
+                XMMArith{ opc=sse2Op, output=realDestReg, source=opArg} :: code
+            end
+
+        |   codeExtended _ ({instr=SSE2FPBinary{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
             let
                 val realDestReg = getAllocatedXMMReg resReg
                 val realOp1Reg = getAllocatedXMMReg op1Reg
@@ -1348,19 +1365,63 @@ struct
                 (* xorpd and andpd require 128-bit arguments with 128-bit alignment. *)
                 val _ =
                     case (opc, op2Arg) of
-                        (SSE2Xor, RegisterArg _) => ()
-                    |   (SSE2Xor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
-                    |   (SSE2And, RegisterArg _) => ()
-                    |   (SSE2And, _) => raise InternalError "codeGenICode - SSE2And not in register"
+                        (SSE2BXor, RegisterArg _) => ()
+                    |   (SSE2BXor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
+                    |   (SSE2BAnd, RegisterArg _) => ()
+                    |   (SSE2BAnd, _) => raise InternalError "codeGenICode - SSE2And not in register"
                     |   _ => ()
                 val doMove =
                     if realDestReg = realOp1Reg
                     then code
-                    else XMMArith { opc=SSE2Move, source=RegisterArg realOp1Reg, output=realDestReg } :: code
+                    else XMMArith { opc=SSE2MoveDouble, source=RegisterArg realOp1Reg, output=realDestReg } :: code
+                val sse2Op =
+                    case opc of
+                        SSE2BAddDouble  => SSE2Add
+                    |   SSE2BSubDouble  => SSE2Sub
+                    |   SSE2BMulDouble  => SSE2Mul
+                    |   SSE2BDivDouble  => SSE2Div
+                    |   SSE2BXor        => SSE2Xor
+                    |   SSE2BAnd        => SSE2And
             in
-                XMMArith{ opc=opc, output=realDestReg, source=op2Arg} :: doMove
+                XMMArith{ opc=sse2Op, output=realDestReg, source=op2Arg} :: doMove
             end
-        
+
+        |   codeExtended _ ({instr=TagFloat{source=PReg srcReg, dest as PReg dReg, ...}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else
+            let
+                (* Copy the value from an XMM reg into a general reg and tag it. *)
+                val regResult = asGenReg(getAllocatedReg dReg)
+                val realSReg = getAllocatedXMMReg srcReg
+            in
+                ArithToGenReg { opc=ADD, output=regResult, source=NonAddressConstArg 1, opSize=polyWordOpSize } ::
+                ShiftConstant{ shiftType=SHL, output=regResult, shift=0w32} ::
+                MoveXMMRegToGenReg { source = realSReg, output = regResult } :: code
+            end
+
+        |   codeExtended _ ({instr=UntagFloat{dest as PReg dReg, cache=SOME(PReg cacheReg), ...}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else moveIfNecessary({src=getAllocatedReg cacheReg, dst=getAllocatedReg dReg, kind=MoveFloat}, code)
+
+        |   codeExtended _ ({instr=UntagFloat{source, dest as PReg dReg, ...}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else
+            let
+                val regResult = getAllocatedXMMReg dReg
+            in
+                case codeExtArgumentAsGenReg source of
+                    RegisterArg realSReg =>
+                    
+                        XMMShiftRight{ output=regResult, shift=0w4 (* Bytes - not bits *) } ::
+                        MoveGenRegToXMMReg {source=realSReg, output=regResult} :: code
+                |   MemoryArg{base, offset, index} =>
+                        (* If the value is in memory we can just load the high order word. *)
+                        XMMArith { opc=SSE2MoveFloat, source=MemoryArg{base=base, offset=offset+4, index=index}, output=regResult } :: code
+                |   _ => raise InternalError "UntagFloat - not register or memory"
+            end
         
         val minStackCheck = 20
         val inputRegisters = argRegsUsed @ (if hasFullClosure then [GenReg edx] else [])

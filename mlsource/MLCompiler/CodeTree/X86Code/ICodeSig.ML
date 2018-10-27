@@ -1,7 +1,7 @@
 (*
     Signature for the high-level X86 code
 
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,13 +55,14 @@ sig
     and      arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
 
-    datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87
+    datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87Double | BoxX87Float
 
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
     and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
-    and      sse2Operations =
-        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
-        SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
+    
+    datatype sse2UnaryOps = SSE2UDoubleToFloat | SSE2UFloatToDouble
+    and      sse2BinaryOps = SSE2BAddDouble | SSE2BSubDouble | SSE2BMulDouble |
+                SSE2BDivDouble | SSE2BXor | SSE2BAnd
 
     val memRegThreadSelf: int (* Copied from X86CodeSig *)
 
@@ -303,7 +304,19 @@ sig
     |   SSE2Float of { dest: preg, source: argument }
 
         (* Binary floating point operations using SSE2 instructions. *)
-    |   SSE2FPArith of { opc: sse2Operations, resultReg: preg, arg1: preg, arg2: argument }
+    |   SSE2FPUnary of { opc: sse2UnaryOps, resultReg: preg, source: argument }
+
+        (* Binary floating point operations using SSE2 instructions. *)
+    |   SSE2FPBinary of { opc: sse2BinaryOps, resultReg: preg, arg1: preg, arg2: argument }
+
+        (* Tag a 32-bit floating point value.  This is tagged by shifting left
+           32-bits and then setting the bottom bit.  This allows memory operands
+           to be untagged simply by loading the high-order word. *)
+    |   TagFloat of { source: preg, dest: preg }
+
+        (* Untag a 32-bit floating point value into a XMM register.  If the source
+           is in memory we just need to load the high-order word. *)
+    |   UntagFloat of { source: argument, dest: preg, cache: preg option }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -356,7 +369,8 @@ sig
         and shiftType       = shiftType
         and fpOps           = fpOps
         and fpUnaryOps      = fpUnaryOps
-        and sse2Operations  = sse2Operations
+        and sse2UnaryOps    = sse2UnaryOps
+        and sse2BinaryOps   = sse2BinaryOps
         and ccRef           = ccRef
         and opSize          = opSize
    end

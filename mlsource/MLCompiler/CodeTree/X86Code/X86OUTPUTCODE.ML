@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-17
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-18
     
     Based on original code:    
     Copyright (c) 2000
@@ -554,10 +554,11 @@ struct
     |   invertTest JNP = JP
 
     datatype sse2Operations =
-        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
-        SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
+        SSE2MoveDouble | SSE2MoveFloat | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul |
+        SSE2Div | SSE2Xor | SSE2And | SSE2FloatToDouble | SSE2DoubleToFloat
     
-    fun sse2OpRepr SSE2Move = "SSE2Move"
+    fun sse2OpRepr SSE2MoveDouble = "SSE2MoveDouble"
+    |   sse2OpRepr SSE2MoveFloat = "SSE2MoveFloat"
     |   sse2OpRepr SSE2Comp = "SSE2Comp"
     |   sse2OpRepr SSE2Add  = "SSE2Add"
     |   sse2OpRepr SSE2Sub  = "SSE2Sub"
@@ -565,7 +566,7 @@ struct
     |   sse2OpRepr SSE2Div  = "SSE2Div"
     |   sse2OpRepr SSE2Xor  = "SSE2Xor"
     |   sse2OpRepr SSE2And  = "SSE2And"
-    |   sse2OpRepr SSE2MoveSingle = "SSE2MoveSingle"
+    |   sse2OpRepr SSE2FloatToDouble = "SSE2FloatToDouble"
     |   sse2OpRepr SSE2DoubleToFloat = "SSE2DoubleToFloat"
 
     (* Primary opCodes.  N.B. only opCodes actually used are listed here.
@@ -639,6 +640,9 @@ struct
     |   IMUL_C8_64
     |   IMUL_C32_32
     |   IMUL_C32_64
+    |   MOVDFromXMM (* move 32 bit value from XMM to general reg. *)
+    |   MOVQToXMM   (* move 64 bit value from general reg.to XMM *)
+    |   PSRLDQ (* Shift XMM register *)
 
     fun opToInt Group1_8_A32    =  0wx83
     |   opToInt Group1_8_A64    =  0wx83
@@ -699,7 +703,8 @@ struct
     |   opToInt SSE2StoreDouble = 0wx11 (* Needs F2 0F escape. *)
     |   opToInt CQO_CDQ32       = 0wx99
     |   opToInt CQO_CDQ64       = 0wx99
-    |   opToInt (SSE2Ops SSE2Move) = 0wx10 (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2MoveDouble) = 0wx10 (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2MoveFloat) = 0wx10 (* Needs F3 0F escape. *)
     |   opToInt (SSE2Ops SSE2Comp) = 0wx2E (* Needs 66 0F escape. *)
     |   opToInt (SSE2Ops SSE2Add)  = 0wx58 (* Needs F2 0F escape. *)
     |   opToInt (SSE2Ops SSE2Sub)  = 0wx5c (* Needs F2 0F escape. *)
@@ -707,7 +712,7 @@ struct
     |   opToInt (SSE2Ops SSE2Div)  = 0wx5e (* Needs F2 0F escape. *)
     |   opToInt (SSE2Ops SSE2And)  = 0wx54 (* Needs 66 0F escape. *)
     |   opToInt (SSE2Ops SSE2Xor)  = 0wx57 (* Needs 66 0F escape. *)
-    |   opToInt (SSE2Ops SSE2MoveSingle)  = 0wx5A (* Needs F3 0F escape. *)
+    |   opToInt (SSE2Ops SSE2FloatToDouble)  = 0wx5A (* Needs F3 0F escape. *)
     |   opToInt (SSE2Ops SSE2DoubleToFloat)  = 0wx5A (* Needs F2 0F escape. *)
     |   opToInt CVTSI2SD32      = 0wx2a (* Needs F2 0F escape. *)
     |   opToInt CVTSI2SD64      = 0wx2a (* Needs F2 0F escape. *)
@@ -716,6 +721,9 @@ struct
     |   opToInt IMUL_C8_64      = 0wx6b
     |   opToInt IMUL_C32_32     = 0wx69
     |   opToInt IMUL_C32_64     = 0wx69
+    |   opToInt MOVDFromXMM     = 0wx7e  (* Needs 66 0F escape. *)
+    |   opToInt MOVQToXMM       = 0wx6e  (* Needs 66 0F escape. *)
+    |   opToInt PSRLDQ          = 0wx73  (* Needs 66 0F escape. *)
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -756,10 +764,14 @@ struct
     |   opcodePrefix(SSE2Ops SSE2Comp)          = [0wx66]
     |   opcodePrefix(SSE2Ops SSE2And)           = [0wx66]
     |   opcodePrefix(SSE2Ops SSE2Xor)           = [0wx66]
-    |   opcodePrefix(SSE2Ops SSE2MoveSingle)    = [0wxf3]
+    |   opcodePrefix(SSE2Ops SSE2FloatToDouble) = [0wxf3]
+    |   opcodePrefix(SSE2Ops SSE2MoveFloat)     = [0wxf3]
     |   opcodePrefix(SSE2Ops _)                 = [0wxf2]
     |   opcodePrefix CVTSI2SD32                 = [0wxf2]
     |   opcodePrefix CVTSI2SD64                 = [0wxf2]
+    |   opcodePrefix MOVDFromXMM                = [0wx66]
+    |   opcodePrefix MOVQToXMM                  = [0wx66]
+    |   opcodePrefix PSRLDQ                     = [0wx66]
     |   opcodePrefix _                          = []
 
     (* A few instructions require an escape.  Escapes come after the REX. *)
@@ -772,13 +784,12 @@ struct
     |   escapePrefix(CondJump32 _)              = [0wx0f]
     |   escapePrefix SSE2StoreSingle            = [0wx0f]
     |   escapePrefix SSE2StoreDouble            = [0wx0f]
-    |   escapePrefix(SSE2Ops SSE2Comp)          = [0wx0f]
-    |   escapePrefix(SSE2Ops SSE2And)           = [0wx0f]
-    |   escapePrefix(SSE2Ops SSE2Xor)           = [0wx0f]
-    |   escapePrefix(SSE2Ops SSE2MoveSingle)    = [0wx0f]
     |   escapePrefix(SSE2Ops _)                 = [0wx0f]
     |   escapePrefix CVTSI2SD32                 = [0wx0f]
     |   escapePrefix CVTSI2SD64                 = [0wx0f]
+    |   escapePrefix MOVDFromXMM                = [0wx0f]
+    |   escapePrefix MOVQToXMM                  = [0wx0f]
+    |   escapePrefix PSRLDQ                     = [0wx0f]
     |   escapePrefix _                          = []
 
     (* Generate an opCode byte after doing any pending operations. *)
@@ -818,6 +829,7 @@ struct
             |   CVTSI2SD64 => true (* This affects the size of the integer source. *)
             |   IMUL_C8_64 => true
             |   IMUL_C32_64 => true
+            |   MOVQToXMM => true
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
@@ -1060,6 +1072,9 @@ struct
     |   Negative of { output: genReg }
     |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
     |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }
+    |   MoveXMMRegToGenReg of { source: xmmReg, output: genReg }
+    |   MoveGenRegToXMMReg of { source: genReg, output: xmmReg }
+    |   XMMShiftRight of { output: xmmReg, shift: Word8.word }
 
     and jumpSize = JumpSize2 | JumpSize8
 
@@ -1282,6 +1297,18 @@ struct
             (
                 stream "IndexedJumpCalc "; printGReg addrReg; stream " += "; printGReg indexReg;
                 print (case jumpSize of JumpSize2 => " * 2" | JumpSize8 => " * 8 ")
+            )
+        |   MoveXMMRegToGenReg { source, output } =>
+            (
+                stream "MoveXMMRegToGenReg "; printXMMReg source; stream " => "; printGReg output
+            )
+        |   MoveGenRegToXMMReg { source, output } =>
+            (
+                stream "MoveGenRegToXMMReg "; printGReg source; stream " => "; printXMMReg output
+            )
+        |   XMMShiftRight { output, shift } =>
+            (
+                stream "XMMShiftRight "; printXMMReg output; stream " by "; stream(Word8.toString shift)
             )
         ;
  
@@ -1961,6 +1988,38 @@ struct
                    4 to be subtracted to remove the shifted tag. *)
                 opAddress(if isX64 then LEAL64 else LEAL32, ~4, addrReg, Index4 indexReg, addrReg)
             )
+
+        |   cgOp(MoveXMMRegToGenReg { source=SSE2Reg rrC, output }) =
+            let
+                (* The source is a XMM register and the output a general register. *)
+                val (rbC, rbX) = getReg output
+                val oper = MOVDFromXMM
+            in
+                (* This is a special case with both an XMM and general register. *)
+                opcodePrefix oper @ rexByte(oper, false, rbX, false) @
+                    escapePrefix oper @ [opToInt oper, modrm(Register, rrC, rbC)]
+            end
+
+        |   cgOp(MoveGenRegToXMMReg { source, output=SSE2Reg rrC }) =
+            let
+                (* The source is a general register and the output a XMM register. *)
+                val (rbC, rbX) = getReg source
+                val oper = MOVQToXMM
+            in
+                (* This is a special case with both an XMM and general register. *)
+                (* This needs to move the whole 64-bit value.  TODO: This is inconsistent
+                   with MoveXMMRegToGenReg *)
+                opcodePrefix oper @ rexByte(oper, false, rbX, false) @
+                    escapePrefix oper @ [opToInt oper, modrm(Register, rrC, rbC)]
+            end
+
+        |   cgOp(XMMShiftRight { output=SSE2Reg rrC, shift }) =
+            let
+                val oper = PSRLDQ
+            in
+                opcodePrefix oper @ escapePrefix oper @ [opToInt oper, modrm(Register, 0w3, rrC), shift]
+            end
+
     in
         List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
     end
@@ -2677,8 +2736,7 @@ struct
 
             val opByte = get8u (!ptr, seg) before ptr +:= 0w1
             
-            val sizeFromRexW =
-                if rexW then SZQWord else if legacyPrefix = 0wx66 then SZWord else SZDWord
+            val sizeFromRexW = if rexW then SZQWord else SZDWord
         in
             case opByte of
                 0wx03 => printGvEv (opByte, rex, rexR, sizeFromRexW)
@@ -2783,8 +2841,9 @@ struct
                             val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
                         in
                             case opByte2 of
-                                0wx5a => ( print "cvtss2sd\t"; print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW)  )
+                                0wx10 => ( print "movss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord) )
                             |   0wx11 => ( print "movss\t"; printEAxmm(rex, SZDWord); print ","; print(xmmRegRepr reg)  )
+                            |   0wx5a => ( print "cvtss2sd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord)  )
                             |   b => (print "F3\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
                         end
 
@@ -2797,6 +2856,9 @@ struct
                                 0wx2e => ( print "ucomisd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
                             |   0wx54 => ( print "andpd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
                             |   0wx57 => ( print "xorpd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx6e => ( print (if rexW then "movq\t" else "movd\t"); print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW) )
+                            |   0wx7e => ( print (if rexW then "movq\t" else "movd\t"); printEA(rex, sizeFromRexW); print ","; print(xmmRegRepr reg)  )
+                            |   0wx73 => ( print "psrldq\t"; printEAxmm(rex, SZQWord); print ","; print8 ())
                             |   b => (print "66\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
                         end
 
@@ -2951,7 +3013,8 @@ struct
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "mov \t";
-                    printEA(rex, sizeFromRexW);
+                    (* This may have an opcode prefix. *)
+                    printEA(rex, if legacyPrefix = 0wx66 then SZWord else sizeFromRexW);
                     print ",";
                     print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
                 end

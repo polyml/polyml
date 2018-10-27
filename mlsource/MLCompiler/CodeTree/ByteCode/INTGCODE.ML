@@ -491,7 +491,9 @@ struct
                 |   UnsignedToLongWord => genOpcode(opcode_unsignedToLongW, cvec)
                 |   RealAbs => genOpcode(opcode_realAbs, cvec)
                 |   RealNeg => genOpcode(opcode_realNeg, cvec)
-                |   FloatFixedInt => genOpcode(opcode_floatFixedInt, cvec)
+                |   RealFixedInt => genOpcode(opcode_floatFixedInt, cvec)
+                |   DoubleFromFloat => raise InternalError "TODO: DoubleFromFloat"
+                |   FloatFromDouble => raise InternalError "TODO: FloatFromDouble"
             end
 
         |   BICBinary { oper, arg1, arg2 } =>

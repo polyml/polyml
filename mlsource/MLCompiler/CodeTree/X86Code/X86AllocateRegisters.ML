@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -185,7 +185,7 @@ struct
             |   addHints{instr=X87FPUnaryOps{dest=PReg resReg, source=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
         
-            |   addHints{instr=SSE2FPArith{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
+            |   addHints{instr=SSE2FPBinary{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
 
             |   addHints _ = ()
@@ -643,7 +643,8 @@ struct
                 List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
                 case boxKind of
                     BoxLargeWord => allocateGeneralReg sReg
-                |   BoxX87 => allocateFloatReg sReg
+                |   BoxX87Double => allocateFloatReg sReg
+                |   BoxX87Float => allocateFloatReg sReg
                 |   BoxSSE2 => allocateFloatReg sReg;
                 allocateGeneralReg dReg
             )
@@ -693,12 +694,35 @@ struct
         |   registerAllocate({instr=SSE2Float{dest=PReg resReg, source}, ...}) =
                 (allocateArgGeneral source; allocateRegister(resReg, NONE, floatingPtRegisters))
 
-        |   registerAllocate({instr=SSE2FPArith{resultReg=PReg resReg, arg1=PReg op1Reg, arg2, ...}, ...}) =
+        |   registerAllocate({instr=SSE2FPUnary{resultReg=PReg resReg, source, ...}, ...}) =
+            (
+                allocateRegister(resReg, NONE, floatingPtRegisters);
+                allocateArgFloat source
+            )
+
+        |   registerAllocate({instr=SSE2FPBinary{resultReg=PReg resReg, arg1=PReg op1Reg, arg2, ...}, ...}) =
             let
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
             in
                 allocateRegister(op1Reg, SOME realDestReg, floatingPtRegisters);
                 allocateArgFloat arg2
+            end
+
+        |   registerAllocate({instr=TagFloat{dest=PReg resReg, source=PReg sReg, ...}, ...}) =
+            (
+                allocateRegister(resReg, NONE, generalRegisters);
+                allocateRegister(sReg, NONE, floatingPtRegisters)
+            )
+
+        |   registerAllocate({instr=UntagFloat{source, dest=PReg dReg, cache, ...}, ...}) =
+            let
+                val regResult = findRegister(dReg, NONE, floatingPtRegisters)
+                val () =
+                    case cache of
+                        SOME(PReg cReg) => allocateRegister(cReg, SOME regResult, floatingPtRegisters)
+                    |   NONE => ()
+            in
+                allocateArgGeneral source
             end
     
         (* Depth-first scan. *)
