@@ -485,7 +485,6 @@ static Handle powerOf(TaskData *mdTaskData, Handle args)
 #define POLY_ROUND_DOWNWARD     1
 #define POLY_ROUND_UPWARD       2
 #define POLY_ROUND_TOZERO       3
-#define POLY_ROUND_ERROR        -1
 
 #if defined(__SOFTFP__)
 // soft-float lacks proper rounding mode support
@@ -521,7 +520,7 @@ static int getrounding()
 #endif
     case FE_TOWARDZERO: return POLY_ROUND_TOZERO;
     }
-    return POLY_ROUND_ERROR;
+    return POLY_ROUND_TONEAREST;
 }
 
 static int setrounding(int rounding)
@@ -548,7 +547,7 @@ static int getrounding()
     case FP_RM: return POLY_ROUND_DOWNWARD;
     case FP_RP: return POLY_ROUND_UPWARD;
     case FP_RZ: return POLY_ROUND_TOZERO;
-    default: return POLY_ROUND_ERROR; /* Shouldn't happen. */ 
+    default: return POLY_ROUND_TONEAREST; /* Shouldn't happen. */ 
     }
 }
 
@@ -575,7 +574,7 @@ static int getrounding()
     case _RC_UP: return POLY_ROUND_UPWARD;
     case _RC_CHOP: return POLY_ROUND_TOZERO;
     }
-    return POLY_ROUND_ERROR;
+    return POLY_ROUND_TONEAREST;
 }
 
 static int setrounding(int rounding)
@@ -603,7 +602,7 @@ static int getrounding()
     case _FPU_RC_UP: return POLY_ROUND_UPWARD;
     case _FPU_RC_ZERO: return POLY_ROUND_TOZERO;
     }
-    return POLY_ROUND_ERROR; /* Never reached but this avoids warning message. */
+    return POLY_ROUND_TONEAREST; /* Never reached but this avoids warning message. */
 }
 
 static int setrounding(int rounding)
@@ -622,15 +621,17 @@ static int setrounding(int rounding)
     return 0;
 }
 #else
-// Give up.
+// Give up.  Assume that we only support TO_NEAREST
 static int getrounding()
 {
-    return POLY_ROUND_ERROR;
+    return POLY_ROUND_TONEAREST;
 }
 
-static int setrounding()
+static int setrounding(int rounding)
 {
-    return -1;
+    if (rounding == POLY_ROUND_TONEAREST)
+        return 0;
+    else return -1;
 }
 #endif
 

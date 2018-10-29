@@ -524,11 +524,12 @@ struct
             (* Set the rounding mode to TO_NEAREST whatever the current
                rounding mode.  Otherwise the result of compiling a piece of
                code with a literal constant could depend on what the rounding
-               mode was set to. *)
-            val oldRounding = IEEEReal.getRoundingMode() handle Fail _ => IEEEReal.TO_NEAREST
-            val () = IEEEReal.setRoundingMode IEEEReal.TO_NEAREST handle Fail _ => ()
+               mode was set to.
+               We should always support TO_NEAREST. *)
+            val oldRounding = IEEEReal.getRoundingMode()
+            val () = IEEEReal.setRoundingMode IEEEReal.TO_NEAREST
             val scanResult = StringCvt.scanString scan s
-            val () = IEEEReal.setRoundingMode oldRounding handle Fail _ => ()
+            val () = IEEEReal.setRoundingMode oldRounding
         in
             case scanResult of
                 NONE => raise RunCall.Conversion "Invalid real constant"
