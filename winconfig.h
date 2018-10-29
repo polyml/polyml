@@ -7,9 +7,6 @@
 /* Define if building universal (internal helper macro) */
 #undef AC_APPLE_UNIVERSAL_BUILD
 
-/* Define to 1 if the `closedir' function returns void instead of `int'. */
-#undef CLOSEDIR_VOID
-
 /* Define to one of `_getb67', `GETB67', `getb67' for Cray-2 and Cray-YMP
    systems. This function is required for `alloca.c' support on those systems.
    */
@@ -33,15 +30,12 @@
    */
 #undef HAVE_ALLOCA_H
 
+/* Define to 1 if you have the <asm/elf.h> header file. */
+#undef HAVE_ASM_ELF_H
+
 /* Define to 1 if you have the <assert.h> header file. */
 #undef HAVE_ASSERT_H
 #define HAVE_ASSERT_H 1
-
-/* Define to 1 if you have the `bzero' function. */
-#undef HAVE_BZERO
-
-/* Define to 1 if your system has a working `chown' function. */
-#undef HAVE_CHOWN
 
 /* Define to 1 if you have the `ctermid' function. */
 #undef HAVE_CTERMID
@@ -68,15 +62,8 @@
 /* Define to 1 if you have the `dlopen' function. */
 #undef HAVE_DLOPEN
 
-/* Define to 1 if you don't have `vprintf' but do have `_doprnt.' */
-#undef HAVE_DOPRNT
-
 /* Define to 1 if you have the `dtoa' function. */
 #undef HAVE_DTOA
-
-/* Define to 1 if you have the `dup2' function. */
-#undef HAVE_DUP2
-#define HAVE_DUP2 1
 
 /* Define to 1 if you have <elf_abi.h> and <machine/reloc.h> header files. */
 #undef HAVE_ELF_ABI_H
@@ -107,47 +94,23 @@
 #undef HAVE_FLOAT_H
 #define HAVE_FLOAT_H 1
 
-/* Define to 1 if you have the `floor' function. */
-#undef HAVE_FLOOR
-#define HAVE_FLOOR 1
-
-/* Define to 1 if you have the `fork' function. */
-#undef HAVE_FORK
-
 /* Define to 1 if you have the <fpu_control.h> header file. */
 #undef HAVE_FPU_CONTROL_H
-
-/* Define to 1 if you have the `ftruncate' function. */
-#undef HAVE_FTRUNCATE
-
-/* Define to 1 if you have the `getcwd' function. */
-#undef HAVE_GETCWD
 
 /* Define to 1 if your system has a working `getgroups' function. */
 #undef HAVE_GETGROUPS
 
-/* Define to 1 if you have the `gethostbyaddr' function. */
-#undef HAVE_GETHOSTBYADDR
-#define HAVE_GETHOSTBYADDR 1
-
-/* Define to 1 if you have the `gethostname' function. */
-#undef HAVE_GETHOSTNAME
-#define HAVE_GETHOSTNAME 1
-
 /* Define to 1 if you have the `getpagesize' function. */
 #undef HAVE_GETPAGESIZE
-
-/* Define to 1 if you have the `getrusage' function. */
-#undef HAVE_GETRUSAGE
-
-/* Define to 1 if you have the `gettimeofday' function. */
-#undef HAVE_GETTIMEOFDAY
 
 /* Define to 1 if you have the gmp.h header file */
 #undef HAVE_GMP_H
 
 /* Define to 1 if you have the `gmtime_r' function. */
 #undef HAVE_GMTIME_R
+
+/* Define to 1 if you have .note.GNU-stack support in the assembler. */
+#undef HAVE_GNU_STACK
 
 /* Define to 1 if you have the <grp.h> header file. */
 #undef HAVE_GRP_H
@@ -219,10 +182,6 @@
 #undef HAVE_LONG_LONG
 #define HAVE_LONG_LONG 1
 
-/* Define to 1 if `lstat' has the bug that it succeeds when given the
-   zero-length file name argument. */
-#undef HAVE_LSTAT_EMPTY_STRING_BUG
-
 /* Define to 1 if you have the <machine/reloc.h> header file. */
 #undef HAVE_MACHINE_RELOC_H
 
@@ -246,35 +205,15 @@
 /* Define to 1 if `regs' is a member of `mcontext_t'. */
 #undef HAVE_MCONTEXT_T_REGS
 
-/* Define to 1 if you have the `memmove' function. */
-#undef HAVE_MEMMOVE
-#define HAVE_MEMMOVE 1
-
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
 #define HAVE_MEMORY_H 1
-
-/* Define to 1 if you have the `memset' function. */
-#undef HAVE_MEMSET
-#define HAVE_MEMSET 1
-
-/* Define to 1 if you have the `mkdir' function. */
-#undef HAVE_MKDIR
-
-/* Define to 1 if you have the `mkfifo' function. */
-#undef HAVE_MKFIFO
 
 /* Define to 1 if you have the `mkstemp' function. */
 #undef HAVE_MKSTEMP
 
 /* Define to 1 if you have the `mmap' function. */
 #undef HAVE_MMAP
-
-/* Define to 1 if you have the `mprotect' function. */
-#undef HAVE_MPROTECT
-
-/* Define to 1 if you have the `munmap' function. */
-#undef HAVE_MUNMAP
 
 /* Define to 1 if you have the <ndir.h> header file, and it defines `DIR'. */
 #undef HAVE_NDIR_H
@@ -288,9 +227,6 @@
 /* Define to 1 if you have the <netinet/tcp.h> header file. */
 #undef HAVE_NETINET_TCP_H
 
-/* Define to 1 if you have the `pathconf' function. */
-#undef HAVE_PATHCONF
-
 /* Define to 1 if you have the PE/COFF types. */
 #undef HAVE_PECOFF
 #define HAVE_PECOFF 1
@@ -298,38 +234,14 @@
 /* Define to 1 if you have the <poll.h> header file. */
 #undef HAVE_POLL_H
 
-/* Define to 1 if you have the `pow' function. */
-#undef HAVE_POW
-
 /* Define to 1 if you have the <pthread.h> header file. */
 #undef HAVE_PTHREAD_H
 
 /* Define to 1 if you have the <pwd.h> header file. */
 #undef HAVE_PWD_H
 
-/* Define to 1 if your system has a GNU libc compatible `realloc' function,
-   and to 0 otherwise. */
-#undef HAVE_REALLOC
-
-/* Define to 1 if you have the `realpath' function. */
-#undef HAVE_REALPATH
-
-/* Define to 1 if you have the `rmdir' function. */
-#undef HAVE_RMDIR
-
-/* Define to 1 if you have the `select' function. */
-#undef HAVE_SELECT
-#define HAVE_SELECT 1
-
 /* Define to 1 if you have the <semaphore.h> header file. */
 #undef HAVE_SEMAPHORE_H
-
-/* Define to 1 if you have the `setlocale' function. */
-#undef HAVE_SETLOCALE
-#define HAVE_SETLOCALE 1
-
-/* Define to 1 if you have the `sigaction' function. */
-#undef HAVE_SIGACTION
 
 /* Define to 1 if you have the `sigaltstack' function. */
 #undef HAVE_SIGALTSTACK
@@ -347,16 +259,8 @@
 /* Define to 1 if the system has the type `sig_t'. */
 #undef HAVE_SIG_T
 
-/* Define to 1 if you have the `socket' function. */
-#undef HAVE_SOCKET
-#define HAVE_SOCKET 1
-
 /* Define to 1 if the system has the type `socklen_t'. */
 #undef HAVE_SOCKLEN_T
-
-/* Define to 1 if you have the `sqrt' function. */
-#undef HAVE_SQRT
-#define HAVE_SQRT 1
 
 /* Define to 1 if the system has the type `ssize_t'. */
 #undef HAVE_SSIZE_T
@@ -389,18 +293,6 @@
 /* Define to 1 if you have the <stdlib.h> header file. */
 #undef HAVE_STDLIB_H
 #define HAVE_STDLIB_H 1
-
-/* Define to 1 if you have the `strdup' function. */
-#undef HAVE_STRDUP
-#define HAVE_STRDUP 1
-
-/* Define to 1 if you have the `strerror' function. */
-#undef HAVE_STRERROR
-#define HAVE_STRERROR 1
-
-/* Define to 1 if you have the `strftime' function. */
-#undef HAVE_STRFTIME
-#define HAVE_STRFTIME 1
 
 /* Define to 1 if you have the <strings.h> header file. */
 #undef HAVE_STRINGS_H
@@ -574,33 +466,15 @@
 /* Define to 1 if the system has the type `uintptr_t'. */
 #undef HAVE_UINTPTR_T
 
-/* Define to 1 if you have the `uname' function. */
-#undef HAVE_UNAME
-
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
 
 /* Define to 1 if you have the <values.h> header file. */
 #undef HAVE_VALUES_H
 
-/* Define to 1 if you have the `vfork' function. */
-#undef HAVE_VFORK
-
-/* Define to 1 if you have the <vfork.h> header file. */
-#undef HAVE_VFORK_H
-
-/* Define to 1 if you have the `vprintf' function. */
-#undef HAVE_VPRINTF
-
 /* Define to 1 if you have the <windows.h> header file. */
 #undef HAVE_WINDOWS_H
 #define HAVE_WINDOWS_H 1
-
-/* Define to 1 if `fork' works. */
-#undef HAVE_WORKING_FORK
-
-/* Define to 1 if `vfork' works. */
-#undef HAVE_WORKING_VFORK
 
 /* Define to 1 if you have the <X11/Xlib.h> header file. */
 #undef HAVE_X11_XLIB_H
@@ -611,17 +485,30 @@
 /* Define to 1 if the system has the type `_Bool'. */
 #undef HAVE__BOOL
 
+/* These are commented out.  They may be defined in the project settings. */
 /* Define if the host is an ARM (64-bit) */
 /*#undef HOSTARCHITECTURE_AARCH64*/
+
+/* Define if the host is an Alpha (64-bit) */
+/*#undef HOSTARCHITECTURE_ALPHA*/
 
 /* Define if the host is an ARM (32-bit) */
 /*#undef HOSTARCHITECTURE_ARM*/
 
+/* Define if the host is an HP PA-RISC (32-bit) */
+/*#undef HOSTARCHITECTURE_HPPA*/
+
 /* Define if the host is an Itanium */
 /*#undef HOSTARCHITECTURE_IA64*/
 
+/* Define if the host is a Motorola 68000 */
+/*#undef HOSTARCHITECTURE_M68K*/
+
 /* Define if the host is a MIPS (32-bit) */
 /*#undef HOSTARCHITECTURE_MIPS*/
+
+/* Define if the host is a MIPS (64-bit) */
+/*#undef HOSTARCHITECTURE_MIPS64*/
 
 /* Define if the host is a PowerPC (32-bit) */
 /*#undef HOSTARCHITECTURE_PPC*/
@@ -629,11 +516,29 @@
 /* Define if the host is a PowerPC (64-bit) */
 /*#undef HOSTARCHITECTURE_PPC64*/
 
+/* Define if the host is a RISC-V (32-bit) */
+/*#undef HOSTARCHITECTURE_RISCV32*/
+
+/* Define if the host is a RISC-V (64-bit) */
+/*#undef HOSTARCHITECTURE_RISCV64*/
+
 /* Define if the host is an S/390 (32-bit) */
 /*#undef HOSTARCHITECTURE_S390*/
 
 /* Define if the host is an S/390 (64-bit) */
 /*#undef HOSTARCHITECTURE_S390X*/
+
+/* Define if the host is a SuperH (32-bit) */
+/*#undef HOSTARCHITECTURE_SH*/
+
+/* Define if the host is a Sparc (32-bit) */
+/*#undef HOSTARCHITECTURE_SPARC*/
+
+/* Define if the host is a Sparc (64-bit) */
+/*#undef HOSTARCHITECTURE_SPARC64*/
+
+/* Define if the host is an X86 (32-bit ABI, 64-bit processor) */
+/*#undef HOSTARCHITECTURE_X32*/
 
 /* Define if the host is a Sparc (32-bit) */
 /*#undef HOSTARCHITECTURE_SPARC*/
@@ -651,8 +556,7 @@
    slash. */
 #undef LSTAT_FOLLOWS_SLASHED_SYMLINK
 
-/* Define to the sub-directory in which libtool stores uninstalled libraries.
-   */
+/* Define to the sub-directory where libtool stores uninstalled libraries. */
 #undef LT_OBJDIR
 
 /* Name of package */
@@ -684,6 +588,12 @@
 
 /* Define to the type of arg 5 for `select'. */
 #undef SELECT_TYPE_ARG5
+
+/* The size of `double', as computed by sizeof. */
+#define SIZEOF_DOUBLE 8
+
+/* The size of `float', as computed by sizeof. */
+#define SIZEOF_FLOAT 4
 
 /* The size of `int', as computed by sizeof. */
 // N.B.  This is 4 on both 32-bit and 64-bit
@@ -803,9 +713,6 @@
 #undef pid_t
 #define pid_t int
 
-/* Define to rpl_realloc if the replacement function should be used. */
-#undef realloc
-
 /* Define to `unsigned int' if <sys/types.h> does not define. */
 #undef size_t
 
@@ -837,8 +744,3 @@ typedef SSIZE_T ssize_t;
 /* Define to the type of an unsigned integer type wide enough to hold a
    pointer, if such a type exists, and if the system does not define it. */
 #undef uintptr_t
-
-/* Define as `fork' if `vfork' does not work. */
-#undef vfork
-
-#endif
