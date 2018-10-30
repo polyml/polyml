@@ -744,3 +744,5 @@ typedef SSIZE_T ssize_t;
 /* Define to the type of an unsigned integer type wide enough to hold a
    pointer, if such a type exists, and if the system does not define it. */
 #undef uintptr_t
+
+#endif
