@@ -105,10 +105,6 @@
     result is finite since NaN is allowed as a result.
     This code could do with being checked by someone who really understands
     IEEE floating point arithmetic.
-
-    The original real number functions all had separate entries in the interface
-    vector.  Newly added functions all go through a single dispatch function.
-    DCJM: March 2000.
 */
 
 extern "C" {
@@ -153,23 +149,16 @@ static Handle Real_convc(TaskData *mdTaskData, Handle str);
 double posInf, negInf, notANumber;
 
 /* Real numbers are represented by the address of the value. */
-#define DBLE sizeof(double)
+#define DBLE sizeof(double)/sizeof(POLYUNSIGNED)
 
-union db { double dble; byte bytes[DBLE]; };
-
-/* Assumes that there will be a separate handler for floating point overflow
-   and underflow. */
-
-/* tidied up 27/10/93 SPF */
-/*  can't assume (double *) has same alignment as (PolyWord *), so all the */
-/* parameters should be passed in as a Handle, not (double **).        */
+union db { double dble; POLYUNSIGNED words[DBLE]; };
 
 double real_arg(Handle x)
 {
     union db r_arg_x;
     for (unsigned i = 0; i < DBLE; i++)
     {
-        r_arg_x.bytes[i] = DEREFBYTEHANDLE(x)[i];
+        r_arg_x.words[i] = x->WordP()->Get(i).AsUnsigned();
     }
     return r_arg_x.dble;
 }
@@ -180,14 +169,62 @@ Handle real_result(TaskData *mdTaskData, double x)
     
     argx.dble = x;
     
-    PolyObject *v = alloc(mdTaskData, DBLE/sizeof(PolyWord), F_BYTE_OBJ);
+    PolyObject *v = alloc(mdTaskData, DBLE, F_BYTE_OBJ);
     /* Copy as words in case the alignment is wrong. */
     for(unsigned i = 0; i < DBLE; i++)
     {
-        v->AsBytePtr()[i] = argx.bytes[i];
+        v->Set(i, PolyWord::FromUnsigned(argx.words[i]));
     }
     return mdTaskData->saveVec.push(v);
 }
+
+// We're using float for Real32 so it needs to be 32-bits.
+// Assume that's true for the moment.
+#if (SIZEOF_FLOAT != 4)
+#error "Float is not 32-bits.  Please report this"
+#endif
+
+union flt { float fl; int32_t i; };
+
+#if (SIZEOF_FLOAT < SIZEOF_POLYWORD)
+
+// Typically for 64-bit mode.  Use a tagged representation.
+// The code-generator on the X86/64 assumes the float is in the
+// high order word.
+#define FLT_SHIFT ((SIZEOF_POLYWORD-SIZEOF_FLOAT)*8)
+float float_arg(Handle x)
+{
+    union flt argx;
+    argx.i = x->Word().AsSigned() >> FLT_SHIFT;
+    return argx.fl;
+}
+
+Handle float_result(TaskData *mdTaskData, float x)
+{
+    union flt argx;
+    argx.fl = x;
+    return mdTaskData->saveVec.push(PolyWord::FromSigned(((POLYSIGNED)argx.i << FLT_SHIFT) + 1));
+}
+#else
+// Typically for 32-bit mode.  Use a boxed representation.
+float float_arg(Handle x)
+{
+    union flt argx;
+    argx.i = (int32_t)x->WordP()->Get(0).AsSigned();
+    return argx.fl;
+}
+
+Handle float_result(TaskData *mdTaskData, float x)
+{
+    union flt argx;
+    argx.fl = x;
+
+    PolyObject *v = alloc(mdTaskData, 1, F_BYTE_OBJ);
+    v->Set(0, PolyWord::FromSigned(argx.i));
+    return mdTaskData->saveVec.push(v);
+}
+
+#endif
 
 POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg)
 {
@@ -372,7 +409,7 @@ double PolyRealNextAfter(double arg1, double arg2)
 double PolyRealLdexp(double arg1, PolyWord arg2)
 {
     POLYSIGNED exponent = arg2.UnTagged();
-#if (SIZEOF_VOIDP > SIZEOF_INT)
+#if (SIZEOF_POLYWORD > SIZEOF_INT)
     // We've already checked for arbitrary precision values where necessary and
     // for zero and non-finite mantissa.  Check the exponent fits in an int.
     if (exponent > 2 * DBL_MAX_EXP) return copysign(INFINITY, arg1);
@@ -460,7 +497,7 @@ static double real_arg1(Handle x)
     union db r_arg_x;
     for(unsigned i = 0; i < DBLE; i++)
     {
-        r_arg_x.bytes[i] = DEREFHANDLE(x)->Get(0).AsObjPtr()->AsBytePtr()[i];
+        r_arg_x.words[i] = DEREFHANDLE(x)->Get(0).AsObjPtr()->Get(i).AsUnsigned();
     }
     return r_arg_x.dble;
 }
@@ -470,7 +507,7 @@ static double real_arg2(Handle x)
     union db r_arg_x;
     for(unsigned i = 0; i < DBLE; i++)
     {
-        r_arg_x.bytes[i] = DEREFHANDLE(x)->Get(1).AsObjPtr()->AsBytePtr()[i];
+        r_arg_x.words[i] = DEREFHANDLE(x)->Get(1).AsObjPtr()->Get(i).AsUnsigned();
     }
     return r_arg_x.dble;
 }
@@ -700,7 +737,7 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
     {
     case 3: /* Legacy: atan2 */ return real_result(mdTaskData, atan2(real_arg1(args), real_arg2(args)));
     case 4: /* Legacy: pow */ return powerOf(mdTaskData, args);
-    /* Floating point representation queries. */
+        /* Floating point representation queries. */
 #ifdef _DBL_RADIX
     case 11: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(_DBL_RADIX));
 #else
@@ -708,11 +745,16 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 #endif
     case 12: /* Value of precision */ return mdTaskData->saveVec.push(TAGGED(DBL_MANT_DIG));
     case 13: /* Maximum number */ return real_result(mdTaskData, DBL_MAX);
-    /* float.h describes DBL_MIN as the minimum positive number.
-       In fact this is the minimum NORMALISED number.  The smallest
-       number which can be represented is DBL_MIN*2**(-DBL_MANT_DIG) */
     case 14: /* Minimum normalised number. */
         return real_result(mdTaskData, DBL_MIN);
+
+    case 15: // Minimum number.
+#ifdef DBL_TRUE_MIN
+        return real_result(mdTaskData, DBL_TRUE_MIN);
+#else
+        return real_result(mdTaskData, DBL_MIN*DBL_EPSILON);
+#endif
+
     case 17: /* Legacy: Get sign bit.  Now implemented in ML. */
         return mdTaskData->saveVec.push(copysign(1.0, real_arg(args)) < 0.0 ? TAGGED(1) : TAGGED(0));
     case 18: /* Legacy: Copy sign. */
@@ -734,6 +776,19 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
             return mdTaskData->saveVec.push(TAGGED(exp));
         }
     case 26: /* Legacy: nextafter */ return real_result(mdTaskData, nextafter(real_arg1(args), real_arg2(args)));
+
+        // Constants for float (Real32.real)
+    case 30: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(FLT_RADIX));
+    case 31: /* Value of precision */ return mdTaskData->saveVec.push(TAGGED(FLT_MANT_DIG));
+    case 32: /* Maximum number */ return float_result(mdTaskData, FLT_MAX);
+    case 33: /* Minimum normalised number. */
+        return float_result(mdTaskData, FLT_MIN);
+    case 34: // Minimum number.
+#ifdef FLT_TRUE_MIN
+        return float_result(mdTaskData, FLT_TRUE_MIN);
+#else
+        return float_result(mdTaskData, FLT_MIN*FLT_EPSILON);
+#endif
 
     default:
         {

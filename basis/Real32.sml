@@ -35,13 +35,20 @@ struct
     and fromLargeInt = fromReal o Real.fromLargeInt
     
     val zero = fromInt 0 and one = fromInt 1 and four = fromInt 4
-    
-    val radix = Real.radix (* TODO *)
-    and precision = Real.precision (* TODO *)
-    
-    val maxFinite = fromReal Real.maxFinite (* TODO *)
-    and minPos = fromReal Real.minPos (* TODO *)
-    and minNormalPos = fromReal Real.minNormalPos (* TODO *)
+
+    local
+        (* The General call is now only used to get constants. *)
+        val doFloatFloat : int*unit->real = RunCall.rtsCallFull2 "PolyRealGeneral"
+        and doFloatInt  : int*unit->int = RunCall.rtsCallFull2 "PolyRealGeneral"
+        fun callFloat n x = doFloatFloat(n, x)
+        and callFloatToInt n x = doFloatInt(n, x)
+    in
+        val radix : int = callFloatToInt 30 ()
+        val precision : int = callFloatToInt 31 ()
+        val maxFinite : real = callFloat 32 ()
+        val minNormalPos : real = callFloat 33 ()
+        val minPos : real = callFloat 34()
+    end
 
     fun unary f = fromReal o f o toLarge
     
@@ -151,6 +158,11 @@ struct
     fun *+ (x: real, y: real, z: real): real = x*y+z
     and *- (x: real, y: real, z: real): real = x*y-z
 
+    val realFloor = unary Real.realFloor
+    and realCeil = unary Real.realCeil
+    and realTrunc = unary Real.realTrunc
+    and realRound = unary Real.realRound
+
     fun rem (x, y) =
         if not (isFinite y) andalso not (isNan y) then x
         else x - realTrunc(x / y)*y
@@ -174,11 +186,6 @@ struct
     fun realMod r = #frac(split r)
     
     val nextAfter = binary Real.nextAfter (* TODO: Using Real.nextAfter here won't work. *)
-
-    val realFloor = unary Real.realFloor
-    and realCeil = unary Real.realCeil
-    and realTrunc = unary Real.realTrunc
-    and realRound = unary Real.realRound
 
     val floor = Real.floor o toLarge
     and ceil = Real.ceil o toLarge

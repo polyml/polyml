@@ -71,15 +71,16 @@ struct
     
     local
         (* The General call is now only used to get constants. *)
-        val doRealReal : int*real->real = RunCall.rtsCallFull2 "PolyRealGeneral"
-        and doRealInt  : int*real->int = RunCall.rtsCallFull2 "PolyRealGeneral"
+        val doRealReal : int*unit->real = RunCall.rtsCallFull2 "PolyRealGeneral"
+        and doRealInt  : int*unit->int = RunCall.rtsCallFull2 "PolyRealGeneral"
         fun callReal n x = doRealReal(n, x)
         and callRealToInt n x = doRealInt(n, x)
     in
-        val radix : int = callRealToInt 11 zero
-        val precision : int = callRealToInt 12 zero
-        val maxFinite : real = callReal 13 zero
-        val minNormalPos : real = callReal 14 zero
+        val radix : int = callRealToInt 11 ()
+        val precision : int = callRealToInt 12 ()
+        val maxFinite : real = callReal 13 ()
+        val minNormalPos : real = callReal 14 ()
+        val minPos: real = callReal 15 ()
     end
 
     val posInf : real = one/zero;
@@ -133,11 +134,6 @@ struct
     fun checkFloat x =
         if isFinite x then x
         else if isNan x then raise General.Div else raise General.Overflow
-
-    val radixAsReal (* Not exported *) = fromInt radix
-    val epsilon (* Not exported *) = Math.pow(radixAsReal, fromInt (Int.-(1, precision)))
-
-    val minPos : real = minNormalPos*epsilon;
 
     local
         val frExp: real -> int * real = RunCall.rtsCallFull1 "PolyRealFrexp"
