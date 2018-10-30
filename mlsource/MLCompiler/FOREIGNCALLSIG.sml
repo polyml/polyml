@@ -23,4 +23,8 @@ sig
     val rtsCallFastRealRealtoReal: string * Universal.universal list -> Address.address
     val rtsCallFastGeneraltoReal: string * Universal.universal list -> Address.address
     val rtsCallFastRealGeneraltoReal: string * Universal.universal list -> Address.address
+    val rtsCallFastFloattoFloat: string * Universal.universal list -> Address.address
+    val rtsCallFastFloatFloattoFloat: string * Universal.universal list -> Address.address
+    val rtsCallFastGeneraltoFloat: string * Universal.universal list -> Address.address
+    val rtsCallFastFloatGeneraltoFloat: string * Universal.universal list -> Address.address
 end;

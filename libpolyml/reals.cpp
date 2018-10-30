@@ -47,6 +47,9 @@
 #define finite  _finite
 #define isnan   _isnan
 #define copysign _copysign
+#define finitef  _finitef
+#define isnanf   _isnanf
+#define copysignf _copysignf
 #endif
 
 #ifdef HAVE_FLOAT_H
@@ -139,6 +142,21 @@ extern "C" {
     POLYEXTERNALSYMBOL double PolyRealNextAfter(double arg1, double arg2);
     POLYEXTERNALSYMBOL double PolyRealLdexp(double arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealFrexp(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL float PolyRealFSqrt(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFSin(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFCos(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFArctan(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFExp(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFLog(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFTan(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFArcSin(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFArcCos(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFLog10(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFSinh(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFCosh(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFTanh(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFAtan2(float arg1, float arg2);
+    POLYEXTERNALSYMBOL float PolyRealFPow(float arg1, float arg2);
 }
 
 static Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg);
@@ -147,6 +165,7 @@ static Handle Real_convc(TaskData *mdTaskData, Handle str);
 
 // Positive and negative infinities and (positive) NaN.
 double posInf, negInf, notANumber;
+float posInfF, negInfF, notANumberF;
 
 /* Real numbers are represented by the address of the value. */
 #define DBLE sizeof(double)/sizeof(POLYUNSIGNED)
@@ -443,6 +462,122 @@ POLYUNSIGNED PolyRealFrexp(PolyObject *threadId, PolyWord arg)
     taskData->PostRTSCall();
     if (result == 0) return TAGGED(0).AsUnsigned();
     else return result->Word().AsUnsigned();
+}
+
+// RTS call for square-root.
+float PolyRealFSqrt(float arg)
+{
+    return sqrtf(arg);
+}
+
+// RTS call for sine.
+float PolyRealFSin(float arg)
+{
+    return sinf(arg);
+}
+
+// RTS call for cosine.
+float PolyRealFCos(float arg)
+{
+    return cosf(arg);
+}
+
+// RTS call for arctan.
+float PolyRealFArctan(float arg)
+{
+    return atanf(arg);
+}
+
+// RTS call for exp.
+float PolyRealFExp(float arg)
+{
+    return expf(arg);
+}
+
+// RTS call for ln.
+float PolyRealFLog(float arg)
+{
+    // Make sure the result conforms to the definition.
+    // If the argument is a Nan each of the first two tests will fail.
+    if (arg > 0.0)
+        return logf(arg);
+    else if (arg == 0.0) // x may be +0.0 or -0.0
+        return negInfF; // -infinity.
+    else return notANumberF;
+}
+
+float PolyRealFTan(float arg)
+{
+    return tanf(arg);
+}
+
+float PolyRealFArcSin(float arg)
+{
+    if (arg >= -1.0 && arg <= 1.0)
+        return asinf(arg);
+    else return notANumberF;
+}
+
+float PolyRealFArcCos(float arg)
+{
+    if (arg >= -1.0 && arg <= 1.0)
+        return acosf(arg);
+    else return notANumberF;
+}
+
+float PolyRealFLog10(float arg)
+{
+    // Make sure the result conforms to the definition.
+    // If the argument is a Nan each of the first two tests will fail.
+    if (arg > 0.0)
+        return log10f(arg);
+    else if (arg == 0.0) // x may be +0.0 or -0.0
+        return negInfF; // -infinity.
+    else return notANumberF;
+}
+
+float PolyRealFSinh(float arg)
+{
+    return sinhf(arg);
+}
+
+float PolyRealFCosh(float arg)
+{
+    return coshf(arg);
+}
+
+float PolyRealFTanh(float arg)
+{
+    return tanhf(arg);
+}
+
+float PolyRealFAtan2(float arg1, float arg2)
+{
+    return atan2f(arg1, arg2);
+}
+
+float PolyRealFPow(float x, float y)
+{
+    /* Some of the special cases are defined and don't seem to match
+    the C pow function (at least as implemented in MS C). */
+    /* Maybe handle all this in ML? */
+    if (isnanf(x))
+    {
+        if (y == 0.0) return 1.0;
+        else return notANumberF;
+    }
+    else if (isnanf(y)) return y; /* i.e. nan. */
+    else if (x == 0.0 && y < 0.0)
+    {
+        /* This case is not handled correctly in Solaris. It always
+        returns -infinity. */
+        int iy = (int)floorf(y);
+        /* If x is -0.0 and y is an odd integer the result is -infinity. */
+        if (copysign(1.0, x) < 0.0 && (float)iy == y && (iy & 1))
+            return negInfF; /* -infinity. */
+        else return posInfF; /* +infinity. */
+    }
+    return powf(x, y);
 }
 
 /* CALL_IO1(Real_conv, REF, NOIND) */
@@ -859,6 +994,21 @@ struct _entrypts realsEPT[] =
     { "PolyRealNextAfter",              (polyRTSFunction)&PolyRealNextAfter },
     { "PolyRealLdexp",                  (polyRTSFunction)&PolyRealLdexp },
     { "PolyRealFrexp",                  (polyRTSFunction)&PolyRealFrexp },
+    { "PolyRealFSqrt",                  (polyRTSFunction)&PolyRealFSqrt },
+    { "PolyRealFSin",                   (polyRTSFunction)&PolyRealFSin },
+    { "PolyRealFCos",                   (polyRTSFunction)&PolyRealFCos },
+    { "PolyRealFArctan",                (polyRTSFunction)&PolyRealFArctan },
+    { "PolyRealFExp",                   (polyRTSFunction)&PolyRealFExp },
+    { "PolyRealFLog",                   (polyRTSFunction)&PolyRealFLog },
+    { "PolyRealFTan",                   (polyRTSFunction)&PolyRealFTan },
+    { "PolyRealFArcSin",                (polyRTSFunction)&PolyRealFArcSin },
+    { "PolyRealFArcCos",                (polyRTSFunction)&PolyRealFArcCos },
+    { "PolyRealFLog10",                 (polyRTSFunction)&PolyRealFLog10 },
+    { "PolyRealFSinh",                  (polyRTSFunction)&PolyRealFSinh },
+    { "PolyRealFCosh",                  (polyRTSFunction)&PolyRealFCosh },
+    { "PolyRealFTanh",                  (polyRTSFunction)&PolyRealFTanh },
+    { "PolyRealFAtan2",                 (polyRTSFunction)&PolyRealFAtan2 },
+    { "PolyRealFPow",                   (polyRTSFunction)&PolyRealFPow },
 
     { NULL, NULL} // End of list.
 };
@@ -887,11 +1037,16 @@ void RealArithmetic::Init(void)
 #if (defined(INFINITY))
     posInf = INFINITY;
     negInf = -(INFINITY);
+    posInfF = INFINITY;
+    negInfF = -(INFINITY);
 #else
     {
         double zero = 0.0;
         posInf = 1.0 / zero;
         negInf = -1.0 / zero;
+        float zeroF = 0.0;
+        posInfF = 1.0 / zeroF;
+        negInfF = -1.0 / zeroF;
     }
 #endif
 #if (defined(NAN))
@@ -900,6 +1055,8 @@ void RealArithmetic::Init(void)
     {
         double zero = 0.0;
         notANumber = zero / zero;
+        float zeroF = 0.0;
+        notANumberF = zeroF / zeroF;
     }
 #endif
     // Make sure this is a positive NaN since we return it from "abs".
@@ -908,4 +1065,6 @@ void RealArithmetic::Init(void)
     // sign if it's wrong.
     if (copysign(1.0, notANumber) < 0)
         notANumber = copysign(notANumber, 1.0);
+    if (copysignf(1.0, notANumberF) < 0)
+        notANumberF = copysignf(notANumberF, 1.0);
 }

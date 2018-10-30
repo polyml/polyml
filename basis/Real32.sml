@@ -226,22 +226,23 @@ struct
     structure Math =
     struct
         type real = real
-       
-        val sqrt = unary Real.Math.sqrt (* TODO *)
-        and sin = unary Real.Math.sin
-        and cos = unary Real.Math.cos
-        and tan = unary Real.Math.tan
-        and asin = unary Real.Math.asin
-        and acos = unary Real.Math.acos
-        and atan = unary Real.Math.atan
-        and atan2 = binary Real.Math.atan2
-        and exp = unary Real.Math.exp
-        and pow = binary Real.Math.pow
-        and ln = unary Real.Math.ln
-        and log10 = unary Real.Math.log10
-        and sinh = unary Real.Math.sinh
-        and cosh = unary Real.Math.cosh
-        and tanh = unary Real.Math.tanh
+
+        val sqrt  = rtsCallFastF_F "PolyRealFSqrt"
+        and sin   = rtsCallFastF_F "PolyRealFSin"
+        and cos   = rtsCallFastF_F "PolyRealFCos"
+        and atan  = rtsCallFastF_F "PolyRealFArctan"
+        and exp   = rtsCallFastF_F "PolyRealFExp"
+        and ln    = rtsCallFastF_F "PolyRealFLog"
+        and tan   = rtsCallFastF_F "PolyRealFTan"
+        and asin  = rtsCallFastF_F "PolyRealFArcSin"
+        and acos  = rtsCallFastF_F "PolyRealFArcCos"
+        and log10 = rtsCallFastF_F "PolyRealFLog10"
+        and sinh  = rtsCallFastF_F "PolyRealFSinh"
+        and cosh  = rtsCallFastF_F "PolyRealFCosh"
+        and tanh  = rtsCallFastF_F "PolyRealFTanh"
+
+        val atan2 = rtsCallFastFF_F "PolyRealFAtan2"
+        val pow = rtsCallFastFF_F "PolyRealFPow"
 
         (* Derived values. *)
         val e = exp one

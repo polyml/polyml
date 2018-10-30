@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-16
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -751,8 +751,8 @@ struct
             val realEnv = makeStructure(globalEnv, "Real")
 
             (* These are only used in Real so are included here rather than in RunCall.
-               rtsCallFastFloattoFloat is used for functions such as sqrt.
-               rtsCallFastGeneraltoFloat is used for Real.fromLargeInt. *)
+               rtsCallFastRealtoReal is used for functions such as sqrt.
+               rtsCallFastGeneraltoReal is used for Real.fromLargeInt. *)
             val debugOpts = [] (* Place to add debugging if necessary. *)
 
             fun makeFastRealRealCall entryName = CODETREE.Foreign.rtsCallFastRealtoReal (entryName, debugOpts)
@@ -822,6 +822,28 @@ struct
         local
             val real32Env = makeStructure(globalEnv, "Real32")
             val floatType  = mkTypeConstruction ("real", floatConstr, [], [])
+            val Float = floatType
+            val debugOpts = [] (* Place to add debugging if necessary. *)
+
+            fun makeFastFloatFloatCall entryName = CODETREE.Foreign.rtsCallFastFloattoFloat (entryName, debugOpts)
+            and makeFastFloatFloatFloatCall entryName = CODETREE.Foreign.rtsCallFastFloatFloattoFloat (entryName, debugOpts)
+            and makeFastIntInfFloatCall entryName = CODETREE.Foreign.rtsCallFastGeneraltoFloat (entryName, debugOpts)
+            and makeFastFloatGeneralFloatCall entryName = CODETREE.Foreign.rtsCallFastFloatGeneraltoFloat (entryName, debugOpts)
+
+            val rtsCallFastR_REntry =
+                mkInlproc (mkEval(mkConst(toMachineWord makeFastFloatFloatCall), [mkLoadArgument 0]), 1, "rtsCallFastFloatFloat", [], 0)
+
+            (* This needs to be tupled. *)
+            val rtsCallFastRR_REntry = makeRunCallTupled(2, toMachineWord makeFastFloatFloatFloatCall)
+            and rtsCallFastRI_REntry = makeRunCallTupled(2, toMachineWord makeFastFloatGeneralFloatCall)
+
+            val rtsCallFastI_REntry =
+                mkInlproc (mkEval(mkConst(toMachineWord makeFastIntInfFloatCall), [mkLoadArgument 0]), 1, "rtsCallFastIntInfFloat", [], 0)
+
+            val rtsCallFastF_F = mkGvar ("rtsCallFastF_F", String ->> Float ->> Float, rtsCallFastR_REntry, declInBasis)
+            val rtsCallFastFF_F = mkGvar ("rtsCallFastFF_F", String ->> Float ** Float ->> Float, rtsCallFastRR_REntry, declInBasis)
+            val rtsCallFastFG_F = mkGvar ("rtsCallFastFI_F", String ->> Float ** Int ->> Float, rtsCallFastRI_REntry, declInBasis)
+            val rtsCallFastG_F = mkGvar ("rtsCallFastI_F", String ->> intInfType ->> Float, rtsCallFastI_REntry, declInBasis)
 
             fun enterUnary(name, oper, typ) =
             let
@@ -835,6 +857,10 @@ struct
             (* This converts using the current rounding.  The fromLarge function takes
                a specific rounding mode as an argument. *)
             and () = enterUnary("fromReal", BuiltIns.FloatFromDouble, Real  ->> floatType)
+            val () = #enterVal real32Env ("rtsCallFastR_R", rtsCallFastF_F)
+            val () = #enterVal real32Env ("rtsCallFastRR_R", rtsCallFastFF_F)
+            val () = #enterVal real32Env ("rtsCallFastRI_R", rtsCallFastFG_F)
+            val () = #enterVal real32Env ("rtsCallFastI_R", rtsCallFastG_F)
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")
