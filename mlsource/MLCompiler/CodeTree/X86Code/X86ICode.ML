@@ -78,7 +78,8 @@ struct
     
     datatype sse2UnaryOps = SSE2UDoubleToFloat | SSE2UFloatToDouble
     and      sse2BinaryOps = SSE2BAddDouble | SSE2BSubDouble | SSE2BMulDouble |
-                SSE2BDivDouble | SSE2BXor | SSE2BAnd
+                SSE2BDivDouble | SSE2BXor | SSE2BAnd | SSE2BAddSingle |
+                SSE2BSubSingle | SSE2BMulSingle | SSE2BDivSingle
  
     datatype x86ICode =
         (* Move a value into a register. *)
@@ -246,17 +247,17 @@ struct
     |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
 
         (* Floating point comparison. *)
-    |   X87Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
+    |   X87Compare of { arg1: preg, arg2: argument, isDouble: bool, ccRef: ccRef }
 
         (* Floating point comparison. *)
-    |   SSE2Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
+    |   SSE2Compare of { arg1: preg, arg2: argument, isDouble: bool, ccRef: ccRef }
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
     |   X87FPGetCondition of { ccRef: ccRef, dest: preg }
 
         (* Binary floating point operations on the X87. *)
-    |   X87FPArith of { opc: fpOps, resultReg: preg, arg1: preg, arg2: argument }
+    |   X87FPArith of { opc: fpOps, resultReg: preg, arg1: preg, arg2: argument, isDouble: bool }
 
         (* Floating point operations: negate and set sign positive. *)
     |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: preg, source: preg }
@@ -659,25 +660,26 @@ struct
                 stream ",len="; printReg(length, stream)
             )
 
-        |   printICode(X87Compare{arg1, arg2, ...}, stream) =
-                (stream "\tX87Compare\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream))
+        |   printICode(X87Compare{arg1, arg2, isDouble, ...}, stream) =
+                (stream "\tX87Compare"; stream(if isDouble then "D\t" else "S\t"); printReg(arg1, stream); stream ","; printArg(arg2, stream))
 
-        |   printICode(SSE2Compare{arg1, arg2, ...}, stream) =
-                (stream "\tSSE2Compare\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream))
+        |   printICode(SSE2Compare{arg1, arg2, isDouble, ...}, stream) =
+                (stream "\tSSE2Compare"; stream(if isDouble then "D\t" else "S\t"); printReg(arg1, stream); stream ","; printArg(arg2, stream))
 
         |   printICode(X87FPGetCondition{dest, ...}, stream) = (stream "\tX87FPGetCondition\t=> "; printReg(dest, stream))
 
-        |   printICode(X87FPArith{opc, resultReg, arg1, arg2}, stream) =
+        |   printICode(X87FPArith{opc, resultReg, arg1, arg2, isDouble}, stream) =
             (
                 case opc of
-                    FADD => stream "\tX87FPAdd\t"
-                |   FMUL => stream "\tX87FPMul\t"
-                |   FCOM => stream "\tX87FPCompare\t"
-                |   FCOMP => stream "\tX87FPComparePop\t"
-                |   FSUB => stream "\tX87FPSub\t"
-                |   FSUBR => stream "\tX87FPRevSub\t"
-                |   FDIV => stream "\tX87FPDiv\t"
-                |   FDIVR => stream "\tX87FPRevDiv\t";
+                    FADD => stream "\tX87FPAdd"
+                |   FMUL => stream "\tX87FPMul"
+                |   FCOM => stream "\tX87FPCompare"
+                |   FCOMP => stream "\tX87FPComparePop"
+                |   FSUB => stream "\tX87FPSub"
+                |   FSUBR => stream "\tX87FPRevSub"
+                |   FDIV => stream "\tX87FPDiv"
+                |   FDIVR => stream "\tX87FPRevDiv";
+                if isDouble then stream "D\t" else stream "S\t";
                 printReg(arg1, stream); stream ",";
                 printArg(arg2, stream); stream " => ";
                 printReg(resultReg, stream)
@@ -716,6 +718,10 @@ struct
                 |   SSE2BSubDouble => stream "\tSSE2BSubDouble\t"
                 |   SSE2BMulDouble => stream "\tSSE2BMulDouble\t"
                 |   SSE2BDivDouble => stream "\tSSE2BDivDouble\t"
+                |   SSE2BAddSingle => stream "\tSSE2BAddSingle\t"
+                |   SSE2BSubSingle => stream "\tSSE2BSubSingle\t"
+                |   SSE2BMulSingle => stream "\tSSE2BMulSingle\t"
+                |   SSE2BDivSingle => stream "\tSSE2BDivSingle\t"
                 |   SSE2BXor => stream "\tSSE2BXor\t"
                 |   SSE2BAnd => stream "\tSSE2BAnd\t";
                 printReg(arg1, stream); stream ",";

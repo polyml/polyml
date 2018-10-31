@@ -57,11 +57,13 @@ sig
     |   LongWordToTagged (* Convert a LargeWord.word to a Word.word or FixedInt.int. *)
     |   SignedToLongWord (* Convert a tagged value to a LargeWord with sign extension. *)
     |   UnsignedToLongWord (* Convert a tagged value to a LargeWord without sign extension. *)
-    |   RealAbs     (* Set the sign bit of a real to positive. *)
-    |   RealNeg     (* Invert the sign bit of a real. *)
-    |   RealFixedInt (* Convert an integer value into a real (double precision floating point) value. *)
+    |   RealAbs of precision     (* Set the sign bit of a real to positive. *)
+    |   RealNeg of precision     (* Invert the sign bit of a real. *)
+    |   RealFixedInt of precision (* Convert an integer value into a real value. *)
     |   DoubleFromFloat (* Convert a single precision floating point value to double precision. *)
     |   FloatFromDouble (* Convert a double precision floating point value to single precision. *)
+
+    and precision = PrecSingle | PrecDouble (* Single or double precision floating pt. *)
 
     and binaryOps =
         (* Compare two words and return the result.  This is used for both
@@ -87,8 +89,8 @@ sig
     |   LargeWordArith of arithmeticOperations
     |   LargeWordLogical of logicalOperations
     |   LargeWordShift of shiftOperations
-    |   RealComparison of testConditions
-    |   RealArith of arithmeticOperations
+    |   RealComparison of testConditions * precision
+    |   RealArith of arithmeticOperations * precision
         
     val unaryRepr: unaryOps -> string
     and binaryRepr: binaryOps -> string

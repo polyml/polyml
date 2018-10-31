@@ -85,9 +85,11 @@ sig
     and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
     and      branchOps =
                 JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA | JP | JNP
-    and      sse2Operations =
-        SSE2MoveDouble | SSE2MoveFloat | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
-        SSE2And | SSE2FloatToDouble | SSE2DoubleToFloat
+    and sse2Operations =
+        SSE2MoveDouble | SSE2MoveFloat | SSE2CompDouble | SSE2AddDouble |
+        SSE2SubDouble | SSE2MulDouble | SSE2DivDouble |
+        SSE2Xor | SSE2And | SSE2FloatToDouble | SSE2DoubleToFloat |
+        SSE2CompSingle | SSE2AddSingle | SSE2SubSingle | SSE2MulSingle | SSE2DivSingle
 
     val invertTest: branchOps -> branchOps
 
@@ -156,12 +158,10 @@ sig
     |   AtomicXAdd of {base: genReg, output: genReg}
     |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
-    |   FPLoadFromConst of real
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }
     |   FPStoreToMemory of { address: memoryAddress, precision: fpSize, andPop: bool }
     |   FPArithR of { opc: fpOps, source: fpReg }
-    |   FPArithConst of { opc: fpOps, source: machineWord }
-    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int }
+    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int, isDouble: bool }
     |   FPUnary of fpUnaryOps
     |   FPStatusToEAX
     |   FPLoadInt of { base: genReg, offset: int }

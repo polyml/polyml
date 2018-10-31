@@ -554,18 +554,25 @@ struct
     |   invertTest JNP = JP
 
     datatype sse2Operations =
-        SSE2MoveDouble | SSE2MoveFloat | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul |
-        SSE2Div | SSE2Xor | SSE2And | SSE2FloatToDouble | SSE2DoubleToFloat
+        SSE2MoveDouble | SSE2MoveFloat | SSE2CompDouble | SSE2AddDouble |
+        SSE2SubDouble | SSE2MulDouble | SSE2DivDouble |
+        SSE2Xor | SSE2And | SSE2FloatToDouble | SSE2DoubleToFloat |
+        SSE2CompSingle | SSE2AddSingle | SSE2SubSingle | SSE2MulSingle | SSE2DivSingle
     
-    fun sse2OpRepr SSE2MoveDouble = "SSE2MoveDouble"
-    |   sse2OpRepr SSE2MoveFloat = "SSE2MoveFloat"
-    |   sse2OpRepr SSE2Comp = "SSE2Comp"
-    |   sse2OpRepr SSE2Add  = "SSE2Add"
-    |   sse2OpRepr SSE2Sub  = "SSE2Sub"
-    |   sse2OpRepr SSE2Mul  = "SSE2Mul"
-    |   sse2OpRepr SSE2Div  = "SSE2Div"
-    |   sse2OpRepr SSE2Xor  = "SSE2Xor"
-    |   sse2OpRepr SSE2And  = "SSE2And"
+    fun sse2OpRepr SSE2MoveDouble   = "SSE2MoveDouble"
+    |   sse2OpRepr SSE2MoveFloat    = "SSE2MoveFloat"
+    |   sse2OpRepr SSE2CompDouble   = "SSE2CompDouble"
+    |   sse2OpRepr SSE2AddDouble    = "SSE2AddDouble"
+    |   sse2OpRepr SSE2SubDouble    = "SSE2SubDouble"
+    |   sse2OpRepr SSE2MulDouble    = "SSE2MulDouble"
+    |   sse2OpRepr SSE2DivDouble    = "SSE2DivDouble"
+    |   sse2OpRepr SSE2Xor          = "SSE2Xor"
+    |   sse2OpRepr SSE2And          = "SSE2And"
+    |   sse2OpRepr SSE2CompSingle   = "SSE2CompSingle"
+    |   sse2OpRepr SSE2AddSingle    = "SSE2AddSingle"
+    |   sse2OpRepr SSE2SubSingle    = "SSE2SubSingle"
+    |   sse2OpRepr SSE2MulSingle    = "SSE2MulSingle"
+    |   sse2OpRepr SSE2DivSingle    = "SSE2DivSingle"
     |   sse2OpRepr SSE2FloatToDouble = "SSE2FloatToDouble"
     |   sse2OpRepr SSE2DoubleToFloat = "SSE2DoubleToFloat"
 
@@ -705,11 +712,16 @@ struct
     |   opToInt CQO_CDQ64       = 0wx99
     |   opToInt (SSE2Ops SSE2MoveDouble) = 0wx10 (* Needs F2 0F escape. *)
     |   opToInt (SSE2Ops SSE2MoveFloat) = 0wx10 (* Needs F3 0F escape. *)
-    |   opToInt (SSE2Ops SSE2Comp) = 0wx2E (* Needs 66 0F escape. *)
-    |   opToInt (SSE2Ops SSE2Add)  = 0wx58 (* Needs F2 0F escape. *)
-    |   opToInt (SSE2Ops SSE2Sub)  = 0wx5c (* Needs F2 0F escape. *)
-    |   opToInt (SSE2Ops SSE2Mul)  = 0wx59 (* Needs F2 0F escape. *)
-    |   opToInt (SSE2Ops SSE2Div)  = 0wx5e (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2CompDouble) = 0wx2E (* Needs 66 0F escape. *)
+    |   opToInt (SSE2Ops SSE2AddDouble)  = 0wx58 (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2SubDouble)  = 0wx5c (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2MulDouble)  = 0wx59 (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2DivDouble)  = 0wx5e (* Needs F2 0F escape. *)
+    |   opToInt (SSE2Ops SSE2CompSingle) = 0wx2E (* Needs 0F escape. *)
+    |   opToInt (SSE2Ops SSE2AddSingle)  = 0wx58 (* Needs F3 0F escape. *)
+    |   opToInt (SSE2Ops SSE2SubSingle)  = 0wx5c (* Needs F3 0F escape. *)
+    |   opToInt (SSE2Ops SSE2MulSingle)  = 0wx59 (* Needs F3 0F escape. *)
+    |   opToInt (SSE2Ops SSE2DivSingle)  = 0wx5e (* Needs F3 0F escape. *)
     |   opToInt (SSE2Ops SSE2And)  = 0wx54 (* Needs 66 0F escape. *)
     |   opToInt (SSE2Ops SSE2Xor)  = 0wx57 (* Needs 66 0F escape. *)
     |   opToInt (SSE2Ops SSE2FloatToDouble)  = 0wx5A (* Needs F3 0F escape. *)
@@ -761,12 +773,22 @@ struct
     |   opcodePrefix MOVL_R_A16                 = [0wx66] (* Requires OPSIZE prefix. *)
     |   opcodePrefix SSE2StoreSingle            = [0wxf3]
     |   opcodePrefix SSE2StoreDouble            = [0wxf2]
-    |   opcodePrefix(SSE2Ops SSE2Comp)          = [0wx66]
+    |   opcodePrefix(SSE2Ops SSE2CompDouble)    = [0wx66]
     |   opcodePrefix(SSE2Ops SSE2And)           = [0wx66]
     |   opcodePrefix(SSE2Ops SSE2Xor)           = [0wx66]
-    |   opcodePrefix(SSE2Ops SSE2FloatToDouble) = [0wxf3]
+    |   opcodePrefix(SSE2Ops SSE2CompSingle)    = [] (* No prefix *)
+    |   opcodePrefix(SSE2Ops SSE2MoveDouble)    = [0wxf2]
+    |   opcodePrefix(SSE2Ops SSE2AddDouble)     = [0wxf2]
+    |   opcodePrefix(SSE2Ops SSE2SubDouble)     = [0wxf2]
+    |   opcodePrefix(SSE2Ops SSE2MulDouble)     = [0wxf2]
+    |   opcodePrefix(SSE2Ops SSE2DivDouble)     = [0wxf2]
+    |   opcodePrefix(SSE2Ops SSE2DoubleToFloat) = [0wxf2]
     |   opcodePrefix(SSE2Ops SSE2MoveFloat)     = [0wxf3]
-    |   opcodePrefix(SSE2Ops _)                 = [0wxf2]
+    |   opcodePrefix(SSE2Ops SSE2AddSingle)     = [0wxf3]
+    |   opcodePrefix(SSE2Ops SSE2SubSingle)     = [0wxf3]
+    |   opcodePrefix(SSE2Ops SSE2MulSingle)     = [0wxf3]
+    |   opcodePrefix(SSE2Ops SSE2DivSingle)     = [0wxf3]
+    |   opcodePrefix(SSE2Ops SSE2FloatToDouble) = [0wxf3]
     |   opcodePrefix CVTSI2SD32                 = [0wxf2]
     |   opcodePrefix CVTSI2SD64                 = [0wxf2]
     |   opcodePrefix MOVDFromXMM                = [0wx66]
@@ -1053,12 +1075,10 @@ struct
     |   AtomicXAdd of {base: genReg, output: genReg}
     |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
-    |   FPLoadFromConst of real
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }
     |   FPStoreToMemory of { address: memoryAddress, precision: fpSize, andPop: bool }
     |   FPArithR of { opc: fpOps, source: fpReg }
-    |   FPArithConst of { opc: fpOps, source: machineWord }
-    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int }
+    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int, isDouble: bool }
     |   FPUnary of fpUnaryOps
     |   FPStatusToEAX
     |   FPLoadInt of { base: genReg, offset: int }
@@ -1251,7 +1271,6 @@ struct
         |   FPLoadFromMemory{address, precision=SinglePrecision} => (stream "FPLoadSingle "; printMemAddress address)
         |   FPLoadFromFPReg {source, lastRef} =>
                 (stream "FPLoad "; printFPReg source; if lastRef then stream " (LAST)" else())
-        |   FPLoadFromConst const => (stream "FPLoad "; stream(Real.toString const) )
         |   FPStoreToFPReg{ output, andPop } =>
                 (if andPop then stream "FPStoreAndPop => " else stream "FPStore => "; printFPReg output)
         |   FPStoreToMemory{ address, precision=DoublePrecision, andPop: bool } =>
@@ -1265,8 +1284,8 @@ struct
                 printMemAddress address
             )
         |   FPArithR{ opc, source } => (stream(fpOpRepr opc); stream " "; printFPReg source)
-        |   FPArithConst{ opc, source } => (stream(fpOpRepr opc); stream(Address.stringOfWord source))
-        |   FPArithMemory{ opc, base, offset } => (stream(fpOpRepr opc); stream " "; printBaseOffset(base, NoIndex, offset))
+        |   FPArithMemory{ opc, base, offset, isDouble } =>
+                (stream(fpOpRepr opc); if isDouble then stream "D " else stream "S "; printBaseOffset(base, NoIndex, offset))
         |   FPUnary opc => stream(fpUnaryRepr opc)
         |   FPStatusToEAX => (stream "FPStatus "; printGReg eax)
         |   FPLoadInt { base, offset} => (stream "FPLoadInt "; printBaseOffset(base, NoIndex, offset))
@@ -1793,37 +1812,6 @@ struct
                 (* Assume there's nothing currently on the stack. *)
                 floatingPtOp({escape=0w1, md=0w3, nnn=0w0, rm= fp + 0w0}) (* FLD ST(r1) *)
 
-        |   cgOp (FPLoadFromConst realValue ) =
-            let
-                open Real
-                infix ==
-            in
-                (* Treat +/- 0,1 as special cases. *)
-                if realValue == 0.0 (* This is also true for -0.0 *)
-                then floatingPtOp({escape=0w1, md=0w3, nnn=0w5, rm=0w6}) (* FLDZ *) @
-                        (if signBit realValue
-                         then floatingPtOp({escape=0w1, md=0w3, nnn=0w4, rm=0w0})
-                         else [])
-                else if realValue == 1.0
-                then floatingPtOp({escape=0w1, md=0w3, nnn=0w5, rm=0w0}) (* FLD1 *)
-                else if realValue == ~1.0
-                then
-                    floatingPtOp({escape=0w1, md=0w3, nnn=0w5, rm=0w0}) @ (* FLD1 *)
-                        floatingPtOp({escape=0w1, md=0w3, nnn=0w4, rm=0w0}) (* FCHS *)
-                else
-                (* The real constant here is actually the address of an 8-byte memory
-                   object.  FLD takes the address as the argument and in 32-bit mode
-                   we use an absolute address.  In 64-bit mode we need to put the
-                   constant at the end of the code segment and use PC-relative
-                   addressing which happens to be encoded in the same way. *)
-                let
-                    val opb = opCodeBytes(FPESC 0w5, NONE) (* FLD [Constant] *)
-                    val mdrm = modrm (Based0, 0w0, 0w5 (* constant address/PC-relative *))
-                in
-                    opb @ [mdrm] @ int32Signed(tag 0)
-                end
-            end
-
         |   cgOp (FPStoreToFPReg{ output=FloatingPtReg dest, andPop }) =
                 (* Assume there's one item on the stack. *)
                 floatingPtOp({escape=0w5, md=0w3, nnn=if andPop then 0wx3 else 0wx2,
@@ -1844,17 +1832,8 @@ struct
                 floatingPtOp({escape=0w0, md=0w3, nnn=fpOpToWord opc,
                         rm=src + 0w1 (* One item already there *)})
 
-        |   cgOp (FPArithConst{ opc, ... }) =
-                (* See comment on FPLoadFromConst *)
-            let
-                val opb = opCodeBytes(FPESC 0w4, NONE) (* FADD etc [constnt] *)
-                val mdrm = modrm (Based0, fpOpToWord opc, 0w5 (* constant address *))
-            in
-                opb @ [mdrm] @ int32Signed(tag 0)
-            end
-
-        |   cgOp (FPArithMemory{ opc, base, offset }) =
-                opPlus2(FPESC 0w4, LargeInt.fromInt offset, base, fpOpToWord opc) (* FADD/FMUL etc [r2] *)
+        |   cgOp (FPArithMemory{ opc, base, offset, isDouble }) =
+                opPlus2(FPESC(if isDouble then 0w4 else 0w0), LargeInt.fromInt offset, base, fpOpToWord opc) (* FADD/FMUL etc [r2] *)
 
         |   cgOp (FPUnary opc ) =
             let
@@ -2285,16 +2264,6 @@ struct
                 (* We need the address of the code itself but it's in the first of a pair of instructions. *)
                 if isX64 then l else (ic + 0w1, SelfAddress) :: l
 
-        |   getConstant(FPLoadFromConst realValue, bytes, ic, l) =
-                if Real.==(realValue, 0.0) orelse Real.==(realValue, 1.0) orelse Real.==(realValue, ~1.0)
-                then l
-                else (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
-                        if isX64 then RealConstant(toMachineWord realValue) else InlineAbsoluteAddress (toMachineWord realValue)) :: l
-
-        |   getConstant(FPArithConst{ source, ... }, bytes, ic, l) =
-                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
-                        if isX64 then RealConstant(toMachineWord source) else InlineAbsoluteAddress (toMachineWord source)) :: l
-
         |   getConstant(XMMArith { source=AddressConstArg constVal, ... }, bytes, ic, l) =
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                         if isX64 then RealConstant(toMachineWord constVal) else InlineAbsoluteAddress (toMachineWord constVal)) :: l
@@ -2652,10 +2621,17 @@ struct
             else (* mod = 00, 01, 10 *)
             (
                 case (escNo, nnn) of
-                    (0w1, 0w0) => (print "fld \t"; printEA(rex, SZDWord)) (* Single precision. *)
+                    (0w0, 0w0) => (print "fadd\t"; printEA(rex, SZDWord)) (* Single precision. *)
+                |   (0w0, 0w1) => (print "fmul\t"; printEA(rex, SZDWord))
+                |   (0w0, 0w3) => (print "fcomp\t"; printEA(rex, SZDWord))
+                |   (0w0, 0w4) => (print "fsub\t"; printEA(rex, SZDWord))
+                |   (0w0, 0w5) => (print "fsubr\t"; printEA(rex, SZDWord))
+                |   (0w0, 0w6) => (print "fdiv\t"; printEA(rex, SZDWord))
+                |   (0w0, 0w7) => (print "fdivr\t"; printEA(rex, SZDWord))
+                |   (0w1, 0w0) => (print "fld \t"; printEA(rex, SZDWord))
                 |   (0w1, 0w2) => (print "fst\t"; printEA(rex, SZDWord))
                 |   (0w1, 0w3) => (print "fstp\t"; printEA(rex, SZDWord))
-                |   (0w3, 0w0) => (print "fildl\t"; printEA(rex, SZQWord))
+                |   (0w3, 0w0) => (print "fildl\t"; printEA(rex, SZQWord)) (* Double precision. *)
                 |   (0w7, 0w5) => (print "fildq\t"; printEA(rex, SZQWord))
                 |   (0w4, 0w0) => (print "fadd\t"; printEA(rex, SZQWord))
                 |   (0w4, 0w1) => (print "fmul\t"; printEA(rex, SZQWord))
@@ -2664,7 +2640,7 @@ struct
                 |   (0w4, 0w5) => (print "fsubr\t"; printEA(rex, SZQWord))
                 |   (0w4, 0w6) => (print "fdiv\t"; printEA(rex, SZQWord))
                 |   (0w4, 0w7) => (print "fdivr\t"; printEA(rex, SZQWord))
-                |   (0w5, 0w0) => (print "fld \t"; printEA(rex, SZQWord)) (* Double precision. *)
+                |   (0w5, 0w0) => (print "fld \t"; printEA(rex, SZQWord))
                 |   (0w5, 0w2) => (print "fst\t"; printEA(rex, SZQWord))
                 |   (0w5, 0w3) => (print "fstp\t"; printEA(rex, SZQWord))
                 |   _ => (printValue(Word8.toLargeInt opByte); printValue(Word8.toLargeInt opByte2))
@@ -2753,7 +2729,14 @@ struct
                         0w0 =>
                         (
                             case opByte2 of
-                                0wxC1 =>
+                                0wx2e =>
+                                let (* ucomiss doesn't have a prefix. *)
+                                    val nb = codeVecGet (seg, !ptr)
+                                    val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                                in
+                                    print "ucomiss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord)
+                                end
+                            |   0wxC1 =>
                                 let
                                     val nb = codeVecGet (seg, !ptr);
                                     val reg = (nb >>- 0w3) andb8 0w7
@@ -2844,6 +2827,10 @@ struct
                                 0wx10 => ( print "movss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord) )
                             |   0wx11 => ( print "movss\t"; printEAxmm(rex, SZDWord); print ","; print(xmmRegRepr reg)  )
                             |   0wx5a => ( print "cvtss2sd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord)  )
+                            |   0wx58 => ( print "addss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord) )
+                            |   0wx59 => ( print "mulss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord) )
+                            |   0wx5c => ( print "subss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord) )
+                            |   0wx5e => ( print "divss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord) )
                             |   b => (print "F3\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
                         end
 

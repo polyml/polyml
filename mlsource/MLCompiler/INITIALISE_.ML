@@ -796,9 +796,9 @@ struct
             open BuiltIns
 
             fun enterComparison(name, test) =
-                enterBinary(name, RealComparison test, compareType)
+                enterBinary(name, RealComparison(test, PrecDouble), compareType)
             and enterBinaryOp(name, oper) =
-                enterBinary(name, RealArith oper, binaryType)
+                enterBinary(name, RealArith(oper, PrecDouble), binaryType)
         in
             val () = #enterType realEnv ("real", TypeConstrSet(realConstr, []))
             val () = #enterVal realEnv ("rtsCallFastR_R", rtsCallFastF_F)
@@ -814,9 +814,9 @@ struct
             val () = enterBinaryOp("-",     ArithSub)
             val () = enterBinaryOp("*",     ArithMult)
             val () = enterBinaryOp("/",     ArithDiv)
-            val () = enterUnary("~",   RealNeg, unaryType)
-            val () = enterUnary("abs", RealAbs, unaryType)
-            val () = enterUnary("fromFixedInt", RealFixedInt, fixedIntType ->> Real)
+            val () = enterUnary("~",   RealNeg PrecDouble, unaryType)
+            val () = enterUnary("abs", RealAbs PrecDouble, unaryType)
+            val () = enterUnary("fromFixedInt", RealFixedInt PrecDouble, fixedIntType ->> Real)
         end
         
         local
@@ -851,6 +851,24 @@ struct
             in
                 #enterVal real32Env (name, value)
             end
+            
+            fun enterBinary(name, oper, typ) =
+            let
+                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
+            in
+                #enterVal real32Env (name, value)
+            end
+            
+            val compareType = Float ** Float ->> Bool
+            and binaryType  = Float ** Float ->> Float
+            and unaryType   = Float ->> Float
+
+            open BuiltIns
+
+            fun enterComparison(name, test) =
+                enterBinary(name, RealComparison(test, PrecSingle), compareType)
+            and enterBinaryOp(name, oper) =
+                enterBinary(name, RealArith(oper, PrecSingle), binaryType)
         in
             val () = #enterType real32Env ("real", TypeConstrSet(floatConstr, []))
             val () = enterUnary("toLarge", BuiltIns.DoubleFromFloat, floatType ->> Real)
@@ -861,6 +879,10 @@ struct
             val () = #enterVal real32Env ("rtsCallFastRR_R", rtsCallFastFF_F)
             val () = #enterVal real32Env ("rtsCallFastRI_R", rtsCallFastFG_F)
             val () = #enterVal real32Env ("rtsCallFastI_R", rtsCallFastG_F)
+            val () = enterBinaryOp("+",     ArithAdd)
+            val () = enterBinaryOp("-",     ArithSub)
+            val () = enterBinaryOp("*",     ArithMult)
+            val () = enterBinaryOp("/",     ArithDiv)
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")

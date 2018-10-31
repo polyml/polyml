@@ -55,11 +55,6 @@ struct
     and binary f (x, y) = fromReal(f(toLarge x, toLarge y))
     
     and binary2 f (x, y) = f(toLarge x, toLarge y)
-    
-    val op + = binary Real.+ (* TODO *)
-    and op - = binary Real.- (* TODO *)
-    and op * = binary Real.* (* TODO *)
-    and op / = binary Real./ (* TODO *)
 
     val ~ = unary Real.~ (* TODO *)
     and abs = unary Real.abs (* TODO *)

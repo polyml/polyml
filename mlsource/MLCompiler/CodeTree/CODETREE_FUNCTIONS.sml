@@ -113,11 +113,11 @@ struct
                     |   LongWordToTagged => applicative
                     |   SignedToLongWord => applicative
                     |   UnsignedToLongWord => applicative
-                    |   RealAbs => applicative (* Does not depend on rounding setting. *)
-                    |   RealNeg => applicative (* Does not depend on rounding setting. *)
+                    |   RealAbs _ => applicative (* Does not depend on rounding setting. *)
+                    |   RealNeg _ => applicative (* Does not depend on rounding setting. *)
                         (* If we float a 64-bit int to a 64-bit floating point value we may
                            lose precision so this depends on the current rounding mode. *)
-                    |   RealFixedInt => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   RealFixedInt _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                     |   DoubleFromFloat => applicative
                         (* This also depends on the rounding mode. *)
                     |   FloatFromDouble => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)

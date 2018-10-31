@@ -1277,7 +1277,7 @@ struct
                         moveIfNecessary({src=getAllocatedReg dReg, dst=GenReg edi, kind=MoveWord},
                             moveIfNecessary({src=getAllocatedReg lReg, dst=GenReg ecx, kind=MoveWord}, code)))
 
-        |   codeExtended _ ({instr=X87Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
+        |   codeExtended _ ({instr=X87Compare{arg1=PReg argReg, arg2, isDouble, ...}, ...}, code) =
             let
                 val fpReg = getAllocatedFPReg argReg
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
@@ -1285,23 +1285,24 @@ struct
             in
                 case codeExtArgumentAsFPReg arg2 of
                     RegisterArg fpReg2 => FPArithR{opc=FCOMP, source=fpReg2} :: code
-                |   MemoryArg{offset, base=baseReg, index=NoIndex} => FPArithMemory{opc=FCOMP, base=baseReg, offset=offset} :: code
+                |   MemoryArg{offset, base=baseReg, index=NoIndex} =>
+                        FPArithMemory{opc=FCOMP, base=baseReg, offset=offset, isDouble=isDouble} :: code
                 |   _ => raise InternalError "codeGenICode: CompareFloatingPt: TODO"
             end
 
-        |   codeExtended _ ({instr=SSE2Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
+        |   codeExtended _ ({instr=SSE2Compare{arg1=PReg argReg, arg2, isDouble, ...}, ...}, code) =
             let
                 val xmmReg = getAllocatedXMMReg argReg
                 val arg2Code = codeExtArgumentAsXMMReg arg2
             in
-                XMMArith { opc= SSE2Comp, output=xmmReg, source=arg2Code} :: code
+                XMMArith { opc= if isDouble then SSE2CompDouble else SSE2CompSingle, output=xmmReg, source=arg2Code} :: code
             end
 
         |   codeExtended _ ({instr=X87FPGetCondition{dest=PReg dReg, ...}, ...}, code) =
                 moveIfNecessary({src=GenReg eax, dst=getAllocatedReg dReg, kind=MoveWord},
                     FPStatusToEAX :: code)
 
-        |   codeExtended _ ({instr=X87FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
+        |   codeExtended _ ({instr=X87FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2, isDouble}, ...}, code) =
             let
                 val realDestReg = getAllocatedFPReg resReg
                 val realOp1Reg = getAllocatedFPReg op1Reg
@@ -1311,7 +1312,7 @@ struct
             in
                 case op2Arg of
                     MemoryArg{offset, base=baseReg, index=NoIndex} =>
-                        FPArithMemory{opc=opc, base=baseReg, offset=offset} :: code
+                        FPArithMemory{opc=opc, base=baseReg, offset=offset, isDouble=isDouble} :: code
                 |   _ => raise InternalError "codeGenICode: X87FPArith: TODO"
             end
     
@@ -1376,10 +1377,14 @@ struct
                     else XMMArith { opc=SSE2MoveDouble, source=RegisterArg realOp1Reg, output=realDestReg } :: code
                 val sse2Op =
                     case opc of
-                        SSE2BAddDouble  => SSE2Add
-                    |   SSE2BSubDouble  => SSE2Sub
-                    |   SSE2BMulDouble  => SSE2Mul
-                    |   SSE2BDivDouble  => SSE2Div
+                        SSE2BAddDouble  => SSE2AddDouble
+                    |   SSE2BSubDouble  => SSE2SubDouble
+                    |   SSE2BMulDouble  => SSE2MulDouble
+                    |   SSE2BDivDouble  => SSE2DivDouble
+                    |   SSE2BAddSingle  => SSE2AddSingle
+                    |   SSE2BSubSingle  => SSE2SubSingle
+                    |   SSE2BMulSingle  => SSE2MulSingle
+                    |   SSE2BDivSingle  => SSE2DivSingle
                     |   SSE2BXor        => SSE2Xor
                     |   SSE2BAnd        => SSE2And
             in

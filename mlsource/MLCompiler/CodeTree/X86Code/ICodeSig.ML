@@ -62,7 +62,8 @@ sig
     
     datatype sse2UnaryOps = SSE2UDoubleToFloat | SSE2UFloatToDouble
     and      sse2BinaryOps = SSE2BAddDouble | SSE2BSubDouble | SSE2BMulDouble |
-                SSE2BDivDouble | SSE2BXor | SSE2BAnd
+                SSE2BDivDouble | SSE2BXor | SSE2BAnd | SSE2BAddSingle |
+                SSE2BSubSingle | SSE2BMulSingle | SSE2BDivSingle
 
     val memRegThreadSelf: int (* Copied from X86CodeSig *)
 
@@ -282,17 +283,17 @@ sig
     |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
 
         (* Floating point comparison. *)
-    |   X87Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
+    |   X87Compare of { arg1: preg, arg2: argument, isDouble: bool, ccRef: ccRef }
 
         (* Floating point comparison. *)
-    |   SSE2Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
+    |   SSE2Compare of { arg1: preg, arg2: argument, isDouble: bool, ccRef: ccRef }
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
     |   X87FPGetCondition of { ccRef: ccRef, dest: preg }
 
         (* Binary floating point operations on the X87. *)
-    |   X87FPArith of { opc: fpOps, resultReg: preg, arg1: preg, arg2: argument }
+    |   X87FPArith of { opc: fpOps, resultReg: preg, arg1: preg, arg2: argument, isDouble: bool }
 
         (* Floating point operations: negate and set sign positive. *)
     |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: preg, source: preg }

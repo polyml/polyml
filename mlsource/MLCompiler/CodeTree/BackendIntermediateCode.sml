@@ -61,11 +61,13 @@ struct
         |   LongWordToTagged
         |   SignedToLongWord
         |   UnsignedToLongWord
-        |   RealAbs
-        |   RealNeg
-        |   RealFixedInt
+        |   RealAbs of precision
+        |   RealNeg of precision
+        |   RealFixedInt of precision
         |   DoubleFromFloat
         |   FloatFromDouble
+
+        and precision = PrecSingle | PrecDouble
 
         and binaryOps =
             WordComparison of { test: testConditions, isSigned: bool }
@@ -78,8 +80,8 @@ struct
         |   LargeWordArith of arithmeticOperations
         |   LargeWordLogical of logicalOperations
         |   LargeWordShift of shiftOperations
-        |   RealComparison of testConditions
-        |   RealArith of arithmeticOperations
+        |   RealComparison of testConditions * precision
+        |   RealArith of arithmeticOperations * precision
         
         fun unaryRepr NotBoolean = "NotBoolean"
         |   unaryRepr IsTaggedValue = "IsTaggedValue"
@@ -92,9 +94,9 @@ struct
         |   unaryRepr LongWordToTagged = "LongWordToTagged"
         |   unaryRepr SignedToLongWord = "SignedToLongWord"
         |   unaryRepr UnsignedToLongWord = "UnsignedToLongWord"
-        |   unaryRepr RealAbs = "RealAbs"
-        |   unaryRepr RealNeg = "RealNeg"
-        |   unaryRepr RealFixedInt = "RealFixedInt"
+        |   unaryRepr (RealAbs prec) = "RealAbs" ^ precRepr prec
+        |   unaryRepr (RealNeg prec) = "RealNeg" ^ precRepr prec
+        |   unaryRepr (RealFixedInt prec) = "RealFixedInt" ^ precRepr prec
         |   unaryRepr DoubleFromFloat = "DoubleFromFloat"
         |   unaryRepr FloatFromDouble = "FloatFromDouble"
 
@@ -109,8 +111,8 @@ struct
         |   binaryRepr (LargeWordArith arithOp) =  (arithRepr arithOp) ^ "LargeWord"
         |   binaryRepr (LargeWordLogical logOp) =  (logicRepr logOp) ^ "LargeWord"
         |   binaryRepr (LargeWordShift shiftOp) =  (shiftRepr shiftOp) ^ "LargeWord"
-        |   binaryRepr (RealComparison test) = "Test" ^ (testRepr test) ^ "Real"
-        |   binaryRepr (RealArith arithOp) = (arithRepr arithOp) ^ "Real"
+        |   binaryRepr (RealComparison (test, prec)) = "Test" ^ testRepr test ^ precRepr prec
+        |   binaryRepr (RealArith (arithOp, prec)) = arithRepr arithOp ^ precRepr prec
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestLess           = "Less"
@@ -133,6 +135,9 @@ struct
         and shiftRepr ShiftLeft         = "Left"
         |   shiftRepr ShiftRightLogical = "RightLogical"
         |   shiftRepr ShiftRightArithmetic = "RightArithmetic"
+        
+        and precRepr PrecSingle         = "Single"
+        |   precRepr PrecDouble         = "Double"
 
     end
 

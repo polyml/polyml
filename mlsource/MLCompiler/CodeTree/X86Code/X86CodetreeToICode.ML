@@ -1395,7 +1395,7 @@ struct
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.RealNeg, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.RealNeg precision, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val fpRegSrc = newUReg() and fpRegDest = newUReg() and sse2ConstReg = newUReg()
@@ -1412,12 +1412,13 @@ struct
                             [BlockSimple(LoadArgument{source=AddressConstant realSignBit, dest=sse2ConstReg, kind=MoveDouble}),
                              BlockSimple(SSE2FPBinary{opc=SSE2BXor, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
                 val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+                val _ = precision = BuiltIns.PrecDouble orelse raise InternalError "RealNeg - single"
             in
                 (argCode @
                  load :: code @ [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.RealAbs, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.RealAbs precision, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val fpRegSrc = newUReg() and fpRegDest = newUReg() and sse2ConstReg = newUReg()
@@ -1430,18 +1431,20 @@ struct
                             [BlockSimple(LoadArgument{source=AddressConstant realAbsMask, dest=sse2ConstReg, kind=MoveDouble}),
                              BlockSimple(SSE2FPBinary{opc=SSE2BAnd, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
                 val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+                val _ = precision = BuiltIns.PrecDouble orelse raise InternalError "RealAbs - single"
             in
                 (argCode @
                  load :: code @ [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.RealFixedInt, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.RealFixedInt precision, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val untagReg = newUReg() and fpReg = newUReg()
                 val (argCode, aReg1) = codeToPReg(arg1, context)
                 val floatOp = case fpMode of FPModeX87 => X87Float | FPModeSSE2 => SSE2Float
                 val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+                val _ = precision = BuiltIns.PrecDouble orelse raise InternalError "RealFixedInt - single"
             in
                 (argCode @
                  [BlockSimple(UntagValue{source=aReg1, dest=untagReg, isSigned=true, cache=NONE}),
@@ -1460,7 +1463,9 @@ struct
                     case fpMode of
                         FPModeX87 => [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg2, kind=MoveFloat})]
                     |   FPModeSSE2 =>
-                        [BlockSimple(UntagFloat{source=RegisterArgument aReg1, dest=fpReg, cache=NONE}),
+                        [if wordSize = 0w8
+                         then BlockSimple(UntagFloat{source=RegisterArgument aReg1, dest=fpReg, cache=NONE})
+                         else BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg2, kind=MoveFloat}),
                          BlockSimple(SSE2FPUnary{opc=SSE2UFloatToDouble, resultReg=fpReg2, source=RegisterArgument fpReg})]
                 val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
             in
@@ -1965,44 +1970,81 @@ struct
                   BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.RealArith fpOper, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.RealArith(fpOpPrec as (fpOp, fpPrec)), arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 and (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val fpRegSrc = newUReg() and fpRegDest = newUReg()
-                val load = BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble})
                 open BuiltIns
+                (* Double precision values are always boxed and single precision values if they won't
+                   fit in a word.  Otherwise we can using tagging. *)
+                val load =
+                    if fpPrec = PrecDouble
+                    then BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble})
+                    else if wordSize = 0w8
+                    then BlockSimple(UntagFloat{source=RegisterArgument aReg1, dest=fpRegSrc, cache=NONE})
+                    else BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveFloat})
                 val arith =
                     case fpMode of
                         FPModeX87 =>
                         let
                             val fpOp =
-                                case fpOper of
+                                case fpOp of
                                     ArithAdd => FADD
                                 |   ArithSub => FSUB
                                 |   ArithMult => FMUL
                                 |   ArithDiv => FDIV
                                 |   _ => raise InternalError "codeToICodeNonRev: RealArith - unimplemented operation"
+                            val isDouble = case fpPrec of PrecSingle => false |  PrecDouble => true
                         in
-                            BlockSimple(X87FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=fpRegSrc, arg2=wordAt aReg2})
+                            [BlockSimple(X87FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=fpRegSrc, arg2=wordAt aReg2, isDouble=isDouble})]
                         end
                     |   FPModeSSE2 =>
                         let
                             val fpOp =
-                                case fpOper of
-                                    ArithAdd => SSE2BAddDouble
-                                |   ArithSub => SSE2BSubDouble
-                                |   ArithMult => SSE2BMulDouble
-                                |   ArithDiv => SSE2BDivDouble
+                                case fpOpPrec of
+                                    (ArithAdd, PrecSingle) => SSE2BAddSingle
+                                |   (ArithSub, PrecSingle) => SSE2BSubSingle
+                                |   (ArithMult, PrecSingle) => SSE2BMulSingle
+                                |   (ArithDiv, PrecSingle) => SSE2BDivSingle
+                                |   (ArithAdd, PrecDouble) => SSE2BAddDouble
+                                |   (ArithSub, PrecDouble) => SSE2BSubDouble
+                                |   (ArithMult, PrecDouble) => SSE2BMulDouble
+                                |   (ArithDiv, PrecDouble) => SSE2BDivDouble
                                 |   _ => raise InternalError "codeToICodeNonRev: RealArith - unimplemented operation"
                         in
-                            BlockSimple(SSE2FPBinary{ opc=fpOp, resultReg=fpRegDest, arg1=fpRegSrc, arg2=wordAt aReg2})
+                            if fpPrec = PrecDouble orelse wordSize <> 0w8
+                            then [BlockSimple(SSE2FPBinary{ opc=fpOp, resultReg=fpRegDest, arg1=fpRegSrc, arg2=wordAt aReg2})]
+                            else (* At the moment we always untag this into a register.  If it's in memory we could just load
+                                    it from there. *)
+                            let
+                                val fpReg2 = newUReg()
+                            in
+                                [
+                                    BlockSimple(UntagFloat{source=RegisterArgument aReg2, dest=fpReg2, cache=NONE}),
+                                    BlockSimple(SSE2FPBinary{ opc=fpOp, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument fpReg2})
+                                ]
+                            end
                         end
-                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+                (* Box or tag the result. *)
+                (* We will need a way to box a value from an XMM reg if wordSize = 4. *)
+                val _ = if fpMode = FPModeSSE2 andalso wordSize <> 0w8 then raise InternalError "TODO" else ()
+                val result =
+                    if fpPrec = PrecDouble orelse wordSize <> 0w8
+                    then
+                    let
+                        val boxFloat =
+                            case (fpMode, fpPrec) of
+                                (FPModeX87, PrecDouble) => BoxX87Double
+                            |   (FPModeX87, PrecSingle) => BoxX87Float
+                            |   (FPModeSSE2, _) => BoxSSE2
+                    in
+                        [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})]
+                    end
+                    else [BlockSimple(TagFloat{source=fpRegDest, dest=target})]
             in
-                (arg1Code @ arg2Code @
-                    [load, arith, BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                (arg1Code @ arg2Code @ [load] @ arith @ result, RegisterArgument target, false)
             end
 
         |   codeToICodeBinary(instr as {oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
@@ -2681,7 +2723,7 @@ struct
               if either argument is a NaN.  To combine that test with the other tests
               we sometimes have to reverse the comparison. *)
 
-        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestEqual, arg1, arg2},
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison(BuiltIns.TestEqual, precision), arg1, arg2},
                     context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
@@ -2692,6 +2734,7 @@ struct
                (* If this is X87 we get the condition into RAX and test it there.  If
                    it is SSE2 we have to treat the unordered result (parity set) specially. *)
                 val noJumpLabel = newLabel()
+                val isDouble = precision = BuiltIns.PrecDouble
             in
                 case (fpMode, jumpOn) of
                     (FPModeX87, _) =>
@@ -2702,7 +2745,7 @@ struct
                         BlockSimple(ArithmeticFunction{
                             oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef() }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) ::
+                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1, isDouble = isDouble}) ::
                         BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                 |   (FPModeSSE2, true) =>
                     let
@@ -2713,7 +2756,7 @@ struct
                         BlockLabel noParityLabel ::
                         (* Go to noJumpLabel if unordered and therefore not equal. *)
                         BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=noJumpLabel, falseJump=noParityLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) ::
+                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1, isDouble = isDouble}) ::
                         BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                     end
                |    (FPModeSSE2, false) =>
@@ -2725,12 +2768,12 @@ struct
                         BlockLabel noParityLabel ::
                         (* Go to jumpLabel if unordered and therefore not equal. *)
                         BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=jumpLabel, falseJump=noParityLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) ::
+                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1, isDouble = isDouble}) ::
                         BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                     end
             end
 
-        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLess, arg1, arg2},
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison(BuiltIns.TestLess, precision), arg1, arg2},
                     context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
@@ -2739,6 +2782,7 @@ struct
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val noJumpLabel = newLabel()
+                val isDouble = precision = BuiltIns.PrecDouble
             in
                 case fpMode of
                     FPModeX87 =>
@@ -2747,16 +2791,16 @@ struct
                         BlockSimple(ArithmeticFunction{
                             oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
+                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1, isDouble = isDouble}) :: (* Reverse *)
                         BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                 |   FPModeSSE2 =>
                         BlockLabel noJumpLabel ::
                         BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JA else JNA, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
+                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1, isDouble = isDouble}) :: (* Reverse *)
                         BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
             end
 
-        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreater, arg1, arg2},
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison(BuiltIns.TestGreater, precision), arg1, arg2},
                     context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
@@ -2765,6 +2809,7 @@ struct
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val noJumpLabel = newLabel()
+                val isDouble = precision = BuiltIns.PrecDouble
             in
                 case fpMode of
                     FPModeX87 =>
@@ -2773,16 +2818,16 @@ struct
                         BlockSimple(ArithmeticFunction{
                             oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
+                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1, isDouble = isDouble}) :: (* Not reversed. *)
                         BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                 |   FPModeSSE2 =>
                         BlockLabel noJumpLabel ::
                         BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JA else JNA, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
+                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1, isDouble = isDouble}) :: (* Not reversed. *)
                         BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
             end
 
-        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLessEqual, arg1, arg2},
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison(BuiltIns.TestLessEqual, precision), arg1, arg2},
                     context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
@@ -2791,6 +2836,7 @@ struct
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val noJumpLabel = newLabel()
+                val isDouble = precision = BuiltIns.PrecDouble
             in
                 case fpMode of
                     FPModeX87 =>
@@ -2799,16 +2845,16 @@ struct
                         BlockSimple(ArithmeticFunction{
                             oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
+                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1, isDouble = isDouble}) :: (* Reverse *)
                         BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                 |   FPModeSSE2 =>
                         BlockLabel noJumpLabel ::
                         BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JNB else JB, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
+                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1, isDouble = isDouble}) :: (* Reverse *)
                         BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
             end
 
-        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreaterEqual, arg1, arg2},
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison(BuiltIns.TestGreaterEqual, precision), arg1, arg2},
                     context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
@@ -2817,6 +2863,8 @@ struct
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val noJumpLabel = newLabel()
+                val (isDouble, moveOp) =
+                    case precision of BuiltIns.PrecDouble => (true, MoveDouble) | BuiltIns.PrecSingle => (false, MoveFloat)
             in
                 case fpMode of
                     FPModeX87 =>
@@ -2825,12 +2873,12 @@ struct
                         BlockSimple(ArithmeticFunction{
                             oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
-                        BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
+                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1, isDouble = isDouble}) :: (* Not reversed. *)
+                        BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=moveOp}) :: arg2Code
                 |   FPModeSSE2 =>
                         BlockLabel noJumpLabel ::
                         BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JNB else JB, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
+                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1, isDouble = isDouble}) :: (* Not reversed. *)
                         BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
             end
 

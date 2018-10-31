@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1096,20 +1096,20 @@ struct
                                     lengthCode @ destCode @ srcCode @ code
                         end
 
-                    |   pushRegisters({instr=X87Compare{arg1, arg2, ccRef}, ...}, code) =
+                    |   pushRegisters({instr=X87Compare{arg1, arg2, isDouble, ccRef}, ...}, code) =
                         let
                             val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                         in
-                            X87Compare{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code
+                            X87Compare{arg1=arg1Val, arg2=arg2Val, isDouble=isDouble, ccRef=ccRef} :: arg2Code @ arg1Code @ code
                         end
 
-                    |   pushRegisters({instr=SSE2Compare{arg1, arg2, ccRef}, ...}, code) =
+                    |   pushRegisters({instr=SSE2Compare{arg1, arg2, isDouble, ccRef}, ...}, code) =
                         let
                             val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                         in
-                            SSE2Compare{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code
+                            SSE2Compare{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef, isDouble=isDouble} :: arg2Code @ arg1Code @ code
                         end
 
                     |   pushRegisters({instr=X87FPGetCondition{dest, ccRef}, ...}, code) =
@@ -1119,13 +1119,13 @@ struct
                             destCode @ X87FPGetCondition{dest=destVal, ccRef=ccRef} :: code
                         end
 
-                    |   pushRegisters({instr=X87FPArith{opc, resultReg, arg1, arg2}, ...}, code) =
+                    |   pushRegisters({instr=X87FPArith{opc, resultReg, arg1, arg2, isDouble}, ...}, code) =
                         let
                             val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                             val (destVal, destCode) = mapDestReg resultReg
                         in
-                            destCode @ X87FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
+                            destCode @ X87FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val, isDouble=isDouble} ::
                                     arg2Code @ arg1Code @ code
                         end
     
