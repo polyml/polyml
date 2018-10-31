@@ -44,12 +44,12 @@
 #endif
 
 #if (defined(_MSC_VER))
-#define finite  _finite
-#define isnan   _isnan
-#define copysign _copysign
-#define finitef  _finitef
+#ifdef _WIN64
+// This is only defined in x64
 #define isnanf   _isnanf
-#define copysignf _copysignf
+#else
+#define isnanf   isnan
+#endif
 #endif
 
 #ifdef HAVE_FLOAT_H
