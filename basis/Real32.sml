@@ -28,7 +28,7 @@
 
 structure Real32: REAL where type real = Real32.real =
 struct
-    open Real32
+    open Real32 (* Inherit the type and the built-in functions. *)
     open IEEEReal
 
     val fromInt = fromReal o Real.fromInt (* TODO *)
@@ -51,24 +51,12 @@ struct
     end
 
     fun unary f = fromReal o f o toLarge
-    
-    and binary f (x, y) = fromReal(f(toLarge x, toLarge y))
-    
-    and binary2 f (x, y) = f(toLarge x, toLarge y)
 
     val ~ = unary Real.~ (* TODO *)
     and abs = unary Real.abs (* TODO *)
 
     val posInf : real = one/zero;
     val negInf : real = ~one/zero;
-    
-    val op < = binary2 Real.<
-    and op <= = binary2 Real.<=
-    and op > = binary2 Real.>
-    and op >= = binary2 Real.>=
-    and op == = binary2 Real.==
-
-    and op ?= = binary2 Real.?=
 
     infix 4 == != ?=;
     
@@ -103,6 +91,11 @@ struct
             if isNan x then raise General.Domain
             else if x == zero then 0 else if x < zero then ~1 else 1
     end
+
+    (* Question: The definition says "bitwise equal, ignoring signs on zeros".
+       If we assume that all numbers are normalised, is that the same as "equal"?*)
+    fun op ?= (x, y) =
+        isNan x orelse isNan y orelse x == y
         
     fun sameSign (x, y) = signBit x = signBit y
     and unordered (x, y) = isNan x orelse isNan y
