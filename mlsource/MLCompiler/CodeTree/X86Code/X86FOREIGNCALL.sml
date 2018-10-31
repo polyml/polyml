@@ -428,7 +428,7 @@ struct
                         AllocStore{size=1 (* It's a 32-bit value *), output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=floatBoxLengthWord32,
                                 address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
-                        FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
+                        FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true },
                         StoreInitialised
                     ]
 
