@@ -71,6 +71,8 @@ struct
         (* These are floating point constants used to change and mask the sign bit. *)
         val realSignBit: machineWord = makeRealConst [0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx80]
         and realAbsMask: machineWord = makeRealConst [0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wx7f]
+        and floatSignBit: machineWord = makeRealConst [0wx00, 0wx00, 0wx00, 0wx80, 0wx00, 0wx00, 0wx00, 0wx00]
+        and floatAbsMask: machineWord = makeRealConst [0wxff, 0wxff, 0wxff, 0wx7f, 0wx00, 0wx00, 0wx00, 0wx00]
     end
 
     (* Check that a large-word constant looks right and get the value as a large int*)
@@ -1403,19 +1405,43 @@ struct
                    requires the values to be loaded into registers first because the logical
                    operations require 128-bit operands. *)
                 val (argCode, aReg1) = codeToPReg(arg1, context)
-                val load = BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble})
+                (* Double precision values are always boxed and single precision values if they won't
+                   fit in a word.  Otherwise we can using tagging. *)
+                open BuiltIns
+                val load =
+                    if precision = PrecDouble
+                    then BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble})
+                    else if wordSize = 0w8
+                    then BlockSimple(UntagFloat{source=RegisterArgument aReg1, dest=fpRegSrc, cache=NONE})
+                    else BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveFloat})
                 val code =
                     case fpMode of
                         FPModeX87 =>
                             [BlockSimple(X87FPUnaryOps{ fpOp=FCHS, dest=fpRegDest, source=fpRegSrc})]
                     |   FPModeSSE2 =>
-                            [BlockSimple(LoadArgument{source=AddressConstant realSignBit, dest=sse2ConstReg, kind=MoveDouble}),
+                        let
+                            (* In single precision mode the sign bit is in the low 32-bits.  There
+                               may be a better way to load it. *)
+                            val signBit = if precision = PrecDouble then realSignBit else floatSignBit
+                        in
+                            [BlockSimple(LoadArgument{source=AddressConstant signBit, dest=sse2ConstReg, kind=MoveDouble}),
                              BlockSimple(SSE2FPBinary{opc=SSE2BXor, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
-                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
-                val _ = precision = BuiltIns.PrecDouble orelse raise InternalError "RealNeg - single"
+                        end
+                val result =
+                    if precision = PrecDouble orelse wordSize <> 0w8
+                    then
+                    let
+                        val boxFloat =
+                            case (fpMode, precision) of
+                                (FPModeX87, PrecDouble) => BoxX87Double
+                            |   (FPModeX87, PrecSingle) => BoxX87Float
+                            |   (FPModeSSE2, _) => BoxSSE2
+                    in
+                        [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})]
+                    end
+                    else [BlockSimple(TagFloat{source=fpRegDest, dest=target})]
             in
-                (argCode @
-                 load :: code @ [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                (argCode @ load :: code @ result, RegisterArgument target, false)
             end
 
         |   codeToICodeUnary({oper=BuiltIns.RealAbs precision, arg1}, context, _, destination) =
@@ -1423,18 +1449,39 @@ struct
                 val target = asTarget destination
                 val fpRegSrc = newUReg() and fpRegDest = newUReg() and sse2ConstReg = newUReg()
                 val (argCode, aReg1) = codeToPReg(arg1, context)
-                val load = BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble})
+                open BuiltIns
+                val load =
+                    if precision = PrecDouble
+                    then BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble})
+                    else if wordSize = 0w8
+                    then BlockSimple(UntagFloat{source=RegisterArgument aReg1, dest=fpRegSrc, cache=NONE})
+                    else BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveFloat})
                 val code =
                     case fpMode of
                         FPModeX87 => [BlockSimple(X87FPUnaryOps{ fpOp=FABS, dest=fpRegDest, source=fpRegSrc})]
                     |   FPModeSSE2 =>
-                            [BlockSimple(LoadArgument{source=AddressConstant realAbsMask, dest=sse2ConstReg, kind=MoveDouble}),
+                        let
+                            val mask = if precision = PrecDouble then realAbsMask else floatAbsMask
+                        in
+                            [BlockSimple(LoadArgument{source=AddressConstant mask, dest=sse2ConstReg, kind=MoveDouble}),
                              BlockSimple(SSE2FPBinary{opc=SSE2BAnd, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
-                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
-                val _ = precision = BuiltIns.PrecDouble orelse raise InternalError "RealAbs - single"
+                        end
+                val result =
+                    if precision = PrecDouble orelse wordSize <> 0w8
+                    then
+                    let
+                        val boxFloat =
+                            case (fpMode, precision) of
+                                (FPModeX87, PrecDouble) => BoxX87Double
+                            |   (FPModeX87, PrecSingle) => BoxX87Float
+                            |   (FPModeSSE2, _) => BoxSSE2
+                    in
+                        [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})]
+                    end
+                    else [BlockSimple(TagFloat{source=fpRegDest, dest=target})]
             in
                 (argCode @
-                 load :: code @ [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                 load :: code @ result, RegisterArgument target, false)
             end
 
         |   codeToICodeUnary({oper=BuiltIns.RealFixedInt precision, arg1}, context, _, destination) =

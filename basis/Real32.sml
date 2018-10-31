@@ -50,11 +50,6 @@ struct
         val minPos : real = callFloat 34()
     end
 
-    fun unary f = fromReal o f o toLarge
-
-    val ~ = unary Real.~ (* TODO *)
-    and abs = unary Real.abs (* TODO *)
-
     val posInf : real = one/zero;
     val negInf : real = ~one/zero;
 

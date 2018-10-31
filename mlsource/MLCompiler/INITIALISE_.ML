@@ -888,6 +888,8 @@ struct
             val () = enterBinaryOp("-",     ArithSub)
             val () = enterBinaryOp("*",     ArithMult)
             val () = enterBinaryOp("/",     ArithDiv)
+            val () = enterUnary("~",   RealNeg PrecSingle, unaryType)
+            val () = enterUnary("abs", RealAbs PrecSingle, unaryType)
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")
