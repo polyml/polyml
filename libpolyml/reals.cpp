@@ -132,6 +132,7 @@ extern "C" {
     POLYEXTERNALSYMBOL double PolyRealCeil(double arg);
     POLYEXTERNALSYMBOL double PolyRealTrunc(double arg);
     POLYEXTERNALSYMBOL double PolyRealRound(double arg);
+    POLYEXTERNALSYMBOL double PolyRealRem(double arg1, double arg2);
     POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg);
     POLYEXTERNALSYMBOL POLYSIGNED PolyGetRoundingMode(PolyWord);
     POLYEXTERNALSYMBOL POLYSIGNED PolySetRoundingMode(PolyWord);
@@ -157,6 +158,13 @@ extern "C" {
     POLYEXTERNALSYMBOL float PolyRealFTanh(float arg);
     POLYEXTERNALSYMBOL float PolyRealFAtan2(float arg1, float arg2);
     POLYEXTERNALSYMBOL float PolyRealFPow(float arg1, float arg2);
+    POLYEXTERNALSYMBOL float PolyRealFCopySign(float arg1, float arg2);
+    POLYEXTERNALSYMBOL float PolyRealFFloor(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFCeil(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFTrunc(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFRound(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFRem(float arg1, float arg2);
+    POLYEXTERNALSYMBOL float PolyRealFNextAfter(float arg1, float arg2);
 }
 
 static Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg);
@@ -383,7 +391,11 @@ double PolyRealRound(double arg)
         // negative odd -0.5 round it down, otherwise round it up. 
         return ceil(arg-0.5);
     else return floor(arg+0.5);
+}
 
+double PolyRealRem(double arg1, double arg2)
+{
+    return fmod(arg1, arg2);
 }
 
 double PolyRealAtan2(double arg1, double arg2)
@@ -578,6 +590,49 @@ float PolyRealFPow(float x, float y)
         else return posInfF; /* +infinity. */
     }
     return powf(x, y);
+}
+
+float PolyRealFFloor(float arg)
+{
+    return floorf(arg);
+}
+
+float PolyRealFCeil(float arg)
+{
+    return ceilf(arg);
+}
+
+float PolyRealFTrunc(float arg)
+{
+    // Truncate towards zero
+    if (arg >= 0.0) return floorf(arg);
+    else return ceilf(arg);
+}
+
+float PolyRealFRound(float arg)
+{
+    // Round to nearest integral value.
+    float drem = fmodf(arg, 2.0);
+    if (drem == 0.5 || drem == -1.5)
+        // If the value was exactly positive even + 0.5 or
+        // negative odd -0.5 round it down, otherwise round it up. 
+        return ceilf(arg - 0.5f);
+    else return floorf(arg + 0.5f);
+}
+
+float PolyRealFRem(float arg1, float arg2)
+{
+    return fmodf(arg1, arg2);
+}
+
+float PolyRealFCopySign(float arg1, float arg2)
+{
+    return copysignf(arg1, arg2);
+}
+
+float PolyRealFNextAfter(float arg1, float arg2)
+{
+    return nextafterf(arg1, arg2);
 }
 
 /* CALL_IO1(Real_conv, REF, NOIND) */
@@ -984,6 +1039,7 @@ struct _entrypts realsEPT[] =
     { "PolyRealCeil",                   (polyRTSFunction)&PolyRealCeil},
     { "PolyRealTrunc",                  (polyRTSFunction)&PolyRealTrunc},
     { "PolyRealRound",                  (polyRTSFunction)&PolyRealRound},
+    { "PolyRealRem",                    (polyRTSFunction)&PolyRealRem },
     { "PolyFloatArbitraryPrecision",    (polyRTSFunction)&PolyFloatArbitraryPrecision},
     { "PolyGetRoundingMode",            (polyRTSFunction)&PolyGetRoundingMode},
     { "PolySetRoundingMode",            (polyRTSFunction)&PolySetRoundingMode},
@@ -1009,6 +1065,13 @@ struct _entrypts realsEPT[] =
     { "PolyRealFTanh",                  (polyRTSFunction)&PolyRealFTanh },
     { "PolyRealFAtan2",                 (polyRTSFunction)&PolyRealFAtan2 },
     { "PolyRealFPow",                   (polyRTSFunction)&PolyRealFPow },
+    { "PolyRealFCopySign",              (polyRTSFunction)&PolyRealFCopySign },
+    { "PolyRealFFloor",                 (polyRTSFunction)&PolyRealFFloor },
+    { "PolyRealFCeil",                  (polyRTSFunction)&PolyRealFCeil },
+    { "PolyRealFTrunc",                 (polyRTSFunction)&PolyRealFTrunc },
+    { "PolyRealFRound",                 (polyRTSFunction)&PolyRealFRound },
+    { "PolyRealFRem",                   (polyRTSFunction)&PolyRealFRem },
+    { "PolyRealFNextAfter",             (polyRTSFunction)&PolyRealFNextAfter },
 
     { NULL, NULL} // End of list.
 };

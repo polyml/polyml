@@ -86,7 +86,7 @@ struct
         (* NAN values do not match and infinities when multiplied by 0 produce NAN. *)
         fun isFinite x = x * zero == zero
     
-        val copySign : (real * real) -> real = binary Real.copySign (* TODO *)
+        val copySign : (real * real) -> real = rtsCallFastFF_F "PolyRealFCopySign"
         
         (* Get the sign bit by copying the sign onto a finite value and then
            testing.  This works for non-finite values and zeros. *)
@@ -122,6 +122,7 @@ struct
         if isFinite x then x
         else if isNan x then raise General.Div else raise General.Overflow
 
+    (* Use the Real versions for the moment. *)
     fun toManExp r =
         let
             val {man, exp} = Real.toManExp(toLarge r)
@@ -158,14 +159,12 @@ struct
     fun *+ (x: real, y: real, z: real): real = x*y+z
     and *- (x: real, y: real, z: real): real = x*y-z
 
-    val realFloor = unary Real.realFloor
-    and realCeil = unary Real.realCeil
-    and realTrunc = unary Real.realTrunc
-    and realRound = unary Real.realRound
+    val realFloor = rtsCallFastF_F "PolyRealFFloor"
+    and realCeil  = rtsCallFastF_F "PolyRealFCeil"
+    and realTrunc  = rtsCallFastF_F "PolyRealFTrunc"
+    and realRound  = rtsCallFastF_F "PolyRealFRound"
 
-    fun rem (x, y) =
-        if not (isFinite y) andalso not (isNan y) then x
-        else x - realTrunc(x / y)*y
+    val rem = rtsCallFastFF_F "PolyRealFRem"
 
     (* Split a real into whole and fractional parts. The fractional part must have
        the same sign as the number even if it is zero. *)
@@ -185,8 +184,9 @@ struct
     (* Get the fractional part of a real. *)
     fun realMod r = #frac(split r)
     
-    val nextAfter = binary Real.nextAfter (* TODO: Using Real.nextAfter here won't work. *)
+    val nextAfter = rtsCallFastFF_F "PolyRealFNextAfter"
 
+    (* Conversions to/from integer need to be redone,  Leave this for the moment. *)
     val floor = Real.floor o toLarge
     and ceil = Real.ceil o toLarge
     and trunc = Real.trunc o toLarge

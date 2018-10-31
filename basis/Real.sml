@@ -560,9 +560,7 @@ struct
     fun *+ (x: real, y: real, z: real): real = x*y+z
     and *- (x: real, y: real, z: real): real = x*y-z
 
-    fun rem (x, y) =
-        if not (isFinite y) andalso not (isNan y) then x
-        else x - realTrunc(x / y)*y
+    val rem = Real.rtsCallFastRR_R "PolyRealRem"
 
     (* Split a real into whole and fractional parts. The fractional part must have
        the same sign as the number even if it is zero. *)
@@ -583,9 +581,7 @@ struct
     fun realMod r = #frac(split r)
 
     (* nextAfter: This was previously implemented in ML but, at the very least,
-       needed to work with rounding to something other than TO_NEAREST.  This should
-       be implemented as a fast call but we don't currently support fast calls for
-       real * real -> real. *)
+       needed to work with rounding to something other than TO_NEAREST. *)
     val nextAfter = Real.rtsCallFastRR_R "PolyRealNextAfter"
 
 end;
