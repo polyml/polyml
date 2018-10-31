@@ -86,11 +86,6 @@ struct
             if isNan x then raise General.Domain
             else if x == zero then 0 else if x < zero then ~1 else 1
     end
-
-    (* Question: The definition says "bitwise equal, ignoring signs on zeros".
-       If we assume that all numbers are normalised, is that the same as "equal"?*)
-    fun op ?= (x, y) =
-        isNan x orelse isNan y orelse x == y
         
     fun sameSign (x, y) = signBit x = signBit y
     and unordered (x, y) = isNan x orelse isNan y
@@ -126,11 +121,6 @@ struct
         else if r1 < r2 then LESS
         else if r1 > r2 then GREATER
         else UNORDERED
-
-    (* Question: The definition says "bitwise equal, ignoring signs on zeros".
-       If we assume that all numbers are normalised, is that the same as "equal"?*)
-    fun op ?= (x, y) =
-        isNan x orelse isNan y orelse x == y
 
     (* Question: The definition says "bitwise equal, ignoring signs on zeros".
        If we assume that all numbers are normalised, is that the same as "equal"?*)

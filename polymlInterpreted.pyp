@@ -62,6 +62,7 @@
 	<source name="basis\PRIM_IO.sml" />
 	<source name="basis\PrimIO.sml" />
 	<source name="basis\Real.sml" />
+	<source name="basis\Real32.sml" />
 	<source name="basis\RealArray.sml" />
 	<source name="basis\RealSignature.sml" />
 	<source name="basis\Signal.sml" />
@@ -90,9 +91,9 @@
 	<source name="basis\VectorSliceSignature.sml" />
 	<source name="basis\Weak.sml" />
 	<source name="basis\Windows.sml" />
+	<source name="basis\Word16.sml" />
 	<source name="basis\Word32.sml" />
 	<source name="basis\Word32In64.sml" />
-	<source name="basis\Word16.sml" />
 	<source name="basis\Word8.sml" />
 	<source name="basis\Word8Array.sml" />
 	<source name="basis\WordSignature.sml" />
