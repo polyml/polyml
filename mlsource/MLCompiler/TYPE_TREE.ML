@@ -64,9 +64,7 @@ struct
   open UTILITIES;
   open CODETREE;
   open EXPORTTREE
-  
-  val badType : types = BadType;
-  
+
   (* added 16/4/96 SPF *)
   fun sameTypeVar (TypeVar x, TypeVar y) = sameTv (x, y)
     | sameTypeVar _                      = false;
