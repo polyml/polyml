@@ -318,6 +318,13 @@ sig
         (* Untag a 32-bit floating point value into a XMM register.  If the source
            is in memory we just need to load the high-order word. *)
     |   UntagFloat of { source: argument, dest: preg, cache: preg option }
+    
+        (* Get and set the control registers.  These all have to work through
+           memory but it's simpler to assume they work through registers. *)
+    |   GetSSE2ControlReg of { dest: preg }
+    |   SetSSE2ControlReg of { source: preg }
+    |   GetX87ControlReg of { dest: preg }
+    |   SetX87ControlReg of { source: preg }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =

@@ -1190,7 +1190,34 @@ struct
                         in
                             destCode @ UntagFloat{source=sourceVal, dest=destVal, cache=newCache} :: sourceCode @ code
                         end
-        
+
+                    |   pushRegisters({instr=GetSSE2ControlReg{dest}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ GetSSE2ControlReg{dest=destVal} :: code
+                        end
+
+                    |   pushRegisters({instr=SetSSE2ControlReg{source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                        in
+                            SetSSE2ControlReg{source=sourceVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=GetX87ControlReg{dest}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ GetX87ControlReg{dest=destVal} :: code
+                        end
+
+                    |   pushRegisters({instr=SetX87ControlReg{source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                        in
+                            SetX87ControlReg{source=sourceVal} :: sourceCode @ code
+                        end
 
                     (* Find the common cache state. *)
                     val () = setCommonCacheState(List.map (#cache o asub blockOutput) (asub blockRefs blockNo))

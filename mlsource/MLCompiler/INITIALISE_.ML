@@ -871,10 +871,14 @@ struct
                 enterBinary(name, RealArith(oper, PrecSingle), binaryType)
         in
             val () = #enterType real32Env ("real", TypeConstrSet(floatConstr, []))
-            val () = enterUnary("toLarge", BuiltIns.DoubleFromFloat, floatType ->> Real)
-            (* This converts using the current rounding.  The fromLarge function takes
-               a specific rounding mode as an argument. *)
-            and () = enterUnary("fromReal", BuiltIns.FloatFromDouble, Real  ->> floatType)
+            val () = enterUnary("toLarge", BuiltIns.FloatToDouble, floatType ->> Real)
+            (* Conversion with the current rounding mode. *)
+            and () = enterUnary("fromReal", BuiltIns.DoubleToFloat NONE, Real  ->> floatType)
+            (* There are various versions of this function for each of the rounding modes. *)
+            and () = enterUnary("fromRealRound", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_NEAREST), Real  ->> floatType)
+            and () = enterUnary("fromRealTrunc", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_ZERO), Real  ->> floatType)
+            and () = enterUnary("fromRealCeil", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_POSINF), Real  ->> floatType)
+            and () = enterUnary("fromRealFloor", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_NEGINF), Real  ->> floatType)
             val () = #enterVal real32Env ("rtsCallFastR_R", rtsCallFastF_F)
             val () = #enterVal real32Env ("rtsCallFastRR_R", rtsCallFastFF_F)
             val () = #enterVal real32Env ("rtsCallFastRI_R", rtsCallFastFG_F)

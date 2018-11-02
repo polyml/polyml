@@ -60,8 +60,9 @@ sig
     |   RealAbs of precision     (* Set the sign bit of a real to positive. *)
     |   RealNeg of precision     (* Invert the sign bit of a real. *)
     |   RealFixedInt of precision (* Convert an integer value into a real value. *)
-    |   DoubleFromFloat (* Convert a single precision floating point value to double precision. *)
-    |   FloatFromDouble (* Convert a double precision floating point value to single precision. *)
+    |   FloatToDouble (* Convert a single precision floating point value to double precision. *)
+    |   DoubleToFloat of IEEEReal.rounding_mode option (* Convert a double precision floating point value to single precision. *)
+    |   RealToInt of precision * IEEEReal.rounding_mode (* Convert a double or float to a fixed precision int. *)
 
     and precision = PrecSingle | PrecDouble (* Single or double precision floating pt. *)
 

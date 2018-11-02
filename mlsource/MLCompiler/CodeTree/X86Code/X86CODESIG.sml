@@ -178,6 +178,11 @@ sig
     |   MoveXMMRegToGenReg of { source: xmmReg, output: genReg }
     |   MoveGenRegToXMMReg of { source: genReg, output: xmmReg }
     |   XMMShiftRight of { output: xmmReg, shift: Word8.word }
+    |   FPClearExc
+    |   FPLoadCtrlWord of memoryAddress (* Load FP control word. *)
+    |   FPStoreCtrlWord of memoryAddress (* Store FP control word. *)
+    |   XMMLoadCSR of memoryAddress (* Load combined control/status word. *)
+    |   XMMStoreCSR of memoryAddress (* Store combined control/status word. *)
 
     and jumpSize = JumpSize2 | JumpSize8
 

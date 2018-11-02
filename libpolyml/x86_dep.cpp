@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-16
+    Further work copyright David C. J. Matthews 2011-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1236,6 +1236,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 case 0xb6: /* movzl */
                 case 0xb7: // movzw
                 case 0xc1: /* xaddl */
+                case 0xae: // ldmxcsr/stmxcsr
                 case 0xaf: // imul
                     pt++; skipea(addr, &pt, process, false); break;
 

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,16 David C.J. Matthews
+    Copyright (c) 2012,13,16,18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -118,9 +118,11 @@ struct
                         (* If we float a 64-bit int to a 64-bit floating point value we may
                            lose precision so this depends on the current rounding mode. *)
                     |   RealFixedInt _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
-                    |   DoubleFromFloat => applicative
-                        (* This also depends on the rounding mode. *)
-                    |   FloatFromDouble => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   FloatToDouble => applicative
+                        (* The rounding mode is set explicitly. *)
+                    |   DoubleToFloat _ => applicative
+                        (* May raise the overflow exception *)
+                    |   RealToInt _ => PROPWORD_NOUPDATE orb PROPWORD_NODEREF
             in
                 operProps andb codeProps arg1
             end

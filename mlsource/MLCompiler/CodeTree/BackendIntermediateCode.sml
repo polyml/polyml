@@ -64,8 +64,9 @@ struct
         |   RealAbs of precision
         |   RealNeg of precision
         |   RealFixedInt of precision
-        |   DoubleFromFloat
-        |   FloatFromDouble
+        |   FloatToDouble
+        |   DoubleToFloat of IEEEReal.rounding_mode option
+        |   RealToInt of precision * IEEEReal.rounding_mode
 
         and precision = PrecSingle | PrecDouble
 
@@ -97,8 +98,10 @@ struct
         |   unaryRepr (RealAbs prec) = "RealAbs" ^ precRepr prec
         |   unaryRepr (RealNeg prec) = "RealNeg" ^ precRepr prec
         |   unaryRepr (RealFixedInt prec) = "RealFixedInt" ^ precRepr prec
-        |   unaryRepr DoubleFromFloat = "DoubleFromFloat"
-        |   unaryRepr FloatFromDouble = "FloatFromDouble"
+        |   unaryRepr FloatToDouble = "FloatToDouble"
+        |   unaryRepr (DoubleToFloat NONE) = "DoubleToFloat"
+        |   unaryRepr (DoubleToFloat (SOME mode)) = "DoubleToFloat" ^ rndModeRepr mode
+        |   unaryRepr (RealToInt (prec, mode)) = "RealToInt" ^ precRepr prec ^ rndModeRepr mode
 
         and binaryRepr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
@@ -138,6 +141,11 @@ struct
         
         and precRepr PrecSingle         = "Single"
         |   precRepr PrecDouble         = "Double"
+
+        and rndModeRepr IEEEReal.TO_NEAREST = "Round"
+        |   rndModeRepr IEEEReal.TO_NEGINF = "Down"
+        |   rndModeRepr IEEEReal.TO_POSINF = "Up"
+        |   rndModeRepr IEEEReal.TO_ZERO = "Trunc"
 
     end
 

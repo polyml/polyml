@@ -650,6 +650,7 @@ struct
     |   MOVDFromXMM (* move 32 bit value from XMM to general reg. *)
     |   MOVQToXMM   (* move 64 bit value from general reg.to XMM *)
     |   PSRLDQ (* Shift XMM register *)
+    |   LDSTMXCSR
 
     fun opToInt Group1_8_A32    =  0wx83
     |   opToInt Group1_8_A64    =  0wx83
@@ -736,6 +737,7 @@ struct
     |   opToInt MOVDFromXMM     = 0wx7e  (* Needs 66 0F escape. *)
     |   opToInt MOVQToXMM       = 0wx6e  (* Needs 66 0F escape. *)
     |   opToInt PSRLDQ          = 0wx73  (* Needs 66 0F escape. *)
+    |   opToInt LDSTMXCSR       = 0wxae  (* Needs 0F prefix. *)
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -812,6 +814,7 @@ struct
     |   escapePrefix MOVDFromXMM                = [0wx0f]
     |   escapePrefix MOVQToXMM                  = [0wx0f]
     |   escapePrefix PSRLDQ                     = [0wx0f]
+    |   escapePrefix LDSTMXCSR                  = [0wx0f]
     |   escapePrefix _                          = []
 
     (* Generate an opCode byte after doing any pending operations. *)
@@ -1095,6 +1098,11 @@ struct
     |   MoveXMMRegToGenReg of { source: xmmReg, output: genReg }
     |   MoveGenRegToXMMReg of { source: genReg, output: xmmReg }
     |   XMMShiftRight of { output: xmmReg, shift: Word8.word }
+    |   FPClearExc
+    |   FPLoadCtrlWord of memoryAddress (* Load FP control word. *)
+    |   FPStoreCtrlWord of memoryAddress (* Store FP control word. *)
+    |   XMMLoadCSR of memoryAddress (* Load combined control/status word. *)
+    |   XMMStoreCSR of memoryAddress (* Store combined control/status word. *)
 
     and jumpSize = JumpSize2 | JumpSize8
 
@@ -1328,6 +1336,23 @@ struct
         |   XMMShiftRight { output, shift } =>
             (
                 stream "XMMShiftRight "; printXMMReg output; stream " by "; stream(Word8.toString shift)
+            )
+        |   FPClearExc => stream "FPClearExc"
+        |   FPLoadCtrlWord address =>
+            (
+                stream "FPLoadCtrlWord "; stream " => "; printMemAddress address
+            )
+        |   FPStoreCtrlWord address =>
+            (
+                stream "FPStoreCtrlWord "; stream " <= "; printMemAddress address
+            )
+        |   XMMLoadCSR address =>
+            (
+                stream "XMMLoadCSR "; stream " => "; printMemAddress address
+            )
+        |   XMMStoreCSR address =>
+            (
+                stream "XMMStoreCSR "; stream " <= "; printMemAddress address
             )
         ;
  
@@ -1999,6 +2024,20 @@ struct
                 opcodePrefix oper @ escapePrefix oper @ [opToInt oper, modrm(Register, 0w3, rrC), shift]
             end
 
+        |   cgOp FPClearExc = opCodeBytes(FPESC 0w3, NONE) @ [ 0wxE2 ]
+
+        |   cgOp(FPLoadCtrlWord {base, offset, index}) =
+                opIndexedPlus2(FPESC 0w1, LargeInt.fromInt offset, base, index, 0w5)
+
+        |   cgOp(FPStoreCtrlWord  {base, offset, index}) =
+                opIndexedPlus2(FPESC 0w1, LargeInt.fromInt offset, base, index, 0w7)
+
+        |   cgOp(XMMLoadCSR  {base, offset, index}) =
+                opIndexedPlus2(LDSTMXCSR, LargeInt.fromInt offset, base, index, 0w2)
+
+        |   cgOp(XMMStoreCSR  {base, offset, index}) =
+                opIndexedPlus2(LDSTMXCSR, LargeInt.fromInt offset, base, index, 0w3)
+
     in
         List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
     end
@@ -2603,6 +2642,7 @@ struct
                 |   (0w1, 0w7, 0w7) => print "fcos"
                 |   (0w1, 0w6, 0w7) => print "fincstp"
                 |   (0w1, 0w6, 0w6) => print "fdecstp"
+                |   (0w3, 0w4, 0w2) => print "fnclex"
                 |   (0w5, 0w2, rno) => print ("fst \tst(" ^ Word8.toString rno ^ ")")
                 |   (0w5, 0w3, rno) => print ("fstp\tst(" ^ Word8.toString rno ^ ")")
                 |   (0w1, 0w0, rno) => print ("fld \tst(" ^ Word8.toString rno ^ ")")
@@ -2631,6 +2671,8 @@ struct
                 |   (0w1, 0w0) => (print "fld \t"; printEA(rex, SZDWord))
                 |   (0w1, 0w2) => (print "fst\t"; printEA(rex, SZDWord))
                 |   (0w1, 0w3) => (print "fstp\t"; printEA(rex, SZDWord))
+                |   (0w1, 0w5) => (print "fldcw\t"; printEA(rex, SZWord)) (* Control word is 16 bits *)
+                |   (0w1, 0w7) => (print "fstcw\t"; printEA(rex, SZWord)) (* Control word is 16 bits *)
                 |   (0w3, 0w0) => (print "fildl\t"; printEA(rex, SZQWord)) (* Double precision. *)
                 |   (0w7, 0w5) => (print "fildq\t"; printEA(rex, SZQWord))
                 |   (0w4, 0w0) => (print "fadd\t"; printEA(rex, SZQWord))
@@ -2768,6 +2810,18 @@ struct
                                     print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
                                     print ",";
                                     printEA (rex, SZWord)
+                                end
+
+                            |   0wxAE =>
+                                let
+                                    (* Opcode is determined by the next byte. *)
+                                    val opByte2 = codeVecGet (seg, !ptr);
+                                    val nnn = (opByte2 >>- 0w3) andb8 0w7
+                                in
+                                    case nnn of
+                                        0wx2 => (print "ldmxcsr\t"; printEA(rex, SZDWord))
+                                    |   0wx3 => (print "stmxcsr\t"; printEA(rex, SZDWord))
+                                    |   _ => (printValue(Word8.toLargeInt opByte); printValue(Word8.toLargeInt opByte2))
                                 end
 
                             |   0wxAF =>

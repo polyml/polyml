@@ -31,6 +31,12 @@ struct
     open Real32 (* Inherit the type and the built-in functions. *)
     open IEEEReal
 
+    fun fromLarge IEEEReal.TO_NEAREST = fromRealRound
+    |   fromLarge IEEEReal.TO_ZERO = fromRealTrunc
+    |   fromLarge IEEEReal.TO_POSINF = fromRealCeil
+    |   fromLarge IEEEReal.TO_NEGINF = fromRealFloor
+
+    (* Defined to use the current rounding mode. *)
     val fromInt = fromReal o Real.fromInt (* TODO *)
     and fromLargeInt = fromReal o Real.fromLargeInt
     
@@ -105,10 +111,10 @@ struct
         let
             val {man, exp} = Real.toManExp(toLarge r)
         in
-            {man = fromReal man, exp = exp }
+            {man = fromRealRound man, exp = exp }
         end
 
-    and fromManExp {man, exp} = fromReal(Real.fromManExp{man=toLarge man, exp=exp})
+    and fromManExp {man, exp} = fromRealRound(Real.fromManExp{man=toLarge man, exp=exp})
     
     fun compare (r1, r2) =
         if r1 == r2 then General.EQUAL
@@ -168,17 +174,6 @@ struct
     fun toInt mode r = Real.toInt mode (toLarge r)
     and toLargeInt mode r = Real.toLargeInt mode (toLarge r)
 
-    (* fromReal converts using the current rounding mode.  We need
-       to set the rounding mode and then restore the original. *)
-    fun fromLarge mode r =
-    let
-        open IEEEReal
-        val original = getRoundingMode()
-        val () = setRoundingMode mode
-    in
-        fromReal r before (setRoundingMode original)
-    end
-
     fun fmt fm r = Real.fmt fm (toLarge r)
     
     val toString = Real.toString o toLarge
@@ -194,7 +189,8 @@ struct
 
     val toDecimal = Real.toDecimal o toLarge
     
-    val fromDecimal = Option.map fromReal o Real.fromDecimal
+    (* Convert from decimal.  This is defined to use TO_NEAREST. *)
+    val fromDecimal = Option.map fromRealRound o Real.fromDecimal
 
     structure Math =
     struct

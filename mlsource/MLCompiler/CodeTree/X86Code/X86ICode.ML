@@ -282,6 +282,13 @@ struct
         (* Untag a 32-bit floating point value into a XMM register.  If the source
            is in memory we just need to load the high-order word. *)
     |   UntagFloat of { source: argument, dest: preg, cache: preg option }
+    
+        (* Get and set the control registers.  These all have to work through
+           memory but it's simpler to assume they work through registers. *)
+    |   GetSSE2ControlReg of { dest: preg }
+    |   SetSSE2ControlReg of { source: preg }
+    |   GetX87ControlReg of { dest: preg }
+    |   SetX87ControlReg of { source: preg }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -738,7 +745,15 @@ struct
                 printArg(source, stream); stream " => "; printReg(dest, stream);
                 case cache of NONE => () | SOME c => (stream " cache "; printReg(c, stream))
             )
-        
+
+        |   printICode(GetSSE2ControlReg{dest}, stream) = (stream "\tGetSSE2ControlReg\t"; printReg(dest, stream))
+ 
+        |   printICode(SetSSE2ControlReg{source}, stream) = (stream "\tSetSSE2ControlReg\t"; printReg(source, stream))
+
+        |   printICode(GetX87ControlReg{dest}, stream) = (stream "\tGetX87ControlReg\t"; printReg(dest, stream))
+ 
+        |   printICode(SetX87ControlReg{source}, stream) = (stream "\tSetX87ControlReg\t"; printReg(source, stream))
+       
         (* Print a basic block. *)
         fun printBlock stream (blockNo, BasicBlock{block, flow, ...}) =
         (

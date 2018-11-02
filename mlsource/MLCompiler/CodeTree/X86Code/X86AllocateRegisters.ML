@@ -724,6 +724,18 @@ struct
             in
                 allocateArgGeneral source
             end
+
+        |   registerAllocate({instr=GetSSE2ControlReg{dest=PReg destReg}, ...}) =
+                allocateRegister(destReg, NONE, generalRegisters)
+
+        |   registerAllocate({instr=SetSSE2ControlReg{source=PReg srcReg}, ...}) =
+                allocateRegister(srcReg, NONE, generalRegisters)
+
+        |   registerAllocate({instr=GetX87ControlReg{dest=PReg destReg}, ...}) =
+                allocateRegister(destReg, NONE, generalRegisters)
+
+        |   registerAllocate({instr=SetX87ControlReg{source=PReg srcReg}, ...}) =
+                allocateRegister(srcReg, NONE, generalRegisters)
     
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

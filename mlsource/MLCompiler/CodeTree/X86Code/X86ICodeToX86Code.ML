@@ -576,6 +576,10 @@ struct
             |   instructionUses(TagFloat{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(UntagFloat{dest, cache=SOME cacheR, ...}) = if isUsed dest then used cacheR else ()
             |   instructionUses(UntagFloat{source, dest, cache=NONE, ...}) = if isUsed dest then argUses source else ()
+            |   instructionUses(GetSSE2ControlReg _) = ()
+            |   instructionUses(SetSSE2ControlReg{source}) = used source
+            |   instructionUses(GetX87ControlReg _) = ()
+            |   instructionUses(SetX87ControlReg{source}) = used source
             
             
            (* Depth-first scan. *)
@@ -1419,13 +1423,56 @@ struct
             in
                 case codeExtArgumentAsGenReg source of
                     RegisterArg realSReg =>
-                    
                         XMMShiftRight{ output=regResult, shift=0w4 (* Bytes - not bits *) } ::
                         MoveGenRegToXMMReg {source=realSReg, output=regResult} :: code
                 |   MemoryArg{base, offset, index} =>
                         (* If the value is in memory we can just load the high order word. *)
                         XMMArith { opc=SSE2MoveFloat, source=MemoryArg{base=base, offset=offset+4, index=index}, output=regResult } :: code
                 |   _ => raise InternalError "UntagFloat - not register or memory"
+            end
+
+        |   codeExtended _ ({instr=GetSSE2ControlReg{dest=PReg dReg}, ...}, code) =
+            let
+                (* This has to work through memory.  Reserve one word on the stack, get the
+                   MXCSR register into it and pop it to the register. *)
+                val regResult = getAllocatedGenReg dReg
+            in
+                PopR regResult ::
+                XMMStoreCSR{base=esp, offset=0, index=NoIndex } ::
+                PushToStack(NonAddressConstArg 0) :: code
+            end
+
+        |   codeExtended _ ({instr=SetSSE2ControlReg{source=PReg sReg}, ...}, code) =
+            let
+                (* This has to work through memory.  Push the register to the stack,
+                   store the value into the control register and remove it from the stack. *)
+                val sourceReg = getAllocatedGenReg sReg
+            in
+                ResetStack{ numWords=1, preserveCC=false } ::
+                XMMLoadCSR{base=esp, offset=0, index=NoIndex } ::
+                PushToStack(RegisterArg sourceReg) :: code
+            end
+
+        |   codeExtended _ ({instr=GetX87ControlReg{dest=PReg dReg}, ...}, code) =
+            let
+                (* This has to work through memory.  Reserve one word on the stack, get the
+                   MXCSR register into it and pop it to the register. *)
+                val regResult = getAllocatedGenReg dReg
+            in
+                PopR regResult ::
+                FPStoreCtrlWord{base=esp, offset=0, index=NoIndex } ::
+                PushToStack(NonAddressConstArg 0) :: code
+            end
+
+        |   codeExtended _ ({instr=SetX87ControlReg{source=PReg sReg}, ...}, code) =
+            let
+                (* This has to work through memory.  Push the register to the stack,
+                   store the value into the control register and remove it from the stack. *)
+                val sourceReg = getAllocatedGenReg sReg
+            in
+                ResetStack{ numWords=1, preserveCC=false } ::
+                FPLoadCtrlWord{base=esp, offset=0, index=NoIndex } ::
+                PushToStack(RegisterArg sourceReg) :: code
             end
         
         val minStackCheck = 20
