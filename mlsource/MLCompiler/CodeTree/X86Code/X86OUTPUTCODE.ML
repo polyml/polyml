@@ -651,6 +651,14 @@ struct
     |   MOVQToXMM   (* move 64 bit value from general reg.to XMM *)
     |   PSRLDQ (* Shift XMM register *)
     |   LDSTMXCSR
+    |   CVTSD2SI32 (* Double to 32-bit int *)
+    |   CVTSD2SI64 (* Double to 64-bit int *)
+    |   CVTSS2SI32 (* Single to 32-bit int *)
+    |   CVTSS2SI64 (* Single to 64-bit int *)
+    |   CVTTSD2SI32 (* Double to 32-bit int - truncate towards zero *)
+    |   CVTTSD2SI64 (* Double to 64-bit int - truncate towards zero *)
+    |   CVTTSS2SI32 (* Single to 32-bit int - truncate towards zero *)
+    |   CVTTSS2SI64 (* Single to 64-bit int - truncate towards zero *)
 
     fun opToInt Group1_8_A32    =  0wx83
     |   opToInt Group1_8_A64    =  0wx83
@@ -738,6 +746,14 @@ struct
     |   opToInt MOVQToXMM       = 0wx6e  (* Needs 66 0F escape. *)
     |   opToInt PSRLDQ          = 0wx73  (* Needs 66 0F escape. *)
     |   opToInt LDSTMXCSR       = 0wxae  (* Needs 0F prefix. *)
+    |   opToInt CVTSD2SI32      = 0wx2d  (* Needs F2 0F prefix. *)
+    |   opToInt CVTSD2SI64      = 0wx2d  (* Needs F2 0F prefix and rex.w. *)
+    |   opToInt CVTSS2SI32      = 0wx2d  (* Needs F3 0F prefix. *)
+    |   opToInt CVTSS2SI64      = 0wx2d  (* Needs F3 0F prefix and rex.w. *)
+    |   opToInt CVTTSD2SI32     = 0wx2c  (* Needs F2 0F prefix. *)
+    |   opToInt CVTTSD2SI64     = 0wx2c  (* Needs F2 0F prefix. *)
+    |   opToInt CVTTSS2SI32     = 0wx2c  (* Needs F3 0F prefix. *)
+    |   opToInt CVTTSS2SI64     = 0wx2c  (* Needs F3 0F prefix and rex.w. *)
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -796,6 +812,14 @@ struct
     |   opcodePrefix MOVDFromXMM                = [0wx66]
     |   opcodePrefix MOVQToXMM                  = [0wx66]
     |   opcodePrefix PSRLDQ                     = [0wx66]
+    |   opcodePrefix CVTSD2SI32                 = [0wxf2]
+    |   opcodePrefix CVTSD2SI64                 = [0wxf2]
+    |   opcodePrefix CVTSS2SI32                 = [0wxf3]
+    |   opcodePrefix CVTSS2SI64                 = [0wxf3]
+    |   opcodePrefix CVTTSD2SI32                = [0wxf2]
+    |   opcodePrefix CVTTSD2SI64                = [0wxf2]
+    |   opcodePrefix CVTTSS2SI32                = [0wxf3]
+    |   opcodePrefix CVTTSS2SI64                = [0wxf3]
     |   opcodePrefix _                          = []
 
     (* A few instructions require an escape.  Escapes come after the REX. *)
@@ -815,6 +839,14 @@ struct
     |   escapePrefix MOVQToXMM                  = [0wx0f]
     |   escapePrefix PSRLDQ                     = [0wx0f]
     |   escapePrefix LDSTMXCSR                  = [0wx0f]
+    |   escapePrefix CVTSD2SI32                 = [0wx0f]
+    |   escapePrefix CVTSD2SI64                 = [0wx0f]
+    |   escapePrefix CVTSS2SI32                 = [0wx0f]
+    |   escapePrefix CVTSS2SI64                 = [0wx0f]
+    |   escapePrefix CVTTSD2SI32                = [0wx0f]
+    |   escapePrefix CVTTSD2SI64                = [0wx0f]
+    |   escapePrefix CVTTSS2SI32                = [0wx0f]
+    |   escapePrefix CVTTSS2SI64                = [0wx0f]
     |   escapePrefix _                          = []
 
     (* Generate an opCode byte after doing any pending operations. *)
@@ -855,6 +887,10 @@ struct
             |   IMUL_C8_64 => true
             |   IMUL_C32_64 => true
             |   MOVQToXMM => true
+            |   CVTSD2SI64 => true (* This affects the size of the integer source. *)
+            |   CVTSS2SI64 => true 
+            |   CVTTSD2SI64 => true
+            |   CVTTSS2SI64 => true
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
@@ -1103,6 +1139,8 @@ struct
     |   FPStoreCtrlWord of memoryAddress (* Store FP control word. *)
     |   XMMLoadCSR of memoryAddress (* Load combined control/status word. *)
     |   XMMStoreCSR of memoryAddress (* Store combined control/status word. *)
+    |   FPStoreInt of memoryAddress
+    |   XMMStoreInt of { source: xmmReg regOrMemoryArg, output: genReg, precision: fpSize, isTruncate: bool }
 
     and jumpSize = JumpSize2 | JumpSize8
 
@@ -1353,6 +1391,17 @@ struct
         |   XMMStoreCSR address =>
             (
                 stream "XMMStoreCSR "; stream " <= "; printMemAddress address
+            )
+        |   FPStoreInt address =>
+            (
+                stream "FPStoreInt "; stream " <= "; printMemAddress address
+            )
+        |   XMMStoreInt{ source, output, precision, isTruncate } =>
+            (
+                stream "XMMStoreInt";
+                case precision of SinglePrecision => stream "Single" | DoublePrecision => stream "Double";
+                if isTruncate then stream "Truncate " else stream " ";
+                printGReg output; stream " <= "; printRegOrMemoryArg printXMMReg source
             )
         ;
  
@@ -2038,6 +2087,36 @@ struct
         |   cgOp(XMMStoreCSR  {base, offset, index}) =
                 opIndexedPlus2(LDSTMXCSR, LargeInt.fromInt offset, base, index, 0w3)
 
+        |   cgOp(FPStoreInt {base, offset, index}) =
+                (* fistp dword ptr [esp] in 32-bit mode or fistp qword ptr [rsp] in 64-bit mode. *)
+                if isX64
+                then opIndexedPlus2(FPESC 0w7, LargeInt.fromInt offset, base, index, 0w7)
+                else opIndexedPlus2(FPESC 0w3, LargeInt.fromInt offset, base, index, 0w3)
+
+        |   cgOp(XMMStoreInt {source, output, precision, isTruncate}) =
+            let
+                (* The destination is a general register.  The source is an XMM register or memory. *)
+                val (rbC, rbX) = getReg output
+                val oper =
+                    case (isX64, precision, isTruncate) of
+                        (false, DoublePrecision, false) => CVTSD2SI32
+                    |   (true, DoublePrecision, false)  => CVTSD2SI64
+                    |   (false, SinglePrecision, false) => CVTSS2SI32
+                    |   (true, SinglePrecision, false)  => CVTSS2SI64
+                    |   (false, DoublePrecision, true)  => CVTTSD2SI32
+                    |   (true, DoublePrecision, true)   => CVTTSD2SI64
+                    |   (false, SinglePrecision, true)  => CVTTSS2SI32
+                    |   (true, SinglePrecision, true)   => CVTTSS2SI64
+            in
+                case source of
+                    MemoryArg{base, offset, index} =>
+                        opAddress(oper, LargeInt.fromInt offset, base, index, output)
+                |   RegisterArg(SSE2Reg rrS) =>
+                        opcodePrefix oper @ rexByte(oper, rbX, false, false) @
+                            escapePrefix oper @ [opToInt oper, modrm(Register, rbC, rrS)]
+                |   _ => raise InternalError "XMMStoreInt: Not register or memory"
+            end
+
     in
         List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
     end
@@ -2673,9 +2752,11 @@ struct
                 |   (0w1, 0w3) => (print "fstp\t"; printEA(rex, SZDWord))
                 |   (0w1, 0w5) => (print "fldcw\t"; printEA(rex, SZWord)) (* Control word is 16 bits *)
                 |   (0w1, 0w7) => (print "fstcw\t"; printEA(rex, SZWord)) (* Control word is 16 bits *)
-                |   (0w3, 0w0) => (print "fildl\t"; printEA(rex, SZQWord)) (* Double precision. *)
-                |   (0w7, 0w5) => (print "fildq\t"; printEA(rex, SZQWord))
-                |   (0w4, 0w0) => (print "fadd\t"; printEA(rex, SZQWord))
+                |   (0w3, 0w0) => (print "fild\t"; printEA(rex, SZDWord)) (* 32-bit int. *)
+                |   (0w7, 0w5) => (print "fild\t"; printEA(rex, SZQWord)) (* 64-bit int. *)
+                |   (0w3, 0w3) => (print "fistp\t"; printEA(rex, SZDWord)) (* 32-bit int. *)
+                |   (0w7, 0w7) => (print "fistp\t"; printEA(rex, SZQWord)) (* 64-bit int. *)
+                |   (0w4, 0w0) => (print "fadd\t"; printEA(rex, SZQWord)) (* Double precision. *)
                 |   (0w4, 0w1) => (print "fmul\t"; printEA(rex, SZQWord))
                 |   (0w4, 0w3) => (print "fcomp\t"; printEA(rex, SZQWord))
                 |   (0w4, 0w4) => (print "fsub\t"; printEA(rex, SZQWord))
@@ -2858,12 +2939,17 @@ struct
                     |   0wxf2 => (* SSE2 instruction *)
                         let
                             val nb = codeVecGet (seg, !ptr)
-                            val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                            val rr = (nb >>- 0w3) andb8 0w7
+                            val reg = SSE2Reg rr
                         in
                             case opByte2 of
                                 0wx10 => ( print "movsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
                             |   0wx11 => ( print "movsd\t"; printEAxmm(rex, SZQWord); print ","; print(xmmRegRepr reg)  )
                             |   0wx2a => ( print "cvtsi2sd\t"; print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW)  )
+                            |   0wx2c =>
+                                    ( print "cvttsd2si\t"; print (genRegRepr (mkReg(rr, rexR), sizeFromRexW)); print ","; printEAxmm(rex, sizeFromRexW)  )
+                            |   0wx2d =>
+                                    ( print "cvtsd2si\t"; print (genRegRepr (mkReg(rr, rexR), sizeFromRexW)); print ","; printEAxmm(rex, sizeFromRexW)  )
                             |   0wx58 => ( print "addsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
                             |   0wx59 => ( print "mulsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
                             |   0wx5a => ( print "cvtsd2ss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
@@ -2875,11 +2961,16 @@ struct
                     |   0wxf3 => (* SSE2 instruction. *)
                         let
                             val nb = codeVecGet (seg, !ptr)
-                            val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                            val rr = (nb >>- 0w3) andb8 0w7
+                            val reg = SSE2Reg rr
                         in
                             case opByte2 of
                                 0wx10 => ( print "movss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord) )
                             |   0wx11 => ( print "movss\t"; printEAxmm(rex, SZDWord); print ","; print(xmmRegRepr reg)  )
+                            |   0wx2c =>
+                                    ( print "cvttss2si\t"; print (genRegRepr (mkReg(rr, rexR), sizeFromRexW)); print ","; printEAxmm(rex, sizeFromRexW)  )
+                            |   0wx2d =>
+                                    ( print "cvtss2si\t"; print (genRegRepr (mkReg(rr, rexR), sizeFromRexW)); print ","; printEAxmm(rex, sizeFromRexW)  )
                             |   0wx5a => ( print "cvtss2sd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord)  )
                             |   0wx58 => ( print "addss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord) )
                             |   0wx59 => ( print "mulss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord) )

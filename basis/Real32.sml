@@ -164,15 +164,33 @@ struct
     fun realMod r = #frac(split r)
     
     val nextAfter = rtsCallFastFF_F "PolyRealFNextAfter"
-
-    (* Conversions to/from integer need to be redone,  Leave this for the moment. *)
-    val floor = Real.floor o toLarge
-    and ceil = Real.ceil o toLarge
-    and trunc = Real.trunc o toLarge
-    and round = Real.round o toLarge
     
-    fun toInt mode r = Real.toInt mode (toLarge r)
-    and toLargeInt mode r = Real.toLargeInt mode (toLarge r)
+    fun toLargeInt mode r = Real.toLargeInt mode (toLarge r)
+
+    local
+        (* These are defined to raise Domain rather than Overflow on Nans. *)
+        fun checkNan x = if isNan x then raise Domain else x
+        (* If int is fixed we use the hardware conversions otherwise we convert
+           it to real and use the real to arbitrary conversions. *)
+    in
+        val floor   =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toLargeInt IEEEReal.TO_NEGINF else floorFix o checkNan
+        and ceil    =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toLargeInt IEEEReal.TO_POSINF else ceilFix o checkNan
+        and trunc   =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toLargeInt IEEEReal.TO_ZERO else truncFix o checkNan
+        and round   =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toLargeInt IEEEReal.TO_NEAREST else roundFix o checkNan
+    
+        fun toInt IEEEReal.TO_NEGINF = floor
+         |  toInt IEEEReal.TO_POSINF = ceil
+         |  toInt IEEEReal.TO_ZERO = trunc
+         |  toInt IEEEReal.TO_NEAREST = round
+    end
 
     fun fmt fm r = Real.fmt fm (toLarge r)
     

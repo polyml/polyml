@@ -792,8 +792,9 @@ struct
             val compareType = Real ** Real ->> Bool
             and binaryType  = Real ** Real ->> Real
             and unaryType   = Real ->> Real
+            and realToFixType = Real ->> fixedIntType
 
-            open BuiltIns
+            open BuiltIns IEEEReal
 
             fun enterComparison(name, test) =
                 enterBinary(name, RealComparison(test, PrecDouble), compareType)
@@ -817,6 +818,10 @@ struct
             val () = enterUnary("~",   RealNeg PrecDouble, unaryType)
             val () = enterUnary("abs", RealAbs PrecDouble, unaryType)
             val () = enterUnary("fromFixedInt", RealFixedInt PrecDouble, fixedIntType ->> Real)
+            val () = enterUnary("truncFix", RealToInt(PrecDouble, TO_ZERO), realToFixType)
+            val () = enterUnary("roundFix", RealToInt(PrecDouble, TO_NEAREST), realToFixType)
+            val () = enterUnary("ceilFix", RealToInt(PrecDouble, TO_POSINF), realToFixType)
+            val () = enterUnary("floorFix", RealToInt(PrecDouble, TO_NEGINF), realToFixType)
         end
         
         local
@@ -862,8 +867,9 @@ struct
             val compareType = Float ** Float ->> Bool
             and binaryType  = Float ** Float ->> Float
             and unaryType   = Float ->> Float
+            and floatToFixType = Float ->> fixedIntType
 
-            open BuiltIns
+            open BuiltIns IEEEReal
 
             fun enterComparison(name, test) =
                 enterBinary(name, RealComparison(test, PrecSingle), compareType)
@@ -894,6 +900,10 @@ struct
             val () = enterBinaryOp("/",     ArithDiv)
             val () = enterUnary("~",   RealNeg PrecSingle, unaryType)
             val () = enterUnary("abs", RealAbs PrecSingle, unaryType)
+            val () = enterUnary("truncFix", RealToInt(PrecSingle, TO_ZERO), floatToFixType)
+            val () = enterUnary("roundFix", RealToInt(PrecSingle, TO_NEAREST), floatToFixType)
+            val () = enterUnary("ceilFix", RealToInt(PrecSingle, TO_POSINF), floatToFixType)
+            val () = enterUnary("floorFix", RealToInt(PrecSingle, TO_NEGINF), floatToFixType)
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")

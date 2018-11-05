@@ -86,7 +86,7 @@ struct
     val posInf : real = one/zero;
     val negInf : real = ~one/zero;
     
-    (* We only implement this sort of real. *)
+    (* Real is LargeReal. *)
     fun toLarge (x: real) : (*LargeReal.*)real =x
     fun fromLarge (_ : IEEEReal.rounding_mode) (x: (*LargeReal.*)real): real = x
 
@@ -164,16 +164,15 @@ struct
                 copySign(if Int.>(exp, 0) then posInf else zero, man)
     end
 
-    (* Convert to integer.  Ideally this would do the rounding/truncation as part of the
-       conversion but it doesn't seem to be possible to detect overflow properly.
-       Instead we use the real rounding/truncation, convert to arbitrary
-       precision and then check for overflow if necessary.  *)
+    (* Convert to integer. *)
     local
         (* The RTS function converts to at most a 64-bit value (even on 
            32-bits).  That will convert all the bits of the mantissa
            but if the exponent is large we may have to multiply by
            some power of two. *)
         val realToInt: real -> LargeInt.int  = RunCall.rtsCallFull1 "PolyRealBoxedToLongInt"
+        (* These are defined to raise Domain rather than Overflow on Nans. *)
+        fun checkNan x = if isNan x then raise Domain else x
     in
         val realFloor = Real.rtsCallFastR_R "PolyRealFloor"
         and realCeil  = Real.rtsCallFastR_R "PolyRealCeil"
@@ -192,29 +191,30 @@ struct
                 else IntInf.<< (realToInt(fromManExp{man=man, exp=precision}), Word.fromInt(exp - precision))
             end
 
-        fun floor x = toArbitrary(realFloor x)
-        (* Returns the largest integer <= x. *)
+        fun toLargeInt IEEEReal.TO_NEGINF = toArbitrary o realFloor
+         |  toLargeInt IEEEReal.TO_POSINF = toArbitrary o realCeil
+         |  toLargeInt IEEEReal.TO_ZERO = toArbitrary o realTrunc
+         |  toLargeInt IEEEReal.TO_NEAREST = toArbitrary o realRound
 
-        fun ceil x = toArbitrary(realCeil x)
-        (* Returns the smallest integer >= x. *)
-
-        fun trunc x = toArbitrary(realTrunc x)
-        (* Truncate towards zero. *)
-
-        fun round x = toArbitrary(realRound x)
-        (* Return the nearest integer, returning an even value if equidistant. *)
+        (* Conversions to FixedInt are put in by the compiler.  If int is fixed we can
+           use them otherwise we use the long versions. *)
+        val floor   =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toArbitrary o realFloor else Real.floorFix o checkNan
+        and ceil    =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toArbitrary o realCeil else Real.ceilFix o checkNan
+        and trunc   =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toArbitrary o realTrunc else Real.truncFix o checkNan
+        and round   =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt o toArbitrary o realTrunc else Real.roundFix o checkNan
         
-        fun toLargeInt IEEEReal.TO_NEGINF r = floor r
-         |  toLargeInt IEEEReal.TO_POSINF r = ceil r
-         |  toLargeInt IEEEReal.TO_ZERO r = trunc r
-         |  toLargeInt IEEEReal.TO_NEAREST r = round r
-
-        fun toInt mode x = LargeInt.toInt(toLargeInt mode x)
-        
-        val floor = LargeInt.toInt o floor
-        and ceil  = LargeInt.toInt o ceil
-        and trunc = LargeInt.toInt o trunc
-        and round = LargeInt.toInt o round
+        fun toInt IEEEReal.TO_NEGINF = floor
+         |  toInt IEEEReal.TO_POSINF = ceil
+         |  toInt IEEEReal.TO_ZERO = trunc
+         |  toInt IEEEReal.TO_NEAREST = round
     end;
 
     local
@@ -550,8 +550,10 @@ struct
         else if r1 > r2 then GREATER
         else UNORDERED
 
-    (* Question: The definition says "bitwise equal, ignoring signs on zeros".
-       If we assume that all numbers are normalised, is that the same as "equal"?*)
+    (* This seems to be similar to == except that where == always returns false
+       if either argument is a NaN this returns true.  The implementation of ==
+       treats the unordered case specially so it would be possible to implement
+       this in the same way.  *)
     fun op ?= (x, y) =
         isNan x orelse isNan y orelse x == y
 

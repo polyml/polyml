@@ -580,6 +580,8 @@ struct
             |   instructionUses(SetSSE2ControlReg{source}) = used source
             |   instructionUses(GetX87ControlReg _) = ()
             |   instructionUses(SetX87ControlReg{source}) = used source
+            |   instructionUses(X87RealToInt{source, ...}) = used source
+            |   instructionUses(SSE2RealToInt{source, ...}) = argUses source
             
             
            (* Depth-first scan. *)
@@ -1456,7 +1458,7 @@ struct
         |   codeExtended _ ({instr=GetX87ControlReg{dest=PReg dReg}, ...}, code) =
             let
                 (* This has to work through memory.  Reserve one word on the stack, get the
-                   MXCSR register into it and pop it to the register. *)
+                   X87 control register into it and pop it to the register. *)
                 val regResult = getAllocatedGenReg dReg
             in
                 PopR regResult ::
@@ -1473,6 +1475,31 @@ struct
                 ResetStack{ numWords=1, preserveCC=false } ::
                 FPLoadCtrlWord{base=esp, offset=0, index=NoIndex } ::
                 PushToStack(RegisterArg sourceReg) :: code
+            end
+
+        |   codeExtended _ ({instr=X87RealToInt{source=PReg sReg, dest=PReg dReg}, ...}, code) =
+            let
+                (* This has to work through memory.  Reserve one word on the stack,
+                   convert the value into it and pop it to the register. *)
+                val regResult = getAllocatedGenReg dReg
+                val fpReg = getAllocatedFPReg sReg
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
+                (* This currently pops the value. *)
+            in
+                PopR regResult ::
+                FPStoreInt{base=esp, offset=0, index=NoIndex } ::
+                PushToStack(NonAddressConstArg 0) :: code
+            end
+
+        |   codeExtended _ ({instr=SSE2RealToInt{source, dest=PReg dReg, isDouble, isTruncate}, ...}, code) =
+            let
+                (* The source is either an XMM register or memory. *)
+                val regResult = getAllocatedGenReg dReg
+                val opArg = codeExtArgumentAsXMMReg source
+            in
+                XMMStoreInt {
+                    source=opArg, precision=if isDouble then DoublePrecision else SinglePrecision,
+                    output = regResult, isTruncate=isTruncate } :: code
             end
         
         val minStackCheck = 20

@@ -204,6 +204,108 @@ struct
             |   leftRightTest TestGreater       = TestLess
             |   leftRightTest TestGreaterEqual  = TestLessEqual
         end
+        
+        (* Overflow check.  This raises Overflow if the overflow bit is set in the cc. *)
+        fun checkOverflow ({currHandler, ...}) ccRef =
+        let
+            val overFlowLab = newLabel() and noOverflowLab = newLabel()
+            val packetReg = newPReg()
+            val raiseCode = RaiseExceptionPacket{packetReg=packetReg}
+        in
+            [
+                BlockFlow(Conditional{ ccRef=ccRef, condition=JNO, trueJump=noOverflowLab, falseJump=overFlowLab }),
+                BlockLabel overFlowLab,
+                BlockSimple(LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=packetReg, kind=MoveWord}),
+                case currHandler of NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h),
+                BlockLabel noOverflowLab
+            ]
+        end
+        
+        fun setAndRestoreRounding (rndMode, doWithRounding) =
+        let
+            open IEEEReal
+            val savedRnd = newUReg() and setRnd = newUReg()
+        in
+            case fpMode of
+                FPModeX87 => [BlockSimple(GetX87ControlReg{dest=savedRnd})] @
+                    (* Set the appropriate bits in the control word. *)
+                    (case rndMode of
+                        TO_NEAREST => (* The bits need to be zero - just mask them. *)
+                            [BlockSimple(
+                                ArithmeticFunction{oper=AND, resultReg=setRnd, operand1=savedRnd,
+                                    operand2=IntegerConstant 0xf3ff, ccRef=newCCRef()})]
+                    |   TO_NEGINF =>
+                        let
+                            val wrk = newUReg()
+                        in
+                            (* Mask the bits and set to 01 *)
+                            [BlockSimple(
+                                ArithmeticFunction{oper=AND, resultReg=wrk, operand1=savedRnd,
+                                    operand2=IntegerConstant 0xf3ff, ccRef=newCCRef()}),
+                             BlockSimple(
+                                ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
+                                    operand2=IntegerConstant 0x400, ccRef=newCCRef()})]
+                        end
+                    |   TO_POSINF =>
+                        let
+                            val wrk = newUReg()
+                        in
+                            (* Mask the bits and set to 10 *)
+                            [BlockSimple(
+                                ArithmeticFunction{oper=AND, resultReg=wrk, operand1=savedRnd,
+                                    operand2=IntegerConstant 0xf3ff, ccRef=newCCRef()}),
+                             BlockSimple(
+                                ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
+                                    operand2=IntegerConstant 0x800, ccRef=newCCRef()})]
+                        end
+                    |   TO_ZERO => (* The bits need to be one - just set them. *)
+                            [BlockSimple(
+                                ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
+                                    operand2=IntegerConstant 0xc00, ccRef=newCCRef()})]) @
+                    [BlockSimple(SetX87ControlReg{source=setRnd})] @
+                    doWithRounding() @
+                    (* Restore the original rounding. *)
+                    [BlockSimple(SetX87ControlReg{source=savedRnd})]
+
+            |   FPModeSSE2 => [BlockSimple(GetSSE2ControlReg{dest=savedRnd})] @
+                    (* Set the appropriate bits in the control word. *)
+                    (case rndMode of
+                        TO_NEAREST => (* The bits need to be zero - just mask them. *)
+                            [BlockSimple(
+                                ArithmeticFunction{oper=AND, resultReg=setRnd, operand1=savedRnd,
+                                    operand2=IntegerConstant 0xffff9fff, ccRef=newCCRef()})]
+                    |   TO_NEGINF =>
+                        let
+                            val wrk = newUReg()
+                        in
+                            (* Mask the bits and set to 01 *)
+                            [BlockSimple(
+                                ArithmeticFunction{oper=AND, resultReg=wrk, operand1=savedRnd,
+                                    operand2=IntegerConstant 0xffff9fff, ccRef=newCCRef()}),
+                             BlockSimple(
+                                ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
+                                    operand2=IntegerConstant 0x2000, ccRef=newCCRef()})]
+                        end
+                    |   TO_POSINF =>
+                        let
+                            val wrk = newUReg()
+                        in
+                            (* Mask the bits and set to 10 *)
+                            [BlockSimple(
+                                ArithmeticFunction{oper=AND, resultReg=wrk, operand1=savedRnd,
+                                    operand2=IntegerConstant 0xffff9fff, ccRef=newCCRef()}),
+                             BlockSimple(
+                                ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
+                                    operand2=IntegerConstant 0x4000, ccRef=newCCRef()})]
+                        end
+                    |   TO_ZERO => (* The bits need to be one - just set them. *)
+                            [BlockSimple(
+                                ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
+                                    operand2=IntegerConstant 0x6000, ccRef=newCCRef()})]) @
+                    [BlockSimple(SetSSE2ControlReg{source=setRnd})] @
+                    doWithRounding() @
+                    [BlockSimple(SetSSE2ControlReg{source=savedRnd})]
+        end
 
         (* Generally we have an offset in words and no index register. *)
         fun wordOffsetAddress(offset, baseReg: preg): argument =
@@ -1544,125 +1646,97 @@ struct
                    is passed in explicitly. *)
                 val target = asTarget destination
                 val fpReg = newUReg() and fpReg2 = newUReg()
-                val savedRnd = newUReg() and setRnd = newUReg()
                 val (argCode, aReg1) = codeToPReg(arg1, context)
                 (* In 32-bit mode we need to box the float.  In 64-bit mode we can tag it. *)
                 (* We need to save the rounding mode before we change it and restore it afterwards. *)
                 open IEEEReal
-                val doConversion =
+                fun doConversion() =
                     case fpMode of
-                        FPModeX87 => [BlockSimple(GetX87ControlReg{dest=savedRnd})] @
-                            (* Set the appropriate bits in the control word. *)
-                            (case rndMode of
-                                TO_NEAREST => (* The bits need to be zero - just mask them. *)
-                                    [BlockSimple(
-                                        ArithmeticFunction{oper=AND, resultReg=setRnd, operand1=savedRnd,
-                                            operand2=IntegerConstant 0xf3ff, ccRef=newCCRef()})]
-                            |   TO_NEGINF =>
-                                let
-                                    val wrk = newUReg()
-                                in
-                                    (* Mask the bits and set to 01 *)
-                                    [BlockSimple(
-                                        ArithmeticFunction{oper=AND, resultReg=wrk, operand1=savedRnd,
-                                            operand2=IntegerConstant 0xf3ff, ccRef=newCCRef()}),
-                                     BlockSimple(
-                                        ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
-                                            operand2=IntegerConstant 0x400, ccRef=newCCRef()})]
-                                end
-                            |   TO_POSINF =>
-                                let
-                                    val wrk = newUReg()
-                                in
-                                    (* Mask the bits and set to 10 *)
-                                    [BlockSimple(
-                                        ArithmeticFunction{oper=AND, resultReg=wrk, operand1=savedRnd,
-                                            operand2=IntegerConstant 0xf3ff, ccRef=newCCRef()}),
-                                     BlockSimple(
-                                        ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
-                                            operand2=IntegerConstant 0x800, ccRef=newCCRef()})]
-                                end
-                            |   TO_ZERO => (* The bits need to be one - just set them. *)
-                                    [BlockSimple(
-                                        ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
-                                            operand2=IntegerConstant 0xc00, ccRef=newCCRef()})]) @
-                            [BlockSimple(SetX87ControlReg{source=setRnd}),
-                            (* Convert the value using the appropriate rounding. *)
-                            BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]}),
-                            (* Restore the original rounding. *)
-                            BlockSimple(SetX87ControlReg{source=savedRnd})]
+                        FPModeX87 => (* Convert the value using the appropriate rounding. *)
+                            [BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]})]
 
-                    |   FPModeSSE2 => [BlockSimple(GetSSE2ControlReg{dest=savedRnd})] @
-                            (* Set the appropriate bits in the control word. *)
-                            (case rndMode of
-                                TO_NEAREST => (* The bits need to be zero - just mask them. *)
-                                    [BlockSimple(
-                                        ArithmeticFunction{oper=AND, resultReg=setRnd, operand1=savedRnd,
-                                            operand2=IntegerConstant 0xffff9fff, ccRef=newCCRef()})]
-                            |   TO_NEGINF =>
-                                let
-                                    val wrk = newUReg()
-                                in
-                                    (* Mask the bits and set to 01 *)
-                                    [BlockSimple(
-                                        ArithmeticFunction{oper=AND, resultReg=wrk, operand1=savedRnd,
-                                            operand2=IntegerConstant 0xffff9fff, ccRef=newCCRef()}),
-                                     BlockSimple(
-                                        ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
-                                            operand2=IntegerConstant 0x2000, ccRef=newCCRef()})]
-                                end
-                            |   TO_POSINF =>
-                                let
-                                    val wrk = newUReg()
-                                in
-                                    (* Mask the bits and set to 10 *)
-                                    [BlockSimple(
-                                        ArithmeticFunction{oper=AND, resultReg=wrk, operand1=savedRnd,
-                                            operand2=IntegerConstant 0xffff9fff, ccRef=newCCRef()}),
-                                     BlockSimple(
-                                        ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
-                                            operand2=IntegerConstant 0x4000, ccRef=newCCRef()})]
-                                end
-                            |   TO_ZERO => (* The bits need to be one - just set them. *)
-                                    [BlockSimple(
-                                        ArithmeticFunction{oper=OR, resultReg=setRnd, operand1=savedRnd,
-                                            operand2=IntegerConstant 0x6000, ccRef=newCCRef()})]) @
-                            [BlockSimple(SetSSE2ControlReg{source=setRnd}),
-                            BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
-                            BlockSimple(TagFloat{source=fpReg2, dest=target}),
-                            BlockSimple(SetSSE2ControlReg{source=savedRnd})]
+                    |   FPModeSSE2 =>
+                            [BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
+                             BlockSimple(TagFloat{source=fpReg2, dest=target})]
             in
-                (argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @ doConversion, RegisterArgument target, false)
+                (argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @
+                    setAndRestoreRounding(rndMode, doConversion), RegisterArgument target, false)
             end
 
         |   codeToICodeUnary({oper=BuiltIns.RealToInt(precision, rndMode), arg1}, context, _, destination) =
             let
+                val target = asTarget destination
+                val chkOverflow = newCCRef()
+                val convResult = newUReg() and wrkReg2 = newUReg()
+                (* Convert a floating point value to an integer.  We need to raise overflow if the
+                   result is out of range.  We first convert the value to 32/64 bits then tag it.
+                   An overflow can happen either because the real number does not fit in 32/64
+                   bits or if it is not a 31/63 bit value.  Fortunately, if the first conversion
+                   fails the result is a value that causes an overflow when we try it shift it
+                   so the check for overflow only needs to happen there.
+                   There is an SSE2 instruction that implements truncation (round to zero)
+                   directly but in other cases we need to set the rounding mode. *)
+                val doConvert =
+                    case (fpMode, precision) of
+                        (FPModeX87, _) =>
+                        let
+                        
+                            val fpReg = newUReg()
+                            val (argCode, aReg) = codeToPReg(arg1, context)
+                            fun doConvert() = [BlockSimple(X87RealToInt{source=fpReg, dest=convResult })]
+                        in
+                            argCode @
+                                [BlockSimple(LoadArgument{source=wordAt aReg, dest=fpReg, kind=MoveDouble})] @
+                                    setAndRestoreRounding(rndMode, doConvert)
+                        end
+
+                    |   (FPModeSSE2, BuiltIns.PrecDouble) =>
+                        let
+                            val (argCode, argReg) = codeToPReg(arg1, context)
+                            fun doConvert() =
+                                [BlockSimple(
+                                    SSE2RealToInt{source=wordAt argReg, dest=convResult, isDouble=true,
+                                        isTruncate = rndMode = IEEEReal.TO_ZERO }) ]
+                        in
+                            argCode @ (
+                                case rndMode of
+                                    IEEEReal.TO_ZERO => doConvert()
+                                |   _ => setAndRestoreRounding(rndMode, doConvert))
+                        end
+
+                    |   (FPModeSSE2, BuiltIns.PrecSingle) =>
+                        let
+                            val (argCode, aReg) = codeToPReg(arg1, context)
+                            val fpReg = newUReg()
+                            fun doConvert() =
+                                [BlockSimple(
+                                    SSE2RealToInt{source=RegisterArgument fpReg, dest=convResult, isDouble=false,
+                                        isTruncate = rndMode = IEEEReal.TO_ZERO })]
+                        in
+                            argCode @ [BlockSimple(UntagFloat{source=RegisterArgument aReg, dest=fpReg, cache=NONE})] @
+                            (
+                                case rndMode of
+                                    IEEEReal.TO_ZERO => doConvert()
+                                |   _ => setAndRestoreRounding(rndMode, doConvert)
+                            )
+                        end
+
+                val checkAndTag =
+                    BlockSimple(ShiftOperation{ shift=SHL, resultReg=wrkReg2, operand=convResult, shiftAmount=IntegerConstant 1, ccRef=chkOverflow}) ::
+                        checkOverflow context chkOverflow @
+                        [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=wrkReg2, operand2=IntegerConstant 1, ccRef = newCCRef()})]
             in
-                raise InternalError "TODO"
+                (doConvert @ checkAndTag, RegisterArgument target, false)
             end
  
         and codeToICodeBinary(instr as {oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(BICBinary instr, context, isTail, destination)
 
-        |   codeToICodeBinary({oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context as {currHandler, ...}, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
-                fun checkOverflow ccRef =
-                let
-                    val overFlowLab = newLabel() and noOverflowLab = newLabel()
-                    val packetReg = newPReg()
-                    val raiseCode = RaiseExceptionPacket{packetReg=packetReg}
-                in
-                    [
-                        BlockFlow(Conditional{ ccRef=ccRef, condition=JNO, trueJump=noOverflowLab, falseJump=overFlowLab }),
-                        BlockLabel overFlowLab,
-                        BlockSimple(LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=packetReg, kind=MoveWord}),
-                        case currHandler of NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h),
-                        BlockLabel noOverflowLab
-                    ]
-                end
             in
-                (codeFixedPrecisionArith(oper, arg1, arg2, context, target, checkOverflow), RegisterArgument target, false)
+                (codeFixedPrecisionArith(oper, arg1, arg2, context, target, checkOverflow context), RegisterArgument target, false)
             end
 
         |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =

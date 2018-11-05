@@ -1219,6 +1219,22 @@ struct
                             SetX87ControlReg{source=sourceVal} :: sourceCode @ code
                         end
 
+                    |   pushRegisters({instr=X87RealToInt{source, dest}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ X87RealToInt{source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=SSE2RealToInt{source, dest, isDouble, isTruncate}, ...}, code) =
+                        let
+                            val (srcVal, sourceCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ SSE2RealToInt{source=srcVal, dest=destVal, isDouble=isDouble, isTruncate=isTruncate} :: sourceCode @ code
+                        end
+
                     (* Find the common cache state. *)
                     val () = setCommonCacheState(List.map (#cache o asub blockOutput) (asub blockRefs blockNo))
 

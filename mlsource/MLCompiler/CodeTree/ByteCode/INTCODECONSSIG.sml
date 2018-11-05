@@ -36,10 +36,13 @@ sig
     and opcode_unsignedToLongW: opcode
     and opcode_realAbs: opcode
     and opcode_realNeg: opcode
-    and opcode_floatFixedInt: opcode
+    and opcode_fixedIntToReal: opcode
+    and opcode_fixedIntToFloat: opcode
+    and opcode_floatToReal: opcode
+    and opcode_floatAbs: opcode
+    and opcode_floatNeg: opcode
     
     val opcode_equalWord: opcode
-    val opcode_notequalWord: opcode (* Not currently generated. *)
     and opcode_lessSigned: opcode
     and opcode_lessUnsigned: opcode
     and opcode_lessEqSigned: opcode
@@ -69,7 +72,6 @@ sig
     val opcode_wordShiftRArith: opcode
     val opcode_allocByteMem: opcode
     val opcode_lgWordEqual: opcode
-    val opcode_lgWordNotequal: opcode
     val opcode_lgWordLess: opcode
     val opcode_lgWordLessEq: opcode
     val opcode_lgWordGreater: opcode
@@ -86,7 +88,6 @@ sig
     val opcode_lgWordShiftRLog: opcode
     val opcode_lgWordShiftRArith: opcode
     val opcode_realEqual: opcode
-    val opcode_realNotequal: opcode
     val opcode_realLess: opcode
     val opcode_realLessEq: opcode
     val opcode_realGreater: opcode
@@ -95,6 +96,15 @@ sig
     val opcode_realSub: opcode
     val opcode_realMult: opcode
     val opcode_realDiv: opcode
+    val opcode_floatEqual: opcode
+    val opcode_floatLess: opcode
+    val opcode_floatLessEq: opcode
+    val opcode_floatGreater: opcode
+    val opcode_floatGreaterEq: opcode
+    val opcode_floatAdd: opcode
+    val opcode_floatSub: opcode
+    val opcode_floatMult: opcode
+    val opcode_floatDiv: opcode
     val opcode_getThreadId: opcode
     val opcode_allocWordMemory: opcode
     val opcode_alloc_ref: opcode
@@ -142,6 +152,10 @@ sig
    val genCase        : int * code -> labels list
    val genTuple       : int * code -> unit
    val genTailCall    : int * int * code -> unit
+   
+   val genDoubleToFloat: IEEEReal.rounding_mode option * code -> unit
+   and genRealToInt:   IEEEReal.rounding_mode * code -> unit
+   and genFloatToInt:  IEEEReal.rounding_mode * code -> unit
 
    val genRTSCallFast:    int * code -> unit
    val genRTSCallFull:    int * code -> unit
@@ -149,6 +163,10 @@ sig
    val genRTSCallFastRealRealtoReal: code -> unit
    val genRTSCallFastGeneraltoReal: code -> unit
    val genRTSCallFastRealGeneraltoReal: code -> unit
+   val genRTSCallFastFloattoFloat: code -> unit
+   val genRTSCallFastFloatFloattoFloat: code -> unit
+   val genRTSCallFastGeneraltoFloat: code -> unit
+   val genRTSCallFastFloatGeneraltoFloat: code -> unit
    
    val genOpcode: opcode * code -> unit
 

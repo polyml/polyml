@@ -325,6 +325,11 @@ sig
     |   SetSSE2ControlReg of { source: preg }
     |   GetX87ControlReg of { dest: preg }
     |   SetX87ControlReg of { source: preg }
+    
+        (* Convert a floating point value to an integer. *)
+    |   X87RealToInt of { source: preg, dest: preg }
+        (* Convert a floating point value to an integer. *)
+    |   SSE2RealToInt of { source: argument, dest: preg, isDouble: bool, isTruncate: bool }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =

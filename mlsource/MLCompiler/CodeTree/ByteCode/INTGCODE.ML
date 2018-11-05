@@ -65,9 +65,6 @@ struct
         EndOfProc
     |   NotEnd
 
-    (* For the moment this the easiest way to tell. *)
-    val is32In64 = Address.nativeWordSize <> Address.wordSize
-
     (* Code generate a function or global declaration *)
     fun codegen (pt, cvec, recReference: machineWord option, numOfArgs, localCount, parameters) : address =
     let
@@ -489,11 +486,16 @@ struct
                 |   LongWordToTagged => genOpcode(opcode_longWToTagged, cvec)
                 |   SignedToLongWord => genOpcode(opcode_signedToLongW, cvec)
                 |   UnsignedToLongWord => genOpcode(opcode_unsignedToLongW, cvec)
-                |   RealAbs => genOpcode(opcode_realAbs, cvec)
-                |   RealNeg => genOpcode(opcode_realNeg, cvec)
-                |   RealFixedInt => genOpcode(opcode_floatFixedInt, cvec)
-                |   DoubleFromFloat => raise InternalError "TODO: DoubleFromFloat"
-                |   FloatFromDouble => raise InternalError "TODO: FloatFromDouble"
+                |   RealAbs PrecDouble => genOpcode(opcode_realAbs, cvec)
+                |   RealNeg PrecDouble => genOpcode(opcode_realNeg, cvec)
+                |   RealFixedInt PrecDouble => genOpcode(opcode_fixedIntToReal, cvec)
+                |   RealAbs PrecSingle => genOpcode(opcode_floatAbs, cvec)
+                |   RealNeg PrecSingle => genOpcode(opcode_floatNeg, cvec)
+                |   RealFixedInt PrecSingle => genOpcode(opcode_fixedIntToFloat, cvec)
+                |   FloatToDouble => genOpcode(opcode_floatToReal, cvec)
+                |   DoubleToFloat rnding => genDoubleToFloat(rnding, cvec)
+                |   RealToInt (PrecDouble, rnding) => genRealToInt(rnding, cvec)
+                |   RealToInt (PrecSingle, rnding) => genFloatToInt(rnding, cvec)
             end
 
         |   BICBinary { oper, arg1, arg2 } =>
@@ -557,17 +559,29 @@ struct
                 |   LargeWordShift ShiftLeft => genOpcode(opcode_lgWordShiftLeft, cvec)
                 |   LargeWordShift ShiftRightLogical => genOpcode(opcode_lgWordShiftRLog, cvec)
                 |   LargeWordShift ShiftRightArithmetic => genOpcode(opcode_lgWordShiftRArith, cvec)
-                
-                |   RealComparison TestEqual => genOpcode(opcode_realEqual, cvec)
-                |   RealComparison TestLess => genOpcode(opcode_realLess, cvec)
-                |   RealComparison TestLessEqual => genOpcode(opcode_realLessEq, cvec)
-                |   RealComparison TestGreater => genOpcode(opcode_realGreater, cvec)
-                |   RealComparison TestGreaterEqual => genOpcode(opcode_realGreaterEq, cvec)
 
-                |   RealArith ArithAdd => genOpcode(opcode_realAdd, cvec)
-                |   RealArith ArithSub => genOpcode(opcode_realSub, cvec)
-                |   RealArith ArithMult => genOpcode(opcode_realMult, cvec)
-                |   RealArith ArithDiv => genOpcode(opcode_realDiv, cvec)
+                |   RealComparison (TestEqual, PrecDouble) => genOpcode(opcode_realEqual, cvec)
+                |   RealComparison (TestLess, PrecDouble) => genOpcode(opcode_realLess, cvec)
+                |   RealComparison (TestLessEqual, PrecDouble) => genOpcode(opcode_realLessEq, cvec)
+                |   RealComparison (TestGreater, PrecDouble) => genOpcode(opcode_realGreater, cvec)
+                |   RealComparison (TestGreaterEqual, PrecDouble) => genOpcode(opcode_realGreaterEq, cvec)
+
+                |   RealComparison (TestEqual, PrecSingle) => genOpcode(opcode_floatEqual, cvec)
+                |   RealComparison (TestLess, PrecSingle) => genOpcode(opcode_floatLess, cvec)
+                |   RealComparison (TestLessEqual, PrecSingle) => genOpcode(opcode_floatLessEq, cvec)
+                |   RealComparison (TestGreater, PrecSingle) => genOpcode(opcode_floatGreater, cvec)
+                |   RealComparison (TestGreaterEqual, PrecSingle) => genOpcode(opcode_floatGreaterEq, cvec)
+
+                |   RealArith (ArithAdd, PrecDouble) => genOpcode(opcode_realAdd, cvec)
+                |   RealArith (ArithSub, PrecDouble) => genOpcode(opcode_realSub, cvec)
+                |   RealArith (ArithMult, PrecDouble) => genOpcode(opcode_realMult, cvec)
+                |   RealArith (ArithDiv, PrecDouble) => genOpcode(opcode_realDiv, cvec)
+
+                |   RealArith (ArithAdd, PrecSingle) => genOpcode(opcode_floatAdd, cvec)
+                |   RealArith (ArithSub, PrecSingle) => genOpcode(opcode_floatSub, cvec)
+                |   RealArith (ArithMult, PrecSingle) => genOpcode(opcode_floatMult, cvec)
+                |   RealArith (ArithDiv, PrecSingle) => genOpcode(opcode_floatDiv, cvec)
+
                 |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
                  ;
                 decsp() (* Removes one item from the stack. *)
@@ -1129,6 +1143,15 @@ struct
                 rtsCall (fn (_, c) => genRTSCallFastGeneraltoReal c) (entryName, 1, debugArgs)
             and rtsCallFastRealGeneraltoReal(entryName, debugArgs) =
                 rtsCall (fn (_, c) => genRTSCallFastRealGeneraltoReal c) (entryName, 2, debugArgs)
+            
+            fun rtsCallFastFloattoFloat(entryName, debugArgs) =
+                rtsCall (fn (_, c) => genRTSCallFastFloattoFloat c) (entryName, 1, debugArgs)
+            and rtsCallFastFloatFloattoFloat(entryName, debugArgs) =
+                rtsCall (fn (_, c) => genRTSCallFastFloatFloattoFloat c) (entryName, 2, debugArgs)
+            and rtsCallFastGeneraltoFloat(entryName, debugArgs) =
+                rtsCall (fn (_, c) => genRTSCallFastGeneraltoFloat c) (entryName, 1, debugArgs)
+            and rtsCallFastFloatGeneraltoFloat(entryName, debugArgs) =
+                rtsCall (fn (_, c) => genRTSCallFastFloatGeneraltoFloat c) (entryName, 2, debugArgs)
         end
     end
 

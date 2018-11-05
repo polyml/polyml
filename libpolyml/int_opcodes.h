@@ -36,7 +36,6 @@
 #define INSTR_pad           0x0e
 #define INSTR_raise_ex      0x10
 #define INSTR_get_store_w   0x11
-#define INSTR_non_local     0x12
 #define INSTR_local_w       0x13
 #define INSTR_indirect_w    0x14
 #define INSTR_move_to_vec_w 0x15
@@ -86,23 +85,34 @@
 #define INSTR_return_1      0x42
 #define INSTR_return_2      0x43
 #define INSTR_return_3      0x44
-#define INSTR_move_to_vec_0 0x45
-#define INSTR_move_to_vec_1 0x46
-#define INSTR_move_to_vec_2 0x47
-#define INSTR_move_to_vec_3 0x48
-#define INSTR_move_to_vec_4 0x49
-#define INSTR_move_to_vec_5 0x4a
-#define INSTR_move_to_vec_6 0x4b
-#define INSTR_move_to_vec_7 0x4c
+#define INSTR_move_to_vec_0 0x45    // Legacy
+#define INSTR_move_to_vec_1 0x46    // Legacy
+#define INSTR_move_to_vec_2 0x47    // Legacy
+#define INSTR_move_to_vec_3 0x48    // Legacy
+#define INSTR_move_to_vec_4 0x49    // Legacy
+#define INSTR_move_to_vec_5 0x4a    // Legacy
+#define INSTR_move_to_vec_6 0x4b    // Legacy
+#define INSTR_move_to_vec_7 0x4c    // Legacy
 #define INSTR_reset_1       0x50
 #define INSTR_reset_2       0x51
 #define INSTR_get_store_2   0x52
 #define INSTR_get_store_3   0x53
 #define INSTR_get_store_4   0x54
 #define INSTR_tuple_container 0x55
-#define INSTR_non_local_l_1 0x56
-#define INSTR_non_local_l_2 0x57
-#define INSTR_non_local_l_3 0x58
+#define INSTR_floatAbs      0x56
+#define INSTR_floatNeg      0x57
+#define INSTR_fixedIntToFloat  0x58
+#define INSTR_floatToReal   0x59
+#define INSTR_realToFloat   0x5a
+#define INSTR_floatEqual    0x5b
+#define INSTR_floatLess     0x5c
+#define INSTR_floatLessEq   0x5d
+#define INSTR_floatGreater  0x5e
+#define INSTR_floatGreaterEq 0x5f
+#define INSTR_floatAdd      0x60
+#define INSTR_floatSub      0x61
+#define INSTR_floatMult     0x62
+#define INSTR_floatDiv      0x63
 #define INSTR_reset_r_1     0x64
 #define INSTR_reset_r_2     0x65
 #define INSTR_reset_r_3     0x66
@@ -113,6 +123,12 @@
 #define INSTR_tuple_4       0x6b
 #define INSTR_lock          0x6c
 #define INSTR_ldexc         0x6d
+#define INSTR_realToInt     0x6e
+#define INSTR_floatToInt    0x6f
+#define INSTR_callFastFtoF  0x70
+#define INSTR_callFastGtoF  0x71
+#define INSTR_callFastFFtoF 0x72
+#define INSTR_callFastFGtoF 0x73
 #define INSTR_push_handler  0x78
 #define INSTR_tail_b_b      0x7b
 #define INSTR_tail          0x7c
@@ -149,9 +165,8 @@
 #define INSTR_unsignedToLongW   0x9c
 #define INSTR_realAbs           0x9d
 #define INSTR_realNeg           0x9e
-#define INSTR_floatFixedInt     0x9f
+#define INSTR_fixedIntToReal    0x9f
 #define INSTR_equalWord         0xa0
-#define INSTR_notequalWord      0xa1
 #define INSTR_lessSigned        0xa2
 #define INSTR_lessUnsigned      0xa3
 #define INSTR_lessEqSigned      0xa4
@@ -180,7 +195,6 @@
 #define INSTR_wordShiftRArith   0xbc
 #define INSTR_allocByteMem      0xbd
 #define INSTR_lgWordEqual       0xbe
-#define INSTR_lgWordNotequal    0xbf
 #define INSTR_lgWordLess        0xc0
 #define INSTR_lgWordLessEq      0xc1
 #define INSTR_lgWordGreater     0xc2
@@ -197,7 +211,6 @@
 #define INSTR_lgWordShiftRLog   0xcd
 #define INSTR_lgWordShiftRArith 0xce
 #define INSTR_realEqual         0xcf
-#define INSTR_realNotequal      0xd0
 #define INSTR_realLess          0xd1
 #define INSTR_realLessEq        0xd2
 #define INSTR_realGreater       0xd3

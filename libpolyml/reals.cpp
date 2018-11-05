@@ -708,22 +708,17 @@ static Handle powerOf(TaskData *mdTaskData, Handle args)
     return real_result(mdTaskData, PolyRealPow(x, y));
 }
 
-#define POLY_ROUND_TONEAREST    0
-#define POLY_ROUND_DOWNWARD     1
-#define POLY_ROUND_UPWARD       2
-#define POLY_ROUND_TOZERO       3
-
 #if defined(__SOFTFP__)
 // soft-float lacks proper rounding mode support
 // While some systems will support fegetround/fesetround, it will have no
 // effect on the actual rounding performed, as the software implementation only
 // ever rounds to nearest.
-static int getrounding()
+int getrounding()
 {
     return POLY_ROUND_TONEAREST;
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     switch (rounding)
     {
@@ -736,7 +731,7 @@ static int setrounding(int rounding)
 // but they are frequently inlined 
 #elif defined(HAVE_FENV_H)
 // C99 version.  This is becoming the most common.
-static int getrounding()
+int getrounding()
 {
     switch (fegetround())
     {
@@ -750,7 +745,7 @@ static int getrounding()
     return POLY_ROUND_TONEAREST;
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     switch (rounding)
     {
@@ -766,7 +761,7 @@ static int setrounding(int rounding)
 
 #elif (defined(HAVE_IEEEFP_H) && ! defined(__CYGWIN__))
 // Older FreeBSD.  Cygwin has the ieeefp.h header but not the functions!
-static int getrounding()
+int getrounding()
 {
     switch (fpgetround())
     {
@@ -778,7 +773,7 @@ static int getrounding()
     }
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     switch (rounding)
     {
@@ -792,7 +787,7 @@ static int setrounding(int rounding)
 
 #elif defined(_WIN32)
 // Windows version
-static int getrounding()
+int getrounding()
 {
     switch (_controlfp(0,0) & _MCW_RC)
     {
@@ -804,7 +799,7 @@ static int getrounding()
     return POLY_ROUND_TONEAREST;
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     switch (rounding)
     {
@@ -818,7 +813,7 @@ static int setrounding(int rounding)
 
 #elif defined(_FPU_GETCW) && defined(_FPU_SETCW)
 // Older Linux version
-static int getrounding()
+int getrounding()
 {
     fpu_control_t ctrl;
     _FPU_GETCW(ctrl);
@@ -832,7 +827,7 @@ static int getrounding()
     return POLY_ROUND_TONEAREST; /* Never reached but this avoids warning message. */
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     fpu_control_t ctrl;
     _FPU_GETCW(ctrl);
@@ -849,12 +844,12 @@ static int setrounding(int rounding)
 }
 #else
 // Give up.  Assume that we only support TO_NEAREST
-static int getrounding()
+int getrounding()
 {
     return POLY_ROUND_TONEAREST;
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     if (rounding == POLY_ROUND_TONEAREST)
         return 0;

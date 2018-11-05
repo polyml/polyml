@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2015-17.
+    Further development Copyright David C.J. Matthews 2015-18.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -114,6 +114,14 @@ const PolyWord Zero = TAGGED(0);
 
 union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 
+// We're using float for Real32 so it needs to be 32-bits.
+// Assume that's true for the moment.
+#if (SIZEOF_FLOAT != 4)
+#error "Float is not 32-bits.  Please report this"
+#endif
+
+union flt { float fl; int32_t i; };
+
 class IntTaskData: public TaskData {
 public:
     IntTaskData(): interrupt_requested(false), overflowPacket(0), dividePacket(0) {}
@@ -195,7 +203,52 @@ public:
             uniondb.puns[i] = p.AsObjPtr()->Get(i).AsUnsigned();
         return uniondb.dble;
     }
-    
+
+    // Largely copied from reals.cpp
+
+#if (SIZEOF_FLOAT < SIZEOF_POLYWORD)
+
+    // Typically for 64-bit mode.  Use a tagged representation.
+    // The code-generator on the X86/64 assumes the float is in the
+    // high order word.
+#define FLT_SHIFT ((SIZEOF_POLYWORD-SIZEOF_FLOAT)*8)
+    float unboxFloat(PolyWord p)
+    {
+        union flt argx;
+        argx.i = p.AsSigned() >> FLT_SHIFT;
+        return argx.fl;
+    }
+
+    PolyObject *boxFloat(float f, POLYCODEPTR &pc, PolyWord *&sp)
+    {
+        union flt argx;
+        argx.fl = f;
+        PolyWord p = PolyWord::FromSigned(((POLYSIGNED)argx.i << FLT_SHIFT) + 1);
+        return p.AsObjPtr(); // Temporarily cast it to this even though it isn't really
+    }
+#else
+    // Typically for 32-bit mode.  Use a boxed representation.
+    PolyObject *boxFloat(float f, POLYCODEPTR &pc, PolyWord *&sp)
+    {
+        PolyObject *mem = this->allocateMemory(1, pc, sp);
+        if (mem == 0) return 0;
+        mem->SetLengthWord(1, F_BYTE_OBJ);
+        union flt argx;
+        argx.fl = f;
+        mem->Set(0, PolyWord::FromSigned(argx.i));
+        return mem;
+    }
+
+    // Extract a double value from a box.
+    float unboxFloat(PolyWord p)
+    {
+        union flt argx;
+        argx.i = (int32_t)p.AsObjPtr()->Get(0).AsSigned();
+        return argx.fl;
+    }
+
+#endif
+
     // Update the copies in the task object
     void SaveInterpreterState(POLYCODEPTR pc, PolyWord *sp)
     {
@@ -283,6 +336,10 @@ extern "C" {
     typedef double (*callRTSRRtoR) (double, double);
     typedef double (*callRTSGtoR) (PolyWord);
     typedef double (*callRTSRGtoR) (double, PolyWord);
+    typedef float(*callRTSFtoF) (float);
+    typedef float(*callRTSFFtoF) (float, float);
+    typedef float(*callRTSGtoF) (PolyWord);
+    typedef float(*callRTSFGtoF) (float, PolyWord);
 }
 
 void IntTaskData::InterruptCode()
@@ -315,6 +372,7 @@ int IntTaskData::SwitchToPoly()
     // it is important that access should be fast.
     POLYCODEPTR     pc;
     PolyWord        *sp;
+    double          dv;
 
     LoadInterpreterState(pc, sp);
 
@@ -603,18 +661,6 @@ int IntTaskData::SwitchToPoly()
         case INSTR_tuple_4: storeWords = 4; goto TUPLE;
         case INSTR_tuple_b: storeWords = *pc; pc++; goto TUPLE;
 
-        case INSTR_non_local:
-            {
-                PolyWord *t = sp+arg1;
-                POLYSIGNED uu;
-                for(uu = 1; uu <= arg2; uu++) t = (t[-1]).AsStackAddr();
-                uu = arg3; /* Can be negative. */
-                if (uu > 32767) uu -= 65536;
-                *(--sp) = t[uu];
-                pc += 6;
-                break;
-            }
-
         case INSTR_local_w:
             {
                 PolyWord u = sp[arg1];
@@ -772,32 +818,6 @@ int IntTaskData::SwitchToPoly()
         case INSTR_reset_1: sp += 1; break;
         case INSTR_reset_2: sp += 2; break;
 
-        case INSTR_non_local_l_1:
-            {
-                POLYSIGNED uu = *pc;
-                PolyWord u = (sp[uu >> 4]).AsStackAddr()[(uu & 0xf) - 6];
-                *(--sp) = u;
-                pc += 1;
-                break;
-            }
-
-        case INSTR_non_local_l_2:
-            {
-                POLYSIGNED uu = *pc;
-                PolyWord *t = sp[uu >> 4].AsStackAddr() -1;
-                *(--sp) = (*t).AsStackAddr()[(uu & 0xf) - 6];
-                pc += 1;
-                break;
-            }
-
-        case INSTR_non_local_l_3:
-            {
-                POLYSIGNED uu = *pc;
-                PolyWord *t = sp[uu >> 4].AsStackAddr() -1;
-                t = (*t).AsStackAddr() - 1;
-                *(--sp) = (*t).AsStackAddr()[(uu & 0xf) - 6];
-                pc += 1; break;
-            }
 
         case INSTR_stack_container:
         {
@@ -1018,6 +1038,69 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_callFastFtoF:
+        {
+            // Floating point call.  The call itself does not allocate but we
+            // need to put the result into a "box".
+            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+            PolyWord rtsArg1 = *sp++;
+            callRTSFtoF doCall = (callRTSFtoF)rtsCall.AsCodePtr();
+            float argument = unboxFloat(rtsArg1);
+            // Allocate memory for the result.
+            float result = doCall(argument);
+            PolyObject *t = boxFloat(result, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *(--sp) = t;
+            break;
+        }
+
+        case INSTR_callFastFFtoF:
+        {
+            // Floating point call.
+            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+            PolyWord rtsArg2 = *sp++;
+            PolyWord rtsArg1 = *sp++;
+            callRTSFFtoF doCall = (callRTSFFtoF)rtsCall.AsCodePtr();
+            float argument1 = unboxFloat(rtsArg1);
+            float argument2 = unboxFloat(rtsArg2);
+            // Allocate memory for the result.
+            float result = doCall(argument1, argument2);
+            PolyObject *t = boxFloat(result, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *(--sp) = t;
+            break;
+        }
+
+        case INSTR_callFastGtoF:
+        {
+            // Call that takes a POLYUNSIGNED argument and returns a double.
+            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+            PolyWord rtsArg1 = *sp++;
+            callRTSGtoF doCall = (callRTSGtoF)rtsCall.AsCodePtr();
+            // Allocate memory for the result.
+            float result = doCall(rtsArg1);
+            PolyObject *t = boxFloat(result, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *(--sp) = t;
+            break;
+        }
+
+        case INSTR_callFastFGtoF:
+        {
+            // Call that takes a POLYUNSIGNED argument and returns a double.
+            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+            PolyWord rtsArg2 = *sp++;
+            PolyWord rtsArg1 = *sp++;
+            callRTSFGtoF doCall = (callRTSFGtoF)rtsCall.AsCodePtr();
+            float argument1 = unboxFloat(rtsArg1);
+            // Allocate memory for the result.
+            float result = doCall(argument1, rtsArg2);
+            PolyObject *t = boxFloat(result, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *(--sp) = t;
+            break;
+        }
+
         case INSTR_notBoolean:
             *sp = (*sp == True) ? False : True; break;
 
@@ -1133,9 +1216,43 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_floatFixedInt:
+        case INSTR_floatAbs:
+        {
+            PolyObject *t = this->boxFloat(fabs(unboxFloat(*sp)), pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_floatNeg:
+        {
+            PolyObject *t = this->boxFloat(-(unboxFloat(*sp)), pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_fixedIntToReal:
         {
             POLYSIGNED u = UNTAGGED(*sp);
+            PolyObject *t = this->boxDouble((double)u, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_fixedIntToFloat:
+        {
+            POLYSIGNED u = UNTAGGED(*sp);
+            PolyObject *t = this->boxFloat((float)u, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_floatToReal:
+        {
+            float u = unboxFloat(*sp);
             PolyObject *t = this->boxDouble((double)u, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
             *sp = t;
@@ -1380,14 +1497,6 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_lgWordNotequal:
-        {
-            POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).AsObjPtr()->Get(0).AsUnsigned();
-            *sp = wx != wy ? True : False;
-            break;
-        }
-
         case INSTR_lgWordLess:
         {
             POLYUNSIGNED wx = (*sp++).AsObjPtr()->Get(0).AsUnsigned();
@@ -1627,6 +1736,144 @@ int IntTaskData::SwitchToPoly()
             PolyObject *t = this->boxDouble(v/u, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
             *sp = t;
+            break;
+        }
+
+        case INSTR_floatEqual:
+        {
+            float u = unboxFloat(*sp++);
+            *sp = u == unboxFloat(*sp) ? True : False;
+            break;
+        }
+
+        case INSTR_floatLess:
+        {
+            float u = unboxFloat(*sp++);
+            *sp = unboxFloat(*sp) < u ? True : False;
+            break;
+        }
+
+        case INSTR_floatLessEq:
+        {
+            float u = unboxFloat(*sp++);
+            *sp = unboxFloat(*sp) <= u ? True : False;
+            break;
+        }
+
+        case INSTR_floatGreater:
+        {
+            float u = unboxFloat(*sp++);
+            *sp = unboxFloat(*sp) > u ? True : False;
+            break;
+        }
+
+        case INSTR_floatGreaterEq:
+        {
+            float u = unboxFloat(*sp++);
+            *sp = unboxFloat(*sp) >= u ? True : False;
+            break;
+        }
+
+        case INSTR_floatAdd:
+        {
+            float u = unboxFloat(*sp++);
+            float v = unboxFloat(*sp);
+            PolyObject *t = this->boxFloat(v + u, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_floatSub:
+        {
+            float u = unboxFloat(*sp++);
+            float v = unboxFloat(*sp);
+            PolyObject *t = this->boxFloat(v - u, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_floatMult:
+        {
+            float u = unboxFloat(*sp++);
+            float v = unboxFloat(*sp);
+            PolyObject *t = this->boxFloat(v*u, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_floatDiv:
+        {
+            float u = unboxFloat(*sp++);
+            float v = unboxFloat(*sp);
+            PolyObject *t = this->boxFloat(v / u, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_realToFloat:
+        {
+            // Convert a double to a float.  It's complicated because it depends on the rounding mode.
+            double d = unboxDouble(*sp);
+            int rMode = *pc++;
+            int current = getrounding();
+            // If the rounding is 4 it means "use current rounding".
+            if (rMode < 4) setrounding(rMode);
+            float v = (float)d; // Convert with the appropriate rounding.
+            setrounding(current);
+            PolyObject *t = this->boxFloat(v, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            *sp = t;
+            break;
+        }
+
+        case INSTR_realToInt:
+            dv = unboxDouble(*sp);
+            goto realtoint;
+
+        case INSTR_floatToInt:
+            dv = (double)unboxFloat(*sp);
+            realtoint:
+        {
+            // Convert a double or a float to a tagged integer.
+            int rMode = *pc++;
+            // We mustn't try converting a value that will overflow the conversion
+            // but we need to be careful that we don't raise overflow incorrectly due
+            // to rounding.
+            if (dv > (double)(MAXTAGGED + MAXTAGGED / 2) ||
+                dv < -(double)(MAXTAGGED + MAXTAGGED / 2))
+            {
+                *(--sp) = overflowPacket;
+                goto RAISE_EXCEPTION;
+            }
+            POLYSIGNED p;
+            switch (rMode)
+            {
+            case POLY_ROUND_TONEAREST:
+                p = (POLYSIGNED)round(dv);
+                break;
+            case POLY_ROUND_DOWNWARD:
+                p = (POLYSIGNED)floor(dv);
+                break;
+            case POLY_ROUND_UPWARD:
+                p = (POLYSIGNED)ceil(dv);
+                break;
+            case POLY_ROUND_TOZERO:
+            default:
+                // Truncation is the default for C.
+                p = (POLYSIGNED)dv;
+            }
+
+            // Check that the value can be tagged.
+            if (p > MAXTAGGED || p < -MAXTAGGED - 1)
+            {
+                *(--sp) = overflowPacket;
+                goto RAISE_EXCEPTION;
+            }
+            *sp = TAGGED(p);
             break;
         }
 

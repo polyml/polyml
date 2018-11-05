@@ -736,6 +736,18 @@ struct
 
         |   registerAllocate({instr=SetX87ControlReg{source=PReg srcReg}, ...}) =
                 allocateRegister(srcReg, NONE, generalRegisters)
+
+        |   registerAllocate({instr=X87RealToInt{source=PReg srcReg, dest=PReg destReg}, ...}) =
+            (
+                allocateRegister(srcReg, NONE, floatingPtRegisters);
+                allocateRegister(destReg, NONE, generalRegisters)
+            )
+
+        |   registerAllocate({instr=SSE2RealToInt{source, dest=PReg destReg, ...}, ...}) =
+            (
+                allocateRegister(destReg, NONE, generalRegisters);
+                allocateArgFloat source
+            )
     
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

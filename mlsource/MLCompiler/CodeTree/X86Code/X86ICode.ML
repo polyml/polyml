@@ -289,6 +289,11 @@ struct
     |   SetSSE2ControlReg of { source: preg }
     |   GetX87ControlReg of { dest: preg }
     |   SetX87ControlReg of { source: preg }
+    
+        (* Convert a floating point value to an integer. *)
+    |   X87RealToInt of { source: preg, dest: preg }
+        (* Convert a floating point value to an integer. *)
+    |   SSE2RealToInt of { source: argument, dest: preg, isDouble: bool, isTruncate: bool }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -753,6 +758,16 @@ struct
         |   printICode(GetX87ControlReg{dest}, stream) = (stream "\tGetX87ControlReg\t"; printReg(dest, stream))
  
         |   printICode(SetX87ControlReg{source}, stream) = (stream "\tSetX87ControlReg\t"; printReg(source, stream))
+ 
+        |   printICode(X87RealToInt{source, dest}, stream) =
+            (stream "\tX87RealToInt\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
+ 
+        |   printICode(SSE2RealToInt{source, dest, isDouble, isTruncate}, stream) =
+            (
+                stream "\tSSE2RealToInt";
+                if isTruncate then stream "Trunc" else ();
+                if isDouble then stream "D\t" else stream "S\t";
+                printArg(source, stream); stream " => "; printReg(dest, stream))
        
         (* Print a basic block. *)
         fun printBlock stream (blockNo, BasicBlock{block, flow, ...}) =

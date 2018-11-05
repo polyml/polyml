@@ -31,6 +31,14 @@ class TaskData;
 extern double real_arg(Handle x); // Also used in "foreign.cpp"
 extern Handle real_result(TaskData *mdTaskData, double x); // Also used in "foreign.cpp"
 
+extern int getrounding();
+extern int setrounding(int rounding);
+
+#define POLY_ROUND_TONEAREST    0
+#define POLY_ROUND_DOWNWARD     1
+#define POLY_ROUND_UPWARD       2
+#define POLY_ROUND_TOZERO       3
+
 extern struct _entrypts realsEPT[];
 
 #endif

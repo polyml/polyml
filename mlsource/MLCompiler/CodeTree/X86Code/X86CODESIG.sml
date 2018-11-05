@@ -183,6 +183,8 @@ sig
     |   FPStoreCtrlWord of memoryAddress (* Store FP control word. *)
     |   XMMLoadCSR of memoryAddress (* Load combined control/status word. *)
     |   XMMStoreCSR of memoryAddress (* Store combined control/status word. *)
+    |   FPStoreInt of memoryAddress
+    |   XMMStoreInt of { source: xmmReg regOrMemoryArg, output: genReg, precision: fpSize, isTruncate: bool }
 
     and jumpSize = JumpSize2 | JumpSize8
 
