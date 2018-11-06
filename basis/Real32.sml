@@ -175,16 +175,16 @@ struct
     in
         val floor   =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toLargeInt IEEEReal.TO_NEGINF else floorFix o checkNan
+            then LargeInt.toInt o toLargeInt IEEEReal.TO_NEGINF else FixedInt.toInt o floorFix o checkNan
         and ceil    =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toLargeInt IEEEReal.TO_POSINF else ceilFix o checkNan
+            then LargeInt.toInt o toLargeInt IEEEReal.TO_POSINF else FixedInt.toInt o ceilFix o checkNan
         and trunc   =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toLargeInt IEEEReal.TO_ZERO else truncFix o checkNan
+            then LargeInt.toInt o toLargeInt IEEEReal.TO_ZERO else FixedInt.toInt o truncFix o checkNan
         and round   =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toLargeInt IEEEReal.TO_NEAREST else roundFix o checkNan
+            then LargeInt.toInt o toLargeInt IEEEReal.TO_NEAREST else FixedInt.toInt o roundFix o checkNan
     
         fun toInt IEEEReal.TO_NEGINF = floor
          |  toInt IEEEReal.TO_POSINF = ceil

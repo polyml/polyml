@@ -197,19 +197,21 @@ struct
          |  toLargeInt IEEEReal.TO_NEAREST = toArbitrary o realRound
 
         (* Conversions to FixedInt are put in by the compiler.  If int is fixed we can
-           use them otherwise we use the long versions. *)
+           use them otherwise we use the long versions.
+           N.B.  FixedInt.toInt is a no-op but is needed so this is type-correct when
+           int is arbitrary. *)
         val floor   =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toArbitrary o realFloor else Real.floorFix o checkNan
+            then LargeInt.toInt o toArbitrary o realFloor else FixedInt.toInt o Real.floorFix o checkNan
         and ceil    =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toArbitrary o realCeil else Real.ceilFix o checkNan
+            then LargeInt.toInt o toArbitrary o realCeil else FixedInt.toInt o Real.ceilFix o checkNan
         and trunc   =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toArbitrary o realTrunc else Real.truncFix o checkNan
+            then LargeInt.toInt o toArbitrary o realTrunc else FixedInt.toInt o Real.truncFix o checkNan
         and round   =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toArbitrary o realTrunc else Real.roundFix o checkNan
+            then LargeInt.toInt o toArbitrary o realTrunc else FixedInt.toInt o Real.roundFix o checkNan
         
         fun toInt IEEEReal.TO_NEGINF = floor
          |  toInt IEEEReal.TO_POSINF = ceil
