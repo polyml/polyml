@@ -52,6 +52,16 @@
 #include <math.h>
 #endif
 
+#if (defined(_MSC_VER))
+#ifdef _WIN64
+// This is only defined in x64
+#define isnanf   _isnanf
+#else
+#define isnanf   isnan
+#endif
+#endif
+
+
 #include "globals.h"
 #include "int_opcodes.h"
 #include "machine_dep.h"
@@ -1699,6 +1709,14 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_realUnordered:
+        {
+            double u = unboxDouble(*sp++);
+            double v = unboxDouble(*sp);
+            *sp = (isnan(u) || isnan(v)) ? True : False;
+            break;
+        }
+
         case INSTR_realAdd:
         {
             double u = unboxDouble(*sp++);
@@ -1771,6 +1789,14 @@ int IntTaskData::SwitchToPoly()
         {
             float u = unboxFloat(*sp++);
             *sp = unboxFloat(*sp) >= u ? True : False;
+            break;
+        }
+
+        case INSTR_floatUnordered:
+        {
+            float u = unboxFloat(*sp++);
+            float v = unboxFloat(*sp);
+            *sp = (isnanf(u) || isnanf(v)) ? True : False;
             break;
         }
 

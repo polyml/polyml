@@ -130,6 +130,8 @@
 #define INSTR_callFastFFtoF 0x72
 #define INSTR_callFastFGtoF 0x73
 #define INSTR_push_handler  0x78
+#define INSTR_realUnordered 0x79
+#define INSTR_floatUnordered 0x7a
 #define INSTR_tail_b_b      0x7b
 #define INSTR_tail          0x7c
 #define INSTR_tail_3_b      0x7d

@@ -196,6 +196,7 @@ struct
             |   testAsBranch(TestGreater,       false,  false)      = JNA
             |   testAsBranch(TestGreaterEqual,  false,  true)       = JNB
             |   testAsBranch(TestGreaterEqual,  false,  false)      = JB
+            |   testAsBranch(TestUnordered,     _,      _)          = raise InternalError "TestUnordered"
             
             (* Switch the direction of a test if we turn  c op x into x op c. *)
             fun leftRightTest TestEqual         = TestEqual
@@ -203,6 +204,7 @@ struct
             |   leftRightTest TestLessEqual     = TestGreaterEqual
             |   leftRightTest TestGreater       = TestLess
             |   leftRightTest TestGreaterEqual  = TestLessEqual
+            |   leftRightTest TestUnordered     = TestUnordered
         end
         
         (* Overflow check.  This raises Overflow if the overflow bit is set in the cc. *)
@@ -3010,6 +3012,62 @@ struct
                         BlockLabel noParityLabel ::
                         (* Go to jumpLabel if unordered and therefore not equal. *)
                         BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=jumpLabel, falseJump=noParityLabel}) ::
+                        sseCompare @ loadArg1 :: arg2Code
+                    end
+            end
+
+        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison(BuiltIns.TestUnordered, precision), arg1, arg2},
+                    context, jumpOn, jumpLabel, tailCode) =
+            let
+                (* The unordered test is really included because it is easy to implement and is the
+                   simplest way of implementing isNan.  *)
+                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val fpReg = newUReg()
+                val testReg1 = newUReg() and testReg2 = newUReg() and testReg3 = newUReg()
+                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
+                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
+               (* If this is X87 we get the condition into RAX and test it there.  If
+                   it is SSE2 we have to treat the unordered result (parity set) specially. *)
+                val noJumpLabel = newLabel()
+                val isDouble = precision = BuiltIns.PrecDouble
+                (* Get the floating point value into a FP register. *)
+                val loadArg1 =
+                    if precision = BuiltIns.PrecDouble
+                    then BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble})
+                    else if wordSize = 0w8
+                    then BlockSimple(UntagFloat{source=RegisterArgument arg1Reg, dest=fpReg, cache=NONE})
+                    else BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveFloat})
+            in
+                case fpMode of
+                    FPModeX87 =>
+                        (* And with 0x4500.  We have to use XOR rather than CMP to avoid having an untagged constant comparison. *)
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
+                        BlockSimple(ArithmeticFunction{
+                            oper=XOR, resultReg=testReg3, operand1=testReg2, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
+                        BlockSimple(ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=newCCRef() }) ::
+                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
+                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1, isDouble = isDouble}) ::
+                        loadArg1 :: arg2Code
+                |   FPModeSSE2 =>
+                    let
+                        (* If this is single precision we need to untag the other argument. *)
+                        val sseCompare =
+                            if precision = BuiltIns.PrecDouble
+                            then [BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1, isDouble = true})]
+                            else
+                            let
+                                val fpReg2 = newUReg()
+                            in
+                                [
+                                    BlockSimple(SSE2Compare{arg1=fpReg, arg2=RegisterArgument fpReg2, ccRef=ccRef1, isDouble = false}),
+                                    BlockSimple(UntagFloat{source=RegisterArgument arg2Reg, dest=fpReg2, cache=NONE})
+                                ]
+                            end
+                    in
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JP else JNP, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         sseCompare @ loadArg1 :: arg2Code
                     end
             end

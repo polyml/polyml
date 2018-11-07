@@ -980,6 +980,7 @@ struct
                     |   (TestLessEqual, true)       => toFix v1 <= toFix v2
                     |   (TestGreater, true)         => toFix v1 > toFix v2
                     |   (TestGreaterEqual, true)    => toFix v1 >= toFix v2
+                    |   (TestUnordered, _)          => raise InternalError "WordComparison: TestUnordered"
             in
                 (if testResult then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
             end

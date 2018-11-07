@@ -29,6 +29,7 @@ struct
         |   TestLessEqual
         |   TestGreater
         |   TestGreaterEqual
+        |   TestUnordered (* Reals only. *)
 
         datatype arithmeticOperations =
             ArithAdd
@@ -122,6 +123,7 @@ struct
         |   testRepr TestLessEqual      = "LessEqual"
         |   testRepr TestGreater        = "Greater"
         |   testRepr TestGreaterEqual   = "GreaterEqual"
+        |   testRepr TestUnordered      = "Unordered"
         
         and arithRepr ArithAdd          = "Add"
         |   arithRepr ArithSub          = "Sub"

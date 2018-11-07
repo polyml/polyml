@@ -92,6 +92,7 @@ sig
     val opcode_realLessEq: opcode
     val opcode_realGreater: opcode
     val opcode_realGreaterEq: opcode
+    val opcode_realUnordered: opcode
     val opcode_realAdd: opcode
     val opcode_realSub: opcode
     val opcode_realMult: opcode
@@ -101,6 +102,7 @@ sig
     val opcode_floatLessEq: opcode
     val opcode_floatGreater: opcode
     val opcode_floatGreaterEq: opcode
+    val opcode_floatUnordered: opcode
     val opcode_floatAdd: opcode
     val opcode_floatSub: opcode
     val opcode_floatMult: opcode

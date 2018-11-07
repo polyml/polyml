@@ -93,8 +93,9 @@ struct
     local
         open Real
     in
-        (* NAN values fail any test including equality with themselves. *)
-        fun isNan x = x != x
+        (* isNan can be defined in terms of unordered. *)
+        fun isNan x = unordered(x, x)
+        
         (* NAN values do not match and infinities when multiplied by 0 produce NAN. *)
         fun isFinite x = x * zero == zero
     
@@ -122,8 +123,6 @@ struct
     end
         
     fun sameSign (x, y) = signBit x = signBit y
-    
-    fun unordered (x, y) = isNan x orelse isNan y
 
     (* Returns the minimum.  In the case where one is a NaN it returns the
        other. In that case the comparison will be false. *)
@@ -556,8 +555,7 @@ struct
        if either argument is a NaN this returns true.  The implementation of ==
        treats the unordered case specially so it would be possible to implement
        this in the same way.  *)
-    fun op ?= (x, y) =
-        isNan x orelse isNan y orelse x == y
+    fun op ?= (x, y) = unordered(x, y) orelse x == y
 
     (* Although these may be built in in some architectures it's
        probably not worth treating them specially at the moment. *)

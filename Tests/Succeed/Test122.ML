@@ -52,3 +52,12 @@ check(not (Real.isFinite Real.negInf));
 check((Real.fmt(StringCvt.SCI(SOME ~1)); false) handle Size => true);
 check((Real.fmt(StringCvt.FIX(SOME ~1)); false) handle Size => true);
 check((Real.fmt(StringCvt.GEN(SOME ~1)); false) handle Size => true);
+
+
+check(not(Real.unordered(1.0, 1.0)));
+check(Real.unordered(pNan, 1.0));
+check(Real.unordered(1.0, pNan));
+check(Real.unordered(pNan, pNan));
+check(Real.unordered(mNan, 1.0));
+check(Real.unordered(1.0, mNan));
+check(Real.unordered(mNan, mNan));

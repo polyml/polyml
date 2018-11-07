@@ -514,6 +514,7 @@ struct
                 |   WordComparison{test=TestLessEqual, isSigned=false} => genOpcode(opcode_lessEqUnsigned, cvec)
                 |   WordComparison{test=TestGreater, isSigned=false} => genOpcode(opcode_greaterUnsigned, cvec)
                 |   WordComparison{test=TestGreaterEqual, isSigned=false} => genOpcode(opcode_greaterEqUnsigned, cvec)
+                |   WordComparison{test=TestUnordered, ...} => raise InternalError "WordComparison: TestUnordered"
 
                 |   FixedPrecisionArith ArithAdd => genOpcode(opcode_fixedAdd, cvec)
                 |   FixedPrecisionArith ArithSub => genOpcode(opcode_fixedSub, cvec)
@@ -545,6 +546,7 @@ struct
                 |   LargeWordComparison TestLessEqual => genOpcode(opcode_lgWordLessEq, cvec)
                 |   LargeWordComparison TestGreater => genOpcode(opcode_lgWordGreater, cvec)
                 |   LargeWordComparison TestGreaterEqual => genOpcode(opcode_lgWordGreaterEq, cvec)
+                |   LargeWordComparison TestUnordered => raise InternalError "LargeWordComparison: TestUnordered"
                 
                 |   LargeWordArith ArithAdd => genOpcode(opcode_lgWordAdd, cvec)
                 |   LargeWordArith ArithSub => genOpcode(opcode_lgWordSub, cvec)
@@ -565,12 +567,14 @@ struct
                 |   RealComparison (TestLessEqual, PrecDouble) => genOpcode(opcode_realLessEq, cvec)
                 |   RealComparison (TestGreater, PrecDouble) => genOpcode(opcode_realGreater, cvec)
                 |   RealComparison (TestGreaterEqual, PrecDouble) => genOpcode(opcode_realGreaterEq, cvec)
+                |   RealComparison (TestUnordered, PrecDouble) => genOpcode(opcode_realUnordered, cvec)
 
                 |   RealComparison (TestEqual, PrecSingle) => genOpcode(opcode_floatEqual, cvec)
                 |   RealComparison (TestLess, PrecSingle) => genOpcode(opcode_floatLess, cvec)
                 |   RealComparison (TestLessEqual, PrecSingle) => genOpcode(opcode_floatLessEq, cvec)
                 |   RealComparison (TestGreater, PrecSingle) => genOpcode(opcode_floatGreater, cvec)
                 |   RealComparison (TestGreaterEqual, PrecSingle) => genOpcode(opcode_floatGreaterEq, cvec)
+                |   RealComparison (TestUnordered, PrecSingle) => genOpcode(opcode_floatUnordered, cvec)
 
                 |   RealArith (ArithAdd, PrecDouble) => genOpcode(opcode_realAdd, cvec)
                 |   RealArith (ArithSub, PrecDouble) => genOpcode(opcode_realSub, cvec)

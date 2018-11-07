@@ -25,6 +25,7 @@ sig
     |   TestLessEqual
     |   TestGreater
     |   TestGreaterEqual
+    |   TestUnordered (* Reals only. *)
 
     datatype arithmeticOperations =
         ArithAdd

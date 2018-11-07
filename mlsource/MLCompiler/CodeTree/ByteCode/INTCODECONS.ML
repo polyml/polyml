@@ -157,6 +157,8 @@ struct
     and opcode_callFastRTSFFtoF  = 0wx72
     and opcode_callFastRTSFGtoF  = 0wx73
     and opcode_pushHandler       = 0wx78
+    and opcode_realUnordered     = 0wx79
+    and opcode_floatUnordered    = 0wx7a
     and opcode_tailbb            = 0wx7b
     and opcode_tail              = 0wx7c
     and opcode_tail3b            = 0wx7d
@@ -393,6 +395,8 @@ struct
         val () = repUpdate(opcode_callFastRTSFGtoF, "callFastRTSFGtoF");
         val () = repUpdate(opcode_setHandler,    "setHandler");
         val () = repUpdate(opcode_pushHandler,   "pushHandler");
+        val () = repUpdate(opcode_realUnordered, "realUnordered");
+        val () = repUpdate(opcode_floatUnordered, "floatUnordered");
         val () = repUpdate(opcode_tailbb,        "tailbb");
         val () = repUpdate(opcode_tail,          "tail");
         val () = repUpdate(opcode_tail3b,        "tail3b");
@@ -1386,6 +1390,7 @@ struct
     val opcode_realLessEq       = SimpleCode [opcode_realLessEq]
     val opcode_realGreater      = SimpleCode [opcode_realGreater]
     val opcode_realGreaterEq    = SimpleCode [opcode_realGreaterEq]
+    val opcode_realUnordered    = SimpleCode [opcode_realUnordered]
     val opcode_realAdd          = SimpleCode [opcode_realAdd]
     val opcode_realSub          = SimpleCode [opcode_realSub]
     val opcode_realMult         = SimpleCode [opcode_realMult]
@@ -1397,6 +1402,7 @@ struct
     val opcode_floatLessEq      = SimpleCode [opcode_floatLessEq]
     val opcode_floatGreater     = SimpleCode [opcode_floatGreater]
     val opcode_floatGreaterEq   = SimpleCode [opcode_floatGreaterEq]
+    val opcode_floatUnordered   = SimpleCode [opcode_floatUnordered]
     val opcode_floatAdd         = SimpleCode [opcode_floatAdd]
     val opcode_floatSub         = SimpleCode [opcode_floatSub]
     val opcode_floatMult        = SimpleCode [opcode_floatMult]

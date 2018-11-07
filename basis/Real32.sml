@@ -65,8 +65,9 @@ struct
 
     local
     in
-        (* NAN values fail any test including equality with themselves. *)
-        fun isNan x = x != x
+        (* isNan can be defined in terms of unordered. *)
+        fun isNan x = unordered(x, x)
+
         (* NAN values do not match and infinities when multiplied by 0 produce NAN. *)
         fun isFinite x = x * zero == zero
     
@@ -94,7 +95,6 @@ struct
     end
         
     fun sameSign (x, y) = signBit x = signBit y
-    and unordered (x, y) = isNan x orelse isNan y
 
     (* Returns the minimum.  In the case where one is a NaN it returns the
        other. In that case the comparison will be false. *)
@@ -128,10 +128,7 @@ struct
         else if r1 > r2 then GREATER
         else UNORDERED
 
-    (* Question: The definition says "bitwise equal, ignoring signs on zeros".
-       If we assume that all numbers are normalised, is that the same as "equal"?*)
-    fun op ?= (x, y) =
-        isNan x orelse isNan y orelse x == y
+    fun op ?= (x, y) = unordered(x, y) orelse x == y
 
     (* Although these may be built in in some architectures it's
        probably not worth treating them specially at the moment. *)
@@ -192,7 +189,9 @@ struct
          |  toInt IEEEReal.TO_NEAREST = round
     end
 
-    fun fmt fm r = Real.fmt fm (toLarge r)
+    (* The order of evaluation here is important.  See Test175. *)
+    fun fmt fm =
+        let val doFmt = Real.fmt fm in fn r => doFmt (toLarge r) end
     
     val toString = Real.toString o toLarge
     
