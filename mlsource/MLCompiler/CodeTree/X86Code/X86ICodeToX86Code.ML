@@ -113,6 +113,9 @@ struct
         |   llLoadArgument({source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveDouble}, code) =
                 moveToOutputFP(fpReg,
                    FPLoadFromMemory{ address={base=baseReg, offset=offset, index=index}, precision=DoublePrecision } :: code)
+
+        |   llLoadArgument({source=AddressConstArg addrConst, dest=FPReg fpReg, kind=MoveDouble}, code) =
+                moveToOutputFP(fpReg, FPLoadFromConst{ constant= addrConst, precision=DoublePrecision } :: code)
         
         |   llLoadArgument({source=RegisterArg(FPReg fpSrc), dest=FPReg fpDest, kind=MoveDouble}, code) =
                 (* Moving from one FP reg to another.  Even if we are moving from FP0 we still do a load
@@ -128,6 +131,9 @@ struct
         |   llLoadArgument({source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveFloat}, code) =
                 moveToOutputFP(fpReg,
                     FPLoadFromMemory{ address={ base=baseReg, offset=offset, index=index }, precision=SinglePrecision } :: code)
+
+        |   llLoadArgument({source=AddressConstArg addrConst, dest=FPReg fpReg, kind=MoveFloat}, code) =
+                moveToOutputFP(fpReg, FPLoadFromConst{ constant= addrConst, precision=SinglePrecision } :: code)
 
                 (* Load or move from an XMM reg. *)
         |   llLoadArgument({source, dest=XMMReg xmmRegReg, kind=MoveFloat}, code) =
@@ -1288,11 +1294,14 @@ struct
                 val fpReg = getAllocatedFPReg argReg
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
                 (* This currently pops the value. *)
+                val precision = if isDouble then DoublePrecision else SinglePrecision
             in
                 case codeExtArgumentAsFPReg arg2 of
                     RegisterArg fpReg2 => FPArithR{opc=FCOMP, source=fpReg2} :: code
                 |   MemoryArg{offset, base=baseReg, index=NoIndex} =>
-                        FPArithMemory{opc=FCOMP, base=baseReg, offset=offset, isDouble=isDouble} :: code
+                        FPArithMemory{opc=FCOMP, base=baseReg, offset=offset, precision=precision} :: code
+                |   AddressConstArg const =>
+                        FPArithConst{opc=FCOMP, source = const, precision=precision} :: code
                 |   _ => raise InternalError "codeGenICode: CompareFloatingPt: TODO"
             end
 
@@ -1315,10 +1324,13 @@ struct
                 val _ = realDestReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
                 val _ = realOp1Reg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
                 val op2Arg = codeExtArgumentAsFPReg arg2
+                val precision = if isDouble then DoublePrecision else SinglePrecision
             in
                 case op2Arg of
                     MemoryArg{offset, base=baseReg, index=NoIndex} =>
-                        FPArithMemory{opc=opc, base=baseReg, offset=offset, isDouble=isDouble} :: code
+                        FPArithMemory{opc=opc, base=baseReg, offset=offset, precision=precision} :: code
+                |   AddressConstArg const =>
+                        FPArithConst{opc=opc, source = const, precision=precision} :: code
                 |   _ => raise InternalError "codeGenICode: X87FPArith: TODO"
             end
     

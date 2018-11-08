@@ -1114,10 +1114,12 @@ struct
     |   AtomicXAdd of {base: genReg, output: genReg}
     |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
+    |   FPLoadFromConst of { constant: machineWord, precision: fpSize }
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }
     |   FPStoreToMemory of { address: memoryAddress, precision: fpSize, andPop: bool }
     |   FPArithR of { opc: fpOps, source: fpReg }
-    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int, isDouble: bool }
+    |   FPArithConst of { opc: fpOps, source: machineWord, precision: fpSize }
+    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int, precision: fpSize }
     |   FPUnary of fpUnaryOps
     |   FPStatusToEAX
     |   FPLoadInt of { base: genReg, offset: int }
@@ -1134,7 +1136,6 @@ struct
     |   MoveXMMRegToGenReg of { source: xmmReg, output: genReg }
     |   MoveGenRegToXMMReg of { source: genReg, output: xmmReg }
     |   XMMShiftRight of { output: xmmReg, shift: Word8.word }
-    |   FPClearExc
     |   FPLoadCtrlWord of memoryAddress (* Load FP control word. *)
     |   FPStoreCtrlWord of memoryAddress (* Store FP control word. *)
     |   XMMLoadCSR of memoryAddress (* Load combined control/status word. *)
@@ -1317,6 +1318,11 @@ struct
         |   FPLoadFromMemory{address, precision=SinglePrecision} => (stream "FPLoadSingle "; printMemAddress address)
         |   FPLoadFromFPReg {source, lastRef} =>
                 (stream "FPLoad "; printFPReg source; if lastRef then stream " (LAST)" else())
+        |   FPLoadFromConst{constant, precision} =>
+            (
+                case precision of DoublePrecision => stream "FPLoadD " |  SinglePrecision => stream "FPLoadS";
+                stream(Address.stringOfWord constant)
+            )
         |   FPStoreToFPReg{ output, andPop } =>
                 (if andPop then stream "FPStoreAndPop => " else stream "FPStore => "; printFPReg output)
         |   FPStoreToMemory{ address, precision=DoublePrecision, andPop: bool } =>
@@ -1330,8 +1336,10 @@ struct
                 printMemAddress address
             )
         |   FPArithR{ opc, source } => (stream(fpOpRepr opc); stream " "; printFPReg source)
-        |   FPArithMemory{ opc, base, offset, isDouble } =>
-                (stream(fpOpRepr opc); if isDouble then stream "D " else stream "S "; printBaseOffset(base, NoIndex, offset))
+        |   FPArithConst{ opc, source, precision } =>
+                (stream(fpOpRepr opc); case precision of DoublePrecision => stream "D " |  SinglePrecision => stream "S "; stream(Address.stringOfWord source))
+        |   FPArithMemory{ opc, base, offset, precision } =>
+                (stream(fpOpRepr opc); case precision of DoublePrecision => stream "D " |  SinglePrecision => stream "S "; printBaseOffset(base, NoIndex, offset))
         |   FPUnary opc => stream(fpUnaryRepr opc)
         |   FPStatusToEAX => (stream "FPStatus "; printGReg eax)
         |   FPLoadInt { base, offset} => (stream "FPLoadInt "; printBaseOffset(base, NoIndex, offset))
@@ -1375,7 +1383,6 @@ struct
             (
                 stream "XMMShiftRight "; printXMMReg output; stream " by "; stream(Word8.toString shift)
             )
-        |   FPClearExc => stream "FPClearExc"
         |   FPLoadCtrlWord address =>
             (
                 stream "FPLoadCtrlWord "; stream " => "; printMemAddress address
@@ -1886,6 +1893,22 @@ struct
                 (* Assume there's nothing currently on the stack. *)
                 floatingPtOp({escape=0w1, md=0w3, nnn=0w0, rm= fp + 0w0}) (* FLD ST(r1) *)
 
+        |   cgOp (FPLoadFromConst {precision, ...} ) =
+            (* The real constant here is actually the address of a memory
+               object.  FLD takes the address as the argument and in 32-bit mode
+               we use an absolute address.  In 64-bit mode we need to put the
+               constant at the end of the code segment and use PC-relative
+               addressing which happens to be encoded in the same way.
+               There are special cases for zero and one but it's probably too
+               much work to detect them. *)
+            let
+                val esc = case precision of SinglePrecision => 0w1 | DoublePrecision => 0w5
+                val opb = opCodeBytes(FPESC esc, NONE) (* FLD [Constant] *)
+                val mdrm = modrm (Based0, 0w0, 0w5 (* constant address/PC-relative *))
+            in
+                opb @ [mdrm] @ int32Signed(tag 0)
+            end
+
         |   cgOp (FPStoreToFPReg{ output=FloatingPtReg dest, andPop }) =
                 (* Assume there's one item on the stack. *)
                 floatingPtOp({escape=0w5, md=0w3, nnn=if andPop then 0wx3 else 0wx2,
@@ -1906,8 +1929,22 @@ struct
                 floatingPtOp({escape=0w0, md=0w3, nnn=fpOpToWord opc,
                         rm=src + 0w1 (* One item already there *)})
 
-        |   cgOp (FPArithMemory{ opc, base, offset, isDouble }) =
-                opPlus2(FPESC(if isDouble then 0w4 else 0w0), LargeInt.fromInt offset, base, fpOpToWord opc) (* FADD/FMUL etc [r2] *)
+        |   cgOp (FPArithConst{ opc, precision, ... }) =
+                (* See comment on FPLoadFromConst *)
+            let
+                val fpesc = case precision of DoublePrecision => 0w4 | SinglePrecision => 0w0
+                val opb = opCodeBytes(FPESC fpesc, NONE) (* FADD etc [constnt] *)
+                val mdrm = modrm (Based0, fpOpToWord opc, 0w5 (* constant address *))
+            in
+                opb @ [mdrm] @ int32Signed(tag 0)
+            end
+
+        |   cgOp (FPArithMemory{ opc, base, offset, precision }) =
+            let
+                val fpesc = case precision of DoublePrecision => 0w4 | SinglePrecision => 0w0
+            in
+                opPlus2(FPESC fpesc, LargeInt.fromInt offset, base, fpOpToWord opc) (* FADD/FMUL etc [r2] *)
+            end
 
         |   cgOp (FPUnary opc ) =
             let
@@ -1986,7 +2023,17 @@ struct
                 pref @ esc @ [opc, mdrm]
             end
 
-        |   cgOp (XMMArith _) = raise InternalError "cgOp: XMMArith"
+        |   cgOp (XMMArith { opc, source=NonAddressConstArg _, output=SSE2Reg rrC }) =
+            let
+                val _ = isX64 orelse raise InternalError "XMMArith-NonAddressConstArg in 32-bit mode"
+                (* This is currently used for 32-bit float arguments but can equally be
+                   used for 64-bit values since the actual argument will always be put
+                   in the 64-bit constant area. *)
+                val opb = opCodeBytes(SSE2Ops opc, NONE)
+                val mdrm = modrm (Based0, rrC, 0w5 (* constant address/PC-relative *))
+            in
+                opb @ [mdrm] @ int32Signed(tag 0)
+            end
 
         |   cgOp (XMMStoreToMemory { toStore, address={base, offset, index}, precision }) =
             let
@@ -2072,8 +2119,6 @@ struct
             in
                 opcodePrefix oper @ escapePrefix oper @ [opToInt oper, modrm(Register, 0w3, rrC), shift]
             end
-
-        |   cgOp FPClearExc = opCodeBytes(FPESC 0w3, NONE) @ [ 0wxE2 ]
 
         |   cgOp(FPLoadCtrlWord {base, offset, index}) =
                 opIndexedPlus2(FPESC 0w1, LargeInt.fromInt offset, base, index, 0w5)
@@ -2382,9 +2427,20 @@ struct
                 (* We need the address of the code itself but it's in the first of a pair of instructions. *)
                 if isX64 then l else (ic + 0w1, SelfAddress) :: l
 
+        |   getConstant(FPLoadFromConst{constant, ...}, bytes, ic, l) =
+               (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
+                        if isX64 then RealConstant constant else InlineAbsoluteAddress constant) :: l
+
+        |   getConstant(FPArithConst{ source, ... }, bytes, ic, l) =
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
+                        if isX64 then RealConstant source else InlineAbsoluteAddress source) :: l
+
         |   getConstant(XMMArith { source=AddressConstArg constVal, ... }, bytes, ic, l) =
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
-                        if isX64 then RealConstant(toMachineWord constVal) else InlineAbsoluteAddress (toMachineWord constVal)) :: l
+                        if isX64 then RealConstant constVal else InlineAbsoluteAddress constVal) :: l
+
+        |   getConstant(XMMArith { source=NonAddressConstArg constVal, ... }, bytes, ic, l) =
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant constVal) :: l
 
         |   getConstant(MultiplyR{ source=NonAddressConstArg source, ... }, bytes, ic, l) =
                 if is32bit source

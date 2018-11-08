@@ -158,10 +158,12 @@ sig
     |   AtomicXAdd of {base: genReg, output: genReg}
     |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
+    |   FPLoadFromConst of { constant: machineWord, precision: fpSize }
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }
     |   FPStoreToMemory of { address: memoryAddress, precision: fpSize, andPop: bool }
     |   FPArithR of { opc: fpOps, source: fpReg }
-    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int, isDouble: bool }
+    |   FPArithConst of { opc: fpOps, source: machineWord, precision: fpSize }
+    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int, precision: fpSize }
     |   FPUnary of fpUnaryOps
     |   FPStatusToEAX
     |   FPLoadInt of { base: genReg, offset: int }
@@ -178,7 +180,6 @@ sig
     |   MoveXMMRegToGenReg of { source: xmmReg, output: genReg }
     |   MoveGenRegToXMMReg of { source: genReg, output: xmmReg }
     |   XMMShiftRight of { output: xmmReg, shift: Word8.word }
-    |   FPClearExc
     |   FPLoadCtrlWord of memoryAddress (* Load FP control word. *)
     |   FPStoreCtrlWord of memoryAddress (* Store FP control word. *)
     |   XMMLoadCSR of memoryAddress (* Load combined control/status word. *)
