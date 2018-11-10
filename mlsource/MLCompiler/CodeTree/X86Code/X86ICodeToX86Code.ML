@@ -867,13 +867,7 @@ struct
                     (* Untag the length *)
                     ShiftConstant{ shiftType=SHR, output=sReg, shift=0w1},
                     (* Allocate the memory *)
-                    AllocStoreVariable{ output=dReg, saveRegs=saveRegs},
-                    (* Compute the number of bytes into dReg. The length in sReg is the number
-                       of words as a tagged value so we need to multiply it, add wordSize to
-                       include one word for the header then subtract the, multiplied, tag. *)
-                    if wordSize = 0w4
-                    then LoadAddress{output=dReg, base=NONE, offset=Word.toInt wordSize-2, index=Index2 sReg }
-                    else LoadAddress{output=dReg, base=NONE, offset=Word.toInt wordSize-4, index=Index4 sReg }
+                    AllocStoreVariable{ size=sReg, output=dReg, saveRegs=saveRegs}
                 ]
             in
                 allocCode @ code
@@ -1127,7 +1121,9 @@ struct
                 val regResult = asGenReg(getAllocatedReg dReg)
                 val realSReg = asGenReg(getAllocatedReg srcReg)
             in
-                LoadAddress{ output=regResult, offset=1, base=NONE, index=Index2 realSReg } :: code
+                (* N.B. Using LEA with a base register and an index multiplier of 1 is shorter than
+                   using no base register and a multiplier of two. *)
+                LoadAddress{ output=regResult, offset=1, base=SOME realSReg, index=Index1 realSReg } :: code
             end
 
         |   codeExtended _ ({instr=UntagValue{dest as PReg dReg, cache=SOME(PReg cacheReg), ...}, ...}, code) =

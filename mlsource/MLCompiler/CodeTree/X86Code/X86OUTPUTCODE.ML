@@ -1098,7 +1098,7 @@ struct
     |   StoreNonWord of { size: nonWordSize, toStore: genReg, address: memoryAddress }
     |   StoreNonWordConst of { size: nonWordSize, toStore: LargeInt.int, address: memoryAddress }
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
-    |   AllocStoreVariable of { output: genReg, saveRegs: genReg list }
+    |   AllocStoreVariable of { size: genReg, output: genReg, saveRegs: genReg list }
     |   StoreInitialised
     |   CallFunction of callKinds
     |   JumpToFunction of callKinds
@@ -1290,7 +1290,8 @@ struct
         |   AllocStore { size, output, ... } =>
                 (stream "AllocStore "; stream(Int.toString size); stream " => "; printGReg output )
 
-        |   AllocStoreVariable { output, ...} => (stream "AllocStoreVariable "; printGReg output )
+        |   AllocStoreVariable { output, size, ...} =>
+                (stream "AllocStoreVariable "; printGReg size; stream " => "; printGReg output )
         
         |   StoreInitialised => stream "StoreInitialised"
 
@@ -2527,14 +2528,30 @@ struct
                 doExpansion(instrs, (List.rev resultCode) @ code, true)
             end
 
-        |   doExpansion(AllocStoreVariable {output, saveRegs} :: instrs, code, inAllocation) =
+        |   doExpansion(AllocStoreVariable {size, output, saveRegs} :: instrs, code, inAllocation) =
             let
-                (* Allocates memory whose size as a number of bytes is in the output register. *)
+                (* Allocates memory.  The "size" register contains the number of words as a tagged int. *)
                 val _ = inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
                 val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ()
                 (* Negate the length and add it to the current heap pointer. *)
+                (* Compute the number of bytes into dReg. The length in sReg is the number
+                   of words as a tagged value so we need to multiply it, add wordSize to
+                   include one word for the header then subtract the, multiplied, tag.
+                   We use LEA here but want to avoid having an empty base register. *)
+                val _ = size = output andalso raise InternalError "AllocStoreVariable : same register for size and output"
                 val startCode =
-                    [Negative{output=output}, ArithToGenReg{opc=ADD, output=output, source=localPointer, opSize=polyWordOpSize}]
+                    if wordSize = 0w8
+                    then
+                    [
+                        ArithToGenReg{opc=XOR, output=output, source=RegisterArg output, opSize=polyWordOpSize},
+                        ArithToGenReg{opc=SUB, output=output, source=RegisterArg size, opSize=polyWordOpSize},
+                        LoadAddress{output=output, base=SOME r15, offset= ~(Word.toInt wordSize-4), index=Index4 output }
+                    ]
+                    else
+                    [
+                        LoadAddress{output=output, base=SOME size, offset=Word.toInt wordSize-2, index=Index1 size },
+                        Negative{output=output}, ArithToGenReg{opc=ADD, output=output, source=localPointer, opSize=polyWordOpSize}
+                    ]
                 val resultCode = startCode @ allocStoreCommonCode(output, true, saveRegs)
             in
                 doExpansion(instrs, (List.rev resultCode) @ code, true)

@@ -142,7 +142,7 @@ sig
     |   StoreNonWord of { size: nonWordSize, toStore: genReg, address: memoryAddress }
     |   StoreNonWordConst of { size: nonWordSize, toStore: LargeInt.int, address: memoryAddress }
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
-    |   AllocStoreVariable of { output: genReg, saveRegs: genReg list }
+    |   AllocStoreVariable of { size: genReg, output: genReg, saveRegs: genReg list }
     |   StoreInitialised
     |   CallFunction of callKinds
     |   JumpToFunction of callKinds
