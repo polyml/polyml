@@ -60,6 +60,9 @@ struct
             (* CacheTagged is used if we tag a value to see if we can use the
                original untagged value somewhere. *)
         |   CacheTagged of { rno: int, isSigned: bool }
+            (* CacheFloat is used if we tag a float (Real32.real).
+               Double-precision reals (Real.real) are handled as CacheMemory *)
+        |   CacheFloat of { rno: int }
 
         local
             (* The number of active cache entries is likely to be small and is
@@ -78,7 +81,10 @@ struct
             
             fun isTagCache(r, s) {cacheFor=CacheTagged{rno, isSigned}, ...} = rno = r andalso s = isSigned
             |   isTagCache _ _ = false
-            
+
+            fun isFloatCache r {cacheFor=CacheFloat{rno}, ...} = rno = r
+            |   isFloatCache _ _ = false
+
             fun findCache f = List.find f (! cache)
             
             fun removeCache f = cache := List.filter (not o f) (! cache)
@@ -89,10 +95,12 @@ struct
             and findCachedMemory (r, off) =
                 Option.map (fn {cacheReg, isTagged, kind, ...} => (cacheReg, isTagged, kind)) (findCache(isMemory (r, off)))
             and findCachedTagged (r, s) = Option.map #cacheReg (findCache(isTagCache (r, s)))
+            and findCachedFloat r = Option.map #cacheReg (findCache(isFloatCache r))
             
             fun removeStackCache n = removeCache (isStack n)
             and removeMemoryCache (r, off) = removeCache (isMemory (r, off))
             and removeTagCache (r, s) = removeCache (isTagCache (r, s))
+            and removeFloatCache r = removeCache (isFloatCache r)
             
             fun clearMemoryCache() =
                 cache := List.filter(fn {cacheFor=CacheMemory _,...} => false | _ => true) (!cache)
@@ -113,6 +121,12 @@ struct
                 (
                     removeTagCache (r, s);
                     cache := {cacheFor=CacheTagged{rno=r, isSigned=s}, cacheReg=new, isTagged=true, kind=MoveWord} :: ! cache
+                )
+
+            and setFloatCache(r, new) =
+                (
+                    removeFloatCache r;
+                    cache := {cacheFor=CacheFloat{rno=r}, cacheReg=new, isTagged=true, kind=MoveFloat} :: ! cache
                 )
 
             fun getCache () = ! cache
@@ -1172,23 +1186,40 @@ struct
                                     arg2Code @ arg1Code @ code
                         end
 
-                    |   pushRegisters({instr=TagFloat{source, dest}, ...}, code) =
+                    |   pushRegisters({instr=TagFloat{source, dest as PReg dReg}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
-                            (*val _ = setTagCache(dReg, isSigned, sourceVal)*)
+                            val _ = setFloatCache(dReg, sourceVal)
                         in
                             destCode @ TagFloat{source=sourceVal, dest=destVal} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=UntagFloat{source, dest, ...}, ...}, code) =
+                    |   pushRegisters({instr=UntagFloat{source as RegisterArgument(PReg srcReg), dest, cache, ...}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSource source
                             val (destVal, destCode) = mapDestReg dest
-                            (* Ignore this for the moment. *)
-                            val newCache = NONE
+                            (* As with MemoryLocation caching, we can try caching it if this is the
+                               first pass but otherwise we can only retain the caching if we have never
+                               marked it to be pushed. *)
+                            val newCache =
+                                case cache of
+                                    NONE => if firstPass then findCachedFloat srcReg else NONE
+                                |   SOME (PReg c) =>
+                                    if Vector.sub(pushVec, c)
+                                    then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
+                                    else findCachedFloat srcReg
                         in
                             destCode @ UntagFloat{source=sourceVal, dest=destVal, cache=newCache} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=UntagFloat{source, dest, ...}, ...}, code) =
+                        (* This may also be a memory location in which case we don't cache. *)
+                        let
+                            val (sourceVal, sourceCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ UntagFloat{source=sourceVal, dest=destVal, cache=NONE} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=GetSSE2ControlReg{dest}, ...}, code) =
