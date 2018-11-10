@@ -122,7 +122,7 @@ struct
         
         datatype locationValue =
             NoLocation
-        |   PregLocation of preg
+        |   ArgLocation of argument
         |   ContainerLocation of { container: stackLocn, stackOffset: int }
 
         val locToPregArray = Array.array(localCount, NoLocation)
@@ -474,8 +474,8 @@ struct
 
                 |   doBindings(BICDeclar{value, addr, ...} :: decs, context, tailCode) =
                     let
-                        val (code, dest) = codeToPRegRev(value, context, tailCode)
-                        val () = Array.update(locToPregArray, addr, PregLocation dest)
+                        val (code, result, _) = codeToICodeRev(value, context, false, Allowed allowDefer, tailCode)
+                        val () = Array.update(locToPregArray, addr, ArgLocation result)
                     in
                         doBindings(decs, context, code)
                     end
@@ -485,7 +485,7 @@ struct
                     let
                         val dest = newPReg()
                         val (code, _, _) = codeToICodeRev(BICLambda lambda, context, false, SpecificPReg dest, tailCode)
-                        val () = Array.update(locToPregArray, addr, PregLocation dest)
+                        val () = Array.update(locToPregArray, addr, ArgLocation(RegisterArgument dest))
                     in
                         doBindings(decs, context, code)
                     end
@@ -498,7 +498,7 @@ struct
                            entry in the address table to the register containing the address. *)
                         fun makeClosure({lambda={closure, ...}, addr, ...}, dest, c) =
                         let
-                            val () = Array.update(locToPregArray, addr, PregLocation dest)
+                            val () = Array.update(locToPregArray, addr, ArgLocation(RegisterArgument dest))
                             val sizeClosure = List.length closure + 1
                             fun clear n =
                                 if n = sizeClosure
@@ -590,7 +590,7 @@ struct
             (
                 case Array.sub(locToPregArray, l) of
                     NoLocation => raise InternalError "codeToICodeRev - local unset"
-                |   PregLocation pr => moveIfNotAllowedRev(destination, tailCode, RegisterArgument pr)
+                |   ArgLocation arg => moveIfNotAllowedRev(destination, tailCode, arg)
                 |   ContainerLocation{container, stackOffset} =>
                         (* This always returns a ContainerAddr whatever the "allowed". *)
                         (tailCode, ContainerAddr{container=container, stackOffset=stackPtr-stackOffset}, false)
@@ -1070,7 +1070,7 @@ struct
                 |   codeArgs (({value, addr}, _) :: rest, tailCode) =
                     let
                         val pr = newPReg()
-                        val () = Array.update(locToPregArray, addr, PregLocation pr)
+                        val () = Array.update(locToPregArray, addr, ArgLocation(RegisterArgument pr))
                         val (code, _, _) = codeToICodeRev(value, context, false, SpecificPReg pr, tailCode)
                         val (pregs, othercode) = codeArgs(rest, code)
                     in
@@ -1175,7 +1175,7 @@ struct
                         end
                 (* Make a register to hold the exception packet and put eax into it. *)
                 val packetAddr = newPReg()
-                val () = Array.update(locToPregArray, exPacketAddr, PregLocation packetAddr)
+                val () = Array.update(locToPregArray, exPacketAddr, ArgLocation(RegisterArgument packetAddr))
                 val (handleCode, _, handleExit) =
                     codeToICodeRev(handler, context, isTail, SpecificPReg handlerTarget,
                         BlockSimple(BeginHandler{workReg=newPReg(), packetReg=packetAddr}) :: BlockLabel handlerLab :: atExpEnd)
@@ -1234,24 +1234,27 @@ struct
                     fun createStore containerReg (source, destWord) =
                         StoreArgument{source=source, offset=destWord*Word.toInt wordSize, base=containerReg, index=NoMemIndex, kind=MoveWord, isMutable=false}
                 in
-                    val (codeContainer, storeInstr) =
+                    val findContainer =
                         case container of
                             BICExtract(BICLoadLocal l) =>
                             (
                                 case Array.sub(locToPregArray, l) of
-                                    NoLocation => raise InternalError "codeToICodeRev - local unset"
-                                |   PregLocation pr => (tailCode, createStore pr)
-                                |   ContainerLocation{container, stackOffset} =>
+                                    ContainerLocation{container, stackOffset} =>
                                     let
                                         fun storeToStack(source, destWord) =
                                             StoreToStack{source=source, container=container, field=destWord,
                                                 stackOffset=stackPtr-stackOffset+destWord}
                                     in
-                                        (tailCode, storeToStack)
+                                        SOME storeToStack
                                     end
-                            )
-                        
-                        |   _ =>
+                               |    _ => NONE
+                           )
+                       |    _ => NONE
+
+                    val (codeContainer, storeInstr) =
+                        case findContainer of
+                            SOME storeToStack => (tailCode, storeToStack)
+                        |   NONE => 
                             let
                                 val containerTarget = newPReg()
                                 val (codeContainer, _, _) =
@@ -1296,30 +1299,34 @@ struct
                                we must load the fields directly.  We mustn't load its address and then copy
                                because loading the address would be the last reference and might cause
                                the container to be reused prematurely. *)
-                            val (codeTuple, loadField) =
+                            val findContainer =
                                 case tuple of
                                     BICExtract(BICLoadLocal l) =>
                                     (
                                         case Array.sub(locToPregArray, l) of
-                                            NoLocation => raise InternalError "codeToICodeRev - local unset"
-                                        |   PregLocation pr => (codeContainer, fn sourceWord => wordOffsetAddress(sourceWord, pr))
-                                        |   ContainerLocation{container, stackOffset} =>
+                                            ContainerLocation{container, stackOffset} =>
                                             let
                                                 fun getAddr sourceWord =
                                                     StackLocation{wordOffset=stackPtr-stackOffset+sourceWord, container=container,
                                                                   field=sourceWord, cache=NONE}
                                             in
-                                                (codeContainer, getAddr)
+                                                SOME getAddr
                                             end
+                                        |   _ => NONE
                                    )
-                                |   _ =>
-                                let
-                                    val tupleTarget = newPReg()
-                                    val (codeTuple, _, _) = codeToICodeRev(tuple, context, false, SpecificPReg tupleTarget, codeContainer)
-                                    fun loadField sourceWord = wordOffsetAddress(sourceWord, tupleTarget)
-                                in
-                                    (codeTuple, loadField)
-                                end
+                                |   _ => NONE
+
+                            val (codeTuple, loadField) =
+                                case findContainer of
+                                    SOME getAddr => (codeContainer, getAddr)
+                                |   NONE =>
+                                    let
+                                        val tupleTarget = newPReg()
+                                        val (codeTuple, _, _) = codeToICodeRev(tuple, context, false, SpecificPReg tupleTarget, codeContainer)
+                                        fun loadField sourceWord = wordOffsetAddress(sourceWord, tupleTarget)
+                                    in
+                                        (codeTuple, loadField)
+                                    end
 
                             fun copyContainer(sourceWord, destWord, tailCode) =
                             if sourceWord = filterLength
