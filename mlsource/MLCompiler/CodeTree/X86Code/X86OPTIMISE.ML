@@ -98,7 +98,7 @@ struct
             end
             else forward(b :: tl, a :: list, rep)
 
-        |   forward((mv as MoveToRegister{source=MemoryArg{base, offset, index=NoIndex}, output}) :: (reset as ResetStack{numWords=count, preserveCC}) :: tl,
+        |   forward((mv as MoveToRegister{source=MemoryArg{base, offset, index=NoIndex}, output, opSize}) :: (reset as ResetStack{numWords=count, preserveCC}) :: tl,
                     list, rep) =
             (* If we have a load from the stack followed by a stack reset we may be able to use a pop.  Even if
                we can't we may be better to split the stack reset in case there's another load that could. *)
@@ -118,7 +118,7 @@ struct
                 end
                 else forward(
                         MoveToRegister{
-                            source=MemoryArg{base=base, offset=offset-resetBefore*Word.toInt Address.wordSize, index=NoIndex}, output=output} ::
+                            source=MemoryArg{base=base, offset=offset-resetBefore*Word.toInt Address.wordSize, index=NoIndex}, output=output, opSize=opSize} ::
                         (if count = resetBefore then tl else ResetStack{numWords=count - resetBefore, preserveCC=preserveCC} :: tl),
                         ResetStack{numWords=resetBefore, preserveCC=preserveCC} :: list, true)
             end

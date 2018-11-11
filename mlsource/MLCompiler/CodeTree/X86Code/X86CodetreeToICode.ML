@@ -31,8 +31,16 @@ struct
     
     exception InternalError = Misc.InternalError
 
-    val argRegs = List.map GenReg (if isX64 then [eax, ebx, r8, r9, r10] else [eax, ebx])
-    val numArgRegs = List.length argRegs
+    local
+        val regs =
+            case targetArch of
+                Native32Bit => [eax, ebx]
+            |   Native64Bit => [eax, ebx, r8, r9, r10]
+            |   ObjectId32Bit => [eax, esi, r8, r9, r10]
+    in
+        val argRegs = List.map GenReg regs
+        val numArgRegs = List.length argRegs
+    end
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
@@ -84,7 +92,7 @@ struct
         let
             val addr = toAddress value
         in
-            if length addr <> 0w1 orelse flags addr <> F_bytes
+            if length addr <> nativeWordSize div wordSize orelse flags addr <> F_bytes
             then raise InternalError "largeWordConstant: invalid"
             else ();
             LargeWord.toLargeInt(RunCall.unsafeCast addr)
@@ -364,7 +372,7 @@ struct
                 else moveToTarget(dest, code, arg)
 
         |   moveIfNotAllowed(dest as Allowed{const32s=true, ...}, code, arg as AddressConstant _) =
-                if not isX64
+                if targetArch = Native32Bit
                 then (code, arg, false)
                 else moveToTarget(dest, code, arg)
 
@@ -394,7 +402,7 @@ struct
                 else moveToTargetRev(dest, code, arg)
 
         |   moveIfNotAllowedRev(dest as Allowed{const32s=true, ...}, code, arg as AddressConstant _) =
-                if not isX64
+                if targetArch = Native32Bit
                 then (code, arg, false)
                 else moveToTargetRev(dest, code, arg)
 
@@ -2403,20 +2411,20 @@ struct
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w4, context)
                 val untaggedResReg = newUReg()
-                val (boxTagCode, moveKind) =
-                    if isX64
-                    then (BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false}), Move32Bit)
-                    else (BlockSimple(BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]}), MoveWord)
+                val boxTagCode =
+                    if targetArch = Native64Bit
+                    then BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false})
+                    else BlockSimple(BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]})
             in
                 (codeBaseIndex @ codeUntag @
-                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=moveKind}), boxTagCode], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=Move32Bit}), boxTagCode], RegisterArgument target, false)
             end
 
         |   codeToICodeLoad({kind=LoadStoreC64, address}, context, _, destination) =
             let
                 (* Load a 64-bit value from C memory.  This is only allowed in 64-bit mode.  The result
                    is a boxed value. *)
-                val _ = isX64 orelse raise InternalError "codeToICodeNonRev: BICLoadOperation LoadStoreC64 in 32-bit"
+                val _ = targetArch <> Native32Bit orelse raise InternalError "codeToICodeNonRev: BICLoadOperation LoadStoreC64 in 32-bit"
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w8, context)
                 val untaggedResReg = newUReg()
@@ -2521,7 +2529,7 @@ struct
                 val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeCAddress(address, 0w4, context)
 
                 val code =
-                    if isX64
+                    if targetArch = Native64Bit
                     then
                     let
                         (* We don't currently implement 32-bit constant moves so this must always be in a reg. *)
@@ -2535,7 +2543,7 @@ struct
                         val (valueCode, valueReg) = codeToPReg(value, context)
                         val valueReg1 = newUReg()
                     in
-                        codeBaseIndex @ valueCode @ BlockSimple(LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=MoveWord}) :: codeUntag @
+                        codeBaseIndex @ valueCode @ BlockSimple(LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=Move32Bit}) :: codeUntag @
                         [BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=Move32Bit, isMutable=true})]
                     end
             in
@@ -2545,7 +2553,7 @@ struct
         |   codeToICodeStore({kind=LoadStoreC64, address, value}, context, _, destination) =
             let
                 (* Store a 64-bit value. *)
-                val _ = isX64 orelse raise InternalError "codeToICodeNonRev: BICStoreOperation LoadStoreC64 in 32-bit"
+                val _ = targetArch <> Native32Bit orelse raise InternalError "codeToICodeNonRev: BICStoreOperation LoadStoreC64 in 32-bit"
                 val (valueCode, valueReg) = codeToPReg(value, context)
                 val valueReg1 = newUReg()
                 val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeCAddress(address, 0w8, context)
@@ -2607,7 +2615,7 @@ struct
                             let
                                 val ival = Word.toLargeIntX(toShort value)
                             in
-                                if isX64
+                                if targetArch = Native64Bit
                                 then if is32bit ival then SOME ival else NONE
                                 else if ival = 0 orelse ival mod 2 = 1 then SOME ival else NONE
                             end
@@ -2913,8 +2921,8 @@ struct
                    and might look like an address.  The RTS scans for comparisons with
                    inline constant addresses. *)
                 val (arg2Code, arg2Operand) =
-                    if isX64
-                    then
+                    if targetArch <> Native32Bit
+                    then (* Native 64-bit or 32-in-64. *)
                     (
                         case arg2 of
                             BICConstnt(value, _) => (arg1Code, IntegerConstant(largeWordConstant value))
@@ -3445,7 +3453,7 @@ struct
                 val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
                 val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
                 val memResult =
-                    if isX64
+                    if wordSize = 0w8
                     then {base=baseReg, offset=Word.toInt offset-4, index=MemIndex4 indexReg, cache=NONE}
                     else {base=baseReg, offset=Word.toInt offset-2, index=MemIndex2 indexReg, cache=NONE}
             in

@@ -33,7 +33,7 @@ sig
     |   FPReg of fpReg
     |   XMMReg of xmmReg
 
-    val isX64: bool and is32bit: LargeInt.int -> bool
+    val is32bit: LargeInt.int -> bool
 
     val eax: genReg and ebx: genReg and ecx: genReg and edx: genReg
     and edi: genReg and esi: genReg and esp: genReg and ebp: genReg
@@ -50,6 +50,11 @@ sig
 
     val regRepr: reg -> string
     
+    (* May be targeted at native 32-bit, native 64-bit or X86/64 with 32-bit words
+       and addresses as object Ids. *)
+    datatype targetArch = Native32Bit | Native64Bit | ObjectId32Bit
+    val targetArch: targetArch
+
     type addrs
     val addrZero: addrs
 
@@ -76,11 +81,10 @@ sig
     
     (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
     datatype opSize = OpSize32 | OpSize64
-    val polyWordOpSize: opSize and nativeWordOpSize: opSize
 
     datatype arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
-    and      repOps = CMPSB | MOVSB | MOVSL | STOSB | STOSL
+    and      repOps = CMPS8 | MOVS8 | MOVS32 | STOS8 | STOS32 | MOVS64 | STOS64
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
     and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
     and      branchOps =
@@ -112,7 +116,7 @@ sig
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
     
-    datatype nonWordSize = Size8Bit | Size16Bit | Size32Bit
+    datatype nonWordSize = Size8Bit | Size16Bit
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype trapEntries =
@@ -121,7 +125,7 @@ sig
     |   HeapOverflowCall
 
     datatype operation =
-        MoveToRegister of { source: genReg regOrMemoryArg, output: genReg }
+        MoveToRegister of { source: genReg regOrMemoryArg, output: genReg, opSize: opSize }
     |   LoadNonWord of { size: nonWordSize, source: memoryAddress, output: genReg }
     |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
@@ -129,15 +133,15 @@ sig
     |   ArithMemConst of { opc: arithOp, address: memoryAddress, source: LargeInt.int, opSize: opSize }
     |   ArithMemLongConst of { opc: arithOp, address: memoryAddress, source: machineWord }
     |   ArithByteMemConst of { opc: arithOp, address: memoryAddress, source: Word8.word }
-    |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word }
-    |   ShiftVariable of { shiftType: shiftType, output: genReg } (* Shift amount is in ecx *)
+    |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word, opSize: opSize }
+    |   ShiftVariable of { shiftType: shiftType, output: genReg, opSize: opSize } (* Shift amount is in ecx *)
     |   ConditionalBranch of { test: branchOps, label: label }
-    |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType }
+    |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType, opSize: opSize }
     |   TestTagR of genReg
     |   TestByteMem of { base: genReg, offset: int, bits: word }
     |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
-    |   StoreRegToMemory of { toStore: genReg, address: memoryAddress }
-    |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
+    |   StoreRegToMemory of { toStore: genReg, address: memoryAddress, opSize: opSize }
+    |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress, opSize: opSize }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
     |   StoreNonWord of { size: nonWordSize, toStore: genReg, address: memoryAddress }
     |   StoreNonWordConst of { size: nonWordSize, toStore: LargeInt.int, address: memoryAddress }
@@ -153,9 +157,9 @@ sig
     |   JumpLabel of label
     |   LoadLabelAddress of { label: label, output: genReg }
     |   RepeatOperation of repOps
-    |   DivideAccR of {arg: genReg, isSigned: bool }
-    |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
-    |   AtomicXAdd of {base: genReg, output: genReg}
+    |   DivideAccR of {arg: genReg, isSigned: bool, opSize: opSize }
+    |   DivideAccM of {base: genReg, offset: int, isSigned: bool, opSize: opSize }
+    |   AtomicXAdd of {address: memoryAddress, output: genReg, opSize: opSize }
     |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of { constant: machineWord, precision: fpSize }
@@ -166,15 +170,15 @@ sig
     |   FPArithMemory of { opc: fpOps, base: genReg, offset: int, precision: fpSize }
     |   FPUnary of fpUnaryOps
     |   FPStatusToEAX
-    |   FPLoadInt of { base: genReg, offset: int }
+    |   FPLoadInt of { base: genReg, offset: int, opSize: opSize }
     |   FPFree of fpReg
-    |   MultiplyR of { source: genReg regOrMemoryArg, output: genReg }
+    |   MultiplyR of { source: genReg regOrMemoryArg, output: genReg, opSize: opSize }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
-    |   XMMConvertFromInt of { source: genReg, output: xmmReg }
-    |   SignExtendForDivide
-    |   XChng of { reg: genReg, arg: genReg regOrMemoryArg }
-    |   Negative of { output: genReg }
+    |   XMMConvertFromInt of { source: genReg, output: xmmReg, opSize: opSize }
+    |   SignExtendForDivide of opSize
+    |   XChng of { reg: genReg, arg: genReg regOrMemoryArg, opSize: opSize }
+    |   Negative of { output: genReg, opSize: opSize }
     |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
     |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }
     |   MoveXMMRegToGenReg of { source: xmmReg, output: genReg }

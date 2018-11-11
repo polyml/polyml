@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-17 David C.J. Matthews
+    Copyright (c) 2016-18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -156,7 +156,7 @@ struct
                        to store.  To get round this we reserve ecx as a possible register as with shifts.
                        We don't actually need to use this but it is available if necessary. *)
                     StoreArgument { source=RegisterArgument sReg, kind=MoveByte, ...} =>
-                    if isX64 then ()
+                    if targetArch <> Native32Bit then ()
                     else reserveRegister([regNo sReg], GenReg ecx)
 
                 |   InitialiseMem{size, addr, init} =>

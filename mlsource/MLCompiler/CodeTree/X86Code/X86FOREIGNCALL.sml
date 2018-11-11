@@ -45,16 +45,22 @@ struct
     open X86CODE
     open Address
     
+    val (polyWordOpSize, nativeWordOpSize) =
+        case targetArch of
+            Native32Bit     => (OpSize32, OpSize32)
+        |   Native64Bit     => (OpSize64, OpSize64)
+        |   ObjectId32Bit   => (OpSize32, OpSize64)
+    
     exception InternalError = Misc.InternalError
     
     val pushR = PushToStack o RegisterArg
 
-    fun moveRR{source, output} = MoveToRegister{source=RegisterArg source, output=output}
+    fun moveRR{source, output} = MoveToRegister{source=RegisterArg source, output=output, opSize=polyWordOpSize}
 
     fun loadMemory(reg, base, offset) =
-        MoveToRegister{source=MemoryArg{base=base, offset=offset, index=NoIndex}, output=reg}
+        MoveToRegister{source=MemoryArg{base=base, offset=offset, index=NoIndex}, output=reg, opSize=polyWordOpSize}
     and storeMemory(reg, base, offset) =
-        StoreRegToMemory{toStore=reg, address={base=base, offset=offset, index=NoIndex}}
+        StoreRegToMemory{toStore=reg, address={base=base, offset=offset, index=NoIndex}, opSize=polyWordOpSize}
 
     fun createProfileObject _ (*functionName*) =
     let
@@ -117,7 +123,7 @@ struct
            in almost all circumstances except when a call to the FFI code results in a callback
            and the callback moves the ML stack.  Instead the RTS callback handler adjusts the value
            in memRegStackPtr and we reload the ML stack pointer from there. *)
-        val entryPtrReg = if isX64 then r11 else ecx
+        val entryPtrReg = if targetArch <> Native32Bit then r11 else ecx
         
         val stackSpace =
             case abi of
@@ -137,12 +143,12 @@ struct
 
         val code =
             [
-                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg, opSize=polyWordOpSize}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0)(* Load its value. *)
             ] @
             (
                 (* Save heap ptr.  This is in r15 in X86/64 *)
-                if isX64 then [storeMemory(r15, ebp, memRegLocalMPointer)] (* Save heap ptr *)
+                if targetArch <> Native32Bit then [storeMemory(r15, ebp, memRegLocalMPointer)] (* Save heap ptr *)
                 else []
             ) @
             (
@@ -188,7 +194,7 @@ struct
                 loadMemory(esp, ebp, memRegStackPtr) (* Restore the ML stack pointer. *)
             ] @
             (
-            if isX64 then [loadMemory(r15, ebp, memRegLocalMPointer) ] (* Copy back the heap ptr *)
+            if targetArch <> Native32Bit then [loadMemory(r15, ebp, memRegLocalMPointer) ] (* Copy back the heap ptr *)
             else []
             ) @
             [
@@ -226,7 +232,7 @@ struct
         val abi = getABI()
 
         val (entryPtrReg, saveMLStackPtrReg) =
-            if isX64 then (r11, r13) else (ecx, edi)
+            if targetArch <> Native32Bit then (r11, r13) else (ecx, edi)
         
         val stackSpace =
             case abi of
@@ -255,7 +261,7 @@ struct
 
         val code =
             [
-                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg, opSize=polyWordOpSize}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr),
@@ -408,7 +414,7 @@ struct
                     [
                         AllocStore{size=realBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=realBoxLengthWord32,
-                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
                         FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
@@ -417,7 +423,7 @@ struct
                     [
                         AllocStore{size=realBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt realBoxSize,
-                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
                         StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
@@ -427,7 +433,7 @@ struct
                     [
                         AllocStore{size=1 (* It's a 32-bit value *), output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=floatBoxLengthWord32,
-                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
                         FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true },
                         StoreInitialised
                     ]
@@ -436,7 +442,7 @@ struct
                     [
                         (* Copy the value from xmm0 to rax and tag it. *)
                         MoveXMMRegToGenReg { source = xmm0, output = eax },
-                        ShiftConstant{ shiftType=SHL, output=eax, shift=0w32},
+                        ShiftConstant{ shiftType=SHL, output=eax, shift=0w32, opSize=polyWordOpSize},
                         ArithToGenReg { opc=ADD, output=eax, source=NonAddressConstArg 1, opSize=polyWordOpSize }
                     ]
             ) @

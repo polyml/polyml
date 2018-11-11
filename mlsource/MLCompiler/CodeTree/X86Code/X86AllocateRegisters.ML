@@ -33,11 +33,15 @@ struct
     
     exception InternalError = Misc.InternalError
     
-    val generalRegisters =
-        List.map GenReg
-        (if isX64
-        then [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, ebx, eax]
-        else [edi, esi, edx, ecx, ebx, eax])
+    local
+        val regs =
+            case targetArch of
+                Native32Bit     => [edi, esi, edx, ecx, ebx, eax]
+            |   Native64Bit     => [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, ebx, eax]
+            |   ObjectId32Bit   => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
+    in
+        val generalRegisters = List.map GenReg regs
+    end
     
     val floatingPtRegisters =
         case fpMode of
@@ -118,9 +122,9 @@ struct
 
             |   addHints{instr=StoreArgument{ source, kind, ... }, ...} =
                 (
-                    case (decache source, kind, isX64) of
+                    case (decache source, kind, targetArch) of
                         (* Special case for byte register on X86/32 *)
-                        (RegisterArgument(PReg sReg), MoveByte, false) => addRealHint(sReg, GenReg ecx)
+                        (RegisterArgument(PReg sReg), MoveByte, Native32Bit) => addRealHint(sReg, GenReg ecx)
                     |   _ => ()
                 )
         
@@ -378,7 +382,7 @@ struct
             (
                 case (decache source, kind) of
                     (RegisterArgument(PReg sReg), MoveByte) =>
-                    if isX64
+                    if targetArch <> Native32Bit
                     then (allocateArgGeneral source; allocateGeneralReg bReg; allocateArgIndex index)
                     else
                     (* This is complicated on X86/32.  We can't use edi or esi for the store registers.  Instead
