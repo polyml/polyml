@@ -823,18 +823,10 @@ struct
             end
 
         |   codeToICodeRev(BICUnary instr, context, isTail, destination, tailCode) =
-            let
-                val (code, dest, haveExited) = codeToICodeUnary(instr, context, isTail, destination)
-            in
-                (revApp(code, tailCode), dest, haveExited)
-            end
+                codeToICodeUnaryRev(instr, context, isTail, destination, tailCode)
 
         |   codeToICodeRev(BICBinary instr, context, isTail, destination, tailCode) =
-            let
-                val (code, dest, haveExited) = codeToICodeBinary(instr, context, isTail, destination)
-            in
-                (revApp(code, tailCode), dest, haveExited)
-            end
+                codeToICodeBinaryRev(instr, context, isTail, destination, tailCode)
 
         |   codeToICodeRev(BICArbitrary{oper, shortCond, arg1, arg2, longCall}, context, _, destination, tailCode) =
             let
@@ -1386,18 +1378,18 @@ struct
                 (revApp(code, tailCode), dest, haveExited)
             end
 
-        and codeToICodeUnary({oper=BuiltIns.NotBoolean, arg1}, context, _, destination) =
+        and codeToICodeUnaryRev({oper=BuiltIns.NotBoolean, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
-                val (argCode, tReg) = codeToPReg(arg1, context)
+                val (argCode, tReg) = codeToPRegRev(arg1, context, tailCode)
             in
-                (argCode @ [BlockSimple(BooleanNot{dest=target, source=tReg})], RegisterArgument target, false)
+                (BlockSimple(BooleanNot{dest=target, source=tReg}) :: argCode, RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary(instr as {oper=BuiltIns.IsTaggedValue, ...}, context, isTail, destination) =
-                codeAsConditional(BICUnary instr, context, isTail, destination)
+        |   codeToICodeUnaryRev(instr as {oper=BuiltIns.IsTaggedValue, ...}, context, isTail, destination, tailCode) =
+                codeAsConditionalRev(BICUnary instr, context, isTail, destination, tailCode)
 
-        |   codeToICodeUnary({oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val argReg1 = newPReg() and argReg2 = newPReg() and argReg3 = newPReg()
@@ -1406,114 +1398,117 @@ struct
                    top byte containing the flags and to tag the result.  The mask is 56 bits on
                    64-bit which won't fit in an inline constant.  Since we have to shift it
                    anyway we might as well do this by shifts. *)
-                val (argCode, addrReg) = codeToPReg(arg1, context)
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
             in
-                (argCode @
-                [BlockSimple(LoadArgument{source=wordOffsetAddress(~1, addrReg), dest=argReg1, kind=MoveWord}),
-                 BlockSimple(ShiftOperation{shift=SHL, resultReg=argReg2, operand=argReg1, shiftAmount=IntegerConstant 8, ccRef=ccRef1 }),
-                 BlockSimple(ShiftOperation{shift=SHR, resultReg=argReg3, operand=argReg2, shiftAmount=IntegerConstant 7 (* 8-tagshift*), ccRef=ccRef2 }),
-                 BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=argReg3, operand2=IntegerConstant 1, ccRef=ccRef3})], RegisterArgument target, false)
+                (BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=argReg3, operand2=IntegerConstant 1, ccRef=ccRef3}) ::
+                    BlockSimple(ShiftOperation{shift=SHR, resultReg=argReg3, operand=argReg2, shiftAmount=IntegerConstant 7 (* 8-tagshift*), ccRef=ccRef2 }) ::
+                    BlockSimple(ShiftOperation{shift=SHL, resultReg=argReg2, operand=argReg1, shiftAmount=IntegerConstant 8, ccRef=ccRef1 }) ::
+                    BlockSimple(LoadArgument{source=wordOffsetAddress(~1, addrReg), dest=argReg1, kind=MoveWord}) :: argCode,
+                RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.MemoryCellFlags, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.MemoryCellFlags, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val argReg1 = newUReg()
-                val (argCode, addrReg) = codeToPReg(arg1, context)
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
             in
-                (argCode @
-                [BlockSimple(LoadArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex, cache=NONE}, dest=argReg1, kind=MoveByte}),
-                 BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false })], RegisterArgument target, false)
+                (BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false }) ::
+                 BlockSimple(LoadArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex, cache=NONE}, dest=argReg1, kind=MoveByte}) ::
+                 argCode, RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination, tailCode) =
             let
-                val (argCode, addrReg) = codeToPReg(arg1, context)
-                val code = argCode @ [BlockSimple(LockMutable{addr=addrReg})]
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
             in
-                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+                moveIfNotAllowedRev(destination, BlockSimple(LockMutable{addr=addrReg}) :: argCode, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.AtomicIncrement, arg1}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val incrReg = newUReg()
-                val (argCode, addrReg) = codeToPReg(arg1, context)
-            in
-                (argCode @
-                 [BlockSimple(LoadArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=MoveWord}),
-                  BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }),
-                  (* We want the result to be the new value but we've returned the old value. *)
-                  BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()})],
-                    RegisterArgument target, false)
-            end
-
-        |   codeToICodeUnary({oper=BuiltIns.AtomicDecrement, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.AtomicIncrement, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val incrReg = newUReg()
-                val (argCode, addrReg) = codeToPReg(arg1, context)
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                val code =
+                    (* We want the result to be the new value but we've returned the old value. *)
+                    BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}) ::
+                    BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=MoveWord}) ::
+                    argCode
             in
-                (argCode @
-                 [BlockSimple(LoadArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=MoveWord}),
-                  BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }),
-                  BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()})],
-                    RegisterArgument target, false)
+                (code, RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.AtomicReset, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.AtomicDecrement, arg1}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val incrReg = newUReg()
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                val code =
+                    BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}) ::
+                    BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=MoveWord}) ::
+                    argCode
+            in
+                (code, RegisterArgument target, false)
+            end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.AtomicReset, arg1}, context, _, destination, tailCode) =
             let
                 (* This is needed only for the interpreted version where we have a single real
                    mutex to interlock atomic increment and decrement.  We have to use the same
                    mutex to interlock clearing a mutex.  On the X86 we use hardware locking and
                    the hardware guarantees that an assignment of a word will be atomic. *)
-                val (argCode, addrReg) = codeToPReg(arg1, context)
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
                 (* Store tagged 1 in the mutex.  This is the unlocked value. *)
-                val code = argCode @
-                    [BlockSimple(StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=NoMemIndex, offset=0, kind=MoveWord, isMutable=true})]
+                val code =
+                    BlockSimple(StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=NoMemIndex, offset=0, kind=MoveWord, isMutable=true})
+                        :: argCode
             in
-                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+                moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.LongWordToTagged, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.LongWordToTagged, arg1}, context, _, destination, tailCode) =
             let (* This is exactly the same as StringLengthWord at the moment.
                    TODO: introduce a new ICode entry so that the next stage can optimise
                    longword operations. *)
                 val target = asTarget destination
                 val argReg1 = newUReg()
-                val (argCode, addrReg) = codeToPReg(arg1, context)
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                val code =
+                    BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false }) ::
+                    BlockSimple(LoadArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex, cache=NONE}, dest=argReg1, kind=MoveWord}) ::
+                    argCode
             in
-                (argCode @
-                [BlockSimple(LoadArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex, cache=NONE}, dest=argReg1, kind=MoveWord}),
-                 (* Is this signed or unsigned? *)
-                 BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false })], RegisterArgument target, false)
+                (code, RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination, tailCode) =
             let
                 val addrReg = newPReg() and untagArg = newUReg()
-                val (argCode, argReg1) = codeToPReg(arg1, context)
+                val (argCode, argReg1) = codeToPRegRev(arg1, context, tailCode)
                 val code =
-                    argCode @
-                    [BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=true, cache=NONE}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]})]
+                    BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]}) ::
+                    BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=true, cache=NONE}) ::
+                    argCode
             in
-                moveIfNotAllowed(destination, code, RegisterArgument addrReg)
+                moveIfNotAllowedRev(destination, code, RegisterArgument addrReg)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.UnsignedToLongWord, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.UnsignedToLongWord, arg1}, context, _, destination, tailCode) =
             let
                 val addrReg = newPReg() and untagArg = newUReg()
-                val (argCode, argReg1) = codeToPReg(arg1, context)
+                val (argCode, argReg1) = codeToPRegRev(arg1, context, tailCode)
                 val code =
-                    argCode @
-                    [BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=false, cache=NONE}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]})]
+                    BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]}) ::
+                    BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=false, cache=NONE}) ::
+                    argCode
             in
-                moveIfNotAllowed(destination, code, RegisterArgument addrReg)
+                moveIfNotAllowedRev(destination, code, RegisterArgument addrReg)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.RealNeg precision, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.RealNeg precision, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val fpRegSrc = newUReg() and fpRegDest = newUReg() and sse2ConstReg = newUReg()
@@ -1557,10 +1552,10 @@ struct
                     end
                     else [BlockSimple(TagFloat{source=fpRegDest, dest=target})]
             in
-                (argCode @ load :: code @ result, RegisterArgument target, false)
+                (revApp(argCode @ load :: code @ result, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.RealAbs precision, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.RealAbs precision, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val fpRegSrc = newUReg() and fpRegDest = newUReg() and sse2ConstReg = newUReg()
@@ -1596,11 +1591,10 @@ struct
                     end
                     else [BlockSimple(TagFloat{source=fpRegDest, dest=target})]
             in
-                (argCode @
-                 load :: code @ result, RegisterArgument target, false)
+                (revApp(argCode @ load :: code @ result, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.RealFixedInt precision, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.RealFixedInt precision, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val untagReg = newUReg() and fpReg = newUReg()
@@ -1608,14 +1602,15 @@ struct
                 val floatOp = case fpMode of FPModeX87 => X87Float | FPModeSSE2 => SSE2Float
                 val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
                 val _ = precision = BuiltIns.PrecDouble orelse raise InternalError "RealFixedInt - single"
-            in
-                (argCode @
+                val code = argCode @
                  [BlockSimple(UntagValue{source=aReg1, dest=untagReg, isSigned=true, cache=NONE}),
                   BlockSimple(floatOp{ dest=fpReg, source=RegisterArgument untagReg}),
-                  BlockSimple(BoxValue{boxKind=boxFloat, source=fpReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                  BlockSimple(BoxValue{boxKind=boxFloat, source=fpReg, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.FloatToDouble, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.FloatToDouble, arg1}, context, _, destination, tailCode) =
             let
                 (* Convert a single precision floating point value to double precision. *)
                 val target = asTarget destination
@@ -1631,12 +1626,13 @@ struct
                          else BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg2, kind=MoveFloat}),
                          BlockSimple(SSE2FPUnary{opc=SSE2UFloatToDouble, resultReg=fpReg2, source=RegisterArgument fpReg})]
                 val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+                val code = argCode @ unboxOrUntag @
+                    [BlockSimple(BoxValue{boxKind=boxFloat, source=fpReg2, dest=target, saveRegs=[]})]
             in
-                (argCode @ unboxOrUntag @
-                    [BlockSimple(BoxValue{boxKind=boxFloat, source=fpReg2, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.DoubleToFloat NONE, arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.DoubleToFloat NONE, arg1}, context, _, destination, tailCode) =
             let
                 (* Convert a double precision value to a single precision using the current rounding
                    mode.  This is simpler than setting the rounding mode and then restoring it. *)
@@ -1650,11 +1646,12 @@ struct
                     |   FPModeSSE2 => [
                             BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
                             BlockSimple(TagFloat{source=fpReg2, dest=target}) ]
+                val code = argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @ boxOrTag
             in
-                (argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @ boxOrTag, RegisterArgument target, false)
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.DoubleToFloat (SOME rndMode), arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.DoubleToFloat (SOME rndMode), arg1}, context, _, destination, tailCode) =
             let
                 (* Convert a double precision value to a single precision.  The rounding mode
                    is passed in explicitly. *)
@@ -1672,12 +1669,13 @@ struct
                     |   FPModeSSE2 =>
                             [BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
                              BlockSimple(TagFloat{source=fpReg2, dest=target})]
+                val code = argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @
+                    setAndRestoreRounding(rndMode, doConversion)
             in
-                (argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @
-                    setAndRestoreRounding(rndMode, doConversion), RegisterArgument target, false)
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeUnary({oper=BuiltIns.RealToInt(precision, rndMode), arg1}, context, _, destination) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.RealToInt(precision, rndMode), arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val chkOverflow = newCCRef()
@@ -1740,13 +1738,12 @@ struct
                         checkOverflow context chkOverflow @
                         [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=wrkReg2, operand2=IntegerConstant 1, ccRef = newCCRef()})]
             in
-                (doConvert @ checkAndTag, RegisterArgument target, false)
+                (revApp(doConvert @ checkAndTag, tailCode), RegisterArgument target, false)
             end
  
-        and (*codeToICodeBinary({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination) =
+        and (*codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =
             let
                 val ccRef = newCCRef()
-                val tailCode = []
                 val comparison =
                     (* If the argument is a tagged value that will fit in 32-bits we can use
                        the literal version.  Use toLargeIntX here because the value will be
@@ -1813,20 +1810,21 @@ struct
                     BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=testAsBranch(test, isSigned, true)}) ::
                     comparison
             in
-                (List.rev code, RegisterArgument target, false)
+                (code, RegisterArgument target, false)
             end
 
-        |   *)codeToICodeBinary(instr as {oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
-                codeAsConditional(BICBinary instr, context, isTail, destination)
+        |   *)codeToICodeBinaryRev(instr as {oper=BuiltIns.WordComparison _, ...}, context, isTail, destination, tailCode) =
+                codeAsConditionalRev(BICBinary instr, context, isTail, destination, tailCode)
 
-        |   codeToICodeBinary({oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
+                val code = codeFixedPrecisionArith(oper, arg1, arg2, context, target, checkOverflow context)
             in
-                (codeFixedPrecisionArith(oper, arg1, arg2, context, target, checkOverflow context), RegisterArgument target, false)
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 (* If the argument is a constant we can subtract the tag beforehand.
@@ -1836,14 +1834,13 @@ struct
                     if isShort value
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
-                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val (arg1Code, aReg1) = codeToPRegRev(arg1, context, tailCode)
             in
-                (arg1Code @
-                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef = newCCRef()})],
-                        RegisterArgument target, false)
+                (BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef = newCCRef()}) ::
+                    arg1Code, RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
@@ -1851,14 +1848,13 @@ struct
                     if isShort value
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
-                val (arg2Code, aReg2) = codeToPReg(arg2, context)
+                val (arg2Code, aReg2) = codeToPRegRev(arg2, context, tailCode)
             in
-                (arg2Code @
-                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef = newCCRef()})],
-                        RegisterArgument target, false)
+                (BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef = newCCRef()}) ::
+                    arg2Code, RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
@@ -1866,13 +1862,14 @@ struct
                 (* Use LEA to do the addition since we're not concerned with overflow.  This is shorter than
                    subtracting the tag and adding the values and also moves the result into the
                    appropriate register. *)
+                val code =
+                    arg1Code @ arg2Code @
+                    [BlockSimple(LoadEffectiveAddress{base=SOME aReg1, offset= ~1, index=MemIndex1 aReg2, dest=target})]
             in
-                (arg1Code @ arg2Code @
-                    [BlockSimple(LoadEffectiveAddress{base=SOME aReg1, offset= ~1, index=MemIndex1 aReg2, dest=target})],
-                        RegisterArgument target, false)
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
@@ -1880,69 +1877,72 @@ struct
                     if isShort value
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
-                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val (arg1Code, aReg1) = codeToPRegRev(arg1, context, tailCode)
             in
-                (arg1Code @
-                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=newCCRef()})],
-                        RegisterArgument target, false)
+                (BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=newCCRef()}) ::
+                    arg1Code, RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val aReg3 = newPReg()
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
-            in
-                (arg1Code @ arg2Code @
+                val code =
+                    arg1Code @ arg2Code @
                     (* Do the subtraction and add in the tag bit.  This could be reordered if we have cascaded operations
                        since we don't need to check for overflow. *)
                     [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
-                codeMultiplyConstantWord(arg1, context, destination, if isShort value then toShort value else 0w0)
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2=BICConstnt(value, _)}, context, _, destination, tailCode) =
+                codeMultiplyConstantWordRev(arg1, context, destination, if isShort value then toShort value else 0w0, tailCode)
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
-                codeMultiplyConstantWord(arg2, context, destination, if isShort value then toShort value else 0w0)
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1=BICConstnt(value, _), arg2}, context, _, destination, tailCode) =
+                codeMultiplyConstantWordRev(arg2, context, destination, if isShort value then toShort value else 0w0, tailCode)
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val arg1Untagged = newUReg()
                 and arg2Untagged = newUReg() and resUntagged = newUReg()
-            in
-                (arg1Code @ arg2Code @
+                val code =
+                    arg1Code @ arg2Code @
                     (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
                        if we have a value that is already untagged. *)
                     [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE}),
                      BlockSimple(ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
                      BlockSimple(Multiplication{resultReg=resUntagged, operand1=arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=newCCRef()}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})],
-                        RegisterArgument target, false)
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val arg1Untagged = newUReg() and arg2Untagged = newUReg()
                 val quotient = newUReg() and remainder = newUReg()
-            in
-                (arg1Code @ arg2Code @
+                val code = arg1Code @ arg2Code @
                     (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
                     [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE}),
                      BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false, cache=NONE}),
                      BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder }),
-                     BlockSimple(TagValue { source=quotient, dest=target, isSigned=false })], RegisterArgument target, false)
+                     BlockSimple(TagValue { source=quotient, dest=target, isSigned=false })]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination, tailCode) =
             let
                 (* Identical to Quot except that the result is the remainder. *)
                 val target = asTarget destination
@@ -1950,20 +1950,21 @@ struct
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val arg1Untagged = newUReg() and arg2Untagged = newUReg()
                 val quotient = newUReg() and remainder = newUReg()
-            in
-                (arg1Code @ arg2Code @
+                val code = arg1Code @ arg2Code @
                     (* Shift both of the arguments to remove the tags. *)
                     [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE}),
                      BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false, cache=NONE}),
                      BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder }),
-                     BlockSimple(TagValue { source=remainder, dest=target, isSigned=false })], RegisterArgument target, false)
+                     BlockSimple(TagValue { source=remainder, dest=target, isSigned=false })]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordArith _, ...}, _, _, _) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith _, ...}, _, _, _, _) =
                 raise InternalError "codeToICodeNonRev: WordArith - unimplemented operation"
 
-        |   codeToICodeBinary({oper=BuiltIns.WordLogical logOp, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical logOp, arg1, arg2=BICConstnt(value, _)}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
@@ -1973,13 +1974,14 @@ struct
                     then (case logOp of BuiltIns.LogicalXor => semitag | _ => tag) (Word.toLargeIntX(toShort value))
                     else 0
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
+                val code =
+                    arg1Code @
+                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=arg1Reg, operand2=IntegerConstant constVal, ccRef=newCCRef()})]
             in
-                (arg1Code @
-                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=arg1Reg, operand2=IntegerConstant constVal, ccRef=newCCRef()})],
-                        RegisterArgument target, false)
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordLogical logOp, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical logOp, arg1=BICConstnt(value, _), arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
@@ -1989,53 +1991,60 @@ struct
                     then (case logOp of BuiltIns.LogicalXor => semitag | _ => tag) (Word.toLargeIntX(toShort value))
                     else 0
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
+                (* TODO: If this is AND and the constant will fit in 32-bits we can use a 32-bit operation. *)
+                val code =
+                    arg2Code @
+                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=arg2Reg, operand2=IntegerConstant constVal, ccRef=newCCRef()})]
             in
-                (arg2Code @
-                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=arg2Reg, operand2=IntegerConstant constVal, ccRef=newCCRef()})],
-                        RegisterArgument target, false)
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
                 val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
-            in
-                (arg1Code @ arg2Code @
+                val code =
+                    arg1Code @ arg2Code @
                     (* Or-ing preserves the tag bit. *)
-                    [BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()})], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
                 val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
-            in
-                (arg1Code @ arg2Code @
+                val code =
+                    arg1Code @ arg2Code @
                     (* Since they're both tagged the result will be tagged. *)
-                    [BlockSimple(ArithmeticFunction{oper=AND, resultReg=target, operand1=arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()})], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=AND, resultReg=target, operand1=arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
                 val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
                 val aReg3 = newPReg()
-            in
-                (arg1Code @ arg2Code @
+                val code = arg1Code @ arg2Code @
                     (* We need to restore the tag bit after the operation. *)
                     [BlockSimple(ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()}),
-                     BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
+                     BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.WordShift BuiltIns.ShiftLeft, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordShift BuiltIns.ShiftLeft, arg1, arg2=BICConstnt(value, _)}, context, _, destination, tailCode) =
                 (* Use the general case multiplication code.  This will use a shift except for small values.
                    It does detect special cases such as multiplication by 4 and 8 which can be implemented with LEA. *)
-                codeMultiplyConstantWord(arg1, context, destination, if isShort value then Word.<<(0w1, toShort value) else 0w1)
+                codeMultiplyConstantWordRev(arg1, context, destination, if isShort value then Word.<<(0w1, toShort value) else 0w1, tailCode)
 
-        |   codeToICodeBinary({oper=BuiltIns.WordShift shift, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordShift shift, arg1, arg2}, context, _, destination, tailCode) =
                 (* N.B.  X86 shifts of greater than the word length mask the higher bits.  That isn't what ML wants
                    but that is dealt with at a higher level *)
             let
@@ -2070,155 +2079,165 @@ struct
                 val (arg2Code, untag2Code, arg2Arg) = codeAsUntaggedValue(arg2, false, context)
                 val resRegUntagged = newUReg()
                 val shiftOp = case shift of ShiftLeft => SHL | ShiftRightLogical => SHR | ShiftRightArithmetic => SAR
-            in
-                (arg1Code @ arg2Code @ untag2Code @
+                val code = arg1Code @ arg2Code @ untag2Code @
                  [BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=resRegUntagged, operand=argRegUntagged, shiftAmount=arg2Arg, ccRef=newCCRef() }),
                   (* Set the tag by ORing it in.  This will work whether or not a right shift has shifted a 1 into this position. *)
                   BlockSimple(
                     ArithmeticFunction{oper=OR, resultReg=target, operand1=resRegUntagged,
-                                       operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
+                                       operand2=IntegerConstant 1, ccRef=newCCRef()})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val sizeReg = newPReg() and baseReg = newPReg()
                 val sizeCode = codeToICodeTarget(arg1, context, false, sizeReg)
                 val (flagsCode, flagUntag, flagArg) = codeAsUntaggedValue(arg2, false, context)
-            in
-                (sizeCode @ flagsCode @
+                val code =sizeCode @ flagsCode @
                  [BlockSimple(AllocateMemoryVariable{size=sizeReg, dest=baseReg, saveRegs=[]})] @
                   flagUntag @
                   [BlockSimple(StoreArgument{ source=flagArg, base=baseReg, offset= ~1, index=NoMemIndex, kind=MoveByte, isMutable=false}),
                   BlockSimple InitialisationComplete,
-                  BlockSimple(LoadArgument{ source=RegisterArgument baseReg, dest=target, kind=MoveWord})], RegisterArgument target, false)
+                  BlockSimple(LoadArgument{ source=RegisterArgument baseReg, dest=target, kind=MoveWord})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary(instr as {oper=BuiltIns.LargeWordComparison _, ...}, context, isTail, destination) =
-                codeAsConditional(BICBinary instr, context, isTail, destination)
+        |   codeToICodeBinaryRev(instr as {oper=BuiltIns.LargeWordComparison _, ...}, context, isTail, destination, tailCode) =
+                codeAsConditionalRev(BICBinary instr, context, isTail, destination, tailCode)
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val aReg3 = newUReg()
                 val argReg = newUReg()
                 val constantValue = largeWordConstant value
-            in
-                (arg1Code @
+                val code =arg1Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
                      BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val aReg3 = newUReg()
                 val argReg = newUReg()
                 val constantValue = largeWordConstant value
-            in
-                (arg2Code @
+                val code = arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg, kind=MoveWord}),
                      BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val aReg3 = newUReg()
                 val argReg = newUReg()
-            in
-                (arg1Code @ arg2Code @
+                val code = arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
                      BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val aReg3 = newUReg()
                 val argReg = newUReg()
                 val constantValue = largeWordConstant value
-            in
-                (arg1Code @
+                val code = arg1Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
                      BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val aReg3 = newUReg()
                 val argReg = newUReg()
-            in
-                (arg1Code @ arg2Code @
+                val code = arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
                      BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val resValue = newUReg()
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val argReg1 = newUReg()
-            in
-                (arg1Code @ arg2Code @
+                val code = arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg1, kind=MoveWord}),
                      BlockSimple(Multiplication{resultReg=resValue, operand1=argReg1, operand2=wordAt aReg2, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val quotient = newUReg() and remainder = newUReg()
                 val dividendReg = newUReg() and divisorReg = newUReg()
-            in
-                (arg1Code @ arg2Code @
+                val code = arg1Code @ arg2Code @
                     (* We don't test for zero here - that's done explicitly. *)
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=dividendReg, kind=MoveWord}),
                      BlockSimple(LoadArgument{source=wordAt aReg2, dest=divisorReg, kind=MoveWord}),
                      BlockSimple(Division { isSigned = false, dividend=dividendReg, divisor=RegisterArgument divisorReg,
                                 quotient=quotient, remainder=remainder }),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=quotient, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=quotient, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val quotient = newUReg() and remainder = newUReg()
                 val dividendReg = newUReg() and divisorReg = newUReg()
-            in
-                (arg1Code @ arg2Code @
+                val code = arg1Code @ arg2Code @
                     (* We don't test for zero here - that's done explicitly. *)
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=dividendReg, kind=MoveWord}),
                      BlockSimple(LoadArgument{source=wordAt aReg2, dest=divisorReg, kind=MoveWord}),
                      BlockSimple(Division { isSigned = false, dividend=dividendReg, divisor=RegisterArgument divisorReg,
                                 quotient=quotient, remainder=remainder }),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=remainder, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=remainder, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith _, ...}, _, _, _) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith _, ...}, _, _, _, _) =
                 raise InternalError "codeToICodeNonRev: LargeWordArith - unimplemented operation"
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical logOp, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordLogical logOp, arg1, arg2=BICConstnt(value, _)}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
@@ -2226,14 +2245,15 @@ struct
                 val argReg = newUReg()
                 val constantValue = largeWordConstant value
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
-            in
-                (arg1Code @
+                val code = arg1Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
                      BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical logOp, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordLogical logOp, arg1=BICConstnt(value, _), arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
@@ -2241,29 +2261,31 @@ struct
                 val argReg = newUReg()
                 val constantValue = largeWordConstant value
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
-            in
-                (arg2Code @
+                val code = arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg, kind=MoveWord}),
                      BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical logOp, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordLogical logOp, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val aReg3 = newUReg()
                 val argReg = newUReg()
-               val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
-            in
-                (arg1Code @ arg2Code @
+                val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
+                val code = arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
                      BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordShift shift, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordShift shift, arg1, arg2}, context, _, destination, tailCode) =
                 (* The shift is always a Word.word value i.e. tagged.  There is a check at the higher level
                    that the shift does not exceed 32/64 bits. *)
             let
@@ -2274,13 +2296,14 @@ struct
                 val aReg3 = newUReg()
                 val shiftOp = case shift of ShiftLeft => SHL | ShiftRightLogical => SHR | ShiftRightArithmetic => SAR
                 val argReg = newUReg()
-            in
-                (arg1Code @ arg2Code @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord})] @ untag2Code @
+                val code = arg1Code @ arg2Code @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord})] @ untag2Code @
                  [BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=argReg, shiftAmount=arg2Arg, ccRef=newCCRef() }),
-                  BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+                  BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
+            in
+                (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary({oper=BuiltIns.RealArith(fpOpPrec as (fpOp, fpPrec)), arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinaryRev({oper=BuiltIns.RealArith(fpOpPrec as (fpOp, fpPrec)), arg1, arg2}, context, _, destination, tailCode) =
             let
                 open BuiltIns
                 val commutative =
@@ -2344,15 +2367,15 @@ struct
                     end
                     else [BlockSimple(TagFloat{source=fpRegDest, dest=target})]
             in
-                (argCode @ arith @ result, RegisterArgument target, false)
+                (revApp(argCode @ arith @ result, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeBinary(instr as {oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
-                codeAsConditional(BICBinary instr, context, isTail, destination)
+        |   codeToICodeBinaryRev(instr as {oper=BuiltIns.RealComparison _, ...}, context, isTail, destination, tailCode) =
+                codeAsConditionalRev(BICBinary instr, context, isTail, destination, tailCode)
         
         (* Multiply tagged word by a constant.  We're not concerned with overflow so it's possible to use
            various short cuts. *)
-        and codeMultiplyConstantWord(arg, context, destination, multiplier) =
+        and codeMultiplyConstantWordRev(arg, context, destination, multiplier, tailCode) =
         let
             val target = asTarget destination
             val (argCode, aReg) = codeToPReg(arg, context)
@@ -2397,7 +2420,7 @@ struct
                     end
         in
             
-            (argCode @ doMultiply, RegisterArgument target, false)
+            (revApp(argCode @ doMultiply, tailCode), RegisterArgument target, false)
         end
 
         and codeToICodeAllocate({numWords as BICConstnt(length, _), flags as BICConstnt(flagValue, _), initial}, context, _, destination) =
@@ -3257,15 +3280,6 @@ struct
         and codeAsConditionalRev(instr, context, isTail, target, tailCode) =
             codeToICodeRev(
                 BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])), context, isTail, target, tailCode)
-
-        and codeAsConditional(instr, context, isTail, target) =
-        let
-            val (code, dest, haveExited) =
-                codeToICodeRev(BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])),
-                    context, isTail, target, [])
-        in
-            (List.rev code, dest, haveExited)
-        end
 
         (* The fixed precision functions are also used for arbitrary precision but instead of raising Overflow we
            need to jump to the code that handles the long format. *)
