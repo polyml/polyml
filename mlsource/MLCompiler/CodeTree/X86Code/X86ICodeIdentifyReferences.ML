@@ -170,6 +170,15 @@ struct
     |   getInstructionState(CompareByteMem{arg1={base, index, ...}, ccRef, ...}) =
             { sources=base :: argIndex index, dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
+    |   getInstructionState(SetToCondition{dest, ccRef, ...}) =
+            { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCUnchanged }
+
+    |   getInstructionState(BooleanNot{dest, source}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(TestBoolean{source, ccRef, ...}) =
+            { sources=[source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+
     |   getInstructionState(PushExceptionHandler{workReg, ...}) =
             { sources=[], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 

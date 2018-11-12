@@ -880,6 +880,28 @@ struct
                         in
                             CompareByteMem{arg1=newArg1, arg2=arg2, ccRef=ccRef} :: indexCode @ baseCode @ code
                         end
+ 
+                    |   pushRegisters({instr=SetToCondition{dest, ccRef, condition}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ SetToCondition{dest=destVal, ccRef=ccRef, condition=condition} ::  code
+                        end
+ 
+                    |   pushRegisters({instr=BooleanNot{dest, source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ BooleanNot{source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
+ 
+                    |   pushRegisters({instr=TestBoolean{source, ccRef}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                        in
+                            TestBoolean{source=sourceVal, ccRef=ccRef} :: sourceCode @ code
+                        end
 
                     |   pushRegisters({instr=PushExceptionHandler{workReg}, ...}, code) =
                         let

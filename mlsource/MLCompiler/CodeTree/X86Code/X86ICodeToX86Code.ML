@@ -70,6 +70,7 @@ struct
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
+    and semitag c = 2 * c
 
     local
         val regs =
@@ -555,6 +556,9 @@ struct
             |   instructionUses(WordComparison{arg1, arg2, ...}) = (used arg1; argUses arg2)
             |   instructionUses(CompareLiteral{arg1, ...}) = argUses arg1
             |   instructionUses(CompareByteMem{arg1={base, index, ...}, ...}) = (used base; indexUses index)
+            |   instructionUses(SetToCondition _) = ()
+            |   instructionUses(BooleanNot{source, dest, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(TestBoolean{source, ...}) = used source
             |   instructionUses(PushExceptionHandler _) = ()
             |   instructionUses(PopExceptionHandler _) = ()
             |   instructionUses(BeginHandler _) = ()
@@ -971,6 +975,47 @@ struct
                 ArithByteMemConst{ opc=CMP,
                     address={offset=offset, base=asGenReg(getAllocatedReg br), index=codeExtIndex index}, source=arg2 } :: code
 
+        |   codeExtended _ ({instr=SetToCondition{dest=PReg resReg, condition, ...}, ...}, code) =
+            let
+                val _ = print "SetToCondition\n"
+                val realDestReg = getAllocatedGenReg resReg
+                val lab1 = makeLabel() and lab2 = makeLabel()
+            in
+                (* This could be defined using setcc but it's not straightforward.
+                   The best version would be xor r,r; test; setcc r; lea r,[r+r*1+1]
+                   but that requires the register to be zeroed BEFORE the test. *)
+                JumpLabel lab2 ::
+                MoveToRegister{source=NonAddressConstArg(tag 1), output=realDestReg, opSize=OpSize32} ::
+                JumpLabel lab1 ::
+                UncondBranch lab2 ::
+                MoveToRegister{source=NonAddressConstArg(tag 0), output=realDestReg, opSize=OpSize32} ::
+                ConditionalBranch{test=condition, label=lab1} :: code
+            end
+
+        |   codeExtended _ ({instr=BooleanNot{dest as PReg resReg, source=PReg sReg}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else
+            let
+                val realDestReg = getAllocatedReg resReg
+                val realSrcReg = getAllocatedReg sReg
+                (* Changing between true and false involves XOR with 2. *)
+                val bitFlip = NonAddressConstArg(semitag 1)
+            in
+                ArithToGenReg { opc=XOR, output=asGenReg realDestReg, source=bitFlip, opSize=polyWordOpSize } ::
+                    moveIfNecessary({src=realSrcReg, dst=realDestReg, kind=MoveWord}, code)
+            end
+
+        |   codeExtended _ ({instr=TestBoolean{source=PReg sReg, ...}, ...}, code) =
+            let
+                val realSrcReg = getAllocatedReg sReg
+            in
+                (* If the source reg is eax/rax we could use TEST al,2.  Otherwise it's
+                   probably better to use CMP. *)
+                ArithToGenReg {opc=CMP, output=asGenReg realSrcReg,
+                    source=NonAddressConstArg(tag 1), opSize=OpSize32 (* Really just the byte *)} :: code
+            end
+
             (* Set up an exception handler. *)
         |   codeExtended {flow} ({instr=PushExceptionHandler{workReg=PReg hReg}, ...}, code) =
             let (* Set up an exception handler. *)
@@ -1086,14 +1131,7 @@ struct
             end
 
         |   codeExtended _ ({instr=TestTagBit{arg, ...}, ...}, code) =
-            let
-                val codeArg = codeExtArgument arg
-            in
-                case codeArg of
-                    RegisterArg reg => TestTagR(asGenReg reg) :: code
-                |   MemoryArg {offset, base, index=NoIndex} => TestByteMem{base=base, offset=offset, bits=0w1} :: code
-                |   _ => raise InternalError "codeGenICode: TestTagBit"
-            end
+                TestByteBits{arg=codeExtArgumentAsGenReg arg, bits=0w1} :: code
 
         |   codeExtended _ ({instr=PushValue {arg, ...}, ...}, code) = PushToStack(codeExtArgumentAsGenReg arg) :: code
 

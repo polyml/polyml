@@ -171,6 +171,20 @@ struct
            specifically deals with single bytes.  Other cases will use word
            operations. *)
     |   CompareByteMem of { arg1: { base: preg, offset: int, index: memoryIndex }, arg2: Word8.word, ccRef: ccRef }
+
+        (* Set a register to a condition.  The register is set to true (TAGGED 1) if the
+           condition holds and false (TAGGED 0) if it does not.
+           This can be defined in terms of other operations but this simplies
+           optimisation. *)
+    |   SetToCondition of { dest: preg, ccRef: ccRef, condition: branchOps }
+
+        (* Invert boolean value.  This can be defined using XOR but
+           simplies optimisation. *)
+    |   BooleanNot of { dest: preg, source: preg }
+
+        (* Test a boolean.  Sets the Z (E) flag if it is true. Since it can be defined
+           with either WordComparison or CompareLiteral it may be removed. *)
+    |   TestBoolean of { source: preg, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
@@ -306,7 +320,7 @@ struct
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
         Unconditional of int
-        (* Conditional branch. Jumps to trueJump if the condional is false, falseJump if false. *)
+        (* Conditional branch. Jumps to trueJump if the condional is true, falseJump if false. *)
     |   Conditional of { ccRef: ccRef, condition: branchOps, trueJump: int, falseJump: int }
         (* Exit - the last instruction of the block is a return, raise or tailcall. *)
     |   ExitCode
@@ -339,6 +353,8 @@ struct
 
     local        
         fun printReg(PReg i, stream) = stream("R" ^ Int.toString i)
+
+        and printCC(CcRef ccRef, stream) = stream ("CC" ^ Int.toString ccRef)
 
         fun printIndex(NoMemIndex, _) = ()
         |   printIndex(MemIndex1 i, stream) = (stream "["; printReg(i, stream); stream "*1]")
@@ -508,23 +524,49 @@ struct
 
         |   printICode(LockMutable{addr}, stream) = (stream "\tLockMutable\t"; printReg(addr, stream))
 
-        |   printICode(WordComparison{arg1, arg2, ...}, stream) =
-                (stream "\tWordComparison\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream))
-
-        |   printICode(CompareLiteral{arg1, arg2, opSize, ...}, stream) =
+        |   printICode(WordComparison{arg1, arg2, ccRef, ...}, stream) =
             (
-                stream "\tCompareLiteral"; printOpsize(opSize, stream); stream "\t";
-                printArg(arg1, stream); stream ","; stream(LargeInt.toString arg2)
+                stream "\tWordComparison\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream);
+                stream " => "; printCC(ccRef, stream)
             )
 
-        |   printICode(CompareByteMem{arg1={base, offset, index, ...}, arg2,...}, stream) =
+        |   printICode(CompareLiteral{arg1, arg2, opSize, ccRef, ...}, stream) =
+            (
+                stream "\tCompareLiteral"; printOpsize(opSize, stream); stream "\t";
+                printArg(arg1, stream); stream ","; stream(LargeInt.toString arg2);
+                stream " => "; printCC(ccRef, stream)
+            )
+
+        |   printICode(CompareByteMem{arg1={base, offset, index, ...}, arg2, ccRef,...}, stream) =
             (
                 stream "\tCompareByteMem\t";
                 stream(Int.toString offset ^ "(");
                 printReg(base, stream);
                 stream ")";
                 printIndex(index, stream);
-                stream ","; stream(Word8.toString arg2)
+                stream ","; stream(Word8.toString arg2);
+                stream " => "; printCC(ccRef, stream)
+            )
+
+        |   printICode(SetToCondition{dest, ccRef, condition, ...}, stream) =
+            (
+                stream "\tSetToCondition\t"; printCC(ccRef, stream);
+                stream " is "; printCondition(condition, stream);
+                stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(BooleanNot{dest, source,...}, stream) =
+            (
+                stream "\tBooleanNot\t";
+                printReg(source, stream);
+                stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(TestBoolean{source, ccRef}, stream) =
+            (
+                stream "\tTestBoolean\t";
+                printReg(source, stream);
+                stream " => "; printCC(ccRef, stream)
             )
 
         |   printICode(PushExceptionHandler{workReg }, stream) =
@@ -551,7 +593,7 @@ struct
         |   printICode(ReturnResultFromFunction{resultReg, numStackArgs}, stream) =
                 (stream "\tReturnFromFunction\t"; printReg(resultReg, stream); stream("," ^ Int.toString numStackArgs))
 
-        |   printICode(ArithmeticFunction{oper, resultReg, operand1, operand2, ...}, stream) =
+        |   printICode(ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef, ...}, stream) =
             (
                 case oper of
                     ADD => stream "\tAdd\t"
@@ -564,10 +606,12 @@ struct
                 stream ",";
                 printArg(operand2, stream);
                 stream " => ";
-                printReg(resultReg, stream)
+                printReg(resultReg, stream);
+                stream " => "; printCC(ccRef, stream)
             )
 
-        |   printICode(TestTagBit{arg, ...}, stream) = (stream "\tTestTagBit\t"; printArg(arg, stream))
+        |   printICode(TestTagBit{arg, ccRef, ...}, stream) =
+            (stream "\tTestTagBit\t"; printArg(arg, stream); stream " => "; printCC(ccRef, stream))
 
         |   printICode(PushValue{arg, container}, stream) =
                 (stream "\tPushValue\t"; printArg(arg, stream); stream " => "; printStackLoc(container, stream))
@@ -611,7 +655,7 @@ struct
                 printReg(dest, stream)
             )
 
-        |   printICode(ShiftOperation{shift, resultReg, operand, shiftAmount, ...}, stream) =
+        |   printICode(ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef, ...}, stream) =
             (
                 case shift of
                     SHL => stream "\tShiftLeft\t"
@@ -619,17 +663,19 @@ struct
                 |   SAR => stream "\tShiftRArith\t";
                 printReg(operand, stream); stream ",";
                 printArg(shiftAmount, stream); stream " => ";
-                printReg(resultReg, stream)
+                printReg(resultReg, stream);
+                stream " => "; printCC(ccRef, stream)
             )
 
-        |   printICode(Multiplication{resultReg, operand1, operand2, ...}, stream) =
+        |   printICode(Multiplication{resultReg, operand1, operand2, ccRef, ...}, stream) =
             (
                 stream "\tMultiplication\t";
                 printReg(operand1, stream);
                 stream ",";
                 printArg(operand2, stream);
                 stream " => ";
-                printReg(resultReg, stream)
+                printReg(resultReg, stream);
+                stream " => "; printCC(ccRef, stream)
             )
 
         |   printICode(Division{isSigned, dividend, divisor, quotient, remainder}, stream) =
@@ -663,12 +709,13 @@ struct
                 stream " save="; printSaves(saveRegs, stream)
             )
 
-        |   printICode(CompareByteVectors{vec1Addr, vec2Addr, length, ...}, stream) =
+        |   printICode(CompareByteVectors{vec1Addr, vec2Addr, length, ccRef, ...}, stream) =
             (
                 stream "\tCompareByteVectors\t";
                 printReg(vec1Addr, stream); stream ",";
                 printReg(vec2Addr, stream); stream ",";
-                printReg(length, stream)
+                printReg(length, stream);
+                stream " => "; printCC(ccRef, stream)
             )
 
         |   printICode(BlockMove{srcAddr, destAddr, length, isByteMove}, stream) =
@@ -679,13 +726,22 @@ struct
                 stream ",len="; printReg(length, stream)
             )
 
-        |   printICode(X87Compare{arg1, arg2, isDouble, ...}, stream) =
-                (stream "\tX87Compare"; stream(if isDouble then "D\t" else "S\t"); printReg(arg1, stream); stream ","; printArg(arg2, stream))
+        |   printICode(X87Compare{arg1, arg2, isDouble, ccRef, ...}, stream) =
+            (
+                stream "\tX87Compare"; stream(if isDouble then "D\t" else "S\t"); printReg(arg1, stream);
+                stream ","; printArg(arg2, stream);
+                stream " => "; printCC(ccRef, stream)
+            )
 
-        |   printICode(SSE2Compare{arg1, arg2, isDouble, ...}, stream) =
-                (stream "\tSSE2Compare"; stream(if isDouble then "D\t" else "S\t"); printReg(arg1, stream); stream ","; printArg(arg2, stream))
+        |   printICode(SSE2Compare{arg1, arg2, isDouble, ccRef, ...}, stream) =
+            (
+                stream "\tSSE2Compare"; stream(if isDouble then "D\t" else "S\t"); printReg(arg1, stream);
+                stream ","; printArg(arg2, stream);
+                stream " => "; printCC(ccRef, stream)
+            )
 
-        |   printICode(X87FPGetCondition{dest, ...}, stream) = (stream "\tX87FPGetCondition\t=> "; printReg(dest, stream))
+        |   printICode(X87FPGetCondition{dest, ccRef, ...}, stream) =
+            (stream "\tX87FPGetCondition\t=> "; printReg(dest, stream); stream " => "; printCC(ccRef, stream))
 
         |   printICode(X87FPArith{opc, resultReg, arg1, arg2, isDouble}, stream) =
             (
@@ -776,6 +832,21 @@ struct
                 if isDouble then stream "D\t" else stream "S\t";
                 printArg(source, stream); stream " => "; printReg(dest, stream))
        
+        and printCondition(JO,  stream)  = stream "Overflow"
+        |   printCondition(JNO, stream)  = stream "NoOverflow"
+        |   printCondition(JE,  stream)  = stream "Equal"
+        |   printCondition(JNE, stream)  = stream "NotEqual"
+        |   printCondition(JL,  stream)  = stream "LessSigned"
+        |   printCondition(JGE, stream)  = stream "GeqSigned"
+        |   printCondition(JLE, stream)  = stream "LeqSigned"
+        |   printCondition(JG,  stream)  = stream "GrtSigned"
+        |   printCondition(JB,  stream)  = stream "LessUnsigned"
+        |   printCondition(JNB, stream)  = stream "GeqUnsigned"
+        |   printCondition(JNA, stream)  = stream "LeqUnsigned"
+        |   printCondition(JA,  stream)  = stream "GrtUnsigned"
+        |   printCondition(JP,  stream)  = stream "ParitySet"
+        |   printCondition(JNP, stream)  = stream "ParityClear"
+
         (* Print a basic block. *)
         fun printBlock stream (blockNo, BasicBlock{block, flow, ...}) =
         (
@@ -784,24 +855,12 @@ struct
             List.app (fn icode => (printICode(icode, stream); stream "\n")) block;
             case flow of
                 Unconditional l => stream("\tJump\tL" ^ Int.toString l ^ "\n")
-            |   Conditional {condition, trueJump, falseJump, ...} =>
+            |   Conditional {condition, trueJump, falseJump, ccRef, ...} =>
                 (
-                    case condition of
-                        JO => stream "\tJumpOverflow\t"
-                    |   JNO => stream "\tJumpNoOverflow\t"
-                    |   JE => stream "\tJumpEqual\t"
-                    |   JNE => stream "\tJumpNotEqual\t"
-                    |   JL => stream "\tJumpLessSigned\t"
-                    |   JGE => stream "\tJumpGeqSigned\t"
-                    |   JLE => stream "\tJumpLeqSigned\t"
-                    |   JG => stream "\tJumpGrtSigned\t"
-                    |   JB => stream "\tJumpLessUnsigned\t"
-                    |   JNB => stream "\tJumpGeqUnsigned\t"
-                    |   JNA => stream "\tJumpLeqUnsigned\t"
-                    |   JA => stream "\tJumpGrtUnsigned\t"
-                    |   JP => stream "\tJumpParitySet"
-                    |   JNP => stream "\tJumpParityClear\t";
-                    stream(concat["L", Int.toString trueJump, " else L",  Int.toString falseJump, "\n"])
+                    stream "\tJump"; printCondition(condition, stream);
+                    stream "\t"; printCC(ccRef, stream);
+                    stream " L"; stream (Int.toString trueJump);
+                    stream " else L"; stream (Int.toString falseJump); stream "\n"
                 )
             |   ExitCode => ()
             |   IndexedBr _ => ()

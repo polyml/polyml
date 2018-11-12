@@ -1023,17 +1023,19 @@ struct
             opIndexedGen(opb, offset, SOME rb, ri, (op2, false))
     end
 
-    fun immediateOperand (opn: arithOp, rd: genReg, imm: LargeInt.int, opIs64) =
+    fun immediateOperand (opn: arithOp, rd: genReg, imm: LargeInt.int, opSize) =
     if is8BitL imm
     then (* Can use one byte immediate *)
-        opRegPlus2(if opIs64 then Group1_8_A64 else Group1_8_A32, rd, arithOpToWord opn) @ [Word8.fromLargeInt imm]
+        opRegPlus2(case opSize of OpSize64 => Group1_8_A64 | OpSize32 => Group1_8_A32, rd, arithOpToWord opn) @ [Word8.fromLargeInt imm]
     else if is32bit imm
     then (* Need 32 bit immediate. *)
-        opRegPlus2(if opIs64 then Group1_32_A64 else Group1_32_A32, rd, arithOpToWord opn) @ int32Signed imm
+        opRegPlus2(case opSize of OpSize64 => Group1_32_A64 | OpSize32 => Group1_32_A32, rd, arithOpToWord opn) @ int32Signed imm
     else (* It won't fit in the immediate; put it in the non-address area. *)
     let
         val (rc, rx) = getReg rd
-        val opb = opCodeBytes((if opIs64 then Arith64 else Arith32) (opn, 0w3 (* r/m to reg *)), SOME{w=opIs64, r=rx, b=false, x = false})
+        val opb =
+            opCodeBytes((case opSize of OpSize64 => Arith64 | OpSize32 => Arith32) (opn, 0w3 (* r/m to reg *)),
+                SOME{w= (opSize = OpSize64), r=rx, b=false, x = false})
         val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
     in
         opb @ [mdrm] @ int32Signed(tag 0)
@@ -1108,8 +1110,7 @@ struct
     |   ShiftVariable of { shiftType: shiftType, output: genReg, opSize: opSize } (* Shift amount is in ecx *)
     |   ConditionalBranch of { test: branchOps, label: label }
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType, opSize: opSize }
-    |   TestTagR of genReg
-    |   TestByteMem of { base: genReg, offset: int, bits: word }
+    |   TestByteBits of { arg: genReg regOrMemoryArg, bits: Word8.word }
     |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
     |   StoreRegToMemory of { toStore: genReg, address: memoryAddress, opSize: opSize }
     |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress, opSize: opSize }
@@ -1291,10 +1292,8 @@ struct
                 stream " => "; printGReg output
             )
 
-        |   TestTagR reg => ( stream "TestTagR "; printGReg reg )
-
-        |   TestByteMem { base, offset, bits } =>
-                ( stream "TestByteMem "; printBaseOffset(base, NoIndex, offset); stream " 0x"; stream(Word.toString bits) )
+        |   TestByteBits { arg, bits } =>
+                ( stream "TestByteBits "; printRegOrMemoryArg printGReg arg; stream " 0x"; stream(Word8.toString bits) )
 
         |   CallRTS {rtsEntry, ...} =>
             (
@@ -1503,9 +1502,9 @@ struct
                    be done with an OR whatever the initial value.  INC can be used
                    in 32-bit mode instead of ADD for 1. LEAL isn't a good idea. *)
                 if source mod 2 = 0
-                then arithOpReg(XOR, output, output, false) @
+                then (raise InternalError "XXX"; arithOpReg(XOR, output, output, false) @
                         (if source = 0 then []
-                         else immediateOperand(ADD, output, source, false))
+                         else immediateOperand(ADD, output, source, OpSize32)))
                 else
                 let
                     val (rc, rx) = getReg output
@@ -1575,7 +1574,7 @@ struct
                     then ()
                     else raise InternalError "CMP with constant that looks like an address"
             in
-                immediateOperand(opc, output, source, opSize=OpSize64)
+                immediateOperand(opc, output, source, opSize)
             end
 
         |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg _, opSize }) =
@@ -1638,7 +1637,7 @@ struct
         |   cgOp(ShiftVariable { shiftType, output, opSize }) =
                 opRegPlus2(case opSize of OpSize64 => Group2_CL_A64 | OpSize32 => Group2_CL_A32, output, shiftTypeToWord shiftType)
 
-        |   cgOp(TestTagR reg) =
+        |   cgOp(TestByteBits{arg=RegisterArg reg, bits}) =
             let
             (* Test the bottom bit and jump depending on its value.  This is used
                for tag tests in arbitrary precision operations and also for testing
@@ -1647,7 +1646,7 @@ struct
             in
                 if reg = eax
                 then (* Special instruction for testing accumulator.  Can use an 8-bit test. *)
-                    opCodeBytes(TEST_ACC8, NONE) @ [0w1]
+                    opCodeBytes(TEST_ACC8, NONE) @ [bits]
                 else if hostIsX64
                 then 
                 let
@@ -1656,7 +1655,7 @@ struct
                         if rx orelse regNum >= 0w4 then SOME{w=false, r=false, b=rx, x=false} else NONE)
                     val mdrm = modrm (Register, 0w0 (* test *), regNum)
                 in
-                    opb @ [mdrm, 0w1]
+                    opb @ [mdrm, bits]
                 end
                 else if reg = ebx orelse reg = ecx orelse reg = edx (* can we use an 8-bit test? *)
                 then (* Yes. The register value refers to low-order byte. *)
@@ -1664,20 +1663,22 @@ struct
                     val opb = opCodeBytes(Group3_a, NONE)
                     val mdrm = modrm(Register, 0w0 (* test *), regNum)
                 in
-                    opb @ [mdrm, 0w1]
+                    opb @ [mdrm, bits]
                 end
                 else
                 let
                     val opb = opCodeBytes(Group3_A32, NONE)
                     val mdrm = modrm (Register, 0w0 (* test *), regNum)
                 in
-                    opb @ mdrm :: word32Unsigned 0w1
+                    opb @ mdrm :: word32Unsigned(Word8.toLarge bits)
                 end
             end
 
-        |   cgOp(TestByteMem{base, offset, bits}) =
+        |   cgOp(TestByteBits{arg=MemoryArg{base, offset, index}, bits}) =
                 (* Test the tag bit and set the condition code. *)
-                opPlus2(Group3_a, LargeInt.fromInt offset, base, 0w0 (* test *)) @ [wordToWord8 bits]
+                opIndexedPlus2(Group3_a, LargeInt.fromInt offset, base, index, 0w0 (* test *)) @ [ bits]
+
+        |   cgOp(TestByteBits _) = raise InternalError "cgOp: TestByteBits"                
 
         |   cgOp(ConditionalBranch{ test=opc, ... }) = opCodeBytes(CondJump32 opc, NONE) @ word32Unsigned 0w0
 
@@ -1872,7 +1873,7 @@ struct
                    it's shorter. *)
                 if preserveCC
                 then opEA(if hostIsX64 then LEAL64 else LEAL32, bytes, esp, esp)
-                else immediateOperand(ADD, esp, bytes, hostIsX64)
+                else immediateOperand(ADD, esp, bytes, if hostIsX64 then OpSize64 else OpSize32)
             end
 
         |   cgOp(JumpLabel _) = [] (* No code. *)

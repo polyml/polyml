@@ -492,6 +492,18 @@ struct
         |   registerAllocate({instr=CompareByteMem{ arg1={base=PReg bReg, index, ...}, ...}, ...}) =
                 (allocateGeneralReg bReg; allocateArgIndex index)
 
+        |   registerAllocate({instr=SetToCondition{ dest=PReg dReg, ...}, ...}) = allocateGeneralReg dReg
+
+        |   registerAllocate({instr=BooleanNot{ dest=PReg dReg, source=PReg sReg}, ...}) =
+            let
+                val realDestReg = findRegister(dReg, NONE, generalRegisters)
+                (* Try to put the argument into the same register as the result. *)
+            in
+                allocateRegister(sReg, SOME realDestReg, generalRegisters)
+            end
+
+        |   registerAllocate({instr=TestBoolean{ source=PReg sReg, ...}, ...}) = allocateGeneralReg sReg
+
             (* Set up an exception handler. *)
         |   registerAllocate({instr=PushExceptionHandler{workReg=PReg hReg}, ...}) = allocateGeneralReg hReg
 

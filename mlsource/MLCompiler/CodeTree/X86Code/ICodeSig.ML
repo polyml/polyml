@@ -204,6 +204,20 @@ sig
            operations. *)
     |   CompareByteMem of { arg1: { base: preg, offset: int, index: memoryIndex }, arg2: Word8.word, ccRef: ccRef }
 
+        (* Set a register to a condition.  The register is set to true (TAGGED 1) if the
+           condition holds and false (TAGGED 0) if it does not.
+           This can be defined in terms of other operations but this simplies
+           optimisation. *)
+    |   SetToCondition of { dest: preg, ccRef: ccRef, condition: branchOps }
+
+        (* Invert boolean value.  This can be defined using XOR but
+           simplies optimisation. *)
+    |   BooleanNot of { dest: preg, source: preg }
+
+        (* Test a boolean.  Sets the Z (E) flag if it is true. Since it can be defined
+           with either WordComparison or CompareLiteral it may be removed. *)
+    |   TestBoolean of { source: preg, ccRef: ccRef }
+
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
 
