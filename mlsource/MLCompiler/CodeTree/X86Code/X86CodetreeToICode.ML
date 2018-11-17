@@ -1743,6 +1743,8 @@ struct
  
         and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =
             let
+                (* Comparisons.  Because this is also used for pointer equality and even for exception matching it
+                   is perfectly possible that the argument could be an address. *)
                 val ccRef = newCCRef()
                 val comparison =
                     (* If the argument is a tagged value that will fit in 32-bits we can use
@@ -1842,13 +1844,29 @@ struct
         |   codeToICodeBinaryRev({oper=BuiltIns.WordComparison {test, isSigned}, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val ccRef = newCCRef()
-                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
+                val memOrReg = { anyConstant=false, const32s=false, memAddr=true, existingPreg=true }
+                val (arg1Code, arg1Result, _) = codeToICodeRev(arg1, context, false, Allowed memOrReg, tailCode)
+                val (arg2Code, arg2Result, _) = codeToICodeRev(arg2, context, false, Allowed memOrReg, arg1Code)
                 val target = asTarget destination
+                val code =
+                    case (arg1Result, arg2Result) of
+                        (RegisterArgument arg1Reg, arg2Result) =>
+                            BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=testAsBranch(test, isSigned, true)}) ::
+                            BlockSimple(WordComparison{arg1=arg1Reg, arg2=arg2Result, ccRef=ccRef}) :: arg2Code
+                    |   (arg1Result, RegisterArgument arg2Reg) =>
+                            (* The second argument is in a register - switch the sense of the test. *)
+                            BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=testAsBranch(leftRightTest test, isSigned, true)}) ::
+                            BlockSimple(WordComparison{arg1=arg2Reg, arg2=arg1Result, ccRef=ccRef}) :: arg2Code
+                    |   (arg1Result, arg2Result) =>
+                        let (* Have to load an argument - pick the first. *)
+                            val arg1Reg = newPReg()
+                        in
+                            BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=testAsBranch(test, isSigned, true)}) ::
+                            BlockSimple(WordComparison{arg1=arg1Reg, arg2=arg2Result, ccRef=ccRef}) ::
+                            BlockSimple(LoadArgument{source=arg1Result, dest=arg1Reg, kind=MoveWord})  :: arg2Code
+                        end
             in
-                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=testAsBranch(test, isSigned, true)}) ::
-                    BlockSimple(WordComparison{arg1=arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef}) :: arg2Code,
-                RegisterArgument target, false)
+                (code, RegisterArgument target, false)
             end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context, _, destination, tailCode) =
@@ -2915,126 +2933,6 @@ struct
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JNE else JE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                     BlockSimple(TestTagBit{arg=RegisterArgument testReg, ccRef=ccRef}) :: testCode
-            end
-
-            (* Comparisons.  Because this is also used for pointer equality and even for exception matching it
-               is perfectly possible that the argument could be an address. *)
-        |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef = newCCRef()
-                val comparison =
-                    (* If the argument is a tagged value that will fit in 32-bits we can use
-                       the literal version.  Use toLargeIntX here because the value will be
-                       sign-extended even if we're actually doing an unsigned comparison. *)
-                    if isShort arg2Value andalso is32bit(tag(Word.toLargeIntX(toShort arg2Value)))
-                    then
-                    let
-                        val allow = Allowed {anyConstant=false, const32s=false, memAddr=true, existingPreg=true}
-                    in
-                        (* We're often comparing with a character or a string length field that has to be
-                           untagged.  In that case we can avoid loading it into a register and untagging it
-                           by doing the comparison directly. *)
-                        case arg1 of
-                            BICLoadOperation{kind=LoadStoreUntaggedUnsigned, address} =>
-                            let
-                                val (codeBaseIndex, codeUntag, memLoc) = codeAddressRev(address, false, context, tailCode)
-                                val literal = Word.toLargeIntX(toShort arg2Value)
-                            in
-                                BlockSimple(CompareLiteral{arg1=MemoryLocation memLoc, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
-                                    codeUntag @ codeBaseIndex
-                            end
-                        |   BICLoadOperation{kind=LoadStoreMLByte _, address} =>
-                            let
-                                val (codeBaseIndex, codeUntag, {base, index, offset, ...}) =
-                                    codeAddressRev(address, true, context, tailCode)
-                                val _ = toShort arg2Value >= 0w0 andalso toShort arg2Value < 0w256
-                                            orelse raise InternalError "Compare byte not a byte"
-                                val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
-                            in
-                                BlockSimple(CompareByteMem{arg1={base=base, index=index, offset=offset}, arg2=literal, ccRef=ccRef}) ::
-                                    codeUntag @ codeBaseIndex
-                            end
-                        |   BICUnary({oper=BuiltIns.MemoryCellFlags, arg1}) =>
-                                (* This occurs particularly in arbitrary precision comparisons. *)
-                            let
-                                val (baseCode, baseReg) = codeToPRegRev(arg1, context, tailCode)
-                                val _ = toShort arg2Value >= 0w0 andalso toShort arg2Value < 0w256
-                                            orelse raise InternalError "Compare memory cell not a byte"
-                                val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
-                            in
-                                BlockSimple(CompareByteMem{arg1={base=baseReg, index=NoMemIndex, offset= ~1}, arg2=literal, ccRef=ccRef}) ::
-                                    baseCode
-                            end
-                        |    _ =>
-                            let
-                                (* TODO: We could include rarer cases of tagging by looking at
-                                   the code and seeing if it's a TagValue. *)
-                                val (testCode, testDest, _) = codeToICodeRev(arg1, context, false, allow, tailCode)
-                                val literal = tag(Word.toLargeIntX(toShort arg2Value))
-                            in
-                                BlockSimple(CompareLiteral{arg1=testDest, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
-                                    testCode
-                            end    
-                    end
-                    else (* Addresses or larger values.  We need to use a register comparison. *)
-                    let
-                        val (testCode, testReg) = codeToPRegRev(arg1, context, tailCode)
-                        val arg2Arg = constantAsArgument arg2Value
-                    in
-                        BlockSimple(WordComparison{arg1=testReg, arg2=arg2Arg, ccRef=ccRef}) :: testCode
-                    end
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                    comparison
-            end
-    
-        |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                (* If we have the constant first we need to reverse the test so the first argument is a register. *)
-                val ccRef = newCCRef()
-                val comparison =
-                    if isShort arg1Value andalso is32bit(tag(Word.toLargeIntX(toShort arg1Value)))
-                    then
-                    let
-                        val allow = Allowed {anyConstant=false, const32s=false, memAddr=true, existingPreg=true}
-                        val (testCode, testDest, _) = codeToICodeRev(arg2, context, false, allow, tailCode)
-                        val literal = tag(Word.toLargeIntX(toShort arg1Value))
-                    in
-                        BlockSimple(CompareLiteral{arg1=testDest, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) :: testCode
-                    end
-                    else (* Addresses or larger values.  We need to use a register comparison. *)
-                    let
-                        val (testCode, testReg) = codeToPRegRev(arg2, context, tailCode)
-                        val arg1Arg = constantAsArgument arg1Value
-                    in
-                        BlockSimple(WordComparison{arg1=testReg, arg2=arg1Arg, ccRef=ccRef}) :: testCode
-                    end
-
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(leftRightTest test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                comparison
-            end
-
-        |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef = newCCRef()
-                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef}) :: arg2Code
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2},
