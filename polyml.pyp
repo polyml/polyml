@@ -133,6 +133,8 @@
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICODEGENERATESIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeGetConflictSets.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeIdentifyReferences.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeOptimise.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICODEOPTSIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeToX86Code.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeTransform.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICODETRANSFORMSIG.ML" />

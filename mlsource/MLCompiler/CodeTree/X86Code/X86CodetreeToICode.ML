@@ -1741,7 +1741,7 @@ struct
                 (revApp(doConvert @ checkAndTag, tailCode), RegisterArgument target, false)
             end
  
-        and (*codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =
+        and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =
             let
                 val ccRef = newCCRef()
                 val comparison =
@@ -1806,15 +1806,50 @@ struct
                         BlockSimple(WordComparison{arg1=testReg, arg2=arg2Arg, ccRef=ccRef}) :: testCode
                     end
                 val target = asTarget destination
-                val code =
-                    BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=testAsBranch(test, isSigned, true)}) ::
-                    comparison
             in
-                (code, RegisterArgument target, false)
+                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=testAsBranch(test, isSigned, true)}) ::
+                    comparison, RegisterArgument target, false)
             end
 
-        |   *)codeToICodeBinaryRev(instr as {oper=BuiltIns.WordComparison _, ...}, context, isTail, destination, tailCode) =
-                codeAsConditionalRev(BICBinary instr, context, isTail, destination, tailCode)
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2}, context, _, destination, tailCode) =
+            let
+                (* If we have the constant first we need to reverse the test so the first argument is a register. *)
+                val ccRef = newCCRef()
+                val comparison =
+                    if isShort arg1Value andalso is32bit(tag(Word.toLargeIntX(toShort arg1Value)))
+                    then
+                    let
+                        val allow = Allowed {anyConstant=false, const32s=false, memAddr=true, existingPreg=true}
+                        val (testCode, testDest, _) = codeToICodeRev(arg2, context, false, allow, tailCode)
+                        val literal = tag(Word.toLargeIntX(toShort arg1Value))
+                    in
+                        BlockSimple(CompareLiteral{arg1=testDest, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) :: testCode
+                    end
+                    else (* Addresses or larger values.  We need to use a register comparison. *)
+                    let
+                        val (testCode, testReg) = codeToPRegRev(arg2, context, tailCode)
+                        val arg1Arg = constantAsArgument arg1Value
+                    in
+                        BlockSimple(WordComparison{arg1=testReg, arg2=arg1Arg, ccRef=ccRef}) :: testCode
+                    end
+
+                val target = asTarget destination
+            in
+                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=testAsBranch(leftRightTest test, isSigned, true)}) ::
+                    comparison, RegisterArgument target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordComparison {test, isSigned}, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val ccRef = newCCRef()
+                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
+                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
+                val target = asTarget destination
+            in
+                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=testAsBranch(test, isSigned, true)}) ::
+                    BlockSimple(WordComparison{arg1=arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef}) :: arg2Code,
+                RegisterArgument target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context, _, destination, tailCode) =
             let
@@ -3752,7 +3787,7 @@ struct
     in
         codeICodeFunctionToX86{blocks = resultVector, functionName = name, pregProps = pregProperties,
             argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
-            debugSwitches = debugSwitches}
+            ccCount= ! ccRefCounter, debugSwitches = debugSwitches}
     end
 
     fun gencodeLambda(lambda, debugSwitches, closure) =

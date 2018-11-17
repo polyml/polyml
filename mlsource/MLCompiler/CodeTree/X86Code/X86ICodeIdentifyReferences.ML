@@ -363,6 +363,8 @@ struct
                         |   BoxValue _ => true
                         |   CopyToCache _ => true
                         |   LoadMemReg _ => true
+                        |   SetToCondition _ => true
+                        |   BooleanNot _ => true
                         |   _ => false
                     fun regNo(PReg i) = i
                     and stackNo(StackLoc{rno, ...}) = rno
@@ -783,6 +785,9 @@ struct
     in
         {sources=sources, dests=dests}
     end
+    
+    (* Exported for use in ICodeOptimise *)
+    val getInstructionCC = #ccOut o getInstructionState
 
     structure Sharing =
     struct
@@ -797,5 +802,6 @@ struct
         and memoryIndex         = memoryIndex
         and regProperty         = regProperty
         and ccRef               = ccRef
+        and outCCState          = outCCState
     end
 end;

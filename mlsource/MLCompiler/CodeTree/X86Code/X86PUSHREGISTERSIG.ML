@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2017
+    Copyright David C. J. Matthews 2017-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,8 +17,7 @@
 
 signature X86PUSHREGISTERSIG =
 sig
-    type preg and x86ICode and intSet and extendedBasicBlock and basicBlock
-    and regProperty
+    type extendedBasicBlock and basicBlock and regProperty
 
     val addRegisterPushes :
         { code: extendedBasicBlock vector, pushVec: bool vector, pregProps: regProperty vector, firstPass: bool } ->
@@ -26,9 +25,7 @@ sig
 
     structure Sharing:
     sig
-        type x86ICode = x86ICode
-        and preg = preg
-        and extendedBasicBlock = extendedBasicBlock
+        type extendedBasicBlock = extendedBasicBlock
         and basicBlock = basicBlock
         and regProperty = regProperty
     end

@@ -23,10 +23,11 @@ functor X86ICodeTransform(
     structure IDENTIFY: X86IDENTIFYREFSSIG
     structure CONFLICTSETS: X86GETCONFLICTSETSIG
     structure PUSHREGISTERS: X86PUSHREGISTERSIG
+    structure OPTIMISE: X86ICODEOPTSIG
     structure PRETTY: PRETTYSIG
     structure INTSET: INTSETSIG
     sharing ICODE.Sharing = CODEGEN.Sharing = ALLOCATE.Sharing = IDENTIFY.Sharing =
-            CONFLICTSETS.Sharing = PUSHREGISTERS.Sharing = INTSET
+            CONFLICTSETS.Sharing = PUSHREGISTERS.Sharing = INTSET = OPTIMISE.Sharing
 ) : X86ICODETRANSFORMSIG
 =
 struct
@@ -38,6 +39,7 @@ struct
     open INTSET
     open CODEGEN
     open ALLOCATE
+    open OPTIMISE
     
     exception InternalError = Misc.InternalError
     
@@ -143,7 +145,7 @@ struct
      
     type triple = {instr: x86ICode, current: intSet, active: intSet}
 
-    fun codeICodeFunctionToX86{blocks, functionName, pregProps, argRegsUsed, hasFullClosure, debugSwitches, ...} =
+    fun codeICodeFunctionToX86{blocks, functionName, pregProps, argRegsUsed, ccCount, hasFullClosure, debugSwitches, ...} =
     let
        (*val maxPRegs = Vector.length pregProps*)
         val icodeTabs = [8, 20, 60]
@@ -215,81 +217,92 @@ struct
                 processCode(postPushCode, regPropsPhase2, maxStackPhase2, passes+1)
             end
             else
-            let
-                val maxPRegs = Vector.length regStates
-                
-                (* If we have been unable to allocate a register we need to spill something.
-                   Choose a single register from each conflict set.  Since we've already checked
-                   that the active sets are small enough this is really only required to deal
-                   with special requirements e.g. esi/edi in block moves. *)
-                fun spillFromConflictSets conflictSets =
+                (* Try optimising.  This may not do anything in which case we can continue with
+                   the original code otherwise we need to reprocess.  This does not add or renumber
+                   registers or add CC entries. *)
+            case optimiseICode{code=identified, pregProps=pregProps, ccCount=ccCount} of
+                Changed postOptimise => processCode(postOptimise, pregProps, maxStack, passes+1)
+
+            |   Unchanged =>
                 let
                     val maxPRegs = Vector.length regStates
-                    val pushArray = Array.array(maxPRegs, false)
-                    
-                    fun selectARegisterToSpill active =
-                    let
-                        val regsToPick = setToList active
-                    in
-                        (* If we have already marked one of these to be pushed we don't
-                           need to do anything here. *)
-                        if List.exists (fn r => Array.sub(pushArray, r)) regsToPick
-                        then ()
-                        else (* Choose something to push. *)
-                        let
-                            fun chooseReg([], bestReg, _) = bestReg
-                            |   chooseReg(reg::regs, bestReg, bestCost) =
-                                let
-                                    val {active, refs, prop, ...} = Vector.sub(regStates, reg)
-                                    val cost = if refs = 0 then 0 else Int.quot(active, refs)
-                                in
-                                    case prop of
-                                        RegPropStack _ => chooseReg(regs, bestReg, bestCost)
-                                    |   RegPropCacheUntagged => reg (* Pick the first cache reg. *)
-                                    |   RegPropCacheTagged => reg (* Pick the first cache reg. *)
-                                    |   _ =>
-                                        if cost >= bestCost
-                                        then chooseReg(regs, reg, active)
-                                        else chooseReg(regs, bestReg, bestCost)
-                                end
-                            val choice = chooseReg(regsToPick, ~1, 0)
-                            val _ = choice >= 0 orelse raise InternalError "chooseReg"
-                        in
-                            Array.update(pushArray, choice, true)
-                        end
-                    end
-                    
-                    val () = List.app selectARegisterToSpill conflictSets
-                in
-                    Array.vector pushArray
-                end
                 
-                (* Now get the conflict sets. *)
-                val conflictSets = getConflictStates(identified, maxPRegs)
-                local
-                    fun mapFromExtended(ExtendedBasicBlock{block, flow, ...}) =
-                        BasicBlock{block=List.map #instr block, flow=flow}
-                in
-                    val () =
-                        if wantPrintCode then (printCode(Vector.map mapFromExtended identified); printConflicts conflictSets) else ()
-                end
-            in
-                case allocateRegisters {blocks=identified, regStates=conflictSets, regProps=pregProps } of
-                    AllocateSuccess allocatedRegs =>
-                        (
-                            if wantPrintCode then printRegisters allocatedRegs else ();
-                            icodeToX86Code{blocks=identified, functionName=functionName, allocatedRegisters=allocatedRegs,
-                                       stackRequired=maxStack, argRegsUsed=argRegsUsed, hasFullClosure=hasFullClosure, debugSwitches=debugSwitches}
-                        )
-               |    AllocateFailure fails =>
+                    (* If we have been unable to allocate a register we need to spill something.
+                       Choose a single register from each conflict set.  Since we've already checked
+                       that the active sets are small enough this is really only required to deal
+                       with special requirements e.g. esi/edi in block moves. *)
+                    fun spillFromConflictSets conflictSets =
                     let
-                        val regsToSpill = spillFromConflictSets fails
-                        val {code=postPushCode, pregProps=pregPropsPhase2, maxStack=maxStackPhase2} =
-                            addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps, firstPass=false}
+                        val maxPRegs = Vector.length regStates
+                        val pushArray = Array.array(maxPRegs, false)
+                    
+                        fun selectARegisterToSpill active =
+                        let
+                            val regsToPick = setToList active
+                        in
+                            (* If we have already marked one of these to be pushed we don't
+                               need to do anything here. *)
+                            if List.exists (fn r => Array.sub(pushArray, r)) regsToPick
+                            then ()
+                            else (* Choose something to push. *)
+                            let
+                                fun chooseReg([], bestReg, _) = bestReg
+                                |   chooseReg(reg::regs, bestReg, bestCost) =
+                                    let
+                                        val {active, refs, prop, ...} = Vector.sub(regStates, reg)
+                                        val cost = if refs = 0 then 0 else Int.quot(active, refs)
+                                    in
+                                        case prop of
+                                            RegPropStack _ => chooseReg(regs, bestReg, bestCost)
+                                        |   RegPropCacheUntagged => reg (* Pick the first cache reg. *)
+                                        |   RegPropCacheTagged => reg (* Pick the first cache reg. *)
+                                        |   _ =>
+                                            if cost >= bestCost
+                                            then chooseReg(regs, reg, active)
+                                            else chooseReg(regs, bestReg, bestCost)
+                                    end
+                                val choice = chooseReg(regsToPick, ~1, 0)
+                                val _ = choice >= 0 orelse raise InternalError "chooseReg"
+                            in
+                                Array.update(pushArray, choice, true)
+                            end
+                        end
+                    
+                        val () = List.app selectARegisterToSpill conflictSets
                     in
-                        processCode(postPushCode, pregPropsPhase2, maxStackPhase2, passes+1)
+                        Array.vector pushArray
                     end
-            end
+                
+                    (* Now get the conflict sets. *)
+                    val conflictSets = getConflictStates(identified, maxPRegs)
+                    local
+                        fun mapFromExtended(ExtendedBasicBlock{block, flow, ...}) =
+                            BasicBlock{block=List.map #instr block, flow=flow}
+                    in
+                        val () =
+                            if wantPrintCode
+                            then (printCode(Vector.map mapFromExtended identified); printConflicts conflictSets)
+                            else ()
+                    end
+                in
+                    case allocateRegisters {blocks=identified, regStates=conflictSets, regProps=pregProps } of
+                        AllocateSuccess allocatedRegs =>
+                            (
+                                if wantPrintCode then printRegisters allocatedRegs else ();
+                                icodeToX86Code{blocks=identified, functionName=functionName, allocatedRegisters=allocatedRegs,
+                                           stackRequired=maxStack, argRegsUsed=argRegsUsed,
+                                           hasFullClosure=hasFullClosure, debugSwitches=debugSwitches}
+                            )
+                   |    AllocateFailure fails =>
+                        let
+                            val regsToSpill = spillFromConflictSets fails
+                            val {code=postPushCode, pregProps=pregPropsPhase2, maxStack=maxStackPhase2} =
+                                addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps, firstPass=false}
+                        in
+                            processCode(postPushCode, pregPropsPhase2, maxStackPhase2, passes+1)
+                        end
+                end
+
         end
 
     in

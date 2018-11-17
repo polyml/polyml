@@ -977,7 +977,6 @@ struct
 
         |   codeExtended _ ({instr=SetToCondition{dest=PReg resReg, condition, ...}, ...}, code) =
             let
-                val _ = print "SetToCondition\n"
                 val realDestReg = getAllocatedGenReg resReg
                 val lab1 = makeLabel() and lab2 = makeLabel()
             in
