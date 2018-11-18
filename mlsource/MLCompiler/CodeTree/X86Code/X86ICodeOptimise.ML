@@ -58,7 +58,7 @@ struct
        possibility is that we have a ResetStackPtr in between. *)
     datatype boolRegRewrite =
         BRNone
-    |   BRSetCond of { dest: preg, ccRef: ccRef, condition: branchOps }
+    |   BRSetCond of { dest: preg, highOrder: preg, ccRef: ccRef, condition: branchOps }
     |   BRNot of { dest: preg, source: preg }
 
     fun optimiseICode{ code, pregProps=_, ccCount=_ } =
@@ -74,14 +74,18 @@ struct
                     optCode(rest, BRSetCond cond, instr :: code)
 
             |   optCode({instr as BooleanNot(boolOp as {source=notSrc, dest=notDest}), ...} :: rest,
-                        BRSetCond{dest=setDest, ccRef, condition}, code) =
+                        BRSetCond{dest=setDest, ccRef, condition, highOrder}, code) =
                     if setDest = notSrc
                     then 
                     let
                         val _ = hasChanged := true
-                        (* Turn the NOT into a set of the reverse of the condition. *)
+                        (* Turn the NOT into a set of the reverse of the condition.  Use the
+                           original zero register since we're probably going to be eliminating
+                           the previous SetCondition.  If we weren't we'd be better to use
+                           a new one. *)
                         val condNot =
-                            {dest=notDest, ccRef=ccRef, condition=X86CODE.invertTest condition }
+                            {dest=notDest, ccRef=ccRef, condition=X86CODE.invertTest condition,
+                             highOrder = highOrder}
                     in
                         (* Replace the BooleanNot with a SetToCondition.  Pass this
                            SetToCondition on in case we have a TestBoolean. *)
@@ -108,7 +112,7 @@ struct
                         |   _ => raise InternalError "TestBoolean - not last"
                 in
                     case brCond of
-                        BRSetCond{dest=setDest, ccRef, condition} =>
+                        BRSetCond{dest=setDest, ccRef, condition, ...} =>
                         if setDest = source
                         then
                         (* We have a TestBoolean and the register we're testing was set

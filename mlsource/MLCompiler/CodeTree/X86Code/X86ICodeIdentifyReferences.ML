@@ -170,8 +170,11 @@ struct
     |   getInstructionState(CompareByteMem{arg1={base, index, ...}, ccRef, ...}) =
             { sources=base :: argIndex index, dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
-    |   getInstructionState(SetToCondition{dest, ccRef, ...}) =
-            { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCUnchanged }
+    |   getInstructionState(SetToCondition{dest, ccRef, highOrder, ...}) =
+            { sources=[highOrder], dests=[dest], sStacks=[], dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCUnchanged }
+
+    |   getInstructionState(ZeroRegister{dest}) =
+            { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(BooleanNot{dest, source}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
@@ -365,6 +368,7 @@ struct
                         |   LoadMemReg _ => true
                         |   SetToCondition _ => true
                         |   BooleanNot _ => true
+                        |   ZeroRegister _ => true
                         |   _ => false
                     fun regNo(PReg i) = i
                     and stackNo(StackLoc{rno, ...}) = rno

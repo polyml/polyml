@@ -313,10 +313,10 @@ struct
     |   genRegRepr(GeneralReg (0w1, false), SZByte) = "cl"
     |   genRegRepr(GeneralReg (0w2, false), SZByte) = "dl"
     |   genRegRepr(GeneralReg (0w3, false), SZByte) = "bl"
-    |   genRegRepr(GeneralReg (0w4, false), SZByte) = "ah" (* TODO: May be different if there's a rex code *)
+    |   genRegRepr(GeneralReg (0w4, false), SZByte) = "ah"
     |   genRegRepr(GeneralReg (0w5, false), SZByte) = "ch"
-    |   genRegRepr(GeneralReg (0w6, false), SZByte) = "dh"
-    |   genRegRepr(GeneralReg (0w7, false), SZByte) = "bh"
+    |   genRegRepr(GeneralReg (0w6, false), SZByte) = "sil" (* Assume there's a Rex code that forces low-order reg *)
+    |   genRegRepr(GeneralReg (0w7, false), SZByte) = "dil"
     |   genRegRepr(GeneralReg (reg, true),  SZByte) = "r" ^ Int.toString(Word8.toInt reg +8) ^ "b"
     |   genRegRepr(GeneralReg (0w0, false), SZDWord) = "eax"
     |   genRegRepr(GeneralReg (0w1, false), SZDWord) = "ecx"
@@ -539,20 +539,20 @@ struct
     |   branchOpToWord JLE  = 0wxe
     |   branchOpToWord JG   = 0wxf
  
-    fun branchOpRepr JO = "JumpOverflow"
-    |   branchOpRepr JNO = "JumpNotOverflow"
-    |   branchOpRepr JE = "JumpEqual"
-    |   branchOpRepr JNE = "JumpNotEqual"
-    |   branchOpRepr JL = "JumpLess"
-    |   branchOpRepr JGE = "JumpGreaterOrEqual"
-    |   branchOpRepr JLE = "JumpLessOrEqual"
-    |   branchOpRepr JG = "JumpGreater"
-    |   branchOpRepr JB = "JumpBefore"
-    |   branchOpRepr JNB= "JumpNotBefore"
-    |   branchOpRepr JNA = "JumpNotAfter"
-    |   branchOpRepr JA = "JumpAfter"
-    |   branchOpRepr JP = "JumpParity"
-    |   branchOpRepr JNP = "JumpNoParity"
+    fun branchOpRepr JO = "Overflow"
+    |   branchOpRepr JNO = "NotOverflow"
+    |   branchOpRepr JE = "Equal"
+    |   branchOpRepr JNE = "NotEqual"
+    |   branchOpRepr JL = "Less"
+    |   branchOpRepr JGE = "GreaterOrEqual"
+    |   branchOpRepr JLE = "LessOrEqual"
+    |   branchOpRepr JG = "Greater"
+    |   branchOpRepr JB = "Before"
+    |   branchOpRepr JNB= "NotBefore"
+    |   branchOpRepr JNA = "NotAfter"
+    |   branchOpRepr JA = "After"
+    |   branchOpRepr JP = "Parity"
+    |   branchOpRepr JNP = "NoParity"
     
     (* Invert a test.  This is used if we want to change the
        sense of a test from jumping if the condition is true to
@@ -630,6 +630,7 @@ struct
     |   RET_16
     |   CondJump of branchOps
     |   CondJump32 of branchOps
+    |   SetCC of branchOps
     |   Arith32 of arithOp * Word8.word
     |   Arith64 of arithOp * Word8.word
     |   Group3_A32
@@ -710,6 +711,7 @@ struct
     |   opToInt RET_16          = 0wxc2
     |   opToInt (CondJump opc)  = 0wx70 + branchOpToWord opc
     |   opToInt (CondJump32 opc) = 0wx80 + branchOpToWord opc (* Needs 0F prefix *)
+    |   opToInt (SetCC opc)     = 0wx90 + branchOpToWord opc (* Needs 0F prefix *)
     |   opToInt (Arith32 (ao,dw)) = arithOpToWord ao * 0w8 + dw
     |   opToInt (Arith64 (ao,dw)) = arithOpToWord ao * 0w8 + dw
     |   opToInt Group3_A32      = 0wxf7
@@ -849,6 +851,7 @@ struct
     |   escapePrefix IMUL32                     = [0wx0f]
     |   escapePrefix IMUL64                     = [0wx0f]
     |   escapePrefix(CondJump32 _)              = [0wx0f]
+    |   escapePrefix(SetCC _)                   = [0wx0f]
     |   escapePrefix SSE2StoreSingle            = [0wx0f]
     |   escapePrefix SSE2StoreDouble            = [0wx0f]
     |   escapePrefix(SSE2Ops _)                 = [0wx0f]
@@ -912,8 +915,9 @@ struct
             |   CVTTSS2SI64 => true
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
-        (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
-           That's only possible in 64-bit mode. *)
+        (* If we are using MOVB_R_Awith SIL or DIL we need to force a REX prefix.
+           That's only possible in 64-bit mode.  This also applies with Test and SetCC
+           but they are dealt with elsewhere. *)
         val forceRex =
             case opb of
                 MOVB_R_A64 {forceRex=true} => true (* This is allowed in X86/64 but not in X86/32. *)
@@ -1109,6 +1113,7 @@ struct
     |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word, opSize: opSize }
     |   ShiftVariable of { shiftType: shiftType, output: genReg, opSize: opSize } (* Shift amount is in ecx *)
     |   ConditionalBranch of { test: branchOps, label: label }
+    |   SetCondition of { output: genReg, test: branchOps }
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType, opSize: opSize }
     |   TestByteBits of { arg: genReg regOrMemoryArg, bits: Word8.word }
     |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
@@ -1242,7 +1247,12 @@ struct
 
         |   ConditionalBranch { test, label=Label{labelNo, ...} } =>
             (
-                stream(branchOpRepr test); stream " L"; stream(Int.toString labelNo)
+                stream "Jump"; stream(branchOpRepr test); stream " L"; stream(Int.toString labelNo)
+            )
+
+        |   SetCondition { output, test } =>
+            (
+                stream "SetCC"; stream(branchOpRepr test); stream " => "; printGReg output
             )
 
         |   PushToStack source => (stream "Push "; printRegOrMemoryArg printGReg source)
@@ -1498,13 +1508,11 @@ struct
                    can only use MOV if this is a tagged value.  If it isn't we have
                    to use something else such as XOR/ADD.  In particular this is used
                    before LOCK XADD for atomic inc/dec.
-                   TODO: There are various special cases such as setting to -1 can
-                   be done with an OR whatever the initial value.  INC can be used
-                   in 32-bit mode instead of ADD for 1. LEAL isn't a good idea. *)
+                   We expect Move to preserve the CC so shouldn't use anything that
+                   affects it.  There was a previous comment that said that using
+                   LEA wasn't a good idea.  Perhaps because it takes 6 bytes. *)
                 if source mod 2 = 0
-                then (raise InternalError "XXX"; arithOpReg(XOR, output, output, false) @
-                        (if source = 0 then []
-                         else immediateOperand(ADD, output, source, OpSize32)))
+                then opIndexed(LEAL32, source, NONE, NoIndex, output)
                 else
                 let
                     val (rc, rx) = getReg output
@@ -1681,6 +1689,24 @@ struct
         |   cgOp(TestByteBits _) = raise InternalError "cgOp: TestByteBits"                
 
         |   cgOp(ConditionalBranch{ test=opc, ... }) = opCodeBytes(CondJump32 opc, NONE) @ word32Unsigned 0w0
+        
+        |   cgOp(SetCondition{ output, test}) =
+            let
+                val (rrC, rx) = getReg output
+                (* In 64-bit mode we can specify the low-order byte of RSI/RDI but we
+                   must use a REX prefix.  This isn't possible in 32-bit mode. *)
+            in
+                if hostIsX64 orelse rrC < 0w4
+                then
+                let
+                    val opb = opCodeBytes(SetCC test,
+                        if rx orelse rrC >= 0w4 then SOME{w=false, r=false, b=rx, x=false} else NONE)
+                    val mdrm = modrm (Register, 0w0, rrC)
+                in
+                    opb @ [mdrm]
+                end
+                else raise InternalError "High byte register"
+            end
 
         |   cgOp(CallRTS{rtsEntry, saveRegs}) = rtsCall(rtsEntry, saveRegs)
 
@@ -3046,15 +3072,32 @@ struct
                             |   0wx84 => printJmp32 "je  "
                             |   0wx85 => printJmp32 "jne "
                             |   0wx86 => printJmp32 "jna "
-                            |   0wx87 => printJmp32 "ja  " 
+                            |   0wx87 => printJmp32 "ja  "
                             |   0wx88 => printJmp32 "js  "
-                            |   0wx89 => printJmp32 "jns " 
+                            |   0wx89 => printJmp32 "jns "
                             |   0wx8a => printJmp32 "jp  "
                             |   0wx8b => printJmp32 "jnp " 
                             |   0wx8c => printJmp32 "jl  "
                             |   0wx8d => printJmp32 "jge "
                             |   0wx8e => printJmp32 "jle "
                             |   0wx8f => printJmp32 "jg  "
+
+                            |   0wx90 => (print "seto\t";  printEA (rex, SZByte))
+                            |   0wx91 => (print "setno\t"; printEA (rex, SZByte))
+                            |   0wx92 => (print "setb\t";  printEA (rex, SZByte))
+                            |   0wx93 => (print "setnb\t"; printEA (rex, SZByte))
+                            |   0wx94 => (print "sete\t";  printEA (rex, SZByte))
+                            |   0wx95 => (print "setne\t"; printEA (rex, SZByte))
+                            |   0wx96 => (print "setna\t"; printEA (rex, SZByte))
+                            |   0wx97 => (print "seta\t";  printEA (rex, SZByte))
+                            |   0wx98 => (print "sets\t";  printEA (rex, SZByte))
+                            |   0wx99 => (print "setns\t"; printEA (rex, SZByte))
+                            |   0wx9a => (print "setp\t";  printEA (rex, SZByte))
+                            |   0wx9b => (print "setnp\t"; printEA (rex, SZByte)) 
+                            |   0wx9c => (print "setl\t";  printEA (rex, SZByte))
+                            |   0wx9d => (print "setge\t"; printEA (rex, SZByte))
+                            |   0wx9e => (print "setle\t"; printEA (rex, SZByte))
+                            |   0wx9f => (print "setg\t";  printEA (rex, SZByte))
                             
                             |   _ => (print "esc\t"; printValue(Word8.toLargeInt opByte2))
                         )

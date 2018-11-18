@@ -37,7 +37,7 @@ struct
         val regs =
             case targetArch of
                 Native32Bit     => [edi, esi, edx, ecx, ebx, eax]
-            |   Native64Bit     => [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, ebx, eax]
+            |   Native64Bit     => [edi, esi, edx, ecx, ebx, eax, r14, r13, r12, r11, r10, r9, r8]
             |   ObjectId32Bit   => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
     in
         val generalRegisters = List.map GenReg regs
@@ -492,15 +492,23 @@ struct
         |   registerAllocate({instr=CompareByteMem{ arg1={base=PReg bReg, index, ...}, ...}, ...}) =
                 (allocateGeneralReg bReg; allocateArgIndex index)
 
-        |   registerAllocate({instr=SetToCondition{ dest=PReg dReg, ...}, ...}) = allocateGeneralReg dReg
+        |   registerAllocate({instr=SetToCondition{ dest=PReg dReg, highOrder=PReg hReg, ...}, ...}) =
+            let
+                (* On the X86/32 we can't use Setcc to set esi or edi.  codeExtended gets round
+                   that by using jumps instead if that ever happens but we try to avoid it by
+                   preferring ecx. *)
+                val choose =
+                    if targetArch = Native32Bit then SOME(GenReg ecx) else NONE
+                val destReg = findRegister(dReg, choose, generalRegisters)
+            in
+                allocateRegister(hReg, SOME destReg, generalRegisters)
+            end
+
+        |   registerAllocate({instr=ZeroRegister{dest=PReg dReg}, ...}) = allocateRegister(dReg, NONE, generalRegisters)
 
         |   registerAllocate({instr=BooleanNot{ dest=PReg dReg, source=PReg sReg}, ...}) =
-            let
-                val realDestReg = findRegister(dReg, NONE, generalRegisters)
                 (* Try to put the argument into the same register as the result. *)
-            in
-                allocateRegister(sReg, SOME realDestReg, generalRegisters)
-            end
+                allocateRegister(sReg, SOME(findRegister(dReg, NONE, generalRegisters)), generalRegisters)
 
         |   registerAllocate({instr=TestBoolean{ source=PReg sReg, ...}, ...}) = allocateGeneralReg sReg
 

@@ -1247,6 +1247,13 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                     /* Conditional branches with 32-bit displacement. */
                     pt += 5; break;
 
+                case 0x90: case 0x91: case 0x92: case 0x93:
+                case 0x94: case 0x95: case 0x96: case 0x97:
+                case 0x98: case 0x99: case 0x9a: case 0x9b:
+                case 0x9c: case 0x9d: case 0x9e: case 0x9f:
+                    /* SetCC. */
+                    pt++; skipea(addr, &pt, process, false); break;
+
                 // These are SSE2 instructions
                 case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
                 case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a: case 0x6e:

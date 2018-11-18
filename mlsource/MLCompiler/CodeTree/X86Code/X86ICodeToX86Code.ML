@@ -556,7 +556,8 @@ struct
             |   instructionUses(WordComparison{arg1, arg2, ...}) = (used arg1; argUses arg2)
             |   instructionUses(CompareLiteral{arg1, ...}) = argUses arg1
             |   instructionUses(CompareByteMem{arg1={base, index, ...}, ...}) = (used base; indexUses index)
-            |   instructionUses(SetToCondition _) = ()
+            |   instructionUses(SetToCondition{ dest, highOrder, ...}) = if isUsed dest then used highOrder else ()
+            |   instructionUses(ZeroRegister _) = ()
             |   instructionUses(BooleanNot{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(TestBoolean{source, ...}) = used source
             |   instructionUses(PushExceptionHandler _) = ()
@@ -975,21 +976,49 @@ struct
                 ArithByteMemConst{ opc=CMP,
                     address={offset=offset, base=asGenReg(getAllocatedReg br), index=codeExtIndex index}, source=arg2 } :: code
 
-        |   codeExtended _ ({instr=SetToCondition{dest=PReg resReg, condition, ...}, ...}, code) =
+        |   codeExtended _ ({instr=SetToCondition{dest as PReg resReg, condition, highOrder=PReg high, ...}, ...}, code) =
+            if not(isUsed dest)
+            then code
+            else
             let
                 val realDestReg = getAllocatedGenReg resReg
-                val lab1 = makeLabel() and lab2 = makeLabel()
             in
-                (* This could be defined using setcc but it's not straightforward.
-                   The best version would be xor r,r; test; setcc r; lea r,[r+r*1+1]
-                   but that requires the register to be zeroed BEFORE the test. *)
-                JumpLabel lab2 ::
-                MoveToRegister{source=NonAddressConstArg(tag 1), output=realDestReg, opSize=OpSize32} ::
-                JumpLabel lab1 ::
-                UncondBranch lab2 ::
-                MoveToRegister{source=NonAddressConstArg(tag 0), output=realDestReg, opSize=OpSize32} ::
-                ConditionalBranch{test=condition, label=lab1} :: code
+                (* SetCC cannot use esi or edi in X86/32.  We try to use ecx if possible on the X86/32 but
+                   if we happen to choose esi or edi we have to use test and branch instead. *)
+                if targetArch = Native32Bit andalso (realDestReg = esi orelse realDestReg = edi)
+                then
+                let
+                    val lab1 = makeLabel() and lab2 = makeLabel()
+                    (* We've cleared the high-order unnecessarily but it's not worth having a special
+                       case for that. *)
+                in
+                    JumpLabel lab2 ::
+                    MoveToRegister{source=NonAddressConstArg(tag 1), output=realDestReg, opSize=OpSize32} ::
+                    JumpLabel lab1 ::
+                    UncondBranch lab2 ::
+                    MoveToRegister{source=NonAddressConstArg(tag 0), output=realDestReg, opSize=OpSize32} ::
+                    ConditionalBranch{test=condition, label=lab1} :: code
+                end
+                else
+                let
+                    val highReg = getAllocatedGenReg high
+                in
+                    (* We can use 32-bit operations here since we're happy for the top word to be zero. *)
+                    LoadAddress{output=realDestReg, offset=1, base=SOME realDestReg, index=Index1 realDestReg, opSize=OpSize32} ::
+                    SetCondition{output=realDestReg, test=condition} ::
+                    moveIfNecessary({src=GenReg highReg, dst=GenReg realDestReg, kind=MoveWord (* Just 32-bit really *)}, code)
+                end
             end
+
+        |   codeExtended _ ({instr=ZeroRegister{dest as PReg resReg}, ...}, code) =
+            if not(isUsed dest)
+            then code
+            else
+            let
+                val realDestReg = getAllocatedGenReg resReg
+            in
+                ArithToGenReg { opc=XOR, output=realDestReg, source=RegisterArg realDestReg, opSize=OpSize32 } :: code
+            end            
 
         |   codeExtended _ ({instr=BooleanNot{dest as PReg resReg, source=PReg sReg}, ...}, code) =
             if not (isUsed dest)

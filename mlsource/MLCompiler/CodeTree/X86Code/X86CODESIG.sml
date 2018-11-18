@@ -136,6 +136,7 @@ sig
     |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word, opSize: opSize }
     |   ShiftVariable of { shiftType: shiftType, output: genReg, opSize: opSize } (* Shift amount is in ecx *)
     |   ConditionalBranch of { test: branchOps, label: label }
+    |   SetCondition of { output: genReg, test: branchOps }
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType, opSize: opSize }
     |   TestByteBits of { arg: genReg regOrMemoryArg, bits: Word8.word }
     |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
