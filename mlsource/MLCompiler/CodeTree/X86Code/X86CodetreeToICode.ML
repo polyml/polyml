@@ -1350,9 +1350,21 @@ struct
                 moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICodeRev(instr as BICTagTest _, context, isTail, destination, tailCode) =
-                (* Better handled as a conditional *)
-                codeAsConditionalRev(instr, context, isTail, destination, tailCode)
+        |   codeToICodeRev(BICTagTest{test, tag=tagValue, ...}, context, _, destination, tailCode) =
+            (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
+               tag bit of a word. *)
+            let
+                val ccRef = newCCRef()
+                val memOrReg = { anyConstant=false, const32s=false, memAddr=true, existingPreg=true }
+                val (testCode, tagArg, _) = codeToICodeRev(test, context, false, Allowed memOrReg, tailCode)
+                val target = asTarget destination
+            in
+                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JE}) ::
+                    (* Use CompareLiteral because the tag must fit in 32-bits. *)
+                    BlockSimple(CompareLiteral{arg1=tagArg,
+                            arg2=tag(Word.toLargeInt tagValue), opSize=polyWordOpSize, ccRef=ccRef}) :: testCode,
+                    RegisterArgument target, false)
+            end
 
         |   codeToICodeRev(BICLoadOperation instr, context, isTail, destination, tailCode) =
             let
@@ -1386,8 +1398,17 @@ struct
                 (BlockSimple(BooleanNot{dest=target, source=tReg}) :: argCode, RegisterArgument target, false)
             end
 
-        |   codeToICodeUnaryRev(instr as {oper=BuiltIns.IsTaggedValue, ...}, context, isTail, destination, tailCode) =
-                codeAsConditionalRev(BICUnary instr, context, isTail, destination, tailCode)
+        |   codeToICodeUnaryRev({oper=BuiltIns.IsTaggedValue, arg1}, context, _, destination, tailCode) =
+            let
+                val ccRef = newCCRef()
+                val memOrReg = { anyConstant=false, const32s=false, memAddr=true, existingPreg=true }
+                val (testCode, testResult, _) = codeToICodeRev(arg1, context, false, Allowed memOrReg, tailCode)
+                (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
+                val target = asTarget destination
+            in
+                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JNE}) ::
+                    BlockSimple(TestTagBit{arg=testResult, ccRef=ccRef}) :: testCode, RegisterArgument target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination, tailCode) =
             let
@@ -2900,40 +2921,9 @@ struct
             then BlockFlow(Unconditional jumpLabel) :: tailCode
             else tailCode
 
-        |   codeConditionRev(BICTagTest{test, tag=tagValue, ...}, context, jumpOn, jumpLabel, tailCode) =
-            (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
-               tag bit of a word. *)
-            let
-                val ccRef = newCCRef()
-                val (testCode, tagReg) = codeToPRegRev(test, context, tailCode)
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                (* Use CompareLiteral because the tag must fit in 32-bits. *)
-                BlockSimple(CompareLiteral{arg1=RegisterArgument tagReg,
-                            arg2=tag(Word.toLargeInt tagValue), opSize=polyWordOpSize, ccRef=ccRef}) :: testCode
-            end
-
         |   codeConditionRev(BICUnary{oper=BuiltIns.NotBoolean, arg1}, context, jumpOn, jumpLabel, tailCode) =
                 (* If we have a "not" we can just invert the jump condition. *)
                 codeConditionRev(arg1, context, not jumpOn, jumpLabel, tailCode)
-
-        |   codeConditionRev(BICUnary{oper=BuiltIns.IsTaggedValue, arg1}, context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef = newCCRef()
-                val (testCode, testReg) = codeToPRegRev(arg1, context, tailCode)
-                (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
-                (* TODO: The X86 supports tests with a memory argument so we don't have to
-                   load it into a register.  That's not currently supported by the rest of
-                   the code-generator. *)
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JNE else JE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                    BlockSimple(TestTagBit{arg=RegisterArgument testReg, ccRef=ccRef}) :: testCode
-            end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2},
                     context, jumpOn, jumpLabel, tailCode) =
