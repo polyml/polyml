@@ -771,7 +771,7 @@ struct
                                                    boxedCode=boxedCode, sizeCode=sizeCode}
                 |   NONE => codeId(typeId, l)
 
-            (* Filter out the EnumForm constructors.  They arise
+            (* Filter out the ShortForm constructors.  They arise
                in situations such as datatype t = A of int*int | B | C
                i.e. where we have only one non-nullary constructor
                and it is a tuple.  In this case we can deal with all
