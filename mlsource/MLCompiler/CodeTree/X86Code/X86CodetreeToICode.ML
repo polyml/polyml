@@ -3186,7 +3186,7 @@ struct
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(TestBoolean{source=testReg, ccRef=ccRef}) ::
+                BlockSimple(CompareLiteral{arg1=RegisterArgument testReg, arg2=tag 1, opSize=OpSize32, ccRef=ccRef}) ::
                 testCode
             end
 

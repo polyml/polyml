@@ -904,13 +904,6 @@ struct
                         in
                             destCode @ BooleanNot{source=sourceVal, dest=destVal} :: sourceCode @ code
                         end
- 
-                    |   pushRegisters({instr=TestBoolean{source, ccRef}, ...}, code) =
-                        let
-                            val (sourceVal, sourceCode) = mapSrcReg source
-                        in
-                            TestBoolean{source=sourceVal, ccRef=ccRef} :: sourceCode @ code
-                        end
 
                     |   pushRegisters({instr=PushExceptionHandler{workReg}, ...}, code) =
                         let

@@ -510,8 +510,6 @@ struct
                 (* Try to put the argument into the same register as the result. *)
                 allocateRegister(sReg, SOME(findRegister(dReg, NONE, generalRegisters)), generalRegisters)
 
-        |   registerAllocate({instr=TestBoolean{ source=PReg sReg, ...}, ...}) = allocateGeneralReg sReg
-
             (* Set up an exception handler. *)
         |   registerAllocate({instr=PushExceptionHandler{workReg=PReg hReg}, ...}) = allocateGeneralReg hReg
 

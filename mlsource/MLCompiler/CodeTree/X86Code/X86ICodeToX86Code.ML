@@ -559,7 +559,6 @@ struct
             |   instructionUses(SetToCondition{ dest, highOrder, ...}) = if isUsed dest then used highOrder else ()
             |   instructionUses(ZeroRegister _) = ()
             |   instructionUses(BooleanNot{source, dest, ...}) = if isUsed dest then used source else ()
-            |   instructionUses(TestBoolean{source, ...}) = used source
             |   instructionUses(PushExceptionHandler _) = ()
             |   instructionUses(PopExceptionHandler _) = ()
             |   instructionUses(BeginHandler _) = ()
@@ -1032,16 +1031,6 @@ struct
             in
                 ArithToGenReg { opc=XOR, output=asGenReg realDestReg, source=bitFlip, opSize=polyWordOpSize } ::
                     moveIfNecessary({src=realSrcReg, dst=realDestReg, kind=MoveWord}, code)
-            end
-
-        |   codeExtended _ ({instr=TestBoolean{source=PReg sReg, ...}, ...}, code) =
-            let
-                val realSrcReg = getAllocatedReg sReg
-            in
-                (* If the source reg is eax/rax we could use TEST al,2.  Otherwise it's
-                   probably better to use CMP. *)
-                ArithToGenReg {opc=CMP, output=asGenReg realSrcReg,
-                    source=NonAddressConstArg(tag 1), opSize=OpSize32 (* Really just the byte *)} :: code
             end
 
             (* Set up an exception handler. *)

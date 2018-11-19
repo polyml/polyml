@@ -217,10 +217,6 @@ sig
            simplies optimisation. *)
     |   BooleanNot of { dest: preg, source: preg }
 
-        (* Test a boolean.  Sets the Z (E) flag if it is true. Since it can be defined
-           with either WordComparison or CompareLiteral it may be removed. *)
-    |   TestBoolean of { source: preg, ccRef: ccRef }
-
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
 

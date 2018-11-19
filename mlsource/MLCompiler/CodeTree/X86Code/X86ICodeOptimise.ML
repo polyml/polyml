@@ -40,17 +40,6 @@ struct
        to spill registers.
        
        The optimiser currently deals with booleans and conditions.
-       1.  NotBool following a SetCondition of the source register,
-           If the condition we set is still valid we can replace the
-           NotBool with a SetCondition of the inverse of the condition and
-           hopefully remove the first SetCondition.
-       2.  SetCondition followed by TestBoolean which must shortly be followed
-           by a Conditional branch.  We can remove the TestBoolean and change
-           the condition in the Conditional branch to test the original
-           condition in the SetCondition.  The SetCondition should then be
-           unused and removed.
-       3.  NotBool followed by a TestBoolean of the result followed by a
-           Conditional branch.  
     *)
     
     (* This is a rewrite of the last instruction to set a boolean.
@@ -60,6 +49,7 @@ struct
         BRNone
     |   BRSetCond of { dest: preg, highOrder: preg, ccRef: ccRef, condition: branchOps }
     |   BRNot of { dest: preg, source: preg }
+    |   BRChangeCond of { srcCC: ccRef, outCC: ccRef, condition: branchOps }
 
     fun optimiseICode{ code, pregProps=_, ccCount=_ } =
     let
@@ -67,7 +57,11 @@ struct
 
         fun optimiseBlock(ExtendedBasicBlock{block, flow, outCCState, ...}) =
         let
-            fun optCode([], _, code) = (code, NONE)
+            fun optCode([], brCond, code) = (code, brCond)
+
+            |   optCode({instr = SetToCondition _, ...} :: _, BRChangeCond _, _) =
+                    (* Can this ever happen? *)
+                    raise InternalError "SetCond/BRChangeCond"
 
             |   optCode({instr as SetToCondition cond, ...} :: rest, _, code) =
                     (* Record this SetCondition in case it can be used later. *)
@@ -102,54 +96,57 @@ struct
             |   optCode({instr as BooleanNot boolOp, ...} :: rest, _, code) =
                     optCode(rest, BRNot boolOp, instr :: code)
 
-            |   optCode({instr as TestBoolean{source, ccRef=ccRefOut}, ...} :: rest, brCond, code) =
-                let
-                    (* This should be the last instruction except for a reset stack pointer. *)
-                    val tail =
-                        case rest of
-                            [] => []
-                        |   [{instr as ResetStackPtr{preserveCC=true, ...}, ...}] => [instr]
-                        |   _ => raise InternalError "TestBoolean - not last"
-                in
+            |   optCode({instr as CompareLiteral{arg1=RegisterArgument source, arg2, ccRef=ccRefOut, ...}, ...} :: rest,
+                        brCond, code) =
+                (* CompareLiteral is put in by CodetreeToIcode to test a boolean value.  It can also
+                   arise as the result of pattern matching on booleans or even by tests such as = true. *)
+                (
                     case brCond of
                         BRSetCond{dest=setDest, ccRef, condition, ...} =>
                         if setDest = source
                         then
-                        (* We have a TestBoolean and the register we're testing was set
-                           recently.  The condition code is still active.  We can eliminate
-                           this instruction but only if we change every reference to the CC
-                           that this instruction is producing into a reference to the original
-                           CC with appropriate testing.
-                           The higher levels generate TestBoolean as the last instruction in
-                           a block which then has a Conditional to test the CC.  This CC should
-                           never be exported from this block.  If it were we'd have to change
-                           references in other blocks. *)
+                        (*  We recently set this register to a condition and the condition is still
+                            active. Rather than test it again we can just change references to the
+                            condition we're setting to refer to the old one.  We have to check that
+                            we're not exporting the condition to another block since we only
+                            change references in this block. *)
                         let
                             val _ = hasChanged := true
-                            val repl = {srcCC=ccRefOut, outCC=ccRef, condition=condition}
+                            val outCond =
+                                case arg2 of
+                                    1 (* i.e. tagged false *) => X86CODE.invertTest condition
+                                |   3 (* i.e. tagged true *)  => condition
+                                |   _ => raise InternalError "optCode: test is not true or false"
+                            val repl = BRChangeCond{srcCC=ccRefOut, outCC=ccRef, condition=outCond}
                             val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
                         in
-                            (tail @ code, SOME repl)
+                            optCode(rest, repl, code)
                         end
-                        else (tail @ instr:: code, NONE)
+                        else optCode(rest, BRNone, instr::code)
 
                     |   BRNot{dest, source=notSource} =>
                         if dest = source
                         then
                         let
-                            (* We have a NOT of a boolean other than a test.  Change this test to
-                               test the original boolean and change the Conditional at the end of
-                               the block to invert the test. *)
+                            (* We have a NOT of a boolean other than a test.  There's no test
+                               to pass on but we can change this test. *)
                             val _ = hasChanged := true
                             val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
-                            val repl = {srcCC=ccRefOut, outCC=ccRefOut, condition=JNE}
+                            val outArg =
+                                case arg2 of
+                                    1 (* i.e. tagged false *) => 3
+                                |   3 (* i.e. tagged true *)  => 1
+                                |   _ => raise InternalError "optCode: test is not true or false"
+                            val outCompare =
+                                CompareLiteral{arg1=RegisterArgument notSource, arg2=outArg,
+                                    opSize=OpSize32, ccRef=ccRefOut}
                         in
-                            (TestBoolean{source=notSource, ccRef=ccRefOut}::code, SOME repl)
+                            optCode(rest, BRNone, outCompare :: code)
                         end
-                        else (tail @ instr::code, NONE)
+                        else optCode(rest, BRNone, instr::code)
                     
-                    |   BRNone => (tail @ instr::code, NONE)
-                end
+                    |   _ => optCode(rest, BRNone, instr::code)
+                )
 
             |   optCode({instr, ...} :: rest, inCond, code) =
                 let
@@ -167,7 +164,8 @@ struct
 
             val newFlow =
                 case (finalRepl, flow) of
-                    (SOME{srcCC, outCC, condition}, flow as Conditional{ccRef, condition=brCond, trueJump, falseJump}) =>
+                    (BRChangeCond{srcCC, outCC, condition},
+                      flow as Conditional{ccRef, condition=brCond, trueJump, falseJump}) =>
                         if srcCC = ccRef
                         then
                         let

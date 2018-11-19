@@ -179,9 +179,6 @@ struct
     |   getInstructionState(BooleanNot{dest, source}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(TestBoolean{source, ccRef, ...}) =
-            { sources=[source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
-
     |   getInstructionState(PushExceptionHandler{workReg, ...}) =
             { sources=[], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 

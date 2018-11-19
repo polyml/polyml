@@ -184,10 +184,6 @@ struct
         (* Invert boolean value.  This can be defined using XOR but
            simplies optimisation. *)
     |   BooleanNot of { dest: preg, source: preg }
-
-        (* Test a boolean.  Sets the Z (E) flag if it is true. Since it can be defined
-           with either WordComparison or CompareLiteral it may be removed. *)
-    |   TestBoolean of { source: preg, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
@@ -566,13 +562,6 @@ struct
                 stream "\tBooleanNot\t";
                 printReg(source, stream);
                 stream " => "; printReg(dest, stream)
-            )
-
-        |   printICode(TestBoolean{source, ccRef}, stream) =
-            (
-                stream "\tTestBoolean\t";
-                printReg(source, stream);
-                stream " => "; printCC(ccRef, stream)
             )
 
         |   printICode(PushExceptionHandler{workReg }, stream) =
