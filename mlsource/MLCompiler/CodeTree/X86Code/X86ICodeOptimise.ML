@@ -59,9 +59,22 @@ struct
         let
             fun optCode([], brCond, code) = (code, brCond)
 
-            |   optCode({instr = SetToCondition _, ...} :: _, BRChangeCond _, _) =
-                    (* Can this ever happen? *)
-                    raise InternalError "SetCond/BRChangeCond"
+            |   optCode({instr as SetToCondition(cond as {dest, highOrder, ccRef, condition=setCCond}), ...} :: rest,
+                         BRChangeCond{srcCC, outCC, condition}, code) =
+                if ccRef = srcCC
+                then
+                let
+                    val outCondition =
+                        case setCCond of
+                            JE => condition
+                        |   JNE => X86CODE.invertTest condition
+                        |   _ => raise InternalError "optCode: Not JE or JNE"
+                    val outCond =
+                        { dest=dest, highOrder=highOrder, ccRef=outCC, condition=outCondition }
+                in
+                    optCode(rest, BRSetCond outCond, SetToCondition outCond :: code)
+                end
+                else optCode(rest, BRSetCond cond, instr :: code)
 
             |   optCode({instr as SetToCondition cond, ...} :: rest, _, code) =
                     (* Record this SetCondition in case it can be used later. *)
@@ -117,6 +130,8 @@ struct
                                     1 (* i.e. tagged false *) => X86CODE.invertTest condition
                                 |   3 (* i.e. tagged true *)  => condition
                                 |   _ => raise InternalError "optCode: test is not true or false"
+                            (* Put in a replacement so that if we were previously testing ccRefOut
+                               we should instead test ccRef. *)
                             val repl = BRChangeCond{srcCC=ccRefOut, outCC=ccRef, condition=outCond}
                             val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
                         in
@@ -147,6 +162,16 @@ struct
                     
                     |   _ => optCode(rest, BRNone, instr::code)
                 )
+
+            |   optCode({instr=ZeroRegister{dest}, ...} :: rest, brCond as BRSetCond{highOrder, ...}, code) =
+                (* We've had a SetCondition before this and we're about to test some condition in order
+                   to do another SetCondition.  It may be the original condition or some other.  If it's
+                   the original we need to preserve the CC if we're going to pass on the BRSetCond
+                   but ZeroRegister will clobber it.  Change this to use a Move from the original high-order
+                   which will preserve the CC. *)
+                    optCode(rest, brCond, LoadArgument{source=RegisterArgument highOrder, dest=dest, kind=MoveWord} :: code)
+
+            |   optCode({instr as ZeroRegister _, ...} :: rest, _, code) = optCode(rest, BRNone, instr :: code)
 
             |   optCode({instr, ...} :: rest, inCond, code) =
                 let
