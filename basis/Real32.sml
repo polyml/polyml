@@ -206,8 +206,19 @@ struct
 
     val toDecimal = Real.toDecimal o toLarge
     
-    (* Convert from decimal.  This is defined to use TO_NEAREST. *)
-    val fromDecimal = Option.map fromRealRound o Real.fromDecimal
+    (* Convert from decimal.  This is defined to use TO_NEAREST.
+       We need to handle NaNs specially because fromRealRound loses
+       the sign on a NaN. *)
+    local
+        val posNan = abs(zero / zero)
+        val negNan = ~posNan
+    in
+        fun fromDecimal { class = INF, sign=true, ...} = SOME negInf
+        |   fromDecimal { class = INF, sign=false, ...} = SOME posInf
+        |   fromDecimal { class = NAN, sign=true, ... } = SOME negNan
+        |   fromDecimal { class = NAN, sign=false, ... } = SOME posNan
+        |   fromDecimal arg = Option.map fromRealRound (Real.fromDecimal arg)
+    end
 
     structure Math =
     struct
