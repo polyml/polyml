@@ -35,8 +35,8 @@ struct
     }
 
     (* CC states before and after.  The instruction may use the CC or ignore it. The only
-       instruction to use the CC is X87FPGetCondition.  Conditional branches are handled at
-       the block level.
+       instructions to use the CC are SetToCondition and X87FPGetCondition.  Conditional branches
+       are handled at the block level.
        The result of executing the instruction may be to set the condition code to a
        defined state, an undefined state or leave it unchanged.
        N.B. Some "instructions" may involve a stack reset that could affect the CC. *)
@@ -373,15 +373,24 @@ struct
                     and sourceRegNos = map regNo sources
                     val stackDestRegNos = map stackNo stackDests
                     and stackSourceRegNos = map stackNo stackSrcs
-                    (* Check the CC if we need one and this sets it. The input CC is the earliest required CC
-                       that is not set by this code. *)
+                    (* If this instruction requires a cc i.e. is SetToCondition or X87FPGetCondition we
+                       need to set this as a requirement earlier.  If this sets the CC and it is the condition
+                       we've been expecting we've satisfied it and can set the previous condition to Unused.
+                       We could use this to decide if a comparison is no longer required.  That can only
+                       happen in very specific circumstances e.g. some tests in Test176.ML so it's
+                       not worthwhile. *)
                     val newInCC =
+                        case (ccIn, ccOut, occIn) of
+                            (cc as CCNeeded _, _, _) => cc (* This instr needs a particular cc. *)
+                        |   (CCUnused, CCSet _, _) => CCUnused
+                        |   (CCUnused, _, occIn) => occIn
+                    (* If this instruction modifies the CC check to see if it is setting an requirement. *)
+                    val _ =
                         case (occIn, ccOut) of
                             (CCNeeded ccRIn, CCSet ccRout) =>
-                                if ccRIn = ccRout then ccIn else raise InternalError "CCCheck failed"
+                                if ccRIn = ccRout then () else raise InternalError "CCCheck failed"
                         |   (CCNeeded _, CCIndeterminate) => raise InternalError "CCCheck failed"
-                        |   (_, CCUnchanged) => occIn
-                        |   _ => ccIn
+                        |   _ => ()
                     (* The output CC is the last CC set.  Tail instructions that don't change
                        the CC state are ignored until we reach an instruction that sets it. *)
                     val newOutCC = case occOut of CCUnchanged => ccOut | _ => occOut
