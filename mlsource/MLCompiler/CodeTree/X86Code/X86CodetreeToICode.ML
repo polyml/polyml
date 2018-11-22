@@ -3143,41 +3143,8 @@ struct
         |   codeToICodeBlock({kind=BlockOpEqualByte, ...}, _, _, _) =
                 raise InternalError "codeToICodeBlock - BlockOpEqualByte" (* Already done *)
           
-        and codeConditionRev(BICConstnt(value, _), _, jumpOn, jumpLabel, tailCode) =
-            (* Constant - typically part of andalso/orelse.  Either an unconditional branch
-               or an unconditional drop-through. *)
-            if jumpOn = (toShort value <> 0w0)
-            then BlockFlow(Unconditional jumpLabel) :: tailCode
-            else tailCode
-
-        |   codeConditionRev(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel, tailCode) =
-            let
-                val notTest = newLabel() and isThen = newLabel() and notThenElse = newLabel()
-                (* Test the condition and jump to the else-part if this is false. *)
-                val testTest = codeConditionRev(testPart, context, false, notTest, tailCode)
-                (* Test the then-part and jump if the condition we want holds.
-                   We don't go to the final label yet. *)
-                val testThen = codeConditionRev(thenPart, context, jumpOn, isThen, testTest)
-                (* Test the else-part and jump on the inverse of the condition.
-                   The destination of this jump is going to be the drop-through
-                   case. *)
-                (* Branch round the else-part and put in a label for the start of the else *)
-                val testElse = codeConditionRev(elsePart, context, not jumpOn, notThenElse,
-                    BlockLabel notTest ::
-                    BlockFlow(Unconditional notThenElse) :: testThen)
-            in
-             (* And now the labels for the condition where we don't want to branch and want to
-                drop through. *)
-                BlockLabel notThenElse ::
-                    (* Add a label for the result of the then-part.  Because we branched
-                       on the inverse of the test in the else-part we now have both the
-                       conditions to take the branch.  Put in an unconditional branch
-                       to the final label. *)
-                BlockFlow(Unconditional jumpLabel) :: BlockLabel isThen :: testElse
-            end
-
-            (* General case.  Load the value into a register and compare it with 1 (true) *)
-        |   codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
+        and codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
+           (* General case.  Load the value into a register and compare it with 1 (true) *)
             let
                 val ccRef = newCCRef()
                 val (testCode, testReg) = codeToPRegRev(condition, context, tailCode)
