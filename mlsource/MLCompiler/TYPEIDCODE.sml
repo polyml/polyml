@@ -781,7 +781,7 @@ struct
             fun processConstrs [] =
                 (* The last of the alternatives is false *) CodeZero
 
-            |  processConstrs (Value{class, access, typeOf, ...} :: rest) =
+            |   processConstrs (Value{class, access, typeOf, ...} :: rest) =
                 let
                     fun addPolymorphism c =
                         if nTypeVars = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList)
@@ -832,12 +832,14 @@ struct
                         end
                 end
 
-            (* We previously only tested for bit-wise (pointer) equality if we had
-               at least one "enum" constructor in which case the test would eliminate
-               all the enum constructors.  I've now extended this to all cases where
-               there is more than one constructor.  The idea is to speed up equality
-               between identical data structures. *)
-            val eqCode = mkCor(mkEqualWord(arg1, arg2), processConstrs vConstrs)
+            (* processConstrs assumes that if there are nullary constructors we have already
+               tested for bitwise equality.  We also do that if there is more than one
+               constructor to try to speed up equality for deep structures.  *)
+            val eqCode =
+                case vConstrs of
+                    [Value{class=Constructor{nullary=true, ...}, ...}] => CodeTrue
+                |   [_] => processConstrs vConstrs
+                |   _ => mkCor(mkEqualWord(arg1, arg2), processConstrs vConstrs)
         in
             if null argTypes
             then (addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)", getClosure baseEqLevelP1, 0)) :: otherFns
