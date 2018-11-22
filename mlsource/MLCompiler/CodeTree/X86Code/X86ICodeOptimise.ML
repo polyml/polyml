@@ -192,7 +192,7 @@ struct
                                        in the simplifier. *)
                                     val newCv = case cv of CVTrue => CVFalse | CVFalse => CVTrue
                                     val newInstr =
-                                        LoadArgument{dest=notDest, source=IntegerConstant(compareValAsInt cv), kind=MoveWord}
+                                        LoadArgument{dest=notDest, source=IntegerConstant(compareValAsInt newCv), kind=MoveWord}
                                 in
                                     (CAConst newCv, newInstr)
                                 end
