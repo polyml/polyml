@@ -448,6 +448,9 @@
 /* Define to 1 if the system has the type `_Bool'. */
 #undef HAVE__BOOL
 
+/* Define to 1 if you have the `_isnanf,' function. */
+#undef HAVE__ISNANF_
+
 /* Define if the host is an ARM (64-bit) */
 #undef HOSTARCHITECTURE_AARCH64
 
