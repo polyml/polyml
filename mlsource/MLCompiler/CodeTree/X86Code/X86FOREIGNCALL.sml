@@ -480,7 +480,7 @@ struct
                     [
                         (* Must be boxed in 32-in-64. *)
                         AllocStore{size=floatBoxSize, output=eax, saveRegs=[]},
-                        StoreConstToMemory{toStore=LargeInt.fromInt realBoxSize,
+                        StoreConstToMemory{toStore=LargeInt.fromInt floatBoxSize,
                             address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
                         StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision, toStore=xmm0 },

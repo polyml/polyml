@@ -1562,7 +1562,7 @@ struct
                 val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
             in
                 (BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false }) ::
-                 BlockSimple(LoadArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex, cache=NONE}, dest=argReg1, kind=MoveByte}) ::
+                 BlockSimple(LoadArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=memIndexOrObject, cache=NONE}, dest=argReg1, kind=MoveByte}) ::
                  argCode, RegisterArgument target, false)
             end
 
@@ -1613,7 +1613,7 @@ struct
                 val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
                 (* Store tagged 1 in the mutex.  This is the unlocked value. *)
                 val code =
-                    BlockSimple(StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=NoMemIndex, offset=0, kind=movePolyWord, isMutable=true})
+                    BlockSimple(StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=memIndexOrObject, offset=0, kind=movePolyWord, isMutable=true})
                         :: argCode
             in
                 moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
@@ -1945,7 +1945,7 @@ struct
                                             orelse raise InternalError "Compare memory cell not a byte"
                                 val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
                             in
-                                BlockSimple(CompareByteMem{arg1={base=baseReg, index=NoMemIndex, offset= ~1}, arg2=literal, ccRef=ccRef}) ::
+                                BlockSimple(CompareByteMem{arg1={base=baseReg, index=memIndexOrObject, offset= ~1}, arg2=literal, ccRef=ccRef}) ::
                                     BlockSimple(ZeroRegister{dest=zeroReg}) :: baseCode
                             end
                         |    _ =>
