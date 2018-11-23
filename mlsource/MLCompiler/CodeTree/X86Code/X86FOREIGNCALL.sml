@@ -282,8 +282,22 @@ struct
 
         (* Constants for a box for a real *)
         val realBoxSize = 8 div Word.toInt wordSize
+        and floatBoxSize = 1
         val realBoxLengthWord32 = IntInf.orb(IntInf.fromInt realBoxSize, IntInf.<<(Word8.toLargeInt F_bytes, 0w24))
         val floatBoxLengthWord32 = IntInf.orb(1, IntInf.<<(Word8.toLargeInt F_bytes, 0w24))
+
+        fun unboxAddress breg =
+            case targetArch of
+                ObjectId32Bit => MemoryArg{base=ebx, offset=0, index=Index4 breg}
+            |   _ => MemoryArg{base=breg, offset=0, index=NoIndex}
+        
+        (* Floats are boxed in 32-in-64 but tagged in native 64-bit *)
+        fun unboxOrUntagFloat(source, dest) =
+            case targetArch of
+                ObjectId32Bit => [XMMArith { opc= SSE2MoveFloat, source=unboxAddress source, output=dest }]
+            |   Native64Bit =>
+                    [MoveGenRegToXMMReg {source=source, output=dest}, XMMShiftRight{ output=dest, shift=0w4 (* Bytes - not bits *) }]
+            |   Native32Bit => raise InternalError "unboxOrUntagFloat"
 
         val code =
             [
@@ -337,7 +351,7 @@ struct
                         FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
                     ]
 
-                |   (_, [FastArgDouble]) => [ XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 } ]
+                |   (_, [FastArgDouble]) => [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 } ]
 
                     (* X64 on both Windows and Unix take the first arg in xmm0 and the second in xmm1.
                        We need to unbox the values pointed at by rax and rbx. *)
@@ -352,16 +366,16 @@ struct
                         FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
                     ]
                 |   (_, [FastArgDouble, FastArgDouble]) =>
-                        [ XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
-                          XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=ebx, offset=0, index=NoIndex}, output=xmm1 } ]
+                        [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 },
+                          XMMArith { opc= SSE2MoveDouble, source=unboxAddress ebx, output=xmm1 } ]
 
                     (* X64 on both Windows and Unix take the first arg in xmm0.  On Unix the integer argument is treated
                        as the first argument and goes into edi.  On Windows it's treated as the second and goes into edx. *)
                 |   (X64Unix, [FastArgDouble, FastArgFixed]) =>
-                        [ XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
+                        [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 },
                           moveRR{source=ebx, output=edi, opSize=nativeWordOpSize} ]
                 |   (X64Win, [FastArgDouble, FastArgFixed]) =>
-                        [ XMMArith { opc= SSE2MoveDouble, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 },
+                        [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 },
                           moveRR{source=ebx, output=edx, opSize=nativeWordOpSize} ]
                 |   (X86_32, [FastArgDouble, FastArgFixed]) =>
                      (* ebx must be pushed to the stack but eax must be unboxed.. *)
@@ -380,11 +394,7 @@ struct
                         ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 4, opSize=nativeWordOpSize},
                         FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true }
                     ]
-                |   (_, [FastArgFloat]) =>
-                    [
-                        MoveGenRegToXMMReg {source=eax, output=xmm0},
-                        XMMShiftRight{ output=xmm0, shift=0w4 (* Bytes - not bits *) }
-                    ]
+                |   (_, [FastArgFloat]) => unboxOrUntagFloat(eax, xmm0)
 
                     (* Two float arguments.  Untag them on X86/64 but unbox on X86/32 *)
                 |   (X86_32, [FastArgFloat, FastArgFloat]) =>
@@ -397,27 +407,13 @@ struct
                         ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 4, opSize=nativeWordOpSize},
                         FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true }
                     ]
-                |   (_, [FastArgFloat, FastArgFloat]) =>
-                    [
-                        MoveGenRegToXMMReg {source=eax, output=xmm0},
-                        XMMShiftRight{ output=xmm0, shift=0w4 },
-                        MoveGenRegToXMMReg {source=ebx, output=xmm1},
-                        XMMShiftRight{ output=xmm1, shift=0w4 }
-                    ]
+                |   (_, [FastArgFloat, FastArgFloat]) => unboxOrUntagFloat(eax, xmm0) @ unboxOrUntagFloat(ebx, xmm1)
 
                     (* One float argument and one fixed. *)
                 |   (X64Unix, [FastArgFloat, FastArgFixed]) =>
-                    [
-                        MoveGenRegToXMMReg {source=eax, output=xmm0},
-                        XMMShiftRight{ output=xmm0, shift=0w4 },
-                        moveRR{source=ebx, output=edi, opSize=polyWordOpSize}
-                    ]
+                        unboxOrUntagFloat(eax, xmm0) @ [moveRR{source=ebx, output=edi, opSize=polyWordOpSize} ]
                 |   (X64Win, [FastArgFloat, FastArgFixed]) =>
-                    [
-                        MoveGenRegToXMMReg {source=eax, output=xmm0},
-                        XMMShiftRight{ output=xmm0, shift=0w4 },
-                        moveRR{source=ebx, output=edx, opSize=polyWordOpSize}
-                    ]
+                        unboxOrUntagFloat(eax, xmm0) @ [moveRR{source=ebx, output=edx, opSize=polyWordOpSize}]
                 |   (X86_32, [FastArgFloat, FastArgFixed]) =>
                      (* ebx must be pushed to the stack but eax must be unboxed.. *)
                     [
@@ -436,10 +432,10 @@ struct
             @
             (
                 (* If the result is a floating point value it needs to be boxed. *)
-                case (abi, resultFormat) of
-                    (_, FastArgFixed) => [] (* Already in rax/eax. *)
+                case (abi, resultFormat, targetArch) of
+                    (_, FastArgFixed, _) => [] (* Already in rax/eax. *)
 
-                |  (X86_32, FastArgDouble) =>
+                |  (X86_32, FastArgDouble, _) =>
                     [
                         AllocStore{size=realBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=realBoxLengthWord32,
@@ -448,7 +444,20 @@ struct
                         StoreInitialised
                     ]
 
-                |   (_, FastArgDouble) => (* X64 The result is in xmm0 *)
+                |   (_, FastArgDouble, ObjectId32Bit) => (* X64 The result is in xmm0 *)
+                    [
+                        AllocStore{size=realBoxSize, output=eax, saveRegs=[]},
+                        StoreConstToMemory{toStore=LargeInt.fromInt realBoxSize,
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
+                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
+                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
+                        StoreInitialised,
+                        (* Convert to an object id. *)
+                        ArithToGenReg{ opc=SUB, output=eax, source=RegisterArg ebx, opSize=OpSize64 },
+                        ShiftConstant{ shiftType=SHR, output=eax, shift=0w2, opSize=OpSize64 }
+                    ]
+
+                |   (_, FastArgDouble, _) => (* X64 The result is in xmm0 *)
                     [
                         AllocStore{size=realBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt realBoxSize,
@@ -458,16 +467,30 @@ struct
                         StoreInitialised
                     ]
 
-                |  (X86_32, FastArgFloat) =>
+                |  (X86_32, FastArgFloat, _) =>
                     [
-                        AllocStore{size=1 (* It's a 32-bit value *), output=eax, saveRegs=[]},
+                        AllocStore{size=floatBoxSize (* It's a 32-bit value *), output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=floatBoxLengthWord32,
                                 address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
                         FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true },
                         StoreInitialised
                     ]
 
-                |  (_, FastArgFloat) =>
+                |  (_, FastArgFloat, ObjectId32Bit) =>
+                    [
+                        (* Must be boxed in 32-in-64. *)
+                        AllocStore{size=floatBoxSize, output=eax, saveRegs=[]},
+                        StoreConstToMemory{toStore=LargeInt.fromInt realBoxSize,
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
+                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
+                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision, toStore=xmm0 },
+                        StoreInitialised,
+                        (* Convert to an object id. *)
+                        ArithToGenReg{ opc=SUB, output=eax, source=RegisterArg ebx, opSize=OpSize64 },
+                        ShiftConstant{ shiftType=SHR, output=eax, shift=0w2, opSize=OpSize64 }
+                   ]
+
+                |  (_, FastArgFloat, _) =>
                     [
                         (* Copy the value from xmm0 to rax and tag it. *)
                         MoveXMMRegToGenReg { source = xmm0, output = eax },

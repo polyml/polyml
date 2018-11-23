@@ -1392,7 +1392,8 @@ struct
                         BoxLargeWord => (getAllocatedReg sReg, Word.toInt(nativeWordSize div wordSize), moveNativeWord)
                     |   BoxX87Double => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
                     |   BoxX87Float => (getAllocatedReg sReg, Word.toInt(0w4 div wordSize), MoveFloat)
-                    |   BoxSSE2 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
+                    |   BoxSSE2Double => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
+                    |   BoxSSE2Float => (getAllocatedReg sReg, Word.toInt(0w4 div wordSize), MoveDouble)
                 val dstReg = getAllocatedReg dReg
                 val (bReg, index) =
                     if targetArch = ObjectId32Bit

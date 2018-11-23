@@ -680,7 +680,8 @@ struct
                     BoxLargeWord => allocateGeneralReg sReg
                 |   BoxX87Double => allocateFloatReg sReg
                 |   BoxX87Float => allocateFloatReg sReg
-                |   BoxSSE2 => allocateFloatReg sReg;
+                |   BoxSSE2Float => allocateFloatReg sReg
+                |   BoxSSE2Double => allocateFloatReg sReg;
                 allocateGeneralReg dReg
             )
 

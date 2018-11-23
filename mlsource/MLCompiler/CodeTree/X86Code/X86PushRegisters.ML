@@ -1115,7 +1115,12 @@ struct
                                 let
                                     val newCacheReg = newPReg RegPropCacheUntagged
                                     val moveKind =
-                                        case boxKind of BoxLargeWord => moveNativeWord | BoxX87Double => MoveDouble | BoxX87Float => MoveFloat | BoxSSE2 => MoveDouble
+                                        case boxKind of
+                                            BoxLargeWord => moveNativeWord
+                                        |   BoxX87Double => MoveDouble 
+                                        |   BoxX87Float => MoveFloat
+                                        |   BoxSSE2Double => MoveDouble
+                                        |   BoxSSE2Float => MoveFloat
                                     val indexKind = case targetArch of ObjectId32Bit => ObjectIndex | _ => NoMemIndex
 
                                     (* The value we're putting in the cache is untagged. *)

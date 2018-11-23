@@ -88,7 +88,7 @@ struct
         |   Native64Bit     => (Move64Bit, Move64Bit)
         |   ObjectId32Bit   => (Move32Bit, Move64Bit)
 
-    datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87Double | BoxX87Float
+    datatype boxKind = BoxLargeWord | BoxSSE2Double | BoxSSE2Float | BoxX87Double | BoxX87Float
     
     (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
     datatype opSize = datatype opSize
@@ -715,7 +715,8 @@ struct
                         BoxLargeWord => "\tBoxLarge\t"
                     |   BoxX87Double => "\tBoxX87Double\t"
                     |   BoxX87Float => "\tBoxX87Float\t"
-                    |   BoxSSE2 => "\tBoxSSE2\t"
+                    |   BoxSSE2Double => "\tBoxSSE2Double\t"
+                    |   BoxSSE2Float => "\tBoxSSE2Float\t"
                 );
                 printReg(source, stream);
                 stream " => ";

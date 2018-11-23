@@ -1628,7 +1628,7 @@ struct
                 val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
                 val code =
                     BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false }) ::
-                    BlockSimple(LoadArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex, cache=NONE}, dest=argReg1, kind=moveNativeWord}) ::
+                    BlockSimple(LoadArgument{source=wordAt addrReg, dest=argReg1, kind=moveNativeWord}) ::
                     argCode
             in
                 (code, RegisterArgument target, false)
@@ -1696,7 +1696,8 @@ struct
                             case (fpMode, precision) of
                                 (FPModeX87, PrecDouble) => BoxX87Double
                             |   (FPModeX87, PrecSingle) => BoxX87Float
-                            |   (FPModeSSE2, _) => BoxSSE2
+                            |   (FPModeSSE2, PrecDouble) => BoxSSE2Double
+                            |   (FPModeSSE2, PrecSingle) => BoxSSE2Float
                     in
                         [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})]
                     end
@@ -1735,7 +1736,8 @@ struct
                             case (fpMode, precision) of
                                 (FPModeX87, PrecDouble) => BoxX87Double
                             |   (FPModeX87, PrecSingle) => BoxX87Float
-                            |   (FPModeSSE2, _) => BoxSSE2
+                            |   (FPModeSSE2, PrecDouble) => BoxSSE2Double
+                            |   (FPModeSSE2, PrecSingle) => BoxSSE2Float
                     in
                         [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})]
                     end
@@ -1750,7 +1752,7 @@ struct
                 val untagReg = newUReg() and fpReg = newUReg()
                 val (argCode, aReg1) = codeToPReg(arg1, context)
                 val floatOp = case fpMode of FPModeX87 => X87Float | FPModeSSE2 => SSE2Float
-                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2Double
                 val _ = precision = BuiltIns.PrecDouble orelse raise InternalError "RealFixedInt - single"
                 val code = argCode @
                  [BlockSimple(UntagValue{source=aReg1, dest=untagReg, isSigned=true, cache=NONE}),
@@ -1768,14 +1770,15 @@ struct
                 val (argCode, aReg1) = codeToPReg(arg1, context)
                 (* MoveFloat always converts from single to double-precision. *)
                 val unboxOrUntag =
-                    case fpMode of
-                        FPModeX87 => [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg2, kind=MoveFloat})]
-                    |   FPModeSSE2 =>
-                        [if wordSize = 0w8
-                         then BlockSimple(UntagFloat{source=RegisterArgument aReg1, dest=fpReg, cache=NONE})
-                         else BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg2, kind=MoveFloat}),
+                    case (fpMode, wordSize) of
+                        (FPModeX87, _) => [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg2, kind=MoveFloat})]
+                    |   (FPModeSSE2, 0w4) =>
+                        [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveFloat}),
                          BlockSimple(SSE2FPUnary{opc=SSE2UFloatToDouble, resultReg=fpReg2, source=RegisterArgument fpReg})]
-                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+                    |   (FPModeSSE2, _) =>
+                        [BlockSimple(UntagFloat{source=RegisterArgument aReg1, dest=fpReg, cache=NONE}),
+                         BlockSimple(SSE2FPUnary{opc=SSE2UFloatToDouble, resultReg=fpReg2, source=RegisterArgument fpReg})]
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2Double
                 val code = argCode @ unboxOrUntag @
                     [BlockSimple(BoxValue{boxKind=boxFloat, source=fpReg2, dest=target, saveRegs=[]})]
             in
@@ -1791,9 +1794,12 @@ struct
                 val (argCode, aReg1) = codeToPReg(arg1, context)
                 (* In 32-bit mode we need to box the float.  In 64-bit mode we can tag it. *)
                 val boxOrTag =
-                    case fpMode of
-                        FPModeX87 => [BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]})]
-                    |   FPModeSSE2 => [
+                    case (fpMode, wordSize) of
+                        (FPModeX87, _) => [BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]})]
+                    |   (FPModeSSE2, 0w4) => (* ObjectId32 *) [
+                            BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
+                            BlockSimple(BoxValue{boxKind=BoxSSE2Float, source=fpReg2, dest=target, saveRegs=[]}) ]
+                    |   (FPModeSSE2, _) => [
                             BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
                             BlockSimple(TagFloat{source=fpReg2, dest=target}) ]
                 val code = argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @ boxOrTag
@@ -1812,11 +1818,13 @@ struct
                 (* We need to save the rounding mode before we change it and restore it afterwards. *)
                 open IEEEReal
                 fun doConversion() =
-                    case fpMode of
-                        FPModeX87 => (* Convert the value using the appropriate rounding. *)
+                    case (fpMode, wordSize) of
+                        (FPModeX87, _) => (* Convert the value using the appropriate rounding. *)
                             [BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]})]
-
-                    |   FPModeSSE2 =>
+                    |   (FPModeSSE2, 0w4) =>
+                            [BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
+                             BlockSimple(BoxValue{boxKind=BoxSSE2Float, source=fpReg2, dest=target, saveRegs=[]})]
+                    |   (FPModeSSE2, _) =>
                             [BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
                              BlockSimple(TagFloat{source=fpReg2, dest=target})]
                 val code = argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @
@@ -2611,7 +2619,6 @@ struct
                         end
                 (* Box or tag the result. *)
                 (* We will need a way to box a value from an XMM reg if wordSize = 4. *)
-                val _ = if fpMode = FPModeSSE2 andalso wordSize <> 0w8 then raise InternalError "TODO" else ()
                 val result =
                     if fpPrec = PrecDouble orelse wordSize <> 0w8
                     then
@@ -2620,7 +2627,8 @@ struct
                             case (fpMode, fpPrec) of
                                 (FPModeX87, PrecDouble) => BoxX87Double
                             |   (FPModeX87, PrecSingle) => BoxX87Float
-                            |   (FPModeSSE2, _) => BoxSSE2
+                            |   (FPModeSSE2, PrecDouble) => BoxSSE2Double
+                            |   (FPModeSSE2, PrecSingle) => BoxX87Float
                     in
                         [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})]
                     end
@@ -2940,7 +2948,7 @@ struct
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w4, context)
                 val untaggedResReg = newUReg()
-                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2Double
                 (* We need to convert the float into a double. *)
                 val loadArg =
                     case fpMode of
@@ -2957,7 +2965,7 @@ struct
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w8, context)
                 val untaggedResReg = newUReg()
-                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2
+                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2Double
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveDouble}),
@@ -3249,434 +3257,7 @@ struct
 
         |   codeToICodeBlock({kind=BlockOpEqualByte, ...}, _, _, _) =
                 raise InternalError "codeToICodeBlock - BlockOpEqualByte" (* Already done *)
-          
-(*
-        and codeConditionRev(BICConstnt(value, _), _, jumpOn, jumpLabel, tailCode) =
-            (* Constant - typically part of andalso/orelse.  Either an unconditional branch
-               or an unconditional drop-through. *)
-            if jumpOn = (toShort value <> 0w0)
-            then BlockFlow(Unconditional jumpLabel) :: tailCode
-            else tailCode
 
-        |   codeConditionRev(BICTagTest{test, tag=tagValue, ...}, context, jumpOn, jumpLabel, tailCode) =
-            (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
-               tag bit of a word. *)
-            let
-                val ccRef = newCCRef()
-                val (testCode, tagReg) = codeToPRegRev(test, context, tailCode)
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                (* Use CompareLiteral because the tag must fit in 32-bits. *)
-                BlockSimple(CompareLiteral{arg1=RegisterArgument tagReg,
-                            arg2=tag(Word.toLargeInt tagValue), opSize=polyWordOpSize, ccRef=ccRef}) :: testCode
-            end
-
-        |   codeConditionRev(BICUnary{oper=BuiltIns.NotBoolean, arg1}, context, jumpOn, jumpLabel, tailCode) =
-                (* If we have a "not" we can just invert the jump condition. *)
-                codeConditionRev(arg1, context, not jumpOn, jumpLabel, tailCode)
-
-        |   codeConditionRev(BICUnary{oper=BuiltIns.IsTaggedValue, arg1}, context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef = newCCRef()
-                val (testCode, testReg) = codeToPRegRev(arg1, context, tailCode)
-                (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
-                (* TODO: The X86 supports tests with a memory argument so we don't have to
-                   load it into a register.  That's not currently supported by the rest of
-                   the code-generator. *)
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JNE else JE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                    BlockSimple(TestTagBit{arg=RegisterArgument testReg, ccRef=ccRef}) :: testCode
-            end
-
-            (* Comparisons.  Because this is also used for pointer equality and even for exception matching it
-               is perfectly possible that the argument could be an address. *)
-        |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef = newCCRef()
-                val comparison =
-                    (* If the argument is a tagged value that will fit in 32-bits we can use
-                       the literal version.  Use toLargeIntX here because the value will be
-                       sign-extended even if we're actually doing an unsigned comparison. *)
-                    if isShort arg2Value andalso is32bit(tag(Word.toLargeIntX(toShort arg2Value)))
-                    then
-                    let
-                        val allow = Allowed {anyConstant=false, const32s=false, memAddr=true, existingPreg=true}
-                    in
-                        (* We're often comparing with a character or a string length field that has to be
-                           untagged.  In that case we can avoid loading it into a register and untagging it
-                           by doing the comparison directly. *)
-                        case arg1 of
-                            BICLoadOperation{kind=LoadStoreUntaggedUnsigned, address} =>
-                            let
-                                val (codeBaseIndex, codeUntag, memLoc) = codeAddressRev(address, false, context, tailCode)
-                                val literal = Word.toLargeIntX(toShort arg2Value)
-                            in
-                                BlockSimple(CompareLiteral{arg1=MemoryLocation memLoc, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
-                                    codeUntag @ codeBaseIndex
-                            end
-                        |   BICLoadOperation{kind=LoadStoreMLByte _, address} =>
-                            let
-                                val (codeBaseIndex, codeUntag, {base, index, offset, ...}) =
-                                    codeAddressRev(address, true, context, tailCode)
-                                val _ = toShort arg2Value >= 0w0 andalso toShort arg2Value < 0w256
-                                            orelse raise InternalError "Compare byte not a byte"
-                                val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
-                            in
-                                BlockSimple(CompareByteMem{arg1={base=base, index=index, offset=offset}, arg2=literal, ccRef=ccRef}) ::
-                                    codeUntag @ codeBaseIndex
-                            end
-                        |   BICUnary({oper=BuiltIns.MemoryCellFlags, arg1}) =>
-                                (* This occurs particularly in arbitrary precision comparisons. *)
-                            let
-                                val (baseCode, baseReg) = codeToPRegRev(arg1, context, tailCode)
-                                val _ = toShort arg2Value >= 0w0 andalso toShort arg2Value < 0w256
-                                            orelse raise InternalError "Compare memory cell not a byte"
-                                val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
-                            in
-                                BlockSimple(CompareByteMem{arg1={base=baseReg, index=memIndexOrObject, offset= ~1}, arg2=literal, ccRef=ccRef}) ::
-                                    baseCode
-                            end
-                        |    _ =>
-                            let
-                                (* TODO: We could include rarer cases of tagging by looking at
-                                   the code and seeing if it's a TagValue. *)
-                                val (testCode, testDest, _) = codeToICodeRev(arg1, context, false, allow, tailCode)
-                                val literal = tag(Word.toLargeIntX(toShort arg2Value))
-                            in
-                                BlockSimple(CompareLiteral{arg1=testDest, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
-                                    testCode
-                            end    
-                    end
-                    else (* Addresses or larger values.  We need to use a register comparison. *)
-                    let
-                        val (testCode, testReg) = codeToPRegRev(arg1, context, tailCode)
-                        val arg2Arg = constantAsArgument arg2Value
-                    in
-                        BlockSimple(WordComparison{arg1=testReg, arg2=arg2Arg, ccRef=ccRef, opSize=polyWordOpSize}) :: testCode
-                    end
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                    comparison
-            end
-    
-        |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                (* If we have the constant first we need to reverse the test so the first argument is a register. *)
-                val ccRef = newCCRef()
-                val comparison =
-                    if isShort arg1Value andalso is32bit(tag(Word.toLargeIntX(toShort arg1Value)))
-                    then
-                    let
-                        val allow = Allowed {anyConstant=false, const32s=false, memAddr=true, existingPreg=true}
-                        val (testCode, testDest, _) = codeToICodeRev(arg2, context, false, allow, tailCode)
-                        val literal = tag(Word.toLargeIntX(toShort arg1Value))
-                    in
-                        BlockSimple(CompareLiteral{arg1=testDest, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) :: testCode
-                    end
-                    else (* Addresses or larger values.  We need to use a register comparison. *)
-                    let
-                        val (testCode, testReg) = codeToPRegRev(arg2, context, tailCode)
-                        val arg1Arg = constantAsArgument arg1Value
-                    in
-                        BlockSimple(WordComparison{arg1=testReg, arg2=arg1Arg, ccRef=ccRef, opSize=polyWordOpSize}) :: testCode
-                    end
-
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(leftRightTest test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                comparison
-            end
-
-        |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef = newCCRef()
-                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef, opSize=polyWordOpSize}) :: arg2Code
-            end
-
-        |   codeConditionRev(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef = newCCRef()
-                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                (* In X64 we can extract the word from a constant and do the comparison
-                   directly.  That can't be done in X86/32 because the value isn't tagged
-                   and might look like an address.  The RTS scans for comparisons with
-                   inline constant addresses. *)
-                val (arg2Code, arg2Operand) =
-                    if targetArch <> Native32Bit
-                    then (* Native 64-bit or 32-in-64. *)
-                    (
-                        case arg2 of
-                            BICConstnt(value, _) => (arg1Code, IntegerConstant(largeWordConstant value))
-                        |   _ =>
-                            let
-                                val (code, reg) = codeToPRegRev(arg2, context, arg1Code)
-                            in
-                                (code, wordAt reg)
-                            end
-                    )
-                    else
-                    let
-                        val (code, reg) = codeToPRegRev(arg2, context, arg1Code)
-                    in
-                        (code, wordAt reg)
-                    end
-                val argReg = newUReg()
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(test, false, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=argReg, arg2=arg2Operand, ccRef=ccRef, opSize=nativeWordOpSize}) ::
-                BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=moveNativeWord}) :: arg2Code
-            end
-
-           (* Floating point comparison.  This is complicated because we have different
-              instruction sequences for SSE2 and X87.  We also have to get the handling
-              of unordered (NaN) values right.  All the tests are treated as false
-              if either argument is a NaN.  To combine that test with the other tests
-              we sometimes have to reverse the comparison. *)
-
-        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestEqual, arg1, arg2},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
-                val fpReg = newUReg()
-                val testReg1 = newUReg() and testReg2 = newUReg() and testReg3 = newUReg()
-                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
-               (* If this is X87 we get the condition into RAX and test it there.  If
-                   it is SSE2 we have to treat the unordered result (parity set) specially. *)
-                val noJumpLabel = newLabel()
-            in
-                case (fpMode, jumpOn) of
-                    (FPModeX87, _) =>
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(ArithmeticFunction{
-                            oper=XOR, resultReg=testReg3, operand1=testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2, opSize=OpSize32 }) ::
-                        BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef(), opSize=OpSize32 }) ::
-                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) ::
-                        BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-                |   (FPModeSSE2, true) =>
-                    let
-                        val noParityLabel = newLabel()
-                    in
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=JE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockLabel noParityLabel ::
-                        (* Go to noJumpLabel if unordered and therefore not equal. *)
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=noJumpLabel, falseJump=noParityLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) ::
-                        BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-                    end
-               |    (FPModeSSE2, false) =>
-                    let
-                        val noParityLabel = newLabel()
-                    in
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockLabel noParityLabel ::
-                        (* Go to jumpLabel if unordered and therefore not equal. *)
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=jumpLabel, falseJump=noParityLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) ::
-                        BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-                    end
-            end
-
-        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLess, arg1, arg2},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
-                val fpReg = newUReg()
-                val testReg1 = newUReg() and testReg2 = newUReg()
-                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
-                val noJumpLabel = newLabel()
-            in
-                case fpMode of
-                    FPModeX87 =>
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2, opSize=OpSize32 }) ::
-                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
-                        BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-                |   FPModeSSE2 =>
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JA else JNA, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
-                        BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-            end
-
-        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreater, arg1, arg2},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
-                val fpReg = newUReg()
-                val testReg1 = newUReg() and testReg2 = newUReg()
-                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
-                val noJumpLabel = newLabel()
-            in
-                case fpMode of
-                    FPModeX87 =>
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2, opSize=OpSize32 }) ::
-                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
-                        BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-                |   FPModeSSE2 =>
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JA else JNA, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
-                        BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-            end
-
-        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLessEqual, arg1, arg2},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
-                val fpReg = newUReg()
-                val testReg1 = newUReg() and testReg2 = newUReg()
-                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
-                val noJumpLabel = newLabel()
-            in
-                case fpMode of
-                    FPModeX87 =>
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2, opSize=OpSize32 }) ::
-                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
-                        BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-                |   FPModeSSE2 =>
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JNB else JB, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
-                        BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-            end
-
-        |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreaterEqual, arg1, arg2},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
-                val fpReg = newUReg()
-                val testReg1 = newUReg() and testReg2 = newUReg()
-                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
-                val noJumpLabel = newLabel()
-            in
-                case fpMode of
-                    FPModeX87 =>
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2, opSize=OpSize32 }) ::
-                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
-                        BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-                |   FPModeSSE2 =>
-                        BlockLabel noJumpLabel ::
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JNB else JB, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
-                        BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
-            end
-
-        |   codeConditionRev(
-                BICBlockOperation{kind=BlockOpEqualByte, sourceLeft, destRight, length}, context, jumpOn, jumpLabel, tailCode) =
-            let
-                val vec1Reg = newUReg() and vec2Reg = newUReg()
-                val ccRef = newCCRef()
-                val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
-                    codeAddressRev(sourceLeft, true, context, tailCode)
-                val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
-                    codeAddressRev(destRight, true, context, leftCode)
-                val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToRegRev(length, false (* unsigned *), context, rightCode)
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }) ::
-                lengthUntag @ BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}) ::
-                rightUntag @ BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}) ::
-                leftUntag @ lengthCode
-            end
-
-        |   codeConditionRev(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel, tailCode) =
-            let
-                val notTest = newLabel() and isThen = newLabel() and notThenElse = newLabel()
-                (* Test the condition and jump to the else-part if this is false. *)
-                val testTest = codeConditionRev(testPart, context, false, notTest, tailCode)
-                (* Test the then-part and jump if the condition we want holds.
-                   We don't go to the final label yet. *)
-                val testThen = codeConditionRev(thenPart, context, jumpOn, isThen, testTest)
-                (* Test the else-part and jump on the inverse of the condition.
-                   The destination of this jump is going to be the drop-through
-                   case. *)
-                (* Branch round the else-part and put in a label for the start of the else *)
-                val testElse = codeConditionRev(elsePart, context, not jumpOn, notThenElse,
-                    BlockLabel notTest ::
-                    BlockFlow(Unconditional notThenElse) :: testThen)
-            in
-             (* And now the labels for the condition where we don't want to branch and want to
-                drop through. *)
-                BlockLabel notThenElse ::
-                    (* Add a label for the result of the then-part.  Because we branched
-                       on the inverse of the test in the else-part we now have both the
-                       conditions to take the branch.  Put in an unconditional branch
-                       to the final label. *)
-                BlockFlow(Unconditional jumpLabel) :: BlockLabel isThen :: testElse
-            end
-            
-        |   codeConditionRev(
-                condition as BICNewenv([BICDeclar{value, addr}], BICUnary{oper=BuiltIns.NotBoolean, arg1=BICExtract(BICLoadLocal addr2)}),
-                context, jumpOn, jumpLabel, tailCode) =
-            (* Because "not" is a function the higher levels turn this into a block.  We could try turning it back again
-               at the higher level but it's really only useful in this particular case.  *)
-            if addr = addr2
-            then codeConditionRev(value, context, not jumpOn, jumpLabel, tailCode)
-            else (* If addr <> addr2 it implies we have a local binding that isn't used.  That really
-                    shouldn't happen but just in case we treat it as the general case. *)
-            let
-                val ccRef = newCCRef()
-                val (testCode, testReg) = codeToPRegRev(condition, context, tailCode)
-                val noJumpLabel = newLabel()
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef, opSize=polyWordOpSize}) ::
-                testCode
-            end
-*)
         and codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
            (* General case.  Load the value into a register and compare it with 1 (true) *)
             let
