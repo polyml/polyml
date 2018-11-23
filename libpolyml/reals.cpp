@@ -43,13 +43,11 @@
 #include <fenv.h>
 #endif
 
-#if (defined(_MSC_VER))
-#ifdef _WIN64
+#if (defined(_MSC_VER)) && defined( _WIN64)
 // This is only defined in x64
 #define isnanf   _isnanf
-#else
-#define isnanf   isnan
-#endif
+#elif (!defined(HAVE_ISNANF))
+#define isnanf isnan
 #endif
 
 #ifdef HAVE_FLOAT_H

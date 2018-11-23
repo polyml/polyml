@@ -22049,6 +22049,17 @@ _ACEOF
 fi
 done
 
+for ac_func in isnanf
+do :
+  ac_fn_c_check_func "$LINENO" "isnanf" "ac_cv_func_isnanf"
+if test "x$ac_cv_func_isnanf" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_ISNANF 1
+_ACEOF
+
+fi
+done
+
 
 # Where are the registers?
 #Linux:

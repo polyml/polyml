@@ -384,6 +384,7 @@ AC_CHECK_DECLS([fpsetmask], [], [], [[#include <ieeefp.h>]])
 AC_CHECK_FUNCS([sysctl sysctlbyname])
 AC_CHECK_FUNCS([localtime_r gmtime_r])
 AC_CHECK_FUNCS([ctermid tcdrain])
+AC_CHECK_FUNCS([isnanf])
 
 # Where are the registers?
 #Linux:
