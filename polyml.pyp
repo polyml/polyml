@@ -62,6 +62,7 @@
 	<source name="basis\PRIM_IO.sml" />
 	<source name="basis\PrimIO.sml" />
 	<source name="basis\Real.sml" />
+	<source name="basis\Real32.sml" />
 	<source name="basis\RealArray.sml" />
 	<source name="basis\RealSignature.sml" />
 	<source name="basis\Signal.sml" />
@@ -90,6 +91,7 @@
 	<source name="basis\VectorSliceSignature.sml" />
 	<source name="basis\Weak.sml" />
 	<source name="basis\Windows.sml" />
+	<source name="basis\Word16.sml" />
 	<source name="basis\Word32.sml" />
 	<source name="basis\Word32In64.sml" />
 	<source name="basis\Word8.sml" />
@@ -132,6 +134,8 @@
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICODEGENERATESIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeGetConflictSets.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeIdentifyReferences.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeOptimise.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICODEOPTSIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeToX86Code.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeTransform.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICODETRANSFORMSIG.ML" />

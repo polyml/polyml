@@ -227,7 +227,7 @@ struct
      Nullary constructors are represented as:
         UnitForm     (if it's the only constructor in the datatype)
         EnumForm     (if all the constructors are nullary)
-        ShortForm     (if there's one unary constructor)
+        ShortForm     (if there's one non-nullary constructor)
         ConstForm    (otherwise)
     
      Unary constructors are represented as:
@@ -246,6 +246,10 @@ struct
      rather than:
      
          fn w => not (isShort w) andalso wordEq (loadWord (w,0), tag)
+     
+     Note that EnumForm and ShortForm differ in that the tests for EnumForm use
+     mkTagTest which can be converted into an indexed case.  This can't be
+     used for ShortForm because the values for the datatype include addresses. 
 *)
   
   
@@ -487,7 +491,7 @@ struct
                 makeValueConstr ("nil", alphaList, true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
             val consConstructor =
                 makeValueConstr ("::",  consType,  false, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
-            val nilRepresentation = createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w0}, [alpha], "nil")
+            val nilRepresentation = createNullaryConstructor(ShortForm 0w0, [alpha], "nil")
             val consRepresentation = createUnaryConstructor(UnboxedForm 2, [alpha], "::")
         in
             ([(nilConstructor, nilRepresentation), (consConstructor, consRepresentation)],
@@ -518,7 +522,7 @@ struct
                 makeValueConstr ("NONE", alphaOption, true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
             val someConstructor =
                 makeValueConstr ("SOME", someType, false, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
-            val noneRepresentation = createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w0}, [alpha], "NONE")
+            val noneRepresentation = createNullaryConstructor(ShortForm 0w0, [alpha], "NONE")
             and someRepresentation = createUnaryConstructor(BoxedForm, [alpha], "SOME")
         in
             ([(noneConstructor, noneRepresentation), (someConstructor, someRepresentation)],

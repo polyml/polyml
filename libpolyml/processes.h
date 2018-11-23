@@ -140,8 +140,8 @@ public:
     virtual void addProfileCount(POLYUNSIGNED words) = 0;
 
     // Functions called before and after an RTS call.
-    virtual void PreRTSCall(void) {}
-    virtual void PostRTSCall(void) {}
+    virtual void PreRTSCall(void) { inML = false; }
+    virtual void PostRTSCall(void) { inML = true; }
 
     SaveVec     saveVec;
     PolyWord    *allocPointer;  // Allocation pointer - decremented towards...

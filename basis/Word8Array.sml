@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Word8Array, Word8Vector and Byte Structures
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005, 2015-16
+    Copyright   David Matthews 1999, 2005, 2015-16, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -290,7 +290,9 @@ in
         let
             val (vector, start, length) = base slice
         in
-            w8vectorFromString(unsafeSubstring(w8vectorToString vector, intAsWord start, intAsWord length))
+            (* It's possible to use an unsafe substring here if necessary since we've already
+               checked that the start and length are within the string. *)
+            w8vectorFromString(String.substring(w8vectorToString vector, start, length))
         end;
         
         (* It would be more efficient to do these as single operations but it's probably too complicated. *)

@@ -93,12 +93,6 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include "rtsentry.h"
 #include "profiling.h"
 
-#ifdef POLYML32IN64
-#define SIZEOF_POLYWORD 4
-#else
-#define SIZEOF_POLYWORD SIZEOF_VOIDP
-#endif
-
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);

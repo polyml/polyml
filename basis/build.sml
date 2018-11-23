@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Commands to build the library
-    Copyright   David C.J. Matthews 2000, 2005, 2015-16
+    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -67,6 +67,7 @@ val () =
     then Bootstrap.use "basis/Word32InLargeWord64.sml"
     else ();
 
+val () = Bootstrap.use "basis/Word16.sml";
 val () = Bootstrap.use "basis/Word8.sml";
 val () = Bootstrap.use "basis/IntInf.sml";
 val () = Bootstrap.use "basis/Int32.sml";
@@ -82,6 +83,7 @@ val () = Bootstrap.use "basis/MATH.sml";
 structure LargeReal = struct type real = real end;
 val () = Bootstrap.use "basis/RealSignature.sml";
 val () = Bootstrap.use "basis/Real.sml";
+val () = Bootstrap.use "basis/Real32.sml";
 val () = Bootstrap.use "basis/Time.sml";
 val () = Bootstrap.use "basis/DateSignature.sml";
 val () = Bootstrap.use "basis/Date.sml";

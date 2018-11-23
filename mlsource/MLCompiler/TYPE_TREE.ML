@@ -64,9 +64,7 @@ struct
   open UTILITIES;
   open CODETREE;
   open EXPORTTREE
-  
-  val badType : types = BadType;
-  
+
   (* added 16/4/96 SPF *)
   fun sameTypeVar (TypeVar x, TypeVar y) = sameTv (x, y)
     | sameTypeVar _                      = false;
@@ -443,7 +441,11 @@ struct
                 [DeclaredAt inBasis])
         end
     in
-        val realConstr   = makeType("real", basisDescription "real", boxedAlways(* Currently*)); (* Not an eqtype in ML97. *)
+        val realConstr   = makeType("real", basisDescription "real", boxedAlways(* Currently*)) (* Not an eqtype in ML97. *)
+        (* Short real: Real32.real *)
+        val floatConstr  =
+            makeType("real", basisDescription "real",
+                if RunCall.bytesPerWord <= 0w4 then boxedAlways else boxedNever)
         val exnConstr    = makeType("exn", basisDescription "exn", boxedAlways);
         (* "undefConstr" is used as a place-holder during parsing for the actual type constructor.
            If the type constructor is not found this may appear in an error message. *)
@@ -460,17 +462,13 @@ struct
 
 
   (* Type identifiers bound to standard type constructors. *)
-   
-  val unitType = mkTypeConstruction ("unit", unitConstr, [], []);
-   
-  val fixedIntType = mkTypeConstruction ("int",   fixedIntConstr,    [], []);
-  val intInfType = mkTypeConstruction ("int",     intInfConstr,    [], []);
-  val realType   = mkTypeConstruction ("real",    realConstr,   [], []);
-  val charType   = mkTypeConstruction ("char",    charConstr,   [], []);
-  val stringType = mkTypeConstruction ("string",  stringConstr, [], []);
-  val boolType   = mkTypeConstruction ("bool",    boolConstr,   [], []);
-  val exnType    = mkTypeConstruction ("exn",     exnConstr,    [], []);
-  val wordType   = mkTypeConstruction ("word",    wordConstr,   [], []);
+
+    val unitType = mkTypeConstruction ("unit", unitConstr, [], [])
+
+    val fixedIntType = mkTypeConstruction ("int",   fixedIntConstr,    [], [])
+    val stringType = mkTypeConstruction ("string",  stringConstr, [], [])
+    val boolType   = mkTypeConstruction ("bool",    boolConstr,   [], [])
+    val exnType    = mkTypeConstruction ("exn",     exnConstr,    [], [])
           
     fun isUndefined cons = sameTypeId (tcIdentifier cons, tcIdentifier undefConstr);
     val isUndefinedTypeConstr = isUndefined
@@ -3200,17 +3198,27 @@ struct
 
     (* Test if this is floating point i.e. the "real" type. We could include
        abbreviations of real as well but it's probably not worth it. *)
-    fun isFloatingPt t =
-        case eventual t of
-            TypeConstruction{args=[], constr, ...} =>
-                sameTypeId (tcIdentifier constr, tcIdentifier realConstr)
-        |   OverloadSet {typeset, ...} =>
-                (
-                    case preferredOverload typeset of
-                        SOME t => sameTypeId (tcIdentifier t, tcIdentifier realConstr)
-                    |   NONE => false
-                )
-        |   _ => false
+    local
+        val realId = tcIdentifier realConstr and floatId = tcIdentifier floatConstr
+
+        fun isFloatId constr =
+        let
+            val id = tcIdentifier constr
+        in
+            sameTypeId(id, realId) orelse sameTypeId(id, floatId)
+        end
+    in
+        fun isFloatingPt t =
+            case eventual t of
+                TypeConstruction{args=[], constr, ...} => isFloatId constr
+            |   OverloadSet {typeset, ...} =>
+                    (
+                        case preferredOverload typeset of
+                            SOME t => isFloatId t (* real only.  float is never preferred. *)
+                        |   NONE => false
+                    )
+            |   _ => false
+    end
 
     fun checkDiscard(t: types, lex: lexan): string option =
     let

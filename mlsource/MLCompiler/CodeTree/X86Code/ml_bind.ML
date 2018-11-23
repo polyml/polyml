@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2015-17
+    Copyright David C. J. Matthews 2015-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,12 +55,20 @@ local
             structure INTSET        = IntSet
             structure IDENTIFY      = X86ICodeIdentify
         )
- 
+
     structure X86PushRegs =
         X86PushRegisters (
             structure ICODE         = X86ICode
             structure INTSET        = IntSet
             structure IDENTIFY      = X86ICodeIdentify
+        )
+
+    structure X86Opt =
+        X86ICodeOptimise (
+            structure ICODE         = X86ICode
+            structure INTSET        = IntSet
+            structure IDENTIFY      = X86ICodeIdentify
+            structure X86CODE       = X86OutputCode
         )
 
     structure X86IAllocate =
@@ -91,6 +99,7 @@ local
             structure CONFLICTSETS  = X86ICodeConflicts
             structure ALLOCATE      = X86IAllocate
             structure PUSHREGISTERS = X86PushRegs
+            structure OPTIMISE      = X86Opt
             structure PRETTY        = Pretty
             structure INTSET        = IntSet
             structure CODEGEN       = X86ICodeGenerate

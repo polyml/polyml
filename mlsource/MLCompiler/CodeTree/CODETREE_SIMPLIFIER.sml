@@ -895,6 +895,25 @@ struct
                 (if isShort v andalso toShort v = 0w0 then CodeTrue else CodeFalse, decArg1, EnvSpecNone)
             )
 
+        |   (NotBoolean, genArg1) =>
+            (
+                (* NotBoolean:  This can be the result of using Bool.not but more usually occurs as a result
+                   of other code.  We don't have TestNotEqual or IsAddress so both of these use NotBoolean
+                   with TestEqual and IsTagged.  Also we can insert a NotBoolean as a result of a Cond.
+                   We try to eliminate not(not a) and to push other NotBooleans down to a point where
+                   a boolean is tested. *)
+                case specArg1 of
+                    EnvSpecUnary(NotBoolean, originalArg) =>
+                    (
+                        (* not(not a) - Eliminate. *)
+                        reprocess := true;
+                        (originalArg, decArg1, EnvSpecNone)
+                    )
+                 |  _ =>
+                    (* Otherwise pass this on.  It is also extracted in a Cond. *)
+                    (Unary{oper=NotBoolean, arg1=genArg1}, decArg1, EnvSpecUnary(NotBoolean, genArg1))
+            )
+
         |   (IsTaggedValue, Constnt(v, _)) =>
             (
                 reprocess := true;
@@ -985,6 +1004,7 @@ struct
                     |   (TestLessEqual, true)       => toFix v1 <= toFix v2
                     |   (TestGreater, true)         => toFix v1 > toFix v2
                     |   (TestGreaterEqual, true)    => toFix v1 >= toFix v2
+                    |   (TestUnordered, _)          => raise InternalError "WordComparison: TestUnordered"
             in
                 (if testResult then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
             end
@@ -1379,9 +1399,17 @@ struct
                 in
                     simpSpecial(arm, context, bindings)
                 end
-        |   (testGen, testbindings as RevList testBList, _) =>
+        |   (testGen, testbindings as RevList testBList, testSpec) =>
             let
-                fun mkNot arg = Unary{oper=BuiltIns.NotBoolean, arg1=arg}
+                fun mkNot (Unary{oper=BuiltIns.NotBoolean, arg1}) = arg1
+                |   mkNot arg = Unary{oper=BuiltIns.NotBoolean, arg1=arg}
+
+                (* If the test involves a variable that was created with a NOT it's
+                   better to move it in here. *)
+                val testCond =
+                    case testSpec of
+                        EnvSpecUnary(BuiltIns.NotBoolean, arg1) => mkNot arg1
+                    |   _ => testGen
             in
                 case (simpSpecial(condThen, context, RevList[]), simpSpecial(condElse, context, RevList[])) of
                     ((thenConst as Constnt(thenVal, _), RevList [], _), (elseConst as Constnt(elseVal, _), RevList [], _)) =>
@@ -1393,30 +1421,30 @@ struct
                                 it.  If we're in a nested andalso/orelse that may mean we can simplify
                                 the next level out. *)
                             (thenConst (* or elseConst *),
-                             if sideEffectFree testGen then testbindings else RevList(NullBinding testGen :: testBList),
+                             if sideEffectFree testCond then testbindings else RevList(NullBinding testCond :: testBList),
                              EnvSpecNone)
               
                         (* if x then true else false == x *)
                         else if wordEq (thenVal, True) andalso wordEq (elseVal, False)
-                        then (testGen, testbindings, EnvSpecNone)
+                        then (testCond, testbindings, EnvSpecNone)
           
                         (* if x then false else true == not x  *)
                         else if wordEq (thenVal, False) andalso wordEq (elseVal, True)
-                        then (mkNot testGen, testbindings, EnvSpecNone)
+                        then (mkNot testCond, testbindings, EnvSpecNone)
           
-                        else (* can't optimise *) (Cond (testGen, thenConst, elseConst), testbindings, EnvSpecNone)
+                        else (* can't optimise *) (Cond (testCond, thenConst, elseConst), testbindings, EnvSpecNone)
 
                         (* Rewrite "if x then raise y else z" into "(if x then raise y else (); z)"
                            The advantage is that any tuples in z are lifted outside the "if". *)
                 |   (thenPart as (Raise _, _:revlist, _), (elsePart, RevList elseBindings, elseSpec)) =>
                         (* then-part raises an exception *)
-                        (elsePart, RevList(elseBindings @ NullBinding(Cond (testGen, specialToGeneral thenPart, CodeZero)) :: testBList), elseSpec)
+                        (elsePart, RevList(elseBindings @ NullBinding(Cond (testCond, specialToGeneral thenPart, CodeZero)) :: testBList), elseSpec)
 
                 |   ((thenPart, RevList thenBindings, thenSpec), elsePart as (Raise _, _, _)) =>
                         (* else part raises an exception *)
-                        (thenPart, RevList(thenBindings @ NullBinding(Cond (testGen, CodeZero, specialToGeneral elsePart)) :: testBList), thenSpec)
+                        (thenPart, RevList(thenBindings @ NullBinding(Cond (testCond, CodeZero, specialToGeneral elsePart)) :: testBList), thenSpec)
 
-                |   (thenPart, elsePart) => (Cond (testGen, specialToGeneral thenPart, specialToGeneral elsePart), testbindings, EnvSpecNone)
+                |   (thenPart, elsePart) => (Cond (testCond, specialToGeneral thenPart, specialToGeneral elsePart), testbindings, EnvSpecNone)
             end
     end
 

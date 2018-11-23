@@ -53,7 +53,7 @@ protected:
     void relocateObject(PolyObject *p);
     void createRelocation(PolyWord *pt) { *pt = createRelocation(*pt, pt); }
     unsigned findArea(void *p); // Find index of area that address is in.
-    virtual void addExternalReference(void *p, const char *entryPoint) {}
+    virtual void addExternalReference(void *p, const char *entryPoint, bool isFuncPtr) {}
 
 public:
     FILE     *exportFile;

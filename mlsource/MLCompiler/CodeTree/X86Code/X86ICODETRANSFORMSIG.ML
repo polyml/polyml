@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,7 +21,7 @@ sig
     type closureRef
 
     val codeICodeFunctionToX86: {blocks: basicBlock vector, functionName: string, pregProps: regProperty vector,
-            argRegsUsed: reg list, hasFullClosure: bool, currentStackArgs: int,
+            argRegsUsed: reg list, hasFullClosure: bool, currentStackArgs: int, ccCount: int,
             debugSwitches: Universal.universal list, resultClosure: closureRef } -> unit
 
     structure Sharing:

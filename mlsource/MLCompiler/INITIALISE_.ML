@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-16
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -89,6 +89,11 @@ struct
     open MISC;
     open EXPORTTREE
     open DATATYPEREP
+
+    val intInfType = mkTypeConstruction ("int",     intInfConstr,    [], [])
+    and realType   = mkTypeConstruction ("real",    realConstr,   [], [])
+    and charType   = mkTypeConstruction ("char",    charConstr,   [], [])
+    and wordType   = mkTypeConstruction ("word",    wordConstr,   [], [])
     
     val declInBasis = [DeclaredAt inBasis]
 
@@ -463,6 +468,8 @@ struct
             val () = enterRunCall ("rtsCallFull3", rtsCallFull3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type)
+            
+            val makeRunCallTupled = makeRunCallTupled (* Needed for reals. *)
         end
 
         local
@@ -707,21 +714,29 @@ struct
             val realEnv = makeStructure(globalEnv, "Real")
 
             (* These are only used in Real so are included here rather than in RunCall.
-               rtsCallFastFloattoFloat is used for functions such as sqrt.
-               rtsCallFastGeneraltoFloat is used for Real.fromLargeInt. *)
+               rtsCallFastRealtoReal is used for functions such as sqrt.
+               rtsCallFastGeneraltoReal is used for Real.fromLargeInt. *)
             val debugOpts = [] (* Place to add debugging if necessary. *)
 
-            fun makeFastRealRealCall entryName = CODETREE.Foreign.rtsCallFastFloattoFloat (entryName, debugOpts)
-            and makeFastIntInfRealCall entryName = CODETREE.Foreign.rtsCallFastGeneraltoFloat (entryName, debugOpts)
-                
-            val rtsCallFastF_FEntry =
+            fun makeFastRealRealCall entryName = CODETREE.Foreign.rtsCallFastRealtoReal (entryName, debugOpts)
+            and makeFastRealRealRealCall entryName = CODETREE.Foreign.rtsCallFastRealRealtoReal (entryName, debugOpts)
+            and makeFastIntInfRealCall entryName = CODETREE.Foreign.rtsCallFastGeneraltoReal (entryName, debugOpts)
+            and makeFastRealGeneralRealCall entryName = CODETREE.Foreign.rtsCallFastRealGeneraltoReal (entryName, debugOpts)
+
+            val rtsCallFastR_REntry =
                 mkInlproc (mkEval(mkConst(toMachineWord makeFastRealRealCall), [mkLoadArgument 0]), 1, "rtsCallFastRealReal", [], 0)
 
-            val rtsCallFastI_FEntry =
+            (* This needs to be tupled. *)
+            val rtsCallFastRR_REntry = makeRunCallTupled(2, toMachineWord makeFastRealRealRealCall)
+            and rtsCallFastRI_REntry = makeRunCallTupled(2, toMachineWord makeFastRealGeneralRealCall)
+
+            val rtsCallFastI_REntry =
                 mkInlproc (mkEval(mkConst(toMachineWord makeFastIntInfRealCall), [mkLoadArgument 0]), 1, "rtsCallFastIntInfReal", [], 0)
 
-            val rtsCallFastF_F = mkGvar ("rtsCallFastF_F", String ->> Real ->> Real, rtsCallFastF_FEntry, declInBasis)
-            val rtsCallFastG_F = mkGvar ("rtsCallFastI_F", String ->> intInfType ->> Real, rtsCallFastI_FEntry, declInBasis)
+            val rtsCallFastF_F = mkGvar ("rtsCallFastR_R", String ->> Real ->> Real, rtsCallFastR_REntry, declInBasis)
+            val rtsCallFastFF_F = mkGvar ("rtsCallFastRR_R", String ->> Real ** Real ->> Real, rtsCallFastRR_REntry, declInBasis)
+            val rtsCallFastFG_F = mkGvar ("rtsCallFastRI_R", String ->> Real ** Int ->> Real, rtsCallFastRI_REntry, declInBasis)
+            val rtsCallFastG_F = mkGvar ("rtsCallFastI_R", String ->> intInfType ->> Real, rtsCallFastI_REntry, declInBasis)
 
             fun enterUnary(name, oper, typ) =
             let
@@ -740,29 +755,121 @@ struct
             val compareType = Real ** Real ->> Bool
             and binaryType  = Real ** Real ->> Real
             and unaryType   = Real ->> Real
+            and realToFixType = Real ->> fixedIntType
 
-            open BuiltIns
+            open BuiltIns IEEEReal
 
             fun enterComparison(name, test) =
-                enterBinary(name, RealComparison test, compareType)
+                enterBinary(name, RealComparison(test, PrecDouble), compareType)
             and enterBinaryOp(name, oper) =
-                enterBinary(name, RealArith oper, binaryType)
+                enterBinary(name, RealArith(oper, PrecDouble), binaryType)
         in
             val () = #enterType realEnv ("real", TypeConstrSet(realConstr, []))
-            val () = #enterVal realEnv ("rtsCallFastF_F", rtsCallFastF_F)
-            val () = #enterVal realEnv ("rtsCallFastI_F", rtsCallFastG_F)
+            val () = #enterVal realEnv ("rtsCallFastR_R", rtsCallFastF_F)
+            val () = #enterVal realEnv ("rtsCallFastRR_R", rtsCallFastFF_F)
+            val () = #enterVal realEnv ("rtsCallFastRI_R", rtsCallFastFG_F)
+            val () = #enterVal realEnv ("rtsCallFastI_R", rtsCallFastG_F)
             val () = enterComparison("<",   TestLess)
             val () = enterComparison("<=",  TestLessEqual)
             val () = enterComparison(">",   TestGreater)
             val () = enterComparison(">=",  TestGreaterEqual)
             val () = enterComparison("==",  TestEqual) (* real is not an eqtype. *)
+            (* Included unordered mainly because it's easy to implement isNan. *)
+            val () = enterComparison("unordered",  TestUnordered)
             val () = enterBinaryOp("+",     ArithAdd)
             val () = enterBinaryOp("-",     ArithSub)
             val () = enterBinaryOp("*",     ArithMult)
             val () = enterBinaryOp("/",     ArithDiv)
-            val () = enterUnary("~",   RealNeg, unaryType)
-            val () = enterUnary("abs", RealAbs, unaryType)
-            val () = enterUnary("fromFixedInt", FloatFixedInt, fixedIntType ->> Real)
+            val () = enterUnary("~",   RealNeg PrecDouble, unaryType)
+            val () = enterUnary("abs", RealAbs PrecDouble, unaryType)
+            val () = enterUnary("fromFixedInt", RealFixedInt PrecDouble, fixedIntType ->> Real)
+            val () = enterUnary("truncFix", RealToInt(PrecDouble, TO_ZERO), realToFixType)
+            val () = enterUnary("roundFix", RealToInt(PrecDouble, TO_NEAREST), realToFixType)
+            val () = enterUnary("ceilFix", RealToInt(PrecDouble, TO_POSINF), realToFixType)
+            val () = enterUnary("floorFix", RealToInt(PrecDouble, TO_NEGINF), realToFixType)
+        end
+        
+        local
+            val real32Env = makeStructure(globalEnv, "Real32")
+            val floatType  = mkTypeConstruction ("real", floatConstr, [], [])
+            val Float = floatType
+            val debugOpts = [] (* Place to add debugging if necessary. *)
+
+            fun makeFastFloatFloatCall entryName = CODETREE.Foreign.rtsCallFastFloattoFloat (entryName, debugOpts)
+            and makeFastFloatFloatFloatCall entryName = CODETREE.Foreign.rtsCallFastFloatFloattoFloat (entryName, debugOpts)
+            and makeFastIntInfFloatCall entryName = CODETREE.Foreign.rtsCallFastGeneraltoFloat (entryName, debugOpts)
+            and makeFastFloatGeneralFloatCall entryName = CODETREE.Foreign.rtsCallFastFloatGeneraltoFloat (entryName, debugOpts)
+
+            val rtsCallFastR_REntry =
+                mkInlproc (mkEval(mkConst(toMachineWord makeFastFloatFloatCall), [mkLoadArgument 0]), 1, "rtsCallFastFloatFloat", [], 0)
+
+            (* This needs to be tupled. *)
+            val rtsCallFastRR_REntry = makeRunCallTupled(2, toMachineWord makeFastFloatFloatFloatCall)
+            and rtsCallFastRI_REntry = makeRunCallTupled(2, toMachineWord makeFastFloatGeneralFloatCall)
+
+            val rtsCallFastI_REntry =
+                mkInlproc (mkEval(mkConst(toMachineWord makeFastIntInfFloatCall), [mkLoadArgument 0]), 1, "rtsCallFastIntInfFloat", [], 0)
+
+            val rtsCallFastF_F = mkGvar ("rtsCallFastF_F", String ->> Float ->> Float, rtsCallFastR_REntry, declInBasis)
+            val rtsCallFastFF_F = mkGvar ("rtsCallFastFF_F", String ->> Float ** Float ->> Float, rtsCallFastRR_REntry, declInBasis)
+            val rtsCallFastFG_F = mkGvar ("rtsCallFastFI_F", String ->> Float ** Int ->> Float, rtsCallFastRI_REntry, declInBasis)
+            val rtsCallFastG_F = mkGvar ("rtsCallFastI_F", String ->> intInfType ->> Float, rtsCallFastI_REntry, declInBasis)
+
+            fun enterUnary(name, oper, typ) =
+            let
+                val value = mkGvar (name, typ, mkUnaryFn oper, declInBasis)
+            in
+                #enterVal real32Env (name, value)
+            end
+            
+            fun enterBinary(name, oper, typ) =
+            let
+                val value = mkGvar (name, typ, mkBinaryFn oper, declInBasis)
+            in
+                #enterVal real32Env (name, value)
+            end
+            
+            val compareType = Float ** Float ->> Bool
+            and binaryType  = Float ** Float ->> Float
+            and unaryType   = Float ->> Float
+            and floatToFixType = Float ->> fixedIntType
+
+            open BuiltIns IEEEReal
+
+            fun enterComparison(name, test) =
+                enterBinary(name, RealComparison(test, PrecSingle), compareType)
+            and enterBinaryOp(name, oper) =
+                enterBinary(name, RealArith(oper, PrecSingle), binaryType)
+        in
+            val () = #enterType real32Env ("real", TypeConstrSet(floatConstr, []))
+            val () = enterUnary("toLarge", BuiltIns.FloatToDouble, floatType ->> Real)
+            (* Conversion with the current rounding mode. *)
+            and () = enterUnary("fromReal", BuiltIns.DoubleToFloat NONE, Real  ->> floatType)
+            (* There are various versions of this function for each of the rounding modes. *)
+            and () = enterUnary("fromRealRound", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_NEAREST), Real  ->> floatType)
+            and () = enterUnary("fromRealTrunc", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_ZERO), Real  ->> floatType)
+            and () = enterUnary("fromRealCeil", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_POSINF), Real  ->> floatType)
+            and () = enterUnary("fromRealFloor", BuiltIns.DoubleToFloat (SOME IEEEReal.TO_NEGINF), Real  ->> floatType)
+            val () = #enterVal real32Env ("rtsCallFastR_R", rtsCallFastF_F)
+            val () = #enterVal real32Env ("rtsCallFastRR_R", rtsCallFastFF_F)
+            val () = #enterVal real32Env ("rtsCallFastRI_R", rtsCallFastFG_F)
+            val () = #enterVal real32Env ("rtsCallFastI_R", rtsCallFastG_F)
+            val () = enterComparison("<",   TestLess)
+            val () = enterComparison("<=",  TestLessEqual)
+            val () = enterComparison(">",   TestGreater)
+            val () = enterComparison(">=",  TestGreaterEqual)
+            val () = enterComparison("==",  TestEqual) (* Real32.real is not an eqtype. *)
+            val () = enterComparison("unordered",  TestUnordered)
+            val () = enterBinaryOp("+",     ArithAdd)
+            val () = enterBinaryOp("-",     ArithSub)
+            val () = enterBinaryOp("*",     ArithMult)
+            val () = enterBinaryOp("/",     ArithDiv)
+            val () = enterUnary("~",   RealNeg PrecSingle, unaryType)
+            val () = enterUnary("abs", RealAbs PrecSingle, unaryType)
+            val () = enterUnary("truncFix", RealToInt(PrecSingle, TO_ZERO), floatToFixType)
+            val () = enterUnary("roundFix", RealToInt(PrecSingle, TO_NEAREST), floatToFixType)
+            val () = enterUnary("ceilFix", RealToInt(PrecSingle, TO_POSINF), floatToFixType)
+            val () = enterUnary("floorFix", RealToInt(PrecSingle, TO_NEGINF), floatToFixType)
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")
@@ -896,7 +1003,7 @@ struct
                to define these.  Once we've rebuilt the compiler this can be removed
                along with the code that uses it. *)
             val () = addVal ("convStringName", "convString": string, String)
-            val () = addVal ("convInt", intOfString : string -> int, String ->> TYPETREE.intInfType)
+            val () = addVal ("convInt", intOfString : string -> int, String ->> intInfType)
             val () = addVal ("convWord", wordOfString : string -> word, String ->> Word)
             (* Convert a string, recognising and converting the escape codes. *)
             val () = addVal ("convString", unescapeString: string -> string, String ->> String)

@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C.J. Matthews 2011, 2016, 2017
+    Further work copyright David C.J. Matthews 2011, 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -44,9 +44,12 @@
 #endif
 
 #if (defined(_MSC_VER))
-#define finite  _finite
-#define isnan   _isnan
-#define copysign _copysign
+#ifdef _WIN64
+// This is only defined in x64
+#define isnanf   _isnanf
+#else
+#define isnanf   isnan
+#endif
 #endif
 
 #ifdef HAVE_FLOAT_H
@@ -105,10 +108,6 @@
     result is finite since NaN is allowed as a result.
     This code could do with being checked by someone who really understands
     IEEE floating point arithmetic.
-
-    The original real number functions all had separate entries in the interface
-    vector.  Newly added functions all go through a single dispatch function.
-    DCJM: March 2000.
 */
 
 extern "C" {
@@ -133,10 +132,39 @@ extern "C" {
     POLYEXTERNALSYMBOL double PolyRealCeil(double arg);
     POLYEXTERNALSYMBOL double PolyRealTrunc(double arg);
     POLYEXTERNALSYMBOL double PolyRealRound(double arg);
+    POLYEXTERNALSYMBOL double PolyRealRem(double arg1, double arg2);
     POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg);
     POLYEXTERNALSYMBOL POLYSIGNED PolyGetRoundingMode(PolyWord);
     POLYEXTERNALSYMBOL POLYSIGNED PolySetRoundingMode(PolyWord);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealSize(PolyWord);
+    POLYEXTERNALSYMBOL double PolyRealAtan2(double arg1, double arg2);
+    POLYEXTERNALSYMBOL double PolyRealPow(double arg1, double arg2);
+    POLYEXTERNALSYMBOL double PolyRealCopySign(double arg1, double arg2);
+    POLYEXTERNALSYMBOL double PolyRealNextAfter(double arg1, double arg2);
+    POLYEXTERNALSYMBOL double PolyRealLdexp(double arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealFrexp(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL float PolyRealFSqrt(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFSin(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFCos(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFArctan(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFExp(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFLog(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFTan(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFArcSin(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFArcCos(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFLog10(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFSinh(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFCosh(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFTanh(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFAtan2(float arg1, float arg2);
+    POLYEXTERNALSYMBOL float PolyRealFPow(float arg1, float arg2);
+    POLYEXTERNALSYMBOL float PolyRealFCopySign(float arg1, float arg2);
+    POLYEXTERNALSYMBOL float PolyRealFFloor(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFCeil(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFTrunc(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFRound(float arg);
+    POLYEXTERNALSYMBOL float PolyRealFRem(float arg1, float arg2);
+    POLYEXTERNALSYMBOL float PolyRealFNextAfter(float arg1, float arg2);
 }
 
 static Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg);
@@ -145,25 +173,19 @@ static Handle Real_convc(TaskData *mdTaskData, Handle str);
 
 // Positive and negative infinities and (positive) NaN.
 double posInf, negInf, notANumber;
+float posInfF, negInfF, notANumberF;
 
 /* Real numbers are represented by the address of the value. */
-#define DBLE sizeof(double)
+#define DBLE sizeof(double)/sizeof(POLYUNSIGNED)
 
-union db { double dble; byte bytes[DBLE]; };
-
-/* Assumes that there will be a separate handler for floating point overflow
-   and underflow. */
-
-/* tidied up 27/10/93 SPF */
-/*  can't assume (double *) has same alignment as (PolyWord *), so all the */
-/* parameters should be passed in as a Handle, not (double **).        */
+union db { double dble; POLYUNSIGNED words[DBLE]; };
 
 double real_arg(Handle x)
 {
     union db r_arg_x;
     for (unsigned i = 0; i < DBLE; i++)
     {
-        r_arg_x.bytes[i] = DEREFBYTEHANDLE(x)[i];
+        r_arg_x.words[i] = x->WordP()->Get(i).AsUnsigned();
     }
     return r_arg_x.dble;
 }
@@ -174,14 +196,62 @@ Handle real_result(TaskData *mdTaskData, double x)
     
     argx.dble = x;
     
-    PolyObject *v = alloc(mdTaskData, DBLE/sizeof(PolyWord), F_BYTE_OBJ);
+    PolyObject *v = alloc(mdTaskData, DBLE, F_BYTE_OBJ);
     /* Copy as words in case the alignment is wrong. */
     for(unsigned i = 0; i < DBLE; i++)
     {
-        v->AsBytePtr()[i] = argx.bytes[i];
+        v->Set(i, PolyWord::FromUnsigned(argx.words[i]));
     }
     return mdTaskData->saveVec.push(v);
 }
+
+// We're using float for Real32 so it needs to be 32-bits.
+// Assume that's true for the moment.
+#if (SIZEOF_FLOAT != 4)
+#error "Float is not 32-bits.  Please report this"
+#endif
+
+union flt { float fl; int32_t i; };
+
+#if (SIZEOF_FLOAT < SIZEOF_POLYWORD)
+
+// Typically for 64-bit mode.  Use a tagged representation.
+// The code-generator on the X86/64 assumes the float is in the
+// high order word.
+#define FLT_SHIFT ((SIZEOF_POLYWORD-SIZEOF_FLOAT)*8)
+float float_arg(Handle x)
+{
+    union flt argx;
+    argx.i = x->Word().AsSigned() >> FLT_SHIFT;
+    return argx.fl;
+}
+
+Handle float_result(TaskData *mdTaskData, float x)
+{
+    union flt argx;
+    argx.fl = x;
+    return mdTaskData->saveVec.push(PolyWord::FromSigned(((POLYSIGNED)argx.i << FLT_SHIFT) + 1));
+}
+#else
+// Typically for 32-bit mode.  Use a boxed representation.
+float float_arg(Handle x)
+{
+    union flt argx;
+    argx.i = (int32_t)x->WordP()->Get(0).AsSigned();
+    return argx.fl;
+}
+
+Handle float_result(TaskData *mdTaskData, float x)
+{
+    union flt argx;
+    argx.fl = x;
+
+    PolyObject *v = alloc(mdTaskData, 1, F_BYTE_OBJ);
+    v->Set(0, PolyWord::FromSigned(argx.i));
+    return mdTaskData->saveVec.push(v);
+}
+
+#endif
 
 POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg)
 {
@@ -321,7 +391,248 @@ double PolyRealRound(double arg)
         // negative odd -0.5 round it down, otherwise round it up. 
         return ceil(arg-0.5);
     else return floor(arg+0.5);
+}
 
+double PolyRealRem(double arg1, double arg2)
+{
+    return fmod(arg1, arg2);
+}
+
+double PolyRealAtan2(double arg1, double arg2)
+{
+    return atan2(arg1, arg2);
+}
+
+double PolyRealPow(double x, double y)
+{
+    /* Some of the special cases are defined and don't seem to match
+    the C pow function (at least as implemented in MS C). */
+    /* Maybe handle all this in ML? */
+    if (isnan(x))
+    {
+        if (y == 0.0) return 1.0;
+        else return notANumber;
+    }
+    else if (isnan(y)) return y; /* i.e. nan. */
+    else if (x == 0.0 && y < 0.0)
+    {
+        /* This case is not handled correctly in Solaris. It always
+        returns -infinity. */
+        int iy = (int)floor(y);
+        /* If x is -0.0 and y is an odd integer the result is -infinity. */
+        if (copysign(1.0, x) < 0.0 && (double)iy == y && (iy & 1))
+            return negInf; /* -infinity. */
+        else return posInf; /* +infinity. */
+    }
+    return pow(x, y);
+}
+
+double PolyRealCopySign(double arg1, double arg2)
+{
+    return copysign(arg1, arg2);
+}
+
+double PolyRealNextAfter(double arg1, double arg2)
+{
+    return nextafter(arg1, arg2);
+}
+
+double PolyRealLdexp(double arg1, PolyWord arg2)
+{
+    POLYSIGNED exponent = arg2.UnTagged();
+#if (SIZEOF_POLYWORD > SIZEOF_INT)
+    // We've already checked for arbitrary precision values where necessary and
+    // for zero and non-finite mantissa.  Check the exponent fits in an int.
+    if (exponent > 2 * DBL_MAX_EXP) return copysign(INFINITY, arg1);
+    if (exponent < -2 * DBL_MAX_EXP) return copysign(0.0, arg1);
+#endif
+    return ldexp(arg1, (int)exponent);
+}
+
+// Return the normalised fraction and the exponent.
+POLYUNSIGNED PolyRealFrexp(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        int exp = 0; // The value of exp is not always defined.
+        Handle mantH = real_result(taskData, frexp(real_arg(pushedArg), &exp));
+        // Allocate a pair for the result
+        result = alloc_and_save(taskData, 2);
+
+        result->WordP()->Set(0, TAGGED(exp));
+        result->WordP()->Set(1, mantH->Word());
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// RTS call for square-root.
+float PolyRealFSqrt(float arg)
+{
+    return sqrtf(arg);
+}
+
+// RTS call for sine.
+float PolyRealFSin(float arg)
+{
+    return sinf(arg);
+}
+
+// RTS call for cosine.
+float PolyRealFCos(float arg)
+{
+    return cosf(arg);
+}
+
+// RTS call for arctan.
+float PolyRealFArctan(float arg)
+{
+    return atanf(arg);
+}
+
+// RTS call for exp.
+float PolyRealFExp(float arg)
+{
+    return expf(arg);
+}
+
+// RTS call for ln.
+float PolyRealFLog(float arg)
+{
+    // Make sure the result conforms to the definition.
+    // If the argument is a Nan each of the first two tests will fail.
+    if (arg > 0.0)
+        return logf(arg);
+    else if (arg == 0.0) // x may be +0.0 or -0.0
+        return negInfF; // -infinity.
+    else return notANumberF;
+}
+
+float PolyRealFTan(float arg)
+{
+    return tanf(arg);
+}
+
+float PolyRealFArcSin(float arg)
+{
+    if (arg >= -1.0 && arg <= 1.0)
+        return asinf(arg);
+    else return notANumberF;
+}
+
+float PolyRealFArcCos(float arg)
+{
+    if (arg >= -1.0 && arg <= 1.0)
+        return acosf(arg);
+    else return notANumberF;
+}
+
+float PolyRealFLog10(float arg)
+{
+    // Make sure the result conforms to the definition.
+    // If the argument is a Nan each of the first two tests will fail.
+    if (arg > 0.0)
+        return log10f(arg);
+    else if (arg == 0.0) // x may be +0.0 or -0.0
+        return negInfF; // -infinity.
+    else return notANumberF;
+}
+
+float PolyRealFSinh(float arg)
+{
+    return sinhf(arg);
+}
+
+float PolyRealFCosh(float arg)
+{
+    return coshf(arg);
+}
+
+float PolyRealFTanh(float arg)
+{
+    return tanhf(arg);
+}
+
+float PolyRealFAtan2(float arg1, float arg2)
+{
+    return atan2f(arg1, arg2);
+}
+
+float PolyRealFPow(float x, float y)
+{
+    /* Some of the special cases are defined and don't seem to match
+    the C pow function (at least as implemented in MS C). */
+    /* Maybe handle all this in ML? */
+    if (isnanf(x))
+    {
+        if (y == 0.0) return 1.0;
+        else return notANumberF;
+    }
+    else if (isnanf(y)) return y; /* i.e. nan. */
+    else if (x == 0.0 && y < 0.0)
+    {
+        /* This case is not handled correctly in Solaris. It always
+        returns -infinity. */
+        int iy = (int)floorf(y);
+        /* If x is -0.0 and y is an odd integer the result is -infinity. */
+        if (copysign(1.0, x) < 0.0 && (float)iy == y && (iy & 1))
+            return negInfF; /* -infinity. */
+        else return posInfF; /* +infinity. */
+    }
+    return powf(x, y);
+}
+
+float PolyRealFFloor(float arg)
+{
+    return floorf(arg);
+}
+
+float PolyRealFCeil(float arg)
+{
+    return ceilf(arg);
+}
+
+float PolyRealFTrunc(float arg)
+{
+    // Truncate towards zero
+    if (arg >= 0.0) return floorf(arg);
+    else return ceilf(arg);
+}
+
+float PolyRealFRound(float arg)
+{
+    // Round to nearest integral value.
+    float drem = fmodf(arg, 2.0);
+    if (drem == 0.5 || drem == -1.5)
+        // If the value was exactly positive even + 0.5 or
+        // negative odd -0.5 round it down, otherwise round it up. 
+        return ceilf(arg - 0.5f);
+    else return floorf(arg + 0.5f);
+}
+
+float PolyRealFRem(float arg1, float arg2)
+{
+    return fmodf(arg1, arg2);
+}
+
+float PolyRealFCopySign(float arg1, float arg2)
+{
+    return copysignf(arg1, arg2);
+}
+
+float PolyRealFNextAfter(float arg1, float arg2)
+{
+    return nextafterf(arg1, arg2);
 }
 
 /* CALL_IO1(Real_conv, REF, NOIND) */
@@ -376,7 +687,7 @@ static double real_arg1(Handle x)
     union db r_arg_x;
     for(unsigned i = 0; i < DBLE; i++)
     {
-        r_arg_x.bytes[i] = DEREFHANDLE(x)->Get(0).AsObjPtr()->AsBytePtr()[i];
+        r_arg_x.words[i] = DEREFHANDLE(x)->Get(0).AsObjPtr()->Get(i).AsUnsigned();
     }
     return r_arg_x.dble;
 }
@@ -386,7 +697,7 @@ static double real_arg2(Handle x)
     union db r_arg_x;
     for(unsigned i = 0; i < DBLE; i++)
     {
-        r_arg_x.bytes[i] = DEREFHANDLE(x)->Get(1).AsObjPtr()->AsBytePtr()[i];
+        r_arg_x.words[i] = DEREFHANDLE(x)->Get(1).AsObjPtr()->Get(i).AsUnsigned();
     }
     return r_arg_x.dble;
 }
@@ -394,45 +705,20 @@ static double real_arg2(Handle x)
 static Handle powerOf(TaskData *mdTaskData, Handle args)
 {
     double x = real_arg1(args), y = real_arg2(args);
-    /* Some of the special cases are defined and don't seem to match
-       the C pow function (at least as implemented in MS C). */
-    /* Maybe handle all this in ML? */
-    if (isnan(x))
-    {
-        if (y == 0.0) return real_result(mdTaskData, 1.0);
-        else return real_result(mdTaskData, notANumber);
-    }
-    else if (isnan(y)) return real_result(mdTaskData, y); /* i.e. nan. */
-    else if (x == 0.0 && y < 0.0)
-    {
-        /* This case is not handled correctly in Solaris. It always
-           returns -infinity. */
-        int iy = (int)floor(y);
-        /* If x is -0.0 and y is an odd integer the result is -infinity. */
-        if (copysign(1.0, x) < 0.0 && (double)iy == y && (iy & 1))
-            return real_result(mdTaskData, negInf); /* -infinity. */
-        else return real_result(mdTaskData, posInf); /* +infinity. */
-    }
-    return real_result(mdTaskData, pow(x, y));
+    return real_result(mdTaskData, PolyRealPow(x, y));
 }
-
-#define POLY_ROUND_TONEAREST    0
-#define POLY_ROUND_DOWNWARD     1
-#define POLY_ROUND_UPWARD       2
-#define POLY_ROUND_TOZERO       3
-#define POLY_ROUND_ERROR        -1
 
 #if defined(__SOFTFP__)
 // soft-float lacks proper rounding mode support
 // While some systems will support fegetround/fesetround, it will have no
 // effect on the actual rounding performed, as the software implementation only
 // ever rounds to nearest.
-static int getrounding()
+int getrounding()
 {
     return POLY_ROUND_TONEAREST;
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     switch (rounding)
     {
@@ -445,7 +731,7 @@ static int setrounding(int rounding)
 // but they are frequently inlined 
 #elif defined(HAVE_FENV_H)
 // C99 version.  This is becoming the most common.
-static int getrounding()
+int getrounding()
 {
     switch (fegetround())
     {
@@ -456,10 +742,10 @@ static int getrounding()
 #endif
     case FE_TOWARDZERO: return POLY_ROUND_TOZERO;
     }
-    return POLY_ROUND_ERROR;
+    return POLY_ROUND_TONEAREST;
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     switch (rounding)
     {
@@ -475,7 +761,7 @@ static int setrounding(int rounding)
 
 #elif (defined(HAVE_IEEEFP_H) && ! defined(__CYGWIN__))
 // Older FreeBSD.  Cygwin has the ieeefp.h header but not the functions!
-static int getrounding()
+int getrounding()
 {
     switch (fpgetround())
     {
@@ -483,11 +769,11 @@ static int getrounding()
     case FP_RM: return POLY_ROUND_DOWNWARD;
     case FP_RP: return POLY_ROUND_UPWARD;
     case FP_RZ: return POLY_ROUND_TOZERO;
-    default: return POLY_ROUND_ERROR; /* Shouldn't happen. */ 
+    default: return POLY_ROUND_TONEAREST; /* Shouldn't happen. */ 
     }
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     switch (rounding)
     {
@@ -501,7 +787,7 @@ static int setrounding(int rounding)
 
 #elif defined(_WIN32)
 // Windows version
-static int getrounding()
+int getrounding()
 {
     switch (_controlfp(0,0) & _MCW_RC)
     {
@@ -510,10 +796,10 @@ static int getrounding()
     case _RC_UP: return POLY_ROUND_UPWARD;
     case _RC_CHOP: return POLY_ROUND_TOZERO;
     }
-    return POLY_ROUND_ERROR;
+    return POLY_ROUND_TONEAREST;
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     switch (rounding)
     {
@@ -527,7 +813,7 @@ static int setrounding(int rounding)
 
 #elif defined(_FPU_GETCW) && defined(_FPU_SETCW)
 // Older Linux version
-static int getrounding()
+int getrounding()
 {
     fpu_control_t ctrl;
     _FPU_GETCW(ctrl);
@@ -538,10 +824,10 @@ static int getrounding()
     case _FPU_RC_UP: return POLY_ROUND_UPWARD;
     case _FPU_RC_ZERO: return POLY_ROUND_TOZERO;
     }
-    return POLY_ROUND_ERROR; /* Never reached but this avoids warning message. */
+    return POLY_ROUND_TONEAREST; /* Never reached but this avoids warning message. */
 }
 
-static int setrounding(int rounding)
+int setrounding(int rounding)
 {
     fpu_control_t ctrl;
     _FPU_GETCW(ctrl);
@@ -557,15 +843,17 @@ static int setrounding(int rounding)
     return 0;
 }
 #else
-// Give up.
-static int getrounding()
+// Give up.  Assume that we only support TO_NEAREST
+int getrounding()
 {
-    return POLY_ROUND_ERROR;
+    return POLY_ROUND_TONEAREST;
 }
 
-static int setrounding()
+int setrounding(int rounding)
 {
-    return -1;
+    if (rounding == POLY_ROUND_TONEAREST)
+        return 0;
+    else return -1;
 }
 #endif
 
@@ -624,15 +912,17 @@ POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord 
     else return result->Word().AsUnsigned();
 }
 
-/* Functions added for Standard Basis Library are all indirected through here. */
+// This used to be used for all the functions.  It now only contains calls
+// used when the Real structure is defined to get the values of constants.
+// It also still has some legacy functions.
 static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(mdTaskData, code->Word());
     switch (c)
     {
-    case 3: /* atan2 */ return real_result(mdTaskData, atan2(real_arg1(args), real_arg2(args)));
-    case 4: /* pow */ return powerOf(mdTaskData, args);
-    /* Floating point representation queries. */
+    case 3: /* Legacy: atan2 */ return real_result(mdTaskData, atan2(real_arg1(args), real_arg2(args)));
+    case 4: /* Legacy: pow */ return powerOf(mdTaskData, args);
+        /* Floating point representation queries. */
 #ifdef _DBL_RADIX
     case 11: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(_DBL_RADIX));
 #else
@@ -640,32 +930,50 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 #endif
     case 12: /* Value of precision */ return mdTaskData->saveVec.push(TAGGED(DBL_MANT_DIG));
     case 13: /* Maximum number */ return real_result(mdTaskData, DBL_MAX);
-    /* float.h describes DBL_MIN as the minimum positive number.
-       In fact this is the minimum NORMALISED number.  The smallest
-       number which can be represented is DBL_MIN*2**(-DBL_MANT_DIG) */
     case 14: /* Minimum normalised number. */
         return real_result(mdTaskData, DBL_MIN);
-    case 17: /* Get sign bit.  There may be better ways to find this. */
+
+    case 15: // Minimum number.
+#ifdef DBL_TRUE_MIN
+        return real_result(mdTaskData, DBL_TRUE_MIN);
+#else
+        return real_result(mdTaskData, DBL_MIN*DBL_EPSILON);
+#endif
+
+    case 17: /* Legacy: Get sign bit.  Now implemented in ML. */
         return mdTaskData->saveVec.push(copysign(1.0, real_arg(args)) < 0.0 ? TAGGED(1) : TAGGED(0));
-    case 18: /* Copy sign. */
+    case 18: /* Legacy: Copy sign. */
         return real_result(mdTaskData, copysign(real_arg1(args), real_arg2(args)));
-    case 23: /* Compute ldexp */
+    case 23: /* Legacy: Compute ldexp */
         {
             int exp = get_C_int(mdTaskData, DEREFHANDLE(args)->Get(1));
             return real_result(mdTaskData, ldexp(real_arg1(args), exp));
         }
-    case 24: /* Get mantissa. */
+    case 24: /* Legacy: Get mantissa. */
         {
             int exp;
             return real_result(mdTaskData, frexp(real_arg(args), &exp));
         }
-    case 25: /* Get exponent. */
+    case 25: /* Legacy: Get exponent. */
         {
             int exp;
             (void)frexp(real_arg(args), &exp);
             return mdTaskData->saveVec.push(TAGGED(exp));
         }
-    case 26: /* nextafter */ return real_result(mdTaskData, nextafter(real_arg1(args), real_arg2(args)));
+    case 26: /* Legacy: nextafter */ return real_result(mdTaskData, nextafter(real_arg1(args), real_arg2(args)));
+
+        // Constants for float (Real32.real)
+    case 30: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(FLT_RADIX));
+    case 31: /* Value of precision */ return mdTaskData->saveVec.push(TAGGED(FLT_MANT_DIG));
+    case 32: /* Maximum number */ return float_result(mdTaskData, FLT_MAX);
+    case 33: /* Minimum normalised number. */
+        return float_result(mdTaskData, FLT_MIN);
+    case 34: // Minimum number.
+#ifdef FLT_TRUE_MIN
+        return float_result(mdTaskData, FLT_TRUE_MIN);
+#else
+        return float_result(mdTaskData, FLT_MIN*FLT_EPSILON);
+#endif
 
     default:
         {
@@ -726,10 +1034,39 @@ struct _entrypts realsEPT[] =
     { "PolyRealCeil",                   (polyRTSFunction)&PolyRealCeil},
     { "PolyRealTrunc",                  (polyRTSFunction)&PolyRealTrunc},
     { "PolyRealRound",                  (polyRTSFunction)&PolyRealRound},
+    { "PolyRealRem",                    (polyRTSFunction)&PolyRealRem },
     { "PolyFloatArbitraryPrecision",    (polyRTSFunction)&PolyFloatArbitraryPrecision},
     { "PolyGetRoundingMode",            (polyRTSFunction)&PolyGetRoundingMode},
     { "PolySetRoundingMode",            (polyRTSFunction)&PolySetRoundingMode},
     { "PolyRealSize",                   (polyRTSFunction)&PolyRealSize},
+    { "PolyRealAtan2",                  (polyRTSFunction)&PolyRealAtan2 },
+    { "PolyRealPow",                    (polyRTSFunction)&PolyRealPow },
+    { "PolyRealCopySign",               (polyRTSFunction)&PolyRealCopySign },
+    { "PolyRealNextAfter",              (polyRTSFunction)&PolyRealNextAfter },
+    { "PolyRealLdexp",                  (polyRTSFunction)&PolyRealLdexp },
+    { "PolyRealFrexp",                  (polyRTSFunction)&PolyRealFrexp },
+    { "PolyRealFSqrt",                  (polyRTSFunction)&PolyRealFSqrt },
+    { "PolyRealFSin",                   (polyRTSFunction)&PolyRealFSin },
+    { "PolyRealFCos",                   (polyRTSFunction)&PolyRealFCos },
+    { "PolyRealFArctan",                (polyRTSFunction)&PolyRealFArctan },
+    { "PolyRealFExp",                   (polyRTSFunction)&PolyRealFExp },
+    { "PolyRealFLog",                   (polyRTSFunction)&PolyRealFLog },
+    { "PolyRealFTan",                   (polyRTSFunction)&PolyRealFTan },
+    { "PolyRealFArcSin",                (polyRTSFunction)&PolyRealFArcSin },
+    { "PolyRealFArcCos",                (polyRTSFunction)&PolyRealFArcCos },
+    { "PolyRealFLog10",                 (polyRTSFunction)&PolyRealFLog10 },
+    { "PolyRealFSinh",                  (polyRTSFunction)&PolyRealFSinh },
+    { "PolyRealFCosh",                  (polyRTSFunction)&PolyRealFCosh },
+    { "PolyRealFTanh",                  (polyRTSFunction)&PolyRealFTanh },
+    { "PolyRealFAtan2",                 (polyRTSFunction)&PolyRealFAtan2 },
+    { "PolyRealFPow",                   (polyRTSFunction)&PolyRealFPow },
+    { "PolyRealFCopySign",              (polyRTSFunction)&PolyRealFCopySign },
+    { "PolyRealFFloor",                 (polyRTSFunction)&PolyRealFFloor },
+    { "PolyRealFCeil",                  (polyRTSFunction)&PolyRealFCeil },
+    { "PolyRealFTrunc",                 (polyRTSFunction)&PolyRealFTrunc },
+    { "PolyRealFRound",                 (polyRTSFunction)&PolyRealFRound },
+    { "PolyRealFRem",                   (polyRTSFunction)&PolyRealFRem },
+    { "PolyRealFNextAfter",             (polyRTSFunction)&PolyRealFNextAfter },
 
     { NULL, NULL} // End of list.
 };
@@ -758,11 +1095,16 @@ void RealArithmetic::Init(void)
 #if (defined(INFINITY))
     posInf = INFINITY;
     negInf = -(INFINITY);
+    posInfF = INFINITY;
+    negInfF = -(INFINITY);
 #else
     {
         double zero = 0.0;
         posInf = 1.0 / zero;
         negInf = -1.0 / zero;
+        float zeroF = 0.0;
+        posInfF = 1.0 / zeroF;
+        negInfF = -1.0 / zeroF;
     }
 #endif
 #if (defined(NAN))
@@ -771,6 +1113,8 @@ void RealArithmetic::Init(void)
     {
         double zero = 0.0;
         notANumber = zero / zero;
+        float zeroF = 0.0;
+        notANumberF = zeroF / zeroF;
     }
 #endif
     // Make sure this is a positive NaN since we return it from "abs".
@@ -779,4 +1123,6 @@ void RealArithmetic::Init(void)
     // sign if it's wrong.
     if (copysign(1.0, notANumber) < 0)
         notANumber = copysign(notANumber, 1.0);
+    if (copysignf(1.0, notANumberF) < 0)
+        notANumberF = copysignf(notANumberF, 1.0);
 }

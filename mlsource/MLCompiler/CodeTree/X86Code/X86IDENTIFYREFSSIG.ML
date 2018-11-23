@@ -19,7 +19,10 @@ signature X86IDENTIFYREFSSIG =
 sig
     type x86ICode and reg and preg and basicBlock and controlFlow
     and argument and memoryIndex and regProperty and ccRef
-    
+
+    datatype outCCState = CCSet of ccRef | CCIndeterminate | CCUnchanged
+
+
     type intSet
 
     type regState =
@@ -46,6 +49,7 @@ sig
     
     (* Get the registers for an instruction.  *)
     val getInstructionRegisters: x86ICode -> { sources: preg list, dests: preg list }
+    val getInstructionCC: x86ICode -> outCCState
     val argRegs: argument -> preg list
     and argIndex: memoryIndex -> preg list
 
@@ -62,5 +66,6 @@ sig
         and memoryIndex         = memoryIndex
         and regProperty         = regProperty
         and ccRef               = ccRef
+        and outCCState          = outCCState
     end;
 end;

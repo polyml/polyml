@@ -60,13 +60,15 @@ sig
     and      arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
 
-    datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87
+    datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87Double | BoxX87Float
 
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
     and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
-    and      sse2Operations =
-        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
-        SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
+    
+    datatype sse2UnaryOps = SSE2UDoubleToFloat | SSE2UFloatToDouble
+    and      sse2BinaryOps = SSE2BAddDouble | SSE2BSubDouble | SSE2BMulDouble |
+                SSE2BDivDouble | SSE2BXor | SSE2BAnd | SSE2BAddSingle |
+                SSE2BSubSingle | SSE2BMulSingle | SSE2BDivSingle
 
     val memRegThreadSelf: int (* Copied from X86CodeSig *)
 
@@ -210,6 +212,19 @@ sig
            operations. *)
     |   CompareByteMem of { arg1: { base: preg, offset: int, index: memoryIndex }, arg2: Word8.word, ccRef: ccRef }
 
+        (* Set a register to a condition.  This only sets the low order byte and tags it
+           because of the way SETCC works.  The high order bytes need to be zeroed before
+           the test using ZeroRegister.  *)
+    |   SetToCondition of { dest: preg, highOrder: preg, ccRef: ccRef, condition: branchOps }
+
+        (* Clear a register to zero using XOR.  Unlike LoadArgument this affects the condition
+           codes.  Used before a test that is followed by SetToCondition. *)
+    |   ZeroRegister of { dest: preg }
+
+        (* Invert boolean value.  This can be defined using XOR but
+           simplies optimisation. *)
+    |   BooleanNot of { dest: preg, source: preg }
+
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
 
@@ -292,17 +307,17 @@ sig
     |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
 
         (* Floating point comparison. *)
-    |   X87Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
+    |   X87Compare of { arg1: preg, arg2: argument, isDouble: bool, ccRef: ccRef }
 
         (* Floating point comparison. *)
-    |   SSE2Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
+    |   SSE2Compare of { arg1: preg, arg2: argument, isDouble: bool, ccRef: ccRef }
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
     |   X87FPGetCondition of { ccRef: ccRef, dest: preg }
 
         (* Binary floating point operations on the X87. *)
-    |   X87FPArith of { opc: fpOps, resultReg: preg, arg1: preg, arg2: argument }
+    |   X87FPArith of { opc: fpOps, resultReg: preg, arg1: preg, arg2: argument, isDouble: bool }
 
         (* Floating point operations: negate and set sign positive. *)
     |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: preg, source: preg }
@@ -314,7 +329,31 @@ sig
     |   SSE2Float of { dest: preg, source: argument }
 
         (* Binary floating point operations using SSE2 instructions. *)
-    |   SSE2FPArith of { opc: sse2Operations, resultReg: preg, arg1: preg, arg2: argument }
+    |   SSE2FPUnary of { opc: sse2UnaryOps, resultReg: preg, source: argument }
+
+        (* Binary floating point operations using SSE2 instructions. *)
+    |   SSE2FPBinary of { opc: sse2BinaryOps, resultReg: preg, arg1: preg, arg2: argument }
+
+        (* Tag a 32-bit floating point value.  This is tagged by shifting left
+           32-bits and then setting the bottom bit.  This allows memory operands
+           to be untagged simply by loading the high-order word. *)
+    |   TagFloat of { source: preg, dest: preg }
+
+        (* Untag a 32-bit floating point value into a XMM register.  If the source
+           is in memory we just need to load the high-order word. *)
+    |   UntagFloat of { source: argument, dest: preg, cache: preg option }
+    
+        (* Get and set the control registers.  These all have to work through
+           memory but it's simpler to assume they work through registers. *)
+    |   GetSSE2ControlReg of { dest: preg }
+    |   SetSSE2ControlReg of { source: preg }
+    |   GetX87ControlReg of { dest: preg }
+    |   SetX87ControlReg of { source: preg }
+    
+        (* Convert a floating point value to an integer. *)
+    |   X87RealToInt of { source: preg, dest: preg }
+        (* Convert a floating point value to an integer. *)
+    |   SSE2RealToInt of { source: argument, dest: preg, isDouble: bool, isTruncate: bool }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -367,7 +406,8 @@ sig
         and shiftType       = shiftType
         and fpOps           = fpOps
         and fpUnaryOps      = fpUnaryOps
-        and sse2Operations  = sse2Operations
+        and sse2UnaryOps    = sse2UnaryOps
+        and sse2BinaryOps   = sse2BinaryOps
         and ccRef           = ccRef
         and opSize          = opSize
         and closureRef      = closureRef

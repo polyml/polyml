@@ -35,8 +35,8 @@ struct
     }
 
     (* CC states before and after.  The instruction may use the CC or ignore it. The only
-       instruction to use the CC is X87FPGetCondition.  Conditional branches are handled at
-       the block level.
+       instructions to use the CC are SetToCondition and X87FPGetCondition.  Conditional branches
+       are handled at the block level.
        The result of executing the instruction may be to set the condition code to a
        defined state, an undefined state or leave it unchanged.
        N.B. Some "instructions" may involve a stack reset that could affect the CC. *)
@@ -171,6 +171,15 @@ struct
     |   getInstructionState(CompareByteMem{arg1={base, index, ...}, ccRef, ...}) =
             { sources=base :: argIndex index, dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
+    |   getInstructionState(SetToCondition{dest, ccRef, highOrder, ...}) =
+            { sources=[highOrder], dests=[dest], sStacks=[], dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCUnchanged }
+
+    |   getInstructionState(ZeroRegister{dest}) =
+            { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(BooleanNot{dest, source}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
     |   getInstructionState(PushExceptionHandler{workReg, ...}) =
             { sources=[], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
@@ -267,9 +276,37 @@ struct
     |   getInstructionState(SSE2Float{dest, source}) =
             { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(SSE2FPArith{resultReg, arg1, arg2, ...}) =
+    |   getInstructionState(SSE2FPUnary{resultReg, source, ...}) =
+            { sources=argRegs source, dests=[resultReg],
+              sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(SSE2FPBinary{resultReg, arg1, arg2, ...}) =
             { sources=arg1 :: argRegs arg2, dests=[resultReg],
               sStacks=argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(TagFloat{source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(UntagFloat{source, dest, cache, ...}) =
+            { sources=case cache of NONE => argRegs source | SOME cr => cr :: argRegs source, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(GetSSE2ControlReg{dest}) =
+            { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(SetSSE2ControlReg{source}) =
+            { sources=[source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(GetX87ControlReg{dest}) =
+            { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(SetX87ControlReg{source}) =
+            { sources=[source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(X87RealToInt{ source, dest }) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(SSE2RealToInt{ source, dest, ... }) =
+            { sources=argRegs source, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     fun identifyRegisters(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let
@@ -327,6 +364,9 @@ struct
                         |   BoxValue _ => true
                         |   CopyToCache _ => true
                         |   LoadMemReg _ => true
+                        |   SetToCondition _ => true
+                        |   BooleanNot _ => true
+                        |   ZeroRegister _ => true
                         |   _ => false
                     fun regNo(PReg i) = i
                     and stackNo(StackLoc{rno, ...}) = rno
@@ -334,15 +374,24 @@ struct
                     and sourceRegNos = map regNo sources
                     val stackDestRegNos = map stackNo stackDests
                     and stackSourceRegNos = map stackNo stackSrcs
-                    (* Check the CC if we need one and this sets it. The input CC is the earliest required CC
-                       that is not set by this code. *)
+                    (* If this instruction requires a cc i.e. is SetToCondition or X87FPGetCondition we
+                       need to set this as a requirement earlier.  If this sets the CC and it is the condition
+                       we've been expecting we've satisfied it and can set the previous condition to Unused.
+                       We could use this to decide if a comparison is no longer required.  That can only
+                       happen in very specific circumstances e.g. some tests in Test176.ML so it's
+                       not worthwhile. *)
                     val newInCC =
+                        case (ccIn, ccOut, occIn) of
+                            (cc as CCNeeded _, _, _) => cc (* This instr needs a particular cc. *)
+                        |   (CCUnused, CCSet _, _) => CCUnused
+                        |   (CCUnused, _, occIn) => occIn
+                    (* If this instruction modifies the CC check to see if it is setting an requirement. *)
+                    val _ =
                         case (occIn, ccOut) of
                             (CCNeeded ccRIn, CCSet ccRout) =>
-                                if ccRIn = ccRout then ccIn else raise InternalError "CCCheck failed"
+                                if ccRIn = ccRout then () else raise InternalError "CCCheck failed"
                         |   (CCNeeded _, CCIndeterminate) => raise InternalError "CCCheck failed"
-                        |   (_, CCUnchanged) => occIn
-                        |   _ => ccIn
+                        |   _ => ()
                     (* The output CC is the last CC set.  Tail instructions that don't change
                        the CC state are ignored until we reach an instruction that sets it. *)
                     val newOutCC = case occOut of CCUnchanged => ccOut | _ => occOut
@@ -747,6 +796,9 @@ struct
     in
         {sources=sources, dests=dests}
     end
+    
+    (* Exported for use in ICodeOptimise *)
+    val getInstructionCC = #ccOut o getInstructionState
 
     structure Sharing =
     struct
@@ -761,5 +813,6 @@ struct
         and memoryIndex         = memoryIndex
         and regProperty         = regProperty
         and ccRef               = ccRef
+        and outCCState          = outCCState
     end
 end;

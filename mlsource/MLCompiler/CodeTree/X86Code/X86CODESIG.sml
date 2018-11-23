@@ -90,9 +90,11 @@ sig
     and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
     and      branchOps =
                 JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA | JP | JNP
-    and      sse2Operations =
-        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
-        SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
+    and sse2Operations =
+        SSE2MoveDouble | SSE2MoveFloat | SSE2CompDouble | SSE2AddDouble |
+        SSE2SubDouble | SSE2MulDouble | SSE2DivDouble |
+        SSE2Xor | SSE2And | SSE2FloatToDouble | SSE2DoubleToFloat |
+        SSE2CompSingle | SSE2AddSingle | SSE2SubSingle | SSE2MulSingle | SSE2DivSingle
 
     val invertTest: branchOps -> branchOps
 
@@ -115,7 +117,7 @@ sig
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
     
-    datatype nonWordSize = Size8Bit | Size16Bit | Size32BitSigned
+    datatype nonWordSize = Size8Bit | Size16Bit
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype trapEntries =
@@ -135,9 +137,9 @@ sig
     |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word, opSize: opSize }
     |   ShiftVariable of { shiftType: shiftType, output: genReg, opSize: opSize } (* Shift amount is in ecx *)
     |   ConditionalBranch of { test: branchOps, label: label }
+    |   SetCondition of { output: genReg, test: branchOps }
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType, opSize: opSize }
-    |   TestTagR of genReg
-    |   TestByteMem of { base: genReg, offset: int, bits: word }
+    |   TestByteBits of { arg: genReg regOrMemoryArg, bits: Word8.word }
     |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
     |   StoreRegToMemory of { toStore: genReg, address: memoryAddress, opSize: opSize }
     |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress, opSize: opSize }
@@ -145,7 +147,7 @@ sig
     |   StoreNonWord of { size: nonWordSize, toStore: genReg, address: memoryAddress }
     |   StoreNonWordConst of { size: nonWordSize, toStore: LargeInt.int, address: memoryAddress }
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
-    |   AllocStoreVariable of { output: genReg, saveRegs: genReg list }
+    |   AllocStoreVariable of { size: genReg, output: genReg, saveRegs: genReg list }
     |   StoreInitialised
     |   CallFunction of callKinds
     |   JumpToFunction of callKinds
@@ -161,12 +163,12 @@ sig
     |   AtomicXAdd of {address: memoryAddress, output: genReg, opSize: opSize }
     |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
-    |   FPLoadFromConst of real
+    |   FPLoadFromConst of { constant: machineWord, precision: fpSize }
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }
     |   FPStoreToMemory of { address: memoryAddress, precision: fpSize, andPop: bool }
     |   FPArithR of { opc: fpOps, source: fpReg }
-    |   FPArithConst of { opc: fpOps, source: machineWord }
-    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int }
+    |   FPArithConst of { opc: fpOps, source: machineWord, precision: fpSize }
+    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int, precision: fpSize }
     |   FPUnary of fpUnaryOps
     |   FPStatusToEAX
     |   FPLoadInt of { base: genReg, offset: int, opSize: opSize }
@@ -180,6 +182,15 @@ sig
     |   Negative of { output: genReg, opSize: opSize }
     |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
     |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }
+    |   MoveXMMRegToGenReg of { source: xmmReg, output: genReg }
+    |   MoveGenRegToXMMReg of { source: genReg, output: xmmReg }
+    |   XMMShiftRight of { output: xmmReg, shift: Word8.word }
+    |   FPLoadCtrlWord of memoryAddress (* Load FP control word. *)
+    |   FPStoreCtrlWord of memoryAddress (* Store FP control word. *)
+    |   XMMLoadCSR of memoryAddress (* Load combined control/status word. *)
+    |   XMMStoreCSR of memoryAddress (* Store combined control/status word. *)
+    |   FPStoreInt of memoryAddress
+    |   XMMStoreInt of { source: xmmReg regOrMemoryArg, output: genReg, precision: fpSize, isTruncate: bool }
 
     and jumpSize = JumpSize2 | JumpSize8
 

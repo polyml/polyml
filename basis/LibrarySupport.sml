@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Support functions
-    Copyright   David C.J. Matthews 2000, 2015-17
+    Copyright   David C.J. Matthews 2000, 2015-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -53,7 +53,6 @@ sig
     val allocBytes: word -> address
     val isShortInt      : int -> bool
     val largeIntIsSmall: LargeInt.int -> bool
-    val unsafeSubstring: string*word*word -> string
     val unsignedShortOrRaiseSubscript: int -> word
     val unsignedShortOrRaiseSize: int -> word
     val sizeAsWord      : string -> word
@@ -182,23 +181,6 @@ struct
                 vec
             end
 
-        (* We want this in both String and Word8Array. *)
-        fun unsafeSubstring(s: string, i: word, l: word) : string =
-        let
-            val baseLen = sizeAsWord s (* Length of base string. *)
-        in
-            if i = 0w0 andalso l = baseLen then s
-            else if l = 0w0 then "" (* Empty string. *)
-            else
-            let
-                (* Multiple character string. *)
-                val vec = allocString l
-            in
-                RunCall.moveBytes(s, vec, wordSize+i, wordSize, l);
-                RunCall.clearMutableBit vec;
-                vec
-            end
-        end
         (* Create non-overwritable mutables for mutexes and condition variables.
            A non-overwritable mutable in the executable or a saved state is not
            overwritten when a saved state further down the hierarchy is loaded. 

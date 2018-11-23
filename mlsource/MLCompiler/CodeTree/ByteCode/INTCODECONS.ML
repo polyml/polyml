@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015-17 David C.J. Matthews
+    Copyright (c) 2015-18 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -71,6 +71,8 @@ struct
     and opcode_resetR_w          = 0wx19
     and opcode_constAddr16       = 0wx1a
     and opcode_constIntW         = 0wx1b
+    and opcode_callFastRTSRRtoR  = 0wx1c
+    and opcode_callFastRTSRGtoR  = 0wx1d
     and opcode_jumpBack8         = 0wx1e   (* 8-bit unsigned jump backwards - relative to end of instr. *)
     and opcode_returnB           = 0wx1f
     and opcode_jumpBack16        = 0wx20    (* 16-bit unsigned jump backwards - relative to end of instr. *)
@@ -110,20 +112,34 @@ struct
     and opcode_return_1          = 0wx42
     and opcode_return_2          = 0wx43
     and opcode_return_3          = 0wx44
-(*    and opcode_moveToVec_0       = 0wx45
+(*  and opcode_moveToVec_0       = 0wx45
     and opcode_moveToVec_1       = 0wx46
     and opcode_moveToVec_2       = 0wx47
     and opcode_moveToVec_3       = 0wx48
     and opcode_moveToVec_4       = 0wx49
     and opcode_moveToVec_5       = 0wx4a
     and opcode_moveToVec_6       = 0wx4b
-    and opcode_moveToVec_7       = 0wx4c*)
+    and opcode_moveToVec_7       = 0wx4c *)
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
     and opcode_getStore_2        = 0wx52
     and opcode_getStore_3        = 0wx53
     and opcode_getStore_4        = 0wx54
     and opcode_tuple_containerW  = 0wx55
+    and opcode_floatAbs          = 0wx56
+    and opcode_floatNeg          = 0wx57
+    and opcode_fixedIntToFloat   = 0wx58
+    and opcode_floatToReal       = 0wx59
+    and opcode_realToFloat       = 0wx5a
+    and opcode_floatEqual        = 0wx5b
+    and opcode_floatLess         = 0wx5c
+    and opcode_floatLessEq       = 0wx5d
+    and opcode_floatGreater      = 0wx5e
+    and opcode_floatGreaterEq    = 0wx5f
+    and opcode_floatAdd          = 0wx60
+    and opcode_floatSub          = 0wx61
+    and opcode_floatMult         = 0wx62
+    and opcode_floatDiv          = 0wx63
     and opcode_resetR_1          = 0wx64
     and opcode_resetR_2          = 0wx65
     and opcode_resetR_3          = 0wx66
@@ -134,7 +150,15 @@ struct
     and opcode_tuple_4           = 0wx6b
     and opcode_lock              = 0wx6c
     and opcode_ldexc             = 0wx6d
+    and opcode_realToInt         = 0wx6e
+    and opcode_floatToInt        = 0wx6f
+    and opcode_callFastRTSFtoF   = 0wx70
+    and opcode_callFastRTSGtoF   = 0wx71
+    and opcode_callFastRTSFFtoF  = 0wx72
+    and opcode_callFastRTSFGtoF  = 0wx73
     and opcode_pushHandler       = 0wx78
+    and opcode_realUnordered     = 0wx79
+    and opcode_floatUnordered    = 0wx7a
     and opcode_tailbb            = 0wx7b
     and opcode_tail              = 0wx7c
     and opcode_tail3b            = 0wx7d
@@ -157,8 +181,8 @@ struct
     and opcode_callFullRTS4      = 0wx8d
     and opcode_callFullRTS5      = 0wx8e
 
-    and opcode_callFastRTSFtoF   = 0wx8f
-    and opcode_callFastRTSGtoF   = 0wx90
+    and opcode_callFastRTSRtoR   = 0wx8f
+    and opcode_callFastRTSGtoR   = 0wx90
     
     and opcode_notBoolean        = 0wx91
     and opcode_isTagged          = 0wx92
@@ -173,10 +197,9 @@ struct
     and opcode_unsignedToLongW   = 0wx9c
     and opcode_realAbs           = 0wx9d
     and opcode_realNeg           = 0wx9e
-    and opcode_floatFixedInt     = 0wx9f
+    and opcode_fixedIntToReal    = 0wx9f
     
     and opcode_equalWord         = 0wxa0
-    and opcode_notequalWord      = 0wxa1
     and opcode_lessSigned        = 0wxa2
     and opcode_lessUnsigned      = 0wxa3
     and opcode_lessEqSigned      = 0wxa4
@@ -206,7 +229,6 @@ struct
     and opcode_wordShiftRArith   = 0wxbc
     and opcode_allocByteMem      = 0wxbd
     and opcode_lgWordEqual       = 0wxbe
-    and opcode_lgWordNotequal    = 0wxbf
     and opcode_lgWordLess        = 0wxc0
     and opcode_lgWordLessEq      = 0wxc1
     and opcode_lgWordGreater     = 0wxc2
@@ -223,7 +245,6 @@ struct
     and opcode_lgWordShiftRLog   = 0wxcd
     and opcode_lgWordShiftRArith = 0wxce
     and opcode_realEqual         = 0wxcf
-    and opcode_realNotequal      = 0wxd0
     and opcode_realLess          = 0wxd1
     and opcode_realLessEq        = 0wxd2
     and opcode_realGreater       = 0wxd3
@@ -295,6 +316,8 @@ struct
         val () = repUpdate(opcode_resetR_w,      "resetR_w");
         val () = repUpdate(opcode_constAddr16,   "constAddr16");
         val () = repUpdate(opcode_constIntW,     "constIntW");
+        val () = repUpdate(opcode_callFastRTSRRtoR,  "callFullRTSRRtoR")
+        val () = repUpdate(opcode_callFastRTSRGtoR,  "callFullRTSRGtoR")
         val () = repUpdate(opcode_jumpBack8,     "jumpBack8");
         val () = repUpdate(opcode_returnB,       "returnB");
         val () = repUpdate(opcode_jumpBack16,    "jumpBack16");
@@ -339,6 +362,21 @@ struct
         val () = repUpdate(opcode_getStore_2,    "getStore_2");
         val () = repUpdate(opcode_getStore_3,    "getStore_3");
         val () = repUpdate(opcode_getStore_4,    "getStore_4");
+        val () = repUpdate(opcode_tuple_containerW,    "tuple_containerW");
+        val () = repUpdate(opcode_floatAbs,      "floatAbs");
+        val () = repUpdate(opcode_floatNeg,      "floatNeg");
+        val () = repUpdate(opcode_fixedIntToFloat,  "opcode_fixedIntToFloat");
+        val () = repUpdate(opcode_floatToReal,   "floatToReal");
+        val () = repUpdate(opcode_realToFloat,   "realToFloat");
+        val () = repUpdate(opcode_floatEqual,    "floatEqual");
+        val () = repUpdate(opcode_floatLess,     "floatLess");
+        val () = repUpdate(opcode_floatLessEq,   "floatLessEq");
+        val () = repUpdate(opcode_floatGreater,  "floatGreater");
+        val () = repUpdate(opcode_floatGreaterEq,"floatGreaterEq");
+        val () = repUpdate(opcode_floatAdd,      "floatAdd");
+        val () = repUpdate(opcode_floatSub,      "floatSub");
+        val () = repUpdate(opcode_floatMult,     "floatMult");
+        val () = repUpdate(opcode_floatDiv,      "floatDiv");
         val () = repUpdate(opcode_resetR_1,      "resetR_1");
         val () = repUpdate(opcode_resetR_2,      "resetR_2");
         val () = repUpdate(opcode_resetR_3,      "resetR_3");
@@ -349,8 +387,16 @@ struct
         val () = repUpdate(opcode_tuple_4,       "tuple_4");
         val () = repUpdate(opcode_lock,          "lock");
         val () = repUpdate(opcode_ldexc,         "ldexc");
+        val () = repUpdate(opcode_realToInt,     "realToInt");
+        val () = repUpdate(opcode_floatToInt,    "floatToInt");
+        val () = repUpdate(opcode_callFastRTSFtoF,  "callFastRTSFtoF");
+        val () = repUpdate(opcode_callFastRTSGtoF,  "callFastRTSGtoF");
+        val () = repUpdate(opcode_callFastRTSFFtoF, "callFastRTSFFtoF");
+        val () = repUpdate(opcode_callFastRTSFGtoF, "callFastRTSFGtoF");
         val () = repUpdate(opcode_setHandler,    "setHandler");
         val () = repUpdate(opcode_pushHandler,   "pushHandler");
+        val () = repUpdate(opcode_realUnordered, "realUnordered");
+        val () = repUpdate(opcode_floatUnordered, "floatUnordered");
         val () = repUpdate(opcode_tailbb,        "tailbb");
         val () = repUpdate(opcode_tail,          "tail");
         val () = repUpdate(opcode_tail3b,        "tail3b");
@@ -369,8 +415,8 @@ struct
         val () = repUpdate(opcode_callFullRTS3,  "callFullRTS3")
         val () = repUpdate(opcode_callFullRTS4,  "callFullRTS4")
         val () = repUpdate(opcode_callFullRTS5,  "callFullRTS5")
-        val () = repUpdate(opcode_callFastRTSFtoF,  "callFullRTSFtoF")
-        val () = repUpdate(opcode_callFastRTSGtoF,  "callFullRTSGtoF")
+        val () = repUpdate(opcode_callFastRTSRtoR,  "callFullRTSRtoR")
+        val () = repUpdate(opcode_callFastRTSGtoR,  "callFullRTSGtoR")
         val () = repUpdate(opcode_notBoolean, "notBoolean")
         val () = repUpdate(opcode_isTagged, "isTagged")
         val () = repUpdate(opcode_cellLength, "cellLength")
@@ -384,10 +430,9 @@ struct
         val () = repUpdate(opcode_unsignedToLongW, "unsignedToLongW")
         val () = repUpdate(opcode_realAbs, "realAbs")
         val () = repUpdate(opcode_realNeg, "realNeg")
-        val () = repUpdate(opcode_floatFixedInt, "floatFixedInt")
+        val () = repUpdate(opcode_fixedIntToReal, "fixedIntToReal")
 
         val () = repUpdate(opcode_equalWord, "equalWord")
-        val () = repUpdate(opcode_notequalWord, "notequalWord")
         val () = repUpdate(opcode_lessSigned, "lessSigned")
         val () = repUpdate(opcode_lessUnsigned, "lessUnsigned")
         val () = repUpdate(opcode_lessEqSigned, "lessEqSigned")
@@ -417,7 +462,6 @@ struct
         val () = repUpdate(opcode_wordShiftRArith, "wordShiftRArith")
         val () = repUpdate(opcode_allocByteMem, "allocByteMem")
         val () = repUpdate(opcode_lgWordEqual, "lgWordEqual")
-        val () = repUpdate(opcode_lgWordNotequal, "lgWordNotequal")
         val () = repUpdate(opcode_lgWordLess, "lgWordLess")
         val () = repUpdate(opcode_lgWordLessEq, "lgWordLessEq")
         val () = repUpdate(opcode_lgWordGreater, "lgWordGreater")
@@ -434,7 +478,6 @@ struct
         val () = repUpdate(opcode_lgWordShiftRLog, "lgWordShiftRLog")
         val () = repUpdate(opcode_lgWordShiftRArith, "lgWordShiftRArith")
         val () = repUpdate(opcode_realEqual, "realEqual")
-        val () = repUpdate(opcode_realNotequal, "realNotequal")
         val () = repUpdate(opcode_realLess, "realLess")
         val () = repUpdate(opcode_realLessEq, "realLessEq")
         val () = repUpdate(opcode_realGreater, "realGreater")
@@ -529,6 +572,9 @@ struct
         val () = sizeUpdate(opcode_constAddr8  , 2);
         val () = sizeUpdate(opcode_stackSize8  , 2);
         val () = sizeUpdate(opcode_stackSize16 , 3);
+        val () = sizeUpdate(opcode_realToFloat , 2);
+        val () = sizeUpdate(opcode_realToInt,    2);
+        val () = sizeUpdate(opcode_floatToInt,   2);
     in
         fun size n = Array.sub (sizeArray, Word8.toInt n);
     end
@@ -1111,6 +1157,13 @@ struct
         and genOpcByte(opc, arg1, cvec) = addItemToList(SimpleCode [opc, Word8.fromInt arg1], cvec)
         and genOpcWord(opc, arg1, cvec) =
             addItemToList(SimpleCode[opc, Word8.fromInt arg1, Word8.fromInt (arg1 div 256)], cvec)
+        
+        open IEEEReal
+        
+        fun encodeRound TO_NEAREST = 0
+        |   encodeRound TO_NEGINF = 1
+        |   encodeRound TO_POSINF = 2
+        |   encodeRound TO_ZERO = 3
     in
         fun genRaiseEx cvec = genOpc (opcode_raiseEx, cvec)
         fun genLock cvec = genOpc (opcode_lock, cvec)
@@ -1198,8 +1251,21 @@ struct
             else (* address or large short *)
                 addItemToList(PushConstant{constNum = addConstToVec(value, cvec), size=ref Size32}, cvec)
 
-        fun genRTSCallFastFloatFloat cvec = genOpc (opcode_callFastRTSFtoF, cvec)
-        and genRTSCallFastGeneralFloat cvec = genOpc (opcode_callFastRTSGtoF, cvec)
+        fun genRTSCallFastRealtoReal cvec = genOpc (opcode_callFastRTSRtoR, cvec)
+        and genRTSCallFastRealRealtoReal cvec = genOpc (opcode_callFastRTSRRtoR, cvec)
+        and genRTSCallFastGeneraltoReal cvec = genOpc (opcode_callFastRTSGtoR, cvec)
+        and genRTSCallFastRealGeneraltoReal cvec = genOpc (opcode_callFastRTSRGtoR, cvec)
+        
+        and genRTSCallFastFloattoFloat cvec = genOpc (opcode_callFastRTSFtoF, cvec)
+        and genRTSCallFastFloatFloattoFloat cvec = genOpc (opcode_callFastRTSFFtoF, cvec)
+        and genRTSCallFastGeneraltoFloat cvec = genOpc (opcode_callFastRTSGtoF, cvec)
+        and genRTSCallFastFloatGeneraltoFloat cvec = genOpc (opcode_callFastRTSFGtoF, cvec)
+        
+        fun genDoubleToFloat(SOME rnding, cvec) = genOpcByte(opcode_realToFloat, encodeRound rnding, cvec)
+        |   genDoubleToFloat(NONE, cvec) = genOpcByte(opcode_realToFloat, 5, cvec)
+
+        and genRealToInt(rnding, cvec) = genOpcByte(opcode_realToInt, encodeRound rnding, cvec)
+        and genFloatToInt(rnding, cvec) = genOpcByte(opcode_floatToInt, encodeRound rnding, cvec)
     end
     
     local
@@ -1268,10 +1334,11 @@ struct
     and opcode_unsignedToLongW  = SimpleCode [opcode_unsignedToLongW]
     and opcode_realAbs          = SimpleCode [opcode_realAbs]
     and opcode_realNeg          = SimpleCode [opcode_realNeg]
-    and opcode_floatFixedInt    = SimpleCode [opcode_floatFixedInt]
+    and opcode_fixedIntToReal   = SimpleCode [opcode_fixedIntToReal]
+    and opcode_fixedIntToFloat  = SimpleCode [opcode_fixedIntToFloat]
+    and opcode_floatToReal      = SimpleCode [opcode_floatToReal]
     
     val opcode_equalWord        = SimpleCode [opcode_equalWord]
-    val opcode_notequalWord     = SimpleCode [opcode_notequalWord] (* Not currently generated. *)
     and opcode_lessSigned       = SimpleCode [opcode_lessSigned]
     and opcode_lessUnsigned     = SimpleCode [opcode_lessUnsigned]
     and opcode_lessEqSigned     = SimpleCode [opcode_lessEqSigned]
@@ -1301,7 +1368,6 @@ struct
     val opcode_wordShiftRArith  = SimpleCode [opcode_wordShiftRArith]
     val opcode_allocByteMem     = SimpleCode [opcode_allocByteMem]
     val opcode_lgWordEqual      = SimpleCode [opcode_lgWordEqual]
-    val opcode_lgWordNotequal   = SimpleCode [opcode_lgWordNotequal]
     val opcode_lgWordLess       = SimpleCode [opcode_lgWordLess]
     val opcode_lgWordLessEq     = SimpleCode [opcode_lgWordLessEq]
     val opcode_lgWordGreater    = SimpleCode [opcode_lgWordGreater]
@@ -1318,15 +1384,27 @@ struct
     val opcode_lgWordShiftRLog  = SimpleCode [opcode_lgWordShiftRLog]
     val opcode_lgWordShiftRArith = SimpleCode [opcode_lgWordShiftRArith]
     val opcode_realEqual        = SimpleCode [opcode_realEqual]
-    val opcode_realNotequal     = SimpleCode [opcode_realNotequal]
     val opcode_realLess         = SimpleCode [opcode_realLess]
     val opcode_realLessEq       = SimpleCode [opcode_realLessEq]
     val opcode_realGreater      = SimpleCode [opcode_realGreater]
     val opcode_realGreaterEq    = SimpleCode [opcode_realGreaterEq]
+    val opcode_realUnordered    = SimpleCode [opcode_realUnordered]
     val opcode_realAdd          = SimpleCode [opcode_realAdd]
     val opcode_realSub          = SimpleCode [opcode_realSub]
     val opcode_realMult         = SimpleCode [opcode_realMult]
     val opcode_realDiv          = SimpleCode [opcode_realDiv]
+    and opcode_floatAbs         = SimpleCode [opcode_floatAbs]
+    and opcode_floatNeg         = SimpleCode [opcode_floatNeg]
+    val opcode_floatEqual       = SimpleCode [opcode_floatEqual]
+    val opcode_floatLess        = SimpleCode [opcode_floatLess]
+    val opcode_floatLessEq      = SimpleCode [opcode_floatLessEq]
+    val opcode_floatGreater     = SimpleCode [opcode_floatGreater]
+    val opcode_floatGreaterEq   = SimpleCode [opcode_floatGreaterEq]
+    val opcode_floatUnordered   = SimpleCode [opcode_floatUnordered]
+    val opcode_floatAdd         = SimpleCode [opcode_floatAdd]
+    val opcode_floatSub         = SimpleCode [opcode_floatSub]
+    val opcode_floatMult        = SimpleCode [opcode_floatMult]
+    val opcode_floatDiv         = SimpleCode [opcode_floatDiv]
     val opcode_getThreadId      = SimpleCode [opcode_getThreadId]
     val opcode_allocWordMemory  = SimpleCode [opcode_allocWordMemory]
     val opcode_alloc_ref        = SimpleCode [opcode_alloc_ref]

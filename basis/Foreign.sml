@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: main part
     Author:     David Matthews
-    Copyright   David Matthews 2015-16
+    Copyright   David Matthews 2015-16, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -68,10 +68,14 @@ sig
     structure System:
     sig
         type voidStar = Memory.voidStar
+        type externalSymbol
         val loadLibrary: string -> voidStar
         and loadExecutable: unit -> voidStar
         and freeLibrary: voidStar -> unit
         and getSymbol: voidStar * string -> voidStar
+        and externalFunctionSymbol: string -> externalSymbol
+        and externalDataSymbol: string -> externalSymbol
+        and addressOfExternal: externalSymbol -> voidStar
     end
     
     structure LibFFI:
@@ -157,6 +161,8 @@ sig
     val loadExecutable: unit -> library
     val getSymbol: library -> string  -> symbol
     val symbolAsAddress: symbol -> Memory.voidStar
+    val externalFunctionSymbol: string -> symbol
+    and externalDataSymbol: string -> symbol
 
     structure LowLevel:
     sig
@@ -479,10 +485,28 @@ struct
     structure System =
     struct
         type voidStar = Memory.voidStar
+        type externalSymbol = voidStar
         fun loadLibrary(s: string): voidStar = ffiGeneral (2, s)
         and loadExecutable(): voidStar = ffiGeneral (3, ())
         and freeLibrary(s: voidStar): unit = ffiGeneral (4, s)
         and getSymbol(lib: voidStar, s: string): voidStar = ffiGeneral (5, (lib, s))
+        
+        (* Create an external symbol object.  The first word of this is filled in with the
+           address after the code is exported and linked.
+           On a small number of platforms different relocations are required for functions
+           and for data. *)
+        val externalFunctionSymbol: string -> externalSymbol = RunCall.rtsCallFull1 "PolyFFICreateExtFn"
+        and externalDataSymbol: string -> externalSymbol = RunCall.rtsCallFull1 "PolyFFICreateExtData"
+        
+        (* An external symbol is a memory cell containing the value in the first word
+           followed by the symbol name.  Because the first word is the value it can
+           be treated as a Sysword.word value.
+           When it is created the value is zero and the address of the target is only
+           set once the symbol has been exported and the value set by the linker. *)
+        fun addressOfExternal(ext: externalSymbol): voidStar =
+            if Memory.voidStar2Sysword ext = 0w0
+            then raise Foreign "External symbol has not been set"
+            else ext
     end
     
     structure Error =
@@ -624,6 +648,21 @@ struct
 
     (* This forces the symbol to be loaded.  The result is NOT memoised. *)
     fun symbolAsAddress(s: symbol): Memory.voidStar = s()
+    
+    (* Create an external symbol.  This can only be used after linking. *)
+    fun externalFunctionSymbol(name: string): symbol =
+        let
+            val r = System.externalFunctionSymbol name
+        in
+            fn () => System.addressOfExternal r
+        end
+    
+    and externalDataSymbol(name: string): symbol =
+        let
+            val r = System.externalDataSymbol name
+        in
+            fn () => System.addressOfExternal r
+        end
 
     structure LowLevel =
     struct

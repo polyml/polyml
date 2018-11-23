@@ -62,6 +62,9 @@ struct
             (* CacheTagged is used if we tag a value to see if we can use the
                original untagged value somewhere. *)
         |   CacheTagged of { reg: preg, isSigned: bool }
+            (* CacheFloat is used if we tag a float (Real32.real).
+               Double-precision reals (Real.real) are handled as CacheMemory *)
+        |   CacheFloat of { reg: preg }
 
         local
             (* The number of active cache entries is likely to be small and is
@@ -71,11 +74,12 @@ struct
                what kind of move we're using.
                Stack entries always will be tagged and MoveWord. *)
             val cache: {cacheFor: cacheType, cacheReg: preg, isTagged: bool, kind: moveKind } list ref = ref []
-           
+
             fun isStack n {cacheFor, ...} = cacheFor = CacheStack{rno = n}
             and isMemory (r, off, index) {cacheFor, ...} = cacheFor = CacheMemory {base = r, offset = off, index=index}
             and isTagCache(r, s) {cacheFor, ...} = cacheFor = CacheTagged{reg = r, isSigned = s}
-            
+            and isFloatCache r {cacheFor, ...} = cacheFor =CacheFloat{reg = r }
+
             fun findCache f = List.find f (! cache)
             
             fun removeCache f = cache := List.filter (not o f) (! cache)
@@ -86,10 +90,12 @@ struct
             and findCachedMemory (r, off, index) =
                 Option.map (fn {cacheReg, isTagged, kind, ...} => (cacheReg, isTagged, kind)) (findCache(isMemory (r, off, index)))
             and findCachedTagged (r, s) = Option.map #cacheReg (findCache(isTagCache (r, s)))
+            and findCachedFloat r = Option.map #cacheReg (findCache(isFloatCache r))
             
             fun removeStackCache n = removeCache (isStack n)
             and removeMemoryCache (r, off, index) = removeCache (isMemory (r, off, index))
             and removeTagCache (r, s) = removeCache (isTagCache (r, s))
+            and removeFloatCache r = removeCache (isFloatCache r)
             
             fun clearMemoryCache() =
                 cache := List.filter(fn {cacheFor=CacheMemory _,...} => false | _ => true) (!cache)
@@ -110,6 +116,12 @@ struct
                 (
                     removeTagCache (r, s);
                     cache := {cacheFor=CacheTagged{reg=r, isSigned=s}, cacheReg=new, isTagged=true, kind=moveNativeWord} :: ! cache
+                )
+
+            and setFloatCache(r, new) =
+                (
+                    removeFloatCache r;
+                    cache := {cacheFor=CacheFloat{reg=r}, cacheReg=new, isTagged=true, kind=MoveFloat} :: ! cache
                 )
 
             fun getCache () = ! cache
@@ -881,6 +893,30 @@ struct
                         in
                             CompareByteMem{arg1=newArg1, arg2=arg2, ccRef=ccRef} :: indexCode @ baseCode @ code
                         end
+ 
+                    |   pushRegisters({instr=SetToCondition{dest, ccRef, condition, highOrder}, ...}, code) =
+                        let
+                            val (highVal, highCode) = mapSrcReg highOrder
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ SetToCondition{dest=destVal, ccRef=ccRef, condition=condition, highOrder=highVal} ::
+                                highCode @ code
+                        end
+ 
+                    |   pushRegisters({instr=ZeroRegister{dest}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ ZeroRegister{dest=destVal} ::  code
+                        end
+ 
+                    |   pushRegisters({instr=BooleanNot{dest, source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ BooleanNot{source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
 
                     |   pushRegisters({instr=PushExceptionHandler{workReg}, ...}, code) =
                         let
@@ -1074,12 +1110,14 @@ struct
                                We can't cache X87 values because there's effectively only one register
                                and this box instruction uses FSTP (store and POP). *)
                             val cacheCode =
-                                if Vector.sub(pushVec, dReg) orelse boxKind = BoxX87 then []
+                                if Vector.sub(pushVec, dReg) orelse boxKind = BoxX87Double orelse boxKind = BoxX87Float then []
                                 else
                                 let
                                     val newCacheReg = newPReg RegPropCacheUntagged
-                                    val moveKind = case boxKind of BoxLargeWord => moveNativeWord | BoxX87 => MoveDouble | BoxSSE2 => MoveDouble
+                                    val moveKind =
+                                        case boxKind of BoxLargeWord => moveNativeWord | BoxX87Double => MoveDouble | BoxX87Float => MoveFloat | BoxSSE2 => MoveDouble
                                     val indexKind = case targetArch of ObjectId32Bit => ObjectIndex | _ => NoMemIndex
+
                                     (* The value we're putting in the cache is untagged. *)
                                     val _ = setMemoryCache(dest, 0, indexKind, newCacheReg, false, moveKind)
                                 in
@@ -1111,20 +1149,20 @@ struct
                                     lengthCode @ destCode @ srcCode @ code
                         end
 
-                    |   pushRegisters({instr=X87Compare{arg1, arg2, ccRef}, ...}, code) =
+                    |   pushRegisters({instr=X87Compare{arg1, arg2, isDouble, ccRef}, ...}, code) =
                         let
                             val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                         in
-                            X87Compare{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code
+                            X87Compare{arg1=arg1Val, arg2=arg2Val, isDouble=isDouble, ccRef=ccRef} :: arg2Code @ arg1Code @ code
                         end
 
-                    |   pushRegisters({instr=SSE2Compare{arg1, arg2, ccRef}, ...}, code) =
+                    |   pushRegisters({instr=SSE2Compare{arg1, arg2, isDouble, ccRef}, ...}, code) =
                         let
                             val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                         in
-                            SSE2Compare{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code
+                            SSE2Compare{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef, isDouble=isDouble} :: arg2Code @ arg1Code @ code
                         end
 
                     |   pushRegisters({instr=X87FPGetCondition{dest, ccRef}, ...}, code) =
@@ -1134,13 +1172,13 @@ struct
                             destCode @ X87FPGetCondition{dest=destVal, ccRef=ccRef} :: code
                         end
 
-                    |   pushRegisters({instr=X87FPArith{opc, resultReg, arg1, arg2}, ...}, code) =
+                    |   pushRegisters({instr=X87FPArith{opc, resultReg, arg1, arg2, isDouble}, ...}, code) =
                         let
                             val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                             val (destVal, destCode) = mapDestReg resultReg
                         in
-                            destCode @ X87FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
+                            destCode @ X87FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val, isDouble=isDouble} ::
                                     arg2Code @ arg1Code @ code
                         end
     
@@ -1168,16 +1206,104 @@ struct
                             destCode @ SSE2Float{dest=destVal, source=sourceVal} :: sourceCode @ code
                         end
     
-                    |   pushRegisters({instr=SSE2FPArith{opc, resultReg, arg1, arg2}, ...}, code) =
+                    |   pushRegisters({instr=SSE2FPUnary{opc, resultReg, source}, ...}, code) =
+                        let
+                            val (argVal, argCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @ SSE2FPUnary{opc=opc, resultReg=destVal, source=argVal} ::
+                                    argCode @ code
+                        end
+
+                    |   pushRegisters({instr=SSE2FPBinary{opc, resultReg, arg1, arg2}, ...}, code) =
                         let
                             val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                             val (destVal, destCode) = mapDestReg resultReg
                         in
-                            destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
+                            destCode @ SSE2FPBinary{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
                                     arg2Code @ arg1Code @ code
                         end
-        
+
+                    |   pushRegisters({instr=TagFloat{source, dest}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                            val _ = setFloatCache(dest, sourceVal)
+                        in
+                            destCode @ TagFloat{source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=UntagFloat{source as RegisterArgument srcReg, dest, cache, ...}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg dest
+                            (* As with MemoryLocation caching, we can try caching it if this is the
+                               first pass but otherwise we can only retain the caching if we have never
+                               marked it to be pushed. *)
+                            val newCache =
+                                case cache of
+                                    NONE => if firstPass then findCachedFloat srcReg else NONE
+                                |   SOME (PReg c) =>
+                                    if Vector.sub(pushVec, c)
+                                    then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
+                                    else findCachedFloat srcReg
+                        in
+                            destCode @ UntagFloat{source=sourceVal, dest=destVal, cache=newCache} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=UntagFloat{source, dest, ...}, ...}, code) =
+                        (* This may also be a memory location in which case we don't cache. *)
+                        let
+                            val (sourceVal, sourceCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ UntagFloat{source=sourceVal, dest=destVal, cache=NONE} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=GetSSE2ControlReg{dest}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ GetSSE2ControlReg{dest=destVal} :: code
+                        end
+
+                    |   pushRegisters({instr=SetSSE2ControlReg{source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                        in
+                            SetSSE2ControlReg{source=sourceVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=GetX87ControlReg{dest}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ GetX87ControlReg{dest=destVal} :: code
+                        end
+
+                    |   pushRegisters({instr=SetX87ControlReg{source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                        in
+                            SetX87ControlReg{source=sourceVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=X87RealToInt{source, dest}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ X87RealToInt{source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=SSE2RealToInt{source, dest, isDouble, isTruncate}, ...}, code) =
+                        let
+                            val (srcVal, sourceCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ SSE2RealToInt{source=srcVal, dest=destVal, isDouble=isDouble, isTruncate=isTruncate} :: sourceCode @ code
+                        end
 
                     (* Find the common cache state. *)
                     val () = setCommonCacheState(List.map (#cache o asub blockOutput) (asub blockRefs blockNo))

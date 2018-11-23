@@ -7,10 +7,11 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
+     Further work copyright David C.J. Matthews 2006-18
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -97,6 +98,10 @@ typedef uint32_t        POLYUNSIGNED;
 typedef intptr_t        POLYSIGNED;
 typedef uintptr_t       POLYUNSIGNED;
 #endif
+
+// Size of a PolyWord.  This is the same as the size of an address on native word platforms
+// and is either 32 or 64 bits.
+#define SIZEOF_POLYWORD SIZEOF_VOIDP
 
 // libpolyml uses printf-style I/O instead of C++ standard IOstreams,
 // so we need specifier to format POLYUNSIGNED/POLYSIGNED values.

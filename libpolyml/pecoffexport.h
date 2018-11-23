@@ -42,7 +42,7 @@ private:
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
     void alignFile(int align);
-    virtual void addExternalReference(void *addr, const char *name);
+    virtual void addExternalReference(void *addr, const char *name, bool isFuncPtr);
 
 private:
     void setRelocationAddress(void *p, DWORD *reloc);

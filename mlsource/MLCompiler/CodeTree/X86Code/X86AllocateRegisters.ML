@@ -37,7 +37,7 @@ struct
         val regs =
             case targetArch of
                 Native32Bit     => [edi, esi, edx, ecx, ebx, eax]
-            |   Native64Bit     => [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, ebx, eax]
+            |   Native64Bit     => [edi, esi, edx, ecx, ebx, eax, r14, r13, r12, r11, r10, r9, r8]
             |   ObjectId32Bit   => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
     in
         val generalRegisters = List.map GenReg regs
@@ -189,7 +189,7 @@ struct
             |   addHints{instr=X87FPUnaryOps{dest=PReg resReg, source=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
         
-            |   addHints{instr=SSE2FPArith{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
+            |   addHints{instr=SSE2FPBinary{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
 
             |   addHints _ = ()
@@ -505,6 +505,24 @@ struct
         |   registerAllocate({instr=CompareByteMem{ arg1={base=PReg bReg, index, ...}, ...}, ...}) =
                 (allocateGeneralReg bReg; allocateArgIndex index)
 
+        |   registerAllocate({instr=SetToCondition{ dest=PReg dReg, highOrder=PReg hReg, ...}, ...}) =
+            let
+                (* On the X86/32 we can't use Setcc to set esi or edi.  codeExtended gets round
+                   that by using jumps instead if that ever happens but we try to avoid it by
+                   preferring ecx. *)
+                val choose =
+                    if targetArch = Native32Bit then SOME(GenReg ecx) else NONE
+                val destReg = findRegister(dReg, choose, generalRegisters)
+            in
+                allocateRegister(hReg, SOME destReg, generalRegisters)
+            end
+
+        |   registerAllocate({instr=ZeroRegister{dest=PReg dReg}, ...}) = allocateRegister(dReg, NONE, generalRegisters)
+
+        |   registerAllocate({instr=BooleanNot{ dest=PReg dReg, source=PReg sReg}, ...}) =
+                (* Try to put the argument into the same register as the result. *)
+                allocateRegister(sReg, SOME(findRegister(dReg, NONE, generalRegisters)), generalRegisters)
+
             (* Set up an exception handler. *)
         |   registerAllocate({instr=PushExceptionHandler{workReg=PReg hReg}, ...}) = allocateGeneralReg hReg
 
@@ -660,7 +678,8 @@ struct
                 List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
                 case boxKind of
                     BoxLargeWord => allocateGeneralReg sReg
-                |   BoxX87 => allocateFloatReg sReg
+                |   BoxX87Double => allocateFloatReg sReg
+                |   BoxX87Float => allocateFloatReg sReg
                 |   BoxSSE2 => allocateFloatReg sReg;
                 allocateGeneralReg dReg
             )
@@ -710,13 +729,60 @@ struct
         |   registerAllocate({instr=SSE2Float{dest=PReg resReg, source}, ...}) =
                 (allocateArgGeneral source; allocateRegister(resReg, NONE, floatingPtRegisters))
 
-        |   registerAllocate({instr=SSE2FPArith{resultReg=PReg resReg, arg1=PReg op1Reg, arg2, ...}, ...}) =
+        |   registerAllocate({instr=SSE2FPUnary{resultReg=PReg resReg, source, ...}, ...}) =
+            (
+                allocateRegister(resReg, NONE, floatingPtRegisters);
+                allocateArgFloat source
+            )
+
+        |   registerAllocate({instr=SSE2FPBinary{resultReg=PReg resReg, arg1=PReg op1Reg, arg2, ...}, ...}) =
             let
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
             in
                 allocateRegister(op1Reg, SOME realDestReg, floatingPtRegisters);
                 allocateArgFloat arg2
             end
+
+        |   registerAllocate({instr=TagFloat{dest=PReg resReg, source=PReg sReg, ...}, ...}) =
+            (
+                allocateRegister(resReg, NONE, generalRegisters);
+                allocateRegister(sReg, NONE, floatingPtRegisters)
+            )
+
+        |   registerAllocate({instr=UntagFloat{source, dest=PReg dReg, cache, ...}, ...}) =
+            let
+                val regResult = findRegister(dReg, NONE, floatingPtRegisters)
+                val () =
+                    case cache of
+                        SOME(PReg cReg) => allocateRegister(cReg, SOME regResult, floatingPtRegisters)
+                    |   NONE => ()
+            in
+                allocateArgGeneral source
+            end
+
+        |   registerAllocate({instr=GetSSE2ControlReg{dest=PReg destReg}, ...}) =
+                allocateRegister(destReg, NONE, generalRegisters)
+
+        |   registerAllocate({instr=SetSSE2ControlReg{source=PReg srcReg}, ...}) =
+                allocateRegister(srcReg, NONE, generalRegisters)
+
+        |   registerAllocate({instr=GetX87ControlReg{dest=PReg destReg}, ...}) =
+                allocateRegister(destReg, NONE, generalRegisters)
+
+        |   registerAllocate({instr=SetX87ControlReg{source=PReg srcReg}, ...}) =
+                allocateRegister(srcReg, NONE, generalRegisters)
+
+        |   registerAllocate({instr=X87RealToInt{source=PReg srcReg, dest=PReg destReg}, ...}) =
+            (
+                allocateRegister(srcReg, NONE, floatingPtRegisters);
+                allocateRegister(destReg, NONE, generalRegisters)
+            )
+
+        |   registerAllocate({instr=SSE2RealToInt{source, dest=PReg destReg, ...}, ...}) =
+            (
+                allocateRegister(destReg, NONE, generalRegisters);
+                allocateArgFloat source
+            )
     
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

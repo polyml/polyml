@@ -110,6 +110,26 @@ GraveYard::~GraveYard()
     free(graves);
 }
 
+// Used to calculate the space required for the ordinary mutables
+// and the no-overwrite mutables.  They are interspersed in local space.
+class MutSizes : public ScanAddress
+{
+public:
+    MutSizes() : mutSize(0), noOverSize(0) {}
+
+    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }// No Actually used
+
+    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
+    {
+        const POLYUNSIGNED words = OBJ_OBJECT_LENGTH(lengthWord) + 1; // Include length word
+        if (OBJ_IS_NO_OVERWRITE(lengthWord))
+            noOverSize += words;
+        else mutSize += words;
+    }
+
+    POLYUNSIGNED mutSize, noOverSize;
+};
+
 CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
 {
     defaultImmSize = defaultMutSize = defaultCodeSize = defaultNoOverSize = 0;
@@ -179,7 +199,13 @@ void CopyScan::initialise(bool isExport/*=true*/)
         // It looks as though the mutable size generally gets
         // overestimated while the immutable size is correct.
         if (space->isMutable)
-            defaultMutSize += size/4;
+        {
+            MutSizes sizeMut;
+            sizeMut.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+            sizeMut.ScanAddressesInRegion(space->upperAllocPtr, space->top);
+            defaultNoOverSize += sizeMut.noOverSize / 4;
+            defaultMutSize += sizeMut.mutSize / 4;
+        }
         else
             defaultImmSize += size/2;
     }
@@ -195,13 +221,22 @@ void CopyScan::initialise(bool isExport/*=true*/)
         if (defaultMutSize < 1024*1024) defaultMutSize = 1024*1024;
         if (defaultImmSize < 1024*1024) defaultImmSize = 1024*1024;
         if (defaultCodeSize < 1024*1024) defaultCodeSize = 1024*1024;
+#ifdef MACOSX
+        // Limit the segment size for Mac OS X.  The linker has a limit of 2^24 relocations
+        // in a segment so this is a crude way of ensuring the limit isn't exceeded.
+        // It's unlikely to be exceeded by the code itself.
+        // Actually, from trial-and-error, the limit seems to be around 6M.
+        if (defaultMutSize > 6 * 1024 * 1024) defaultMutSize = 6 * 1024 * 1024;
+        if (defaultImmSize > 6 * 1024 * 1024) defaultImmSize = 6 * 1024 * 1024;
+#endif
+        if (defaultNoOverSize < 4096) defaultNoOverSize = 4096; // Except for the no-overwrite area
     }
     else
     {
         // Much smaller minimum sizes for saved states.
         if (defaultMutSize < 1024) defaultMutSize = 1024;
         if (defaultImmSize < 4096) defaultImmSize = 4096;
-        if (defaultCodeSize < 4096) defaultImmSize = 4096;
+        if (defaultCodeSize < 4096) defaultCodeSize = 4096;
         if (defaultNoOverSize < 4096) defaultNoOverSize = 4096;
         // Set maximum sizes as well.  We may have insufficient contiguous space for
         // very large areas.
@@ -211,8 +246,8 @@ void CopyScan::initialise(bool isExport/*=true*/)
         if (defaultNoOverSize > 1024 * 1024) defaultNoOverSize = 1024 * 1024;
     }
     if (debugOptions & DEBUG_SAVING)
-        Log("SAVE: Copyscan default sizes: Immutable: %lu, Mutable: %lu, Code: %lu.\n",
-            defaultImmSize, defaultMutSize, defaultCodeSize);
+        Log("SAVE: Copyscan default sizes: Immutable: %" POLYUFMT ", Mutable: %" POLYUFMT ", Code: %" POLYUFMT ", No-overwrite %" POLYUFMT ".\n",
+            defaultImmSize, defaultMutSize, defaultCodeSize, defaultNoOverSize);
 }
 
 CopyScan::~CopyScan()
@@ -803,8 +838,9 @@ void Exporter::relocateObject(PolyObject *p)
         {
             // Weak mutable byte refs are used for external references and
             // also in the FFI for non-persistent values.
-            const char *entryName = getEntryPointName(p);
-            if (entryName != 0) addExternalReference(p, entryName);
+            bool isFuncPtr = true;
+            const char *entryName = getEntryPointName(p, &isFuncPtr);
+            if (entryName != 0) addExternalReference(p, entryName, isFuncPtr);
             // Clear the first word of the data.
             ASSERT(p->Length() >= sizeof(uintptr_t)/sizeof(PolyWord));
             *(uintptr_t*)p = 0;

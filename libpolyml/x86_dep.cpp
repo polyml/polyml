@@ -242,10 +242,10 @@ public:
     { add_count(this, assemblyInterface.stackPtr[0].codeAddr, words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
-    virtual void PreRTSCall(void) { SaveMemRegisters(); }
+    virtual void PreRTSCall(void) { TaskData::PreRTSCall();  SaveMemRegisters(); }
     // PostRTSCall: Before returning we need to restore the heap pointer.
     // If there has been a GC in the RTS call we need to create a new heap area.
-    virtual void PostRTSCall(void) { SetMemRegisters(); }
+    virtual void PostRTSCall(void) { SetMemRegisters(); TaskData::PostRTSCall();  }
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
@@ -1315,6 +1315,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 case 0xb6: /* movzl */
                 case 0xb7: // movzw
                 case 0xc1: /* xaddl */
+                case 0xae: // ldmxcsr/stmxcsr
                 case 0xaf: // imul
                     pt++; skipea(addr, &pt, process, false); break;
 
@@ -1325,10 +1326,21 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                     /* Conditional branches with 32-bit displacement. */
                     pt += 5; break;
 
+                case 0x90: case 0x91: case 0x92: case 0x93:
+                case 0x94: case 0x95: case 0x96: case 0x97:
+                case 0x98: case 0x99: case 0x9a: case 0x9b:
+                case 0x9c: case 0x9d: case 0x9e: case 0x9f:
+                    /* SetCC. */
+                    pt++; skipea(addr, &pt, process, false); break;
+
                 // These are SSE2 instructions
                 case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
-                case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a:
+                case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a: case 0x6e:
+                case 0x7e: case 0x2c: case 0x2d:
                     pt++; skipea(addr, &pt, process, false); break;
+
+                case 0x73: // PSRLDQ - EA,imm
+                    pt++; skipea(addr, &pt, process, false); pt++;  break;
 
                 default: Crash("Unknown opcode %d at %p\n", *pt, pt);
                 }

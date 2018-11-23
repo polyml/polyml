@@ -71,7 +71,8 @@ struct
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
-    
+    and semitag c = 2 * c
+
     local
         val regs =
             case targetArch of
@@ -111,7 +112,7 @@ struct
 
         |   llLoadArgument({ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move16Bit}, code) = (* Load from memory. *)
                 LoadNonWord{size=Size16Bit, source=mLoc, output=destReg} :: code
-                
+
         |   llLoadArgument({ source, dest=GenReg destReg, kind=Move32Bit}, code) = (* Load from memory. *)
                 MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg, opSize=OpSize32 } :: code
 
@@ -119,6 +120,9 @@ struct
         |   llLoadArgument({source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveDouble}, code) =
                 moveToOutputFP(fpReg,
                    FPLoadFromMemory{ address={base=baseReg, offset=offset, index=index}, precision=DoublePrecision } :: code)
+
+        |   llLoadArgument({source=AddressConstArg addrConst, dest=FPReg fpReg, kind=MoveDouble}, code) =
+                moveToOutputFP(fpReg, FPLoadFromConst{ constant= addrConst, precision=DoublePrecision } :: code)
         
         |   llLoadArgument({source=RegisterArg(FPReg fpSrc), dest=FPReg fpDest, kind=MoveDouble}, code) =
                 (* Moving from one FP reg to another.  Even if we are moving from FP0 we still do a load
@@ -128,16 +132,19 @@ struct
 
                 (* Load or move from an XMM reg. *)
         |   llLoadArgument({source, dest=XMMReg xmmRegReg, kind=MoveDouble}, code) =
-                XMMArith { opc= SSE2Move, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code
+                XMMArith { opc= SSE2MoveDouble, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code
 
                 (* Load a floating point value. *)
         |   llLoadArgument({source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveFloat}, code) =
                 moveToOutputFP(fpReg,
                     FPLoadFromMemory{ address={ base=baseReg, offset=offset, index=index }, precision=SinglePrecision } :: code)
 
+        |   llLoadArgument({source=AddressConstArg addrConst, dest=FPReg fpReg, kind=MoveFloat}, code) =
+                moveToOutputFP(fpReg, FPLoadFromConst{ constant= addrConst, precision=SinglePrecision } :: code)
+
                 (* Load or move from an XMM reg. *)
         |   llLoadArgument({source, dest=XMMReg xmmRegReg, kind=MoveFloat}, code) =
-                XMMArith { opc= SSE2MoveSingle, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code
+                XMMArith { opc= SSE2MoveFloat, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code
 
             (* Any other combinations are not allowed. *)
         |   llLoadArgument _ = raise InternalError "codeGenICode: LoadArgument"
@@ -235,7 +242,7 @@ struct
             and codeExtArgumentAsFPReg = codeExtArgument getAllocatedFPReg
             and codeExtArgumentAsXMMReg = codeExtArgument getAllocatedXMMReg
         end
-        
+
         (* Move unless the registers are the same. *)
         fun moveIfNecessary({src, dst, kind}, code) =
             if src = dst then code
@@ -369,7 +376,6 @@ struct
                                 if match(src, selectSrc) then {src=destAsSource, dst=dst}
                                 else if match(src, destAsSource) then {src=selectSrc, dst=dst}
                                 else {src=src, dst=dst}
-
                             (* Try to use register to register exchange if we can.
                                A register-to-memory exchange involves a bus lock and we'd
                                like to avoid that. *)
@@ -570,6 +576,9 @@ struct
             |   instructionUses(WordComparison{arg1, arg2, ...}) = (used arg1; argUses arg2)
             |   instructionUses(CompareLiteral{arg1, ...}) = argUses arg1
             |   instructionUses(CompareByteMem{arg1={base, index, ...}, ...}) = (used base; indexUses index)
+            |   instructionUses(SetToCondition{ dest, highOrder, ...}) = if isUsed dest then used highOrder else ()
+            |   instructionUses(ZeroRegister _) = ()
+            |   instructionUses(BooleanNot{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(PushExceptionHandler _) = ()
             |   instructionUses(PopExceptionHandler _) = ()
             |   instructionUses(BeginHandler _) = ()
@@ -598,7 +607,17 @@ struct
             |   instructionUses(X87FPUnaryOps{source, ...}) = used source
             |   instructionUses(X87Float{source, ...}) = argUses source
             |   instructionUses(SSE2Float{source, ...}) = argUses source
-            |   instructionUses(SSE2FPArith{arg1, arg2, ...}) = (used arg1; argUses arg2)
+            |   instructionUses(SSE2FPUnary{source, ...}) = argUses source
+            |   instructionUses(SSE2FPBinary{arg1, arg2, ...}) = (used arg1; argUses arg2)
+            |   instructionUses(TagFloat{source, dest, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(UntagFloat{dest, cache=SOME cacheR, ...}) = if isUsed dest then used cacheR else ()
+            |   instructionUses(UntagFloat{source, dest, cache=NONE, ...}) = if isUsed dest then argUses source else ()
+            |   instructionUses(GetSSE2ControlReg _) = ()
+            |   instructionUses(SetSSE2ControlReg{source}) = used source
+            |   instructionUses(GetX87ControlReg _) = ()
+            |   instructionUses(SetX87ControlReg{source}) = used source
+            |   instructionUses(X87RealToInt{source, ...}) = used source
+            |   instructionUses(SSE2RealToInt{source, ...}) = argUses source
             
             
            (* Depth-first scan. *)
@@ -662,15 +681,17 @@ struct
                         val moveKind =
                             case kind of
                                 Move64Bit => Move64Bit
-                            |   MoveByte => moveNativeWord
-                            |   Move16Bit => moveNativeWord
-                            |   Move32Bit => moveNativeWord
-                            |   MoveFloat => MoveDouble
+                            |   MoveByte => moveNativeWord (* Could we use Move32 or do we need sign extension? *)
+                            |   Move16Bit => moveNativeWord (* ditto *)
+                            |   Move32Bit => moveNativeWord (* ditto *)
+                            |   MoveFloat => MoveDouble (* MoveFloat ?? *)
                             |   MoveDouble => MoveDouble
                     in
                         moveIfNecessary({src=getAllocatedReg sreg, dst=realDestReg, kind=moveKind}, code)
                     end
                 
+                    (* TODO: Isn't this covered by codeExtArgument?  It looks like it was added in the
+                       32-in-64 changes.  *)
                 |   StackLocation{cache=SOME(PReg sreg), ...} =>
                         moveIfNecessary({src=getAllocatedReg sreg, dst=realDestReg, kind=kind}, code)
 
@@ -888,13 +909,7 @@ struct
                     (* Untag the length *)
                     ShiftConstant{ shiftType=SHR, output=sReg, shift=0w1, opSize=polyWordOpSize},
                     (* Allocate the memory *)
-                    AllocStoreVariable{ output=dReg, saveRegs=saveRegs},
-                    (* Compute the number of bytes into dReg. The length in sReg is the number
-                       of words as a tagged value so we need to multiply it, add wordSize to
-                       include one word for the header then subtract the, multiplied, tag. *)
-                    if wordSize = 0w4
-                    then LoadAddress{output=dReg, base=NONE, offset=Word.toInt wordSize-2, index=Index2 sReg, opSize=polyWordOpSize }
-                    else LoadAddress{output=dReg, base=NONE, offset=Word.toInt wordSize-4, index=Index4 sReg, opSize=polyWordOpSize }
+                    AllocStoreVariable{ size=sReg, output=dReg, saveRegs=saveRegs}
                 ]
                 (* Convert to an object index if necessary. *)
                 val convertToObjId =
@@ -1012,6 +1027,65 @@ struct
                 ArithByteMemConst{ opc=CMP, address={offset=offset, base=bReg, index=index}, source=arg2 } :: code
             end
 
+        |   codeExtended _ ({instr=SetToCondition{dest as PReg resReg, condition, highOrder=PReg high, ...}, ...}, code) =
+            if not(isUsed dest)
+            then code
+            else
+            let
+                val realDestReg = getAllocatedGenReg resReg
+            in
+                (* SetCC cannot use esi or edi in X86/32.  We try to use ecx if possible on the X86/32 but
+                   if we happen to choose esi or edi we have to use test and branch instead. *)
+                if targetArch = Native32Bit andalso (realDestReg = esi orelse realDestReg = edi)
+                then
+                let
+                    val lab1 = makeLabel() and lab2 = makeLabel()
+                    (* We've cleared the high-order unnecessarily but it's not worth having a special
+                       case for that. *)
+                in
+                    JumpLabel lab2 ::
+                    MoveToRegister{source=NonAddressConstArg(tag 1), output=realDestReg, opSize=OpSize32} ::
+                    JumpLabel lab1 ::
+                    UncondBranch lab2 ::
+                    MoveToRegister{source=NonAddressConstArg(tag 0), output=realDestReg, opSize=OpSize32} ::
+                    ConditionalBranch{test=condition, label=lab1} :: code
+                end
+                else
+                let
+                    val highReg = getAllocatedGenReg high
+                in
+                    (* We can use 32-bit operations here since we're happy for the top word to be zero. *)
+                    LoadAddress{output=realDestReg, offset=1, base=SOME realDestReg, index=Index1 realDestReg, opSize=OpSize32} ::
+                    SetCondition{output=realDestReg, test=condition} ::
+                    moveIfNecessary({src=GenReg highReg, dst=GenReg realDestReg, kind=Move32Bit}, code)
+                end
+            end
+
+        |   codeExtended _ ({instr=ZeroRegister{dest as PReg resReg}, ...}, code) =
+            if not(isUsed dest)
+            then code
+            else
+            let
+                val realDestReg = getAllocatedGenReg resReg
+            in
+                ArithToGenReg { opc=XOR, output=realDestReg, source=RegisterArg realDestReg, opSize=OpSize32 } :: code
+            end            
+
+        |   codeExtended _ ({instr=BooleanNot{dest as PReg resReg, source=PReg sReg}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else
+            let
+                val realDestReg = getAllocatedReg resReg
+                val realSrcReg = getAllocatedReg sReg
+                (* Changing between true and false involves XOR with 2. *)
+                val bitFlip = NonAddressConstArg(semitag 1)
+            in
+                (* Use 32-bit ops since this can only be tagged 0 or tagged 1 *)
+                ArithToGenReg { opc=XOR, output=asGenReg realDestReg, source=bitFlip, opSize=OpSize32 } ::
+                    moveIfNecessary({src=realSrcReg, dst=realDestReg, kind=Move32Bit}, code)
+            end
+
             (* Set up an exception handler. *)
         |   codeExtended {flow} ({instr=PushExceptionHandler{workReg=PReg hReg}, ...}, code) =
             let (* Set up an exception handler. *)
@@ -1089,7 +1163,7 @@ struct
                 val realOp1Reg = getAllocatedReg op1Reg
             in
                 ArithToGenReg { opc=SUB, output=asGenReg realDestReg, source=codeExtArgumentAsGenReg operand2, opSize=opSize } ::
-                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=moveNativeWord}, code)
+                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=opSizeToMove opSize}, code)
             end
 
         |   codeExtended _ ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
@@ -1123,18 +1197,11 @@ struct
                    location with the result reg as a base or index? *)
             in
                 ArithToGenReg { opc=oper, output=asGenReg realDestReg, source=op2Arg, opSize=opSize } ::
-                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=moveNativeWord}, code)
+                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=opSizeToMove opSize}, code)
             end
 
         |   codeExtended _ ({instr=TestTagBit{arg, ...}, ...}, code) =
-            let
-                val codeArg = codeExtArgument arg
-            in
-                case codeArg of
-                    RegisterArg reg => TestTagR(asGenReg reg) :: code
-                |   MemoryArg {offset, base, index=NoIndex} => TestByteMem{base=base, offset=offset, bits=0w1} :: code
-                |   _ => raise InternalError "codeGenICode: TestTagBit"
-            end
+                TestByteBits{arg=codeExtArgumentAsGenReg arg, bits=0w1} :: code
 
         |   codeExtended _ ({instr=PushValue {arg, ...}, ...}, code) = PushToStack(codeExtArgumentAsGenReg arg) :: code
 
@@ -1169,7 +1236,11 @@ struct
                 val regResult = asGenReg(getAllocatedReg dReg)
                 val realSReg = asGenReg(getAllocatedReg srcReg)
             in
-                LoadAddress{ output=regResult, offset=1, base=NONE, index=Index2 realSReg, opSize=nativeWordOpSize } :: code
+                (* N.B. Using LEA with a base register and an index multiplier of 1 is shorter than
+                   using no base register and a multiplier of two. *)
+                (* TODO: If the value we're tagging is a byte or a 16-bit value we can use OpSize32 and possibly
+                   save the Rex byte. *)
+                LoadAddress{ output=regResult, offset=1, base=SOME realSReg, index=Index1 realSReg, opSize=nativeWordOpSize } :: code
             end
 
         |   codeExtended _ ({instr=UntagValue{dest as PReg dReg, cache=SOME(PReg cacheReg), ...}, ...}, code) =
@@ -1200,7 +1271,7 @@ struct
                     |   NONE => raise InternalError "LoadEffectiveAddress - ObjectIndex but no base"
             in
                 LoadAddress{ output=destReg, offset=offset, base=SOME ebx, index=Index4 bReg, opSize=nativeWordOpSize } :: code
-            end
+           end
 
         |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index, dest=PReg dReg}, ...}, code) =
             let
@@ -1236,7 +1307,7 @@ struct
                 ShiftVariable{ shiftType=shift, output=asGenReg realDestReg, opSize=opSize } ::
                     moveIfNecessary({src=realOpReg, dst=realDestReg, kind=opSizeToMove opSize},
                         moveIfNecessary({src=realShiftReg, dst=GenReg ecx, kind=Move32Bit (* < 64*)}, code))
-            end
+           end
 
         |   codeExtended _ ({instr=ShiftOperation _, ...}, _) = raise InternalError "codeExtended - ShiftOperation"
 
@@ -1285,10 +1356,11 @@ struct
                 val divisorReg = argAsGenReg divisorArg
                 val _ = divisorReg <> eax andalso divisorReg <> edx orelse raise InternalError "codeGenICode: Division"
                 (* rdx needs to be set to the high order part of the dividend.  For signed
-                   division that means sign-extending rdx, for unsigned division we clear it. *)
+                   division that means sign-extending rdx, for unsigned division we clear it.
+                   We only need a 32-bit clear since the top 32-bits are cleared anyway. *)
                 val setRDX =
                     if isSigned then SignExtendForDivide opSize
-                    else ArithToGenReg{ opc=XOR, output=edx, source=RegisterArg edx, opSize=polyWordOpSize }
+                    else ArithToGenReg{ opc=XOR, output=edx, source=RegisterArg edx, opSize=OpSize32 }
             in
                 (* We may need to move one or more of the registers although normally that
                    won't be necessary.  Almost certainly only either the remainder or the
@@ -1317,9 +1389,10 @@ struct
                 val preserve = getSaveRegs saveRegs
                 val (srcReg, boxSize, moveKind) =
                     case boxKind of
-                        BoxLargeWord => (getAllocatedReg sReg, nativeWordSize div wordSize, moveNativeWord)
-                    |   BoxX87 => (getAllocatedReg sReg, 0w8 div wordSize, MoveDouble)
-                    |   BoxSSE2 => (getAllocatedReg sReg, 0w8 div wordSize, MoveDouble)
+                        BoxLargeWord => (getAllocatedReg sReg, Word.toInt(nativeWordSize div wordSize), moveNativeWord)
+                    |   BoxX87Double => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
+                    |   BoxX87Float => (getAllocatedReg sReg, Word.toInt(0w4 div wordSize), MoveFloat)
+                    |   BoxSSE2 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
                 val dstReg = getAllocatedReg dReg
                 val (bReg, index) =
                     if targetArch = ObjectId32Bit
@@ -1328,7 +1401,7 @@ struct
             in
                 StoreInitialised ::
                     llStoreArgument{ source=RegisterArg srcReg, offset=0, base=bReg, index=index, kind=moveKind} ::
-                        llAllocateMemoryOperation({ size=Word.toInt boxSize, flags=0wx1, dest=dstReg, saveRegs=preserve}, code)
+                        llAllocateMemoryOperation({ size=boxSize, flags=0wx1, dest=dstReg, saveRegs=preserve}, code)
             end
 
         |   codeExtended _ ({instr=CompareByteVectors{vec1Addr=PReg v1Reg, vec2Addr=PReg v2Reg, length=PReg lReg, ...}, ...}, code) =
@@ -1354,41 +1427,48 @@ struct
                         moveIfNecessary({src=getAllocatedReg dReg, dst=GenReg edi, kind=moveNativeWord},
                             moveIfNecessary({src=getAllocatedReg lReg, dst=GenReg ecx, kind=moveNativeWord}, code)))
 
-        |   codeExtended _ ({instr=X87Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
+        |   codeExtended _ ({instr=X87Compare{arg1=PReg argReg, arg2, isDouble, ...}, ...}, code) =
             let
                 val fpReg = getAllocatedFPReg argReg
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
                 (* This currently pops the value. *)
+                val precision = if isDouble then DoublePrecision else SinglePrecision
             in
                 case codeExtArgumentAsFPReg arg2 of
                     RegisterArg fpReg2 => FPArithR{opc=FCOMP, source=fpReg2} :: code
-                |   MemoryArg{offset, base=baseReg, index=NoIndex} => FPArithMemory{opc=FCOMP, base=baseReg, offset=offset} :: code
+                |   MemoryArg{offset, base=baseReg, index=NoIndex} =>
+                        FPArithMemory{opc=FCOMP, base=baseReg, offset=offset, precision=precision} :: code
+                |   AddressConstArg const =>
+                        FPArithConst{opc=FCOMP, source = const, precision=precision} :: code
                 |   _ => raise InternalError "codeGenICode: CompareFloatingPt: TODO"
             end
 
-        |   codeExtended _ ({instr=SSE2Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
+        |   codeExtended _ ({instr=SSE2Compare{arg1=PReg argReg, arg2, isDouble, ...}, ...}, code) =
             let
                 val xmmReg = getAllocatedXMMReg argReg
                 val arg2Code = codeExtArgumentAsXMMReg arg2
             in
-                XMMArith { opc= SSE2Comp, output=xmmReg, source=arg2Code} :: code
+                XMMArith { opc= if isDouble then SSE2CompDouble else SSE2CompSingle, output=xmmReg, source=arg2Code} :: code
             end
 
         |   codeExtended _ ({instr=X87FPGetCondition{dest=PReg dReg, ...}, ...}, code) =
-                moveIfNecessary({src=GenReg eax, dst=getAllocatedReg dReg, kind=moveNativeWord},
+                moveIfNecessary({src=GenReg eax, dst=getAllocatedReg dReg, kind=Move32Bit},
                     FPStatusToEAX :: code)
 
-        |   codeExtended _ ({instr=X87FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
+        |   codeExtended _ ({instr=X87FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2, isDouble}, ...}, code) =
             let
                 val realDestReg = getAllocatedFPReg resReg
                 val realOp1Reg = getAllocatedFPReg op1Reg
                 val _ = realDestReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
                 val _ = realOp1Reg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
                 val op2Arg = codeExtArgumentAsFPReg arg2
+                val precision = if isDouble then DoublePrecision else SinglePrecision
             in
                 case op2Arg of
                     MemoryArg{offset, base=baseReg, index=NoIndex} =>
-                        FPArithMemory{opc=opc, base=baseReg, offset=offset} :: code
+                        FPArithMemory{opc=opc, base=baseReg, offset=offset, precision=precision} :: code
+                |   AddressConstArg const =>
+                        FPArithConst{opc=opc, source = const, precision=precision} :: code
                 |   _ => raise InternalError "codeGenICode: X87FPArith: TODO"
             end
     
@@ -1422,7 +1502,19 @@ struct
                 XMMConvertFromInt{ output=xmmResReg, source=srcReg, opSize=polyWordOpSize} :: code
             end
 
-        |   codeExtended _ ({instr=SSE2FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
+        |   codeExtended _ ({instr=SSE2FPUnary{opc, resultReg=PReg resReg, source}, ...}, code) =
+            let
+                val realDestReg = getAllocatedXMMReg resReg
+                val opArg = codeExtArgumentAsXMMReg source
+                val sse2Op =
+                    case opc of
+                        SSE2UDoubleToFloat  => SSE2DoubleToFloat
+                    |   SSE2UFloatToDouble  => SSE2FloatToDouble
+            in
+                XMMArith{ opc=sse2Op, output=realDestReg, source=opArg} :: code
+            end
+
+        |   codeExtended _ ({instr=SSE2FPBinary{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
             let
                 val realDestReg = getAllocatedXMMReg resReg
                 val realOp1Reg = getAllocatedXMMReg op1Reg
@@ -1430,19 +1522,136 @@ struct
                 (* xorpd and andpd require 128-bit arguments with 128-bit alignment. *)
                 val _ =
                     case (opc, op2Arg) of
-                        (SSE2Xor, RegisterArg _) => ()
-                    |   (SSE2Xor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
-                    |   (SSE2And, RegisterArg _) => ()
-                    |   (SSE2And, _) => raise InternalError "codeGenICode - SSE2And not in register"
+                        (SSE2BXor, RegisterArg _) => ()
+                    |   (SSE2BXor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
+                    |   (SSE2BAnd, RegisterArg _) => ()
+                    |   (SSE2BAnd, _) => raise InternalError "codeGenICode - SSE2And not in register"
                     |   _ => ()
                 val doMove =
                     if realDestReg = realOp1Reg
                     then code
-                    else XMMArith { opc=SSE2Move, source=RegisterArg realOp1Reg, output=realDestReg } :: code
+                    else XMMArith { opc=SSE2MoveDouble, source=RegisterArg realOp1Reg, output=realDestReg } :: code
+                val sse2Op =
+                    case opc of
+                        SSE2BAddDouble  => SSE2AddDouble
+                    |   SSE2BSubDouble  => SSE2SubDouble
+                    |   SSE2BMulDouble  => SSE2MulDouble
+                    |   SSE2BDivDouble  => SSE2DivDouble
+                    |   SSE2BAddSingle  => SSE2AddSingle
+                    |   SSE2BSubSingle  => SSE2SubSingle
+                    |   SSE2BMulSingle  => SSE2MulSingle
+                    |   SSE2BDivSingle  => SSE2DivSingle
+                    |   SSE2BXor        => SSE2Xor
+                    |   SSE2BAnd        => SSE2And
             in
-                XMMArith{ opc=opc, output=realDestReg, source=op2Arg} :: doMove
+                XMMArith{ opc=sse2Op, output=realDestReg, source=op2Arg} :: doMove
             end
-        
+
+        |   codeExtended _ ({instr=TagFloat{source=PReg srcReg, dest as PReg dReg, ...}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else
+            let
+                val _ = targetArch = Native64Bit orelse raise InternalError "TagFloat: not 64-bit"
+                (* Copy the value from an XMM reg into a general reg and tag it. *)
+                val regResult = asGenReg(getAllocatedReg dReg)
+                val realSReg = getAllocatedXMMReg srcReg
+            in
+                ArithToGenReg { opc=ADD, output=regResult, source=NonAddressConstArg 1, opSize=polyWordOpSize } ::
+                ShiftConstant{ shiftType=SHL, output=regResult, shift=0w32, opSize=OpSize64} ::
+                MoveXMMRegToGenReg { source = realSReg, output = regResult } :: code
+            end
+
+        |   codeExtended _ ({instr=UntagFloat{dest as PReg dReg, cache=SOME(PReg cacheReg), ...}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else moveIfNecessary({src=getAllocatedReg cacheReg, dst=getAllocatedReg dReg, kind=MoveFloat}, code)
+
+        |   codeExtended _ ({instr=UntagFloat{source, dest as PReg dReg, ...}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else
+            let
+                val regResult = getAllocatedXMMReg dReg
+            in
+                case codeExtArgumentAsGenReg source of
+                    RegisterArg realSReg =>
+                        XMMShiftRight{ output=regResult, shift=0w4 (* Bytes - not bits *) } ::
+                        MoveGenRegToXMMReg {source=realSReg, output=regResult} :: code
+                |   MemoryArg{base, offset, index} =>
+                        (* If the value is in memory we can just load the high order word. *)
+                        XMMArith { opc=SSE2MoveFloat, source=MemoryArg{base=base, offset=offset+4, index=index}, output=regResult } :: code
+                |   _ => raise InternalError "UntagFloat - not register or memory"
+            end
+
+        |   codeExtended _ ({instr=GetSSE2ControlReg{dest=PReg dReg}, ...}, code) =
+            let
+                (* This has to work through memory.  Reserve one word on the stack, get the
+                   MXCSR register into it and pop it to the register. *)
+                val regResult = getAllocatedGenReg dReg
+            in
+                PopR regResult ::
+                XMMStoreCSR{base=esp, offset=0, index=NoIndex } ::
+                PushToStack(NonAddressConstArg 0) :: code
+            end
+
+        |   codeExtended _ ({instr=SetSSE2ControlReg{source=PReg sReg}, ...}, code) =
+            let
+                (* This has to work through memory.  Push the register to the stack,
+                   store the value into the control register and remove it from the stack. *)
+                val sourceReg = getAllocatedGenReg sReg
+            in
+                ResetStack{ numWords=1, preserveCC=false } ::
+                XMMLoadCSR{base=esp, offset=0, index=NoIndex } ::
+                PushToStack(RegisterArg sourceReg) :: code
+            end
+
+        |   codeExtended _ ({instr=GetX87ControlReg{dest=PReg dReg}, ...}, code) =
+            let
+                (* This has to work through memory.  Reserve one word on the stack, get the
+                   X87 control register into it and pop it to the register. *)
+                val regResult = getAllocatedGenReg dReg
+            in
+                PopR regResult ::
+                FPStoreCtrlWord{base=esp, offset=0, index=NoIndex } ::
+                PushToStack(NonAddressConstArg 0) :: code
+            end
+
+        |   codeExtended _ ({instr=SetX87ControlReg{source=PReg sReg}, ...}, code) =
+            let
+                (* This has to work through memory.  Push the register to the stack,
+                   store the value into the control register and remove it from the stack. *)
+                val sourceReg = getAllocatedGenReg sReg
+            in
+                ResetStack{ numWords=1, preserveCC=false } ::
+                FPLoadCtrlWord{base=esp, offset=0, index=NoIndex } ::
+                PushToStack(RegisterArg sourceReg) :: code
+            end
+
+        |   codeExtended _ ({instr=X87RealToInt{source=PReg sReg, dest=PReg dReg}, ...}, code) =
+            let
+                (* This has to work through memory.  Reserve one word on the stack,
+                   convert the value into it and pop it to the register. *)
+                val regResult = getAllocatedGenReg dReg
+                val fpReg = getAllocatedFPReg sReg
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
+                (* This currently pops the value. *)
+            in
+                PopR regResult ::
+                FPStoreInt{base=esp, offset=0, index=NoIndex } ::
+                PushToStack(NonAddressConstArg 0) :: code
+            end
+
+        |   codeExtended _ ({instr=SSE2RealToInt{source, dest=PReg dReg, isDouble, isTruncate}, ...}, code) =
+            let
+                (* The source is either an XMM register or memory. *)
+                val regResult = getAllocatedGenReg dReg
+                val opArg = codeExtArgumentAsXMMReg source
+            in
+                XMMStoreInt {
+                    source=opArg, precision=if isDouble then DoublePrecision else SinglePrecision,
+                    output = regResult, isTruncate=isTruncate } :: code
+            end
         
         val minStackCheck = 20
         val inputRegisters = argRegsUsed @ (if hasFullClosure then [GenReg edx] else [])

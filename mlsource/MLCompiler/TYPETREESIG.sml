@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified David C. J. Matthews 2009.
+    Modified David C. J. Matthews 2009, 2010, 2015, 2016, 2018.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -19,9 +18,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(*****************************************************************************)
-(*                  TYPETREE exports signature                               *)
-(*****************************************************************************)
 signature TYPETREESIG =
 sig
     type types;
@@ -153,7 +149,8 @@ sig
     val charConstr:   typeConstrs;
     val stringConstr: typeConstrs;
     val wordConstr:   typeConstrs;
-    val realConstr:   typeConstrs;
+    val realConstr:   typeConstrs
+    val floatConstr:  typeConstrs
     val refConstr:    typeConstrs;
     val arrayConstr:  typeConstrs;
     val array2Constr: typeConstrs;
@@ -162,17 +159,11 @@ sig
     val exnConstr:    typeConstrs;
     val undefConstr:  typeConstrs;
 
-    val boolType:   types;
-    val fixedIntType:    types
-    val intInfType: types
-    val charType:   types;
-    val stringType: types;
-    val realType:   types;
-    val unitType:   types;
-    val exnType:    types;
-    val wordType:   types;
-  
-    val badType:    types;
+    val boolType:       types
+    val fixedIntType:   types
+    val stringType:     types
+    val unitType:       types
+    val exnType:        types
     
     val isPointerEqType: typeId -> bool
     val isFloatingPt: types -> bool

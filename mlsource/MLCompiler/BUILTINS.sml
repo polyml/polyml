@@ -1,7 +1,7 @@
 (*
     Signature for built-in functions
 
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,6 +25,7 @@ sig
     |   TestLessEqual
     |   TestGreater
     |   TestGreaterEqual
+    |   TestUnordered (* Reals only. *)
 
     datatype arithmeticOperations =
         ArithAdd
@@ -57,9 +58,14 @@ sig
     |   LongWordToTagged (* Convert a LargeWord.word to a Word.word or FixedInt.int. *)
     |   SignedToLongWord (* Convert a tagged value to a LargeWord with sign extension. *)
     |   UnsignedToLongWord (* Convert a tagged value to a LargeWord without sign extension. *)
-    |   RealAbs     (* Set the sign bit of a real to positive. *)
-    |   RealNeg     (* Invert the sign bit of a real. *)
-    |   FloatFixedInt (* Convert an integer value into a floating point value. *)
+    |   RealAbs of precision     (* Set the sign bit of a real to positive. *)
+    |   RealNeg of precision     (* Invert the sign bit of a real. *)
+    |   RealFixedInt of precision (* Convert an integer value into a real value. *)
+    |   FloatToDouble (* Convert a single precision floating point value to double precision. *)
+    |   DoubleToFloat of IEEEReal.rounding_mode option (* Convert a double precision floating point value to single precision. *)
+    |   RealToInt of precision * IEEEReal.rounding_mode (* Convert a double or float to a fixed precision int. *)
+
+    and precision = PrecSingle | PrecDouble (* Single or double precision floating pt. *)
 
     and binaryOps =
         (* Compare two words and return the result.  This is used for both
@@ -85,8 +91,8 @@ sig
     |   LargeWordArith of arithmeticOperations
     |   LargeWordLogical of logicalOperations
     |   LargeWordShift of shiftOperations
-    |   RealComparison of testConditions
-    |   RealArith of arithmeticOperations
+    |   RealComparison of testConditions * precision
+    |   RealArith of arithmeticOperations * precision
         
     val unaryRepr: unaryOps -> string
     and binaryRepr: binaryOps -> string

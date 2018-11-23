@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Real Signature and structure.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2008, 2016-18
+    Copyright   David Matthews 2000, 2005, 2008, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -20,7 +20,7 @@
 structure Real: REAL =
 struct
     open IEEEReal
-    val fromLargeInt: LargeInt.int -> real = Real.rtsCallFastI_R "PolyFloatArbitraryPrecision"
+    val fromLargeInt: LargeInt.int -> real = Real.rtsCallFastI_F "PolyFloatArbitraryPrecision"
     
     val fromInt: int -> real =
         (* We have to select the appropriate conversion.  This will be
@@ -34,28 +34,53 @@ struct
     (* These are needed because we don't yet have conversion from string
        to real.  They are filtered out by the signature. *)
     val zero = fromInt 0 and one = fromInt 1 and four = fromInt 4
+    
+    local
+        val doReal : int*real->real = RunCall.rtsCallFull2 "PolyRealGeneral"
+    in
+        fun callReal n x = doReal(n, x)
+    end
+
+    local
+        val doReal : int*(real*real)->real = RunCall.rtsCallFull2 "PolyRealGeneral"
+    in
+        fun callRealReal n p = doReal(n, p)
+    end
+
+    local
+        val doReal : int*real->bool = RunCall.rtsCallFull2 "PolyRealGeneral"
+    in
+        fun callRealToBool n x = doReal(n, x)
+    end
+
+    local
+        val doReal : int*real->int = RunCall.rtsCallFull2 "PolyRealGeneral"
+    in
+        fun callRealToInt n x = doReal(n, x)
+    end
         
     type real = real (* Pick up from globals. *)
 
     structure Math: MATH =
     struct
         type real = real (* Pick up from globals. *)
-        val sqrt  = Real.rtsCallFastR_R "PolyRealSqrt"
-        and sin   = Real.rtsCallFastR_R "PolyRealSin"
-        and cos   = Real.rtsCallFastR_R "PolyRealCos"
-        and atan  = Real.rtsCallFastR_R "PolyRealArctan"
-        and exp   = Real.rtsCallFastR_R "PolyRealExp"
-        and ln    = Real.rtsCallFastR_R "PolyRealLog"
-        and tan   = Real.rtsCallFastR_R "PolyRealTan"
-        and asin  = Real.rtsCallFastR_R "PolyRealArcSin"
-        and acos  = Real.rtsCallFastR_R "PolyRealArcCos"
-        and log10 = Real.rtsCallFastR_R "PolyRealLog10"
-        and sinh  = Real.rtsCallFastR_R "PolyRealSinh"
-        and cosh  = Real.rtsCallFastR_R "PolyRealCosh"
-        and tanh  = Real.rtsCallFastR_R "PolyRealTanh"
+        val sqrt  = Real.rtsCallFastF_F "PolyRealSqrt"
+        and sin   = Real.rtsCallFastF_F "PolyRealSin"
+        and cos   = Real.rtsCallFastF_F "PolyRealCos"
+        and atan  = Real.rtsCallFastF_F "PolyRealArctan"
+        and exp   = Real.rtsCallFastF_F "PolyRealExp"
+        and ln    = Real.rtsCallFastF_F "PolyRealLog"
+        and tan   = Real.rtsCallFastF_F "PolyRealTan"
+        and asin  = Real.rtsCallFastF_F "PolyRealArcSin"
+        and acos  = Real.rtsCallFastF_F "PolyRealArcCos"
+        and log10 = Real.rtsCallFastF_F "PolyRealLog10"
+        and sinh  = Real.rtsCallFastF_F "PolyRealSinh"
+        and cosh  = Real.rtsCallFastF_F "PolyRealCosh"
+        and tanh  = Real.rtsCallFastF_F "PolyRealTanh"
 
-        val atan2 = Real.rtsCallFastRR_R "PolyRealAtan2"
-        val pow = Real.rtsCallFastRR_R "PolyRealPow"
+        (* These have not yet been done. *)
+        val atan2 = callRealReal 3
+        val pow = callRealReal 4
 
         (* Derived values. *)
         val e = exp one
@@ -68,42 +93,29 @@ struct
     
     val op == = Real.==
     val op != : real * real -> bool = not o op ==
-    
-    local
-        (* The General call is now only used to get constants. *)
-        val doRealReal : int*unit->real = RunCall.rtsCallFull2 "PolyRealGeneral"
-        and doRealInt  : int*unit->int = RunCall.rtsCallFull2 "PolyRealGeneral"
-        fun callReal n x = doRealReal(n, x)
-        and callRealToInt n x = doRealInt(n, x)
-    in
-        val radix : int = callRealToInt 11 ()
-        val precision : int = callRealToInt 12 ()
-        val maxFinite : real = callReal 13 ()
-        val minNormalPos : real = callReal 14 ()
-        val minPos: real = callReal 15 ()
-    end
+
+    val radix : int = callRealToInt 11 zero
+    val precision : int = callRealToInt 12 zero
+    val maxFinite : real = callReal 13 zero
+    val minNormalPos : real = callReal 14 zero
 
     val posInf : real = one/zero;
     val negInf : real = ~one/zero;
     
-    (* Real is LargeReal. *)
+    (* We only implement this sort of real. *)
     fun toLarge (x: real) : (*LargeReal.*)real =x
     fun fromLarge (_ : IEEEReal.rounding_mode) (x: (*LargeReal.*)real): real = x
 
     local
         open Real
     in
-        (* isNan can be defined in terms of unordered. *)
-        fun isNan x = unordered(x, x)
-        
+        (* NAN values fail any test including equality with themselves. *)
+        fun isNan x = x != x
         (* NAN values do not match and infinities when multiplied by 0 produce NAN. *)
         fun isFinite x = x * zero == zero
     
-        val copySign : (real * real) -> real = Real.rtsCallFastRR_R "PolyRealCopySign"
-        
-        (* Get the sign bit by copying the sign onto a finite value and then
-           testing.  This works for non-finite values and zeros. *)
-        fun signBit r = copySign(one, r) < zero
+        val signBit : real -> bool = callRealToBool 17
+        val copySign : (real * real) -> real = callRealReal 18
 
         (* If we assume that all functions produce normalised results where
            possible, the only subnormal values will be those smaller than
@@ -123,6 +135,8 @@ struct
     end
         
     fun sameSign (x, y) = signBit x = signBit y
+    
+    fun unordered (x, y) = isNan x orelse isNan y
 
     (* Returns the minimum.  In the case where one is a NaN it returns the
        other. In that case the comparison will be false. *)
@@ -134,9 +148,18 @@ struct
         if isFinite x then x
         else if isNan x then raise General.Div else raise General.Overflow
 
+    val radixAsReal (* Not exported *) = fromInt radix
+    val epsilon (* Not exported *) = Math.pow(radixAsReal, fromInt (Int.-(1, precision)))
+
+    val minPos : real = minNormalPos*epsilon;
+
     local
-        val frExp: real -> int * real = RunCall.rtsCallFull1 "PolyRealFrexp"
-        val fromManAndExp: real*int -> real = Real.rtsCallFastRI_R "PolyRealLdexp"
+        val toMantissa : real->real = callReal 24
+        and toExponent : real->int = callRealToInt 25
+
+        val doReal : int*(real*int)->real = RunCall.rtsCallFull2 "PolyRealGeneral"
+
+        fun fromManAndExp (ri: real*int): real = doReal(23, ri)
         
         open Real
     in
@@ -145,38 +168,31 @@ struct
             (* Nan, infinities and +/-0 all return r in the mantissa.
                We include 0 to preserve its sign. *)
             then {man=r, exp=0}
-            else
-            let
-                val (exp, man) = frExp r
-            in
-                {man=man, exp=exp}
-            end
+            else {man=toMantissa r, exp=toExponent r}
 
         fun fromManExp {man, exp} = 
             if not (isFinite man) orelse man == zero
             (* Nan, infinities and +/-0 in the mantissa all return
                their argument. *)
             then man
-            else if LibrarySupport.isShortInt exp
-            then fromManAndExp(man, exp)
-            else (* Long arbitrary precision *)
-                copySign(if Int.>(exp, 0) then posInf else zero, man)
+            else fromManAndExp(man, exp)
     end
 
-    (* Convert to integer. *)
+    (* Convert to integer.  Ideally this would do the rounding/truncation as part of the
+       conversion but it doesn't seem to be possible to detect overflow properly.
+       Instead we use the real rounding/truncation, convert to arbitrary
+       precision and then check for overflow if necessary.  *)
     local
         (* The RTS function converts to at most a 64-bit value (even on 
            32-bits).  That will convert all the bits of the mantissa
            but if the exponent is large we may have to multiply by
            some power of two. *)
         val realToInt: real -> LargeInt.int  = RunCall.rtsCallFull1 "PolyRealBoxedToLongInt"
-        (* These are defined to raise Domain rather than Overflow on Nans. *)
-        fun checkNan x = if isNan x then raise Domain else x
     in
-        val realFloor = Real.rtsCallFastR_R "PolyRealFloor"
-        and realCeil  = Real.rtsCallFastR_R "PolyRealCeil"
-        and realTrunc  = Real.rtsCallFastR_R "PolyRealTrunc"
-        and realRound  = Real.rtsCallFastR_R "PolyRealRound"
+        val realFloor = Real.rtsCallFastF_F "PolyRealFloor"
+        and realCeil  = Real.rtsCallFastF_F "PolyRealCeil"
+        and realTrunc  = Real.rtsCallFastF_F "PolyRealTrunc"
+        and realRound  = Real.rtsCallFastF_F "PolyRealRound"
 
         fun toArbitrary x = 
             if isNan x then raise General.Domain
@@ -190,32 +206,29 @@ struct
                 else IntInf.<< (realToInt(fromManExp{man=man, exp=precision}), Word.fromInt(exp - precision))
             end
 
-        fun toLargeInt IEEEReal.TO_NEGINF = toArbitrary o realFloor
-         |  toLargeInt IEEEReal.TO_POSINF = toArbitrary o realCeil
-         |  toLargeInt IEEEReal.TO_ZERO = toArbitrary o realTrunc
-         |  toLargeInt IEEEReal.TO_NEAREST = toArbitrary o realRound
+        fun floor x = toArbitrary(realFloor x)
+        (* Returns the largest integer <= x. *)
 
-        (* Conversions to FixedInt are put in by the compiler.  If int is fixed we can
-           use them otherwise we use the long versions.
-           N.B.  FixedInt.toInt is a no-op but is needed so this is type-correct when
-           int is arbitrary. *)
-        val floor   =
-            if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toArbitrary o realFloor else FixedInt.toInt o Real.floorFix o checkNan
-        and ceil    =
-            if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toArbitrary o realCeil else FixedInt.toInt o Real.ceilFix o checkNan
-        and trunc   =
-            if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toArbitrary o realTrunc else FixedInt.toInt o Real.truncFix o checkNan
-        and round   =
-            if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toArbitrary o realTrunc else FixedInt.toInt o Real.roundFix o checkNan
+        fun ceil x = toArbitrary(realCeil x)
+        (* Returns the smallest integer >= x. *)
+
+        fun trunc x = toArbitrary(realTrunc x)
+        (* Truncate towards zero. *)
+
+        fun round x = toArbitrary(realRound x)
+        (* Return the nearest integer, returning an even value if equidistant. *)
         
-        fun toInt IEEEReal.TO_NEGINF = floor
-         |  toInt IEEEReal.TO_POSINF = ceil
-         |  toInt IEEEReal.TO_ZERO = trunc
-         |  toInt IEEEReal.TO_NEAREST = round
+        fun toLargeInt IEEEReal.TO_NEGINF r = floor r
+         |  toLargeInt IEEEReal.TO_POSINF r = ceil r
+         |  toLargeInt IEEEReal.TO_ZERO r = trunc r
+         |  toLargeInt IEEEReal.TO_NEAREST r = round r
+
+        fun toInt mode x = LargeInt.toInt(toLargeInt mode x)
+        
+        val floor = LargeInt.toInt o floor
+        and ceil  = LargeInt.toInt o ceil
+        and trunc = LargeInt.toInt o trunc
+        and round = LargeInt.toInt o round
     end;
 
     local
@@ -521,12 +534,11 @@ struct
             (* Set the rounding mode to TO_NEAREST whatever the current
                rounding mode.  Otherwise the result of compiling a piece of
                code with a literal constant could depend on what the rounding
-               mode was set to.
-               We should always support TO_NEAREST. *)
-            val oldRounding = IEEEReal.getRoundingMode()
-            val () = IEEEReal.setRoundingMode IEEEReal.TO_NEAREST
+               mode was set to. *)
+            val oldRounding = IEEEReal.getRoundingMode() handle Fail _ => IEEEReal.TO_NEAREST
+            val () = IEEEReal.setRoundingMode IEEEReal.TO_NEAREST handle Fail _ => ()
             val scanResult = StringCvt.scanString scan s
-            val () = IEEEReal.setRoundingMode oldRounding
+            val () = IEEEReal.setRoundingMode oldRounding handle Fail _ => ()
         in
             case scanResult of
                 NONE => raise RunCall.Conversion "Invalid real constant"
@@ -551,18 +563,19 @@ struct
         else if r1 > r2 then GREATER
         else UNORDERED
 
-    (* This seems to be similar to == except that where == always returns false
-       if either argument is a NaN this returns true.  The implementation of ==
-       treats the unordered case specially so it would be possible to implement
-       this in the same way.  *)
-    fun op ?= (x, y) = unordered(x, y) orelse x == y
+    (* Question: The definition says "bitwise equal, ignoring signs on zeros".
+       If we assume that all numbers are normalised, is that the same as "equal"?*)
+    fun op ?= (x, y) =
+        isNan x orelse isNan y orelse x == y
 
     (* Although these may be built in in some architectures it's
        probably not worth treating them specially at the moment. *)
     fun *+ (x: real, y: real, z: real): real = x*y+z
     and *- (x: real, y: real, z: real): real = x*y-z
 
-    val rem = Real.rtsCallFastRR_R "PolyRealRem"
+    fun rem (x, y) =
+        if not (isFinite y) andalso not (isNan y) then x
+        else x - realTrunc(x / y)*y
 
     (* Split a real into whole and fractional parts. The fractional part must have
        the same sign as the number even if it is zero. *)
@@ -583,8 +596,10 @@ struct
     fun realMod r = #frac(split r)
 
     (* nextAfter: This was previously implemented in ML but, at the very least,
-       needed to work with rounding to something other than TO_NEAREST. *)
-    val nextAfter = Real.rtsCallFastRR_R "PolyRealNextAfter"
+       needed to work with rounding to something other than TO_NEAREST.  This should
+       be implemented as a fast call but we don't currently support fast calls for
+       real * real -> real. *)
+    val nextAfter = callRealReal 26
 
 end;
 
