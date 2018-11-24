@@ -52,15 +52,7 @@
 #include <math.h>
 #endif
 
-#if (defined(_MSC_VER))
-#ifdef _WIN64
-// This is only defined in x64
-#define isnanf   _isnanf
-#else
-#define isnanf   isnan
-#endif
-#endif
-
+#include <cmath> // Currently just for isnan.
 
 #include "globals.h"
 #include "int_opcodes.h"
@@ -1679,7 +1671,7 @@ int IntTaskData::SwitchToPoly()
         {
             double u = unboxDouble(*sp++);
             double v = unboxDouble(*sp);
-            *sp = (isnan(u) || isnan(v)) ? True : False;
+            *sp = (std::isnan(u) || std::isnan(v)) ? True : False;
             break;
         }
 
@@ -1762,7 +1754,7 @@ int IntTaskData::SwitchToPoly()
         {
             float u = unboxFloat(*sp++);
             float v = unboxFloat(*sp);
-            *sp = (isnanf(u) || isnanf(v)) ? True : False;
+            *sp = (std::isnan(u) || std::isnan(v)) ? True : False;
             break;
         }
 
@@ -1809,11 +1801,13 @@ int IntTaskData::SwitchToPoly()
         case INSTR_realToFloat:
         {
             // Convert a double to a float.  It's complicated because it depends on the rounding mode.
-            double d = unboxDouble(*sp);
             int rMode = *pc++;
             int current = getrounding();
             // If the rounding is 4 it means "use current rounding".
+            // Don't call unboxDouble until we're set the rounding.  GCC seems to convert it
+            // before the actual float cast.
             if (rMode < 4) setrounding(rMode);
+            double d = unboxDouble(*sp);
             float v = (float)d; // Convert with the appropriate rounding.
             setrounding(current);
             PolyObject *t = this->boxFloat(v, pc, sp);
