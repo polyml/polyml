@@ -94,14 +94,12 @@
 #ifdef POLYML32IN64
 typedef int32_t         POLYSIGNED;
 typedef uint32_t        POLYUNSIGNED;
+#define SIZEOF_POLYWORD 4
 #else
 typedef intptr_t        POLYSIGNED;
 typedef uintptr_t       POLYUNSIGNED;
-#endif
-
-// Size of a PolyWord.  This is the same as the size of an address on native word platforms
-// and is either 32 or 64 bits.
 #define SIZEOF_POLYWORD SIZEOF_VOIDP
+#endif
 
 // libpolyml uses printf-style I/O instead of C++ standard IOstreams,
 // so we need specifier to format POLYUNSIGNED/POLYSIGNED values.
@@ -119,7 +117,7 @@ typedef uintptr_t       POLYUNSIGNED;
 #elif (defined(PRIuPTR))
 #  define POLYUFMT PRIuPTR
 #  define POLYSFMT PRIdPTR
-#elif (defined(_MSC_VER) && (SIZEOF_VOIDP == 8))
+#elif (defined(_MSC_VER) && (SIZEOF_POLYWORD == 8))
 #  define POLYUFMT "llu"
 #  define POLYSFMT "lld"
 #else

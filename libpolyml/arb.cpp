@@ -121,7 +121,7 @@ static Handle gcd_arbitrary(TaskData *taskData, Handle,Handle);
 static Handle lcm_arbitrary(TaskData *taskData, Handle,Handle);
 
 // Number of bits in a Poly word.  N.B.  This is not necessarily the same as SIZEOF_VOIDP.
-#define BITS_PER_POLYWORD (SIZEOF_VOIDP*8)
+#define BITS_PER_POLYWORD (SIZEOF_POLYWORD*8)
 
 #ifdef USE_GMP
 #if (BITS_PER_POLYWORD > GMP_LIMB_BITS)
@@ -249,7 +249,7 @@ unsigned short get_C_ushort(TaskData *taskData, PolyWord number)
     return 0;
 }
 
-#if (SIZEOF_LONG == SIZEOF_VOIDP)
+#if (SIZEOF_LONG == SIZEOF_POLYWORD)
 unsigned get_C_unsigned(TaskData *taskData, PolyWord number)
 {
     return get_C_ulong(taskData, number);

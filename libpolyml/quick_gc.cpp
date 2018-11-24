@@ -147,7 +147,7 @@ typedef uintptr_t ptrasint;
 static bool atomiclySetForwarding(LocalMemSpace *space, ptrasint *pt, ptrasint testVal, ptrasint update)
 {
 #ifdef _MSC_VER
-# if ((SIZEOF_VOIDP == 8) && !defined(POLYML32IN64))
+# if (SIZEOF_POLYWORD == 8)
     LONGLONG *address = (LONGLONG*)(pt-1);
     uintptr_t result = InterlockedCompareExchange64(address, update, testVal);
     return result == testVal;
