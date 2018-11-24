@@ -43,13 +43,6 @@
 #include <fenv.h>
 #endif
 
-#if (defined(_MSC_VER)) && defined( _WIN64)
-// This is only defined in x64
-#define isnanf   _isnanf
-#elif (!defined(HAVE_ISNANF))
-#define isnanf isnan
-#endif
-
 #ifdef HAVE_FLOAT_H
 #include <float.h>
 #endif
@@ -84,6 +77,8 @@
 #else
 #define ASSERT(x)
 #endif
+
+#include <cmath> // Currently just for isnan.
 
 #include "globals.h"
 #include "run_time.h"
@@ -406,12 +401,12 @@ double PolyRealPow(double x, double y)
     /* Some of the special cases are defined and don't seem to match
     the C pow function (at least as implemented in MS C). */
     /* Maybe handle all this in ML? */
-    if (isnan(x))
+    if (std::isnan(x))
     {
         if (y == 0.0) return 1.0;
         else return notANumber;
     }
-    else if (isnan(y)) return y; /* i.e. nan. */
+    else if (std::isnan(y)) return y; /* i.e. nan. */
     else if (x == 0.0 && y < 0.0)
     {
         /* This case is not handled correctly in Solaris. It always
@@ -571,12 +566,12 @@ float PolyRealFPow(float x, float y)
     /* Some of the special cases are defined and don't seem to match
     the C pow function (at least as implemented in MS C). */
     /* Maybe handle all this in ML? */
-    if (isnanf(x))
+    if (std::isnan(x))
     {
         if (y == 0.0) return 1.0;
         else return notANumberF;
     }
-    else if (isnanf(y)) return y; /* i.e. nan. */
+    else if (std::isnan(y)) return y; /* i.e. nan. */
     else if (x == 0.0 && y < 0.0)
     {
         /* This case is not handled correctly in Solaris. It always
