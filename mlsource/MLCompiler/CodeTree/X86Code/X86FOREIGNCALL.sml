@@ -367,16 +367,16 @@ struct
                     ]
                 |   (_, [FastArgDouble, FastArgDouble]) =>
                         [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 },
-                          XMMArith { opc= SSE2MoveDouble, source=unboxAddress ebx, output=xmm1 } ]
+                          XMMArith { opc= SSE2MoveDouble, source=unboxAddress mlArg2Reg, output=xmm1 } ]
 
                     (* X64 on both Windows and Unix take the first arg in xmm0.  On Unix the integer argument is treated
                        as the first argument and goes into edi.  On Windows it's treated as the second and goes into edx. *)
                 |   (X64Unix, [FastArgDouble, FastArgFixed]) =>
                         [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 },
-                          moveRR{source=ebx, output=edi, opSize=nativeWordOpSize} ]
+                          moveRR{source=mlArg2Reg, output=edi, opSize=nativeWordOpSize} ]
                 |   (X64Win, [FastArgDouble, FastArgFixed]) =>
                         [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 },
-                          moveRR{source=ebx, output=edx, opSize=nativeWordOpSize} ]
+                          moveRR{source=mlArg2Reg, output=edx, opSize=nativeWordOpSize} ]
                 |   (X86_32, [FastArgDouble, FastArgFixed]) =>
                      (* ebx must be pushed to the stack but eax must be unboxed.. *)
                     [
@@ -411,9 +411,9 @@ struct
 
                     (* One float argument and one fixed. *)
                 |   (X64Unix, [FastArgFloat, FastArgFixed]) =>
-                        unboxOrUntagFloat(eax, xmm0) @ [moveRR{source=ebx, output=edi, opSize=polyWordOpSize} ]
+                        unboxOrUntagFloat(eax, xmm0) @ [moveRR{source=mlArg2Reg, output=edi, opSize=polyWordOpSize} ]
                 |   (X64Win, [FastArgFloat, FastArgFixed]) =>
-                        unboxOrUntagFloat(eax, xmm0) @ [moveRR{source=ebx, output=edx, opSize=polyWordOpSize}]
+                        unboxOrUntagFloat(eax, xmm0) @ [moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize}]
                 |   (X86_32, [FastArgFloat, FastArgFixed]) =>
                      (* ebx must be pushed to the stack but eax must be unboxed.. *)
                     [

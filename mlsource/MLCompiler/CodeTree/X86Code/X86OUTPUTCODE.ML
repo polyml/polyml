@@ -3586,16 +3586,15 @@ struct
                     val addrOfConst = ! ic
                     val c = toMachineWord m
                     val cAsAddr = toAddress c
-                    (* For the moment this should always be a real number contained in
-                       a byte segment.  If this changes in the future we may need to
-                       align this back onto a 4/8-byte boundary. *)
+                    (* This may be a boxed real or, in 32-in-64 mode, a boxed float. *)
                     val cLength = length cAsAddr * wordSize
-                    val _ = (cLength = 0w8 andalso flags cAsAddr = F_bytes) orelse
+                    val _ = ((cLength = 0w8 orelse cLength = 0w4) andalso flags cAsAddr = F_bytes) orelse
                                 raise InternalError "putNonAddrConst: Not a real number"
-                    fun doCopy n =
-                        if n = cLength then ()
-                        else (genBytes(Word8Vector.fromList[loadByte(cAsAddr, n)]); doCopy(n+0w1))
-                    val () = doCopy 0w0
+                    (* Load the data and then write it out. *)
+                    val v = Word8Vector.tabulate(Word.toInt cLength, fn i => loadByte(cAsAddr, Word.fromInt i))
+                    val _ = genBytes v
+                    (* Pad *)
+                    val _ = if cLength <> 0w8 then genBytes(Word8Vector.tabulate(8-Word.toInt cLength, fn _ => 0w0)) else ()
                 in
                     set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, byteVec)
                 end
