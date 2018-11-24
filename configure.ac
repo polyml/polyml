@@ -570,8 +570,10 @@ AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
 AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X4])
 AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X8])
 AM_CONDITIONAL([ARCHX8632IN64], [test "$polyarch" = x86_32in64])
-AM_CONDITIONAL([WINDOWS64CALLS], [test "$poly_use_windowscc" = yes -a "$polyarch" = x86_64])
+# If we are targeting Windows rather than *nix we need the pre=built compiler with Windows conventions.
+AM_CONDITIONAL([WINDOWSCALLCONV], [test "$poly_use_windowscc" = yes])
 
+# This is true if we are building for native Windows rather than Cygwin
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
 

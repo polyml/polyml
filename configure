@@ -649,8 +649,8 @@ NO_UNDEFINED_FALSE
 NO_UNDEFINED_TRUE
 NATIVE_WINDOWS_FALSE
 NATIVE_WINDOWS_TRUE
-WINDOWS64CALLS_FALSE
-WINDOWS64CALLS_TRUE
+WINDOWSCALLCONV_FALSE
+WINDOWSCALLCONV_TRUE
 ARCHX8632IN64_FALSE
 ARCHX8632IN64_TRUE
 ARCHINTERPRET64_FALSE
@@ -22449,15 +22449,17 @@ else
   ARCHX8632IN64_FALSE=
 fi
 
- if test "$poly_use_windowscc" = yes -a "$polyarch" = x86_64; then
-  WINDOWS64CALLS_TRUE=
-  WINDOWS64CALLS_FALSE='#'
+# If we are targeting Windows rather than *nix we need the pre=built compiler with Windows conventions.
+ if test "$poly_use_windowscc" = yes; then
+  WINDOWSCALLCONV_TRUE=
+  WINDOWSCALLCONV_FALSE='#'
 else
-  WINDOWS64CALLS_TRUE='#'
-  WINDOWS64CALLS_FALSE=
+  WINDOWSCALLCONV_TRUE='#'
+  WINDOWSCALLCONV_FALSE=
 fi
 
 
+# This is true if we are building for native Windows rather than Cygwin
  if test "$poly_native_windows" = yes; then
   NATIVE_WINDOWS_TRUE=
   NATIVE_WINDOWS_FALSE='#'
@@ -22790,8 +22792,8 @@ if test -z "${ARCHX8632IN64_TRUE}" && test -z "${ARCHX8632IN64_FALSE}"; then
   as_fn_error $? "conditional \"ARCHX8632IN64\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
-if test -z "${WINDOWS64CALLS_TRUE}" && test -z "${WINDOWS64CALLS_FALSE}"; then
-  as_fn_error $? "conditional \"WINDOWS64CALLS\" was never defined.
+if test -z "${WINDOWSCALLCONV_TRUE}" && test -z "${WINDOWSCALLCONV_FALSE}"; then
+  as_fn_error $? "conditional \"WINDOWSCALLCONV\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${NATIVE_WINDOWS_TRUE}" && test -z "${NATIVE_WINDOWS_FALSE}"; then

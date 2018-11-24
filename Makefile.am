@@ -30,14 +30,14 @@ if ARCHINTERPRET64
 POLYIMPORT = $(srcdir)/imports/polymlint64.txt
 else
 if ARCHX86_64
-if WINDOWS64CALLS
+if WINDOWSCALLCONV
 POLYIMPORT = $(srcdir)/imports/polymlx86_64win.txt
 else
 POLYIMPORT = $(srcdir)/imports/polymlx86_64sysv.txt
 endif
 else
 if ARCHX8632IN64
-if WINDOWS64CALLS
+if WINDOWSCALLCONV
 POLYIMPORT = $(srcdir)/imports/polymlx64_32win.txt
 else
 POLYIMPORT = $(srcdir)/imports/polymlx64_32sysv.txt
@@ -63,7 +63,11 @@ else
 if ARCHX86_64
 EXTRALDFLAGS += -Wl,-u,WinMain
 else
+if ARCHX8632IN64
+EXTRALDFLAGS += -Wl,-u,WinMain
+else
 EXTRALDFLAGS += -Wl,-u,_WinMain@16 -Wl,--large-address-aware
+endif
 endif
 endif
 
