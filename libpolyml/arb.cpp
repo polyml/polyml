@@ -33,10 +33,11 @@ pointed to.  The sign of long-form integers is coded in one of the flag bits.
 Short integers are signed quantities, and can be directly
 manipulated by the relevant instructions, but if overflow occurs then the full
 long versions of the operations will need to be called.
-Long-form integers are held as vectors of bytes (i.e. unsigned char)
-low-order byte first. It is assumed that a ``byte'' will hold an 8-bit
-quantity and a ``long'' at least two ``bytes''. It is essential that unsigned
-values are used.
+There are two versions of long-form integers depending on whether the GMP
+library is available.  If it is then the byte cells contain "limbs",
+typically native 32 or 64-bit words.  If it is not, the fall-back
+Poly code is used in which long-form integers are vectors of
+bytes (i.e. unsigned char).
 Integers are always stored in the least possible number of words, and
 will be shortened to the short-form when possible.
 
@@ -136,7 +137,11 @@ static Handle lcm_arbitrary(TaskData *taskData, Handle,Handle);
 // Returns the length of the argument with trailing zeros removed.
 static mp_size_t numLimbs(PolyWord x)
 {
-    mp_size_t lu = OBJECT_LENGTH(x)*sizeof(PolyWord)/sizeof(mp_limb_t);
+    POLYUNSIGNED numWords = OBJECT_LENGTH(x);
+#if BITS_PER_POLYWORD != GMP_LIMB_BITS
+    ASSERT((numWords & (sizeof(mp_limb_t)/sizeof(PolyWord)-1)) == 0);
+#endif
+    mp_size_t lu = numWords*sizeof(PolyWord)/sizeof(mp_limb_t);
     mp_limb_t *u = (mp_limb_t *)x.AsObjPtr();
     while (lu > 0 && u[lu-1] == 0) lu--;
     return lu;
@@ -1348,7 +1353,13 @@ static Handle logical_long(TaskData *taskData, Handle x, Handle y,
     else
     {
         /* Get result vector. */
-        z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
+#if USE_GMP
+        // Add one limb
+        z = alloc_and_save(taskData, WORDS(lx+sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
+#else
+        // Add one word.  Actually we just want one more byte.
+        z = alloc_and_save(taskData, WORDS(lx+sizeof(PolyWord)), F_MUTABLE_BIT|F_BYTE_OBJ);
+#endif
 
         /* now safe to dereference pointers */
         u = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x); lu = lx;
