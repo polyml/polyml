@@ -324,30 +324,22 @@ class SpaceAlloc
 public:
     SpaceAlloc(unsigned *indexCtr, unsigned perms, POLYUNSIGNED def);
     PolyObject *NewObj(POLYUNSIGNED objWords);
-    bool CompleteLast(void);
 
     size_t defaultSize;
-    PermanentMemSpace *lastSpace;
+    PermanentMemSpace *memSpace;
     size_t used;
     unsigned permissions;
     unsigned *spaceIndexCtr;
+
 };
 
 SpaceAlloc::SpaceAlloc(unsigned *indexCtr, unsigned perms, POLYUNSIGNED def)
 {
     permissions = perms;
     defaultSize = def;
-    lastSpace = 0;
+    memSpace = 0;
     used = 0;
     spaceIndexCtr = indexCtr;
-}
-
-bool SpaceAlloc::CompleteLast(void)
-{
-    if (lastSpace != 0)
-        gMem.CompletePermanentSpaceAllocation(lastSpace);
-    lastSpace = 0;
-    return true;
 }
 
 // Allocate a new object.  May create a new space and add the old one to the permanent
@@ -355,27 +347,25 @@ bool SpaceAlloc::CompleteLast(void)
 #ifndef POLYML32IN64
 PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
 {
-    if (lastSpace == 0 || lastSpace->spaceSize() - used <= objWords)
+    if (memSpace == 0 || memSpace->spaceSize() - used <= objWords)
     {
         // Need some more space.
-        if (! CompleteLast())
-            return 0;
         size_t size = defaultSize;
         if (size <= objWords)
             size = objWords+1;
-        lastSpace =
+        memSpace =
             gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr);
         (*spaceIndexCtr)++;
         // The memory is writable until CompletePermanentSpaceAllocation is called
-        if (lastSpace == 0)
+        if (memSpace == 0)
         {
             fprintf(stderr, "Unable to allocate memory\n");
             return 0;
         }
         used = 0;
     }
-    ASSERT(lastSpace->spaceSize() - used > objWords);
-    PolyObject *newObj = (PolyObject*)(lastSpace->bottom + used+1);
+    ASSERT(memSpace->spaceSize() - used > objWords);
+    PolyObject *newObj = (PolyObject*)(memSpace->bottom + used+1);
     used += objWords+1;
     return newObj;
 }
@@ -385,27 +375,25 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
 {
     size_t rounded = objWords;
     if ((objWords & 1) == 0) rounded++;
-    if (lastSpace == 0 || lastSpace->spaceSize() - used <= rounded)
+    if (memSpace == 0 || memSpace->spaceSize() - used <= rounded)
     {
         // Need some more space.
-        if (!CompleteLast())
-            return 0;
         size_t size = defaultSize;
         if (size <= rounded)
             size = rounded + 1;
-        lastSpace =
+        memSpace =
             gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr);
         (*spaceIndexCtr)++;
         // The memory is writable until CompletePermanentSpaceAllocation is called
-        if (lastSpace == 0)
+        if (memSpace == 0)
         {
             fprintf(stderr, "Unable to allocate memory\n");
             return 0;
         }
-        lastSpace->bottom[0] = PolyWord::FromUnsigned(0);
+        memSpace->bottom[0] = PolyWord::FromUnsigned(0);
         used = 1;
     }
-    PolyObject *newObj = (PolyObject*)(lastSpace->bottom + used + 1);
+    PolyObject *newObj = (PolyObject*)(memSpace->bottom + used + 1);
     if (rounded != objWords) newObj->Set(objWords, PolyWord::FromUnsigned(0));
     used += rounded + 1;
     ASSERT(((uintptr_t)newObj & 0x7) == 0);
@@ -801,7 +789,10 @@ bool PImport::DoImport()
             return false;
         }
     }
-    return mutSpace.CompleteLast() && immutSpace.CompleteLast() && codeSpace.CompleteLast();
+    // Now remove write access from immutable spaces.
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
+        gMem.CompletePermanentSpaceAllocation(*i);
+    return true;
 }
 
 // Import a file in the portable format and return a pointer to the root object.
