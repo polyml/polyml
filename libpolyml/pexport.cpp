@@ -172,7 +172,7 @@ void PExport::printObject(PolyObject *p)
             */
             byte *u = (byte*)p;
             putc('B', exportFile);
-            fprintf(exportFile, "%zu|", length*sizeof(PolyWord));
+            fprintf(exportFile, "%" PRI_SIZET "|", length*sizeof(PolyWord));
             for (unsigned i = 0; i < (unsigned)(length*sizeof(PolyWord)); i++)
             {
                 fprintf(exportFile, "%02x", u[i]);
