@@ -872,7 +872,7 @@ class LoadRelocate: public ScanAddress
 {
 public:
     LoadRelocate(bool pcc = false): processCodeConstants(pcc), originalBaseAddr(0), descrs(0),
-        targetAddresses(0), nDescrs(0), errorMessage(0), spaceTree(0) {}
+        targetAddresses(0), nDescrs(0), spaceTree(0) {}
     ~LoadRelocate();
 
     void RelocateObject(PolyObject *p);
@@ -887,7 +887,6 @@ public:
     SavedStateSegmentDescr *descrs;
     PolyWord **targetAddresses;
     unsigned nDescrs;
-    const char *errorMessage;
     SpaceBTree *spaceTree;
     intptr_t relativeOffset;
 };
@@ -972,9 +971,9 @@ PolyObject *LoadRelocate::RelocateAddress(PolyObject *obj)
         tr = ((SpaceBTreeTree*)tr)->tree[(t >> j) & 0xff];
     }
 
-    // Error: Not found.
-    errorMessage = "Unmatched address";
-    return obj;
+    // This should never happen.
+    ASSERT(0);
+    return 0;
 }
 
 // This is based on Exporter::relocateObject but does the reverse.
