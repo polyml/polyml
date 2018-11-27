@@ -1,7 +1,7 @@
 /*
     Title:  savestate.cpp - Save and Load state
 
-    Copyright (c) 2007, 2015, 2017 David C.J. Matthews
+    Copyright (c) 2007, 2015, 2017-18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -948,7 +948,7 @@ PolyObject *LoadRelocate::RelocateAddress(PolyObject *obj)
 {
     // Which segment is this address in?
     // N.B. As with SpaceForAddress we need to subtract 1 to point to the length word.
-    uintptr_t t = (uintptr_t)(obj - 1);
+    uintptr_t t = (uintptr_t)((PolyWord*)obj - 1);
     SpaceBTree *tr = spaceTree;
 
     // Each level of the tree is either a leaf or a vector of trees.
