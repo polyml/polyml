@@ -1,7 +1,7 @@
 (* This is a check that return addresses are correctly identified as
    references to code cells. *)
 
-fun f () = (OS.Process.sleep(Time.fromSeconds 3); print "Done\n");
+fun f () = (OS.Process.sleep(Time.fromSeconds 3); ());
 val _ = Thread.Thread.fork(f, []);
 fun f () = print "A new function";
 
