@@ -1639,10 +1639,24 @@ struct
             let
                 val addrReg = newPReg() and untagArg = newUReg()
                 val (argCode, argReg1) = codeToPRegRev(arg1, context, tailCode)
+                val (signExtend, sxReg) =
+                    case targetArch of
+                        ObjectId32Bit =>
+                        let
+                            val sReg1 = newUReg() and sReg2 = newUReg()
+                        in
+                            (* Temporarily use shifts to sign-extend.  We should use MOVSXD. *)
+                            ([BlockSimple(ShiftOperation{shift=SAR, resultReg=sReg2, operand=sReg1, shiftAmount=IntegerConstant 32,
+                                                         ccRef=newCCRef(), opSize=OpSize64}),
+                              BlockSimple(ShiftOperation{shift=SHL, resultReg=sReg1, operand=argReg1, shiftAmount=IntegerConstant 32,
+                                                         ccRef=newCCRef(), opSize=OpSize64})],
+                             sReg2)
+                        end
+                    |   _ => ([], argReg1)
                 val code =
                     BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]}) ::
-                    BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=true, cache=NONE, opSize=polyWordOpSize}) ::
-                    argCode
+                    BlockSimple(UntagValue{source=sxReg, dest=untagArg, isSigned=true, cache=NONE, opSize=nativeWordOpSize}) ::
+                    signExtend @ argCode
             in
                 moveIfNotAllowedRev(destination, code, RegisterArgument addrReg)
             end
@@ -1653,7 +1667,8 @@ struct
                 val (argCode, argReg1) = codeToPRegRev(arg1, context, tailCode)
                 val code =
                     BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]}) ::
-                    BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=false, cache=NONE, opSize=nativeWordOpSize}) ::
+                    (* We can just use a polyWord operation to untag the unsigned value. *)
+                    BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=false, cache=NONE, opSize=polyWordOpSize}) ::
                     argCode
             in
                 moveIfNotAllowedRev(destination, code, RegisterArgument addrReg)
@@ -2094,7 +2109,7 @@ struct
                    appropriate register. *)
                 val code =
                     arg1Code @ arg2Code @
-                    [BlockSimple(LoadEffectiveAddress{base=SOME aReg1, offset= ~1, index=MemIndex1 aReg2, dest=target, opSize=nativeWordOpSize})]
+                    [BlockSimple(LoadEffectiveAddress{base=SOME aReg1, offset= ~1, index=MemIndex1 aReg2, dest=target, opSize=polyWordOpSize})]
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
             end
@@ -2146,7 +2161,7 @@ struct
                     arg1Code @ arg2Code @
                     (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
                        if we have a value that is already untagged. *)
-                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE, opSize=nativeWordOpSize}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE, opSize=polyWordOpSize}),
                      BlockSimple(ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef(), opSize=polyWordOpSize}),
                      BlockSimple(Multiplication{resultReg=resUntagged, operand1=arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=newCCRef(), opSize=polyWordOpSize}),
                      BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef(), opSize=polyWordOpSize})]
@@ -2163,8 +2178,8 @@ struct
                 val quotient = newUReg() and remainder = newUReg()
                 val code = arg1Code @ arg2Code @
                     (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
-                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE, opSize=nativeWordOpSize}),
-                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false, cache=NONE, opSize=nativeWordOpSize}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE, opSize=polyWordOpSize}),
+                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false, cache=NONE, opSize=polyWordOpSize}),
                      BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder, opSize=polyWordOpSize }),
                      BlockSimple(TagValue { source=quotient, dest=target, isSigned=false, opSize=polyWordOpSize })]
@@ -2182,8 +2197,8 @@ struct
                 val quotient = newUReg() and remainder = newUReg()
                 val code = arg1Code @ arg2Code @
                     (* Shift both of the arguments to remove the tags. *)
-                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE, opSize=nativeWordOpSize}),
-                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false, cache=NONE, opSize=nativeWordOpSize}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE, opSize=polyWordOpSize}),
+                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false, cache=NONE, opSize=polyWordOpSize}),
                      BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder, opSize=polyWordOpSize }),
                      BlockSimple(TagValue { source=remainder, dest=target, isSigned=false, opSize=polyWordOpSize })]
@@ -2803,12 +2818,12 @@ struct
                 case multiplier of
                     0w0 => [BlockSimple(LoadArgument{source=IntegerConstant 1, dest=target, kind=movePolyWord})]
                 |   0w1 => [BlockSimple(LoadArgument{source=RegisterArgument aReg, dest=target, kind=movePolyWord})]
-                |   0w2 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~1, index=MemIndex1 aReg, dest=target, opSize=nativeWordOpSize})]
-                |   0w3 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~2, index=MemIndex2 aReg, dest=target, opSize=nativeWordOpSize})]
-                |   0w4 => [BlockSimple(LoadEffectiveAddress{base=NONE, offset= ~3, index=MemIndex4 aReg, dest=target, opSize=nativeWordOpSize})]
-                |   0w5 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~4, index=MemIndex4 aReg, dest=target, opSize=nativeWordOpSize})]
-                |   0w8 => [BlockSimple(LoadEffectiveAddress{base=NONE, offset= ~7, index=MemIndex8 aReg, dest=target, opSize=nativeWordOpSize})]
-                |   0w9 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~8, index=MemIndex8 aReg, dest=target, opSize=nativeWordOpSize})]
+                |   0w2 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~1, index=MemIndex1 aReg, dest=target, opSize=polyWordOpSize})]
+                |   0w3 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~2, index=MemIndex2 aReg, dest=target, opSize=polyWordOpSize})]
+                |   0w4 => [BlockSimple(LoadEffectiveAddress{base=NONE, offset= ~3, index=MemIndex4 aReg, dest=target, opSize=polyWordOpSize})]
+                |   0w5 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~4, index=MemIndex4 aReg, dest=target, opSize=polyWordOpSize})]
+                |   0w8 => [BlockSimple(LoadEffectiveAddress{base=NONE, offset= ~7, index=MemIndex8 aReg, dest=target, opSize=polyWordOpSize})]
+                |   0w9 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~8, index=MemIndex8 aReg, dest=target, opSize=polyWordOpSize})]
                 
                 |   _ =>
                     let
@@ -3139,7 +3154,7 @@ struct
                         in
                             (RegisterArgument valueReg1,
                                 codeToICodeTarget(value, context, false, valueReg) @
-                                [BlockSimple(UntagValue{dest=valueReg1, source=valueReg, isSigned=false, cache=NONE, opSize=nativeWordOpSize})])
+                                [BlockSimple(UntagValue{dest=valueReg1, source=valueReg, isSigned=false, cache=NONE, opSize=polyWordOpSize})])
                         end
                 val code =
                     codeBaseIndex @ valCode @ codeUntag @
@@ -3514,7 +3529,7 @@ struct
                 val indexReg1 = newUReg()
                 val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
                 val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
-                val untagCode = [BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false, cache=NONE, opSize=nativeWordOpSize})]
+                val untagCode = [BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false, cache=NONE, opSize=polyWordOpSize})]
                 val (codeLoadAddr, realBase) =
                     if targetArch = ObjectId32Bit
                     then
@@ -3578,7 +3593,7 @@ struct
                 and (codeIndex, indexReg) = codeToPReg(index, context)
                 val untagCode =
                     [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord}),
-                     BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false, cache=NONE, opSize=nativeWordOpSize})]
+                     BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false, cache=NONE, opSize=polyWordOpSize})]
                 val memResult = {base=untaggedBaseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1, cache=NONE}
             in
                 (codeBase @ codeIndex, untagCode, memResult)
@@ -3629,7 +3644,7 @@ struct
             let
                 val untagReg = newUReg()
                 val (code, srcReg) = codeToPRegRev(arg, context, tailCode)
-                val untag = [BlockSimple(UntagValue{source=srcReg, dest=untagReg, isSigned=isSigned, cache=NONE, opSize=if isSigned then polyWordOpSize else nativeWordOpSize})]
+                val untag = [BlockSimple(UntagValue{source=srcReg, dest=untagReg, isSigned=isSigned, cache=NONE, opSize=polyWordOpSize})]
             in
                 (code, untag, untagReg)
             end
@@ -3658,7 +3673,7 @@ struct
             let
                 val untagReg = newUReg()
                 val (code, argReg) = codeToPReg(arg, context)
-                val untag = [BlockSimple(UntagValue{source=argReg, dest=untagReg, isSigned=isSigned, cache=NONE, opSize=if isSigned then polyWordOpSize else nativeWordOpSize})]
+                val untag = [BlockSimple(UntagValue{source=argReg, dest=untagReg, isSigned=isSigned, cache=NONE, opSize=polyWordOpSize})]
             in
                 (code, untag, RegisterArgument untagReg)
             end
@@ -3693,7 +3708,7 @@ struct
                 if targetArch = ObjectId32Bit
                 then LoadEffectiveAddress{ base=SOME allocReg, offset=0, index=ObjectIndex, dest=initAddrReg, opSize=nativeWordOpSize}
                 else LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=movePolyWord}),
-              BlockSimple(UntagValue{source=sizeReg2, dest=untagSizeReg, isSigned=false, cache=NONE, opSize=nativeWordOpSize}),
+              BlockSimple(UntagValue{source=sizeReg2, dest=untagSizeReg, isSigned=false, cache=NONE, opSize=polyWordOpSize}),
               BlockSimple(LoadArgument{source=initResult, dest=initReg, kind=movePolyWord}),
               BlockSimple(InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg}),
               BlockSimple InitialisationComplete,
