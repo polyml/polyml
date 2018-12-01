@@ -1240,7 +1240,7 @@ struct
                    using no base register and a multiplier of two. *)
                 (* TODO: If the value we're tagging is a byte or a 16-bit value we can use OpSize32 and possibly
                    save the Rex byte. *)
-                LoadAddress{ output=regResult, offset=1, base=SOME realSReg, index=Index1 realSReg, opSize=nativeWordOpSize } :: code
+                LoadAddress{ output=regResult, offset=1, base=SOME realSReg, index=Index1 realSReg, opSize=opSize } :: code
             end
 
         |   codeExtended _ ({instr=UntagValue{dest as PReg dReg, cache=SOME(PReg cacheReg), opSize, ...}, ...}, code) =

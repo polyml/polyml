@@ -2321,7 +2321,7 @@ struct
                         end
 
                 (* The shift amount can usefully be a constant. *)
-                val (arg2Code, untag2Code, arg2Arg) = codeAsUntaggedValue(arg2, false, context)
+                val (arg2Code, untag2Code, arg2Arg) = codeAsUntaggedByte(arg2, false, context)
                 val resRegUntagged = newUReg()
                 val shiftOp = case shift of ShiftLeft => SHL | ShiftRightLogical => SHR | ShiftRightArithmetic => SAR
                 val code = arg1Code @ arg2Code @ untag2Code @
@@ -2339,7 +2339,7 @@ struct
                 val target = asTarget destination
                 val sizeReg = newPReg() and baseReg = newPReg()
                 val sizeCode = codeToICodeTarget(arg1, context, false, sizeReg)
-                val (flagsCode, flagUntag, flagArg) = codeAsUntaggedValue(arg2, false, context)
+                val (flagsCode, flagUntag, flagArg) = codeAsUntaggedByte(arg2, false, context)
                 val code =sizeCode @ flagsCode @
                  [BlockSimple(AllocateMemoryVariable{size=sizeReg, dest=baseReg, saveRegs=[]})] @
                   flagUntag @
@@ -2575,7 +2575,7 @@ struct
                 open BuiltIns
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
-                val (arg2Code, untag2Code, arg2Arg) = codeAsUntaggedValue(arg2, false, context)
+                val (arg2Code, untag2Code, arg2Arg) = codeAsUntaggedByte(arg2, false, context)
                 val aReg3 = newUReg()
                 val shiftOp = case shift of ShiftLeft => SHL | ShiftRightLogical => SHR | ShiftRightArithmetic => SAR
                 val argReg = newUReg()
@@ -3015,7 +3015,7 @@ struct
             let
                 val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, true, context)
                 (* We have to untag the value to store. *)
-                val (valueCode, untagValue, valueArg) = codeAsUntaggedValue(value, false, context)
+                val (valueCode, untagValue, valueArg) = codeAsUntaggedByte(value, false, context)
                 val code =
                     codeBaseIndex @ valueCode @ untagValue @ codeUntag @
                     [BlockSimple(StoreArgument {source=valueArg, base=base, offset=offset, index=index, kind=MoveByte, isMutable=true})]
@@ -3027,7 +3027,7 @@ struct
             let
                 (* Store a byte to C memory.  Almost exactly the same as LoadStoreMLByte. *)
                 val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeCAddress(address, 0w1, context)
-                val (valueCode, untagValue, valueArg) = codeAsUntaggedValue(value, false, context)
+                val (valueCode, untagValue, valueArg) = codeAsUntaggedByte(value, false, context)
                 val code =
                     codeBaseIndex @ valueCode @ untagValue @ codeUntag @
                     [BlockSimple(StoreArgument {source=valueArg, base=base, offset=offset, index=index, kind=MoveByte, isMutable=true})]
@@ -3662,18 +3662,18 @@ struct
            Currently this is only used for byte values but we may have to be careful if
            we use it for word values on the X86.  Moving an untagged value into a register
            might look like loading a constant address. *)
-        and codeAsUntaggedValue(BICConstnt(value, _), isSigned, _) =
+        and codeAsUntaggedByte(BICConstnt(value, _), isSigned, _) =
             let
                 val cval = if isShort value then toShort value else 0w0
                 val cArg = IntegerConstant(if isSigned then Word.toLargeIntX cval else Word.toLargeInt cval) (* Don't tag *)
             in
                 ([], [], cArg)
             end
-        |   codeAsUntaggedValue(arg, isSigned, context) =
+        |   codeAsUntaggedByte(arg, isSigned, context) =
             let
                 val untagReg = newUReg()
                 val (code, argReg) = codeToPReg(arg, context)
-                val untag = [BlockSimple(UntagValue{source=argReg, dest=untagReg, isSigned=isSigned, cache=NONE, opSize=polyWordOpSize})]
+                val untag = [BlockSimple(UntagValue{source=argReg, dest=untagReg, isSigned=isSigned, cache=NONE, opSize=OpSize32})]
             in
                 (code, untag, RegisterArgument untagReg)
             end
@@ -3689,7 +3689,7 @@ struct
             val sizeReg2 = newPReg()
             val untagSizeReg = newUReg() and initAddrReg = newPReg() and allocReg = newPReg()
             val sizeCode = codeToICodeTarget(numWords, context, false, sizeReg)
-            and (flagsCode, flagUntag, flagArg) = codeAsUntaggedValue(flags, false, context)
+            and (flagsCode, flagUntag, flagArg) = codeAsUntaggedByte(flags, false, context)
             (* We're better off deferring the initialiser if possible.  If the value is
                a constant we don't have to save it. *)
             val (initCode, initResult, _) = codeToICode(initial, context, false, Allowed allowDefer)
