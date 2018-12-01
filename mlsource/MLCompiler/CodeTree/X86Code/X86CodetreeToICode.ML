@@ -2219,9 +2219,14 @@ struct
                     then (case logOp of BuiltIns.LogicalXor => semitag | _ => tag) (Word.toLargeIntX(toShort value))
                     else 0
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
+                (* If we AND with a value that fits in 32-bits we can use a 32-bit operation. *)
+                val opSize =
+                    if logOp = BuiltIns.LogicalAnd andalso constVal <= 0xffffffff
+                    then OpSize32 else polyWordOpSize
                 val code =
                     arg1Code @
-                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=arg1Reg, operand2=IntegerConstant constVal, ccRef=newCCRef(), opSize=polyWordOpSize})]
+                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=arg1Reg, operand2=IntegerConstant constVal,
+                                 ccRef=newCCRef(), opSize=opSize})]
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
             end
@@ -2236,10 +2241,14 @@ struct
                     then (case logOp of BuiltIns.LogicalXor => semitag | _ => tag) (Word.toLargeIntX(toShort value))
                     else 0
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
-                (* TODO: If this is AND and the constant will fit in 32-bits we can use a 32-bit operation. *)
+                (* If we AND with a value that fits in 32-bits we can use a 32-bit operation. *)
+                val opSize =
+                    if logOp = BuiltIns.LogicalAnd andalso constVal <= 0xffffffff
+                    then OpSize32 else polyWordOpSize
                 val code =
                     arg2Code @
-                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=arg2Reg, operand2=IntegerConstant constVal, ccRef=newCCRef(), opSize=polyWordOpSize})]
+                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=arg2Reg, operand2=IntegerConstant constVal,
+                                 ccRef=newCCRef(), opSize=opSize})]
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
             end
@@ -2527,9 +2536,14 @@ struct
                 val argReg = newUReg()
                 val constantValue = largeWordConstant value
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
+                (* If we AND with a value that fits in 32-bits we can use a 32-bit operation. *)
+                val opSize =
+                    if logOp = BuiltIns.LogicalAnd andalso constantValue <= 0xffffffff
+                    then OpSize32 else nativeWordOpSize
                 val code = arg1Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=moveNativeWord}),
-                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef(), opSize=nativeWordOpSize}),
+                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue,
+                                                    ccRef=newCCRef(), opSize=opSize}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
@@ -2543,10 +2557,14 @@ struct
                 val argReg = newUReg()
                 val constantValue = largeWordConstant value
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
-                (* TODO: If this is AND and the constant is less than 32 bits we only need 32-bit operations. *)
+                (* If we AND with a value that fits in 32-bits we can use a 32-bit operation. *)
+                val opSize =
+                    if logOp = BuiltIns.LogicalAnd andalso constantValue <= 0xffffffff
+                    then OpSize32 else nativeWordOpSize
                 val code = arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg, kind=moveNativeWord}),
-                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef(), opSize=nativeWordOpSize}),
+                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue,
+                                                    ccRef=newCCRef(), opSize=opSize}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})]
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
