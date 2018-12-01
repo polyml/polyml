@@ -14,6 +14,7 @@ let
                adjust it.  Set it to the default before each test. *)
             val () = maxInlineSize := defaultInlineSize (* Set it to the default *)
             val () = debug := false (* Reset this *)
+            val () = narrowOverloadFlexRecord := false
             (* First in list is the name with no suffix. *)
             val inStream = TextIO.getInstream(TextIO.openIn fileName)
             val stream = ref inStream

@@ -2853,37 +2853,33 @@ struct
                                     false
                                     )
                                 else showError;
-                            val newVal =
-                                 mkTypeVar 
-                                   (newLevel, tvEquality tvar,
-                                    if nonCopiable then (tvNonUnifiable tvar) else false,
-                                    tvPrintity tvar)
-                        in
-                            (* If an explicit type variable is going out of scope we can
-                               generalise it, except if it is nonunifiable. *)
                             (* It may be a flexible record so we have to transfer the
                                record to the new variable. *)
-                            tvSetValue (typesTypeVar newVal, tvValue tvar);
-                            tvSetValue (tvar, newVal);
+                            val newTypeVar =
+                                makeTv {value=tvValue tvar, level=newLevel, equality=tvEquality tvar,
+                                        nonunifiable=if nonCopiable then (tvNonUnifiable tvar) else false,
+                                        printable=tvPrintity tvar}
+                        in
+                            tvSetValue (tvar, TypeVar newTypeVar);
+                            (* If we are using the "narrow" context for overloading and
+                               flexible records we should apply this here.  Otherwise it is
+                               dealt with in the next pass when we have the full program context. *)
+                            case (checkOverloadFlex, tvValue tvar) of
+                                (true, LabelledType _) => giveError("Type", "is an unresolved flexible record")
+                            |   (true, OverloadSet {typeset, ...}) =>
+                                (   (* Set this to the "preferred" type.  Typically this is "int" but for overloaded literals
+                                       (e.g. 0w0) it could be something else. *)
+                                    case preferredOverload typeset of
+                                        SOME tycons =>
+                                            tvSetValue(tvar,
+                                                mkTypeConstruction(tcName tycons, tycons, [], []))
+                                    |   NONE => raise InternalError "general: No matching type"
+                                )
+                            |   _ => ();
                             (isOk, nonExpansive)
                         end
                         else genArgs
                 in
-                    (* If we are using the "narrow" context for overloading and
-                       flexible records we should apply this here.  Otherwise it is
-                       dealt with in the next pass when we have the full program context. *)
-                    case (checkOverloadFlex, tvValue tvar) of
-                        (true, LabelledType _) => giveError("Type", "is an unresolved flexible record")
-                    |   (true, OverloadSet {typeset, ...}) =>
-                        (   (* Set this to the "preferred" type.  Typically this is "int" but for overloaded literals
-                               (e.g. 0w0) it could be something else. *)
-                            case preferredOverload typeset of
-                                SOME tycons =>
-                                    tvSetValue(tvar,
-                                        mkTypeConstruction(tcName tycons, tycons, [], []))
-                            |   NONE => raise InternalError "general: No matching type"
-                        )
-                    |   _ => ();
                     general (tvValue tvar) argSet (* Process any flexible record. *)
                 end
            
