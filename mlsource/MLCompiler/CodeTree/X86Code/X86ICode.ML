@@ -233,7 +233,7 @@ struct
 
         (* Shift a value to remove the tag bit.  The cache is used if this is untagging a
            value that has previously been tagged. *)
-    |   UntagValue of { source: preg, dest: preg, isSigned: bool, cache: preg option }
+    |   UntagValue of { source: preg, dest: preg, isSigned: bool, cache: preg option, opSize: opSize }
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic.
            The base register is optional in this case. *)
@@ -645,9 +645,11 @@ struct
         |   printICode(TagValue{source, dest, ...}, stream) =
                 (stream "\tTagValue\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
 
-        |   printICode(UntagValue{source, dest, isSigned, cache}, stream) =
+        |   printICode(UntagValue{source, dest, isSigned, cache, opSize}, stream) =
             (
-                stream "\tUntag"; stream(if isSigned then "Signed\t" else "Unsigned\t");
+                stream "\tUntag"; stream(if isSigned then "Signed" else "Unsigned");
+                printOpsize(opSize, stream);
+                stream "\t";
                 printReg(source, stream); stream " => "; printReg(dest, stream);
                 case cache of NONE => () | SOME c => (stream " cache "; printReg(c, stream))
             )

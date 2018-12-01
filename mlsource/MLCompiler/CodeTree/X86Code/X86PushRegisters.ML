@@ -1029,7 +1029,7 @@ struct
                             destCode @ TagValue{source=sourceVal, dest=destVal, isSigned=isSigned} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=UntagValue{source, dest, isSigned, cache, ...}, ...}, code) =
+                    |   pushRegisters({instr=UntagValue{source, dest, isSigned, cache, opSize, ...}, ...}, code) =
                         let
                             val (loadedSource, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
@@ -1044,7 +1044,7 @@ struct
                                     then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
                                     else findCachedTagged(source, isSigned)
                         in
-                            destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, cache=newCache} :: sourceCode @ code
+                            destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, cache=newCache, opSize=opSize} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest, opSize}, ...}, code) =

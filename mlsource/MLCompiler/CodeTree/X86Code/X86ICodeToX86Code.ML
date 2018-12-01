@@ -1243,23 +1243,25 @@ struct
                 LoadAddress{ output=regResult, offset=1, base=SOME realSReg, index=Index1 realSReg, opSize=nativeWordOpSize } :: code
             end
 
-        |   codeExtended _ ({instr=UntagValue{dest as PReg dReg, cache=SOME(PReg cacheReg), ...}, ...}, code) =
+        |   codeExtended _ ({instr=UntagValue{dest as PReg dReg, cache=SOME(PReg cacheReg), opSize, ...}, ...}, code) =
             if not (isUsed dest)
             then code
-            else moveIfNecessary({src=getAllocatedReg cacheReg, dst=getAllocatedReg dReg, kind=moveNativeWord}, code)
+            else moveIfNecessary({src=getAllocatedReg cacheReg, dst=getAllocatedReg dReg, kind=opSizeToMove opSize}, code)
 
-        |   codeExtended _ ({instr=UntagValue{source=PReg sReg, dest as PReg dReg, isSigned, ...}, ...}, code) =
+        |   codeExtended _ ({instr=UntagValue{source=PReg sReg, dest as PReg dReg, isSigned, opSize, ...}, ...}, code) =
             if not (isUsed dest)
             then code
             else
             let
                 val regResult = getAllocatedReg dReg
                 val realSReg = getAllocatedReg sReg
+                (* If this is signed it MUST be a polyWord. *)
+                val _ = isSigned andalso opSize <> polyWordOpSize andalso raise InternalError "UntagValue: signed size"
             in
                 (* TODO: For most cases we're going to be using a 32-bit word if this is 32-in-64.  The exception
                    is when converting a word to a signed large-word.  *)
-                ShiftConstant{ shiftType=if isSigned then SAR else SHR, output=asGenReg regResult, shift=0w1, opSize=polyWordOpSize } ::
-                    moveIfNecessary({src=realSReg, dst=regResult, kind=moveNativeWord}, code)
+                ShiftConstant{ shiftType=if isSigned then SAR else SHR, output=asGenReg regResult, shift=0w1, opSize=opSize } ::
+                    moveIfNecessary({src=realSReg, dst=regResult, kind=opSizeToMove opSize}, code)
             end
 
         |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index=ObjectIndex, dest=PReg dReg, opSize}, ...}, code) =

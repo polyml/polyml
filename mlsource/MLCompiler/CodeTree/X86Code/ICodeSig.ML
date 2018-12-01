@@ -263,7 +263,7 @@ sig
 
         (* Shift a value to remove the tag bit.  The cache is used if this is untagging a
            value that has previously been tagged. *)
-    |   UntagValue of { source: preg, dest: preg, isSigned: bool, cache: preg option }
+    |   UntagValue of { source: preg, dest: preg, isSigned: bool, cache: preg option, opSize: opSize }
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic.
            The base register is optional in this case. *)
