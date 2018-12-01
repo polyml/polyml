@@ -14,6 +14,7 @@ let
                adjust it.  Set it to the default before each test. *)
             val () = maxInlineSize := defaultInlineSize (* Set it to the default *)
             val () = debug := false (* Reset this *)
+            val () = narrowOverloadFlexRecord := false
             (* First in list is the name with no suffix. *)
             val inStream = TextIO.getInstream(TextIO.openIn fileName)
             val stream = ref inStream
@@ -103,23 +104,47 @@ let
 
         open OS.FileSys OS.Path
         val testPath = joinDirFile{dir=parentDir, file=dirName}
-        val dir = openDir testPath
-        fun runDir (fails: string list) =
-            case readDir dir of
-                NONE => fails (* Finished *)
-            |   SOME f =>
-                if String.isSuffix "ML" f
-                then
-                (
-                    print f; print " => ";
-                    if runTest(joinDirFile{dir=testPath, file=f})
-                    then (print "Passed\n"; runDir fails)
-                    else (print "Failed!!\n"; runDir(fails @ [joinDirFile{dir=dirName, file=f}]))
-                )
-                else runDir fails
-        val failedTests = runDir []
+        
+        (* Get the list of files and sort them.  It's easier to see if the files
+           are processed in order and Linux, at least, doesn't sort them. *)
+        local
+            val dir = openDir testPath
+            fun getFiles files =
+                case readDir dir of
+                    NONE => files
+                |   SOME f =>
+                        if String.isSuffix "ML" f
+                        then getFiles(f::files)
+                        else getFiles files
+
+            val files = getFiles []
+            val () = closeDir dir
+
+            (* Sort them. *)
+            fun qs ([], tail) = tail
+            |   qs ([h], tail) = h :: tail
+            |   qs (h::t, tail) =
+                let
+                    val (after, befor) = List.partition (fn s => h <= s) t
+                in
+                    qs(befor, h :: qs(after, tail))
+                end
+        in
+            val fileList = qs(files, [])
+        end
+        
+        fun runDir ([], fails) = fails  (* Finished *)
+        
+        |   runDir (f::files, fails) =
+            (
+                print f; print " => ";
+                if runTest(joinDirFile{dir=testPath, file=f})
+                then (print "Passed\n"; runDir(files, fails))
+                else (print "Failed!!\n"; runDir(files, fails @ [joinDirFile{dir=dirName, file=f}]))
+            )
+                
+        val failedTests = runDir(fileList, [])
     in
-        closeDir dir;
         failedTests
     end;
 in

@@ -210,15 +210,31 @@ struct
                     fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
         end
     
+        (* Return the value as a constant.  In almost all cases we just return the value.
+           The exception is when we have an equality type variable.  In that case we must
+           return a function because we will use applyToInstanceType to apply it to the
+           instance type(s).
+           N.B.  This is probably because of the way that allowGeneralisation side-effects
+           the type variables resulting in local type variables becoming generic. *)
+        fun getValue(valu, ty) =
+        let
+            val filterTypeVars = List.filter (fn tv => not TYPEIDCODE.justForEqualityTypes orelse tvEquality tv)
+            val polyVars = filterTypeVars (getPolyTypeVars(ty, fn _ => NONE))
+            val nPolyVars = List.length polyVars
+        in
+            if nPolyVars = 0
+            then mkConst valu
+            else mkInlproc(mkConst valu, nPolyVars, "poly", [], 0)
+        end
     in
         fun makeValue state (name, ty, location, valu) =
-            mkGvar(name, runTimeType state ty, mkConst valu, location)
+            mkGvar(name, runTimeType state ty, getValue(valu, ty), location)
     
         and makeException state (name, ty, location, valu) =
-            mkGex(name, runTimeType state ty, mkConst valu, location)
+            mkGex(name, runTimeType state ty, getValue(valu, ty), location)
    
         and makeConstructor state (name, ty, nullary, count, location, valu) =
-                makeValueConstr(name, runTimeType state ty, nullary, count, Global(mkConst valu), location)
+                makeValueConstr(name, runTimeType state ty, nullary, count, Global(getValue(valu, ty)), location)
 
         and makeAnonymousValue state (ty, valu) =
             makeValue state ("", ty, [], valu)
