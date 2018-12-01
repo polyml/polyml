@@ -1228,7 +1228,7 @@ struct
                 llStoreArgument{
                     source=codeExtArgument source, base=esp, offset=stackOffset*Word.toInt nativeWordSize, index=NoIndex, kind=moveNativeWord} :: code
 
-        |   codeExtended _ ({instr=TagValue{source=PReg srcReg, dest as PReg dReg, ...}, ...}, code) =
+        |   codeExtended _ ({instr=TagValue{source=PReg srcReg, dest as PReg dReg, opSize, ...}, ...}, code) =
             if not (isUsed dest)
             then code
             else

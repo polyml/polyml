@@ -229,7 +229,7 @@ struct
     |   StoreToStack of { source: argument, container: stackLocn, field: int, stackOffset: int }
 
         (* Tag a value by shifting and setting the tag bit. *)
-    |   TagValue of { source: preg, dest: preg, isSigned: bool }
+    |   TagValue of { source: preg, dest: preg, isSigned: bool, opSize: opSize }
 
         (* Shift a value to remove the tag bit.  The cache is used if this is untagging a
            value that has previously been tagged. *)
@@ -642,8 +642,14 @@ struct
                 stream(Int.toString stackOffset); stream ")"
             )
 
-        |   printICode(TagValue{source, dest, ...}, stream) =
-                (stream "\tTagValue\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
+        |   printICode(TagValue{source, dest, opSize, ...}, stream) =
+            (
+                stream "\tTagValue";
+                printOpsize(opSize, stream);
+                stream "\t";
+                printReg(source, stream);
+                stream " => "; printReg(dest, stream)
+            )
 
         |   printICode(UntagValue{source, dest, isSigned, cache, opSize}, stream) =
             (

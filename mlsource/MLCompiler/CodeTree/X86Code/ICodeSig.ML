@@ -259,7 +259,7 @@ sig
     |   StoreToStack of { source: argument, container: stackLocn, field: int, stackOffset: int }
 
         (* Tag a value by shifting and setting the tag bit. *)
-    |   TagValue of { source: preg, dest: preg, isSigned: bool }
+    |   TagValue of { source: preg, dest: preg, isSigned: bool, opSize: opSize }
 
         (* Shift a value to remove the tag bit.  The cache is used if this is untagging a
            value that has previously been tagged. *)

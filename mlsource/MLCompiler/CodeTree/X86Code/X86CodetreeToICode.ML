@@ -1562,7 +1562,7 @@ struct
                 val argReg1 = newUReg()
                 val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
             in
-                (BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false }) ::
+                (BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false, opSize=OpSize32 }) ::
                  BlockSimple(LoadArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=memIndexOrObject, cache=NONE}, dest=argReg1, kind=MoveByte}) ::
                  argCode, RegisterArgument target, false)
             end
@@ -1628,8 +1628,8 @@ struct
                 val argReg1 = newUReg()
                 val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
                 val code =
-                    BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false }) ::
-                    BlockSimple(LoadArgument{source=wordAt addrReg, dest=argReg1, kind=moveNativeWord}) ::
+                    BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false, opSize=polyWordOpSize }) ::
+                    BlockSimple(LoadArgument{source=wordAt addrReg, dest=argReg1, kind=movePolyWord}) ::
                     argCode
             in
                 (code, RegisterArgument target, false)
@@ -2167,7 +2167,7 @@ struct
                      BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false, cache=NONE, opSize=nativeWordOpSize}),
                      BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder, opSize=polyWordOpSize }),
-                     BlockSimple(TagValue { source=quotient, dest=target, isSigned=false })]
+                     BlockSimple(TagValue { source=quotient, dest=target, isSigned=false, opSize=polyWordOpSize })]
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
             end
@@ -2186,7 +2186,7 @@ struct
                      BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false, cache=NONE, opSize=nativeWordOpSize}),
                      BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder, opSize=polyWordOpSize }),
-                     BlockSimple(TagValue { source=remainder, dest=target, isSigned=false })]
+                     BlockSimple(TagValue { source=remainder, dest=target, isSigned=false, opSize=polyWordOpSize })]
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
             end
@@ -2886,7 +2886,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveByte}),
-                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false})], RegisterArgument target, false)
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false, opSize=OpSize32})], RegisterArgument target, false)
             end
 
         |   codeToICodeLoad({kind=LoadStoreC8, address}, context, _, destination) =
@@ -2899,7 +2899,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveByte}),
-                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false})], RegisterArgument target, false)
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false, opSize=OpSize32})], RegisterArgument target, false)
             end
 
         |   codeToICodeLoad({kind=LoadStoreC16, address}, context, _, destination) =
@@ -2911,7 +2911,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=Move16Bit}),
-                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false})], RegisterArgument target, false)
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false, opSize=OpSize32})], RegisterArgument target, false)
             end
 
         |   codeToICodeLoad({kind=LoadStoreC32, address}, context, _, destination) =
@@ -2923,7 +2923,7 @@ struct
                 val untaggedResReg = newUReg()
                 val boxTagCode =
                     if targetArch = Native64Bit
-                    then BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false})
+                    then BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false, opSize=OpSize64 (* It becomes 33 bits *)})
                     else BlockSimple(BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]})
             in
                 (codeBaseIndex @ codeUntag @
@@ -2981,7 +2981,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=movePolyWord}),
-                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false})], RegisterArgument target, false)
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false, opSize=polyWordOpSize})], RegisterArgument target, false)
             end
 
 
@@ -3413,7 +3413,7 @@ struct
                      BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=true, cache=NONE, opSize=polyWordOpSize}),
                      BlockSimple(Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder, opSize=polyWordOpSize }),
-                     BlockSimple(TagValue { source=quotient, dest=target, isSigned=true })]
+                     BlockSimple(TagValue { source=quotient, dest=target, isSigned=true, opSize=polyWordOpSize})]
             end
 
         |   codeFixedPrecisionArith(BuiltIns.ArithRem, arg1, arg2, context, target, _) =
@@ -3429,7 +3429,7 @@ struct
                      BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=true, cache=NONE, opSize=polyWordOpSize}),
                      BlockSimple(Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder, opSize=polyWordOpSize }),
-                     BlockSimple(TagValue { source=remainder, dest=target, isSigned=true })]
+                     BlockSimple(TagValue { source=remainder, dest=target, isSigned=true, opSize=polyWordOpSize})]
             end
 
         |   codeFixedPrecisionArith(_, _, _, _, _, _) =

@@ -61,7 +61,7 @@ struct
         |   CacheMemory of { base: preg, offset: int, index: memoryIndex }
             (* CacheTagged is used if we tag a value to see if we can use the
                original untagged value somewhere. *)
-        |   CacheTagged of { reg: preg, isSigned: bool }
+        |   CacheTagged of { reg: preg, isSigned: bool, opSize: opSize }
             (* CacheFloat is used if we tag a float (Real32.real).
                Double-precision reals (Real.real) are handled as CacheMemory *)
         |   CacheFloat of { reg: preg }
@@ -77,7 +77,7 @@ struct
 
             fun isStack n {cacheFor, ...} = cacheFor = CacheStack{rno = n}
             and isMemory (r, off, index) {cacheFor, ...} = cacheFor = CacheMemory {base = r, offset = off, index=index}
-            and isTagCache(r, s) {cacheFor, ...} = cacheFor = CacheTagged{reg = r, isSigned = s}
+            and isTagCache(r, s, os) {cacheFor, ...} = cacheFor = CacheTagged{reg = r, isSigned = s, opSize = os}
             and isFloatCache r {cacheFor, ...} = cacheFor =CacheFloat{reg = r }
 
             fun findCache f = List.find f (! cache)
@@ -89,12 +89,12 @@ struct
             fun findCachedStack n = Option.map (#cacheReg) (findCache (isStack n))
             and findCachedMemory (r, off, index) =
                 Option.map (fn {cacheReg, isTagged, kind, ...} => (cacheReg, isTagged, kind)) (findCache(isMemory (r, off, index)))
-            and findCachedTagged (r, s) = Option.map #cacheReg (findCache(isTagCache (r, s)))
+            and findCachedTagged (r, s, os) = Option.map #cacheReg (findCache(isTagCache (r, s, os)))
             and findCachedFloat r = Option.map #cacheReg (findCache(isFloatCache r))
             
             fun removeStackCache n = removeCache (isStack n)
             and removeMemoryCache (r, off, index) = removeCache (isMemory (r, off, index))
-            and removeTagCache (r, s) = removeCache (isTagCache (r, s))
+            and removeTagCache (r, s, os) = removeCache (isTagCache (r, s, os))
             and removeFloatCache r = removeCache (isFloatCache r)
             
             fun clearMemoryCache() =
@@ -112,10 +112,10 @@ struct
                     cache := {cacheFor=CacheMemory{base=r, offset=off, index=index}, cacheReg=new, isTagged=isTagged, kind=kind} :: ! cache
                 )
             
-            and setTagCache(r, s, new) =
+            and setTagCache(r, s, os, new) =
                 (
-                    removeTagCache (r, s);
-                    cache := {cacheFor=CacheTagged{reg=r, isSigned=s}, cacheReg=new, isTagged=true, kind=moveNativeWord} :: ! cache
+                    removeTagCache (r, s, os);
+                    cache := {cacheFor=CacheTagged{reg=r, isSigned=s, opSize=os}, cacheReg=new, isTagged=true, kind=moveNativeWord} :: ! cache
                 )
 
             and setFloatCache(r, new) =
@@ -1020,13 +1020,13 @@ struct
                                     sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=TagValue{source, dest, isSigned}, ...}, code) =
+                    |   pushRegisters({instr=TagValue{source, dest, isSigned, opSize}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
-                            val _ = setTagCache(dest, isSigned, sourceVal)
+                            val _ = setTagCache(dest, isSigned, opSize, sourceVal)
                         in
-                            destCode @ TagValue{source=sourceVal, dest=destVal, isSigned=isSigned} :: sourceCode @ code
+                            destCode @ TagValue{source=sourceVal, dest=destVal, isSigned=isSigned, opSize=opSize} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=UntagValue{source, dest, isSigned, cache, opSize, ...}, ...}, code) =
@@ -1038,11 +1038,11 @@ struct
                                marked it to be pushed. *)
                             val newCache =
                                 case cache of
-                                    NONE => if firstPass then findCachedTagged(source, isSigned) else NONE
+                                    NONE => if firstPass then findCachedTagged(source, isSigned, opSize) else NONE
                                 |   SOME (PReg c) =>
                                     if Vector.sub(pushVec, c)
                                     then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
-                                    else findCachedTagged(source, isSigned)
+                                    else findCachedTagged(source, isSigned, opSize)
                         in
                             destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, cache=newCache, opSize=opSize} :: sourceCode @ code
                         end
