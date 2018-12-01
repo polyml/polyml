@@ -1262,7 +1262,7 @@ struct
                     moveIfNecessary({src=realSReg, dst=regResult, kind=moveNativeWord}, code)
             end
 
-        |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index=ObjectIndex, dest=PReg dReg}, ...}, code) =
+        |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index=ObjectIndex, dest=PReg dReg, opSize}, ...}, code) =
             let
                 val destReg = asGenReg(getAllocatedReg dReg)
                 val bReg =
@@ -1270,10 +1270,10 @@ struct
                         SOME(PReg br) => asGenReg(getAllocatedReg br)
                     |   NONE => raise InternalError "LoadEffectiveAddress - ObjectIndex but no base"
             in
-                LoadAddress{ output=destReg, offset=offset, base=SOME ebx, index=Index4 bReg, opSize=nativeWordOpSize } :: code
+                LoadAddress{ output=destReg, offset=offset, base=SOME ebx, index=Index4 bReg, opSize=opSize } :: code
            end
 
-        |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index, dest=PReg dReg}, ...}, code) =
+        |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index, dest=PReg dReg, opSize}, ...}, code) =
             let
                 val destReg = asGenReg(getAllocatedReg dReg)
                 val bReg =
@@ -1282,7 +1282,7 @@ struct
                     |   NONE => NONE
                 val indexR = codeExtIndex index
             in
-                LoadAddress{ output=destReg, offset=offset, base=bReg, index=indexR, opSize=nativeWordOpSize } :: code
+                LoadAddress{ output=destReg, offset=offset, base=bReg, index=indexR, opSize=opSize } :: code
             end
 
         |   codeExtended _ ({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=PReg operReg, shiftAmount=IntegerConstant i, opSize, ...}, ...}, code) =

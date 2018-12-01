@@ -1047,7 +1047,7 @@ struct
                             destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, cache=newCache} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest}, ...}, code) =
+                    |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest, opSize}, ...}, code) =
                         let
                             val (baseVal, baseCode) =
                                 case base of
@@ -1057,7 +1057,7 @@ struct
                             val (indexVal, indexCode) = mapIndex index
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ LoadEffectiveAddress{base=baseVal, offset=offset, index=indexVal, dest=destVal} :: indexCode @ baseCode @ code
+                            destCode @ LoadEffectiveAddress{base=baseVal, offset=offset, index=indexVal, dest=destVal, opSize=opSize} :: indexCode @ baseCode @ code
                         end
 
                     |   pushRegisters({instr=ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef, opSize}, ...}, code) =

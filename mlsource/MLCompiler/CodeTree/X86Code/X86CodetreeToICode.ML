@@ -437,7 +437,8 @@ struct
         (* Use a move if there's no offset or index.  We could use an add if there's no index. *)
         and loadAddress{base, offset=0, index=NoMemIndex, dest} =
                 LoadArgument{source=RegisterArgument base, dest=dest, kind=movePolyWord}
-        |   loadAddress{base, offset, index, dest} = LoadEffectiveAddress{base=SOME base, offset=offset, dest=dest, index=index}
+        |   loadAddress{base, offset, index, dest} =
+                LoadEffectiveAddress{base=SOME base, offset=offset, dest=dest, index=index, opSize=nativeWordOpSize}
 
         and codeToICodeTarget(instr, context: context, isTail, target) =
         (* This is really for backwards compatibility.  *)
@@ -2093,7 +2094,7 @@ struct
                    appropriate register. *)
                 val code =
                     arg1Code @ arg2Code @
-                    [BlockSimple(LoadEffectiveAddress{base=SOME aReg1, offset= ~1, index=MemIndex1 aReg2, dest=target})]
+                    [BlockSimple(LoadEffectiveAddress{base=SOME aReg1, offset= ~1, index=MemIndex1 aReg2, dest=target, opSize=nativeWordOpSize})]
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
             end
@@ -2802,12 +2803,12 @@ struct
                 case multiplier of
                     0w0 => [BlockSimple(LoadArgument{source=IntegerConstant 1, dest=target, kind=movePolyWord})]
                 |   0w1 => [BlockSimple(LoadArgument{source=RegisterArgument aReg, dest=target, kind=movePolyWord})]
-                |   0w2 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~1, index=MemIndex1 aReg, dest=target})]
-                |   0w3 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~2, index=MemIndex2 aReg, dest=target})]
-                |   0w4 => [BlockSimple(LoadEffectiveAddress{base=NONE, offset= ~3, index=MemIndex4 aReg, dest=target})]
-                |   0w5 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~4, index=MemIndex4 aReg, dest=target})]
-                |   0w8 => [BlockSimple(LoadEffectiveAddress{base=NONE, offset= ~7, index=MemIndex8 aReg, dest=target})]
-                |   0w9 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~8, index=MemIndex8 aReg, dest=target})]
+                |   0w2 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~1, index=MemIndex1 aReg, dest=target, opSize=nativeWordOpSize})]
+                |   0w3 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~2, index=MemIndex2 aReg, dest=target, opSize=nativeWordOpSize})]
+                |   0w4 => [BlockSimple(LoadEffectiveAddress{base=NONE, offset= ~3, index=MemIndex4 aReg, dest=target, opSize=nativeWordOpSize})]
+                |   0w5 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~4, index=MemIndex4 aReg, dest=target, opSize=nativeWordOpSize})]
+                |   0w8 => [BlockSimple(LoadEffectiveAddress{base=NONE, offset= ~7, index=MemIndex8 aReg, dest=target, opSize=nativeWordOpSize})]
+                |   0w9 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~8, index=MemIndex8 aReg, dest=target, opSize=nativeWordOpSize})]
                 
                 |   _ =>
                     let
@@ -3520,7 +3521,7 @@ struct
                     let
                         val addrReg = newUReg()
                     in
-                        ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg })], addrReg)
+                        ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
                     end
                     else ([], baseReg)
                 val memResult = {base=realBase, offset=Word.toInt offset, index=MemIndex1 indexReg1, cache=NONE}
@@ -3540,7 +3541,7 @@ struct
                     let
                         val addrReg = newUReg()
                     in
-                        ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg })], addrReg)
+                        ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
                     end
                     else ([], baseReg)
                 val memResult =
@@ -3690,7 +3691,7 @@ struct
               (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
               BlockSimple(
                 if targetArch = ObjectId32Bit
-                then LoadEffectiveAddress{ base=SOME allocReg, offset=0, index=ObjectIndex, dest=initAddrReg }
+                then LoadEffectiveAddress{ base=SOME allocReg, offset=0, index=ObjectIndex, dest=initAddrReg, opSize=nativeWordOpSize}
                 else LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=movePolyWord}),
               BlockSimple(UntagValue{source=sizeReg2, dest=untagSizeReg, isSigned=false, cache=NONE}),
               BlockSimple(LoadArgument{source=initResult, dest=initReg, kind=movePolyWord}),
