@@ -117,7 +117,7 @@ sig
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
     
-    datatype nonWordSize = Size8Bit | Size16Bit
+    datatype nonWordSize = Size8Bit | Size16Bit | Size32BitSigned
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype trapEntries =
@@ -127,7 +127,7 @@ sig
 
     datatype operation =
         MoveToRegister of { source: genReg regOrMemoryArg, output: genReg, opSize: opSize }
-    |   LoadNonWord of { size: nonWordSize, source: memoryAddress, output: genReg }
+    |   LoadNonWord of { size: nonWordSize, source: genReg regOrMemoryArg, output: genReg }
     |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
     |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }

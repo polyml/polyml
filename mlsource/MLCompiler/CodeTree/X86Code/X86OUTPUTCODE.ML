@@ -682,6 +682,7 @@ struct
     |   CVTTSD2SI64 (* Double to 64-bit int - truncate towards zero *)
     |   CVTTSS2SI32 (* Single to 32-bit int - truncate towards zero *)
     |   CVTTSS2SI64 (* Single to 64-bit int - truncate towards zero *)
+    |   MOVSXD
 
     fun opToInt Group1_8_A32    =  0wx83
     |   opToInt Group1_8_A64    =  0wx83
@@ -778,6 +779,7 @@ struct
     |   opToInt CVTTSD2SI64     = 0wx2c  (* Needs F2 0F prefix. *)
     |   opToInt CVTTSS2SI32     = 0wx2c  (* Needs F3 0F prefix. *)
     |   opToInt CVTTSS2SI64     = 0wx2c  (* Needs F3 0F prefix and rex.w. *)
+    |   opToInt MOVSXD          = 0wx63
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -916,9 +918,10 @@ struct
             |   CVTSS2SI64 => true 
             |   CVTTSD2SI64 => true
             |   CVTTSS2SI64 => true
+            |   MOVSXD      => true
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
-        (* If we are using MOVB_R_Awith SIL or DIL we need to force a REX prefix.
+        (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
            That's only possible in 64-bit mode.  This also applies with Test and SetCC
            but they are dealt with elsewhere. *)
         val forceRex =
@@ -1101,12 +1104,12 @@ struct
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
     
-    datatype nonWordSize = Size8Bit | Size16Bit
+    datatype nonWordSize = Size8Bit | Size16Bit | Size32BitSigned
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype operation =
         MoveToRegister of { source: genReg regOrMemoryArg, output: genReg, opSize: opSize }
-    |   LoadNonWord of { size: nonWordSize, source: memoryAddress, output: genReg }
+    |   LoadNonWord of { size: nonWordSize, source: genReg regOrMemoryArg, output: genReg }
     |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
     |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
@@ -1202,8 +1205,9 @@ struct
         |   printCallKind FullCall = stream "via ClosureReg"
         |   printCallKind (DirectReg reg) = printGReg reg
         
-        fun printSize Size8Bit = "Byte"
-        |   printSize Size16Bit = "16Bit"
+        fun printSize Size8Bit          = "Byte"
+        |   printSize Size16Bit         = "16Bit"
+        |   printSize Size32BitSigned   = "32BitSigned"
         
         fun printOpSize OpSize32 = "32"
         |   printOpSize OpSize64 = "64"
@@ -1213,7 +1217,7 @@ struct
                 (stream "MoveRR"; stream(printOpSize opSize); stream " "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source)
 
         |   LoadNonWord { size, source, output } =>
-                (stream "Load"; printSize size; stream " "; printGReg output; stream " <= "; printMemAddress source )
+                (stream "Load"; printSize size; stream " "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source )
 
         |   ArithToGenReg { opc, output, source, opSize } =>
                 (stream (arithOpRepr opc); stream "RR"; stream(printOpSize opSize); stream " "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source )
@@ -1472,7 +1476,8 @@ struct
     fun codeGenerate ops =
     let
         fun cgOp(MoveToRegister{ source=RegisterArg source, output, opSize }) =
-                (* Move from one general register to another. *)
+                (* Move from one general register to another.  N.B. Because we're using the
+                   "store" version of the Move the source and output are reversed. *)
                 opReg(case opSize of OpSize64 => MOVL_R_A64 | OpSize32 => MOVL_R_A32, source, output)
 
         |   cgOp(MoveToRegister{ source=NonAddressConstArg source, output, opSize=_}) =
@@ -1558,14 +1563,28 @@ struct
         |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output, opSize }) =
                 opAddress(case opSize of OpSize64 => MOVL_A_R64 | OpSize32 => MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(LoadNonWord{size=Size8Bit, source={base, offset, index}, output }) =
+        |   cgOp(LoadNonWord{size=Size8Bit, source=MemoryArg{base, offset, index}, output }) =
                 (* We don't need a REX.W bit here because the top 32-bits of a
                    64-bit register will always be zeroed. *)
                 opAddress(MOVZB32, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(LoadNonWord{size=Size16Bit, source={base, offset, index}, output }) =
+        |   cgOp(LoadNonWord{size=Size8Bit, ...}) = raise InternalError "cgOp: LoadNonWord Size8Bit"
+
+        |   cgOp(LoadNonWord{size=Size16Bit, source=MemoryArg{base, offset, index}, output }) =
                 (* Likewise *)
                 opAddress(MOVZW32, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(LoadNonWord{size=Size16Bit, ...}) = raise InternalError "cgOp: LoadNonWord Size16Bit"
+
+        |   cgOp(LoadNonWord{size=Size32BitSigned, source=RegisterArg source, output }) =
+                (* We should have a REX.W bit here. *)
+                opReg(MOVSXD, output, source)
+
+        |   cgOp(LoadNonWord{size=Size32BitSigned, source=MemoryArg{base, offset, index}, output }) =
+                (* We should have a REX.W bit here. *)
+                opAddress(MOVSXD, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(LoadNonWord{size=Size32BitSigned, ...}) = raise InternalError "cgOp: LoadNonWord Size32Bit"
 
         |   cgOp(LoadAddress{ offset, base, index, output, opSize }) =
                 (* This provides a mixture of addition and multiplication in a single
@@ -1825,12 +1844,18 @@ struct
         |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address={offset, base, index}}) =
                 opAddress(MOVL_R_A16, LargeInt.fromInt offset, base, index, toStore)
 
+        |   cgOp(StoreNonWord{ size = Size32BitSigned, ...}) =
+                raise InternalError "cgOp: StoreNonWord-Size32BitSigned"
+
         |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address={offset, base, index}}) =
                 opAddressPlus2(MOVB_8_A, LargeInt.fromInt offset, base, index, 0w0) @
                     [Word8.fromLargeInt toStore]
 
         |   cgOp(StoreNonWordConst{ size=Size16Bit, ... }) =
                 raise InternalError "StoreNonWordConst: 16Bit"
+
+        |   cgOp(StoreNonWordConst{ size=Size32BitSigned, ... }) =
+                raise InternalError "StoreNonWordConst: 32BitSigned"
 
             (* Allocation is dealt with by expanding the code. *)
         |   cgOp(AllocStore _) = raise InternalError "cgOp: AllocStore"
@@ -3212,6 +3237,17 @@ struct
             |   0wx5d => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
             |   0wx5e => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
             |   0wx5f => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            
+            |   0wx63 => (* MOVSXD. This is ARPL in 32-bit mode but that's never used here. *)
+                let
+                    val nb = codeVecGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
+                in
+                    print "movsxd\t";
+                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                    print ",";
+                    printEA(rex, SZDWord)
+                end
 
             |   0wx68 => (print "push\t"; print32 ())
             |   0wx69 =>

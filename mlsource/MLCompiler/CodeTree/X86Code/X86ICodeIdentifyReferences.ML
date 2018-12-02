@@ -308,6 +308,9 @@ struct
     |   getInstructionState(SSE2RealToInt{ source, dest, ... }) =
             { sources=argRegs source, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
+    |   getInstructionState(SignExtend32To64{ source, dest }) =
+            { sources=argRegs source, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     fun identifyRegisters(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let
         val maxPRegs = Vector.length pregProps

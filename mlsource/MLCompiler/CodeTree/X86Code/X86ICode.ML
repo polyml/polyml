@@ -325,6 +325,11 @@ struct
         (* Convert a floating point value to an integer. *)
     |   SSE2RealToInt of { source: argument, dest: preg, isDouble: bool, isTruncate: bool }
 
+        (* Sign extend a 32-bit value to 64-bits.  Not included in LoadArgument
+           because that assumes that if we have the result in a register we can
+           simply reuse the register. *)
+    |   SignExtend32To64 of { source: argument, dest: preg }
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -855,7 +860,11 @@ struct
                 stream "\tSSE2RealToInt";
                 if isTruncate then stream "Trunc" else ();
                 if isDouble then stream "D\t" else stream "S\t";
-                printArg(source, stream); stream " => "; printReg(dest, stream))
+                printArg(source, stream); stream " => "; printReg(dest, stream)
+            )
+ 
+        |   printICode(SignExtend32To64{source, dest}, stream) =
+            (stream "\tSignExtend32To64\t"; printArg(source, stream); stream " => "; printReg(dest, stream))
        
         and printCondition(JO,  stream)  = stream "Overflow"
         |   printCondition(JNO, stream)  = stream "NoOverflow"

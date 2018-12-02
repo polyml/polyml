@@ -784,6 +784,12 @@ struct
                 allocateRegister(destReg, NONE, generalRegisters);
                 allocateArgFloat source
             )
+
+        |   registerAllocate({instr=SignExtend32To64{source, dest=PReg destReg, ...}, ...}) =
+            (
+                allocateRegister(destReg, NONE, generalRegisters);
+                allocateArgGeneral source
+            )
     
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

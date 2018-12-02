@@ -1310,6 +1310,14 @@ struct
                             destCode @ SSE2RealToInt{source=srcVal, dest=destVal, isDouble=isDouble, isTruncate=isTruncate} :: sourceCode @ code
                         end
 
+                    |   pushRegisters({instr=SignExtend32To64{source, dest}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ SignExtend32To64{source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
+
                     (* Find the common cache state. *)
                     val () = setCommonCacheState(List.map (#cache o asub blockOutput) (asub blockRefs blockNo))
 

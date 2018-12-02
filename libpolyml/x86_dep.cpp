@@ -1169,6 +1169,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x8f: /* POP_A */
         case 0xd3: /* Group2_CL_A */
         case 0x87: // XCHNG
+        case 0x63: // MOVSXD
             pt++; skipea(addr, &pt, process, false); break;
 
         case 0xf6: /* Group3_a */

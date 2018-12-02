@@ -108,10 +108,10 @@ struct
                 MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg, opSize=OpSize64 } :: code
 
         |   llLoadArgument({ source=MemoryArg mLoc, dest=GenReg destReg, kind=MoveByte}, code) = (* Load from memory. *)
-                LoadNonWord{size=Size8Bit, source=mLoc, output=destReg} :: code
+                LoadNonWord{size=Size8Bit, source=MemoryArg mLoc, output=destReg} :: code
 
         |   llLoadArgument({ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move16Bit}, code) = (* Load from memory. *)
-                LoadNonWord{size=Size16Bit, source=mLoc, output=destReg} :: code
+                LoadNonWord{size=Size16Bit, source=MemoryArg mLoc, output=destReg} :: code
 
         |   llLoadArgument({ source, dest=GenReg destReg, kind=Move32Bit}, code) = (* Load from memory. *)
                 MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg, opSize=OpSize32 } :: code
@@ -618,6 +618,7 @@ struct
             |   instructionUses(SetX87ControlReg{source}) = used source
             |   instructionUses(X87RealToInt{source, ...}) = used source
             |   instructionUses(SSE2RealToInt{source, ...}) = argUses source
+            |   instructionUses(SignExtend32To64{source, dest}) = if isUsed dest then argUses source else ()
             
             
            (* Depth-first scan. *)
@@ -1652,6 +1653,14 @@ struct
                 XMMStoreInt {
                     source=opArg, precision=if isDouble then DoublePrecision else SinglePrecision,
                     output = regResult, isTruncate=isTruncate } :: code
+            end
+
+        |   codeExtended _ ({instr=SignExtend32To64{source, dest=PReg dReg}, ...}, code) =
+            let
+                val regResult = getAllocatedGenReg dReg
+                val opArg = codeExtArgumentAsGenReg source
+            in
+                LoadNonWord{size=Size32BitSigned, source=opArg, output=regResult } :: code
             end
         
         val minStackCheck = 20

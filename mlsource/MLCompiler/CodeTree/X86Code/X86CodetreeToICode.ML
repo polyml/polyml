@@ -1643,14 +1643,9 @@ struct
                     case targetArch of
                         ObjectId32Bit =>
                         let
-                            val sReg1 = newUReg() and sReg2 = newUReg()
+                            val sReg = newUReg()
                         in
-                            (* Temporarily use shifts to sign-extend.  We should use MOVSXD. *)
-                            ([BlockSimple(ShiftOperation{shift=SAR, resultReg=sReg2, operand=sReg1, shiftAmount=IntegerConstant 32,
-                                                         ccRef=newCCRef(), opSize=OpSize64}),
-                              BlockSimple(ShiftOperation{shift=SHL, resultReg=sReg1, operand=argReg1, shiftAmount=IntegerConstant 32,
-                                                         ccRef=newCCRef(), opSize=OpSize64})],
-                             sReg2)
+                            ([BlockSimple(SignExtend32To64{source=RegisterArgument argReg1, dest=sReg})], sReg)
                         end
                     |   _ => ([], argReg1)
                 val code =
