@@ -682,10 +682,10 @@ struct
                         val moveKind =
                             case kind of
                                 Move64Bit => Move64Bit
-                            |   MoveByte => moveNativeWord (* Could we use Move32 or do we need sign extension? *)
-                            |   Move16Bit => moveNativeWord (* ditto *)
-                            |   Move32Bit => moveNativeWord (* ditto *)
-                            |   MoveFloat => MoveDouble (* MoveFloat ?? *)
+                            |   MoveByte => Move32Bit
+                            |   Move16Bit => Move32Bit
+                            |   Move32Bit => Move32Bit
+                            |   MoveFloat => MoveFloat
                             |   MoveDouble => MoveDouble
                     in
                         moveIfNecessary({src=getAllocatedReg sreg, dst=realDestReg, kind=moveKind}, code)
