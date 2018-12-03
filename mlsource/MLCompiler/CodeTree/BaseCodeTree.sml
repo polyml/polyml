@@ -299,7 +299,7 @@ struct
                         ArbCompare test => BuiltIns.testRepr test
                     |   ArbArith arith => BuiltIns.arithRepr arith
             in
-                prettyBuiltin(operName, [shortCond, arg1, arg2, longCall])
+                prettyBuiltin(operName ^ "Arbitrary", [shortCond, arg1, arg2, longCall])
             end
 
         |   AllocateWordMemory { numWords, flags, initial } =>
