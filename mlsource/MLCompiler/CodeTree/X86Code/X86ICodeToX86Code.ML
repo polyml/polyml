@@ -1705,25 +1705,35 @@ struct
                than long ones. *)
             val labelRefs = Array.array(numBlocks, [])
             
-            fun setReferences(fromLabel, ExtendedBasicBlock{ flow, ...}) =
-            let
-                val refs =
-                    case flow of
-                        ExitCode => []
-                    |   Unconditional lab => [lab]
-                    |   Conditional{trueJump, falseJump, ... } => [trueJump, falseJump]
-                    |   IndexedBr labs => labs
-                    |   SetHandler { handler, continue } => [handler, continue]
-                    |   UnconditionalHandle _ => []
-                    |   ConditionalHandle { continue, ...} => [continue]
-                
-                fun setRefs toLabel =
-                    Array.update(labelRefs, toLabel, fromLabel :: Array.sub(labelRefs, toLabel))
-            in
-                List.app setRefs refs
-            end
+            (* Process this recursively to set the references.  If we have
+               unreachable blocks, perhaps because they've been merged, we
+               don't want to include them in the reference counting. *)
+            fun setReferences fromLabel toLabel =
+                case Array.sub(labelRefs, toLabel) of
+                    [] => (* Not yet visited at all. *)
+                    let
+                        val ExtendedBasicBlock{ flow, ...} = Vector.sub(blocks, toLabel)
+                        val refs =
+                            case flow of
+                                ExitCode => []
+                            |   Unconditional lab => [lab]
+                            |   Conditional{trueJump, falseJump, ... } => [trueJump, falseJump]
+                            |   IndexedBr labs => labs
+                            |   SetHandler { handler, continue } => [handler, continue]
+                            |   UnconditionalHandle _ => []
+                            |   ConditionalHandle { continue, ...} => [continue]
 
-            val () = Vector.appi setReferences blocks
+                        val () =
+                            if fromLabel >= 0 then Array.update(labelRefs, toLabel, [fromLabel]) else ()
+                    in
+                        List.app (setReferences toLabel) refs
+                    end
+                    
+                |   refs =>
+                    (* We've visiting this at least once.  Just add us to the list. *)
+                        Array.update(labelRefs, toLabel, fromLabel :: refs)
+            
+            val _ = setReferences 0 0
             
             (* Process the blocks.  We keep the "stack" explicit rather than using recursion
                because this allows us to select both arms of a conditional branch sooner. *)
