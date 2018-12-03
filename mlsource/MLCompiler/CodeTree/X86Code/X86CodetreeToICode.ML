@@ -229,7 +229,7 @@ struct
             [
                 BlockFlow(Conditional{ ccRef=ccRef, condition=JNO, trueJump=noOverflowLab, falseJump=overFlowLab }),
                 BlockLabel overFlowLab,
-                BlockSimple(LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=packetReg, kind=moveNativeWord}),
+                BlockSimple(LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=packetReg, kind=movePolyWord}),
                 case currHandler of NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h),
                 BlockLabel noOverflowLab
             ]

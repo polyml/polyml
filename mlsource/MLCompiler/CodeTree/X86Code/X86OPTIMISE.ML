@@ -99,11 +99,11 @@ struct
             end
             else forward(b :: tl, a :: list, rep)
 
-        |   forward((mv as MoveToRegister{source=MemoryArg{base, offset, index=NoIndex}, output, opSize}) :: (reset as ResetStack{numWords=count, preserveCC}) :: tl,
+        |   forward((mv as Move{source=MemoryArg{base, offset, index=NoIndex}, destination=RegisterArg output, moveSize}) :: (reset as ResetStack{numWords=count, preserveCC}) :: tl,
                     list, rep) =
             (* If we have a load from the stack followed by a stack reset we may be able to use a pop.  Even if
                we can't we may be better to split the stack reset in case there's another load that could. *)
-            if base = esp andalso offset < count * Word.toInt Address.nativeWordSize andalso (opSize = OpSize32) = (targetArch = Native32Bit)
+            if base = esp andalso offset < count * Word.toInt Address.nativeWordSize andalso (moveSize = Move32) = (targetArch = Native32Bit)
             then (* Can use a pop instruction. *)
             let
                 val resetBefore = Int.min(offset div Word.toInt Address.nativeWordSize, count)
@@ -118,8 +118,9 @@ struct
                         PopR output :: list, true)
                 end
                 else forward(
-                        MoveToRegister{
-                            source=MemoryArg{base=base, offset=offset-resetBefore*Word.toInt Address.nativeWordSize, index=NoIndex}, output=output, opSize=opSize} ::
+                        Move{
+                            source=MemoryArg{base=base, offset=offset-resetBefore*Word.toInt Address.nativeWordSize, index=NoIndex},
+                            destination=RegisterArg output, moveSize=moveSize} ::
                         (if count = resetBefore then tl else ResetStack{numWords=count - resetBefore, preserveCC=preserveCC} :: tl),
                         ResetStack{numWords=resetBefore, preserveCC=preserveCC} :: list, true)
             end

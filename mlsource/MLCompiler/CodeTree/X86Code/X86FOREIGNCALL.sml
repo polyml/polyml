@@ -61,7 +61,19 @@ struct
     val mlArg2Reg = case targetArch of ObjectId32Bit => esi | _ => ebx
     
     exception InternalError = Misc.InternalError
-    
+
+    (* Backwards compatibility *)    
+    fun opSizeToMove OpSize32 = Move32 | opSizeToMove OpSize64 = Move64
+
+    and MoveToRegister { source: genReg regOrMemoryArg, output: genReg, opSize } =
+            Move {moveSize=opSizeToMove opSize, source=source, destination=RegisterArg output }
+
+    and StoreRegToMemory { toStore: genReg, address: memoryAddress, opSize: opSize } =
+            Move {moveSize=opSizeToMove opSize, source=RegisterArg toStore, destination=MemoryArg address}
+
+    and StoreConstToMemory{ toStore: LargeInt.int, address: memoryAddress, opSize: opSize } =
+            Move {moveSize=opSizeToMove opSize, source=NonAddressConstArg toStore, destination=MemoryArg address}
+
     val pushR = PushToStack o RegisterArg
 
     fun moveRR{source, output, opSize} = MoveToRegister{source=RegisterArg source, output=output, opSize=opSize}
@@ -449,7 +461,8 @@ struct
                         AllocStore{size=realBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt realBoxSize,
                             address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
-                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
+                        Move {moveSize=Move8, source=NonAddressConstArg(Word8.toLargeInt F_bytes),
+                            destination=MemoryArg {offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised,
                         (* Convert to an object id. *)
@@ -462,7 +475,8 @@ struct
                         AllocStore{size=realBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt realBoxSize,
                             address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
-                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
+                        Move {moveSize=Move8, source=NonAddressConstArg(Word8.toLargeInt F_bytes),
+                            destination=MemoryArg{offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
                     ]
@@ -482,7 +496,8 @@ struct
                         AllocStore{size=floatBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt floatBoxSize,
                             address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
-                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
+                        Move {moveSize=Move8, source=NonAddressConstArg(Word8.toLargeInt F_bytes),
+                            destination=MemoryArg{offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision, toStore=xmm0 },
                         StoreInitialised,
                         (* Convert to an object id. *)

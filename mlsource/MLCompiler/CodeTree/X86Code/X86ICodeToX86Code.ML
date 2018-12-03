@@ -82,7 +82,48 @@ struct
     in
         val generalRegisters = List.map GenReg regs
     end
-      
+
+    (* Backwards compatibility *)
+
+    datatype nonWordSize = Size8Bit | Size16Bit | Size32BitSigned
+    
+    fun opSizeToMove OpSize32 = Move32 | opSizeToMove OpSize64 = Move64
+
+    fun LoadNonWord { size = Size8Bit, source: genReg regOrMemoryArg, output: genReg } =
+            Move {moveSize=Move8, source=source, destination=RegisterArg output }
+    |   LoadNonWord { size = Size16Bit, source: genReg regOrMemoryArg, output: genReg } =
+            Move {moveSize=Move16, source=source, destination=RegisterArg output }
+    |   LoadNonWord { size = Size32BitSigned, source: genReg regOrMemoryArg, output: genReg } =
+            Move {moveSize=Move32X, source=source, destination=RegisterArg output }
+
+    and MoveToRegister { source: genReg regOrMemoryArg, output: genReg, opSize } =
+            Move {moveSize=opSizeToMove opSize, source=source, destination=RegisterArg output }
+
+    and StoreRegToMemory { toStore: genReg, address: memoryAddress, opSize: opSize } =
+            Move {moveSize=opSizeToMove opSize, source=RegisterArg toStore, destination=MemoryArg address}
+
+    and StoreConstToMemory{ toStore: LargeInt.int, address: memoryAddress, opSize: opSize } =
+            Move {moveSize=opSizeToMove opSize, source=NonAddressConstArg toStore, destination=MemoryArg address}
+
+    and StoreLongConstToMemory { toStore: machineWord, address: memoryAddress } =
+            Move {moveSize=opSizeToMove polyWordOpSize, source=AddressConstArg toStore, destination=MemoryArg address}
+
+    and StoreNonWord { size = Size8Bit, toStore: genReg, address: memoryAddress } =
+            Move {moveSize=Move8, source=RegisterArg toStore, destination=MemoryArg address}
+    |   StoreNonWord { size=Size16Bit, toStore: genReg, address: memoryAddress } =
+            Move {moveSize=Move16, source=RegisterArg toStore, destination=MemoryArg address}
+    |   StoreNonWord { size=Size32BitSigned, ... } =
+            raise InternalError "StoreNonWord: Size32BitSigned"
+
+
+    and StoreNonWordConst{ size= Size8Bit, toStore: LargeInt.int, address: memoryAddress } =
+            Move {moveSize=Move8, source=NonAddressConstArg toStore, destination=MemoryArg address}
+    |   StoreNonWordConst{ size=Size16Bit, toStore: LargeInt.int, address: memoryAddress } =
+            Move {moveSize=Move16, source=NonAddressConstArg toStore, destination=MemoryArg address}
+        
+    |   StoreNonWordConst{ size=Size32BitSigned, ... } =
+            raise InternalError "StoreNonWordConst: Size32BitSigned"
+
     fun icodeToX86Code{blocks, functionName, stackRequired, argRegsUsed, hasFullClosure, debugSwitches,
                        allocatedRegisters, resultClosure, ...} =
     let        

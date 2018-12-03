@@ -1103,13 +1103,12 @@ struct
     |   MemoryArg of memoryAddress
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
-    
-    datatype nonWordSize = Size8Bit | Size16Bit | Size32BitSigned
+
+    datatype moveSize = Move64 | Move32 | Move8 | Move16 | Move32X
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype operation =
-        MoveToRegister of { source: genReg regOrMemoryArg, output: genReg, opSize: opSize }
-    |   LoadNonWord of { size: nonWordSize, source: genReg regOrMemoryArg, output: genReg }
+        Move of { source: genReg regOrMemoryArg, destination: genReg regOrMemoryArg, moveSize: moveSize }
     |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
     |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
@@ -1123,11 +1122,6 @@ struct
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType, opSize: opSize }
     |   TestByteBits of { arg: genReg regOrMemoryArg, bits: Word8.word }
     |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
-    |   StoreRegToMemory of { toStore: genReg, address: memoryAddress, opSize: opSize }
-    |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress, opSize: opSize }
-    |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
-    |   StoreNonWord of { size: nonWordSize, toStore: genReg, address: memoryAddress }
-    |   StoreNonWordConst of { size: nonWordSize, toStore: LargeInt.int, address: memoryAddress }
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
     |   AllocStoreVariable of { size: genReg, output: genReg, saveRegs: genReg list }
     |   StoreInitialised
@@ -1205,19 +1199,20 @@ struct
         |   printCallKind FullCall = stream "via ClosureReg"
         |   printCallKind (DirectReg reg) = printGReg reg
         
-        fun printSize Size8Bit          = "Byte"
-        |   printSize Size16Bit         = "16Bit"
-        |   printSize Size32BitSigned   = "32BitSigned"
-        
         fun printOpSize OpSize32 = "32"
         |   printOpSize OpSize64 = "64"
      in
         case operation of
-            MoveToRegister { source, output, opSize } =>
-                (stream "MoveRR"; stream(printOpSize opSize); stream " "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source)
-
-        |   LoadNonWord { size, source, output } =>
-                (stream "Load"; printSize size; stream " "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source )
+            Move { source, destination, moveSize } =>
+            (
+                case moveSize of
+                    Move64  => stream "Move64 "
+                |   Move32  => stream "Move32 "
+                |   Move8   => stream "Move8 "
+                |   Move16  => stream "Move16 "
+                |   Move32X => stream "Move32X ";
+                printRegOrMemoryArg printGReg destination; stream " <= "; printRegOrMemoryArg printGReg source
+            )
 
         |   ArithToGenReg { opc, output, source, opSize } =>
                 (stream (arithOpRepr opc); stream "RR"; stream(printOpSize opSize); stream " "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source )
@@ -1265,35 +1260,6 @@ struct
         |   PushToStack source => (stream "Push "; printRegOrMemoryArg printGReg source)
 
         |   PopR dest => (stream "PopR "; printGReg dest)
-
-        |   StoreRegToMemory { toStore, address, opSize } =>
-            (
-                stream "StoreRegToMemory"; stream(printOpSize opSize); stream " "; printMemAddress address;
-                stream " <= "; printGReg toStore
-            )
-
-        |   StoreConstToMemory { toStore, address, opSize } =>
-            (
-                stream "StoreConstToMemory"; stream(printOpSize opSize); stream " "; printMemAddress address;
-                stream " <= "; stream(LargeInt.toString toStore)
-            )
-
-        |   StoreLongConstToMemory { address, toStore } =>
-            (
-                stream "StoreLongConstToMemory "; printMemAddress address; stream " <= "; stream(Address.stringOfWord toStore)
-            )
-
-        |   StoreNonWord { size, toStore, address } =>
-            (
-                stream "Store"; printSize size; stream " "; printMemAddress address;
-                stream " <= "; stream(genRegRepr(toStore, SZByte))
-            )
-
-        |   StoreNonWordConst { size, toStore, address } =>
-            (
-                stream "StoreConst"; printSize size; stream " "; printMemAddress address;
-                stream " <= "; stream(LargeInt.toString toStore)
-            )
 
         |   LoadAddress{ output, offset, base, index, opSize } =>
             (
@@ -1475,12 +1441,15 @@ struct
     (* Code generate a list of operations.  The list is in reverse order i.e. last instruction first. *)
     fun codeGenerate ops =
     let
-        fun cgOp(MoveToRegister{ source=RegisterArg source, output, opSize }) =
+        fun cgOp(Move{source=RegisterArg source, destination=RegisterArg output, moveSize=Move64 }) =
                 (* Move from one general register to another.  N.B. Because we're using the
                    "store" version of the Move the source and output are reversed. *)
-                opReg(case opSize of OpSize64 => MOVL_R_A64 | OpSize32 => MOVL_R_A32, source, output)
+                opReg(MOVL_R_A64, source, output)
 
-        |   cgOp(MoveToRegister{ source=NonAddressConstArg source, output, opSize=_}) =
+        |   cgOp(Move{source=RegisterArg source, destination=RegisterArg output, moveSize=Move32 }) =
+                opReg(MOVL_R_A32, source, output)
+
+        |   cgOp(Move{ source=NonAddressConstArg source, destination=RegisterArg output, moveSize=Move64}) =
             if targetArch <> Native32Bit
             then
             (
@@ -1530,61 +1499,126 @@ struct
                 end
             )
 
-        |   cgOp(MoveToRegister{ source=AddressConstArg _, output, opSize=_ }) =
+        |   cgOp(Move{ source=NonAddressConstArg source, destination=RegisterArg output, moveSize=Move32}) =
             if targetArch <> Native32Bit
             then
+            (
+                (* N.B. There is related code in getConstant that deals with PC-relative values and
+                   also checks the range of constants that need to be in the constant area. *)
+                if source >= 0 andalso source < 0x100000000
+                then (* Unsigned 32 bits.  We can use a 32-bit instruction to set the
+                        value because it will zero extend to 64-bits.
+                        This may also allow us to save a rex byte. *)
+                let
+                    val (rc, rx) = getReg output
+                    val opb = opCodeBytes(MOVL_32_R rc, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
+                in
+                    opb @ word32Unsigned(LargeWord.fromLargeInt source)
+                end
+                else if source >= ~0x80000000 andalso source < 0
+                then (* Signed 32-bits. *)
+                    (* This is not scanned in 64-bit mode because 32-bit values aren't
+                       big enough to contain addresses. *)
+                    opRegPlus2(MOVL_32_A64, output, 0w0) @ int32Signed source
+                else (* Too big for 32-bits; put it in the non-word area. *)
+                let
+                    val (rc, rx) = getReg output
+                    val opb = opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
+                    val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
+                in
+                    opb @ [mdrm] @ int32Signed(tag 0)
+                end
+            )
+            else (* 32-bit mode. *)
+            (
+                (* The RTS scans for possible addresses in MOV instructions so we
+                   can only use MOV if this is a tagged value.  If it isn't we have
+                   to use something else such as XOR/ADD.  In particular this is used
+                   before LOCK XADD for atomic inc/dec.
+                   We expect Move to preserve the CC so shouldn't use anything that
+                   affects it.  There was a previous comment that said that using
+                   LEA wasn't a good idea.  Perhaps because it takes 6 bytes. *)
+                if source mod 2 = 0
+                then opIndexed(LEAL32, source, NONE, NoIndex, output)
+                else
+                let
+                    val (rc, rx) = getReg output
+                    val opb = opCodeBytes(MOVL_32_R rc, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
+                in
+                    opb @ int32Signed source
+                end
+            )
+
+        |   cgOp(Move{ source=AddressConstArg _, destination=RegisterArg output, moveSize=Move64 }) =
             let
+                (* The constant area is currently PolyWords.  That means we MUST use
+                   a 32-bit load in 32-in-64. *)
+                val _ = targetArch = Native64Bit orelse raise InternalError "Move64 in 32-bit"
                 (* Put address constants in the constant area.  This makes the code a bit
                    larger but should avoid the need for the GC to scan for addresses in
                    the code. *)
                 val (rc, rx) = getReg output
-                val opb =
-                    (* The constant area is currently PolyWords.  That means we MUST use
-                       a 32-bit load in 32-in-64. *)
-                    if targetArch = Native64Bit
-                    then opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
-                    else opCodeBytes(MOVL_A_R32, if rx then SOME{w=false, r=rx, b=false, x = false} else NONE)
-                        
+                val opb = opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
                 val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
             in
                 opb @ [mdrm] @ int32Signed(tag 0)
             end
-            else
-            let
-                val (rc, rx) = getReg output
-                val constnt =
-                    if wordSize = 0w8
-                    then wordUnsigned(LargeWord.fromLargeInt(tag 0))
-                    else int32Signed(tag 0)
-            in
-                opCodeBytes(MOVL_32_R rc, if rx then SOME{w=false, r=false, b=rx, x = false} else NONE) @ constnt
-            end
+ 
+        |   cgOp(Move{ source=AddressConstArg _, destination=RegisterArg output, moveSize=Move32 }) =
+            (
+                case targetArch of
+                    Native64Bit => raise InternalError "Move32 - AddressConstArg"
+                
+                |   ObjectId32Bit =>
+                    let
+                        (* Put address constants in the constant area.  This makes the code a bit
+                           larger but should avoid the need for the GC to scan for addresses in
+                           the code. *)
+                        (* The constant area is currently PolyWords.  That means we MUST use
+                           a 32-bit load in 32-in-64. *)
+                        val (rc, rx) = getReg output
+                        val opb = opCodeBytes(MOVL_A_R32, if rx then SOME{w=false, r=rx, b=false, x = false} else NONE)
+                        val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
+                    in
+                        opb @ [mdrm] @ int32Signed(tag 0)
+                    end
 
-        |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output, opSize }) =
-                opAddress(case opSize of OpSize64 => MOVL_A_R64 | OpSize32 => MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
+                |   Native32Bit =>
+                    let
+                        val (rc, rx) = getReg output
+                        val constnt =
+                            if wordSize = 0w8
+                            then wordUnsigned(LargeWord.fromLargeInt(tag 0))
+                            else int32Signed(tag 0)
+                    in
+                        opCodeBytes(MOVL_32_R rc, if rx then SOME{w=false, r=false, b=rx, x = false} else NONE) @ constnt
+                    end
+            )
 
-        |   cgOp(LoadNonWord{size=Size8Bit, source=MemoryArg{base, offset, index}, output }) =
+        |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move32 }) =
+                opAddress(MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move64 }) =
+                opAddress(MOVL_A_R64, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output,moveSize=Move8 }) =
                 (* We don't need a REX.W bit here because the top 32-bits of a
                    64-bit register will always be zeroed. *)
                 opAddress(MOVZB32, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(LoadNonWord{size=Size8Bit, ...}) = raise InternalError "cgOp: LoadNonWord Size8Bit"
-
-        |   cgOp(LoadNonWord{size=Size16Bit, source=MemoryArg{base, offset, index}, output }) =
+        |   cgOp(Move{moveSize=Move16, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
                 (* Likewise *)
                 opAddress(MOVZW32, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(LoadNonWord{size=Size16Bit, ...}) = raise InternalError "cgOp: LoadNonWord Size16Bit"
-
-        |   cgOp(LoadNonWord{size=Size32BitSigned, source=RegisterArg source, output }) =
+        |   cgOp(Move{moveSize=Move32X, source=RegisterArg source, destination=RegisterArg output }) =
                 (* We should have a REX.W bit here. *)
                 opReg(MOVSXD, output, source)
 
-        |   cgOp(LoadNonWord{size=Size32BitSigned, source=MemoryArg{base, offset, index}, output }) =
+        |   cgOp(Move{moveSize=Move32X, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
                 (* We should have a REX.W bit here. *)
                 opAddress(MOVSXD, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(LoadNonWord{size=Size32BitSigned, ...}) = raise InternalError "cgOp: LoadNonWord Size32Bit"
+        |   cgOp(Move{moveSize=Move32X, ...}) = raise InternalError "cgOp: LoadNonWord Size32Bit"
 
         |   cgOp(LoadAddress{ offset, base, index, output, opSize }) =
                 (* This provides a mixture of addition and multiplication in a single
@@ -1807,10 +1841,13 @@ struct
                     opCodeBytes(POP_R rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE)
                 end
 
-        |   cgOp(StoreRegToMemory{toStore, address={offset, base, index}, opSize}) =
-                opAddress(case opSize of OpSize64 => MOVL_R_A64 | OpSize32 => MOVL_R_A32, LargeInt.fromInt offset, base, index, toStore)
+        |   cgOp(Move{source=RegisterArg toStore, destination=MemoryArg{offset, base, index}, moveSize=Move64}) =
+                opAddress(MOVL_R_A64, LargeInt.fromInt offset, base, index, toStore)
 
-        |   cgOp(StoreConstToMemory{ toStore=toStore, address={offset, base, index}, opSize }) =
+        |   cgOp(Move{source=RegisterArg toStore, destination=MemoryArg{offset, base, index}, moveSize=Move32}) =
+                opAddress(MOVL_R_A32, LargeInt.fromInt offset, base, index, toStore)
+
+        |   cgOp(Move{source=NonAddressConstArg toStore, destination=MemoryArg{offset, base, index}, moveSize=Move64 }) =
             (
                 (* Short constant.  In 32-bit mode this is scanned as a possible address.  That means
                    we can't have an untagged constant in it.  That's not a problem in 64-bit mode.
@@ -1818,17 +1855,30 @@ struct
                    memory. *)
                 targetArch <> Native32Bit orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~ (Word.toInt wordSize)
                     orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
-                opAddressPlus2(case opSize of OpSize64 => MOVL_32_A64 | OpSize32 => MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @
-                            int32Signed toStore
+                opAddressPlus2(MOVL_32_A64, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed toStore
             )
 
-        |   cgOp(StoreLongConstToMemory{ address={offset, base, index}, ... }) =
+        |   cgOp(Move{source=NonAddressConstArg toStore, destination=MemoryArg{offset, base, index}, moveSize=Move32 }) =
+            (
+                (* Short constant.  In 32-bit mode this is scanned as a possible address.  That means
+                   we can't have an untagged constant in it.  That's not a problem in 64-bit mode.
+                   There's a special check for using this to set the length word on newly allocated
+                   memory. *)
+                targetArch <> Native32Bit orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~ (Word.toInt wordSize)
+                    orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
+                opAddressPlus2(MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed toStore
+            )
+
+        |   cgOp(Move{source=AddressConstArg _, destination=MemoryArg{offset, base, index}, moveSize=Move32}) =
                 (* This is not used for addresses even in 32-in-64.  We don't scan for addresses after MOVL_32_A. *)
                 if targetArch <> Native32Bit
                 then raise InternalError "StoreLongConstToMemory in 64-bit mode"
                 else opAddressPlus2(MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed (tag 0)
 
-        |   cgOp(StoreNonWord{ size = Size8Bit, toStore, address={offset, base, index} }) =
+        |   cgOp(Move{source=AddressConstArg _, destination=MemoryArg _, ...}) =
+                raise InternalError "cgOp: Move - AddressConstArg => MemoryArg"
+
+        |   cgOp(Move{ moveSize = Move8, source=RegisterArg toStore, destination=MemoryArg{offset, base, index} }) =
             let
                 val (rrC, _) = getReg toStore
                 (* In 64-bit mode we can specify the low-order byte of RSI/RDI but we
@@ -1841,21 +1891,14 @@ struct
                 opAddress(opcode, LargeInt.fromInt offset, base, index, toStore)
             end
 
-        |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address={offset, base, index}}) =
+        |   cgOp(Move{ moveSize = Move16, source=RegisterArg toStore, destination=MemoryArg{offset, base, index}}) =
                 opAddress(MOVL_R_A16, LargeInt.fromInt offset, base, index, toStore)
 
-        |   cgOp(StoreNonWord{ size = Size32BitSigned, ...}) =
-                raise InternalError "cgOp: StoreNonWord-Size32BitSigned"
-
-        |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address={offset, base, index}}) =
+        |   cgOp(Move{ moveSize = Move8, source=NonAddressConstArg toStore, destination=MemoryArg{offset, base, index}}) =
                 opAddressPlus2(MOVB_8_A, LargeInt.fromInt offset, base, index, 0w0) @
                     [Word8.fromLargeInt toStore]
 
-        |   cgOp(StoreNonWordConst{ size=Size16Bit, ... }) =
-                raise InternalError "StoreNonWordConst: 16Bit"
-
-        |   cgOp(StoreNonWordConst{ size=Size32BitSigned, ... }) =
-                raise InternalError "StoreNonWordConst: 32BitSigned"
+        |   cgOp(Move _) = raise InternalError "Move: Unimplemented arguments"
 
             (* Allocation is dealt with by expanding the code. *)
         |   cgOp(AllocStore _) = raise InternalError "cgOp: AllocStore"
@@ -2467,7 +2510,7 @@ struct
     |   IntConstant of LargeInt.int             (* A PC-relative address to the non-address area - 64-bit only.*)
 
     local       
-        fun getConstant(MoveToRegister{ source=NonAddressConstArg source, opSize=_, ...}, bytes, ic, l) =
+        fun getConstant(Move{ source=NonAddressConstArg source, moveSize=Move32, ...}, bytes, ic, l) =
             if targetArch <> Native32Bit
             then
             (
@@ -2478,7 +2521,18 @@ struct
             )
             else l (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
 
-        |   getConstant(MoveToRegister{ source=AddressConstArg source, ... }, bytes, ic, l) =
+        |   getConstant(Move{ source=NonAddressConstArg source, moveSize=Move64, ...}, bytes, ic, l) =
+            if targetArch <> Native32Bit
+            then
+            (
+                if source >= ~0x80000000 andalso source < 0x100000000
+                then (* Signed or unsigned 32-bits. *) l
+                else (* Too big for 32-bits. *)
+                    (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant source) :: l
+            )
+            else l (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
+
+        |   getConstant(Move{ source=AddressConstArg source, ... }, bytes, ic, l) =
             if targetArch <> Native32Bit
             then (* Address constants go in the constant area. *)
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea source) :: l
@@ -2503,9 +2557,6 @@ struct
         |   getConstant(PushToStack(AddressConstArg constnt), bytes, ic, l) =
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                     if targetArch = Native64Bit then ConstantArea constnt else InlineAbsoluteAddress constnt) :: l
-
-        |   getConstant(StoreLongConstToMemory{ toStore, ... }, bytes, ic, l) = (* 32-bit only. *)
-                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress toStore) :: l
 
         |   getConstant(CallFunction(ConstantCode w), bytes, ic, l) =
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
@@ -2596,9 +2647,9 @@ struct
                used by the RTS in the event of a trap to work out how much
                store was being allocated. *)
             val update =
-                if hostIsX64 then MoveToRegister{source=RegisterArg resultReg, output=r15, opSize=OpSize64}
-                else StoreRegToMemory{toStore=resultReg,
-                        address={base=ebp, offset=memRegLocalMPointer, index=NoIndex}, opSize=OpSize32}
+                if hostIsX64 then Move{source=RegisterArg resultReg, destination=RegisterArg r15, moveSize=Move64}
+                else Move{source=RegisterArg resultReg,
+                        destination=MemoryArg{base=ebp, offset=memRegLocalMPointer, index=NoIndex}, moveSize=Move32}
         in
             compare :: branches @ [callRts, fixup, update]
         end
@@ -2623,8 +2674,8 @@ struct
                         let
                             val bytes = (size + 1) * Word.toInt wordSize
                         in
-                            [MoveToRegister{source=MemoryArg{base=ebp, offset=memRegLocalMPointer, index=NoIndex},
-                                output=output, opSize=OpSize32},
+                            [Move{source=MemoryArg{base=ebp, offset=memRegLocalMPointer, index=NoIndex},
+                                destination=RegisterArg output, moveSize=Move32},
                              LoadAddress{output=output, offset = ~ bytes, base=SOME output, index=NoIndex, opSize=OpSize32}]
                         end
                     |   ObjectId32Bit =>

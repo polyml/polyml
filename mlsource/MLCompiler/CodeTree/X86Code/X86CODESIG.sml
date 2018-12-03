@@ -117,7 +117,7 @@ sig
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
     
-    datatype nonWordSize = Size8Bit | Size16Bit | Size32BitSigned
+    datatype moveSize = Move64 | Move32 | Move8 | Move16 | Move32X
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype trapEntries =
@@ -126,8 +126,7 @@ sig
     |   HeapOverflowCall
 
     datatype operation =
-        MoveToRegister of { source: genReg regOrMemoryArg, output: genReg, opSize: opSize }
-    |   LoadNonWord of { size: nonWordSize, source: genReg regOrMemoryArg, output: genReg }
+        Move of { source: genReg regOrMemoryArg, destination: genReg regOrMemoryArg, moveSize: moveSize }
     |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
     |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
@@ -141,11 +140,6 @@ sig
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType, opSize: opSize }
     |   TestByteBits of { arg: genReg regOrMemoryArg, bits: Word8.word }
     |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
-    |   StoreRegToMemory of { toStore: genReg, address: memoryAddress, opSize: opSize }
-    |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress, opSize: opSize }
-    |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
-    |   StoreNonWord of { size: nonWordSize, toStore: genReg, address: memoryAddress }
-    |   StoreNonWordConst of { size: nonWordSize, toStore: LargeInt.int, address: memoryAddress }
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
     |   AllocStoreVariable of { size: genReg, output: genReg, saveRegs: genReg list }
     |   StoreInitialised
