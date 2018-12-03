@@ -1125,7 +1125,17 @@ struct
             val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
             val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
         in
-            (Arbitrary{oper=ArbCompare TestEqual, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
+            case (genArg1, genArg2) of
+                (Constnt(v1, _), Constnt(v2, _)) =>
+                let
+                    val a1: LargeInt.int = RunCall.unsafeCast v1
+                    and a2: LargeInt.int = RunCall.unsafeCast v2
+                in
+                    (if a1 = a2 then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
+                end
+            |   _ =>   
+                (Arbitrary{oper=ArbCompare TestEqual, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)},
+                        decArgs, EnvSpecNone)
         end
 
     |   simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context as {reprocess, ...}, tailDecs) =
@@ -1140,7 +1150,22 @@ struct
            can avoid using the full arbitrary precision call by just looking
            at the sign bit. *)
         case (genCond, genArg1, genArg2) of
-            (Constnt(c1, _),  _, _) =>
+            (_, Constnt(v1, _), Constnt(v2, _)) =>
+            let
+                val a1: LargeInt.int = RunCall.unsafeCast v1
+                and a2: LargeInt.int = RunCall.unsafeCast v2
+                val testResult =
+                    case test of
+                        TestLess            => a1 < a2
+                    |   TestGreater         => a1 > a2
+                    |   TestLessEqual       => a1 <= a2
+                    |   TestGreaterEqual    => a1 >= a2
+                    |   _ => raise InternalError "simpArbitraryCompare: Unimplemented function"
+            in
+                (if testResult then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
+            end
+
+        |   (Constnt(c1, _),  _, _) =>
                 if isShort c1 andalso toShort c1 = 0w0
                 then (* One argument is definitely long - generate the long form. *)
                     (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=simplify(longCall, context), arg2=CodeZero},
@@ -1191,17 +1216,34 @@ struct
     
     and simpArbitraryArith(arith, shortCond, arg1, arg2, longCall, context, tailDecs) =
     let
+        (* arg1 and arg2 are the arguments.  shortCond is the condition that must be
+           satisfied in order to use the short precision operation i.e. each argument
+           must be short. *)
         val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
         val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
         val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
     in
-        case genCond of
-            Constnt(c1, _) =>
+        case (genArg1, genArg2, genCond) of
+            (Constnt(v1, _), Constnt(v2, _), _) =>
+            let
+                val a1: LargeInt.int = RunCall.unsafeCast v1
+                and a2: LargeInt.int = RunCall.unsafeCast v2
+                (*val _ = print ("Fold arbitrary precision: " ^ PolyML.makestring(arith, a1, a2) ^ "\n")*)
+            in
+                case arith of
+                    ArithAdd => (Constnt(toMachineWord(a1+a2), []), decArgs, EnvSpecNone)
+                |   ArithSub => (Constnt(toMachineWord(a1-a2), []), decArgs, EnvSpecNone)
+                |   ArithMult => (Constnt(toMachineWord(a1*a2), []), decArgs, EnvSpecNone)
+                |   _ => raise InternalError "simpArbitraryArith: Unimplemented function"
+            end
+            
+        |   (_, _, Constnt(c1, _)) =>
             if isShort c1 andalso toShort c1 = 0w0
             then (* One argument is definitely long - generate the long form. *)
                 (simplify(longCall, context), decArgs, EnvSpecNone)
-            else (* If we know they're both short they must be constants and we could fold them. N.B. We can still get an overflow. *)
+            else
                 (Arbitrary{oper=ArbArith arith, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
+
         |   _ => (Arbitrary{oper=ArbArith arith, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
     end
 
