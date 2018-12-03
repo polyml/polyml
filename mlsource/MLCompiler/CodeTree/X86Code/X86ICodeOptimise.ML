@@ -119,15 +119,30 @@ struct
 
         (* The overflow and parity checks should never occur. *)
     |   getCondResult _ = raise InternalError "getCondResult"
-(*
-    val getCondResult =
-        fn args => (print(PolyML.makestring args ^ "\n"); getCondResult args) *)
 
     fun optimiseICode{ code, pregProps=_, ccCount=_ } =
     let
         val hasChanged = ref false
 
-        fun optimiseBlock processed (ExtendedBasicBlock{block, flow, outCCState, ...}) =
+        val refCounts = IntArray.array(Vector.length code, 0)
+
+        local
+            open IntArray
+            fun visitRefs i =
+                if sub(refCounts, i) = 0
+                then
+                let
+                    val ExtendedBasicBlock{flow, ...} = Vector.sub(code, i)
+                    val () = update(refCounts, i, 1)
+                in
+                    List.app visitRefs (successorBlocks flow)
+                end
+                else update(refCounts, i, 1+sub(refCounts, i))
+        in
+            val () = visitRefs 0 (* Start from the root. *)
+        end
+
+        fun optimiseBlock processed (blockNo, ExtendedBasicBlock{block, flow, outCCState, ...}) =
         let
             fun optCode([], brCond, code) = (code, brCond)
 
@@ -301,8 +316,10 @@ struct
                     optCode(rest, afterCond, instr::code)
                 end
 
-            val (blkCode, finalRepl) = optCode(block, BRNone, processed)
-
+            val (blkCode, finalRepl) =
+                if IntArray.sub(refCounts, blockNo) = 0
+                then ([], BRNone)
+                else optCode(block, BRNone, processed)
         in
             case (flow, finalRepl) of
                 (* We have a Condition and a change to the condition. *)
@@ -353,8 +370,10 @@ struct
                             isMerge(rest, possopt)
                     |   isMerge _ = false
                 in
-                    if isMerge(targetBlck, POReg destCond)
-                    then (hasChanged := true; optimiseBlock blkCode target)
+                    (* Merge it if the target block is only referenced from here or if it
+                       is small enough. *)
+                    if IntArray.sub(refCounts, jmp) = 1 orelse isMerge(targetBlck, POReg destCond)
+                    then (hasChanged := true; optimiseBlock blkCode (jmp, target))
                     else BasicBlock{flow=flow, block=List.rev blkCode}
                 end
              
@@ -362,23 +381,29 @@ struct
                 let
                     val target as ExtendedBasicBlock{block=targetBlck, ...} = Vector.sub(code, jmp)
                     (* If the target is empty or is simply one or more Resets or a Return we're
-                       better off merging this in rather than doing the jump.  We might
-                       also include other short sequences as well.  e.g. if we just load
-                       a register and then do another jump we could be better incorporating
-                       it in the original block.  *)
-                    fun isSimple {instr=ResetStackPtr _, ...} = true
-                    |   isSimple {instr=ReturnResultFromFunction _, ...} = true
+                       better off merging this in rather than doing the jump.  We allow a single
+                       Load  e.g. when loading a constant or moving a register. *)
+                    fun isSimple([], _) = true
+                    |   isSimple ({instr=ResetStackPtr _, ...} :: instrs, moves) = isSimple(instrs, moves)
+                    |   isSimple ({instr=ReturnResultFromFunction _, ...} :: instrs, moves) = isSimple(instrs, moves)
+                    |   isSimple ({instr=RaiseExceptionPacket _, ...} :: instrs, moves) = isSimple(instrs, moves)
+                    |   isSimple ({instr=LoadArgument _, ...} :: instrs, moves) = moves = 0 andalso isSimple(instrs, moves+1)
                     |   isSimple _ = false
                 in
-                    if List.all isSimple targetBlck
-                    then optimiseBlock blkCode target
+                    (* Merge it if the target block is only referenced from here or if it is small enough. *)
+                    if IntArray.sub(refCounts, jmp) = 1 orelse isSimple(targetBlck, 0)
+                    then
+                    (
+                        hasChanged := true;
+                        optimiseBlock blkCode (jmp, target)
+                    )
                     else BasicBlock{flow=flow, block=List.rev blkCode}
                 end
 
             |   (flow, _) => BasicBlock{flow=flow, block=List.rev blkCode}
         end
         
-        val resVector = Vector.map (optimiseBlock []) code
+        val resVector = Vector.mapi (optimiseBlock []) code
     in
         if !hasChanged then Changed resVector else Unchanged
     end
