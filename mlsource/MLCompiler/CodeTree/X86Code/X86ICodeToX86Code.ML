@@ -1774,14 +1774,23 @@ struct
                                     if not (haveProcessed dest) andalso available dest
                                     then SOME dest
                                     else NONE
-                            |   Conditional {trueJump, falseJump, ...} =>
-                                    (* Try the falseJump first - this is the usual case.  If that fails
-                                       try the trueJump. *)
-                                    if not (haveProcessed falseJump) andalso available falseJump
-                                    then SOME falseJump
-                                    else if not (haveProcessed trueJump) andalso available trueJump
-                                    then SOME trueJump
+                            |   Conditional {trueJump, falseJump, condition, ...} =>
+                                (* Try the falseJump first - this is the usual case.  If that fails
+                                   try the trueJump.  The exception is if this is JNO.  It's better
+                                   to generate JO since the default branch prediction is not to
+                                   take forward jumps and we'd expect overflow to be unusual. *)
+                                let
+                                    val (first, second) =
+                                        case condition of
+                                            JNO => (trueJump, falseJump)
+                                        |   _ => (falseJump, trueJump)
+                                in
+                                    if not (haveProcessed first) andalso available first
+                                    then SOME first
+                                    else if not (haveProcessed second) andalso available second
+                                    then SOME second
                                     else NONE
+                                end
                            |    SetHandler { continue, ... } =>
                                     (* We want the continuation if possible.  We'll need a
                                        branch round the handler so that won't help. *)
