@@ -39,7 +39,8 @@ struct
        speculative changes that can be reversed if there is a need
        to spill registers.
        
-       The optimiser currently deals with booleans and conditions.
+       The optimiser currently deals with booleans and conditions
+       and with moving memory loads into an instruction operand.
     *)
     
     (* This is a rewrite of the last instruction to set a boolean.
@@ -141,13 +142,32 @@ struct
         in
             val () = visitRefs 0 (* Start from the root. *)
         end
+        
+        (* If this argument is a register that refers to a recently loaded memory address we can
+           replace the argument with the memory reference. *)
+        fun replaceWithMemory(arg as RegisterArgument (preg as PReg pregNo), kill, memRefs) =
+        (
+            case List.find(fn {dest, ... } => dest = preg) memRefs of
+                SOME { source, ...} =>
+                    (
+                    if member(pregNo, kill)
+                    then ( hasChanged := true; source )
+                    else arg,
+                    (* Filter this from the list.  If this is not the last
+                       reference we want to use the register and if it is then
+                       we don't need it any longer. *)
+                    List.filter(fn {dest, ...} => dest <> preg) memRefs)
+           |    NONE => (arg, memRefs)
+        )
+        
+        |   replaceWithMemory(arg, _, memRefs) = (arg, memRefs)
 
         fun optimiseBlock processed (blockNo, ExtendedBasicBlock{block, flow, outCCState, ...}) =
         let
-            fun optCode([], brCond, code) = (code, brCond)
+            fun optCode([], brCond, _, code) = (code, brCond)
 
             |   optCode({instr as SetToCondition({dest, highOrder, ccRef, condition=setCCond}), ...} :: rest,
-                         BRChangeCond(ccCond as {srcCC, ...}), code) =
+                         BRChangeCond(ccCond as {srcCC, ...}), memRefs, code) =
                 if ccRef = srcCC
                 then
                 let
@@ -159,28 +179,28 @@ struct
                         |   CAConst cv =>
                                 LoadArgument{dest=dest, source=IntegerConstant(compareValAsInt cv), kind=Move32Bit}
                 in
-                    optCode(rest, BRSetCond {dest=dest, test=ccCond}, outInstr :: code)
+                    optCode(rest, BRSetCond {dest=dest, test=ccCond}, memRefs, outInstr :: code)
                 end
                 else optCode(rest,
                     BRSetCond{dest=dest, test=CASetCond{condition=setCCond, highOrder=highOrder, outCC=ccRef}},
-                    instr :: code)
+                    memRefs, instr :: code)
 
-            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition}, ...} :: rest, _, code) =
+            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition}, ...} :: rest, _, memRefs, code) =
                     (* Record this SetCondition in case it can be used later. *)
                     optCode(rest,
                         BRSetCond{dest=dest, test=CASetCond{condition=condition, highOrder=highOrder, outCC=ccRef}},
-                        instr :: code)
+                        memRefs, instr :: code)
 
-            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 1, ...}, ...} :: rest, _, code) =
+            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 1, ...}, ...} :: rest, _, memRefs, code) =
                     (* This MAY be a value of false. *)
-                    optCode(rest, BRSetCond{dest=dest, test=CAConst(intAsCompareVal 1)}, instr :: code)
+                    optCode(rest, BRSetCond{dest=dest, test=CAConst(intAsCompareVal 1)}, memRefs, instr :: code)
 
-            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 3, ...}, ...} :: rest, _, code) =
+            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 3, ...}, ...} :: rest, _, memRefs, code) =
                     (* This MAY be a value of true. *)
-                    optCode(rest, BRSetCond{dest=dest, test=CAConst(intAsCompareVal 3)}, instr :: code)
+                    optCode(rest, BRSetCond{dest=dest, test=CAConst(intAsCompareVal 3)}, memRefs, instr :: code)
 
             |   optCode({instr as BooleanNot(boolOp as {source=notSrc, dest=notDest}), ...} :: rest,
-                        BRSetCond{dest=setDest, test}, code) =
+                        BRSetCond{dest=setDest, test}, memRefs, code) =
                     if setDest = notSrc
                     then
                     let
@@ -215,7 +235,7 @@ struct
                     in
                         (* Replace the BooleanNot with a SetToCondition.  Pass this
                            SetToCondition on in case we have a TestBoolean. *)
-                        optCode(rest, BRSetCond{dest=notDest, test=outSet}, outInstr :: code)
+                        optCode(rest, BRSetCond{dest=notDest, test=outSet}, memRefs, outInstr :: code)
                     end
                     else 
                     (* The source wasn't set by a SetToCondition so we can't eliminate
@@ -223,89 +243,149 @@ struct
                        in which case we can eliminate it in the test.  Don't bother
                        to see if the source is a "NOT".  That should have been
                        eliminated in the higher levels. *)
-                    optCode(rest, BRNot boolOp, instr :: code)
+                    optCode(rest, BRNot boolOp, memRefs, instr :: code)
 
-            |   optCode({instr as BooleanNot boolOp, ...} :: rest, _, code) =
-                    optCode(rest, BRNot boolOp, instr :: code)
+            |   optCode({instr as BooleanNot boolOp, ...} :: rest, _, memRefs, code) =
+                    optCode(rest, BRNot boolOp, memRefs, instr :: code)
 
-            |   optCode({instr as CompareLiteral{arg1=RegisterArgument source, arg2, ccRef=ccRefOut, ...}, ...} :: rest,
-                        brCond, code) =
-                (* CompareLiteral is put in by CodetreeToIcode to test a boolean value.  It can also
-                   arise as the result of pattern matching on booleans or even by tests such as = true. *)
-                if arg2 = 1 orelse arg2 = 3
-                then
-                (
-                    case brCond of
-                        BRSetCond{dest=setDest, test} =>
-                        if setDest = source
+            |   optCode({instr as CompareLiteral{arg1, arg2, ccRef=ccRefOut, opSize}, kill, ...} :: rest,
+                        brCond, memRefs, code) =
+                let
+                    val (repArg1, memRefsOut) = replaceWithMemory(arg1, kill, memRefs)
+                in
+                    case repArg1 of
+                        RegisterArgument source =>
+                        (* CompareLiteral is put in by CodetreeToIcode to test a boolean value.  It can also
+                           arise as the result of pattern matching on booleans or even by tests such as = true. *)
+                        if arg2 = 1 orelse arg2 = 3
                         then
-                        (*  We recently set this register to a condition and the condition is still
-                            active. Rather than test it again we can just change references to the
-                            condition we're setting to refer to the old one.  We have to check that
-                            we're not exporting the condition to another block since we only
-                            change references in this block.
-                            N.B.  If this is a boolean we will only ever be testing it against
-                            true (tagged 1 i.e. 3) or false (tagged 0 i.e. 1).
-                            However the CODETREE_SIMPLIFIER turns any if..then..else that returns just
-                            these two values into a conditional and we could then compare this with
-                            something else.  Since the comparison could be an ordering it gets very
-                            complicated.  Just consider 1 and 3 for the moment. *)
-                        let
-                            val _ = hasChanged := true
-                            (* Put in a replacement so that if we were previously testing ccRefOut
-                               we should instead test ccRef. *)
-                            val cv = case arg2 of 1 => CVFalse | 3 => CVTrue | _ => raise InternalError "Compare val"
-                            val repl = BRChangeCond{srcCC=ccRefOut, compare=cv, test=test}
-                            val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
-                        in
-                            optCode(rest, repl, code)
-                        end
-                        else optCode(rest, BRNone, instr::code)
+                        (
+                            case brCond of
+                                BRSetCond{dest=setDest, test} =>
+                                if setDest = source
+                                then
+                                (*  We recently set this register to a condition and the condition is still
+                                    active. Rather than test it again we can just change references to the
+                                    condition we're setting to refer to the old one.  We have to check that
+                                    we're not exporting the condition to another block since we only
+                                    change references in this block.
+                                    N.B.  If this is a boolean we will only ever be testing it against
+                                    true (tagged 1 i.e. 3) or false (tagged 0 i.e. 1).
+                                    However the CODETREE_SIMPLIFIER turns any if..then..else that returns just
+                                    these two values into a conditional and we could then compare this with
+                                    something else.  Since the comparison could be an ordering it gets very
+                                    complicated.  Just consider 1 and 3 for the moment. *)
+                                let
+                                    val _ = hasChanged := true
+                                    (* Put in a replacement so that if we were previously testing ccRefOut
+                                       we should instead test ccRef. *)
+                                    val cv = case arg2 of 1 => CVFalse | 3 => CVTrue | _ => raise InternalError "Compare val"
+                                    val repl = BRChangeCond{srcCC=ccRefOut, compare=cv, test=test}
+                                    val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
+                                in
+                                    optCode(rest, repl, memRefsOut, code)
+                                end
+                                else optCode(rest, BRNone, memRefsOut, instr::code)
 
-                    |   BRNot{dest, source=notSource} =>
-                        if dest = source
-                        then
-                        let
-                            (* We have a NOT of a boolean other than a test.  There's no test
-                               to pass on but we can change this test. *)
-                            val _ = hasChanged := true
-                            val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
-                            val outArg =
-                                case arg2 of
-                                    1 (* i.e. tagged false *) => 3
-                                |   3 (* i.e. tagged true *)  => 1
-                                |   _ => raise InternalError "optCode: test is not true or false"
-                            val outCompare =
-                                CompareLiteral{arg1=RegisterArgument notSource, arg2=outArg,
-                                    opSize=OpSize32, ccRef=ccRefOut}
-                        in
-                            optCode(rest, BRNone, outCompare :: code)
-                        end
-                        else optCode(rest, BRNone, instr::code)
+                            |   BRNot{dest, source=notSource} =>
+                                if dest = source
+                                then
+                                let
+                                    (* We have a NOT of a boolean other than a test.  There's no test
+                                       to pass on but we can change this test. *)
+                                    val _ = hasChanged := true
+                                    val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
+                                    val outArg =
+                                        case arg2 of
+                                            1 (* i.e. tagged false *) => 3
+                                        |   3 (* i.e. tagged true *)  => 1
+                                        |   _ => raise InternalError "optCode: test is not true or false"
+                                    val outCompare =
+                                        CompareLiteral{arg1=RegisterArgument notSource, arg2=outArg,
+                                            opSize=OpSize32, ccRef=ccRefOut}
+                                in
+                                    optCode(rest, BRNone, memRefsOut, outCompare :: code)
+                                end
+                                else optCode(rest, BRNone, memRefsOut, instr::code)
                      
 
-                    |   _ => optCode(rest, BRNone, instr::code)
-                )
-                else optCode(rest, BRNone, instr::code)
+                            |   _ => optCode(rest, BRNone, memRefsOut, instr::code)
+                        )
+                        else optCode(rest, BRNone, memRefsOut, instr::code)
+                
+                    |   repArg1 =>
+                            optCode(rest, BRNone, memRefsOut,
+                                CompareLiteral{arg1=repArg1, arg2=arg2, ccRef=ccRefOut, opSize=opSize}::code)
+                end
 
-            |   optCode({instr=ZeroRegister{dest}, ...} :: rest, brCond as BRSetCond{test=CASetCond{highOrder, ...}, ...}, code) =
+            |   optCode({instr=ZeroRegister{dest}, ...} :: rest, brCond as BRSetCond{test=CASetCond{highOrder, ...}, ...}, memRefs, code) =
                 (* We've had a SetCondition before this and we're about to test some condition in order
                    to do another SetCondition.  It may be the original condition or some other.  If it's
                    the original we need to preserve the CC if we're going to pass on the BRSetCond
                    but ZeroRegister will clobber it.  Change this to use a Move from the original high-order
                    which will preserve the CC. *)
-                    optCode(rest, brCond, LoadArgument{source=RegisterArgument highOrder, dest=dest, kind=Move32Bit} :: code)
+                    optCode(rest, brCond, memRefs, LoadArgument{source=RegisterArgument highOrder, dest=dest, kind=Move32Bit} :: code)
 
-            |   optCode({instr as ZeroRegister _, ...} :: rest, _, code) = optCode(rest, BRNone, instr :: code)
+            |   optCode({instr as ZeroRegister _, ...} :: rest, _, memRefs, code) = optCode(rest, BRNone, memRefs, instr :: code)
 
             |   optCode({instr as LoadArgument{dest, source=RegisterArgument srReg, ...} , ...} :: rest,
-                        brCond as BRSetCond{dest=setDest, test}, code) =
+                        brCond as BRSetCond{dest=setDest, test}, memRefs, code) =
                 (* We frequently have a move if we have followed an unconditional branch. *)
                 if srReg = setDest
-                then optCode(rest, BRSetCond{dest=dest, test=test}, instr :: code)
-                else optCode(rest, brCond, instr :: code)
+                then optCode(rest, BRSetCond{dest=dest, test=test}, memRefs, instr :: code)
+                else optCode(rest, brCond, memRefs, instr :: code)
 
-            |   optCode({instr, ...} :: rest, inCond, code) =
+            |   optCode({instr as LoadArgument{dest, source as MemoryLocation _, ...} , ...} :: rest, inCond, memRefs, code) =
+                    optCode(rest, inCond, {dest=dest, source=source} :: memRefs, instr::code)
+
+            |   optCode({instr as StoreArgument _, ...} :: rest, inCond, _, code) =
+                    (* For safety assume that this clears the "cache". *)
+                    optCode(rest, inCond, [], instr::code)
+
+            |   optCode({instr as FunctionCall _, ...} :: rest, _, _, code) =
+                    optCode(rest, BRNone, [], instr::code)                
+
+                (* These instructions could take memory operands.  This isn't the full set but the others are
+                   rare or only take memory operands that refer to boxed memory. *)
+            |   optCode({instr=WordComparison{arg1, arg2, ccRef, opSize}, kill, ...} :: rest, _, memRefs, code) =
+                let
+                    (* Replace register reference with memory if possible. *)
+                    val (source, memRefsOut) = replaceWithMemory(arg2, kill, memRefs)
+                in
+                    (* This affects the CC. *)
+                    optCode(rest, BRNone, memRefsOut, WordComparison{arg1=arg1, arg2=source, ccRef=ccRef, opSize=opSize}::code)
+                end
+
+            |   optCode({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef, opSize}, kill, ...} :: rest, _, memRefs, code) =
+                let
+                    (* Replace register reference with memory if possible. *)
+                    val (source, memRefsOut) = replaceWithMemory(operand2, kill, memRefs)
+                in
+                    (* This affects the CC. *)
+                    optCode(rest, BRNone, memRefsOut,
+                        ArithmeticFunction{oper=oper, resultReg=resultReg, operand1=operand1,
+                                           operand2=source, ccRef=ccRef, opSize=opSize}::code)
+                end
+
+            |   optCode({instr=TestTagBit{arg, ccRef}, kill, ...} :: rest, _, memRefs, code) =
+                let
+                    (* Replace register reference with memory if possible. *)
+                    val (source, memRefsOut) = replaceWithMemory(arg, kill, memRefs)
+                in
+                    (* This affects the CC. *)
+                    optCode(rest, BRNone, memRefsOut, TestTagBit{arg=source, ccRef=ccRef}::code)
+                end
+
+            |   optCode({instr=UntagFloat{source, dest, cache=_}, kill, ...} :: rest, _, memRefs, code) =
+                let
+                    (* Replace register reference with memory if possible. *)
+                    val (source, memRefsOut) = replaceWithMemory(source, kill, memRefs)
+                in
+                    (* Not sure if this affects the CC but assume it might. *)
+                    optCode(rest, BRNone, memRefsOut, UntagFloat{source=source, dest=dest, cache=NONE}::code)
+                end
+
+            |   optCode({instr, ...} :: rest, inCond, memRefs, code) =
                 let
                     (* If this instruction affects the CC the cached SetToCondition will no longer be valid. *)
                     val afterCond =
@@ -313,13 +393,13 @@ struct
                             CCUnchanged => inCond
                         |   _ => BRNone
                 in
-                    optCode(rest, afterCond, instr::code)
+                    optCode(rest, afterCond, memRefs, instr::code)
                 end
 
             val (blkCode, finalRepl) =
                 if IntArray.sub(refCounts, blockNo) = 0
                 then ([], BRNone)
-                else optCode(block, BRNone, processed)
+                else optCode(block, BRNone, [], processed)
         in
             case (flow, finalRepl) of
                 (* We have a Condition and a change to the condition. *)

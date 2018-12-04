@@ -132,7 +132,7 @@ struct
         
         datatype locationValue =
             NoLocation
-        |   ArgLocation of argument
+        |   PregLocation of preg
         |   ContainerLocation of { container: stackLocn, stackOffset: int }
 
         val locToPregArray = Array.array(localCount, NoLocation)
@@ -498,8 +498,8 @@ struct
 
                 |   doBindings(BICDeclar{value, addr, ...} :: decs, context, tailCode) =
                     let
-                        val (code, result, _) = codeToICodeRev(value, context, false, Allowed allowDefer, tailCode)
-                        val () = Array.update(locToPregArray, addr, ArgLocation result)
+                        val (code, dest) = codeToPRegRev(value, context, tailCode)
+                        val () = Array.update(locToPregArray, addr, PregLocation dest)
                     in
                         doBindings(decs, context, code)
                     end
@@ -509,7 +509,7 @@ struct
                     let
                         val dest = newPReg()
                         val (code, _, _) = codeToICodeRev(BICLambda lambda, context, false, SpecificPReg dest, tailCode)
-                        val () = Array.update(locToPregArray, addr, ArgLocation(RegisterArgument dest))
+                        val () = Array.update(locToPregArray, addr, PregLocation dest)
                     in
                         doBindings(decs, context, code)
                     end
@@ -522,7 +522,7 @@ struct
                            entry in the address table to the register containing the address. *)
                         fun makeClosure({lambda={closure, ...}, addr, ...}, dest, c) =
                         let
-                            val () = Array.update(locToPregArray, addr, ArgLocation(RegisterArgument dest))
+                            val () = Array.update(locToPregArray, addr, PregLocation dest)
                             val sizeClosure = List.length closure + (if targetArch = ObjectId32Bit then 2 else 1)
                             open Address
 
@@ -639,7 +639,7 @@ struct
             (
                 case Array.sub(locToPregArray, l) of
                     NoLocation => raise InternalError "codeToICodeRev - local unset"
-                |   ArgLocation arg => moveIfNotAllowedRev(destination, tailCode, arg)
+                |   PregLocation preg => moveIfNotAllowedRev(destination, tailCode, RegisterArgument preg)
                 |   ContainerLocation{container, stackOffset} =>
                         (* This always returns a ContainerAddr whatever the "allowed". *)
                         (tailCode, ContainerAddr{container=container, stackOffset=stackPtr-stackOffset}, false)
@@ -1173,7 +1173,7 @@ struct
                 |   codeArgs (({value, addr}, _) :: rest, tailCode) =
                     let
                         val pr = newPReg()
-                        val () = Array.update(locToPregArray, addr, ArgLocation(RegisterArgument pr))
+                        val () = Array.update(locToPregArray, addr, PregLocation pr)
                         val (code, _, _) = codeToICodeRev(value, context, false, SpecificPReg pr, tailCode)
                         val (pregs, othercode) = codeArgs(rest, code)
                     in
@@ -1278,7 +1278,7 @@ struct
                         end
                 (* Make a register to hold the exception packet and put eax into it. *)
                 val packetAddr = newPReg()
-                val () = Array.update(locToPregArray, exPacketAddr, ArgLocation(RegisterArgument packetAddr))
+                val () = Array.update(locToPregArray, exPacketAddr, PregLocation packetAddr)
                 val (handleCode, _, handleExit) =
                     codeToICodeRev(handler, context, isTail, SpecificPReg handlerTarget,
                         BlockSimple(BeginHandler{workReg=newPReg(), packetReg=packetAddr}) :: BlockLabel handlerLab :: atExpEnd)
@@ -3347,8 +3347,8 @@ struct
                     (* Subtract the tag bit from the second argument, do the addition and check for overflow. *)
                     (* TODO: We should really do the detagging in the transform phase.  It can make a better choice of
                        the argument if one of the arguments is already untagged or if we have a constant argument. *)
-                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef(), opSize=polyWordOpSize}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=RegisterArgument aReg3, ccRef=ccRef, opSize=polyWordOpSize})] @
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=IntegerConstant 1, ccRef=newCCRef(), opSize=polyWordOpSize}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=RegisterArgument aReg2, ccRef=ccRef, opSize=polyWordOpSize})] @
                     onOverflow ccRef
             end
 
