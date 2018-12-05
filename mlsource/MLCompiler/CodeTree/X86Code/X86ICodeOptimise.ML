@@ -171,6 +171,7 @@ struct
                 let
                     (* If we have a BRChangeCond then we need to adjust the condition. *)
                     val _ = ccRef = srcCC orelse raise InternalError "optCode: SetToCondition/BRChangeCond"
+                    val () = hasChanged := true
                     val ccCond = getCondResult(ccCond, setCCond)
                     val outInstr =
                         case ccCond of
@@ -192,6 +193,7 @@ struct
                          BRChangeCond(ccCond as {srcCC, ...}), memRefs, code) =
                 let
                     val _ = ccRef = srcCC orelse raise InternalError "optCode: ConditionalMove/BRChangeCond"
+                    val () = hasChanged := true
                     val ccCond = getCondResult(ccCond, moveCond)
                     val outInstr =
                         case ccCond of
@@ -206,7 +208,20 @@ struct
                             end
                 in
                     optCode(rest, BRNone, memRefs, outInstr :: code)
-                end 
+                end
+
+            |   optCode({instr=ConditionalMove{dest, falseSrc, trueSrc, ccRef, condition, opSize}, kill, ...} :: rest,
+                         _, memRefs, code) =
+                let
+                    (* Replace register references with memory if possible.   It's safe to use memory
+                       references at this point because the reference must have been loaded on the common
+                       path so must be valid whether or not the condition is true. *)
+                    val (fSource, memRefsOut1) = replaceWithMemory(falseSrc, kill, memRefs)
+                    val (tSource, memRefsOut) = replaceWithMemory(trueSrc, kill, memRefsOut1)
+                in
+                    optCode(rest, BRNone, memRefsOut,
+                        ConditionalMove{dest=dest, falseSrc=fSource, trueSrc=tSource, ccRef=ccRef, condition=condition, opSize=opSize} ::code)
+                end
 
             |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 1, ...}, ...} :: rest, _, memRefs, code) =
                     (* This MAY be a value of false. *)
