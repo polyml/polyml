@@ -219,21 +219,51 @@ struct
             |   leftRightTest TestUnordered     = TestUnordered
         end
         
-        (* Overflow check.  This raises Overflow if the overflow bit is set in the cc. *)
-        fun checkOverflow ({currHandler, ...}) ccRef =
-        let
-            val overFlowLab = newLabel() and noOverflowLab = newLabel()
-            val packetReg = newPReg()
-            val raiseCode = RaiseExceptionPacket{packetReg=packetReg}
-        in
-            [
-                BlockFlow(Conditional{ ccRef=ccRef, condition=JNO, trueJump=noOverflowLab, falseJump=overFlowLab }),
-                BlockLabel overFlowLab,
-                BlockSimple(LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=packetReg, kind=movePolyWord}),
-                case currHandler of NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h),
-                BlockLabel noOverflowLab
-            ]
-        end
+        (* Overflow check.  This raises Overflow if the overflow bit is set in the cc.  This generates
+           a single block for the function unless there is a handler.
+           As well as reducing the size of the code this also means that overflow checks are generally
+           JO instructions to the end of the code.  Since the default branch prediction is not to take
+           forward jumps this should improve prefetching on the normal, non-overflow, path. *)
+        fun checkOverflow ({currHandler=NONE, overflowBlock=ref(SOME overFlowLab), ...}) ccRef =
+            (* It's already been set and there's no surrounding handler - use this. *)
+            let
+                val noOverflowLab = newLabel()
+            in
+                [
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=JO, trueJump=overFlowLab, falseJump=noOverflowLab }),
+                    BlockLabel noOverflowLab
+                ]
+            end
+
+        |   checkOverflow ({currHandler=NONE, overflowBlock, ...}) ccRef =
+            let
+                (* *)
+                val overFlowLab = newLabel() and noOverflowLab = newLabel()
+                val packetReg = newPReg()
+                val () = overflowBlock := SOME overFlowLab
+            in
+                [
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=JO, trueJump=overFlowLab, falseJump=noOverflowLab }),
+                    BlockLabel overFlowLab,
+                    BlockSimple(LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=packetReg, kind=movePolyWord}),
+                    BlockExit(RaiseExceptionPacket{packetReg=packetReg}),
+                    BlockLabel noOverflowLab
+                ]
+            end
+
+        |   checkOverflow ({currHandler=SOME h, ...}) ccRef =
+            let
+                val overFlowLab = newLabel() and noOverflowLab = newLabel()
+                val packetReg = newPReg()
+            in
+                [
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=JO, trueJump=overFlowLab, falseJump=noOverflowLab }),
+                    BlockLabel overFlowLab,
+                    BlockSimple(LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=packetReg, kind=movePolyWord}),
+                    BlockRaiseAndHandle(RaiseExceptionPacket{packetReg=packetReg}, h),
+                    BlockLabel noOverflowLab
+                ]
+            end
         
         fun setAndRestoreRounding (rndMode, doWithRounding) =
         let
@@ -357,7 +387,9 @@ struct
         |   Allowed of allowedArgument
         
         (* Context type. *)
-        type context = { loopArgs: (preg list * int * int) option, stackPtr: int, currHandler: int option }
+        type context =
+            { loopArgs: (preg list * int * int) option, stackPtr: int, currHandler: int option,
+              overflowBlock: int option ref }
 
         (* If a preg has been provided, use that, otherwise generate a new one. *)
         fun asTarget(SpecificPReg preg) = preg
@@ -600,13 +632,14 @@ struct
                         doBindings(decs, context, code)
                     end
        
-                |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr, currHandler}, tailCode) =
+                |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr, currHandler, overflowBlock}, tailCode) =
                     let
                         val containerReg = newStackLoc size
                         val () = Array.update(locToPregArray, addr,
                                     ContainerLocation{container=containerReg, stackOffset=stackPtr+size})
                     in
-                        doBindings(decs, {loopArgs=loopArgs, stackPtr=stackPtr+size, currHandler=currHandler},
+                        doBindings(decs,
+                            {loopArgs=loopArgs, stackPtr=stackPtr+size, currHandler=currHandler, overflowBlock=overflowBlock},
                             BlockSimple(ReserveContainer{size=size, container=containerReg}) :: tailCode)
                     end
 
@@ -1165,7 +1198,8 @@ struct
                 (copyToTarget, RegisterArgument target, isTail (* We have always exited on a tail. *))
             end
 
-        |   codeToICodeRev(BICBeginLoop {loop, arguments}, context as { stackPtr, currHandler, ...}, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICBeginLoop {loop, arguments}, context as { stackPtr, currHandler, overflowBlock, ...},
+                           isTail, destination, tailCode) =
             let
                 val target = asTarget destination
                 
@@ -1183,7 +1217,9 @@ struct
 
                 val loopLabel = newLabel()
                 val (loopBody, _, loopExited) =
-                    codeToICodeRev(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr, currHandler=currHandler },
+                    codeToICodeRev(loop,
+                        {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr,
+                         currHandler=currHandler, overflowBlock=overflowBlock },
                             isTail, SpecificPReg target, BlockLabel loopLabel :: argCode)
             in
                 (loopBody, RegisterArgument target, loopExited)
@@ -1232,7 +1268,7 @@ struct
                 (block :: code, RegisterArgument(asTarget destination), true (* Always exits *))
             end
 
-        |   codeToICodeRev(BICHandle{exp, handler, exPacketAddr}, context as { stackPtr, loopArgs, ... }, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICHandle{exp, handler, exPacketAddr}, context as { stackPtr, loopArgs, overflowBlock, ... }, isTail, destination, tailCode) =
             let
                 (* As with BICCond and BICCase we need to create a new register for the
                    result in case we need to push it to the stack. *)
@@ -1256,7 +1292,7 @@ struct
                     BlockFlow(SetHandler{handler=handlerLab, continue=startHandling}) ::
                     BlockSimple(PushExceptionHandler{workReg=newPReg()}) :: tailCode
                 val (expCode, _, expExit) =
-                    codeToICodeRev(exp, {stackPtr=stackPtr+2, loopArgs=loopArgs, currHandler=SOME handlerLab},
+                    codeToICodeRev(exp, {stackPtr=stackPtr+2, loopArgs=loopArgs, currHandler=SOME handlerLab, overflowBlock=overflowBlock},
                         false (* Not tail *), SpecificPReg bodyTarget, initialCode)
                 (* If this is the tail we can replace the jump at the end of the
                    handled code with returns.  If the handler has exited we don't need
@@ -3729,7 +3765,7 @@ struct
         end
 
         (*Turn the codetree structure into icode. *)
-        val bodyContext = {loopArgs=NONE, stackPtr=0, currHandler=NONE}
+        val bodyContext = {loopArgs=NONE, stackPtr=0, currHandler=NONE, overflowBlock=ref NONE}
         val (bodyCode, _, bodyExited) =
             codeToICodeRev(body, bodyContext, true, SpecificPReg resultTarget, [beginInstruction])
         val icode = if bodyExited then bodyCode else returnInstruction(bodyContext, resultTarget, bodyCode)
