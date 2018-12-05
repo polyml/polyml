@@ -192,6 +192,16 @@ struct
             |   addHints{instr=SSE2FPBinary{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
 
+            |   addHints{instr=ConditionalMove{trueSrc, falseSrc, dest=PReg dreg, ...}, ...} =
+                (
+                    case decache trueSrc of
+                        RegisterArgument(PReg sreg) => addSourceAndDestinationHint {src=sreg, dst=dreg}
+                    |   _ => ();
+                    case decache falseSrc of
+                        RegisterArgument(PReg sreg) => addSourceAndDestinationHint {src=sreg, dst=dreg}
+                    |   _ => ()
+                )
+
             |   addHints _ = ()
         
         end
@@ -790,6 +800,22 @@ struct
                 allocateRegister(destReg, NONE, generalRegisters);
                 allocateArgGeneral source
             )
+
+        |   registerAllocate({instr=ConditionalMove{dest=PReg resReg, trueSrc, falseSrc, ...}, ...}) =
+            let
+                val realDestReg = findRegister(resReg, NONE, generalRegisters)
+            in
+                (* If either argument is in a register try to use the same register. *)
+                case trueSrc of
+                    RegisterArgument(PReg sReg) =>
+                        allocateRegister(sReg, SOME realDestReg, generalRegisters)
+                |   trueSrc => allocateArgGeneral trueSrc;
+                
+                case falseSrc of
+                    RegisterArgument(PReg sReg) =>
+                        allocateRegister(sReg, SOME realDestReg, generalRegisters)
+                |   falseSrc => allocateArgGeneral falseSrc
+            end
     
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

@@ -166,11 +166,11 @@ struct
         let
             fun optCode([], brCond, _, code) = (code, brCond)
 
-            |   optCode({instr as SetToCondition({dest, highOrder, ccRef, condition=setCCond}), ...} :: rest,
+            |   optCode({instr=SetToCondition({dest, highOrder, ccRef, condition=setCCond}), ...} :: rest,
                          BRChangeCond(ccCond as {srcCC, ...}), memRefs, code) =
-                if ccRef = srcCC
-                then
                 let
+                    (* If we have a BRChangeCond then we need to adjust the condition. *)
+                    val _ = ccRef = srcCC orelse raise InternalError "optCode: SetToCondition/BRChangeCond"
                     val ccCond = getCondResult(ccCond, setCCond)
                     val outInstr =
                         case ccCond of
@@ -181,15 +181,32 @@ struct
                 in
                     optCode(rest, BRSetCond {dest=dest, test=ccCond}, memRefs, outInstr :: code)
                 end
-                else optCode(rest,
-                    BRSetCond{dest=dest, test=CASetCond{condition=setCCond, highOrder=highOrder, outCC=ccRef}},
-                    memRefs, instr :: code)
 
             |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition}, ...} :: rest, _, memRefs, code) =
                     (* Record this SetCondition in case it can be used later. *)
                     optCode(rest,
                         BRSetCond{dest=dest, test=CASetCond{condition=condition, highOrder=highOrder, outCC=ccRef}},
                         memRefs, instr :: code)
+
+            |   optCode({instr=ConditionalMove{dest, falseSrc, trueSrc, ccRef, condition=moveCond, opSize}, ...} :: rest,
+                         BRChangeCond(ccCond as {srcCC, ...}), memRefs, code) =
+                let
+                    val _ = ccRef = srcCC orelse raise InternalError "optCode: ConditionalMove/BRChangeCond"
+                    val ccCond = getCondResult(ccCond, moveCond)
+                    val outInstr =
+                        case ccCond of
+                            CASetCond({condition=outCondition, outCC, ...}) =>
+                                ConditionalMove{dest=dest, falseSrc=falseSrc, trueSrc=trueSrc, ccRef=outCC, condition=outCondition, opSize=opSize}
+                        |   CAConst cv =>
+                            let
+                                val use = case cv of CVFalse => falseSrc | CVTrue => trueSrc
+                                val kind = if opSize = OpSize32 then Move32Bit else Move64Bit
+                            in
+                                LoadArgument{dest=dest, source=use, kind=kind}
+                            end
+                in
+                    optCode(rest, BRNone, memRefs, outInstr :: code)
+                end 
 
             |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 1, ...}, ...} :: rest, _, memRefs, code) =
                     (* This MAY be a value of false. *)
@@ -418,12 +435,65 @@ struct
                         BasicBlock{flow=newFlow, block=List.rev blkCode}
                     end
                     else BasicBlock{flow=flow, block=List.rev blkCode}
-            
-            |   (flow as Conditional _, BRNone) => BasicBlock{flow=flow, block=List.rev blkCode}
 
-            |   (flow as Conditional _, BRSetCond _) => BasicBlock{flow=flow, block=List.rev blkCode}
+            |   (flow as Conditional{trueJump, falseJump, condition, ccRef}, _) =>
+                let
+                    (* Can we turn this into a ConditionalMove?  Yes, if both arms move
+                       a constant or a register into the same register or both return a constant
+                       or a register.  If they move a memory location into a register we can't
+                       because that memory may only be accessible if the condition holds. *)
+                    val trueCode = Vector.sub(code, trueJump)
+                    and falseCode = Vector.sub(code, falseJump)
 
-            |   (Conditional _, _) => raise InternalError "Conditional??"
+                    fun memMove(MemoryLocation _) = true
+                    |   memMove _ = false
+                in
+                    case (trueCode, falseCode) of
+                        (ExtendedBasicBlock{flow=Unconditional toTrue,
+                            block=[{instr=LoadArgument{source=sourceT, dest=destT, kind=kindT, ...}, ...}], ...},
+                         ExtendedBasicBlock{flow=Unconditional toFalse,
+                            block=[{instr=LoadArgument{source=sourceF, dest=destF, kind=kindF, ...}, ...}], ...}) =>
+                        if toTrue = toFalse andalso destT = destF andalso not (memMove sourceT) andalso not (memMove sourceF)
+                           andalso kindT = kindF andalso (kindT = Move32Bit orelse kindT = Move64Bit)
+                        then
+                        let
+                            val () = print("CMov ?" ^ PolyML.makestring(sourceT, sourceF) ^ "\n");
+                            val () = hasChanged := true
+                            val opSize = if kindT = Move32Bit then OpSize32 else OpSize64
+                            val cmov =
+                                ConditionalMove{trueSrc=sourceT, falseSrc=sourceF, dest=destT, ccRef=ccRef,
+                                                condition=condition, opSize=opSize}
+                            val target = Vector.sub(code, toTrue)
+                        in
+                            optimiseBlock (cmov :: blkCode) (toTrue, target)
+                        end
+                        else BasicBlock{flow=flow, block=List.rev blkCode}
+
+                    |   (ExtendedBasicBlock{flow=ExitCode,
+                            block=[{instr=LoadArgument{source=sourceT, dest=destT, kind=kindT, ...}, ...},
+                                   {instr=ReturnResultFromFunction{resultReg=resT, numStackArgs=numStack}, ...}], ...},
+                         ExtendedBasicBlock{flow=ExitCode,
+                            block=[{instr=LoadArgument{source=sourceF, dest=destF, kind=kindF, ...}, ...},
+                                   {instr=ReturnResultFromFunction{resultReg=resF, ...}, ...}], ...}) =>
+                        if destT = resT andalso destF = resF andalso not (memMove sourceT) andalso not (memMove sourceF)
+                           andalso kindT = kindF andalso (kindT = Move32Bit orelse kindT = Move64Bit)
+                        then
+                        let
+                            val () = print("CMov ?" ^ PolyML.makestring(sourceT, sourceF) ^ " - exit\n")
+                            val () = hasChanged := true
+                            val opSize = if kindT = Move32Bit then OpSize32 else OpSize64
+                            val resCode =
+                                ReturnResultFromFunction{resultReg=destT, numStackArgs=numStack} ::
+                                ConditionalMove{trueSrc=sourceT, falseSrc=sourceF, dest=destT, ccRef=ccRef,
+                                                condition=condition, opSize=opSize} ::
+                                blkCode
+                        in
+                            BasicBlock{flow=ExitCode, block=List.rev resCode}
+                        end
+                        else BasicBlock{flow=flow, block=List.rev blkCode}
+
+                    |   _ => BasicBlock{flow=flow, block=List.rev blkCode}
+                end
             
             |   (flow as Unconditional jmp, BRSetCond{dest=destCond, ...}) =>
                 (* We have an unconditional branch with a SetCondition.  It could be that we

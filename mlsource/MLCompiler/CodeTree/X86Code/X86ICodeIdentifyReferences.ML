@@ -288,7 +288,8 @@ struct
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(UntagFloat{source, dest, cache, ...}) =
-            { sources=case cache of NONE => argRegs source | SOME cr => cr :: argRegs source, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=case cache of NONE => argRegs source | SOME cr => cr :: argRegs source, dests=[dest],
+              sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(GetSSE2ControlReg{dest}) =
             { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
@@ -306,10 +307,14 @@ struct
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(SSE2RealToInt{ source, dest, ... }) =
-            { sources=argRegs source, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(SignExtend32To64{ source, dest }) =
-            { sources=argRegs source, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+            { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(ConditionalMove{trueSrc, falseSrc, dest, ccRef, ...}) =
+            { sources=argRegs trueSrc @ argRegs falseSrc, dests=[dest], sStacks=argStacks trueSrc @ argStacks falseSrc,
+              dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCUnchanged }
 
     fun identifyRegisters(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let

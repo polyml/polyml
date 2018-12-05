@@ -629,6 +629,8 @@ struct
             |   instructionUses(X87RealToInt{source, ...}) = used source
             |   instructionUses(SSE2RealToInt{source, ...}) = argUses source
             |   instructionUses(SignExtend32To64{source, dest}) = if isUsed dest then argUses source else ()
+            |   instructionUses(ConditionalMove{trueSrc, falseSrc, dest, ...}) =
+                    if isUsed dest then (argUses trueSrc; argUses falseSrc) else ()
             
             
            (* Depth-first scan. *)
@@ -1673,7 +1675,53 @@ struct
             in
                 Move{moveSize=Move32X, source=opArg, destination=RegisterArg regResult } :: code
             end
-        
+
+        |   codeExtended _ ({instr=ConditionalMove{trueSrc, falseSrc, dest=PReg dReg, condition, opSize, ...}, ...}, code) =
+            let
+                val regResult = getAllocatedGenReg dReg
+                
+                fun cmov{output, source, condition, opSize} =
+                let
+                    (* Don't move if the condition is false. *)
+                    val brLab = makeLabel()
+                in
+                    [
+                        JumpLabel brLab,
+                        Move{moveSize=opSizeToMove opSize, destination=RegisterArg output, source=source},
+                        ConditionalBranch{test=invertTest condition, label=brLab}
+                    ]
+                end
+            in
+                case (codeExtArgumentAsGenReg trueSrc, codeExtArgumentAsGenReg falseSrc) of
+                    (RegisterArg regTrue, RegisterArg regFalse) =>
+                        (* Both in registers.  Is one already in the right reg? *)
+                        if regResult = regFalse
+                        then cmov{output=regResult, source=RegisterArg regTrue, condition=condition, opSize=opSize} @ code
+                        else cmov{output=regResult, source=RegisterArg regFalse, condition=invertTest condition, opSize=opSize} @
+                                moveIfNecessary({src=GenReg regTrue, dst=GenReg regResult, kind=opSizeToIMove opSize}, code)
+
+               |    (RegisterArg regTrue, falseCode) =>
+                        (* One argument is already in a register.  If that is the output register we have
+                           to conditionally move the other argument.  Otherwise we put the other argument
+                           into the output register and conditionally move the register we have. *)
+                        if regResult = regTrue
+                        then cmov{output=regResult, source=falseCode,
+                                  condition=invertTest condition, opSize=opSize} @ code
+                        else cmov{output=regResult, source=RegisterArg regTrue, condition=condition, opSize=opSize} @
+                                Move{source=falseCode, destination=RegisterArg regResult, moveSize=opSizeToMove opSize} ::  code
+
+                |   (trueCode, RegisterArg regFalse) =>
+                        if regResult = regFalse
+                        then cmov{output=regResult, source=trueCode, condition=condition, opSize=opSize} @ code
+                        else cmov{output=regResult, source=RegisterArg regFalse, condition=invertTest condition, opSize=opSize} @
+                                Move{source=trueCode, destination=RegisterArg regResult, moveSize=opSizeToMove opSize} ::  code
+
+                |    (trueCode, falseCode) =>
+                        cmov{output=regResult, source=falseCode, condition=invertTest condition, opSize=opSize} @
+                                Move{source=trueCode, destination=RegisterArg regResult, moveSize=opSizeToMove opSize} ::  code
+            end
+
+       
         val minStackCheck = 20
         val inputRegisters = argRegsUsed @ (if hasFullClosure then [GenReg edx] else [])
         val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) inputRegisters
