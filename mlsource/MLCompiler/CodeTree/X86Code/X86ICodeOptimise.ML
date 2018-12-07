@@ -145,9 +145,14 @@ struct
         
         (* If this argument is a register that refers to a recently loaded memory address we can
            replace the argument with the memory reference. *)
-        fun replaceWithMemory(arg as RegisterArgument (preg as PReg pregNo), kill, memRefs) =
+        (* TODO: We include the opSize in the size because of a problem with ConditionalMove.
+           codetreeToIcode makes Register-register nativeWord just in case we're moving a
+           return address or a container address.  If they are then combined into a
+           ConditionalMove it will be 64-bit.  We can't then use a 64-bit Cmov with a
+           32-bit memory location. *)
+        fun replaceWithMemory(arg as RegisterArgument (preg as PReg pregNo), kill, memRefs, instrOpSize) =
         (
-            case List.find(fn {dest, ... } => dest = preg) memRefs of
+            case List.find(fn {dest, opSize, ... } => dest = preg andalso opSize = instrOpSize) memRefs of
                 SOME { source, ...} =>
                     (
                     if member(pregNo, kill)
@@ -160,7 +165,7 @@ struct
            |    NONE => (arg, memRefs)
         )
         
-        |   replaceWithMemory(arg, _, memRefs) = (arg, memRefs)
+        |   replaceWithMemory(arg, _, memRefs, _) = (arg, memRefs)
 
         fun optimiseBlock processed (blockNo, ExtendedBasicBlock{block, flow, outCCState, ...}) =
         let
@@ -216,8 +221,8 @@ struct
                     (* Replace register references with memory if possible.   It's safe to use memory
                        references at this point because the reference must have been loaded on the common
                        path so must be valid whether or not the condition is true. *)
-                    val (fSource, memRefsOut1) = replaceWithMemory(falseSrc, kill, memRefs)
-                    val (tSource, memRefsOut) = replaceWithMemory(trueSrc, kill, memRefsOut1)
+                    val (fSource, memRefsOut1) = replaceWithMemory(falseSrc, kill, memRefs, opSize)
+                    val (tSource, memRefsOut) = replaceWithMemory(trueSrc, kill, memRefsOut1, opSize)
                 in
                     optCode(rest, BRNone, memRefsOut,
                         ConditionalMove{dest=dest, falseSrc=fSource, trueSrc=tSource, ccRef=ccRef, condition=condition, opSize=opSize} ::code)
@@ -283,7 +288,7 @@ struct
             |   optCode({instr as CompareLiteral{arg1, arg2, ccRef=ccRefOut, opSize}, kill, ...} :: rest,
                         brCond, memRefs, code) =
                 let
-                    val (repArg1, memRefsOut) = replaceWithMemory(arg1, kill, memRefs)
+                    val (repArg1, memRefsOut) = replaceWithMemory(arg1, kill, memRefs, opSize)
                 in
                     case repArg1 of
                         RegisterArgument source =>
@@ -367,8 +372,17 @@ struct
                 then optCode(rest, BRSetCond{dest=dest, test=test}, memRefs, instr :: code)
                 else optCode(rest, brCond, memRefs, instr :: code)
 
-            |   optCode({instr as LoadArgument{dest, source as MemoryLocation _, ...} , ...} :: rest, inCond, memRefs, code) =
-                    optCode(rest, inCond, {dest=dest, source=source} :: memRefs, instr::code)
+            |   optCode({instr as LoadArgument{dest, source as MemoryLocation _, kind} , ...} :: rest, inCond, memRefs, code) =
+                let
+                    (* If we load a memory location add it to the list in case we can use it later. *)
+                    val memRefsOut =
+                        case kind of
+                            Move64Bit => {dest=dest, source=source, opSize=OpSize64} :: memRefs
+                        |   Move32Bit => {dest=dest, source=source, opSize=OpSize32} :: memRefs
+                        |   _ => memRefs
+                in
+                    optCode(rest, inCond, memRefsOut, instr::code)
+                end
 
             |   optCode({instr as StoreArgument _, ...} :: rest, inCond, _, code) =
                     (* For safety assume that this clears the "cache". *)
@@ -382,7 +396,7 @@ struct
             |   optCode({instr=WordComparison{arg1, arg2, ccRef, opSize}, kill, ...} :: rest, _, memRefs, code) =
                 let
                     (* Replace register reference with memory if possible. *)
-                    val (source, memRefsOut) = replaceWithMemory(arg2, kill, memRefs)
+                    val (source, memRefsOut) = replaceWithMemory(arg2, kill, memRefs, opSize)
                 in
                     (* This affects the CC. *)
                     optCode(rest, BRNone, memRefsOut, WordComparison{arg1=arg1, arg2=source, ccRef=ccRef, opSize=opSize}::code)
@@ -391,7 +405,7 @@ struct
             |   optCode({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef, opSize}, kill, ...} :: rest, _, memRefs, code) =
                 let
                     (* Replace register reference with memory if possible. *)
-                    val (source, memRefsOut) = replaceWithMemory(operand2, kill, memRefs)
+                    val (source, memRefsOut) = replaceWithMemory(operand2, kill, memRefs, opSize)
                 in
                     (* This affects the CC. *)
                     optCode(rest, BRNone, memRefsOut,
@@ -402,7 +416,7 @@ struct
             |   optCode({instr=TestTagBit{arg, ccRef}, kill, ...} :: rest, _, memRefs, code) =
                 let
                     (* Replace register reference with memory if possible. *)
-                    val (source, memRefsOut) = replaceWithMemory(arg, kill, memRefs)
+                    val (source, memRefsOut) = replaceWithMemory(arg, kill, memRefs, polyWordOpSize)
                 in
                     (* This affects the CC. *)
                     optCode(rest, BRNone, memRefsOut, TestTagBit{arg=source, ccRef=ccRef}::code)
@@ -411,7 +425,7 @@ struct
             |   optCode({instr=UntagFloat{source, dest, cache=_}, kill, ...} :: rest, _, memRefs, code) =
                 let
                     (* Replace register reference with memory if possible. *)
-                    val (source, memRefsOut) = replaceWithMemory(source, kill, memRefs)
+                    val (source, memRefsOut) = replaceWithMemory(source, kill, memRefs, polyWordOpSize)
                 in
                     (* Not sure if this affects the CC but assume it might. *)
                     optCode(rest, BRNone, memRefsOut, UntagFloat{source=source, dest=dest, cache=NONE}::code)
@@ -465,7 +479,7 @@ struct
                 in
                     case (trueCode, falseCode) of
                         (ExtendedBasicBlock{flow=Unconditional toTrue,
-                            block=[{instr=LoadArgument{source=sourceT, dest=destT, kind=kindT, ...}, ...}], ...},
+                            block=[{instr as LoadArgument{source=sourceT, dest=destT, kind=kindT, ...}, ...}], ...},
                          ExtendedBasicBlock{flow=Unconditional toFalse,
                             block=[{instr=LoadArgument{source=sourceF, dest=destF, kind=kindF, ...}, ...}], ...}) =>
                         if toTrue = toFalse andalso destT = destF andalso not (memMove sourceT) andalso not (memMove sourceF)
@@ -475,8 +489,12 @@ struct
                             val () = print("CMov ?" ^ PolyML.makestring(sourceT, sourceF) ^ "\n");
                             val () = hasChanged := true
                             val opSize = if kindT = Move32Bit then OpSize32 else OpSize64
+                            (* Convert to CMov.  It's possible that the registers are the same if the test is
+                               actually redundant in which case just put in one of the moves. *)
                             val cmov =
-                                ConditionalMove{trueSrc=sourceT, falseSrc=sourceF, dest=destT, ccRef=ccRef,
+                                if (case (sourceT, sourceF) of (RegisterArgument t, RegisterArgument f) => t = f | _ => false)
+                                then instr
+                                else ConditionalMove{trueSrc=sourceT, falseSrc=sourceF, dest=destT, ccRef=ccRef,
                                                 condition=condition, opSize=opSize}
                             val target = Vector.sub(code, toTrue)
                         in
@@ -485,7 +503,7 @@ struct
                         else BasicBlock{flow=flow, block=List.rev blkCode}
 
                     |   (ExtendedBasicBlock{flow=ExitCode,
-                            block=[{instr=LoadArgument{source=sourceT, dest=destT, kind=kindT, ...}, ...},
+                            block=[{instr as LoadArgument{source=sourceT, dest=destT, kind=kindT, ...}, ...},
                                    {instr=ReturnResultFromFunction{resultReg=resT, numStackArgs=numStack}, ...}], ...},
                          ExtendedBasicBlock{flow=ExitCode,
                             block=[{instr=LoadArgument{source=sourceF, dest=destF, kind=kindF, ...}, ...},
@@ -497,11 +515,13 @@ struct
                             val () = print("CMov ?" ^ PolyML.makestring(sourceT, sourceF) ^ " - exit\n")
                             val () = hasChanged := true
                             val opSize = if kindT = Move32Bit then OpSize32 else OpSize64
+                            val cmov =
+                                if (case (sourceT, sourceF) of (RegisterArgument t, RegisterArgument f) => t = f | _ => false)
+                                then instr
+                                else ConditionalMove{trueSrc=sourceT, falseSrc=sourceF, dest=destT, ccRef=ccRef,
+                                                condition=condition, opSize=opSize}
                             val resCode =
-                                ReturnResultFromFunction{resultReg=destT, numStackArgs=numStack} ::
-                                ConditionalMove{trueSrc=sourceT, falseSrc=sourceF, dest=destT, ccRef=ccRef,
-                                                condition=condition, opSize=opSize} ::
-                                blkCode
+                                ReturnResultFromFunction{resultReg=destT, numStackArgs=numStack} :: cmov :: blkCode
                         in
                             BasicBlock{flow=ExitCode, block=List.rev resCode}
                         end
