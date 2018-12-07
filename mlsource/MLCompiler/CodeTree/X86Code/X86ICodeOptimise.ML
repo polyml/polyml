@@ -486,7 +486,11 @@ struct
                            andalso kindT = kindF andalso (kindT = Move32Bit orelse kindT = Move64Bit)
                         then
                         let
-                            val () = print("CMov ?" ^ PolyML.makestring(sourceT, sourceF) ^ "\n");
+                            val () =
+                                case (sourceT, sourceF) of
+                                    (IntegerConstant _, IntegerConstant _) =>
+                                        print("CMov ?" ^ PolyML.makestring(sourceT, sourceF) ^ "\n")
+                                |   _ => ()
                             val () = hasChanged := true
                             val opSize = if kindT = Move32Bit then OpSize32 else OpSize64
                             (* Convert to CMov.  It's possible that the registers are the same if the test is
@@ -512,7 +516,11 @@ struct
                            andalso kindT = kindF andalso (kindT = Move32Bit orelse kindT = Move64Bit)
                         then
                         let
-                            val () = print("CMov ?" ^ PolyML.makestring(sourceT, sourceF) ^ " - exit\n")
+                            val () =
+                                case (sourceT, sourceF) of
+                                    (IntegerConstant _, IntegerConstant _) =>
+                                        print("CMov ?" ^ PolyML.makestring(sourceT, sourceF) ^ "\n")
+                                |   _ => ()
                             val () = hasChanged := true
                             val opSize = if kindT = Move32Bit then OpSize32 else OpSize64
                             val cmov =

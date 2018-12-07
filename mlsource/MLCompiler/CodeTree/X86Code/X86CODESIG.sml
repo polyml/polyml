@@ -185,6 +185,7 @@ sig
     |   XMMStoreCSR of memoryAddress (* Store combined control/status word. *)
     |   FPStoreInt of memoryAddress
     |   XMMStoreInt of { source: xmmReg regOrMemoryArg, output: genReg, precision: fpSize, isTruncate: bool }
+    |   CondMove of { test: branchOps, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
 
     and jumpSize = JumpSize2 | JumpSize8
 

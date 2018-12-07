@@ -1681,48 +1681,48 @@ struct
             let
                 val regResult = getAllocatedGenReg dReg
                 
-                fun cmov{output, source, condition, opSize} =
+                val codeTrue = codeExtArgumentAsGenReg trueSrc
+                and codeFalse = codeExtArgumentAsGenReg falseSrc
+                
+                (* One argument has to be loaded into a register first and the other
+                   is conditionally moved.  *)
+                val loadFalseCmoveTrue =
+                    if (case codeFalse of RegisterArg regFalse => regFalse = regResult | _ => false)
+                    then true (* The false value is already in the right register. *)
+                    else if (case codeTrue of RegisterArg regTrue => regTrue = regResult | _ => false)
+                    then false (* The true value is in the right register - have to reverse. *)
+                    else if (case codeTrue of NonAddressConstArg _ => true | _ => false)
+                    then false (* The true value is a short constant.  If we use a CMOV we will have to put that
+                                  in the non-constant area and use a PC-relative reference.  Try to avoid it. *)
+                    else true
+               
+                fun cmov{codeLoad, codeMove, condition} =
                 let
-                    (* Don't move if the condition is false. *)
-                    val brLab = makeLabel()
+                    val load =
+                        case codeLoad of
+                            RegisterArg regLoad =>
+                                moveIfNecessary({src=GenReg regLoad, dst=GenReg regResult, kind=opSizeToIMove opSize}, code)
+                        |   codeLoad =>
+                                Move{source=codeLoad, destination=RegisterArg regResult, moveSize=opSizeToMove opSize} ::  code
                 in
-                    [
-                        JumpLabel brLab,
-                        Move{moveSize=opSizeToMove opSize, destination=RegisterArg output, source=source},
-                        ConditionalBranch{test=invertTest condition, label=brLab}
-                    ]
+                    case targetArch of
+                        Native32Bit =>
+                        (* Don't use CMOV.  It doesn't work for constants *)
+                        let
+                            (* Don't move if the condition is false. *)
+                            val brLab = makeLabel()
+                        in
+                            JumpLabel brLab ::
+                            Move{moveSize=opSizeToMove opSize, destination=RegisterArg regResult, source=codeMove} ::
+                            ConditionalBranch{test=invertTest condition, label=brLab} :: load
+                        end
+                    |   _ =>
+                        CondMove{test=condition, output=regResult, source=codeMove, opSize=opSize} :: load
                 end
             in
-                case (codeExtArgumentAsGenReg trueSrc, codeExtArgumentAsGenReg falseSrc) of
-                    (RegisterArg regTrue, RegisterArg regFalse) =>
-                        (* Both in registers.  Is one already in the right reg? *)
-                    (
-                        regTrue <> regFalse orelse raise InternalError "bad";
-                        if regResult = regFalse
-                        then cmov{output=regResult, source=RegisterArg regTrue, condition=condition, opSize=opSize} @ code
-                        else cmov{output=regResult, source=RegisterArg regFalse, condition=invertTest condition, opSize=opSize} @
-                                moveIfNecessary({src=GenReg regTrue, dst=GenReg regResult, kind=opSizeToIMove opSize}, code)
-                    )
-
-               |    (RegisterArg regTrue, falseCode) =>
-                        (* One argument is already in a register.  If that is the output register we have
-                           to conditionally move the other argument.  Otherwise we put the other argument
-                           into the output register and conditionally move the register we have. *)
-                        if regResult = regTrue
-                        then cmov{output=regResult, source=falseCode,
-                                  condition=invertTest condition, opSize=opSize} @ code
-                        else cmov{output=regResult, source=RegisterArg regTrue, condition=condition, opSize=opSize} @
-                                Move{source=falseCode, destination=RegisterArg regResult, moveSize=opSizeToMove opSize} ::  code
-
-                |   (trueCode, RegisterArg regFalse) =>
-                        if regResult = regFalse
-                        then cmov{output=regResult, source=trueCode, condition=condition, opSize=opSize} @ code
-                        else cmov{output=regResult, source=RegisterArg regFalse, condition=invertTest condition, opSize=opSize} @
-                                Move{source=trueCode, destination=RegisterArg regResult, moveSize=opSizeToMove opSize} ::  code
-
-                |   (trueCode, falseCode) =>
-                        cmov{output=regResult, source=falseCode, condition=invertTest condition, opSize=opSize} @
-                                Move{source=trueCode, destination=RegisterArg regResult, moveSize=opSizeToMove opSize} ::  code
+                if loadFalseCmoveTrue
+                then cmov{codeLoad=codeFalse, codeMove=codeTrue, condition=condition}
+                else cmov{codeLoad=codeTrue, codeMove=codeFalse, condition=invertTest condition}
             end
 
        

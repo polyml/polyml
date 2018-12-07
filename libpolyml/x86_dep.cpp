@@ -1318,6 +1318,9 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 case 0xc1: /* xaddl */
                 case 0xae: // ldmxcsr/stmxcsr
                 case 0xaf: // imul
+                case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x46: case 0x47:
+                case 0x48: case 0x49: case 0x4a: case 0x4b: case 0x4c: case 0x4d: case 0x4e: case 0x4f:
+                    // cmov
                     pt++; skipea(addr, &pt, process, false); break;
 
                 case 0x80: case 0x81: case 0x82: case 0x83:

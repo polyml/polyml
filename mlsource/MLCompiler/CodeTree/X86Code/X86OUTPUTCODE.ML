@@ -216,9 +216,6 @@ struct
         if is32bit ival
         then word32Unsigned(LargeWord.fromLargeInt ival)
         else raise InternalError "int32Signed: invalid word"
-    
-    (* wordUnsigned is 8 bytes on 64-bits or 4-bytes on 32-bits. *)
-    fun wordUnsigned(ival: LargeWord.word) = largeWordToBytes(ival, Word.toInt wordSize)
 
     (* Registers. *)
     datatype genReg = GeneralReg of Word8.word * bool
@@ -683,6 +680,9 @@ struct
     |   CVTTSS2SI32 (* Single to 32-bit int - truncate towards zero *)
     |   CVTTSS2SI64 (* Single to 64-bit int - truncate towards zero *)
     |   MOVSXD
+    |   CMOV32 of branchOps
+    |   CMOV64 of branchOps
+
 
     fun opToInt Group1_8_A32    =  0wx83
     |   opToInt Group1_8_A64    =  0wx83
@@ -780,6 +780,8 @@ struct
     |   opToInt CVTTSS2SI32     = 0wx2c  (* Needs F3 0F prefix. *)
     |   opToInt CVTTSS2SI64     = 0wx2c  (* Needs F3 0F prefix and rex.w. *)
     |   opToInt MOVSXD          = 0wx63
+    |   opToInt (CMOV32 opc)    = 0wx40 + branchOpToWord opc (* Needs 0F prefix *)
+    |   opToInt (CMOV64 opc)    = 0wx40 + branchOpToWord opc (* Needs 0F prefix and rex.w *)
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -874,6 +876,8 @@ struct
     |   escapePrefix CVTTSD2SI64                = [0wx0f]
     |   escapePrefix CVTTSS2SI32                = [0wx0f]
     |   escapePrefix CVTTSS2SI64                = [0wx0f]
+    |   escapePrefix(CMOV32 _)                  = [0wx0f]
+    |   escapePrefix(CMOV64 _)                  = [0wx0f]
     |   escapePrefix _                          = []
 
     (* Generate an opCode byte after doing any pending operations. *)
@@ -919,6 +923,7 @@ struct
             |   CVTTSD2SI64 => true
             |   CVTTSS2SI64 => true
             |   MOVSXD      => true
+            |   CMOV64 _    => true
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
@@ -1033,6 +1038,21 @@ struct
             opIndexedGen(opb, offset, SOME rb, ri, (op2, false))
     end
 
+    (* An operation with an operand that needs to go in the constant area, or in the case of
+       native 32-bit, where the constant is stored in an object and the address of the
+       object is inline.  This just puts in the instruction and the address.  The details
+       of the constant are dealt with in putConst. *)
+    fun opConstantOperand(opb, (*dest*)GeneralReg(rrC, rrX)) =
+    let
+        val pref = opcodePrefix opb (* Any opsize or lock prefix. *)
+        val rex = rexByte(opb, rrX, false, false)
+        val esc = escapePrefix opb (* Generate the ESCAPE code if needed. *)
+        val opc = opToInt opb
+        val mdrm = modrm(Based0, rrC, 0w5 (* PC-relative or absolute *))
+    in
+        pref @ rex @ esc @ [opc, mdrm] @ int32Signed(tag 0)
+    end
+
     fun immediateOperand (opn: arithOp, rd: genReg, imm: LargeInt.int, opSize) =
     if is8BitL imm
     then (* Can use one byte immediate *)
@@ -1042,13 +1062,9 @@ struct
         opRegPlus2(case opSize of OpSize64 => Group1_32_A64 | OpSize32 => Group1_32_A32, rd, arithOpToWord opn) @ int32Signed imm
     else (* It won't fit in the immediate; put it in the non-address area. *)
     let
-        val (rc, rx) = getReg rd
-        val opb =
-            opCodeBytes((case opSize of OpSize64 => Arith64 | OpSize32 => Arith32) (opn, 0w3 (* r/m to reg *)),
-                SOME{w= (opSize = OpSize64), r=rx, b=false, x = false})
-        val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
+        val opc = case opSize of OpSize64 => Arith64 | OpSize32 => Arith32
     in
-        opb @ [mdrm] @ int32Signed(tag 0)
+        opConstantOperand(opc(opn, 0w3 (* r/m to reg *)), rd)
     end
     
     fun arithOpReg(opn: arithOp, rd: genReg, rs: genReg, opIs64) =
@@ -1167,6 +1183,7 @@ struct
     |   XMMStoreCSR of memoryAddress (* Store combined control/status word. *)
     |   FPStoreInt of memoryAddress
     |   XMMStoreInt of { source: xmmReg regOrMemoryArg, output: genReg, precision: fpSize, isTruncate: bool }
+    |   CondMove of { test: branchOps, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
 
     and jumpSize = JumpSize2 | JumpSize8
 
@@ -1418,6 +1435,11 @@ struct
                 if isTruncate then stream "Truncate " else stream " ";
                 printGReg output; stream " <= "; printRegOrMemoryArg printXMMReg source
             )
+        |   CondMove { test, output, source, opSize } =>
+            (
+                stream "CondMove"; stream(branchOpRepr test); stream(printOpSize opSize);
+                printGReg output; stream " <= "; printRegOrMemoryArg printGReg source 
+            )
         ;
  
         stream "\n"
@@ -1471,13 +1493,7 @@ struct
                        big enough to contain addresses. *)
                     opRegPlus2(MOVL_32_A64, output, 0w0) @ int32Signed source
                 else (* Too big for 32-bits; put it in the non-word area. *)
-                let
-                    val (rc, rx) = getReg output
-                    val opb = opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
-                    val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
-                in
-                    opb @ [mdrm] @ int32Signed(tag 0)
-                end
+                    opConstantOperand(MOVL_A_R64, output)
             )
             else (* 32-bit mode. *)
             (
@@ -1521,13 +1537,7 @@ struct
                        big enough to contain addresses. *)
                     opRegPlus2(MOVL_32_A64, output, 0w0) @ int32Signed source
                 else (* Too big for 32-bits; put it in the non-word area. *)
-                let
-                    val (rc, rx) = getReg output
-                    val opb = opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
-                    val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
-                in
-                    opb @ [mdrm] @ int32Signed(tag 0)
-                end
+                    opConstantOperand(MOVL_A_R64, output)
             )
             else (* 32-bit mode. *)
             (
@@ -1550,19 +1560,13 @@ struct
             )
 
         |   cgOp(Move{ source=AddressConstArg _, destination=RegisterArg output, moveSize=Move64 }) =
-            let
+            (
                 (* The constant area is currently PolyWords.  That means we MUST use
                    a 32-bit load in 32-in-64. *)
-                val _ = targetArch = Native64Bit orelse raise InternalError "Move64 in 32-bit"
-                (* Put address constants in the constant area.  This makes the code a bit
-                   larger but should avoid the need for the GC to scan for addresses in
-                   the code. *)
-                val (rc, rx) = getReg output
-                val opb = opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
-                val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
-            in
-                opb @ [mdrm] @ int32Signed(tag 0)
-            end
+                targetArch = Native64Bit orelse raise InternalError "Move64 in 32-bit";
+                (* Put address constants in the constant area. *)
+                opConstantOperand(MOVL_A_R64, output)
+            )
  
         |   cgOp(Move{ source=AddressConstArg _, destination=RegisterArg output, moveSize=Move32 }) =
             (
@@ -1570,28 +1574,17 @@ struct
                     Native64Bit => raise InternalError "Move32 - AddressConstArg"
                 
                 |   ObjectId32Bit =>
-                    let
-                        (* Put address constants in the constant area.  This makes the code a bit
-                           larger but should avoid the need for the GC to scan for addresses in
-                           the code. *)
+                        (* Put address constants in the constant area. *)
                         (* The constant area is currently PolyWords.  That means we MUST use
                            a 32-bit load in 32-in-64. *)
-                        val (rc, rx) = getReg output
-                        val opb = opCodeBytes(MOVL_A_R32, if rx then SOME{w=false, r=rx, b=false, x = false} else NONE)
-                        val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
-                    in
-                        opb @ [mdrm] @ int32Signed(tag 0)
-                    end
+                        opConstantOperand(MOVL_A_R32, output)
 
                 |   Native32Bit =>
+                        (* Immediate constant *)
                     let
-                        val (rc, rx) = getReg output
-                        val constnt =
-                            if wordSize = 0w8
-                            then wordUnsigned(LargeWord.fromLargeInt(tag 0))
-                            else int32Signed(tag 0)
+                        val (rc, _) = getReg output
                     in
-                        opCodeBytes(MOVL_32_R rc, if rx then SOME{w=false, r=false, b=rx, x = false} else NONE) @ constnt
+                        opCodeBytes(MOVL_32_R rc, NONE) @ int32Signed(tag 0)
                     end
             )
 
@@ -1647,16 +1640,8 @@ struct
             (* This is only used for opc=CMP to compare addresses for equality. *)
             if hostIsX64
             then (* We use this in 32-in-64 as well as native 64-bit. *)
-            let
-                val (rc, rx) = getReg output
-                val opb =
-                    if opSize = OpSize64
-                    then opCodeBytes(Arith64 (opc, 0w3), SOME {w=true, r=rx, b=false, x=false})
-                    else opCodeBytes(Arith32 (opc, 0w3), if rx then SOME {w=false, r=rx, b=false, x=false} else NONE)
-		        val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
-            in
-                opb @ [mdrm] @ int32Signed(tag 0) (* This is the address of the constant. *)
-            end
+                opConstantOperand(
+                    (case opSize of OpSize64 => Arith64 | OpSize32 => Arith32) (opc, 0w3), output)
             else
             let
                 val (rc, _) = getReg output
@@ -1837,7 +1822,9 @@ struct
                 let
                     val (rc, rx) = getReg reg
                 in
-                    (* Always 64-bit but a REX prefix may be needed for the register. *)
+                    (* Always 64-bit but a REX prefix may be needed for the register.
+                       Because the register is encoded in the instruction the rex bit for
+                       the register is b not r. *)
                     opCodeBytes(POP_R rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE)
                 end
 
@@ -1993,20 +1980,15 @@ struct
         |   cgOp(LoadLabelAddress{ output, ... }) =
             (* Load the address of a label.  Used when setting up an exception handler or
                in indexed cases. *)
+            (* On X86/64 we can use pc-relative addressing to set the start of the handler.
+               On X86/32 we have to load the address of the start of the code and add an offset. *)
+            if hostIsX64
+            then opConstantOperand(LEAL64, output)
+            else
             let
-                val (rc, rx) = getReg output
+                val (rc, _) = getReg output
             in
-                (* On X86/64 we can use pc-relative addressing to set the start of the handler.
-                   On X86/32 we have to load the address of the start of the code and add an offset. *)
-                if hostIsX64
-                then
-                let
-                    val opb = opCodeBytes(LEAL64, SOME {w=true, r=rx, b=false, x=false})
-                    val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
-                in
-                    opb @ mdrm :: int32Signed 0
-                end
-                else opCodeBytes(MOVL_32_R rc , NONE) @ int32Signed(tag 0) @
+                opCodeBytes(MOVL_32_R rc , NONE) @ int32Signed(tag 0) @
                         opRegPlus2(Group1_32_A32, output, arithOpToWord ADD) @ int32Signed 0
             end
 
@@ -2117,14 +2099,7 @@ struct
                 then opReg(case opSize of OpSize64 => IMUL_C8_64 | OpSize32 => IMUL_C8_32, output, output) @ [Word8.fromLargeInt constnt]
                 else if is32bit constnt
                 then opReg(case opSize of OpSize64 => IMUL_C32_64 | OpSize32 => IMUL_C32_32, output, output) @ int32Signed constnt
-                else
-                let
-                    val (rc, rx) = getReg output
-                    val opb = opCodeBytes(IMUL64, SOME{w=true, r=rx, b=false, x = false})
-                    val mdrm = modrm(Based0, rc, 0w5 (* PC rel *))
-                in
-                    opb @ [mdrm] @ int32Signed(tag 0)
-                end
+                else opConstantOperand(case opSize of OpSize64 => IMUL64 | OpSize32 => IMUL32, output)
 
         |   cgOp(MultiplyR {source=AddressConstArg _, ...}) =
                 raise InternalError "Multiply - address constant"
@@ -2134,11 +2109,12 @@ struct
 
         |   cgOp (XMMArith { opc, source=AddressConstArg _, output=SSE2Reg rrC }) =
             let
-               (* The real constant here is actually the address of an 8-byte memory
-                   object.  The SSE2 instruction takes the address as the argument and in 32-bit mode
-                   we use an absolute address.  In 64-bit mode we need to put the
-                   constant at the end of the code segment and use PC-relative
-                   addressing which happens to be encoded in the same way. *)
+                (* The real constant here is actually the address of an 8-byte memory
+                   object.  In 32-bit mode we put this address into the code and retain
+                   this memory object.  In 64-bit mode we copy the real value out of the
+                   memory object into the non-address constant area and use
+                   PC-relative addressing.  These happen to be encoded the same
+                   way. *)
                 val opb = opCodeBytes(SSE2Ops opc, NONE)
                 val mdrm = modrm (Based0, rrC, 0w5 (* constant address/PC-relative *))
             in
@@ -2296,6 +2272,45 @@ struct
                             escapePrefix oper @ [opToInt oper, modrm(Register, rbC, rrS)]
                 |   _ => raise InternalError "XMMStoreInt: Not register or memory"
             end
+
+        |   cgOp(CondMove { test, output, source=RegisterArg source, opSize=OpSize32 }) =
+                opReg(CMOV32 test, output, source)
+
+        |   cgOp(CondMove { test, output, source=RegisterArg source, opSize=OpSize64 }) =
+                opReg(CMOV64 test, output, source)
+
+        |   cgOp(CondMove { test, output, source=NonAddressConstArg _, opSize }) =
+            (
+                (* We currently support only native-64 bit and put the constant in the
+                   non-address constant area.  These are 64-bit values both in native
+                   64-bit and in 32-in-64.  To support it in 32-bit mode we'd have to
+                   put the constant in a single-word object and put its absolute
+                   address into the code. *)
+                targetArch <> Native32Bit orelse
+                            raise InternalError "CondMove: constant in 32-bit mode";
+                opConstantOperand((case opSize of OpSize32 => CMOV32 | OpSize64 => CMOV64) test, output)
+            )
+
+        |   cgOp(CondMove { test, output, source=AddressConstArg _, opSize=OpSize64 }) =
+                (* An address constant.  The opSize must match the size of a polyWord since
+                   the value it going into the constant area. *)
+            (
+                targetArch = Native64Bit orelse raise InternalError "CondMove: AddressConstArg";
+                opConstantOperand(CMOV64 test, output)
+            )
+
+        |   cgOp(CondMove { test, output, source=AddressConstArg _, opSize=OpSize32 }) =
+            (
+                (* We only support address constants in 32-in-64. *)
+                targetArch = ObjectId32Bit orelse raise InternalError "CondMove: AddressConstArg";
+                opConstantOperand(CMOV32 test, output)
+            )
+
+        |   cgOp(CondMove { test, output, source=MemoryArg{base, offset, index}, opSize=OpSize32 }) =
+                opAddress(CMOV32 test, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(CondMove { test, output, source=MemoryArg{base, offset, index}, opSize=OpSize64 }) =
+                opAddress(CMOV64 test, LargeInt.fromInt offset, base, index, output)
 
     in
         List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
@@ -2519,7 +2534,7 @@ struct
                 else (* Too big for 32-bits. *)
                     (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant source) :: l
             )
-            else l (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
+            else l (* 32-bit mode.  The constant will always be inline even if we've had to use LEA r,c *)
 
         |   getConstant(Move{ source=NonAddressConstArg source, moveSize=Move64, ...}, bytes, ic, l) =
             if targetArch <> Native32Bit
@@ -2589,6 +2604,17 @@ struct
                 if is32bit source
                 then l
                 else (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant source) :: l
+
+        |   getConstant(CondMove{ source=NonAddressConstArg source, ... }, bytes, ic, l) =
+            if targetArch <> Native32Bit
+            then (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant source) :: l
+            else l (* 32-bit mode.  The constant will always be inline. *)
+
+        |   getConstant(CondMove{ source=AddressConstArg source, ... }, bytes, ic, l) =
+            if targetArch <> Native32Bit
+            then (* Address constants go in the constant area. *)
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea source) :: l
+            else (ic + Word.fromInt(Word8Vector.length bytes) - wordSize, InlineAbsoluteAddress source) :: l
 
         |   getConstant(_, _, _, l) = l        
     in
@@ -3091,6 +3117,18 @@ struct
                     (* Opcode is in next byte. *)
                     val opByte2  = codeVecGet (seg, !ptr)
                     val () = (ptr +:= 0w1)
+                    
+                    fun printcmov movop =
+                    let
+                        val nb = codeVecGet (seg, !ptr)
+                        val reg = (nb >>- 0w3) andb8 0w7
+                    in
+                        print movop;
+                        print "\t";
+                        print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                        print ",";
+                        printEA(rex, sizeFromRexW)
+                    end
                 in
                     case legacyPrefix of
                         0w0 =>
@@ -3103,6 +3141,24 @@ struct
                                 in
                                     print "ucomiss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord)
                                 end
+
+                            |   0wx40 => printcmov "cmovo"
+                            |   0wx41 => printcmov "cmovno"
+                            |   0wx42 => printcmov "cmovb"
+                            |   0wx43 => printcmov "cmovnb"
+                            |   0wx44 => printcmov "cmove"
+                            |   0wx45 => printcmov "cmovne"
+                            |   0wx46 => printcmov "cmovna"
+                            |   0wx47 => printcmov "cmova"
+                            |   0wx48 => printcmov "cmovs"
+                            |   0wx49 => printcmov "cmovns"
+                            |   0wx4a => printcmov "cmovp"
+                            |   0wx4b => printcmov "cmovnp" 
+                            |   0wx4c => printcmov "cmovl"
+                            |   0wx4d => printcmov "cmovge"
+                            |   0wx4e => printcmov "cmovle"
+                            |   0wx4f => printcmov "cmovg"
+
                             |   0wxC1 =>
                                 let
                                     val nb = codeVecGet (seg, !ptr);
