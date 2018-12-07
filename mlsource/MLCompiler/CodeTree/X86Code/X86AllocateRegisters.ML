@@ -151,9 +151,14 @@ struct
                     (* Can only be one way round. *)
                     addSourceAndDestinationHint {dst=resReg, src=op1Reg}
 
-            |   addHints{instr=ArithmeticFunction{resultReg=PReg resReg, operand1=PReg op1Reg,
-                                                operand2=RegisterArgument(PReg op2Reg), ...}, ...} =
-                    (addSourceAndDestinationHint {dst=resReg, src=op1Reg}; addSourceAndDestinationHint {dst=resReg, src=op2Reg})
+            |   addHints{instr=ArithmeticFunction{resultReg=PReg resReg, operand1=PReg op1Reg, operand2, ...}, ...} =
+                (
+                    addSourceAndDestinationHint {dst=resReg, src=op1Reg};
+                    case decache operand2 of
+                        RegisterArgument(PReg op2Reg) =>
+                            addSourceAndDestinationHint {dst=resReg, src=op2Reg}
+                    |   _ => ()
+                )
          
             |   addHints{instr=CopyToCache{source=PReg sreg, dest=PReg dreg, ...}, ...} =
                     addSourceAndDestinationHint {src=sreg, dst=dreg}
@@ -168,9 +173,14 @@ struct
                                             shiftAmount=RegisterArgument(PReg shiftReg), ...}, ...} =
                     (addSourceAndDestinationHint{dst=resReg, src=operReg}; addRealHint(shiftReg, GenReg ecx))
 
-            |   addHints{instr=Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg,
-                                   operand2=RegisterArgument(PReg op2Reg), ...}, ...} =
-                    (addSourceAndDestinationHint{dst=resReg, src=op1Reg}; addSourceAndDestinationHint{dst=resReg, src=op2Reg})
+            |   addHints{instr=Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg, operand2, ...}, ...} =
+                (
+                    addSourceAndDestinationHint{dst=resReg, src=op1Reg};
+                    case decache operand2 of
+                        RegisterArgument(PReg op2Reg) =>
+                            addSourceAndDestinationHint {dst=resReg, src=op2Reg}
+                    |   _ => ()
+                )
             
             |   addHints{instr=Division{dividend=PReg regDivid, quotient=PReg regQuot, remainder=PReg regRem, ...}, ...} =
                     (addRealHint(regDivid, GenReg eax); addRealHint(regQuot, GenReg eax); addRealHint(regRem, GenReg edx))
@@ -554,8 +564,8 @@ struct
 
         |   registerAllocate{instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2, ...}, ...} =
-            (* Subtraction - this is special because it can only be done one way round.  The first argument must
-               be in a register. *)
+            (* Subtraction  - Unlike the other arithmetic operations we can't put the second
+               argument into the result register and then do the operation. *)
             let
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 (* Try to put the argument into the same register as the result. *)
@@ -564,25 +574,17 @@ struct
                 allocateArgGeneral operand2
             end
 
-        |   registerAllocate({instr=ArithmeticFunction{resultReg=PReg resReg, operand1=PReg op1Reg,
-                                            operand2=RegisterArgument(PReg op2Reg), ...}, ...}) =
-            (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
-               we can try to put either argument into the result reg and then do the operation on the other arg. *)
+        |   registerAllocate({instr=ArithmeticFunction{resultReg=PReg resReg, operand1=PReg op1Reg, operand2, ...}, ...}) =
             let
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
+                val () = allocateRegister(op1Reg, SOME realDestReg, generalRegisters)
             in
-                allocateRegister(op1Reg, SOME realDestReg, generalRegisters);
-                allocateRegister(op2Reg, SOME realDestReg, generalRegisters)
-            end
-
-        |   registerAllocate({instr=ArithmeticFunction{resultReg=PReg resReg, operand1=PReg op1Reg,
-                                            operand2, ...}, ...}) =
-            (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
-            let
-                val realDestReg = findRegister(resReg, NONE, generalRegisters)
-            in
-                allocateRegister(op1Reg, SOME realDestReg, generalRegisters);
-                allocateArgGeneral operand2
+                case decache operand2 of
+                    RegisterArgument(PReg op2Reg) =>
+                    (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
+                       we can try to put either argument into the result reg and then do the operation on the other arg. *)
+                        allocateRegister(op2Reg, SOME realDestReg, generalRegisters)
+                |   operand2 => allocateArgGeneral operand2
             end
 
         |   registerAllocate({instr=TestTagBit{arg, ...}, ...}) = allocateArgGeneral arg
@@ -651,22 +653,16 @@ struct
 
         |   registerAllocate({instr=
                 Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg,
-                               operand2=RegisterArgument(PReg op2Reg), ...}, ...}) =
-            let
-                (* Treat exactly the same as ArithmeticFunction. *)
-                val realDestReg = findRegister(resReg, NONE, generalRegisters)
-            in
-                allocateRegister(op1Reg, SOME realDestReg, generalRegisters);
-                allocateRegister(op2Reg, SOME realDestReg, generalRegisters)
-            end
-
-        |   registerAllocate({instr=
-                Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg, operand2, ...}, ...}) =
+                               operand2, ...}, ...}) =
             let
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
+                val () = allocateRegister(op1Reg, SOME realDestReg, generalRegisters)
             in
-                allocateRegister(op1Reg, SOME realDestReg, generalRegisters);
-                allocateArgGeneral operand2
+                case decache operand2 of
+                    RegisterArgument(PReg op2Reg) =>
+                        (* Treat exactly the same as ArithmeticFunction. *)
+                        allocateRegister(op2Reg, SOME realDestReg, generalRegisters)
+                |   operand2 => allocateArgGeneral operand2
             end
 
         |   registerAllocate({instr=Division{dividend=PReg regDivid, divisor, quotient=PReg regQuot,
@@ -802,16 +798,16 @@ struct
             )
 
         |   registerAllocate({instr=ConditionalMove{dest=PReg resReg, trueSrc, falseSrc, ...}, ...}) =
+                (* Similar to ArithmeticFunction.  We can change the sense of the condition
+                   if we want to have the operands reversed. *)
             let
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
             in
-                (* If either argument is in a register try to use the same register. *)
-                case trueSrc of
+                case decache trueSrc of
                     RegisterArgument(PReg sReg) =>
                         allocateRegister(sReg, SOME realDestReg, generalRegisters)
                 |   trueSrc => allocateArgGeneral trueSrc;
-                
-                case falseSrc of
+                case decache falseSrc of
                     RegisterArgument(PReg sReg) =>
                         allocateRegister(sReg, SOME realDestReg, generalRegisters)
                 |   falseSrc => allocateArgGeneral falseSrc

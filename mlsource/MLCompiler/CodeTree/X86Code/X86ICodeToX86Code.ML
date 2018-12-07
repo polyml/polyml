@@ -1180,39 +1180,38 @@ struct
                     moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=opSizeToIMove opSize}, code)
             end
 
-        |   codeExtended _ ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
-                                            operand2=RegisterArgument(PReg op2Reg), opSize, ...}, ...}, code) =
-            (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
-               we can try to put either argument into the result reg and then do the operation on the other arg. *)
-            let
-                val realDestReg = getAllocatedGenReg resReg
-                val realOp1Reg = getAllocatedGenReg op1Reg
-                and realOp2Reg = getAllocatedGenReg op2Reg
-                val (operandReg, moveInstr) =
-                    if realOp1Reg = realDestReg
-                    then (realOp2Reg, code)
-                    else if realOp2Reg = realDestReg
-                    then (realOp1Reg, code)
-                    else (realOp2Reg, Move{source=RegisterArg realOp1Reg, destination=RegisterArg realDestReg, moveSize=opSizeToMove opSize} :: code)
-            in
-                ArithToGenReg { opc=oper, output=realDestReg, source=RegisterArg operandReg, opSize=opSize } :: moveInstr
-            end
+        |   codeExtended _ ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg, operand2, opSize, ...}, ...}, code) =
+            (
+                case decache operand2 of
+                    RegisterArgument(PReg op2Reg) =>
+                    (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
+                       we can try to put either argument into the result reg and then do the operation on the other arg. *)
+                    let
+                        val realDestReg = getAllocatedGenReg resReg
+                        val realOp1Reg = getAllocatedGenReg op1Reg
+                        and realOp2Reg = getAllocatedGenReg op2Reg
+                        val (operandReg, moveInstr) =
+                            if realOp1Reg = realDestReg
+                            then (realOp2Reg, code)
+                            else if realOp2Reg = realDestReg
+                            then (realOp1Reg, code)
+                            else (realOp2Reg, Move{source=RegisterArg realOp1Reg, destination=RegisterArg realDestReg, moveSize=opSizeToMove opSize} :: code)
+                    in
+                        ArithToGenReg { opc=oper, output=realDestReg, source=RegisterArg operandReg, opSize=opSize } :: moveInstr
+                    end
 
-        |   codeExtended _ ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
-                                            operand2, opSize, ...}, ...}, code) =
-            (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
-            let
-                val realDestReg = getAllocatedReg resReg
-                val realOp1Reg = getAllocatedReg op1Reg
-                val op2Arg = codeExtArgumentAsGenReg operand2
-                (* If we couldn't put it in the result register we have to copy it there. *)
-                (* TODO: Is there the potential for a problem?  We don't worry about a conflict
-                   between the result register and the arguments.  What if the second argument is a memory
-                   location with the result reg as a base or index? *)
-            in
-                ArithToGenReg { opc=oper, output=asGenReg realDestReg, source=op2Arg, opSize=opSize } ::
-                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=opSizeToIMove opSize}, code)
-            end
+                |   operand2 =>
+                    (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
+                    let
+                        val realDestReg = getAllocatedReg resReg
+                        val realOp1Reg = getAllocatedReg op1Reg
+                        val op2Arg = codeExtArgumentAsGenReg operand2
+                        (* If we couldn't put it in the result register we have to copy it there. *)
+                    in
+                        ArithToGenReg { opc=oper, output=asGenReg realDestReg, source=op2Arg, opSize=opSize } ::
+                            moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=opSizeToIMove opSize}, code)
+                    end
+            )
 
         |   codeExtended _ ({instr=TestTagBit{arg, ...}, ...}, code) =
                 TestByteBits{arg=codeExtArgumentAsGenReg arg, bits=0w1} :: code
@@ -1327,33 +1326,35 @@ struct
 
         |   codeExtended _ ({instr=
                 Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg,
-                               operand2=RegisterArgument(PReg op2Reg), opSize, ...}, ...}, code) =
-            let
-                (* Treat exactly the same as ArithmeticFunction. *)
-                val realDestReg = getAllocatedGenReg resReg
-                val realOp1Reg = getAllocatedGenReg op1Reg
-                and realOp2Reg = getAllocatedGenReg op2Reg
-                val (operandReg, moveInstr) =
-                    if realOp1Reg = realDestReg
-                    then (realOp2Reg, code)
-                    else if realOp2Reg = realDestReg
-                    then (realOp1Reg, code)
-                    else (realOp2Reg, Move{source=RegisterArg realOp1Reg, destination=RegisterArg realDestReg, moveSize=opSizeToMove opSize} :: code)
-            in
-                MultiplyR { source=RegisterArg operandReg, output=realDestReg, opSize=opSize } :: moveInstr
-            end
-
-        |   codeExtended _ ({instr=Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg,
-                                            operand2, opSize, ...}, ...}, code) =
-            (* Multiply operation with the first argument in a register and the second a constant or memory location. *)
-            let
-                val realDestReg = getAllocatedReg resReg
-                val realOp1Reg = getAllocatedReg op1Reg
-                val op2Arg = codeExtArgumentAsGenReg operand2
-            in
-                MultiplyR { output=asGenReg realDestReg, source=op2Arg, opSize=opSize } ::
-                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=opSizeToIMove opSize}, code)
-            end
+                               operand2, opSize, ...}, ...}, code) =
+            (
+                case decache operand2 of
+                    RegisterArgument(PReg op2Reg) =>
+                    let
+                        (* Treat exactly the same as ArithmeticFunction. *)
+                        val realDestReg = getAllocatedGenReg resReg
+                        val realOp1Reg = getAllocatedGenReg op1Reg
+                        and realOp2Reg = getAllocatedGenReg op2Reg
+                        val (operandReg, moveInstr) =
+                            if realOp1Reg = realDestReg
+                            then (realOp2Reg, code)
+                            else if realOp2Reg = realDestReg
+                            then (realOp1Reg, code)
+                            else (realOp2Reg, Move{source=RegisterArg realOp1Reg, destination=RegisterArg realDestReg, moveSize=opSizeToMove opSize} :: code)
+                    in
+                        MultiplyR { source=RegisterArg operandReg, output=realDestReg, opSize=opSize } :: moveInstr
+                    end
+                |   operand2 =>
+                    (* Multiply operation with the first argument in a register and the second a constant or memory location. *)
+                    let
+                        val realDestReg = getAllocatedReg resReg
+                        val realOp1Reg = getAllocatedReg op1Reg
+                        val op2Arg = codeExtArgumentAsGenReg operand2
+                    in
+                        MultiplyR { output=asGenReg realDestReg, source=op2Arg, opSize=opSize } ::
+                            moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=opSizeToIMove opSize}, code)
+                    end
+            )
 
         |   codeExtended _ ({instr=Division{isSigned, dividend=PReg regDivid, divisor, quotient=PReg regQuot,
                                   remainder=PReg regRem, opSize}, ...}, code) =
@@ -1695,10 +1696,13 @@ struct
                 case (codeExtArgumentAsGenReg trueSrc, codeExtArgumentAsGenReg falseSrc) of
                     (RegisterArg regTrue, RegisterArg regFalse) =>
                         (* Both in registers.  Is one already in the right reg? *)
+                    (
+                        regTrue <> regFalse orelse raise InternalError "bad";
                         if regResult = regFalse
                         then cmov{output=regResult, source=RegisterArg regTrue, condition=condition, opSize=opSize} @ code
                         else cmov{output=regResult, source=RegisterArg regFalse, condition=invertTest condition, opSize=opSize} @
                                 moveIfNecessary({src=GenReg regTrue, dst=GenReg regResult, kind=opSizeToIMove opSize}, code)
+                    )
 
                |    (RegisterArg regTrue, falseCode) =>
                         (* One argument is already in a register.  If that is the output register we have
@@ -1716,7 +1720,7 @@ struct
                         else cmov{output=regResult, source=RegisterArg regFalse, condition=invertTest condition, opSize=opSize} @
                                 Move{source=trueCode, destination=RegisterArg regResult, moveSize=opSizeToMove opSize} ::  code
 
-                |    (trueCode, falseCode) =>
+                |   (trueCode, falseCode) =>
                         cmov{output=regResult, source=falseCode, condition=invertTest condition, opSize=opSize} @
                                 Move{source=trueCode, destination=RegisterArg regResult, moveSize=opSizeToMove opSize} ::  code
             end
