@@ -316,7 +316,7 @@ struct
             { sources=argRegs trueSrc @ argRegs falseSrc, dests=[dest], sStacks=argStacks trueSrc @ argStacks falseSrc,
               dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCUnchanged }
 
-    fun identifyRegisters(blockVector, pregProps): extendedBasicBlock vector * regState vector =
+    fun identifyRegs(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let
         val maxPRegs = Vector.length pregProps
         val vectorLength = Vector.length blockVector
@@ -795,6 +795,53 @@ struct
             )
     in
         (resultBlocks, registerState)
+    end
+
+    (* Exported function.  First filter out unreferenced blocks then process the
+       registers themselves. *)
+    fun identifyRegisters(blockVector, pregProps) =
+    let
+        val vectorLength = Vector.length blockVector
+        val mapArray = Array.array(vectorLength, NONE)
+        and resArray = Array.array(vectorLength, NONE)
+        val count = ref 0
+        
+        fun setReferences label =
+            case Array.sub(mapArray, label) of
+                NONE => (* Not yet visited *)
+                let
+                    val BasicBlock{flow, block} = Vector.sub(blockVector, label)
+                    (* Create a new entry for it. *)
+                    val newLabel = ! count before count := !count + 1
+                    (* Add it to the map.  Any other references will use this
+                       without reprocessing. *)
+                    val () = Array.update(mapArray, label, SOME newLabel)
+                    val newFlow =
+                        case flow of
+                            Unconditional l => Unconditional(setReferences l)
+                        |   Conditional{trueJump, falseJump, ccRef, condition} =>
+                                Conditional{trueJump=setReferences trueJump, falseJump=setReferences falseJump,
+                                        ccRef=ccRef, condition=condition}
+                        |   ExitCode => ExitCode
+                        |   IndexedBr list => IndexedBr(map setReferences list)
+                        |   SetHandler{handler, continue} =>
+                                SetHandler{handler=setReferences handler, continue=setReferences continue}
+                        |   UnconditionalHandle l => UnconditionalHandle(setReferences l)
+                        |   ConditionalHandle{handler, continue} =>
+                                ConditionalHandle{handler=setReferences handler, continue=setReferences continue}
+
+                    val () = Array.update(resArray, newLabel, SOME(BasicBlock{flow=newFlow, block=block}))
+                in
+                    newLabel
+                end
+            |   SOME lab => lab
+       
+        val _ = setReferences 0
+        
+        val newBlockVector =
+            Vector.tabulate(!count, fn i => valOf(Array.sub(resArray, i)))
+    in
+        identifyRegs(newBlockVector, pregProps)
     end
 
     (* Exported for use in GetConflictSets *)

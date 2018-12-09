@@ -1773,7 +1773,9 @@ struct
             
             (* Process this recursively to set the references.  If we have
                unreachable blocks, perhaps because they've been merged, we
-               don't want to include them in the reference counting. *)
+               don't want to include them in the reference counting.
+               This shouldn't happen now that IdentifyReferences removes
+               unreferenced blocks. *)
             fun setReferences fromLabel toLabel =
                 case Array.sub(labelRefs, toLabel) of
                     [] => (* Not yet visited at all. *)
