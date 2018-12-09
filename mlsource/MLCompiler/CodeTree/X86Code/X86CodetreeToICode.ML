@@ -1047,32 +1047,58 @@ struct
                 val target = asTarget destination
                 val ccRef = newCCRef()
                 val (testCode, testReg) = codeToPRegRev(test, context, tailCode)
+                
                 val code =
-                    if isShort thenC andalso isShort elseC
-                    then (* Both short - use SetToCondition. *)
-                    let
-                        val zeroReg = newUReg()
-                        (* Make sure the trueValue is greater than or equal to the falseValue.
-                           This makes detection of booleans easier later on.  Actually, if
-                           they're equal the test is redundant but that should have been
-                           detected earlier. *)
-                        val (tValue, fValue, condition) =
-                            if toShort thenC >= toShort elseC
-                            then (toShort thenC, toShort elseC, JE)
-                            else (toShort elseC, toShort thenC, JNE)
-                        val trueValue = tag(Word.toLargeIntX tValue)
-                        and falseValue = tag(Word.toLargeIntX fValue)
-                    in
-                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=condition,
-                            highOrder=zeroReg, trueValue=trueValue, falseValue=falseValue, opSize=polyWordOpSize}) ::
+                    case (constantAsArgument thenC, constantAsArgument elseC) of
+                        (tValue as IntegerConstant thenValue, eValue as IntegerConstant elseValue) =>
+                        (* Deal with the equal case - this should never happen because it should
+                           have been dealt with earlier, but just in case... *)
+                        if thenValue = elseValue
+                        then BlockSimple(LoadArgument{source=tValue, dest=target, kind=movePolyWord}) :: testCode
+                        else
+                        let
+                            
+                            (* Make sure the trueValue is greater than or equal to the falseValue.
+                               This makes detection of booleans easier later on. *)
+                            val (trueValue, falseValue, condition) =
+                                if thenValue >= elseValue
+                                then (thenValue, elseValue, JE)
+                                else (elseValue, thenValue, JNE)
+                            val diff = trueValue - elseValue
+                        in
+                            if diff = 2 orelse diff = 4 orelse diff = 8
+                            then (* We can handle these cases using LEA. *)
+                            let
+                                val zeroReg = newUReg()
+                            in
+                                BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=condition,
+                                    highOrder=zeroReg, trueValue=trueValue, falseValue=falseValue, opSize=polyWordOpSize}) ::
+                                BlockSimple(CompareLiteral{arg1=RegisterArgument testReg, arg2=tag 1, opSize=OpSize32, ccRef=ccRef}) ::
+                                BlockSimple(ZeroRegister{dest=zeroReg}) :: testCode
+                            end
+                            else
+                            let
+                                (* When using CMOV we want to avoid having a short constant as the
+                                   argument.  The low-level code will handle it but it requires the
+                                   constant to go into the non-address constant area.  Address
+                                   constants have to be in the address constant area anyway
+                                   so there's no need to treat them specially here. *)
+                                val tReg = newPReg() and eReg = newPReg()
+                            in
+                                (* Move the arguments into registers. *)
+                                BlockSimple(ConditionalMove{trueSrc=RegisterArgument tReg, falseSrc=RegisterArgument eReg, dest=target,
+                                                ccRef=ccRef, condition = JE, opSize=polyWordOpSize}) ::
+                                BlockSimple(CompareLiteral{arg1=RegisterArgument testReg, arg2=tag 1, opSize=OpSize32, ccRef=ccRef}) ::
+                                BlockSimple(LoadArgument{source=eValue, dest=eReg, kind=movePolyWord}) ::
+                                BlockSimple(LoadArgument{source=tValue, dest=tReg, kind=movePolyWord}) ::
+                                testCode
+                            end
+                        end                   
+                    |   (tValue, eValue) =>
+                        (* One argument must be an address - the final stage will sort that out. *)
+                        BlockSimple(ConditionalMove{trueSrc=tValue, falseSrc=eValue, dest=target, ccRef=ccRef, condition = JE, opSize=polyWordOpSize}) ::
                         BlockSimple(CompareLiteral{arg1=RegisterArgument testReg, arg2=tag 1, opSize=OpSize32, ccRef=ccRef}) ::
-                        BlockSimple(ZeroRegister{dest=zeroReg}) :: testCode
-                    end                   
-                    else
-                    BlockSimple(ConditionalMove{trueSrc=constantAsArgument thenC, falseSrc=constantAsArgument elseC, dest=target,
-                                    ccRef=ccRef, condition = JE, opSize=polyWordOpSize}) ::
-                    BlockSimple(CompareLiteral{arg1=RegisterArgument testReg, arg2=tag 1, opSize=OpSize32, ccRef=ccRef}) ::
-                    testCode
+                        testCode
             in
                 (code, RegisterArgument target, false)
             end

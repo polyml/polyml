@@ -1050,14 +1050,23 @@ struct
                         orelse falseValue >= 0 andalso trueValue <= 0x7fffffff
                     then OpSize32 else OpSize64
                 val realDestReg = getAllocatedGenReg resReg
+                val _ = trueValue > falseValue orelse raise InternalError "codeExtended: SetToCondition"
+                (* Because we're always producing tagged values the difference should always be even. *)
+                val diff = trueValue - falseValue
+                (* See if we can use a LEA.   These are the only cases that should be generated. *)
+                val (index, base) =
+                    case diff of
+                        2 => (Index1 realDestReg, SOME realDestReg)
+                    |   4 => (Index4 realDestReg, NONE)
+                    |   8 => (Index8 realDestReg, NONE)
+                    |   _ => (NoIndex, NONE)
             in
                 (* SetCC cannot use esi or edi in X86/32.  We try to use ecx if possible on the X86/32 but
                    if we happen to choose esi or edi we have to use test and branch instead. *)
                 if (targetArch = Native32Bit andalso (realDestReg = esi orelse realDestReg = edi))
-                    orelse trueValue <> 3 orelse falseValue <> 1
+                    orelse index = NoIndex
                 then
                 let
-                    val _ = print("SetToCondition: " ^ PolyML.makestring(trueValue, falseValue) ^ "\n")
                     val lab1 = makeLabel() and lab2 = makeLabel()
                     (* We've cleared the high-order unnecessarily but it's not worth having a special
                        case for that. *)
@@ -1073,10 +1082,9 @@ struct
                 let
                     val highReg = getAllocatedGenReg high
                 in
-                    (* We can use 32-bit operations here since we're happy for the top word to be zero. *)
-                    LoadAddress{output=realDestReg, offset=1, base=SOME realDestReg, index=Index1 realDestReg, opSize=effectiveOpSize} ::
+                    LoadAddress{output=realDestReg, offset=Int.fromLarge falseValue, base=base, index=index, opSize=effectiveOpSize} ::
                     SetCondition{output=realDestReg, test=condition} ::
-                    moveIfNecessary({src=GenReg highReg, dst=GenReg realDestReg, kind=opSizeToIMove effectiveOpSize}, code)
+                    moveIfNecessary({src=GenReg highReg, dst=GenReg realDestReg, kind=Move32Bit (* This is zero *)}, code)
                 end
             end
 
