@@ -55,68 +55,74 @@ struct
            also have the possibility of comparing with a value other than tagged 0 or tagged 1 and having
            ordering rather than just equality. *)
     |   BRChangeCond of
-            { srcCC: ccRef, compare: compareVal, test: changeArg }
+            { srcCC: ccRef, compare: LargeInt.int, test: changeArg }
 
     and changeArg =
         CASetCond of { condition: branchOps, outCC: ccRef, highOrder: preg } (*i.e. from SetCond *)
-    |   CAConst of compareVal
+    |   CAConst of LargeInt.int
     
-    and compareVal = CVTrue | CVFalse
-    
-    fun compareValAsInt CVTrue = 3 | compareValAsInt CVFalse = 1
-    
-    and intAsCompareVal 3 = CVTrue
-    |   intAsCompareVal 1 = CVFalse
-    |   intAsCompareVal n = raise InternalError ("intAsCompareVal:" ^ Int.toString n)
+    val constTrue = CAConst 3 and constFalse = CAConst 1
     
     fun notCond{condition, outCC, highOrder} =
         {condition=X86CODE.invertTest condition, outCC=outCC, highOrder=highOrder}
 
     (* Sort out comparisons.  Start with the boolean values (0, 1) *)
-    fun getCondResult({compare=CVTrue, test=CASetCond condcc, ...}, JE) = CASetCond condcc
-    |   getCondResult({compare=CVFalse, test=CASetCond condcc, ...}, JE) = CASetCond(notCond condcc)
+    fun getCondResult({compare=3, test=CASetCond condcc, ...}, JE) = CASetCond condcc
+    |   getCondResult({compare=1, test=CASetCond condcc, ...}, JE) = CASetCond(notCond condcc)
+    |   getCondResult({test=CASetCond _, ...}, JE) = raise InternalError "getCondResult"
     
-    |   getCondResult({compare=CVTrue, test=CASetCond condcc, ...}, JNE) = CASetCond(notCond condcc)
-    |   getCondResult({compare=CVFalse, test=CASetCond condcc, ...}, JNE) = CASetCond condcc
+    |   getCondResult({compare=3, test=CASetCond condcc, ...}, JNE) = CASetCond(notCond condcc)
+    |   getCondResult({compare=1, test=CASetCond condcc, ...}, JNE) = CASetCond condcc
+    |   getCondResult({test=CASetCond _, ...}, JNE) = raise InternalError "getCondResult"
+ 
+    |   getCondResult({compare=3, test=CASetCond condcc, ...}, JL) = CASetCond(notCond condcc)
+    |   getCondResult({compare=1, test=CASetCond _, ...}, JL) = constFalse (* Never < 0 *)
+    |   getCondResult({test=CASetCond _, ...}, JL) = raise InternalError "getCondResult"
 
-    |   getCondResult({compare=CVTrue, test=CASetCond condcc, ...}, JL) = CASetCond(notCond condcc)
-    |   getCondResult({compare=CVFalse, test=CASetCond _, ...}, JL) = CAConst CVFalse (* Never < 0 *)
+    |   getCondResult({compare=3, test=CASetCond _, ...}, JG) = constFalse (* Never > 1 *)
+    |   getCondResult({compare=1, test=CASetCond condcc, ...}, JG) = CASetCond condcc
+    |   getCondResult({test=CASetCond _, ...}, JG) = raise InternalError "getCondResult"
 
-    |   getCondResult({compare=CVTrue, test=CASetCond _, ...}, JG) = CAConst CVFalse (* Never > 1 *)
-    |   getCondResult({compare=CVFalse, test=CASetCond condcc, ...}, JG) = CASetCond condcc
+    |   getCondResult({compare=3, test=CASetCond _, ...}, JLE) = constTrue (* Always <= 1 *)
+    |   getCondResult({compare=1, test=CASetCond condcc, ...}, JLE) = CASetCond(notCond condcc)
+    |   getCondResult({test=CASetCond _, ...}, JLE) = raise InternalError "getCondResult"
 
-    |   getCondResult({compare=CVTrue, test=CASetCond _, ...}, JLE) = CAConst CVTrue (* Always <= 1 *)
-    |   getCondResult({compare=CVFalse, test=CASetCond condcc, ...}, JLE) = CASetCond(notCond condcc)
-
-    |   getCondResult({compare=CVTrue, test=CASetCond condcc, ...}, JGE) = CASetCond condcc
-    |   getCondResult({compare=CVFalse, test=CASetCond _, ...}, JGE) = CAConst CVTrue (* Always >= 0 *)
+    |   getCondResult({compare=3, test=CASetCond condcc, ...}, JGE) = CASetCond condcc
+    |   getCondResult({compare=1, test=CASetCond _, ...}, JGE) = constTrue (* Always >= 0 *)
+    |   getCondResult({test=CASetCond _, ...}, JGE) = raise InternalError "getCondResult"
 
         (* Constant values. *)
-    |   getCondResult({compare=CVTrue, test=CAConst CVTrue, ...},   JE) = CAConst CVTrue
-    |   getCondResult({compare=CVFalse, test=CAConst CVFalse, ...}, JE) = CAConst CVTrue
-    |   getCondResult({test=CAConst _, ...},                        JE) = CAConst CVFalse
+    |   getCondResult({compare, test=CAConst testVal, ...},   JE) =
+            if testVal = compare then constTrue else constFalse
 
-    |   getCondResult({compare=CVTrue, test=CAConst CVTrue, ...},   JNE) = CAConst CVFalse
-    |   getCondResult({compare=CVFalse, test=CAConst CVFalse, ...}, JNE) = CAConst CVFalse
-    |   getCondResult({test=CAConst _, ...},                        JNE) = CAConst CVTrue
+    |   getCondResult({compare, test=CAConst testVal, ...},   JNE) =
+            if testVal <> compare then constTrue else constFalse
 
-    |   getCondResult({compare=CVTrue, test=CAConst CVFalse, ...},  JL) = CAConst CVTrue
-    |   getCondResult({test=CAConst _, ...},                        JL) = CAConst CVFalse
+    |   getCondResult({compare, test=CAConst testVal, ...},  JL) =
+            if testVal < compare then constTrue else constFalse
 
-    |   getCondResult({compare=CVFalse, test=CAConst CVTrue, ...},  JG) = CAConst CVTrue
-    |   getCondResult({test=CAConst _, ...},                        JG) = CAConst CVFalse
+    |   getCondResult({compare, test=CAConst testVal, ...},  JG) =
+            if testVal > compare then constTrue else constFalse
 
-    |   getCondResult({compare=CVFalse, test=CAConst CVTrue, ...},  JLE) = CAConst CVFalse
-    |   getCondResult({test=CAConst _, ...},                        JLE) = CAConst CVTrue
+    |   getCondResult({compare, test=CAConst testVal, ...},  JLE) =
+            if testVal <= compare then constTrue else constFalse
 
-    |   getCondResult({compare=CVTrue, test=CAConst CVFalse, ...},  JGE) = CAConst CVFalse
-    |   getCondResult({test=CAConst _, ...},                        JGE) = CAConst CVTrue
+    |   getCondResult({compare, test=CAConst testVal, ...},  JGE) =
+            if testVal >= compare then constTrue else constFalse
 
-        (* Since we only have 0 and 1 the unsigned tests are the same. *)
-    |   getCondResult(test, JB) = getCondResult(test, JL)
-    |   getCondResult(test, JA) = getCondResult(test, JG)
-    |   getCondResult(test, JNA) = getCondResult(test, JLE)
-    |   getCondResult(test, JNB) = getCondResult(test, JGE)
+        (* Unsigned tests.  We converted the values from Word to LargeInt.  We can therefore
+           turn the tests back to Word for the unsigned comparisons. *)
+    |   getCondResult({compare, test=CAConst testVal, ...}, JB) =
+            if Word.fromLargeInt testVal < Word.fromLargeInt compare then constTrue else constFalse
+
+    |   getCondResult({compare, test=CAConst testVal, ...}, JA) =
+            if Word.fromLargeInt testVal >Word.fromLargeInt compare then constTrue else constFalse
+
+    |   getCondResult({compare, test=CAConst testVal, ...}, JNA) =
+            if Word.fromLargeInt testVal <= Word.fromLargeInt compare then constTrue else constFalse
+
+    |   getCondResult({compare, test=CAConst testVal, ...}, JNB) =
+            if Word.fromLargeInt testVal >=Word.fromLargeInt compare then constTrue else constFalse
 
         (* The overflow and parity checks should never occur. *)
     |   getCondResult _ = raise InternalError "getCondResult"
@@ -185,7 +191,7 @@ struct
                                                 trueValue=trueValue, falseValue=falseValue, opSize=opSize }
                         |   CAConst cv =>
                             let
-                                val constVal = case cv of CVTrue => trueValue | CVFalse => falseValue
+                                val constVal = if cv = 3 then trueValue else falseValue
                                 val moveKind = case opSize of OpSize32 => Move32Bit | OpSize64 => Move64Bit
                             in
                                 LoadArgument{dest=dest, source=IntegerConstant constVal, kind=moveKind}
@@ -216,7 +222,7 @@ struct
                                 ConditionalMove{dest=dest, falseSrc=falseSrc, trueSrc=trueSrc, ccRef=outCC, condition=outCondition, opSize=opSize}
                         |   CAConst cv =>
                             let
-                                val use = case cv of CVFalse => falseSrc | CVTrue => trueSrc
+                                val use = if cv = 1 then falseSrc else trueSrc
                                 val kind = if opSize = OpSize32 then Move32Bit else Move64Bit
                             in
                                 LoadArgument{dest=dest, source=use, kind=kind}
@@ -240,11 +246,11 @@ struct
 
             |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 1, ...}, ...} :: rest, _, memRefs, code) =
                     (* This MAY be a value of false. *)
-                    optCode(rest, BRSetCond{dest=dest, test=CAConst(intAsCompareVal 1)}, memRefs, instr :: code)
+                    optCode(rest, BRSetCond{dest=dest, test=CAConst 1}, memRefs, instr :: code)
 
             |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 3, ...}, ...} :: rest, _, memRefs, code) =
                     (* This MAY be a value of true. *)
-                    optCode(rest, BRSetCond{dest=dest, test=CAConst(intAsCompareVal 3)}, memRefs, instr :: code)
+                    optCode(rest, BRSetCond{dest=dest, test=CAConst 3}, memRefs, instr :: code)
 
             |   optCode({instr as BooleanNot(boolOp as {source=notSrc, dest=notDest}), ...} :: rest,
                         BRSetCond{dest=setDest, test}, memRefs, code) =
@@ -273,9 +279,9 @@ struct
                                     (* The source was set by a constant.  This must have come from merging
                                        after an unconditional jump otherwise it would have been processed
                                        in the simplifier. *)
-                                    val newCv = case cv of CVTrue => CVFalse | CVFalse => CVTrue
+                                    val newCv = if cv = 3 then 1 else 3
                                     val newInstr =
-                                        LoadArgument{dest=notDest, source=IntegerConstant(compareValAsInt newCv), kind=Move32Bit}
+                                        LoadArgument{dest=notDest, source=IntegerConstant newCv, kind=Move32Bit}
                                 in
                                     (CAConst newCv, newInstr)
                                 end
@@ -327,8 +333,8 @@ struct
                                     val _ = hasChanged := true
                                     (* Put in a replacement so that if we were previously testing ccRefOut
                                        we should instead test ccRef. *)
-                                    val cv = case arg2 of 1 => CVFalse | 3 => CVTrue | _ => raise InternalError "Compare val"
-                                    val repl = BRChangeCond{srcCC=ccRefOut, compare=cv, test=test}
+                                    val _ = arg2 = 1 orelse arg2 = 3 orelse raise InternalError "cv"
+                                    val repl = BRChangeCond{srcCC=ccRefOut, compare=arg2, test=test}
                                     val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
                                 in
                                     optCode(rest, repl, memRefsOut, code)
@@ -373,6 +379,10 @@ struct
                    but ZeroRegister will clobber it.  Change this to use a Move from the original high-order
                    which will preserve the CC. *)
                     optCode(rest, brCond, memRefs, LoadArgument{source=RegisterArgument highOrder, dest=dest, kind=Move32Bit} :: code)
+
+            |   optCode({instr as ZeroRegister _, ...} :: rest, brCond as BRSetCond{test=CAConst _, ...}, memRefs, code) =
+                (* Because this is a constant it won't be clobbered and can be passed on to the test. *)
+                    optCode(rest, brCond, memRefs, instr :: code)
 
             |   optCode({instr as ZeroRegister _, ...} :: rest, _, memRefs, code) = optCode(rest, BRNone, memRefs, instr :: code)
 
@@ -469,8 +479,9 @@ struct
                             case getCondResult(cCond, brCond) of
                                 CASetCond{condition, outCC, ...} =>
                                     Conditional{ccRef=outCC, condition=condition, trueJump=trueJump, falseJump=falseJump}
-                            |   CAConst CVTrue => Unconditional trueJump
-                            |   CAConst CVFalse => Unconditional falseJump
+                            |   CAConst 3 => Unconditional trueJump
+                            |   CAConst 1 => Unconditional falseJump
+                            |   CAConst _ => raise InternalError "BRChangeCond: CAConst"
                     in
                         BasicBlock{flow=newFlow, block=List.rev blkCode}
                     end
