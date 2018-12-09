@@ -1040,27 +1040,33 @@ struct
                 ArithByteMemConst{ opc=CMP, address={offset=offset, base=bReg, index=index}, source=arg2 } :: code
             end
 
-        |   codeExtended _ ({instr=SetToCondition{dest as PReg resReg, condition, highOrder=PReg high, ...}, ...}, code) =
+        |   codeExtended _ ({instr=SetToCondition{dest as PReg resReg, condition, highOrder=PReg high, trueValue, falseValue, opSize, ...}, ...}, code) =
             if not(isUsed dest)
             then code
             else
             let
+                val effectiveOpSize =
+                    if opSize = OpSize32
+                        orelse falseValue >= 0 andalso trueValue <= 0x7fffffff
+                    then OpSize32 else OpSize64
                 val realDestReg = getAllocatedGenReg resReg
             in
                 (* SetCC cannot use esi or edi in X86/32.  We try to use ecx if possible on the X86/32 but
                    if we happen to choose esi or edi we have to use test and branch instead. *)
-                if targetArch = Native32Bit andalso (realDestReg = esi orelse realDestReg = edi)
+                if (targetArch = Native32Bit andalso (realDestReg = esi orelse realDestReg = edi))
+                    orelse trueValue <> 3 orelse falseValue <> 1
                 then
                 let
+                    val _ = print("SetToCondition: " ^ PolyML.makestring(trueValue, falseValue) ^ "\n")
                     val lab1 = makeLabel() and lab2 = makeLabel()
                     (* We've cleared the high-order unnecessarily but it's not worth having a special
                        case for that. *)
                 in
                     JumpLabel lab2 ::
-                    Move{source=NonAddressConstArg(tag 1), destination=RegisterArg realDestReg, moveSize=Move32} ::
+                    Move{source=NonAddressConstArg trueValue, destination=RegisterArg realDestReg, moveSize=opSizeToMove effectiveOpSize} ::
                     JumpLabel lab1 ::
                     UncondBranch lab2 ::
-                    Move{source=NonAddressConstArg(tag 0), destination=RegisterArg realDestReg, moveSize=Move32} ::
+                    Move{source=NonAddressConstArg falseValue, destination=RegisterArg realDestReg, moveSize=opSizeToMove effectiveOpSize} ::
                     ConditionalBranch{test=condition, label=lab1} :: code
                 end
                 else
@@ -1068,9 +1074,9 @@ struct
                     val highReg = getAllocatedGenReg high
                 in
                     (* We can use 32-bit operations here since we're happy for the top word to be zero. *)
-                    LoadAddress{output=realDestReg, offset=1, base=SOME realDestReg, index=Index1 realDestReg, opSize=OpSize32} ::
+                    LoadAddress{output=realDestReg, offset=1, base=SOME realDestReg, index=Index1 realDestReg, opSize=effectiveOpSize} ::
                     SetCondition{output=realDestReg, test=condition} ::
-                    moveIfNecessary({src=GenReg highReg, dst=GenReg realDestReg, kind=Move32Bit}, code)
+                    moveIfNecessary({src=GenReg highReg, dst=GenReg realDestReg, kind=opSizeToIMove effectiveOpSize}, code)
                 end
             end
 

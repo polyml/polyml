@@ -171,7 +171,7 @@ struct
         let
             fun optCode([], brCond, _, code) = (code, brCond)
 
-            |   optCode({instr=SetToCondition({dest, highOrder, ccRef, condition=setCCond}), ...} :: rest,
+            |   optCode({instr=SetToCondition({dest, highOrder, ccRef, condition=setCCond, trueValue, falseValue, opSize}), ...} :: rest,
                          BRChangeCond(ccCond as {srcCC, ...}), memRefs, code) =
                 let
                     (* If we have a BRChangeCond then we need to adjust the condition. *)
@@ -181,14 +181,24 @@ struct
                     val outInstr =
                         case ccCond of
                             CASetCond({condition=outCondition, outCC, ...}) =>
-                                SetToCondition{ dest=dest, highOrder=highOrder, ccRef=outCC, condition=outCondition }
+                                SetToCondition{ dest=dest, highOrder=highOrder, ccRef=outCC, condition=outCondition,
+                                                trueValue=trueValue, falseValue=falseValue, opSize=opSize }
                         |   CAConst cv =>
-                                LoadArgument{dest=dest, source=IntegerConstant(compareValAsInt cv), kind=Move32Bit}
+                            let
+                                val constVal = case cv of CVTrue => trueValue | CVFalse => falseValue
+                                val moveKind = case opSize of OpSize32 => Move32Bit | OpSize64 => Move64Bit
+                            in
+                                LoadArgument{dest=dest, source=IntegerConstant constVal, kind=moveKind}
+                            end
+                    val outCond =
+                        if trueValue = 3 andalso falseValue = 1
+                        then BRSetCond {dest=dest, test=ccCond}
+                        else BRNone
                 in
-                    optCode(rest, BRSetCond {dest=dest, test=ccCond}, memRefs, outInstr :: code)
+                    optCode(rest, outCond, memRefs, outInstr :: code)
                 end
 
-            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition}, ...} :: rest, _, memRefs, code) =
+            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition, trueValue=3, falseValue=1, opSize=_}, ...} :: rest, _, memRefs, code) =
                     (* Record this SetCondition in case it can be used later. *)
                     optCode(rest,
                         BRSetCond{dest=dest, test=CASetCond{condition=condition, highOrder=highOrder, outCC=ccRef}},
@@ -252,7 +262,8 @@ struct
                                        a new one. *)
                                     val outCond = X86CODE.invertTest condition
                                     val condNot =
-                                        {dest=notDest, ccRef=outCC, condition=outCond, highOrder = highOrder}
+                                        {dest=notDest, ccRef=outCC, condition=outCond, highOrder = highOrder,
+                                         trueValue=3, falseValue=1, opSize=polyWordOpSize}
                                     val caNot = {outCC=outCC, condition=outCond, highOrder = highOrder}
                                 in
                                     (CASetCond caNot, SetToCondition condNot)

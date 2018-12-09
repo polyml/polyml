@@ -894,13 +894,13 @@ struct
                             CompareByteMem{arg1=newArg1, arg2=arg2, ccRef=ccRef} :: indexCode @ baseCode @ code
                         end
  
-                    |   pushRegisters({instr=SetToCondition{dest, ccRef, condition, highOrder}, ...}, code) =
+                    |   pushRegisters({instr=SetToCondition{dest, ccRef, condition, highOrder, trueValue, falseValue, opSize}, ...}, code) =
                         let
                             val (highVal, highCode) = mapSrcReg highOrder
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ SetToCondition{dest=destVal, ccRef=ccRef, condition=condition, highOrder=highVal} ::
-                                highCode @ code
+                            destCode @ SetToCondition{dest=destVal, ccRef=ccRef, condition=condition, highOrder=highVal,
+                                                      trueValue=trueValue, falseValue=falseValue, opSize=opSize} :: highCode @ code
                         end
  
                     |   pushRegisters({instr=ZeroRegister{dest}, ...}, code) =

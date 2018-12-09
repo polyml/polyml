@@ -1040,6 +1040,42 @@ struct
             in
                 (BlockLabel skipElse :: codeElse, (* Unit result *) IntegerConstant(tag 0), false)
             end
+        
+        |   codeToICodeRev(BICCond(test, BICConstnt(thenC, _), BICConstnt(elseC, _)), context, _, destination, tailCode) =
+            (* Both sides are constants. *)
+            let
+                val target = asTarget destination
+                val ccRef = newCCRef()
+                val (testCode, testReg) = codeToPRegRev(test, context, tailCode)
+                val code =
+                    if isShort thenC andalso isShort elseC
+                    then (* Both short - use SetToCondition. *)
+                    let
+                        val zeroReg = newUReg()
+                        (* Make sure the trueValue is greater than or equal to the falseValue.
+                           This makes detection of booleans easier later on.  Actually, if
+                           they're equal the test is redundant but that should have been
+                           detected earlier. *)
+                        val (tValue, fValue, condition) =
+                            if toShort thenC >= toShort elseC
+                            then (toShort thenC, toShort elseC, JE)
+                            else (toShort elseC, toShort thenC, JNE)
+                        val trueValue = tag(Word.toLargeIntX tValue)
+                        and falseValue = tag(Word.toLargeIntX fValue)
+                    in
+                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=condition,
+                            highOrder=zeroReg, trueValue=trueValue, falseValue=falseValue, opSize=polyWordOpSize}) ::
+                        BlockSimple(CompareLiteral{arg1=RegisterArgument testReg, arg2=tag 1, opSize=OpSize32, ccRef=ccRef}) ::
+                        BlockSimple(ZeroRegister{dest=zeroReg}) :: testCode
+                    end                   
+                    else
+                    BlockSimple(ConditionalMove{trueSrc=constantAsArgument thenC, falseSrc=constantAsArgument elseC, dest=target,
+                                    ccRef=ccRef, condition = JE, opSize=polyWordOpSize}) ::
+                    BlockSimple(CompareLiteral{arg1=RegisterArgument testReg, arg2=tag 1, opSize=OpSize32, ccRef=ccRef}) ::
+                    testCode
+            in
+                (code, RegisterArgument target, false)
+            end
 
         |   codeToICodeRev(BICCond(test, thenPt, elsePt), context, isTail, destination, tailCode) =
             let
@@ -1501,7 +1537,8 @@ struct
                 val target = asTarget destination
                 val zeroReg = newUReg()
             in
-                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JE, highOrder=zeroReg}) ::
+                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JE, highOrder=zeroReg,
+                                            trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                     (* Use CompareLiteral because the tag must fit in 32-bits. *)
                     BlockSimple(CompareLiteral{arg1=tagArg,
                             arg2=tag(Word.toLargeInt tagValue), opSize=polyWordOpSize, ccRef=ccRef}) ::
@@ -1535,7 +1572,8 @@ struct
                 val target = asTarget destination
                 val zeroReg = newUReg()
                 val code =
-                    BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JE, highOrder=zeroReg}) ::
+                    BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JE, highOrder=zeroReg,
+                                               trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                     BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }) ::
                     BlockSimple(ZeroRegister{dest=zeroReg}) ::
                     lengthUntag @ BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}) ::
@@ -1569,7 +1607,8 @@ struct
                 val target = asTarget destination
                 val zeroReg = newUReg()
             in
-                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JNE, highOrder=zeroReg}) ::
+                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JNE, highOrder=zeroReg,
+                                            trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                     BlockSimple(TestTagBit{arg=testResult, ccRef=ccRef}) ::
                     BlockSimple(ZeroRegister{dest=zeroReg}) :: testCode, RegisterArgument target, false)
             end
@@ -2017,8 +2056,8 @@ struct
                 val target = asTarget destination
             in
                 (BlockSimple(
-                    SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg,
-                        condition=testAsBranch(test, isSigned, true)}) :: comparison, RegisterArgument target, false)
+                    SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, trueValue=tag 1, falseValue=tag 0,
+                        condition=testAsBranch(test, isSigned, true), opSize=polyWordOpSize}) :: comparison, RegisterArgument target, false)
             end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2}, context, _, destination, tailCode) =
@@ -2049,8 +2088,8 @@ struct
                 val target = asTarget destination
             in
                 (BlockSimple(
-                    SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg,
-                        condition=testAsBranch(leftRightTest test, isSigned, true)}) ::
+                    SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, trueValue=tag 1, falseValue=tag 0,
+                        condition=testAsBranch(leftRightTest test, isSigned, true), opSize=polyWordOpSize}) ::
                     comparison, RegisterArgument target, false)
             end
 
@@ -2066,15 +2105,15 @@ struct
                     case (arg1Result, arg2Result) of
                         (RegisterArgument arg1Reg, arg2Result) =>
                             BlockSimple(
-                                SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg,
-                                    condition=testAsBranch(test, isSigned, true)}) ::
+                                SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, trueValue=tag 1, falseValue=tag 0,
+                                    condition=testAsBranch(test, isSigned, true), opSize=polyWordOpSize}) ::
                             BlockSimple(WordComparison{arg1=arg1Reg, arg2=arg2Result, ccRef=ccRef, opSize=polyWordOpSize}) ::
                             BlockSimple(ZeroRegister{dest=zeroReg}) :: arg2Code
                     |   (arg1Result, RegisterArgument arg2Reg) =>
                             (* The second argument is in a register - switch the sense of the test. *)
                             BlockSimple(
-                                SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg,
-                                    condition=testAsBranch(leftRightTest test, isSigned, true)}) ::
+                                SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, trueValue=tag 1, falseValue=tag 0,
+                                    condition=testAsBranch(leftRightTest test, isSigned, true), opSize=polyWordOpSize}) ::
                             BlockSimple(WordComparison{arg1=arg2Reg, arg2=arg1Result, ccRef=ccRef, opSize=polyWordOpSize}) ::
                             BlockSimple(ZeroRegister{dest=zeroReg}) :: arg2Code
                     |   (arg1Result, arg2Result) =>
@@ -2083,7 +2122,7 @@ struct
                         in
                             BlockSimple(
                                 SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg,
-                                    condition=testAsBranch(test, isSigned, true)}) ::
+                                    condition=testAsBranch(test, isSigned, true), trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                             BlockSimple(WordComparison{arg1=arg1Reg, arg2=arg2Result, ccRef=ccRef, opSize=polyWordOpSize}) ::
                             BlockSimple(ZeroRegister{dest=zeroReg}) :: 
                             BlockSimple(LoadArgument{source=arg1Result, dest=arg1Reg, kind=movePolyWord})  :: arg2Code
@@ -2422,7 +2461,8 @@ struct
                 val zeroReg = newUReg()
                 val code =
                     BlockSimple(
-                        SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, condition=testAsBranch(test, false, true)}) ::
+                        SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, condition=testAsBranch(test, false, true),
+                                       trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                     BlockSimple(WordComparison{arg1=argReg, arg2=arg2Operand, ccRef=ccRef, opSize=nativeWordOpSize}) ::
                     BlockSimple(ZeroRegister{dest=zeroReg}) ::
                     BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=moveNativeWord}) :: arg2Code
@@ -2723,7 +2763,8 @@ struct
                 val code =
                 case fpMode of
                     FPModeX87 =>
-                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef2, highOrder=zeroReg, condition=JE}) ::
+                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef2, highOrder=zeroReg, condition=JE,
+                                                   trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                         BlockSimple(ArithmeticFunction{
                             oper=XOR, resultReg=testReg3, operand1=testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2, opSize=OpSize32 }) ::
                         BlockSimple(ZeroRegister{dest=zeroReg}) :: (* Just before we set the CC. *)
@@ -2742,7 +2783,8 @@ struct
                     in
                         BlockLabel resultLabel ::
                         (* Otherwise the result is true if it was equal and false if not. *)
-                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef1, highOrder=zeroReg, condition=JE}) ::
+                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef1, highOrder=zeroReg, condition=JE,
+                                                   trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                         BlockLabel noParityLabel ::
                         BlockFlow(Unconditional resultLabel) ::
                         (* Result is false if parity is set i.e. unordered. *)
@@ -2775,7 +2817,8 @@ struct
                     case fpMode of
                         FPModeX87 =>
                             (* And with 0x4500.  We have to use XOR rather than CMP to avoid having an untagged constant comparison. *)
-                            BlockSimple(SetToCondition{dest=target, ccRef=ccRef2, highOrder=zeroReg, condition=JE}) ::
+                            BlockSimple(SetToCondition{dest=target, ccRef=ccRef2, highOrder=zeroReg, condition=JE,
+                                                       trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                             BlockSimple(ArithmeticFunction{
                                 oper=XOR, resultReg=testReg3, operand1=testReg2, operand2=IntegerConstant 0x4500, ccRef=ccRef2, opSize=OpSize32 }) ::
                             BlockSimple(ArithmeticFunction{
@@ -2784,7 +2827,8 @@ struct
                             BlockSimple(X87Compare{arg1=fpReg, arg2=arg2Val, ccRef=ccRef1, isDouble = isDouble}) ::
                             BlockSimple(ZeroRegister{dest=zeroReg}) :: arg2Code
                     |   FPModeSSE2 =>
-                            BlockSimple(SetToCondition{dest=target, ccRef=ccRef1, highOrder=zeroReg, condition=JP}) ::
+                            BlockSimple(SetToCondition{dest=target, ccRef=ccRef1, highOrder=zeroReg, condition=JP,
+                                                       trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                             BlockSimple(SSE2Compare{arg1=fpReg, arg2=arg2Val, ccRef=ccRef1, isDouble = isDouble}) ::
                             BlockSimple(ZeroRegister{dest=zeroReg}) :: arg2Code
             in
@@ -2833,7 +2877,8 @@ struct
                         val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                         val testBits = if isGeq then 0x500 else 0x4500
                     in
-                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef2, highOrder=zeroReg, condition=JE}) ::
+                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef2, highOrder=zeroReg, condition=JE,
+                                                   trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                         BlockSimple(ArithmeticFunction{
                             oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant testBits, ccRef=ccRef2, opSize=OpSize32 }) ::
                         BlockSimple(ZeroRegister{dest=zeroReg}) :: (* Just before we set the CC. *)
@@ -2847,7 +2892,8 @@ struct
                         val ccRef1 = newCCRef()
                         val condition = if isGeq then JNB (* >=, <= *) else  JA  (* >, < *)
                     in
-                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef1, highOrder=zeroReg, condition=condition}) ::
+                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef1, highOrder=zeroReg, condition=condition,
+                                                   trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
                         BlockSimple(SSE2Compare{arg1=fpReg, arg2=opArg, ccRef=ccRef1, isDouble = isDouble}) ::
                         BlockSimple(ZeroRegister{dest=zeroReg}) ::
                         loadCode
@@ -3224,29 +3270,27 @@ struct
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
                     codeAddress(destRight, true, context)
                 val ccRef = newCCRef()
-                val labLess = newLabel() and labGreater = newLabel() and exitLab = newLabel()
-                val labNotLess = newLabel() and labNotGreater = newLabel()
+                val labLess = newLabel() and exitLab = newLabel() and labNotLess = newLabel() 
                 
                 val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
+                
+                val zeroReg = newUReg()
 
                 val code =
                     leftCode @ rightCode @ lengthCode @
                     leftUntag @ [BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
                     rightUntag @ [BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
                     lengthUntag @
-                    [BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }),
+                    [BlockSimple(ZeroRegister{dest=zeroReg}),
+                     BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }),
                      (* N.B. These are unsigned comparisons. *)
                      BlockFlow(Conditional{ ccRef=ccRef, condition=JB, trueJump=labLess, falseJump=labNotLess }),
                      BlockLabel labNotLess,
-                     BlockFlow(Conditional{ ccRef=ccRef, condition=JA, trueJump=labGreater, falseJump=labNotGreater }),
-                     BlockLabel labNotGreater,
-                     BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=movePolyWord }),
+                     BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JA,
+                                                highOrder=zeroReg, trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}),
                      BlockFlow(Unconditional exitLab),
                      BlockLabel labLess,
                      BlockSimple(LoadArgument{ source=IntegerConstant(tag ~1), dest=target, kind=movePolyWord }),
-                     BlockFlow(Unconditional exitLab),
-                     BlockLabel labGreater,
-                     BlockSimple(LoadArgument{ source=IntegerConstant(tag 1), dest=target, kind=movePolyWord }),
                      BlockLabel exitLab]
             in
                 (code, RegisterArgument target, false)
