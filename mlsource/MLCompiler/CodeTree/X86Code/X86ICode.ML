@@ -728,7 +728,7 @@ struct
 
         |   printICode(AtomicExchangeAndAdd{base, source}, stream) =
             (
-                stream "\tAtomicExchangeAndAdd\t";
+                stream "\tAtomicExchangeAdd\t";
                 stream "addr=0("; printReg(base, stream);
                 stream "),with="; printReg(source, stream)
             )
