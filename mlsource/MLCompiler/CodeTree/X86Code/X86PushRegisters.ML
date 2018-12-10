@@ -790,6 +790,8 @@ struct
 
                     |   pushRegisters({instr=InitialisationComplete, ...}, code) = InitialisationComplete :: code
 
+                    |   pushRegisters({instr=BeginLoop, ...}, code) = BeginLoop :: code
+
                     |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt, workReg}, ...}, code) =
                         let
                             (* Normally JumpLoop will be the last item in a block but it is possible that we've

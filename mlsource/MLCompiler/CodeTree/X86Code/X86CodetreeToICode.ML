@@ -1282,7 +1282,7 @@ struct
                     codeToICodeRev(loop,
                         {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr,
                          currHandler=currHandler, overflowBlock=overflowBlock },
-                            isTail, SpecificPReg target, BlockLabel loopLabel :: argCode)
+                            isTail, SpecificPReg target, BlockLabel loopLabel :: BlockSimple BeginLoop :: argCode)
             in
                 (loopBody, RegisterArgument target, loopExited)
             end

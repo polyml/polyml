@@ -152,6 +152,10 @@ struct
            low-level code-generator. *)
     |   InitialisationComplete
 
+        (* Mark the beginning of a loop.  This is really only to prevent the initialisation code being
+           duplicated in ICodeOptimise. *)
+    |   BeginLoop
+
         (* Set up the registers for a jump back to the start of a loop. *)
     |   JumpLoop of
             { regArgs: (argument * preg) list, stackArgs: (argument * int * stackLocn) list,
@@ -516,6 +520,8 @@ struct
             )
 
         |   printICode(InitialisationComplete, stream) = stream "\tInitComplete"
+
+        |   printICode(BeginLoop, stream) = stream "\tBeginLoop"
 
         |   printICode(JumpLoop{regArgs, stackArgs, checkInterrupt, workReg, ... }, stream) =
             (

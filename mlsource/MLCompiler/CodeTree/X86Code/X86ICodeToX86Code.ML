@@ -578,6 +578,7 @@ struct
             |   instructionUses(AllocateMemoryVariable{size, ...}) = used size
             |   instructionUses(InitialiseMem{size, addr, init}) = (used size; used addr; used init)
             |   instructionUses(InitialisationComplete) = ()
+            |   instructionUses(BeginLoop) = ()
             |   instructionUses(JumpLoop{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app(argUses o #1) stackArgs)
             |   instructionUses(RaiseExceptionPacket{packetReg}) = used packetReg
             |   instructionUses(ReserveContainer _) = ()
@@ -944,6 +945,8 @@ struct
                             moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg ecx, kind=moveNativeWord}, code)))
 
         |   codeExtended _ ({instr=InitialisationComplete, ...}, code) = StoreInitialised :: code
+
+        |   codeExtended _ ({instr=BeginLoop, ...}, code) = code
 
         |   codeExtended _ ({instr=JumpLoop{regArgs, stackArgs, checkInterrupt, workReg}, ...}, code) =
             let

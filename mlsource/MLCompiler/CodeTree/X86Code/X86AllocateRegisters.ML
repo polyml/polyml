@@ -139,7 +139,17 @@ struct
         
             |   addHints{instr=InitialiseMem{size=PReg sReg, addr=PReg aReg, init=PReg iReg}, ...} =
                     (addRealHint(aReg, GenReg edi); addRealHint(iReg, GenReg eax); addRealHint(sReg, GenReg ecx))
-        
+
+            |   addHints{instr=JumpLoop{regArgs, ...}, ...} =
+                let
+                    fun addRegArg (arg, PReg resReg) =
+                        case decache arg of
+                            RegisterArgument(PReg argReg) => addSourceAndDestinationHint {dst=resReg, src=argReg}
+                        |   _ => ()
+                in
+                    List.app addRegArg regArgs
+                end
+
             |   addHints{instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...} = addRealHint(preg, GenReg eax)
         
             |   addHints{instr=BeginHandler{packetReg=PReg pReg, workReg=_}, ...} =
@@ -491,6 +501,8 @@ struct
             )
             
         |   registerAllocate{instr=InitialisationComplete, ...} = ()
+
+        |   registerAllocate{instr=BeginLoop, ...} = ()
 
         |   registerAllocate({instr=JumpLoop{regArgs, stackArgs, checkInterrupt, workReg}, ...}) =
             (

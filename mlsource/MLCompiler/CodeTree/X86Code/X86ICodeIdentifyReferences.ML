@@ -136,6 +136,10 @@ struct
             (* This is just a marker.  It doesn't actually generate any code. *)
             { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
+    |   getInstructionState(BeginLoop) =
+            (* This is just a marker.  It doesn't actually generate any code. *)
+            { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
     |   getInstructionState(JumpLoop{regArgs, stackArgs, workReg, ...}) =
         let
             fun getSources argSource =
