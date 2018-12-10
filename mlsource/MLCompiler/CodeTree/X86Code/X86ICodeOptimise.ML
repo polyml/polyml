@@ -244,14 +244,6 @@ struct
                         ConditionalMove{dest=dest, falseSrc=fSource, trueSrc=tSource, ccRef=ccRef, condition=condition, opSize=opSize} ::code)
                 end
 
-            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 1, ...}, ...} :: rest, _, memRefs, code) =
-                    (* This MAY be a value of false. *)
-                    optCode(rest, BRSetCond{dest=dest, test=CAConst 1}, memRefs, instr :: code)
-
-            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 3, ...}, ...} :: rest, _, memRefs, code) =
-                    (* This MAY be a value of true. *)
-                    optCode(rest, BRSetCond{dest=dest, test=CAConst 3}, memRefs, instr :: code)
-
             |   optCode({instr as BooleanNot(boolOp as {source=notSrc, dest=notDest}), ...} :: rest,
                         BRSetCond{dest=setDest, test}, memRefs, code) =
                     if setDest = notSrc
@@ -386,11 +378,34 @@ struct
 
             |   optCode({instr as ZeroRegister _, ...} :: rest, _, memRefs, code) = optCode(rest, BRNone, memRefs, instr :: code)
 
-            |   optCode({instr as LoadArgument{dest, source=RegisterArgument srReg, ...} , ...} :: rest,
+            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 1, ...}, ...} :: rest, _, memRefs, code) =
+                    (* This MAY be a value of false. *)
+                    optCode(rest, BRSetCond{dest=dest, test=CAConst 1}, memRefs, instr :: code)
+
+            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 3, ...}, ...} :: rest, _, memRefs, code) =
+                    (* This MAY be a value of true. *)
+                    optCode(rest, BRSetCond{dest=dest, test=CAConst 3}, memRefs, instr :: code)
+
+            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant ~1, ...}, ...} :: rest, _, memRefs, code) =
+                    optCode(rest, BRSetCond{dest=dest, test=CAConst ~1}, memRefs, instr :: code)
+
+            |   optCode({instr as LoadArgument{dest, source=RegisterArgument srReg, kind} , ...} :: rest,
                         brCond as BRSetCond{dest=setDest, test}, memRefs, code) =
                 (* We frequently have a move if we have followed an unconditional branch. *)
                 if srReg = setDest
-                then optCode(rest, BRSetCond{dest=dest, test=test}, memRefs, instr :: code)
+                then
+                let
+                    val outInstr =
+                        case test of
+                            CAConst cv =>
+                            (
+                                hasChanged := true;
+                                LoadArgument{dest=dest, source=IntegerConstant cv, kind=kind}
+                            )
+                        |   _ => instr
+                in
+                    optCode(rest, BRSetCond{dest=dest, test=test}, memRefs, outInstr :: code)
+                end
                 else optCode(rest, brCond, memRefs, instr :: code)
 
             |   optCode({instr as LoadArgument{dest, source as MemoryLocation _, kind} , ...} :: rest, inCond, memRefs, code) =
