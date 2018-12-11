@@ -58,74 +58,47 @@ struct
             { srcCC: ccRef, compare: LargeInt.int, test: changeArg }
 
     and changeArg =
-        CASetCond of { condition: branchOps, outCC: ccRef, highOrder: preg } (*i.e. from SetCond *)
+        CASetCond of
+        { condition: branchOps, outCC: ccRef, highOrder: preg,
+          trueValue: LargeInt.int, falseValue: LargeInt.int } (*i.e. from SetCond *)
     |   CAConst of LargeInt.int
-    
-    val constTrue = CAConst 3 and constFalse = CAConst 1
-    
-    fun notCond{condition, outCC, highOrder} =
-        {condition=X86CODE.invertTest condition, outCC=outCC, highOrder=highOrder}
+  
+    local
+        fun comparison(testVal, compare, JE) = testVal = compare
+        |   comparison(testVal, compare, JNE) = testVal <> compare
+        |   comparison(testVal, compare, JL) = testVal < compare
+        |   comparison(testVal, compare, JG) = testVal > compare
+        |   comparison(testVal, compare, JLE) = testVal <= compare
+        |   comparison(testVal, compare, JGE) = testVal >= compare
+            (* Unsigned tests.  We converted the values from Word to LargeInt.  We can therefore
+               turn the tests back to Word for the unsigned comparisons. *)
+        |   comparison(testVal, compare, JB) = Word.fromLargeInt testVal < Word.fromLargeInt compare
+        |   comparison(testVal, compare, JA) = Word.fromLargeInt testVal > Word.fromLargeInt compare
+        |   comparison(testVal, compare, JNA) = Word.fromLargeInt testVal <= Word.fromLargeInt compare
+        |   comparison(testVal, compare, JNB) = Word.fromLargeInt testVal >= Word.fromLargeInt compare
+            (* The overflow and parity checks should never occur. *)
+        |   comparison _ = raise InternalError "getCondResult: comparison"
+   
+        val constTrue = CAConst 3 and constFalse = CAConst 1
+    in
+        (* Sort out comparisons.  Start with the boolean values (0, 1) *)
+        fun getCondResult({compare, test=CASetCond{trueValue, falseValue, condition, outCC, highOrder, ...}, ...}, cond) =
+            (
+                (* SetToCondition sets the register to one of two values.  If the test we're applying
+                   gives true to both values or false to both values we return a constant result. *)
+                case (comparison(falseValue, compare, cond), comparison(trueValue, compare, cond)) of
+                    (true, true) => constTrue (* Both true *)
+                |   (false, false) => constFalse (* Both false *)
+                |   (false, true) =>
+                        CASetCond{trueValue=3, falseValue=1, condition=condition, outCC=outCC, highOrder=highOrder}
+                |   (true, false) =>
+                        CASetCond{trueValue=3, falseValue=1, condition=X86CODE.invertTest condition, outCC=outCC, highOrder=highOrder}
+            )
 
-    (* Sort out comparisons.  Start with the boolean values (0, 1) *)
-    fun getCondResult({compare=3, test=CASetCond condcc, ...}, JE) = CASetCond condcc
-    |   getCondResult({compare=1, test=CASetCond condcc, ...}, JE) = CASetCond(notCond condcc)
-    |   getCondResult({test=CASetCond _, ...}, JE) = raise InternalError "getCondResult"
-    
-    |   getCondResult({compare=3, test=CASetCond condcc, ...}, JNE) = CASetCond(notCond condcc)
-    |   getCondResult({compare=1, test=CASetCond condcc, ...}, JNE) = CASetCond condcc
-    |   getCondResult({test=CASetCond _, ...}, JNE) = raise InternalError "getCondResult"
- 
-    |   getCondResult({compare=3, test=CASetCond condcc, ...}, JL) = CASetCond(notCond condcc)
-    |   getCondResult({compare=1, test=CASetCond _, ...}, JL) = constFalse (* Never < 0 *)
-    |   getCondResult({test=CASetCond _, ...}, JL) = raise InternalError "getCondResult"
-
-    |   getCondResult({compare=3, test=CASetCond _, ...}, JG) = constFalse (* Never > 1 *)
-    |   getCondResult({compare=1, test=CASetCond condcc, ...}, JG) = CASetCond condcc
-    |   getCondResult({test=CASetCond _, ...}, JG) = raise InternalError "getCondResult"
-
-    |   getCondResult({compare=3, test=CASetCond _, ...}, JLE) = constTrue (* Always <= 1 *)
-    |   getCondResult({compare=1, test=CASetCond condcc, ...}, JLE) = CASetCond(notCond condcc)
-    |   getCondResult({test=CASetCond _, ...}, JLE) = raise InternalError "getCondResult"
-
-    |   getCondResult({compare=3, test=CASetCond condcc, ...}, JGE) = CASetCond condcc
-    |   getCondResult({compare=1, test=CASetCond _, ...}, JGE) = constTrue (* Always >= 0 *)
-    |   getCondResult({test=CASetCond _, ...}, JGE) = raise InternalError "getCondResult"
-
-        (* Constant values. *)
-    |   getCondResult({compare, test=CAConst testVal, ...},   JE) =
-            if testVal = compare then constTrue else constFalse
-
-    |   getCondResult({compare, test=CAConst testVal, ...},   JNE) =
-            if testVal <> compare then constTrue else constFalse
-
-    |   getCondResult({compare, test=CAConst testVal, ...},  JL) =
-            if testVal < compare then constTrue else constFalse
-
-    |   getCondResult({compare, test=CAConst testVal, ...},  JG) =
-            if testVal > compare then constTrue else constFalse
-
-    |   getCondResult({compare, test=CAConst testVal, ...},  JLE) =
-            if testVal <= compare then constTrue else constFalse
-
-    |   getCondResult({compare, test=CAConst testVal, ...},  JGE) =
-            if testVal >= compare then constTrue else constFalse
-
-        (* Unsigned tests.  We converted the values from Word to LargeInt.  We can therefore
-           turn the tests back to Word for the unsigned comparisons. *)
-    |   getCondResult({compare, test=CAConst testVal, ...}, JB) =
-            if Word.fromLargeInt testVal < Word.fromLargeInt compare then constTrue else constFalse
-
-    |   getCondResult({compare, test=CAConst testVal, ...}, JA) =
-            if Word.fromLargeInt testVal >Word.fromLargeInt compare then constTrue else constFalse
-
-    |   getCondResult({compare, test=CAConst testVal, ...}, JNA) =
-            if Word.fromLargeInt testVal <= Word.fromLargeInt compare then constTrue else constFalse
-
-    |   getCondResult({compare, test=CAConst testVal, ...}, JNB) =
-            if Word.fromLargeInt testVal >=Word.fromLargeInt compare then constTrue else constFalse
-
-        (* The overflow and parity checks should never occur. *)
-    |   getCondResult _ = raise InternalError "getCondResult"
+            (* Constant values. *)
+        |   getCondResult({compare, test=CAConst testVal, ...},   cond) = 
+                if comparison(testVal, compare, cond) then constTrue else constFalse
+    end
 
     fun optimiseICode{ code, pregProps=_, ccCount=_ } =
     let
@@ -204,10 +177,20 @@ struct
                     optCode(rest, outCond, memRefs, outInstr :: code)
                 end
 
-            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition, trueValue=3, falseValue=1, opSize=_}, ...} :: rest, _, memRefs, code) =
+            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition, trueValue as 3, falseValue as 1, opSize=_}, ...} :: rest,
+                        _, memRefs, code) =
                     (* Record this SetCondition in case it can be used later. *)
                     optCode(rest,
-                        BRSetCond{dest=dest, test=CASetCond{condition=condition, highOrder=highOrder, outCC=ccRef}},
+                        BRSetCond{dest=dest,
+                            test=CASetCond{condition=condition, highOrder=highOrder, outCC=ccRef, trueValue=trueValue, falseValue=falseValue}},
+                        memRefs, instr :: code)
+
+            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition, trueValue as 3, falseValue as ~1, opSize=_}, ...} :: rest,
+                        _, memRefs, code) =
+                    (* Record this SetCondition in case it can be used later. *)
+                    optCode(rest,
+                        BRSetCond{dest=dest,
+                            test=CASetCond{condition=condition, highOrder=highOrder, outCC=ccRef, trueValue=trueValue, falseValue=falseValue}},
                         memRefs, instr :: code)
 
             |   optCode({instr=ConditionalMove{dest, falseSrc, trueSrc, ccRef, condition=moveCond, opSize}, ...} :: rest,
@@ -252,8 +235,9 @@ struct
                         val _ = hasChanged := true
                         val (outSet, outInstr) =
                             case test of
-                                CASetCond{outCC, condition, highOrder} =>
+                                CASetCond{outCC, condition, highOrder, trueValue, falseValue} =>
                                 let
+                                    val _ = trueValue = 3 andalso falseValue = 1 orelse raise InternalError "optCode: BooleanNot"
                                     (* Turn the NOT into a set of the reverse of the condition.  Use the
                                        original zero register since we're probably going to be eliminating
                                        the previous SetCondition.  If we weren't we'd be better to use
@@ -261,8 +245,10 @@ struct
                                     val outCond = X86CODE.invertTest condition
                                     val condNot =
                                         {dest=notDest, ccRef=outCC, condition=outCond, highOrder = highOrder,
-                                         trueValue=3, falseValue=1, opSize=polyWordOpSize}
-                                    val caNot = {outCC=outCC, condition=outCond, highOrder = highOrder}
+                                         trueValue=trueValue, falseValue=falseValue, opSize=polyWordOpSize}
+                                    val caNot =
+                                        {outCC=outCC, condition=outCond, highOrder = highOrder,
+                                         trueValue=trueValue, falseValue=falseValue}
                                 in
                                     (CASetCond caNot, SetToCondition condNot)
                                 end
@@ -492,11 +478,11 @@ struct
                     let
                         val newFlow =
                             case getCondResult(cCond, brCond) of
-                                CASetCond{condition, outCC, ...} =>
+                                CASetCond{condition, outCC, trueValue=3, falseValue=1, ...} =>
                                     Conditional{ccRef=outCC, condition=condition, trueJump=trueJump, falseJump=falseJump}
                             |   CAConst 3 => Unconditional trueJump
                             |   CAConst 1 => Unconditional falseJump
-                            |   CAConst _ => raise InternalError "BRChangeCond: CAConst"
+                            |   _ => raise InternalError "BRChangeCond: CAConst/CASetCond"
                     in
                         BasicBlock{flow=newFlow, block=List.rev blkCode}
                     end
