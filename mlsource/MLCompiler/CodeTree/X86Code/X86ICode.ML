@@ -581,7 +581,7 @@ struct
         |   printICode(SetToCondition{dest, ccRef, condition, highOrder, trueValue, falseValue, opSize}, stream) =
             (
                 stream "\tSetToCondition";  printOpsize(opSize, stream); stream "\t"; printCC(ccRef, stream);
-                stream " is "; printCondition(condition, stream);
+                stream " is "; printCondition(condition, stream); stream " ";
                 stream(LargeInt.toString trueValue); stream " else "; stream(LargeInt.toString falseValue);
                 stream " => "; printReg(dest, stream);
                 stream " high-order "; printReg(highOrder, stream)
