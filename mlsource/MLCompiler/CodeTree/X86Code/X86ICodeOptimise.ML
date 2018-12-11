@@ -177,15 +177,7 @@ struct
                     optCode(rest, outCond, memRefs, outInstr :: code)
                 end
 
-            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition, trueValue as 3, falseValue as 1, opSize=_}, ...} :: rest,
-                        _, memRefs, code) =
-                    (* Record this SetCondition in case it can be used later. *)
-                    optCode(rest,
-                        BRSetCond{dest=dest,
-                            test=CASetCond{condition=condition, highOrder=highOrder, outCC=ccRef, trueValue=trueValue, falseValue=falseValue}},
-                        memRefs, instr :: code)
-
-            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition, trueValue as 3, falseValue as ~1, opSize=_}, ...} :: rest,
+            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition, trueValue, falseValue, opSize=_}, ...} :: rest,
                         _, memRefs, code) =
                     (* Record this SetCondition in case it can be used later. *)
                     optCode(rest,
@@ -364,16 +356,9 @@ struct
 
             |   optCode({instr as ZeroRegister _, ...} :: rest, _, memRefs, code) = optCode(rest, BRNone, memRefs, instr :: code)
 
-            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 1, ...}, ...} :: rest, _, memRefs, code) =
-                    (* This MAY be a value of false. *)
-                    optCode(rest, BRSetCond{dest=dest, test=CAConst 1}, memRefs, instr :: code)
-
-            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant 3, ...}, ...} :: rest, _, memRefs, code) =
-                    (* This MAY be a value of true. *)
-                    optCode(rest, BRSetCond{dest=dest, test=CAConst 3}, memRefs, instr :: code)
-
-            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant ~1, ...}, ...} :: rest, _, memRefs, code) =
-                    optCode(rest, BRSetCond{dest=dest, test=CAConst ~1}, memRefs, instr :: code)
+            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant ivalue, ...}, ...} :: rest, _, memRefs, code) =
+                    (* Register is loading a constant. *)
+                    optCode(rest, BRSetCond{dest=dest, test=CAConst ivalue}, memRefs, instr :: code)
 
             |   optCode({instr as LoadArgument{dest, source=RegisterArgument srReg, kind} , ...} :: rest,
                         brCond as BRSetCond{dest=setDest, test}, memRefs, code) =
