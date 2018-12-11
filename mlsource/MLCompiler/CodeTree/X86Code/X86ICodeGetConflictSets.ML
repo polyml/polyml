@@ -238,6 +238,10 @@ struct
                         List.app(fn (_, r) => reserveRegister([regNo dest], r)) regArgs
                     )
 
+                |   TailRecursiveCall {workReg=PReg wReg, regArgs, ...} =>
+                        (* Prevent the work reg from using any of the real register args. *)
+                        List.app(fn (_, r) => addRealConflict (wReg, r)) regArgs
+
                 |   _ => ()
         in
             ()
