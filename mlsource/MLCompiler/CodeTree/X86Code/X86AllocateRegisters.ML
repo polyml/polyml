@@ -448,10 +448,8 @@ struct
         
         |   registerAllocate{instr=LoadMemReg { dest=PReg pr, ...}, ...} = allocateGeneralReg pr
 
-        |   registerAllocate{instr=BeginFunction{regArgs, ...}, ...} =
-            (* The register arguments will have been allocated to registers if they are used
-               but if they're not we have to do that now. *)
-                List.app (fn (PReg pr, rr) => allocateRegister(pr, SOME rr, generalRegisters)) regArgs
+        |   registerAllocate{instr=BeginFunction _, ...} = ()
+            (* Any registers that are referenced will have been allocated real registers. *)
 
         |   registerAllocate({instr=TailRecursiveCall{regArgs=oRegArgs, stackArgs=oStackArgs, workReg=PReg wReg, ...}, ...}) =
             let

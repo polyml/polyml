@@ -753,9 +753,9 @@ struct
 
         |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let
-                fun mkPair(PReg pr, rr) =
-                    {src=rr,dst=getAllocatedReg pr}
-                val regPairs = List.map mkPair regArgs
+                val usedRegs = List.filter (isUsed o #1) regArgs
+                fun mkPair(PReg pr, rr) = {src=rr,dst=getAllocatedReg pr}
+                val regPairs = List.map mkPair usedRegs
             in
                 moveMultipleRegisters(regPairs, code)
             end
