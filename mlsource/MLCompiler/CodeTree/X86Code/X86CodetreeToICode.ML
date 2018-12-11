@@ -3296,7 +3296,7 @@ struct
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
                     codeAddress(destRight, true, context)
                 val ccRef = newCCRef()
-                val labLess = newLabel() and exitLab = newLabel() and labNotLess = newLabel() 
+                val labEqual = newLabel() and exitLab = newLabel() and labNotEqual = newLabel() 
                 
                 val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
                 
@@ -3309,14 +3309,14 @@ struct
                     lengthUntag @
                     [BlockSimple(ZeroRegister{dest=zeroReg}),
                      BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }),
-                     (* N.B. These are unsigned comparisons. *)
-                     BlockFlow(Conditional{ ccRef=ccRef, condition=JB, trueJump=labLess, falseJump=labNotLess }),
-                     BlockLabel labNotLess,
+                     BlockFlow(Conditional{ ccRef=ccRef, condition=JE, trueJump=labEqual, falseJump=labNotEqual }),
+                     BlockLabel labNotEqual,
+                     (* N.B. This is an unsigned comparison. *)
                      BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JA,
-                                                highOrder=zeroReg, trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}),
+                                                highOrder=zeroReg, trueValue=tag 1, falseValue=tag ~1, opSize=polyWordOpSize}),
                      BlockFlow(Unconditional exitLab),
-                     BlockLabel labLess,
-                     BlockSimple(LoadArgument{ source=IntegerConstant(tag ~1), dest=target, kind=movePolyWord }),
+                     BlockLabel labEqual,
+                     BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=movePolyWord }),
                      BlockLabel exitLab]
             in
                 (code, RegisterArgument target, false)
