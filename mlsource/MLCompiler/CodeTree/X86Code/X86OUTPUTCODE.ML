@@ -2520,12 +2520,6 @@ struct
         SelfAddress                             (* The address of the start of the code - inline absolute address 32-bit only *)
     |   InlineAbsoluteAddress of machineWord    (* An address in the code: 32-bit only *)
     |   InlineRelativeAddress of machineWord    (* A relative address: 32-bit only. *)
-        
-    datatype constantArea64 =
-        ConstantArea of machineWord             (* A PC-relative address to the constant area - 64-bit only. *)
-
-    datatype nonAddressArea64 =
-        NonAddress of LargeWord.word            (* A PC-relative address to the non-address area - 64-bit only.*)
 
     local
         (* Turn an integer constant into an 8-byte vector. *)
@@ -2553,7 +2547,7 @@ struct
                 if source >= ~0x80000000 andalso source < 0x100000000
                 then (* Signed or unsigned 32-bits. *) (inl, addr, na)
                 else (* Too big for 32-bits. *)
-                    (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, NonAddress(intConst source)) :: na)
+                    (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, intConst source) :: na)
             )
             else (inl, addr, na) (* 32-bit mode.  The constant will always be inline even if we've had to use LEA r,c *)
 
@@ -2564,24 +2558,24 @@ struct
                 if source >= ~0x80000000 andalso source < 0x100000000
                 then (* Signed or unsigned 32-bits. *) (inl, addr, na)
                 else (* Too big for 32-bits. *)
-                    (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, NonAddress(intConst source)) :: na)
+                    (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, intConst source) :: na)
             )
             else (inl, addr, na) (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
 
         |   getConstant(Move{ source=AddressConstArg source, ... }, bytes, ic, (inl, addr, na)) =
             if targetArch <> Native32Bit
             then (* Address constants go in the constant area. *)
-                (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea source) :: addr, na)
+                (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, source) :: addr, na)
             else ((ic + Word.fromInt(Word8Vector.length bytes) - wordSize, InlineAbsoluteAddress source) :: inl, addr, na)
 
         |   getConstant(ArithToGenReg{ source=NonAddressConstArg source, ... }, bytes, ic, (inl, addr, na)) =
                 if is32bit source
                 then (inl, addr, na)
-                else (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, NonAddress(intConst source)) :: na)
+                else (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, intConst source) :: na)
 
         |   getConstant(ArithToGenReg{ source=AddressConstArg source, ... }, bytes, ic, (inl, addr, na)) =
                 if hostIsX64
-                then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea source) :: addr, na)
+                then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, source) :: addr, na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress source) :: inl, addr, na)
 
         |   getConstant(ArithMemLongConst{ source, ... }, bytes, ic, (inl, addr, na)) = (* 32-bit only. *)
@@ -2589,21 +2583,21 @@ struct
 
         |   getConstant(PushToStack(NonAddressConstArg constnt), bytes, ic, (inl, addr, na)) =
                 if is32bit constnt then (inl, addr, na)
-                else (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, NonAddress(intConst constnt)) ::  na)
+                else (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, intConst constnt) ::  na)
 
         |   getConstant(PushToStack(AddressConstArg constnt), bytes, ic, (inl, addr, na)) =
                 if targetArch = Native64Bit
-                then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea constnt) :: addr, na)
+                then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, constnt) :: addr, na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress constnt) :: inl, addr, na)
 
         |   getConstant(CallFunction(ConstantCode w), bytes, ic, (inl, addr, na)) =
                 if targetArch = Native64Bit
-                then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea w) :: addr, na)
+                then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, w) :: addr, na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineRelativeAddress w) :: inl, addr, na)
 
         |   getConstant(JumpToFunction(ConstantCode w), bytes, ic, (inl, addr, na)) =
                 if targetArch = Native64Bit
-                then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea w) :: addr, na)
+                then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, w) :: addr, na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineRelativeAddress w) :: inl, addr, na)
 
         |   getConstant(LoadLabelAddress _, _, ic, (inl, addr, na)) =
@@ -2612,38 +2606,38 @@ struct
 
         |   getConstant(FPLoadFromConst{constant, ...}, bytes, ic, (inl, addr, na)) =
                if hostIsX64
-               then (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, NonAddress(realConst constant)) :: na)
+               then (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, realConst constant) :: na)
                else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress constant) :: inl, addr, na)
 
         |   getConstant(FPArithConst{ source, ... }, bytes, ic, (inl, addr, na)) =
                 if hostIsX64
-                then (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, NonAddress(realConst source)) :: na)
+                then (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, realConst source) :: na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress source) :: inl, addr, na)
 
         |   getConstant(XMMArith { source=AddressConstArg constVal, ... }, bytes, ic, (inl, addr, na)) =
                 (* Real.real constant or, with 32-bit words, a Real32.real constant. *)
                 if hostIsX64
-                then (inl, addr,  (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, NonAddress(realConst constVal)) :: na)
+                then (inl, addr,  (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, realConst constVal) :: na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress constVal) :: inl, addr, na)
 
         |   getConstant(XMMArith { source=NonAddressConstArg constVal, ... }, bytes, ic, (inl, addr, na)) =
                 (* Real32.real constant in native 64-bit. *)
-                (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, NonAddress(intConst constVal)) :: na)
+                (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, intConst constVal) :: na)
 
         |   getConstant(MultiplyR{ source=NonAddressConstArg source, ... }, bytes, ic, (inl, addr, na)) =
                 if is32bit source
                 then (inl, addr, na)
-                else (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, NonAddress(intConst source)) :: na)
+                else (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, intConst source) :: na)
 
         |   getConstant(CondMove{ source=NonAddressConstArg source, ... }, bytes, ic, (inl, addr, na)) =
             if targetArch <> Native32Bit
-            then (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, NonAddress(intConst source)) :: na)
+            then (inl, addr, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, intConst source) :: na)
             else (inl, addr, na) (* 32-bit mode.  The constant will always be inline. *)
 
         |   getConstant(CondMove{ source=AddressConstArg source, ... }, bytes, ic, (inl, addr, na)) =
             if targetArch <> Native32Bit
             then (* Address constants go in the constant area. *)
-                (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea source) :: addr, na)
+                (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, source) :: addr, na)
             else ((ic + Word.fromInt(Word8Vector.length bytes) - wordSize, InlineAbsoluteAddress source) :: inl, addr, na)
 
         |   getConstant(_, _, _, l) = l        
@@ -3713,8 +3707,30 @@ struct
             val (bytesList, codeSize) = fixupLabels(expanded, initialBytesList, newLabelCount)
         end
 
-        (* Extract the constants and the location of the references from the code. *)
-        val (inlineConstants, addressConstants, nonAddressConstants) = getConstants(expanded, bytesList)
+        local
+            (* Extract the constants and the location of the references from the code. *)
+            val (inlineConstants, addressConstants, nonAddressConstants) = getConstants(expanded, bytesList)
+            
+            (* Sort the non-address constants to remove duplicates.  There don't seem to be
+               many in practice.
+               Since we're not actually interested in the order but only
+               sorting to remove duplicates we can use a stripped-down Quicksort. *)
+            fun sort([], out) = out
+            |   sort((addr, median) :: tl, out) = partition(median, tl, [addr], [], [], out)
+
+            and partition(median, [], addrs, less, greater, out) =
+                    sort(less, sort(greater, (addrs, median) :: out))
+            |   partition(median, (entry as (addr, value)) :: tl, addrs, less, greater, out) =
+                    if value = median
+                    then partition(median, tl, addr::addrs, less, greater, out)
+                    else if value < median
+                    then partition(median, tl, addrs, entry :: less, greater, out)
+                    else partition(median, tl, addrs, less, entry :: greater, out)
+        in
+            val inlineConstants = inlineConstants
+            and addressConstants = addressConstants
+            and nonAddressConstants = sort(nonAddressConstants, [])
+        end
 
         (* Get the number of constants that need to be added to the address area. *)
         val constsInConstArea = List.length addressConstants
@@ -3753,12 +3769,13 @@ struct
            we don't have relative addressing.  Instead a real constant is the inline
            address of a boxed real number. *)
         local
-            fun putNonAddrConst(addrs, NonAddress constant) =
+            fun putNonAddrConst(addrs, constant) =
                 let
                     val addrOfConst = ! ic
                     val () = genBytes(Word8Vector.fromList(largeWordToBytes(constant, 8)))
+                    fun setAddr addr = set32s(Word.toLargeInt(addrOfConst - addr - 0w4), addr, byteVec)
                 in
-                    set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, byteVec)
+                    List.app setAddr addrs
                 end
         in
             val () = List.app putNonAddrConst nonAddressConstants
@@ -3804,6 +3821,7 @@ struct
                     setBytes(b >> 0w8, addr+0w1, count-0w1)
                 )
 
+            (*  Inline constants - native 32-bit only, *)
             fun putInlConst (addrs, SelfAddress) =
                     (* Self address goes inline. *)
                     codeVecPutConstant (codeSeg, addrs, toMachineWord(codeVecAddr codeSeg), ConstAbsolute)
@@ -3814,16 +3832,17 @@ struct
             
             val _ = List.app putInlConst inlineConstants
 
-            fun putAddrConst ((addrs, ConstantArea m), constAddr) =
-                    (* Not inline.  Put the constant in the constant area and set the original address
-                        to be the relative offset to the constant itself. *)
-                    (
-                        codeVecPutWord (codeSeg, constAddr, m);
-                        (* Put in the 32-bit offset - always unsigned since the destination
-                           is after the reference. *)
-                        setBytes(constAddr * wordSize - addrs - 0w4, addrs, 0w4);
-                        constAddr+0w1
-                    )
+            (* Address constants - native 64-bit and 32-in-64. *)
+            fun putAddrConst ((addrs, m), constAddr) =
+            (*  Put the constant in the constant area and set the original address
+                to be the relative offset to the constant itself. *)
+            (
+                codeVecPutWord (codeSeg, constAddr, m);
+                (* Put in the 32-bit offset - always unsigned since the destination
+                   is after the reference. *)
+                setBytes(constAddr * wordSize - addrs - 0w4, addrs, 0w4);
+                constAddr+0w1
+            )
 
             (* Put the constants.  Any values in the constant area start at +3 i.e. after the profile. *)
             val _ = List.foldl putAddrConst (endOfByteArea+0w3) addressConstants
