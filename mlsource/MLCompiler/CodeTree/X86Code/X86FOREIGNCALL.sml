@@ -411,7 +411,7 @@ struct
                         ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 4, opSize=nativeWordOpSize},
                         FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true }
                     ]
-                |   (_, [FastArgFloat, FastArgFloat]) => unboxOrUntagFloat(eax, xmm0) @ unboxOrUntagFloat(ebx, xmm1)
+                |   (_, [FastArgFloat, FastArgFloat]) => unboxOrUntagFloat(eax, xmm0) @ unboxOrUntagFloat(mlArg2Reg, xmm1)
 
                     (* One float argument and one fixed. *)
                 |   (X64Unix, [FastArgFloat, FastArgFixed]) =>
