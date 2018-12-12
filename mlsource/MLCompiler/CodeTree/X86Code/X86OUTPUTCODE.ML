@@ -3726,9 +3726,50 @@ struct
                     else if value < median
                     then partition(median, tl, addrs, entry :: less, greater, out)
                     else partition(median, tl, addrs, less, entry :: greater, out)
+            
+            (* Non-address constants.  We can't use any ordering on them because a GC could
+               change the values half way through the sort.  Instead we use a simple search
+               for a small number of constants and use an RTS call for larger numbers.  We
+               want to avoid quadratic cost when there are large numbers. *)
+
+            val sortedConstants =
+                if List.length addressConstants < 10
+                then
+                let
+                    fun findDups([], out) = out
+                    |   findDups((addr, value) :: tl, out) =
+                        let
+                            fun partition(e as (a, v), (eq, neq)) =
+                                if PolyML.pointerEq(value, v)
+                                then (a :: eq, neq)
+                                else (eq, e :: neq)
+                            val (eqAddr, neq) = List.foldl partition ([addr], []) tl
+                        in
+                            findDups(neq, (eqAddr, value) :: out)
+                        end
+                in
+                    findDups(addressConstants, [])
+                end
+                else
+                let
+                    fun swap (a, b) = (b, a)
+                    val arrayToSort: (machineWord * word) array =
+                        Array.fromList (List.map swap addressConstants)
+                    val sortFunction: (machineWord * word) array -> bool =
+                        RunCall.rtsCallFast1 "PolySortArrayOfAddresses"
+                    val _ = sortFunction arrayToSort
+                    
+                    fun makeList((v, a), []) = [([a], v)]
+                    |   makeList((v, a), l as (aa, vv) :: tl) =
+                        if PolyML.pointerEq(v, vv)
+                        then (a :: aa, vv) :: tl
+                        else ([a], v) :: l
+                in
+                    Array.foldl makeList [] arrayToSort
+                end
         in
             val inlineConstants = inlineConstants
-            and addressConstants = addressConstants
+            and addressConstants = sortedConstants
             and nonAddressConstants = sort(nonAddressConstants, [])
         end
 
@@ -3840,7 +3881,7 @@ struct
                 codeVecPutWord (codeSeg, constAddr, m);
                 (* Put in the 32-bit offset - always unsigned since the destination
                    is after the reference. *)
-                setBytes(constAddr * wordSize - addrs - 0w4, addrs, 0w4);
+                List.app(fn addr => setBytes(constAddr * wordSize - addr - 0w4, addr, 0w4)) addrs;
                 constAddr+0w1
             )
 

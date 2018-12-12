@@ -71,6 +71,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord c, PolyWord flags);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(PolyWord closure, PolyWord offset, PolyWord c);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeByte(PolyWord closure, PolyWord offset);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(PolyWord array);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -508,6 +509,32 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeByte(PolyWord closure, PolyWord offse
     return TAGGED(pointer[UNTAGGED_UNSIGNED(offset)]).AsUnsigned();
 }
 
+static int compare(const void *a, const void *b)
+{
+    PolyWord *av = (PolyWord*)a;
+    PolyWord *bv = (PolyWord*)b;
+    if ((*av).IsTagged() || (*bv).IsTagged()) return 0; // Shouldn't happen
+    PolyObject *ao = (*av).AsObjPtr(), *bo = (*bv).AsObjPtr();
+    if (ao->Length() < 1 || bo->Length() < 1) return 0; // Shouldn't happen
+    if (ao->Get(0).AsUnsigned() < bo->Get(0).AsUnsigned())
+        return -1;
+    if (ao->Get(0).AsUnsigned() > bo->Get(0).AsUnsigned())
+        return 1;
+    return 0;
+}
+
+// Sort an array of addresses.  This is used in the code-generator to search for
+// duplicates in the address area.  The argument is an array of pairs.  The first
+// item of each pair is an address, the second is an identifier of some kind.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(PolyWord array)
+{
+    if (!array.IsDataPtr()) return(TAGGED(0)).AsUnsigned();
+    PolyObject *arrayP = array.AsObjPtr();
+    POLYUNSIGNED numberOfItems = arrayP->Length();
+    if (!arrayP->IsMutable()) return(TAGGED(0)).AsUnsigned();
+    qsort(arrayP, numberOfItems, sizeof(PolyWord), compare);
+    return (TAGGED(1)).AsUnsigned();
+}
 
 struct _entrypts polySpecificEPT[] =
 {
@@ -520,6 +547,7 @@ struct _entrypts polySpecificEPT[] =
     { "PolySetCodeConstant",            (polyRTSFunction)&PolySetCodeConstant },
     { "PolySetCodeByte",                (polyRTSFunction)&PolySetCodeByte },
     { "PolyGetCodeByte",                (polyRTSFunction)&PolyGetCodeByte },
+    { "PolySortArrayOfAddresses",       (polyRTSFunction)&PolySortArrayOfAddresses },
 
     { NULL, NULL} // End of list.
 };
