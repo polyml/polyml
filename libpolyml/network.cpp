@@ -347,9 +347,9 @@ public:
     void SetRead(SOCKET fd) {  FD_SET(fd, &readSet); }
     void SetWrite(SOCKET fd) {  FD_SET(fd, &writeSet); }
     void SetExcept(SOCKET fd)  {  FD_SET(fd, &exceptSet); }
-    bool IsSetRead(SOCKET fd) { return FD_ISSET(fd, &readSet); }
-    bool IsSetWrite(SOCKET fd) { return FD_ISSET(fd, &writeSet); }
-    bool IsSetExcept(SOCKET fd) { return FD_ISSET(fd, &exceptSet); }
+    bool IsSetRead(SOCKET fd) { return FD_ISSET(fd, &readSet) != 0; }
+    bool IsSetWrite(SOCKET fd) { return FD_ISSET(fd, &writeSet) != 0; }
+    bool IsSetExcept(SOCKET fd) { return FD_ISSET(fd, &exceptSet) != 0; }
     // Save the result of the select call and any associated error
     int SelectResult(void) { return selectResult; }
     int SelectError(void) { return errorResult; }
@@ -1500,6 +1500,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             return result;
         }
         // else try again.
+        taskData->saveVec.reset(hSave);
     }
 }
 
