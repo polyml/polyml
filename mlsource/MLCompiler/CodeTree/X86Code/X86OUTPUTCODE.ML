@@ -3691,6 +3691,12 @@ struct
 
     end (* printCode *);
 
+    (* Although this is used locally it must be defined at the top level
+       otherwise a new RTS function will be compiler every time the
+       containing function is called *)
+    val sortFunction: (machineWord * word) array -> bool =
+        RunCall.rtsCallFast1 "PolySortArrayOfAddresses"
+
     (* This actually does the final code-generation. *)
     fun generateCode
         {ops=operations,
@@ -3755,8 +3761,6 @@ struct
                     fun swap (a, b) = (b, a)
                     val arrayToSort: (machineWord * word) array =
                         Array.fromList (List.map swap addressConstants)
-                    val sortFunction: (machineWord * word) array -> bool =
-                        RunCall.rtsCallFast1 "PolySortArrayOfAddresses"
                     val _ = sortFunction arrayToSort
                     
                     fun makeList((v, a), []) = [([a], v)]
