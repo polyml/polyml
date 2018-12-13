@@ -12,7 +12,8 @@ Socket.acceptNB x;
 
 val xDesc = Socket.sockDesc x and yDesc = Socket.sockDesc y;
 
-val {rds, wrs, exs} = Socket.select{ rds=[xDesc, yDesc], wrs=[xDesc, yDesc], exs=[xDesc, yDesc], timeout=SOME(Time.fromSeconds 1)};
+(* Only test y.  On Windows x does not appear but in Linux both y appears in both read and write. *)
+val {rds, wrs, exs} = Socket.select{ rds=[xDesc, yDesc], wrs=[xDesc], exs=[xDesc], timeout=SOME(Time.fromSeconds 1)};
 
 verify(null rds andalso null wrs andalso null exs);
 
