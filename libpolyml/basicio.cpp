@@ -794,10 +794,134 @@ Handle pollTest(TaskData *taskData, Handle stream)
     return Make_fixed_precision(taskData, nRes);
 }
 
-/* Do the polling.  Takes a vector of io descriptors, a vector of bits to test
-   and a time to wait and returns a vector of results. */
+// Do the polling.  Takes a vector of io descriptors, a vector of bits to test
+// and a time to wait and returns a vector of results.
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+// Windows: This is messy because "select" only works on sockets.
+// Do the best we can.
 static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
 {
+    Handle hSave = taskData->saveVec.mark();
+TryAgain:
+    PolyObject  *strmVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
+    PolyObject  *bitVec = DEREFHANDLE(args)->Get(1).AsObjPtr();
+    POLYUNSIGNED nDesc = strmVec->Length();
+    ASSERT(nDesc == bitVec->Length());
+    // We should check for interrupts even if we're not going to block.
+    processes->TestAnyEvents(taskData);
+
+    /* Simply do a non-blocking poll. */
+    /* Record the results in this vector. */
+    char *results = 0;
+    int haveResult = 0;
+    Handle  resVec;
+    if (nDesc > 0)
+    {
+        results = (char*)alloca(nDesc);
+        memset(results, 0, nDesc);
+    }
+
+    for (POLYUNSIGNED i = 0; i < nDesc; i++)
+    {
+        Handle marker = taskData->saveVec.mark();
+        PIOSTRUCT strm = get_stream(strmVec->Get(i));
+        taskData->saveVec.reset(marker);
+        int bits = get_C_int(taskData, bitVec->Get(i));
+        if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+
+        if (isSocket(strm))
+        {
+            SOCKET sock = strm->device.sock;
+            if (bits & POLL_BIT_PRI)
+            {
+                u_long atMark = 0;
+                ioctlsocket(sock, SIOCATMARK, &atMark);
+                if (atMark) { haveResult = 1; results[i] |= POLL_BIT_PRI; }
+            }
+            if (bits & (POLL_BIT_IN | POLL_BIT_OUT))
+            {
+                FD_SET readFds, writeFds;
+                TIMEVAL poll = { 0, 0 };
+                FD_ZERO(&readFds); FD_ZERO(&writeFds);
+                if (bits & POLL_BIT_IN) FD_SET(sock, &readFds);
+                if (bits & POLL_BIT_OUT) FD_SET(sock, &writeFds);
+                if (select(FD_SETSIZE, &readFds, &writeFds, NULL, &poll) > 0)
+                {
+                    haveResult = 1;
+                    /* N.B. select only tells us about out-of-band data if
+                    SO_OOBINLINE is FALSE. */
+                    if (FD_ISSET(sock, &readFds)) results[i] |= POLL_BIT_IN;
+                    if (FD_ISSET(sock, &writeFds)) results[i] |= POLL_BIT_OUT;
+                }
+            }
+        }
+        else
+        {
+            if ((bits & POLL_BIT_IN) && isRead(strm) && isAvailable(taskData, strm))
+            {
+                haveResult = 1;
+                results[i] |= POLL_BIT_IN;
+            }
+            if ((bits & POLL_BIT_OUT) && isWrite(strm))
+            {
+                /* I don't know if there's any way to do this. */
+                if (WaitForSingleObject(
+                    (HANDLE)_get_osfhandle(strm->device.ioDesc), 0) == WAIT_OBJECT_0)
+                {
+                    haveResult = 1;
+                    results[i] |= POLL_BIT_OUT;
+                }
+            }
+            /* PRIORITY doesn't make sense for anything but a socket. */
+        }
+    }
+    if (haveResult == 0)
+    {
+        /* Poll failed - treat as time out. */
+        switch (blockType)
+        {
+        case 0: /* Check the time out. */
+        {
+            Handle hSave = taskData->saveVec.mark();
+            /* The time argument is an absolute time. */
+            FILETIME ftTime, ftNow;
+            /* Get the file time. */
+            getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(2)), &ftTime);
+            GetSystemTimeAsFileTime(&ftNow);
+            taskData->saveVec.reset(hSave);
+            /* If the timeout time is earlier than the current time
+            we must return, otherwise we block. */
+            if (CompareFileTime(&ftTime, &ftNow) <= 0)
+                break; /* Return the empty set. */
+                        /* else drop through and block. */
+        }
+        case 1: /* Block until one of the descriptors is ready. */
+            processes->ThreadPause(taskData);
+            taskData->saveVec.reset(hSave);
+            goto TryAgain;
+            /*NOTREACHED*/
+        case 2: /* Just a simple poll - drop through. */
+            break;
+        }
+    }
+    /* Copy the results to a result vector. */
+    resVec = alloc_and_save(taskData, nDesc);
+    for (POLYUNSIGNED j = 0; j < nDesc; j++)
+        (DEREFWORDHANDLE(resVec))->Set(j, TAGGED(results[j]));
+    return resVec;
+}
+#elif (! defined(HAVE_POLL_H))
+// Early versions of Mac OS X did not provide poll and we implemented it
+// with select.  Now just raise an exception.
+static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
+{
+    raise_syscall(taskData, "poll not available", 0);
+}
+#else
+// Unix.
+static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
+{
+    Handle hSave = taskData->saveVec.mark();
     TryAgain:
     PolyObject  *strmVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
     PolyObject  *bitVec =  DEREFHANDLE(args)->Get(1).AsObjPtr();
@@ -806,177 +930,6 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
     // We should check for interrupts even if we're not going to block.
     processes->TestAnyEvents(taskData);
 
-    /* Simply do a non-blocking poll. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-    {
-        /* Record the results in this vector. */
-        char *results = 0;
-        int haveResult = 0;
-        Handle  resVec;
-        if (nDesc > 0)
-        {
-            results = (char*)alloca(nDesc);
-            memset(results, 0, nDesc);
-        }
-        
-        for (POLYUNSIGNED i = 0; i < nDesc; i++)
-        {
-            Handle marker = taskData->saveVec.mark();
-            PIOSTRUCT strm = get_stream(strmVec->Get(i));
-            taskData->saveVec.reset(marker);
-            int bits = get_C_int(taskData, bitVec->Get(i));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            
-            if (isSocket(strm))
-            {
-                SOCKET sock = strm->device.sock;
-                if (bits & POLL_BIT_PRI)
-                {
-                    u_long atMark = 0;
-                    ioctlsocket(sock, SIOCATMARK, &atMark);
-                    if (atMark) { haveResult = 1; results[i] |= POLL_BIT_PRI; }
-                }
-                if (bits & (POLL_BIT_IN|POLL_BIT_OUT))
-                {
-                    FD_SET readFds, writeFds;
-                    TIMEVAL poll = {0, 0};
-                    FD_ZERO(&readFds); FD_ZERO(&writeFds);
-                    if (bits & POLL_BIT_IN) FD_SET(sock, &readFds);
-                    if (bits & POLL_BIT_OUT) FD_SET(sock, &writeFds);
-                    if (select(FD_SETSIZE, &readFds, &writeFds, NULL, &poll) > 0)
-                    {
-                        haveResult = 1;
-                        /* N.B. select only tells us about out-of-band data if
-                        SO_OOBINLINE is FALSE. */
-                        if (FD_ISSET(sock, &readFds)) results[i] |= POLL_BIT_IN;
-                        if (FD_ISSET(sock, &writeFds)) results[i] |= POLL_BIT_OUT;
-                    }
-                }
-            }
-            else
-            {
-                if ((bits & POLL_BIT_IN) && isRead(strm) && isAvailable(taskData, strm))
-                {
-                    haveResult = 1;
-                    results[i] |= POLL_BIT_IN;
-                }
-                if ((bits & POLL_BIT_OUT) && isWrite(strm))
-                {
-                    /* I don't know if there's any way to do this. */
-                    if (WaitForSingleObject(
-                        (HANDLE)_get_osfhandle(strm->device.ioDesc), 0) == WAIT_OBJECT_0)
-                    {
-                        haveResult = 1;
-                        results[i] |= POLL_BIT_OUT;
-                    }
-                }
-                /* PRIORITY doesn't make sense for anything but a socket. */
-            }
-        }
-        if (haveResult == 0)
-        {
-            /* Poll failed - treat as time out. */
-            switch (blockType)
-            {
-            case 0: /* Check the time out. */
-                {
-                    Handle hSave = taskData->saveVec.mark();
-                    /* The time argument is an absolute time. */
-                    FILETIME ftTime, ftNow;
-                    /* Get the file time. */
-                    getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(2)), &ftTime);
-                    GetSystemTimeAsFileTime(&ftNow);
-                    taskData->saveVec.reset(hSave);
-                    /* If the timeout time is earlier than the current time
-                       we must return, otherwise we block. */
-                    if (CompareFileTime(&ftTime, &ftNow) <= 0)
-                        break; /* Return the empty set. */
-                    /* else drop through and block. */
-                }
-            case 1: /* Block until one of the descriptors is ready. */
-                processes->ThreadPause(taskData);
-                goto TryAgain;
-                /*NOTREACHED*/
-            case 2: /* Just a simple poll - drop through. */
-                break;
-            }
-        }
-        /* Copy the results to a result vector. */
-        resVec = alloc_and_save(taskData, nDesc);
-        for (POLYUNSIGNED j = 0; j < nDesc; j++)
-            (DEREFWORDHANDLE(resVec))->Set(j, TAGGED(results[j]));
-        return resVec;
-    }
-#elif (! defined(HAVE_POLL_H))
-    /* Unix but poll isn't provided, e.g. Mac OS X.  Implement in terms of "select" as far as we can. */
-    {
-        fd_set readFds, writeFds, exceptFds;
-        struct timeval poll = {0, 0};
-        int selectRes = 0;
-        FD_ZERO(&readFds); FD_ZERO(&writeFds); FD_ZERO(&exceptFds);
-
-        for (POLYUNSIGNED i = 0; i < nDesc; i++)
-        {
-            PIOSTRUCT strm = get_stream(strmVec->Get(i));
-            int bits = UNTAGGED(bitVec->Get(i));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (bits & POLL_BIT_IN) FD_SET(strm->device.ioDesc, &readFds);
-            if (bits & POLL_BIT_OUT) FD_SET(strm->device.ioDesc, &writeFds);
-        }
-        /* Simply check the status without blocking. */
-        if (nDesc > 0) selectRes = select(FD_SETSIZE, &readFds, &writeFds, &exceptFds, &poll);
-        if (selectRes < 0) raise_syscall(taskData, "select failed", ERRORNUMBER);
-        /* What if nothing was ready? */
-        if (selectRes == 0)
-        {
-            switch (blockType)
-            {
-            case 0: /* Check the timeout. */
-                {
-                    struct timeval tv;
-                    /* We have a value in microseconds.  We need to split
-                       it into seconds and microseconds. */
-                    Handle hSave = taskData->saveVec.mark();
-                    Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(2));
-                    Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-                    unsigned long secs =
-                        get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hTime)));
-                    unsigned long usecs =
-                        get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hTime)));
-                    /* If the timeout time is earlier than the current time
-                       we must return, otherwise we block. */
-                    taskData->saveVec.reset(hSave);
-                    if (gettimeofday(&tv, NULL) != 0)
-                        raise_syscall(taskData, "gettimeofday failed", ERRORNUMBER);
-                    if ((unsigned long)tv.tv_sec > secs ||
-                        ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec >= usecs))
-                        break;
-                    /* else block. */
-                }
-            case 1: /* Block until one of the descriptors is ready. */
-                processes->ThreadPause(taskData);
-                goto TryAgain;
-            case 2: /* Just a simple poll - drop through. */
-                break;
-            }
-        }
-        /* Copy the results. */
-        if (nDesc == 0) return taskData->saveVec.push(EmptyString());
-        /* Construct a result vector. */
-        Handle resVec = alloc_and_save(taskData, nDesc);
-        for (POLYUNSIGNED i = 0; i < nDesc; i++)
-        {
-            POLYUNSIGNED res = 0;
-            POLYUNSIGNED bits = UNTAGGED(bitVec->Get(i));
-            PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
-            if ((bits & POLL_BIT_IN) && FD_ISSET(strm->device.ioDesc, &readFds)) res |= POLL_BIT_IN;
-            if ((bits & POLL_BIT_OUT) && FD_ISSET(strm->device.ioDesc, &writeFds)) res |= POLL_BIT_OUT;
-            DEREFWORDHANDLE(resVec)->Set(i, TAGGED(res));
-        }
-        return resVec;
-    }
-#else
-    /* Unix */
     {
         int pollRes = 0;
         struct pollfd * fds = 0;
@@ -1029,6 +982,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                 }
             case 1: /* Block until one of the descriptors is ready. */
                 processes->ThreadPause(taskData);
+                taskData->saveVec.reset(hSave);
                 goto TryAgain;
             case 2: /* Just a simple poll - drop through. */
                 break;
@@ -1047,9 +1001,8 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
         }
         return resVec;
     }
-#endif
 }
-
+#endif
 
 /* Directory functions. */
 /* Open a directory. */
