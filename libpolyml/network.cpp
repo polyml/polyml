@@ -132,6 +132,7 @@ typedef int socklen_t;
 #include "machine_dep.h"
 #include "errors.h"
 #include "rtsentry.h"
+#include "timing.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
@@ -341,11 +342,14 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType);
 class WaitSelect: public Waiter
 {
 public:
-    WaitSelect();
+    WaitSelect(unsigned maxMillisecs=(unsigned)-1);
     virtual void Wait(unsigned maxMillisecs);
     void SetRead(SOCKET fd) {  FD_SET(fd, &readSet); }
     void SetWrite(SOCKET fd) {  FD_SET(fd, &writeSet); }
     void SetExcept(SOCKET fd)  {  FD_SET(fd, &exceptSet); }
+    bool IsSetRead(SOCKET fd) { return FD_ISSET(fd, &readSet); }
+    bool IsSetWrite(SOCKET fd) { return FD_ISSET(fd, &writeSet); }
+    bool IsSetExcept(SOCKET fd) { return FD_ISSET(fd, &exceptSet); }
     // Save the result of the select call and any associated error
     int SelectResult(void) { return selectResult; }
     int SelectError(void) { return errorResult; }
@@ -353,19 +357,22 @@ private:
     fd_set readSet, writeSet, exceptSet;
     int selectResult;
     int errorResult;
+    unsigned maxTime;
 };
 
-WaitSelect::WaitSelect()
+WaitSelect::WaitSelect(unsigned maxMillisecs)
 {
     FD_ZERO(&readSet);
     FD_ZERO(&writeSet);
     FD_ZERO(&exceptSet);
     selectResult = 0;
     errorResult = 0;
+    maxTime = maxMillisecs;
 }
 
 void WaitSelect::Wait(unsigned maxMillisecs)
 {
+    if (maxTime < maxMillisecs) maxMillisecs = maxTime;
     struct timeval toWait = { 0, 0 };
     toWait.tv_sec = maxMillisecs / 1000;
     toWait.tv_usec = (maxMillisecs % 1000) * 1000;
@@ -1348,8 +1355,19 @@ static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt)
     return Make_arbitrary_precision(taskData, optVal);
 }
 
-/* Helper function for selectCall.  Creates the result vector of active sockets. */
-static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_set *pFds)
+// Helper function for selectCall.  Creates the result vector of active sockets.
+static bool testBit(int offset, SOCKET fd, WaitSelect *pSelect)
+{
+    switch (offset)
+    {
+    case 0: return pSelect->IsSetRead(fd);
+    case 1: return pSelect->IsSetWrite(fd);
+    case 2: return pSelect->IsSetExcept(fd);
+    default: return false;
+    }
+}
+
+static Handle getSelectResult(TaskData *taskData, Handle args, int offset, WaitSelect *pSelect)
 {
     /* Construct the result vectors. */
     PolyObject *inVec = DEREFHANDLE(args)->Get(offset).AsObjPtr();
@@ -1358,7 +1376,7 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
     POLYUNSIGNED i;
     for (i = 0; i < nVec; i++) {
         PIOSTRUCT strm = get_stream(inVec->Get(i));
-        if (FD_ISSET(strm->device.sock, pFds)) nRes++;
+        if (testBit(offset, strm->device.sock, pSelect)) nRes++;
     }
     if (nRes == 0)
         return ALLOC(0); /* None - return empty vector. */
@@ -1368,7 +1386,7 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
         nRes = 0;
         for (i = 0; i < nVec; i++) {
             PIOSTRUCT strm = get_stream(inVec->Get(i));
-            if (FD_ISSET(strm->device.sock, pFds))
+            if (testBit(offset, strm->device.sock, pSelect))
                 DEREFWORDHANDLE(result)->Set(nRes++, inVec->Get(i));
         }
         return result;
@@ -1381,49 +1399,16 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
 static Handle selectCall(TaskData *taskData, Handle args, int blockType)
 {
     Handle hSave = taskData->saveVec.mark();
-    TryAgain:
-    // We should check for interrupts even if we're not going to block.
-    processes->TestAnyEvents(taskData);
-    fd_set readers, writers, excepts;
-    struct timeval timeout;
-    int selectRes;
-    POLYUNSIGNED i, nVec;
-    Handle rdResult, wrResult, exResult, result;
-    /* Set up the bitmaps for the select call from the arrays. */
-    PolyObject *readVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
-    PolyObject *writeVec = DEREFHANDLE(args)->Get(1).AsObjPtr();
-    PolyObject *excVec = DEREFHANDLE(args)->Get(2).AsObjPtr();
-    FD_ZERO(&readers);
-    FD_ZERO(&writers);
-    FD_ZERO(&excepts);
-    nVec = readVec->Length();
-    for (i = 0; i < nVec; i++) {
-        PIOSTRUCT strm = get_stream(readVec->Get(i));
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED); 
-        FD_SET(strm->device.sock, &readers);
-    }
-    nVec = writeVec->Length();
-    for (i = 0; i < nVec; i++) {
-        PIOSTRUCT strm = get_stream(writeVec->Get(i));
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED); 
-        FD_SET(strm->device.sock, &writers);
-    }
-    nVec = excVec->Length();
-    for (i = 0; i < nVec; i++) {
-        PIOSTRUCT strm = get_stream(excVec->Get(i));
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED); 
-        FD_SET(strm->device.sock, &excepts);
-    }
-    /* Whatever the timeout specified we simply poll here. */
-    memset(&timeout, 0, sizeof(timeout));
-    selectRes = select(FD_SETSIZE, &readers, &writers, &excepts, &timeout);
-    if (selectRes < 0) raise_syscall(taskData, "select failed", GETERROR);
-
-    if (selectRes == 0) { /* Timed out.  Have to look at the timeout value. */
+    
+    while (1) // Until we time-out or get a result.
+    {
+        POLYUNSIGNED i, nVec;
+        Handle rdResult, wrResult, exResult, result;
+        unsigned maxMillisecs = 1000; // Set the time to the maximum i.e. block
         switch (blockType)
         {
         case 0: /* Check the timeout. */
-            {
+        {
             /* The time argument is an absolute time. */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ftTime, ftNow;
@@ -1433,47 +1418,89 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block. */
             if (CompareFileTime(&ftTime, &ftNow) <= 0)
-                break; /* Return the empty set. */
-            /* else drop through and block. */
+                maxMillisecs = 0;
+            else
+            {
+                subFiletimes(&ftTime, &ftNow);
+                if (ftTime.dwHighDateTime > 0 || ftTime.dwLowDateTime > 10000000)
+                    maxMillisecs = 1000; // No more than 1 second
+                else maxMillisecs = ftTime.dwLowDateTime / 10000;
+            }
 #else /* Unix */
-            struct timeval tv;
+            struct timeval tvTime, tvNow;
             /* We have a value in microseconds.  We need to split
-               it into seconds and microseconds. */
+            it into seconds and microseconds. */
             Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(3));
             Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-            unsigned long secs =
+            tvTime.tv_sec =
                 get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hTime)));
-            unsigned long usecs =
+            tvTime.tv_usec =
                 get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hTime)));
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block. */
-            if (gettimeofday(&tv, NULL) != 0)
+            if (gettimeofday(&tvNow, NULL) != 0)
                 raise_syscall(taskData, "gettimeofday failed", errno);
-            if ((unsigned long)tv.tv_sec > secs ||
-                ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec >= usecs))
-                break;
-            /* else block. */
+            if (tvNow.tv_sec > tvTime.tv_sec || (tvNow.tv_sec == tvTime.tv_sec && tvNow.tv_usec >= tvTime.tv_usec))
+                maxMillisecs = 0;
+            else
+            {
+                subTimevals(&tvTime, &tvNow);
+                if (tvTime.tv_sec >= 1) maxMillisecs = 1000; // Don't overflow if it's very long
+                else maxMillisecs = tvTime.tv_usec / 1000;
+            }
 #endif
-        }
-        case 1: /* Block until one of the descriptors is ready. */
-            processes->ThreadPause(taskData);
-            taskData->saveVec.reset(hSave);
-            goto TryAgain;
-        case 2: /* Just a simple poll - drop through. */
             break;
         }
+        case 1: // Block until one of the descriptors is ready.
+            maxMillisecs = 1000; // Max 1 second
+            break;
+        case 2: // Just a simple poll
+            maxMillisecs = 0;
+            break;
+        }
+        WaitSelect waitSelect(maxMillisecs);
+        /* Set up the bitmaps for the select call from the arrays. */
+        PolyObject *readVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
+        PolyObject *writeVec = DEREFHANDLE(args)->Get(1).AsObjPtr();
+        PolyObject *excVec = DEREFHANDLE(args)->Get(2).AsObjPtr();
+        nVec = readVec->Length();
+        for (i = 0; i < nVec; i++) {
+            PIOSTRUCT strm = get_stream(readVec->Get(i));
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+            waitSelect.SetRead(strm->device.sock);
+        }
+        nVec = writeVec->Length();
+        for (i = 0; i < nVec; i++) {
+            PIOSTRUCT strm = get_stream(writeVec->Get(i));
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+            waitSelect.SetWrite(strm->device.sock);
+        }
+        nVec = excVec->Length();
+        for (i = 0; i < nVec; i++) {
+            PIOSTRUCT strm = get_stream(excVec->Get(i));
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+            waitSelect.SetExcept(strm->device.sock);
+        }
+
+        // Do the select.  This may return immediately if the maximum time-out is short.
+        processes->ThreadPauseForIO(taskData, &waitSelect);
+        if (waitSelect.SelectResult() < 0)
+            raise_syscall(taskData, "select failed", waitSelect.SelectError());
+        else if (waitSelect.SelectResult() > 0 || maxMillisecs == 0)
+        {
+            // There was a result or the time expired or it was just a poll.
+            // Construct the result vectors.
+            rdResult = getSelectResult(taskData, args, 0, &waitSelect);
+            wrResult = getSelectResult(taskData, args, 1, &waitSelect);
+            exResult = getSelectResult(taskData, args, 2, &waitSelect);
+            result = ALLOC(3);
+            DEREFHANDLE(result)->Set(0, rdResult->Word());
+            DEREFHANDLE(result)->Set(1, wrResult->Word());
+            DEREFHANDLE(result)->Set(2, exResult->Word());
+            return result;
+        }
+        // else try again.
     }
-
-    /* Construct the result vectors. */
-    rdResult = getSelectResult(taskData, args, 0, &readers);
-    wrResult = getSelectResult(taskData, args, 1, &writers);
-    exResult = getSelectResult(taskData, args, 2, &excepts);
-
-    result = ALLOC(3);
-    DEREFHANDLE(result)->Set(0, rdResult->Word());
-    DEREFHANDLE(result)->Set(1, wrResult->Word());
-    DEREFHANDLE(result)->Set(2, exResult->Word());
-    return result;
 }
 
 // General interface to networking.  Ideally the various cases will be made into
