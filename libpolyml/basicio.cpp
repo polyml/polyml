@@ -1,7 +1,7 @@
 /*
     Title:      Basic IO.
 
-    Copyright (c) 2000, 2015-2017 David C. J. Matthews
+    Copyright (c) 2000, 2015-2018 David C. J. Matthews
 
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
@@ -136,6 +136,7 @@ typedef char TCHAR;
 #include "rts_module.h"
 #include "locking.h"
 #include "rtsentry.h"
+#include "timing.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
@@ -919,20 +920,89 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
 }
 #else
 // Unix.
+class WaitPoll: public Waiter{
+public:
+    WaitPoll(POLYUNSIGNED nDesc, struct pollfd *fds, unsigned maxMillisecs);
+    virtual void Wait(unsigned maxMillisecs);
+    int PollResult(void) { return pollResult; }
+    int PollError(void) { return errorResult; }
+
+private:
+    int pollResult;
+    int errorResult;
+    unsigned maxTime;
+    struct pollfd *fdVec;
+    POLYUNSIGNED nDescr;
+};
+
+WaitPoll::WaitPoll(POLYUNSIGNED nDesc, struct pollfd *fds, unsigned maxMillisecs)
+{
+    maxTime = maxMillisecs;
+    pollResult = 0;
+    errorResult = 0;
+    nDescr = nDesc;
+    fdVec = fds;
+}
+
+void WaitPoll::Wait(unsigned maxMillisecs)
+{
+    if (nDescr == 0) pollResult = 0;
+    else
+    {
+        if (maxTime < maxMillisecs) maxMillisecs = maxTime;
+        pollResult = poll(fdVec, nDescr, maxMillisecs);
+        if (pollResult < 0) errorResult = ERRORNUMBER;
+    }
+}
+
 static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
 {
     Handle hSave = taskData->saveVec.mark();
-    TryAgain:
     PolyObject  *strmVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
     PolyObject  *bitVec =  DEREFHANDLE(args)->Get(1).AsObjPtr();
     POLYUNSIGNED nDesc = strmVec->Length();
     ASSERT(nDesc ==  bitVec->Length());
-    // We should check for interrupts even if we're not going to block.
-    processes->TestAnyEvents(taskData);
 
+    while (1) // Until timeout or we get a result.
     {
-        int pollRes = 0;
         struct pollfd * fds = 0;
+        unsigned maxMillisecs = 1000;
+        // Set the wait time.  This code is almost the same as selectCall in network.cpp.
+        switch (blockType)
+        {
+        case 0:
+            {
+                struct timeval tvTime, tvNow;
+                /* We have a value in microseconds.  We need to split
+                   it into seconds and microseconds. */
+                Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(2));
+                Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
+                tvTime.tv_sec =
+                    get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hTime)));
+                tvTime.tv_usec =
+                    get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hTime)));
+                // If the timeout time is earlier than the current time we just poll
+                // otherwise we block for up to a second.
+                if (gettimeofday(&tvNow, NULL) != 0)
+                    raise_syscall(taskData, "gettimeofday failed", errno);
+                if (tvNow.tv_sec > tvTime.tv_sec || (tvNow.tv_sec == tvTime.tv_sec && tvNow.tv_usec >= tvTime.tv_usec))
+                    maxMillisecs = 0;
+                else
+                {
+                    subTimevals(&tvTime, &tvNow);
+                    if (tvTime.tv_sec >= 1) maxMillisecs = 1000; // Don't overflow if it's very long
+                    else maxMillisecs = tvTime.tv_usec / 1000;
+                }
+                break;
+            }
+        case 1: /* Block until one of the descriptors is ready. */
+            maxMillisecs = 1000; // Max 1 second
+            break;
+        case 2: // Just a simple poll
+            maxMillisecs = 0;
+            break;
+        }
+
         if (nDesc > 0)
             fds = (struct pollfd *)alloca(nDesc * sizeof(struct pollfd));
         
@@ -949,57 +1019,30 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
             if (bits & POLL_BIT_PRI) fds[i].events |= POLLPRI;
             fds[i].revents = 0;
         }
-        /* Poll the descriptors. */
-        if (nDesc > 0) pollRes = poll(fds, nDesc, 0);
-        if (pollRes < 0) raise_syscall(taskData, "poll failed", ERRORNUMBER);
-        /* What if nothing was ready? */
-        if (pollRes == 0)
+
+        // Poll the descriptors.
+        WaitPoll pollWait(nDesc, fds, maxMillisecs);
+        processes->ThreadPauseForIO(taskData, &pollWait);
+
+        if (pollWait.PollResult() < 0)
+            raise_syscall(taskData, "poll failed", pollWait.PollError());
+        else if (pollWait.PollResult() > 0 || maxMillisecs == 0)
         {
-            switch (blockType)
+            // There was a result or the time expired or it was just a poll.
+            // Construct the result vectors.
+            Handle resVec = alloc_and_save(taskData, nDesc);
+            for (unsigned i = 0; i < nDesc; i++)
             {
-            case 0: /* Check the timeout. */
-                {
-                    struct timeval tv;
-                    /* We have a value in microseconds.  We need to split
-                       it into seconds and microseconds. */
-                    // We need to reset the savevec because we can come here repeatedly
-                    Handle hSave = taskData->saveVec.mark();
-                    Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(2));
-                    Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-                    unsigned long secs =
-                        get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hTime)));
-                    unsigned long usecs =
-                        get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hTime)));
-                    taskData->saveVec.reset(hSave);
-                    /* If the timeout time is earlier than the current time
-                       we must return, otherwise we block. */
-                    if (gettimeofday(&tv, NULL) != 0)
-                        raise_syscall(taskData, "gettimeofday failed", ERRORNUMBER);
-                    if ((unsigned long)tv.tv_sec > secs ||
-                        ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec >= usecs))
-                        break;
-                    /* else block. */
-                }
-            case 1: /* Block until one of the descriptors is ready. */
-                processes->ThreadPause(taskData);
-                taskData->saveVec.reset(hSave);
-                goto TryAgain;
-            case 2: /* Just a simple poll - drop through. */
-                break;
+                int res = 0;
+                if (fds[i].revents & POLLIN) res = POLL_BIT_IN;
+                if (fds[i].revents & POLLOUT) res = POLL_BIT_OUT;
+                if (fds[i].revents & POLLPRI) res = POLL_BIT_PRI;
+                DEREFWORDHANDLE(resVec)->Set(i, TAGGED(res));
             }
+            return resVec;
         }
-        /* Copy the results. */
-        /* Construct a result vector. */
-        Handle resVec = alloc_and_save(taskData, nDesc);
-        for (unsigned i = 0; i < nDesc; i++)
-        {
-            int res = 0;
-            if (fds[i].revents & POLLIN) res = POLL_BIT_IN;
-            if (fds[i].revents & POLLOUT) res = POLL_BIT_OUT;
-            if (fds[i].revents & POLLPRI) res = POLL_BIT_PRI;
-            DEREFWORDHANDLE(resVec)->Set(i, TAGGED(res));
-        }
-        return resVec;
+        // else try again.
+        taskData->saveVec.reset(hSave);
     }
 }
 #endif
