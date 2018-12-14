@@ -516,12 +516,12 @@ struct
 
                     |   (ExtendedBasicBlock{flow=ExitCode,
                             block=[{instr as LoadArgument{source=sourceT, dest=destT, kind=kindT, ...}, ...},
-                                   {instr=ReturnResultFromFunction{resultReg=resT, numStackArgs=numStack}, ...}], ...},
+                                   {instr=ReturnResultFromFunction{resultReg=resT, realReg=realF, numStackArgs=numStack}, ...}], ...},
                          ExtendedBasicBlock{flow=ExitCode,
                             block=[{instr=LoadArgument{source=sourceF, dest=destF, kind=kindF, ...}, ...},
-                                   {instr=ReturnResultFromFunction{resultReg=resF, ...}, ...}], ...}) =>
+                                   {instr=ReturnResultFromFunction{resultReg=resF, realReg=realT, ...}, ...}], ...}) =>
                         if destT = resT andalso destF = resF andalso not (memMove sourceT) andalso not (memMove sourceF)
-                           andalso kindT = kindF andalso (kindT = Move32Bit orelse kindT = Move64Bit)
+                           andalso kindT = kindF andalso realF = realT andalso (kindT = Move32Bit orelse kindT = Move64Bit)
                         then
                         let
                             val () =
@@ -537,7 +537,7 @@ struct
                                 else ConditionalMove{trueSrc=sourceT, falseSrc=sourceF, dest=destT, ccRef=ccRef,
                                                 condition=condition, opSize=opSize}
                             val resCode =
-                                ReturnResultFromFunction{resultReg=destT, numStackArgs=numStack} :: cmov :: blkCode
+                                ReturnResultFromFunction{resultReg=destT, realReg=realT, numStackArgs=numStack} :: cmov :: blkCode
                         in
                             BasicBlock{flow=ExitCode, block=List.rev resCode}
                         end

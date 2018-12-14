@@ -42,6 +42,7 @@ struct
     in
         val argRegs = List.map GenReg regs
         val numArgRegs = List.length argRegs
+        val resultReg = GenReg eax
     end
 
     (* tag a short constant *)
@@ -173,7 +174,7 @@ struct
         (* The return instruction.  This can be added on to various tails but there is always
            one at the end anyway. *)
         fun returnInstruction({stackPtr, ...}, target, tailCode) =
-            BlockExit(ReturnResultFromFunction{resultReg=target, numStackArgs=currentStackArgs}) ::
+            BlockExit(ReturnResultFromFunction{resultReg=target, realReg=resultReg, numStackArgs=currentStackArgs}) ::
             (if stackPtr <> 0
             then BlockSimple(ResetStackPtr{numWords=stackPtr, preserveCC=false}) :: tailCode
             else tailCode)

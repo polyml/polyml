@@ -1177,12 +1177,12 @@ struct
                 moveIfNecessary({src=GenReg eax, dst=realPktReg, kind=moveNativeWord }, beginHandleCode)
             end
 
-        |   codeExtended _ ({instr=ReturnResultFromFunction { resultReg=PReg resReg, numStackArgs }, ...}, code) =
+        |   codeExtended _ ({instr=ReturnResultFromFunction { resultReg=PReg resReg, realReg, numStackArgs }, ...}, code) =
             let
                 val resultReg = getAllocatedReg resReg
                 (* If for some reason it's not in the right register we have to move it there. *)
             in
-                ReturnFromFunction numStackArgs :: moveIfNecessary({src=resultReg, dst=GenReg eax, kind=moveNativeWord}, code)
+                ReturnFromFunction numStackArgs :: moveIfNecessary({src=resultReg, dst=realReg, kind=moveNativeWord}, code)
             end
 
         |   codeExtended _ ({instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,

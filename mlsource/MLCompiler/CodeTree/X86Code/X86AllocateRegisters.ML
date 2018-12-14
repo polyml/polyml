@@ -155,7 +155,7 @@ struct
             |   addHints{instr=BeginHandler{packetReg=PReg pReg, workReg=_}, ...} =
                     (* The exception packet is in rax. *) addRealHint(pReg, GenReg eax)
         
-            |   addHints{instr=ReturnResultFromFunction { resultReg=PReg resReg, ... }, ...} = addRealHint(resReg, GenReg eax)
+            |   addHints{instr=ReturnResultFromFunction { resultReg=PReg resReg, realReg, ... }, ...} = addRealHint(resReg, realReg)
         
             |   addHints{instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg, ...}, ...} =
                     (* Can only be one way round. *)
@@ -569,8 +569,8 @@ struct
                 allocateGeneralReg wReg
             )
 
-        |   registerAllocate({instr=ReturnResultFromFunction { resultReg=PReg resReg, ... }, ...}) =
-                allocateRegister(resReg, SOME(GenReg eax), generalRegisters)
+        |   registerAllocate({instr=ReturnResultFromFunction { resultReg=PReg resReg, realReg, ... }, ...}) =
+                allocateRegister(resReg, SOME realReg, [realReg] (* It MUST be in this register *))
 
         |   registerAllocate{instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2, ...}, ...} =

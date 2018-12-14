@@ -242,7 +242,7 @@ sig
     |   BeginHandler of { packetReg: preg, workReg: preg }
 
         (* Return from the function. *)
-    |   ReturnResultFromFunction of { resultReg: preg, numStackArgs: int }
+    |   ReturnResultFromFunction of { resultReg: preg, realReg: reg, numStackArgs: int }
     
         (* Arithmetic or logical operation.  These can set the condition codes. *)
     |   ArithmeticFunction of

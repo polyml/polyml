@@ -969,13 +969,14 @@ struct
                             pktCode @ BeginHandler{packetReg=pktReg, workReg=newWorkReg} :: code
                         end
 
-                    |   pushRegisters({instr=ReturnResultFromFunction{resultReg, numStackArgs}, ...}, code) =
+                    |   pushRegisters({instr=ReturnResultFromFunction{resultReg, realReg, numStackArgs}, ...}, code) =
                         let
                             val (resultValue, loadResult) = mapSrcReg resultReg
                             val resetCode =
                                 if !stackCount = 0 then [] else [ResetStackPtr{numWords= !stackCount, preserveCC=false}]
                         in
-                            ReturnResultFromFunction{resultReg=resultValue, numStackArgs=numStackArgs} :: resetCode @ loadResult @ code
+                            ReturnResultFromFunction{resultReg=resultValue, realReg=realReg, numStackArgs=numStackArgs} ::
+                                resetCode @ loadResult @ code
                         end
 
                     |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef, opSize}, ...}, code) =
