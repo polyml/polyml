@@ -166,7 +166,9 @@ sig
     val exnType:        types
     
     val isPointerEqType: typeId -> bool
-    val isFloatingPt: types -> bool
+    
+    datatype floatKind = FloatDouble | FloatSingle
+    val isFloatingPt: types -> floatKind option
 
     val isUndefinedTypeConstr: typeConstrs -> bool
     val isBadType:  types -> bool

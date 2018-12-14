@@ -9,7 +9,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2012-2017 David C.J. Matthews
+    Copyright (c) 2000-9, 2012-2018 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -3194,6 +3194,8 @@ struct
 
     (* Test if this is floating point i.e. the "real" type. We could include
        abbreviations of real as well but it's probably not worth it. *)
+    datatype floatKind = FloatDouble | FloatSingle
+    
     local
         val realId = tcIdentifier realConstr and floatId = tcIdentifier floatConstr
 
@@ -3201,19 +3203,20 @@ struct
         let
             val id = tcIdentifier constr
         in
-            sameTypeId(id, realId) orelse sameTypeId(id, floatId)
+            if sameTypeId(id, realId) then SOME FloatDouble
+            else if sameTypeId(id, floatId) then SOME FloatSingle
+            else NONE
         end
     in
-        fun isFloatingPt t =
-            case eventual t of
-                TypeConstruction{args=[], constr, ...} => isFloatId constr
-            |   OverloadSet {typeset, ...} =>
-                    (
-                        case preferredOverload typeset of
-                            SOME t => isFloatId t (* real only.  float is never preferred. *)
-                        |   NONE => false
-                    )
-            |   _ => false
+        fun isFloatingPt(TypeConstruction{args=[], constr, ...}) = isFloatId constr
+        |   isFloatingPt(OverloadSet {typeset, ...}) =
+            (
+                case preferredOverload typeset of
+                    SOME t => isFloatId t (* real only.  float is never preferred. *)
+                |   NONE => NONE
+            )
+        |   isFloatingPt(TypeVar tv) = isFloatingPt (tvValue tv)
+        |   isFloatingPt _ = NONE
     end
 
     fun checkDiscard(t: types, lex: lexan): string option =

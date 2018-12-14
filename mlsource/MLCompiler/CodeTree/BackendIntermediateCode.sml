@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-17 David C.J. Matthews
+    Copyright (c) 2012, 2016-18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -153,7 +153,8 @@ struct
 
     datatype argumentType =
         GeneralType
-    |   FloatingPtType
+    |   DoubleFloatType
+    |   SingleFloatType
 
     datatype backendIC =
         BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
@@ -352,7 +353,8 @@ struct
             )
 
         fun prettyArgType GeneralType = PrettyString "G"
-        |   prettyArgType FloatingPtType = PrettyString "F"
+        |   prettyArgType DoubleFloatType = PrettyString "D"
+        |   prettyArgType SingleFloatType = PrettyString "F"
         
         fun prettyArg (c, t) =
                 PrettyBlock(1, false, [], [pretty c, PrettyBreak (1, 0), prettyArgType t])

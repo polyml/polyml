@@ -131,7 +131,11 @@ struct
             ListPair.zip(List.tabulate(List.length types, fn num => mkInd (num, arg)), types)
 
     (* Return the argument/result type which is currently just floating point or everything else. *)
-    fun getCodeArgType t = if isFloatingPt t then FloatingPtType else GeneralType
+    fun getCodeArgType t =
+        case isFloatingPt t of
+            NONE => GeneralType
+        |   SOME FloatDouble => DoubleFloatType
+        |   SOME FloatSingle => SingleFloatType 
 
     (* tupleWidth returns the width of a tuple or record or 1 if it
        isn't one.  It is used to detect both argument tuples and results.

@@ -320,24 +320,22 @@ struct
                     ]
                 )
         
-        | Lambda {body, isInline, name, closure, argTypes, localCount, recUse, ...} =>
+        | Lambda {body, isInline, name, closure, argTypes, localCount, recUse, resultType, ...} =>
             let
                 val inl = 
                     case isInline of
                       NonInline   => ""
                     | Inline => "inline,"
+                fun genType GeneralType = []
+                |   genType DoubleFloatType = [ space, string ":double" ]
+                |   genType SingleFloatType = [ space, string ":float" ]
                 fun printArgs(n, (t, u) :: rest) =
                     PrettyBlock(4, false, [],
                         [
                             string("Arg"^Int.toString n),
                             space,
                             prettyUses "" u
-                        ] @
-                        (
-                            case t of
-                                GeneralType => []
-                            |   FloatingPtType => [ space, string ":real" ]
-                        ) @
+                        ] @ genType t @
                         (
                             if null rest then []
                             else [PrettyBreak(0,0), string ",", space]
@@ -353,7 +351,8 @@ struct
                         space,
                         block(printArgs(0, argTypes)),
                         space,
-                        string ")",
+                        string ")"] @ genType resultType @
+                    [
                         space,
                         string "(*", space, string("\"" ^ name ^ "\""), space, string inl,
                         space, string(Int.toString localCount ^ " locals,"), space,

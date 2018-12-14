@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15-17 David C.J. Matthews
+    Copyright (c) 2012,13,15-18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -26,7 +26,8 @@ sig
 
     datatype argumentType =
         GeneralType
-    |   FloatingPtType
+    |   DoubleFloatType
+    |   SingleFloatType
 
     and loadStoreKind =
         LoadStoreMLWord of {isImmutable: bool}

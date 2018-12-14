@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-17 David C.J. Matthews
+    Copyright (c) 2012, 2016-18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -23,7 +23,8 @@ sig
 
     datatype argumentType =
         GeneralType
-    |   FloatingPtType
+    |   DoubleFloatType
+    |   SingleFloatType
     
     structure BuiltIns: BUILTINS
     
