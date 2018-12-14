@@ -134,8 +134,11 @@ struct
             |   addHints{instr=TailRecursiveCall{regArgs, ...}, ...} =
                     List.app (fn (arg, reg) => case decache arg of RegisterArgument(PReg pr) => addRealHint(pr, reg) | _ => ()) regArgs
         
-            |   addHints{instr=FunctionCall{regArgs, ...}, ...} =
+            |   addHints{instr=FunctionCall{regArgs, dest=PReg dreg, realDest, ...}, ...} =
+                (
+                    addRealHint(dreg, realDest);
                     List.app (fn (arg, reg) => case decache arg of RegisterArgument(PReg pr) => addRealHint(pr, reg) | _ => ()) regArgs
+                )
         
             |   addHints{instr=InitialiseMem{size=PReg sReg, addr=PReg aReg, init=PReg iReg}, ...} =
                     (addRealHint(aReg, GenReg edi); addRealHint(iReg, GenReg eax); addRealHint(sReg, GenReg ecx))
@@ -462,14 +465,14 @@ struct
                 List.app (allocateArgGeneral o #1) regArgs
             end
 
-        |   registerAllocate({instr=FunctionCall{regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, saveRegs, ...}, ...}) =
+        |   registerAllocate({instr=FunctionCall{regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, realDest, saveRegs, ...}, ...}) =
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map decache oStackArgs
             in
                 List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
-                (* Result will be in rax. *)
-                allocateRegister(dReg, SOME(GenReg eax), generalRegisters);
+                (* Result will be in rax/fp0/xmm0. *)
+                allocateRegister(dReg, SOME realDest, [realDest]);
                 List.app allocateArgGeneral stackArgs;
                 (* We've already hinted the arguments. *)
                 List.app (allocateArgGeneral o #1) regArgs

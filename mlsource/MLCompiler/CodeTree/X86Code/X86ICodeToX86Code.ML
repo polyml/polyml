@@ -813,7 +813,7 @@ struct
                     codeTailCall(extStackArgs @ extRegArgs, stackAdjust+currStackSize, code)
             end
 
-        |   codeExtended _ ({instr=FunctionCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, saveRegs}, ...}, code) =
+        |   codeExtended _ ({instr=FunctionCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, realDest, saveRegs}, ...}, code) =
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map decache oStackArgs
@@ -897,7 +897,7 @@ struct
                     end
 
             in
-                moveIfNecessary({dst=destReg, src=GenReg eax, kind=moveNativeWord}, makeSaves(saveRegs, loadConstArgs)) 
+                moveIfNecessary({dst=destReg, src=realDest, kind=moveNativeWord}, makeSaves(saveRegs, loadConstArgs)) 
             end
 
         |   codeExtended _ ({instr=AllocateMemoryOperation{ size, flags, dest=PReg dReg, saveRegs}, ...}, code) =

@@ -688,12 +688,12 @@ struct
                                 JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=check, workReg=workReg}
                             end
                         
-                        |   FunctionCall{regArgs, stackArgs=[], dest, callKind as ConstantCode m, saveRegs=_} =>
+                        |   FunctionCall{regArgs, stackArgs=[], dest, realDest, callKind as ConstantCode m, saveRegs=_} =>
                             (* If this is arbitrary precision push the registers rather than marking them as "save".
                                stringOfWord returns 'CODE "PolyAddArbitrary"' etc. *)
                             if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
                             then FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dest=dest,
-                                    saveRegs=getSaveSet(regNo dest) }
+                                    realDest=realDest, saveRegs=getSaveSet(regNo dest) }
                             else instr
 
                         |   _ => instr

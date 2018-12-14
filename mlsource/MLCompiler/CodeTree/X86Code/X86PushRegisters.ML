@@ -688,7 +688,7 @@ struct
                             pushCode @ BeginFunction {regArgs=newRegArgs, stackArgs=newStackArgs} :: code
                         end
 
-                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest, ...}, ...}, code) =
+                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest, realDest, ...}, ...}, code) =
                         let
                             (* It's possible that this could lead to having to spill registers in order
                                to load others.  Leave that problem for the moment. *)
@@ -713,7 +713,7 @@ struct
                         in
                             destCode @
                                     FunctionCall{ callKind=callKind, regArgs=newRegArgs, stackArgs=newStackArgs,
-                                                  dest=destVal, saveRegs=[]} ::
+                                                  dest=destVal, realDest=realDest, saveRegs=[]} ::
                                         regArgLoads @ stackArgLoads @ code
                         end
 

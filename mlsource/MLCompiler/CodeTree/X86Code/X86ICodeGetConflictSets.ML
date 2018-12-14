@@ -226,11 +226,11 @@ struct
                 |   BeginHandler { packetReg, ...} =>
                         reserveRegister([regNo packetReg], GenReg eax)
                 
-                |   FunctionCall { dest, regArgs, ...} =>
+                |   FunctionCall { dest, realDest, regArgs, ...} =>
                         (* This is only needed if we are saving the registers rather
                            than marking them as "must push". *)
                     (
-                        reserveRegister([regNo dest], GenReg eax);
+                        reserveRegister([regNo dest], realDest);
                         (* The argument registers also conflict.  In order to execute this call we need to load
                            the arguments into specific registers so we can't use them for values that we want after
                            the call.   We use regNo dest here because that will conflict with everything
