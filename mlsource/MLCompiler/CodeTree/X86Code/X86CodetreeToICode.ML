@@ -39,10 +39,13 @@ struct
                 Native32Bit => [eax, ebx]
             |   Native64Bit => [eax, ebx, r8, r9, r10]
             |   ObjectId32Bit => [eax, esi, r8, r9, r10]
+        val fpResult = case targetArch of Native32Bit => FPReg fp0 | _ => XMMReg xmm0
     in
         val argRegs = List.map GenReg regs
         val numArgRegs = List.length argRegs
-        val resultReg = GenReg eax
+        fun resultReg GeneralType = GenReg eax
+        |   resultReg DoubleFloatType = fpResult
+        |   resultReg SingleFloatType = fpResult
     end
 
     (* tag a short constant *)
@@ -101,7 +104,7 @@ struct
             LargeWord.toLargeInt(RunCall.unsafeCast addr)
         end
 
-    fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
+    fun codeFunctionToX86({body, localCount, name, argTypes, resultType=fnResultType, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
         (* Pseudo-registers are allocated sequentially and the properties added to the list. *)
         val pregCounter = ref 0
@@ -170,14 +173,6 @@ struct
         in
             val beginInstruction = BlockBegin(clReg @ argRegs)
         end
-        
-        (* The return instruction.  This can be added on to various tails but there is always
-           one at the end anyway. *)
-        fun returnInstruction({stackPtr, ...}, target, tailCode) =
-            BlockExit(ReturnResultFromFunction{resultReg=target, realReg=resultReg, numStackArgs=currentStackArgs}) ::
-            (if stackPtr <> 0
-            then BlockSimple(ResetStackPtr{numWords=stackPtr, preserveCC=false}) :: tailCode
-            else tailCode)
 
         fun constantAsArgument value =
             if isShort value
@@ -351,6 +346,25 @@ struct
                     doWithRounding() @
                     [BlockSimple(SetSSE2ControlReg{source=savedRnd})]
         end
+
+        (* Put a floating point value into a box or tag it so the value can be held in
+           a general register. *)
+        fun boxOrTagReal(srcReg, destReg, precision) =
+            if precision = BuiltIns.PrecDouble orelse wordSize <> 0w8
+            then
+            let
+                open BuiltIns
+                val boxFloat =
+                    case (fpMode, precision) of
+                        (FPModeX87, PrecDouble) => BoxX87Double
+                    |   (FPModeX87, PrecSingle) => BoxX87Float
+                    |   (FPModeSSE2, PrecDouble) => BoxSSE2Double
+                    |   (FPModeSSE2, PrecSingle) => BoxSSE2Float
+            in
+                [BlockSimple(BoxValue{boxKind=boxFloat, source=srcReg, dest=destReg, saveRegs=[]})]
+            end
+            else [BlockSimple(TagFloat{source=srcReg, dest=destReg})]
+
         
         (* Indicate that the base address is actually an object index where appropriate. *)
         val memIndexOrObject = case targetArch of ObjectId32Bit => ObjectIndex | _ => NoMemIndex
@@ -365,6 +379,38 @@ struct
            to optimise cases of cascaded instructions and avoid creating boxes for
            intermediate values. *)
         fun wordAt reg = wordOffsetAddress(0, reg)
+        
+        (* The return instruction.  This can be added on to various tails but there is always
+           one at the end anyway. *)
+        fun returnInstruction({stackPtr, ...}, target, tailCode) =
+        let
+            val (returnCode, resReg) =
+                case fnResultType of
+                    GeneralType => ([], target)
+                |   DoubleFloatType =>
+                    let
+                        val resReg = newUReg()
+                    in
+                        ([BlockSimple(LoadArgument{source=wordAt target, dest=resReg, kind=MoveDouble})], resReg)
+                    end
+                |   SingleFloatType =>
+                    let
+                        val resReg = newUReg()
+                        val unpack =
+                            if wordSize = 0w8
+                            then BlockSimple(UntagFloat{source=RegisterArgument target, dest=resReg, cache=NONE})
+                            else BlockSimple(LoadArgument{source=wordAt target, dest=resReg, kind=MoveFloat})
+                    in
+                        
+                        ([unpack], resReg)
+                    end
+        in
+            BlockExit(ReturnResultFromFunction{resultReg=resReg, realReg=resultReg fnResultType, numStackArgs=currentStackArgs}) ::
+                returnCode @
+                (if stackPtr <> 0
+                then BlockSimple(ResetStackPtr{numWords=stackPtr, preserveCC=false}) :: tailCode
+                else tailCode)
+        end
 
         (* This controls what codeAsArgument returns.  Different instructions have different
            requirements.  If an option is set to false the value is instead loaded into a
@@ -747,7 +793,7 @@ struct
                 |   _ =>   raise InternalError "codeToICodeRev-BICField"                      
             end
 
-        |   codeToICodeRev(BICEval{function, argList, ...}, context as { currHandler, ...}, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICEval{function, argList, resultType, ...}, context as { currHandler, ...}, isTail, destination, tailCode) =
             let
                 val target = asTarget destination
                 (* Create pregs for the closure and each argument. *)
@@ -842,8 +888,12 @@ struct
                     end
                 val (codeArgs, regArgs, stackArgs) = loadArgs(argList, argRegs, functionCode)
                 
-                val callInstr =
-                    if isTail
+                (* If this is at the end of the function and the result types are the
+                   same we can use a tail-recursive call. *)
+                val tailCall = isTail andalso resultType = fnResultType
+                
+                val callCode =
+                    if tailCall
                     then
                     let
                         val {stackPtr, ...} = context
@@ -898,19 +948,37 @@ struct
                     in
                         BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=loadedStackArgs,
                                   stackAdjust = stackAdjust, currStackSize=stackOffset, callKind=callKind, workReg=newPReg()}) ::
-                                    loadStackArgs
+                                    loadStackArgs @ codeArgs
                     end
                     else
                     let
+                        val (moveResult, resReg) =
+                            case resultType of
+                                GeneralType => ([], target)
+                            |   DoubleFloatType =>
+                                let
+                                    val fpRegDest = newUReg()
+                                in
+                                    (boxOrTagReal(fpRegDest, target, BuiltIns.PrecDouble), fpRegDest)
+                                end
+                            |   SingleFloatType =>
+                                let
+                                    val fpRegDest = newUReg()
+                                in
+                                    (boxOrTagReal(fpRegDest, target, BuiltIns.PrecSingle), fpRegDest)
+                                end
                         val call =
-                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, realDest=resultReg, callKind=callKind, saveRegs=[]}
+                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=resReg,
+                                         realDest=resultReg resultType, callKind=callKind, saveRegs=[]}
+                        val callBlock =
+                            case currHandler of
+                                NONE => BlockSimple call :: codeArgs
+                            |   SOME h => BlockOptionalHandle{call=call, handler=h, label=newLabel()}  :: codeArgs
                     in
-                        case currHandler of
-                            NONE => [BlockSimple call]
-                        |   SOME h => [BlockOptionalHandle{call=call, handler=h, label=newLabel()}]
+                        moveResult @ callBlock
                     end
             in
-                (callInstr @ codeArgs, RegisterArgument target, isTail (* We've exited if this was a tail jump *))
+                (callCode, RegisterArgument target, tailCall (* We've exited if this was a tail jump *))
             end
 
         |   codeToICodeRev(BICGetThreadId, _, _, destination, tailCode) =
@@ -1802,20 +1870,7 @@ struct
                             [BlockSimple(LoadArgument{source=AddressConstant signBit, dest=sse2ConstReg, kind=MoveDouble}),
                              BlockSimple(SSE2FPBinary{opc=SSE2BXor, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
                         end
-                val result =
-                    if precision = PrecDouble orelse wordSize <> 0w8
-                    then
-                    let
-                        val boxFloat =
-                            case (fpMode, precision) of
-                                (FPModeX87, PrecDouble) => BoxX87Double
-                            |   (FPModeX87, PrecSingle) => BoxX87Float
-                            |   (FPModeSSE2, PrecDouble) => BoxSSE2Double
-                            |   (FPModeSSE2, PrecSingle) => BoxSSE2Float
-                    in
-                        [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})]
-                    end
-                    else [BlockSimple(TagFloat{source=fpRegDest, dest=target})]
+                val result = boxOrTagReal(fpRegDest, target, precision)
             in
                 (revApp(argCode @ load :: code @ result, tailCode), RegisterArgument target, false)
             end
@@ -1842,20 +1897,7 @@ struct
                             [BlockSimple(LoadArgument{source=AddressConstant mask, dest=sse2ConstReg, kind=MoveDouble}),
                              BlockSimple(SSE2FPBinary{opc=SSE2BAnd, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
                         end
-                val result =
-                    if precision = PrecDouble orelse wordSize <> 0w8
-                    then
-                    let
-                        val boxFloat =
-                            case (fpMode, precision) of
-                                (FPModeX87, PrecDouble) => BoxX87Double
-                            |   (FPModeX87, PrecSingle) => BoxX87Float
-                            |   (FPModeSSE2, PrecDouble) => BoxSSE2Double
-                            |   (FPModeSSE2, PrecSingle) => BoxSSE2Float
-                    in
-                        [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})]
-                    end
-                    else [BlockSimple(TagFloat{source=fpRegDest, dest=target})]
+                val result = boxOrTagReal(fpRegDest, target, precision)
             in
                 (revApp(argCode @ load :: code @ result, tailCode), RegisterArgument target, false)
             end
@@ -1908,14 +1950,11 @@ struct
                 val (argCode, aReg1) = codeToPReg(arg1, context)
                 (* In 32-bit mode we need to box the float.  In 64-bit mode we can tag it. *)
                 val boxOrTag =
-                    case (fpMode, wordSize) of
-                        (FPModeX87, _) => [BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]})]
-                    |   (FPModeSSE2, 0w4) => (* ObjectId32 *) [
-                            BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
-                            BlockSimple(BoxValue{boxKind=BoxSSE2Float, source=fpReg2, dest=target, saveRegs=[]}) ]
-                    |   (FPModeSSE2, _) => [
-                            BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
-                            BlockSimple(TagFloat{source=fpReg2, dest=target}) ]
+                    case fpMode of
+                        FPModeX87 => [BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]})]
+                    |   FPModeSSE2 =>
+                            BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}) ::
+                                boxOrTagReal(fpReg2, target, BuiltIns.PrecSingle)
                 val code = argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @ boxOrTag
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
@@ -1932,15 +1971,12 @@ struct
                 (* We need to save the rounding mode before we change it and restore it afterwards. *)
                 open IEEEReal
                 fun doConversion() =
-                    case (fpMode, wordSize) of
-                        (FPModeX87, _) => (* Convert the value using the appropriate rounding. *)
+                    case fpMode of
+                        FPModeX87 => (* Convert the value using the appropriate rounding. *)
                             [BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]})]
-                    |   (FPModeSSE2, 0w4) =>
-                            [BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
-                             BlockSimple(BoxValue{boxKind=BoxSSE2Float, source=fpReg2, dest=target, saveRegs=[]})]
-                    |   (FPModeSSE2, _) =>
-                            [BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}),
-                             BlockSimple(TagFloat{source=fpReg2, dest=target})]
+                    |   FPModeSSE2 =>
+                            BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}) ::
+                                boxOrTagReal(fpReg2, target, BuiltIns.PrecSingle)
                 val code = argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @
                     setAndRestoreRounding(rndMode, doConversion)
             in
@@ -2751,21 +2787,7 @@ struct
                             [BlockSimple(SSE2FPBinary{ opc=fpOp, resultReg=fpRegDest, arg1=fpRegSrc, arg2=arg2Value})]
                         end
                 (* Box or tag the result. *)
-                (* We will need a way to box a value from an XMM reg if wordSize = 4. *)
-                val result =
-                    if fpPrec = PrecDouble orelse wordSize <> 0w8
-                    then
-                    let
-                        val boxFloat =
-                            case (fpMode, fpPrec) of
-                                (FPModeX87, PrecDouble) => BoxX87Double
-                            |   (FPModeX87, PrecSingle) => BoxX87Float
-                            |   (FPModeSSE2, PrecDouble) => BoxSSE2Double
-                            |   (FPModeSSE2, PrecSingle) => BoxX87Float
-                    in
-                        [BlockSimple(BoxValue{boxKind=boxFloat, source=fpRegDest, dest=target, saveRegs=[]})]
-                    end
-                    else [BlockSimple(TagFloat{source=fpRegDest, dest=target})]
+                val result = boxOrTagReal(fpRegDest, target, fpPrec)
             in
                 (revApp(argCode @ arith @ result, tailCode), RegisterArgument target, false)
             end
