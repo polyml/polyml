@@ -897,7 +897,8 @@ struct
                     end
 
             in
-                moveIfNecessary({dst=destReg, src=realDest, kind=moveNativeWord}, makeSaves(saveRegs, loadConstArgs)) 
+                moveIfNecessary({dst=destReg, src=realDest, kind=case realDest of GenReg _ => moveNativeWord | _ => MoveDouble},
+                    makeSaves(saveRegs, loadConstArgs)) 
             end
 
         |   codeExtended _ ({instr=AllocateMemoryOperation{ size, flags, dest=PReg dReg, saveRegs}, ...}, code) =

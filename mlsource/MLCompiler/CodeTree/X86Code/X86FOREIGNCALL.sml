@@ -254,7 +254,7 @@ struct
     datatype fastArgs = FastArgFixed | FastArgDouble | FastArgFloat
 
 
-    fun rtsCallFastGeneral (functionName, argFormats, resultFormat, debugSwitches) =
+    fun rtsCallFastGeneral (functionName, argFormats, (*resultFormat*) _, debugSwitches) =
     let
         val entryPointAddr = makeEntryPoint functionName
 
@@ -283,12 +283,6 @@ struct
         (* The number of ML arguments passed on the stack. *)
         val mlArgsOnStack =
             Int.max(case abi of X86_32 => List.length argFormats - 2 | _ => List.length argFormats - 5, 0)
-
-        (* Constants for a box for a real *)
-        val realBoxSize = 8 div Word.toInt wordSize
-        and floatBoxSize = 1
-        val realBoxLengthWord32 = IntInf.orb(IntInf.fromInt realBoxSize, IntInf.<<(Word8.toLargeInt F_bytes, 0w24))
-        val floatBoxLengthWord32 = IntInf.orb(1, IntInf.<<(Word8.toLargeInt F_bytes, 0w24))
 
         fun unboxAddress breg =
             case targetArch of
@@ -431,81 +425,7 @@ struct
             ) @
             [
                 CallFunction(DirectReg entryPtrReg), (* Call the function *)
-                moveRR{source=saveMLStackPtrReg, output=esp, opSize=nativeWordOpSize} (* Restore the ML stack pointer *)
-            ]
-            @
-            (
-                (* If the result is a floating point value it needs to be boxed. *)
-                case (abi, resultFormat, targetArch) of
-                    (_, FastArgFixed, _) => [] (* Already in rax/eax. *)
-
-                |  (X86_32, FastArgDouble, _) =>
-                    [
-                        AllocStore{size=realBoxSize, output=eax, saveRegs=[]},
-                        Move{source=NonAddressConstArg realBoxLengthWord32,
-                             destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, moveSize=opSizeToMove polyWordOpSize},
-                        FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
-                        StoreInitialised
-                    ]
-
-                |   (_, FastArgDouble, ObjectId32Bit) => (* X64 The result is in xmm0 *)
-                    [
-                        AllocStore{size=realBoxSize, output=eax, saveRegs=[]},
-                        Move{source=NonAddressConstArg(LargeInt.fromInt realBoxSize),
-                             destination=MemoryArg{offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, moveSize=opSizeToMove polyWordOpSize},
-                        Move {moveSize=Move8, source=NonAddressConstArg(Word8.toLargeInt F_bytes),
-                            destination=MemoryArg {offset= ~1, base=eax, index=NoIndex}},
-                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
-                        StoreInitialised,
-                        (* Convert to an object id. *)
-                        ArithToGenReg{ opc=SUB, output=eax, source=RegisterArg ebx, opSize=OpSize64 },
-                        ShiftConstant{ shiftType=SHR, output=eax, shift=0w2, opSize=OpSize64 }
-                    ]
-
-                |   (_, FastArgDouble, _) => (* X64 The result is in xmm0 *)
-                    [
-                        AllocStore{size=realBoxSize, output=eax, saveRegs=[]},
-                        Move{source=NonAddressConstArg(LargeInt.fromInt realBoxSize),
-                            destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, moveSize=opSizeToMove polyWordOpSize},
-                        Move {moveSize=Move8, source=NonAddressConstArg(Word8.toLargeInt F_bytes),
-                            destination=MemoryArg{offset= ~1, base=eax, index=NoIndex}},
-                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
-                        StoreInitialised
-                    ]
-
-                |  (X86_32, FastArgFloat, _) =>
-                    [
-                        AllocStore{size=floatBoxSize (* It's a 32-bit value *), output=eax, saveRegs=[]},
-                        Move{source=NonAddressConstArg floatBoxLengthWord32,
-                             destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, moveSize=opSizeToMove polyWordOpSize},
-                        FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true },
-                        StoreInitialised
-                    ]
-
-                |  (_, FastArgFloat, ObjectId32Bit) =>
-                    [
-                        (* Must be boxed in 32-in-64. *)
-                        AllocStore{size=floatBoxSize, output=eax, saveRegs=[]},
-                        Move{source=NonAddressConstArg(LargeInt.fromInt floatBoxSize),
-                            destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, moveSize=opSizeToMove polyWordOpSize},
-                        Move {moveSize=Move8, source=NonAddressConstArg(Word8.toLargeInt F_bytes),
-                            destination=MemoryArg{offset= ~1, base=eax, index=NoIndex}},
-                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision, toStore=xmm0 },
-                        StoreInitialised,
-                        (* Convert to an object id. *)
-                        ArithToGenReg{ opc=SUB, output=eax, source=RegisterArg ebx, opSize=OpSize64 },
-                        ShiftConstant{ shiftType=SHR, output=eax, shift=0w2, opSize=OpSize64 }
-                   ]
-
-                |  (_, FastArgFloat, _) =>
-                    [
-                        (* Copy the value from xmm0 to rax and tag it. *)
-                        MoveXMMRegToGenReg { source = xmm0, output = eax },
-                        ShiftConstant{ shiftType=SHL, output=eax, shift=0w32, opSize=polyWordOpSize},
-                        ArithToGenReg { opc=ADD, output=eax, source=NonAddressConstArg 1, opSize=polyWordOpSize }
-                    ]
-            ) @
-            [
+                moveRR{source=saveMLStackPtrReg, output=esp, opSize=nativeWordOpSize}, (* Restore the ML stack pointer *)
                 (* Since this is an ML function we need to remove any ML stack arguments. *)
                 ReturnFromFunction mlArgsOnStack
             ]

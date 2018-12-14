@@ -391,16 +391,17 @@ struct
             and makeFullCall = makeCall CODETREE.Foreign.rtsCallFull
             (* We need to wrap this so that the arguments are passed in registers. *)
 
-            fun makeRunCallTupled (width:int, callN) : codetree =
+            fun makeRunCallTupled (width:int, resultType, callN) : codetree =
             let
                 val name = "rtsCall" ^ Int.toString width;
 
                 local
                     val f     = mkLoadClosure 0        (* first item from enclosing scope *)
                     val tuple = mkLoadArgument 0       (* the inner parameter *)
-                    val args  = List.tabulate(width, fn n => mkInd (n, tuple))
+                    val args  =
+                        if width = 1 then [tuple] else List.tabulate(width, fn n => mkInd (n, tuple))
                 in
-                    val innerBody = mkEval (f, args)
+                    val innerBody = mkCall (f, map(fn a => (a, GeneralType)) args, resultType)
                 end
 
                 local
@@ -440,8 +441,7 @@ struct
                 and d = makeTV ()
                 and e = makeTV ()
                 
-                fun makeRtsCall(n, makeCall) =
-                    makeRunCallTupled(n, toMachineWord(makeCall n))
+                fun makeRtsCall(n, makeCall) = makeRunCallTupled(n, GeneralType, toMachineWord(makeCall n))
             in
                 val rtsCallFull0Entry = makePolymorphic([a], makeRtsCall(0, makeFullCall))
                 and rtsCallFast0Entry = makePolymorphic([a], makeRtsCall(0, makeFastCall))
@@ -710,7 +710,7 @@ struct
             val () = #enterType stringEnv ("string", TypeConstrSet(stringConstr, []))
         end
 
-        local
+        local                        
             val realEnv = makeStructure(globalEnv, "Real")
 
             (* These are only used in Real so are included here rather than in RunCall.
@@ -723,15 +723,13 @@ struct
             and makeFastIntInfRealCall entryName = CODETREE.Foreign.rtsCallFastGeneraltoReal (entryName, debugOpts)
             and makeFastRealGeneralRealCall entryName = CODETREE.Foreign.rtsCallFastRealGeneraltoReal (entryName, debugOpts)
 
-            val rtsCallFastR_REntry =
-                mkInlproc (mkEval(mkConst(toMachineWord makeFastRealRealCall), [mkLoadArgument 0]), 1, "rtsCallFastRealReal", [], 0)
+            val rtsCallFastR_REntry = makeRunCallTupled(1, DoubleFloatType, toMachineWord makeFastRealRealCall)
 
             (* This needs to be tupled. *)
-            val rtsCallFastRR_REntry = makeRunCallTupled(2, toMachineWord makeFastRealRealRealCall)
-            and rtsCallFastRI_REntry = makeRunCallTupled(2, toMachineWord makeFastRealGeneralRealCall)
+            val rtsCallFastRR_REntry = makeRunCallTupled(2, DoubleFloatType, toMachineWord makeFastRealRealRealCall)
+            and rtsCallFastRI_REntry = makeRunCallTupled(2, DoubleFloatType, toMachineWord makeFastRealGeneralRealCall)
 
-            val rtsCallFastI_REntry =
-                mkInlproc (mkEval(mkConst(toMachineWord makeFastIntInfRealCall), [mkLoadArgument 0]), 1, "rtsCallFastIntInfReal", [], 0)
+            val rtsCallFastI_REntry = makeRunCallTupled(1, DoubleFloatType, toMachineWord makeFastIntInfRealCall)
 
             val rtsCallFastF_F = mkGvar ("rtsCallFastR_R", String ->> Real ->> Real, rtsCallFastR_REntry, declInBasis)
             val rtsCallFastFF_F = mkGvar ("rtsCallFastRR_R", String ->> Real ** Real ->> Real, rtsCallFastRR_REntry, declInBasis)
@@ -800,15 +798,13 @@ struct
             and makeFastIntInfFloatCall entryName = CODETREE.Foreign.rtsCallFastGeneraltoFloat (entryName, debugOpts)
             and makeFastFloatGeneralFloatCall entryName = CODETREE.Foreign.rtsCallFastFloatGeneraltoFloat (entryName, debugOpts)
 
-            val rtsCallFastR_REntry =
-                mkInlproc (mkEval(mkConst(toMachineWord makeFastFloatFloatCall), [mkLoadArgument 0]), 1, "rtsCallFastFloatFloat", [], 0)
+            val rtsCallFastR_REntry = makeRunCallTupled(1, SingleFloatType, toMachineWord makeFastFloatFloatCall)
 
             (* This needs to be tupled. *)
-            val rtsCallFastRR_REntry = makeRunCallTupled(2, toMachineWord makeFastFloatFloatFloatCall)
-            and rtsCallFastRI_REntry = makeRunCallTupled(2, toMachineWord makeFastFloatGeneralFloatCall)
+            val rtsCallFastRR_REntry = makeRunCallTupled(2, SingleFloatType, toMachineWord makeFastFloatFloatFloatCall)
+            and rtsCallFastRI_REntry = makeRunCallTupled(2, SingleFloatType, toMachineWord makeFastFloatGeneralFloatCall)
 
-            val rtsCallFastI_REntry =
-                mkInlproc (mkEval(mkConst(toMachineWord makeFastIntInfFloatCall), [mkLoadArgument 0]), 1, "rtsCallFastIntInfFloat", [], 0)
+            val rtsCallFastI_REntry = makeRunCallTupled(1, SingleFloatType, toMachineWord makeFastIntInfFloatCall)
 
             val rtsCallFastF_F = mkGvar ("rtsCallFastF_F", String ->> Float ->> Float, rtsCallFastR_REntry, declInBasis)
             val rtsCallFastFF_F = mkGvar ("rtsCallFastFF_F", String ->> Float ** Float ->> Float, rtsCallFastRR_REntry, declInBasis)
