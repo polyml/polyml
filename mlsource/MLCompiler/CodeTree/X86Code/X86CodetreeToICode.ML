@@ -170,8 +170,12 @@ struct
                 List.mapPartial(fn ArgOnStack{stackReg, ...} => SOME stackReg | ArgInReg _ => NONE) argEntries
         in
             val argumentVector = Vector.fromList argEntries
-            val beginInstruction =
-                BlockBegin{regArgs=clReg @ argRegs, stackArgs=stackArguments @ [returnAddressEntry]}
+
+            (* Start code for the function. *)
+            val beginInstructions =
+                [BlockBegin{regArgs=clReg @ argRegs, stackArgs=stackArguments @ [returnAddressEntry]}]
+
+            (* The number of arguments on the stack.  Needed in return instrs and tail calls. *)
             val currentStackArgs = List.length stackArguments
         end
 
@@ -3863,7 +3867,7 @@ struct
         (*Turn the codetree structure into icode. *)
         val bodyContext = {loopArgs=NONE, stackPtr=0, currHandler=NONE, overflowBlock=ref NONE}
         val (bodyCode, _, bodyExited) =
-            codeToICodeRev(body, bodyContext, true, SpecificPReg resultTarget, [beginInstruction])
+            codeToICodeRev(body, bodyContext, true, SpecificPReg resultTarget, beginInstructions)
         val icode = if bodyExited then bodyCode else returnInstruction(bodyContext, resultTarget, bodyCode)
         
         (* Turn the icode list into basic blocks.  The input list is in reverse so as part of
@@ -3924,7 +3928,6 @@ struct
         val pregProperties = Vector.fromList(List.rev(! pregPropList))
     in
         codeICodeFunctionToX86{blocks = resultVector, functionName = name, pregProps = pregProperties,
-            currentStackArgs = currentStackArgs,
             ccCount= ! ccRefCounter, debugSwitches = debugSwitches, resultClosure = resultClosure}
     end
 
