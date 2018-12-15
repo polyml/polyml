@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2017
+    Copyright David C. J. Matthews 2017-8
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -23,8 +23,7 @@ sig
     val icodeToX86Code :
         {
             blocks: extendedBasicBlock vector, allocatedRegisters: reg vector, functionName: string,
-            stackRequired: int, argRegsUsed: reg list, hasFullClosure: bool, debugSwitches: Universal.universal list,
-            resultClosure: closureRef
+            stackRequired: int, debugSwitches: Universal.universal list, resultClosure: closureRef
         } -> unit
     
     val nGenRegs: int (* Number of general registers. *)

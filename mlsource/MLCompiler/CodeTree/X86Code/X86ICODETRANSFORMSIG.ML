@@ -21,8 +21,7 @@ sig
     type closureRef
 
     val codeICodeFunctionToX86: {blocks: basicBlock vector, functionName: string, pregProps: regProperty vector,
-            argRegsUsed: reg list, hasFullClosure: bool, currentStackArgs: int, ccCount: int,
-            debugSwitches: Universal.universal list, resultClosure: closureRef } -> unit
+            currentStackArgs: int, ccCount: int, debugSwitches: Universal.universal list, resultClosure: closureRef } -> unit
 
     structure Sharing:
     sig

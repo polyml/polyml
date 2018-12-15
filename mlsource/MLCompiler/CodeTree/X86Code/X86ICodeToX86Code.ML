@@ -85,8 +85,7 @@ struct
 
     fun opSizeToMove OpSize32 = Move32 | opSizeToMove OpSize64 = Move64
 
-    fun icodeToX86Code{blocks, functionName, stackRequired, argRegsUsed, hasFullClosure, debugSwitches,
-                       allocatedRegisters, resultClosure, ...} =
+    fun icodeToX86Code{blocks, functionName, stackRequired, debugSwitches, allocatedRegisters, resultClosure, ...} =
     let        
         fun argAsGenReg(RegisterArg(GenReg r)) = r
         |   argAsGenReg _ = raise InternalError "argAsGenReg"
@@ -753,11 +752,28 @@ struct
 
         |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let
+                val minStackCheck = 20
+                val saveRegs = List.mapPartial(fn (_, GenReg r) => SOME r | _ => NONE) regArgs
+                val preludeCode =
+                    if stackRequired >= minStackCheck
+                    then
+                    let
+                        (* Compute the necessary amount in edi and compare that. *)
+                        val stackByteAdjust = ~ (Word.toInt nativeWordSize) * stackRequired
+                        val testEdiCode =
+                            testRegAndTrap (edi, StackOverflowCallEx, saveRegs)
+                    in
+                        (* N.B. In reverse order. *)
+                        testEdiCode @ [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust, opSize=nativeWordOpSize}]
+                    end
+     
+                    else testRegAndTrap (esp, StackOverflowCall, saveRegs)
+
                 val usedRegs = List.filter (isUsed o #1) regArgs
                 fun mkPair(PReg pr, rr) = {src=rr,dst=getAllocatedReg pr}
                 val regPairs = List.map mkPair usedRegs
             in
-                moveMultipleRegisters(regPairs, code)
+                moveMultipleRegisters(regPairs, preludeCode @ code)
             end
 
         |   codeExtended _ ({instr=TailRecursiveCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, stackAdjust, currStackSize, workReg=PReg wReg}, ...}, code) =
@@ -1743,25 +1759,6 @@ struct
                 else cmov{codeLoad=codeTrue, codeMove=codeFalse, condition=invertTest condition}
             end
 
-       
-        val minStackCheck = 20
-        val inputRegisters = argRegsUsed @ (if hasFullClosure then [GenReg edx] else [])
-        val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) inputRegisters
-        val preludeCode =
-            if stackRequired >= minStackCheck
-            then
-            let
-                (* Compute the necessary amount in edi and compare that. *)
-                val stackByteAdjust = ~ (Word.toInt nativeWordSize) * stackRequired
-                val testEdiCode =
-                    testRegAndTrap (edi, StackOverflowCallEx, saveRegs)
-            in
-                (* N.B. In reverse order. *)
-                testEdiCode @ [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust, opSize=nativeWordOpSize}]
-            end
-     
-            else testRegAndTrap (esp, StackOverflowCall, saveRegs)
-
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 
         
         local
@@ -1960,7 +1957,7 @@ struct
                     genCode(addSet @ stillToDo, flow, bodyCode)
                 end
         in
-            val ops = genCode([0], ExitCode, preludeCode)
+            val ops = genCode([0], ExitCode, [])
         end
     in
         X86OPTIMISE.generateCode{code=newCode, ops=List.rev ops,

@@ -112,7 +112,8 @@ struct
     |   LoadMemReg of { offset: int, dest: preg }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
-           stack arguments.  The last entry is the return address. *)
+           stack arguments.  The last entry is the return address.  If the function
+           has a real closure regArgs includes the closure register (rdx). *)
     |   BeginFunction of { regArgs: (preg * reg) list, stackArgs: stackLocn list }
 
         (* Call a function.  If the code address is a constant it is passed here.

@@ -3923,7 +3923,7 @@ struct
         val pregProperties = Vector.fromList(List.rev(! pregPropList))
     in
         codeICodeFunctionToX86{blocks = resultVector, functionName = name, pregProps = pregProperties,
-            argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
+            currentStackArgs = currentStackArgs,
             ccCount= ! ccRefCounter, debugSwitches = debugSwitches, resultClosure = resultClosure}
     end
 
