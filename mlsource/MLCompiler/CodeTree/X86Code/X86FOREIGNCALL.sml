@@ -349,10 +349,8 @@ struct
                         FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
                     ]
 
-                |   (_, [FastArgDouble]) => [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 } ]
+                |   (_, [FastArgDouble]) => [ (* Already in xmm0 *) ]
 
-                    (* X64 on both Windows and Unix take the first arg in xmm0 and the second in xmm1.
-                       We need to unbox the values pointed at by rax and rbx. *)
                 |   (X86_32, [FastArgDouble, FastArgDouble]) =>
                      (* eax and ebx contain the addresses of the values.  They must be unboxed onto the stack. *)
                     [
@@ -363,18 +361,13 @@ struct
                         ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8, opSize=nativeWordOpSize},
                         FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
                     ]
-                |   (_, [FastArgDouble, FastArgDouble]) =>
-                        [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 },
-                          XMMArith { opc= SSE2MoveDouble, source=unboxAddress mlArg2Reg, output=xmm1 } ]
+                    (* X64 on both Windows and Unix take the first arg in xmm0 and the second in xmm1. They are already there. *)
+                |   (_, [FastArgDouble, FastArgDouble]) => [ ]
 
                     (* X64 on both Windows and Unix take the first arg in xmm0.  On Unix the integer argument is treated
                        as the first argument and goes into edi.  On Windows it's treated as the second and goes into edx. *)
-                |   (X64Unix, [FastArgDouble, FastArgFixed]) =>
-                        [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 },
-                          moveRR{source=mlArg2Reg, output=edi, opSize=nativeWordOpSize} ]
-                |   (X64Win, [FastArgDouble, FastArgFixed]) =>
-                        [ XMMArith { opc= SSE2MoveDouble, source=unboxAddress eax, output=xmm0 },
-                          moveRR{source=mlArg2Reg, output=edx, opSize=nativeWordOpSize} ]
+                |   (X64Unix, [FastArgDouble, FastArgFixed]) => [ moveRR{source=mlArg2Reg, output=edi, opSize=nativeWordOpSize} ]
+                |   (X64Win, [FastArgDouble, FastArgFixed]) => [ moveRR{source=mlArg2Reg, output=edx, opSize=nativeWordOpSize} ]
                 |   (X86_32, [FastArgDouble, FastArgFixed]) =>
                      (* ebx must be pushed to the stack but eax must be unboxed.. *)
                     [
@@ -392,7 +385,7 @@ struct
                         ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 4, opSize=nativeWordOpSize},
                         FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true }
                     ]
-                |   (_, [FastArgFloat]) => unboxOrUntagFloat(eax, xmm0)
+                |   (_, [FastArgFloat]) => []
 
                     (* Two float arguments.  Untag them on X86/64 but unbox on X86/32 *)
                 |   (X86_32, [FastArgFloat, FastArgFloat]) =>
@@ -408,10 +401,8 @@ struct
                 |   (_, [FastArgFloat, FastArgFloat]) => unboxOrUntagFloat(eax, xmm0) @ unboxOrUntagFloat(mlArg2Reg, xmm1)
 
                     (* One float argument and one fixed. *)
-                |   (X64Unix, [FastArgFloat, FastArgFixed]) =>
-                        unboxOrUntagFloat(eax, xmm0) @ [moveRR{source=mlArg2Reg, output=edi, opSize=polyWordOpSize} ]
-                |   (X64Win, [FastArgFloat, FastArgFixed]) =>
-                        unboxOrUntagFloat(eax, xmm0) @ [moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize}]
+                |   (X64Unix, [FastArgFloat, FastArgFixed]) => [moveRR{source=mlArg2Reg, output=edi, opSize=polyWordOpSize} ]
+                |   (X64Win, [FastArgFloat, FastArgFixed]) => [moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize}]
                 |   (X86_32, [FastArgFloat, FastArgFixed]) =>
                      (* ebx must be pushed to the stack but eax must be unboxed.. *)
                     [
