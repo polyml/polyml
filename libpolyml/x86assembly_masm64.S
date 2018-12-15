@@ -38,7 +38,6 @@
 ;  r15:  Memory allocation pointer
 
 ; Extra entries on the C stack
-Fr_SavedMLSP        EQU     -128
 Fr_Size             EQU     144         ; Must be multiple of 16 to get alignment correct
 
 ; This is the argument vector passed in to X86AsmSwitchToPoly
@@ -126,13 +125,13 @@ ENDM
 X86AsmSwitchToPoly  PROC FRAME
     push    rbp                             ; Standard entry sequence
     mov     [ArgVector.SaveCStack+rcx],rsp  ; Save this here instead of setting rbp itself
-    push    rbx                             ; Save callee--save registers
+    push    rbx                             ; Save callee-save registers
     push    r12
     push    r13
     push    r14
     push    r15
     push    rdi                             ; Callee save in Windows
-    push    rsi
+    push    rsi                             ; Strictly, we should also save xmm6
     .endprolog
     mov     rbp,rcx                         ; Move argument into rbp - this is definitely non-standard
     sub     rsp,(Fr_size-56)

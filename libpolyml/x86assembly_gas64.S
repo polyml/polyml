@@ -68,8 +68,6 @@ GLOBAL EXTNAME(id); \
 EXTNAME(id):
 
 /* Extra entries on the C stack */
-#define Fr_SavedMLSP            -128
-
 #define Fr_Size                 144         /* Must be multiple of 16 to get alignment correct */
 
 /* This is the argument vector passed in to X86AsmSwitchToPoly
