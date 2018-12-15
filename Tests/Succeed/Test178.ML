@@ -1,36 +1,35 @@
-(* A few of these are specially handled in the code-generator. *)
+(* Test select call.  Modified from Test083 on poll. *)
+fun verify true = ()
+|   verify false = raise Fail "wrong";
 
-fun check true = () | check false = raise Fail "Incorrect";
+val x = INetSock.TCP.socket(): Socket.passive INetSock.stream_sock
+and y = INetSock.TCP.socket(): Socket.active INetSock.stream_sock;
+val SOME me = NetHostDB.getByName "localhost";
+val localhost = NetHostDB.addr me;
+Socket.bind(x, INetSock.toAddr(localhost, 0));
+Socket.listen(x, 5);
+Socket.acceptNB x;
 
-PolyML.Compiler.maxInlineSize := 1;
-fun f x = if x then 1 else 0;
-check(f true = 1);
-check(f false = 0);
+val xDesc = Socket.sockDesc x and yDesc = Socket.sockDesc y;
 
-fun f x = if x then 2 else 0;
-check(f true = 2);
-check(f false = 0);
+(* Only test y.  On Windows x does not appear but in Linux both y appears in both read and write. *)
+val {rds, wrs, exs} = Socket.select{ rds=[xDesc], wrs=[xDesc], exs=[xDesc], timeout=SOME(Time.fromSeconds 1)};
 
-fun f x = if x then 3 else 0;
-check(f true = 3);
-check(f false = 0);
+verify(null rds andalso null wrs andalso null exs);
 
-fun f x = if x then 4 else 0;
-check(f true = 4);
-check(f false = 0);
+let
+    val (_, port) = INetSock.fromAddr(Socket.Ctl.getSockName x)
+in
+    Socket.connectNB(y, INetSock.toAddr(localhost, port))
+end;
 
-fun f x = if x then 5 else 0;
-check(f true = 5);
-check(f false = 0);
+val {rds, wrs, exs} = Socket.select{ rds=[xDesc, yDesc], wrs=[xDesc, yDesc], exs=[xDesc, yDesc], timeout=SOME(Time.fromSeconds 1)};
 
-fun f x = if x then 6 else 0;
-check(f true = 6);
-check(f false = 0);
+verify(Socket.sameDesc(hd rds, xDesc));
+verify(Socket.sameDesc(hd wrs, yDesc));
 
-fun f x = if x then 7 else 0;
-check(f true = 7);
-check(f false = 0);
-
-fun f x = if x then 8 else 0;
-check(f true = 8);
-check(f false = 0);
+val SOME(sock1, _) = Socket.acceptNB x;
+val NONE = Socket.acceptNB x;
+Socket.close sock1;
+Socket.close x;
+Socket.close y;
