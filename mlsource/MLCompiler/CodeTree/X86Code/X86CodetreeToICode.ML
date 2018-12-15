@@ -41,8 +41,7 @@ struct
             |   ObjectId32Bit => [eax, esi, r8, r9, r10]
         val fpResult = case targetArch of Native32Bit => FPReg fp0 | _ => XMMReg xmm0
     in
-        val argRegs = List.map GenReg regs
-        val numArgRegs = List.length argRegs
+        val generalArgRegs = List.map GenReg regs
         fun resultReg GeneralType = GenReg eax
         |   resultReg DoubleFloatType = fpResult
         |   resultReg SingleFloatType = fpResult
@@ -64,7 +63,7 @@ struct
     |   BlockExit of x86ICode
     |   BlockLabel of int
     |   BlockFlow of controlFlow
-    |   BlockBegin of (preg * reg) list
+    |   BlockBegin of { regArgs: (preg * reg) list, stackArgs: stackLocn list }
     |   BlockRaiseAndHandle of x86ICode * int
     |   BlockOptionalHandle of {call: x86ICode, handler: int, label: int }
 
@@ -147,31 +146,33 @@ struct
 
         val returnAddressEntry = newStackLoc 1
 
-        local
-            val numFunctionArgs = List.length argTypes
-            val maxRegArgs = List.length argRegs
-            
-            fun createArg i = {stackOffset=numFunctionArgs-(i+maxRegArgs), stackReg = newStackLoc 1 }
-        in
-            val (argRegsUsed, currentStackArgs) =
-                if numFunctionArgs >= maxRegArgs
-                then (argRegs, numFunctionArgs - List.length argRegs)
-                else (List.take(argRegs, numFunctionArgs), 0)
-            
-            val stackArgVector = Vector.tabulate(currentStackArgs, createArg)
-        end
-        val stackArguments = Vector.foldr(fn ({stackReg, ...}, l) => stackReg :: l) [] stackArgVector
+        datatype argLoc =
+            ArgInReg of { realReg: reg, argReg: preg }
+        |   ArgOnStack of { stackOffset: int, stackReg: stackLocn }
 
         (* Pseudo-regs for the result, the closure and the args that were passed in real regs. *)
         val resultTarget = newPReg()
         val closureRegAddr = newPReg()
-        val argPRegs = map (fn _ => newPReg()) argRegsUsed
 
+        (* Create a map for the arguments indicating their register or stack location. *)
         local
+            fun argTypesToArgEntries([], _, _) = []
+            |   argTypesToArgEntries(_ :: tl, aReg :: aRegs, n) =
+                    ArgInReg{realReg=aReg, argReg=newPReg()} :: argTypesToArgEntries(tl, aRegs, n-1)
+            |   argTypesToArgEntries(_ :: tl, [], n) =
+                    ArgOnStack {stackOffset=n, stackReg = newStackLoc 1 } :: argTypesToArgEntries(tl, [], n-1)
+            val argEntries = argTypesToArgEntries(argTypes, generalArgRegs, List.length argTypes)
+            
             val clReg = case closure of [] => [] | _ => [(closureRegAddr, GenReg edx)]
-            val argRegs = ListPair.zip (argPRegs, argRegsUsed)
+            val argRegs =
+                List.mapPartial(fn ArgInReg{realReg, argReg} => SOME(argReg, realReg) | ArgOnStack _ => NONE) argEntries
+            val stackArguments =
+                List.mapPartial(fn ArgOnStack{stackReg, ...} => SOME stackReg | ArgInReg _ => NONE) argEntries
         in
-            val beginInstruction = BlockBegin(clReg @ argRegs)
+            val argumentVector = Vector.fromList argEntries
+            val beginInstruction =
+                BlockBegin{regArgs=clReg @ argRegs, stackArgs=stackArguments @ [returnAddressEntry]}
+            val currentStackArgs = List.length stackArguments
         end
 
         fun constantAsArgument value =
@@ -726,19 +727,20 @@ struct
             )
 
         |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
-            if a < numArgRegs
-            then (* It was originally in a register.  It's now in a preg. *)
-                moveIfNotAllowedRev(destination, tailCode, RegisterArgument(List.nth(argPRegs, a)))
-            else (* Pushed before call. *)
-            let
-                val target = asTarget destination
-                val {stackOffset, stackReg} = Vector.sub(stackArgVector, a-numArgRegs)
-            in
-                (BlockSimple(LoadArgument{
-                    source=StackLocation{wordOffset=stackOffset+stackPtr, container=stackReg, field=0, cache=NONE},
-                    dest=target, kind=moveNativeWord}) :: tailCode,
-                 RegisterArgument target, false)
-            end
+            (
+                case Vector.sub(argumentVector, a) of
+                    ArgInReg{argReg, ...} => (* It was originally in a register.  It's now in a preg. *)
+                        moveIfNotAllowedRev(destination, tailCode, RegisterArgument argReg)
+                |   ArgOnStack{stackOffset, stackReg} => (* Pushed before call. *)
+                    let
+                        val target = asTarget destination
+                    in
+                        (BlockSimple(LoadArgument{
+                            source=StackLocation{wordOffset=stackOffset+stackPtr, container=stackReg, field=0, cache=NONE},
+                            dest=target, kind=moveNativeWord}) :: tailCode,
+                         RegisterArgument target, false)
+                    end
+            )
         
         |   codeToICodeRev(BICExtract(BICLoadClosure c), _, _, destination, tailCode) =
             let
@@ -886,7 +888,7 @@ struct
                     in
                         (code, regArgs, r :: stackArgs)
                     end
-                val (codeArgs, regArgs, stackArgs) = loadArgs(argList, argRegs, functionCode)
+                val (codeArgs, regArgs, stackArgs) = loadArgs(argList, generalArgRegs, functionCode)
                 
                 (* If this is at the end of the function and the result types are the
                    same we can use a tail-recursive call. *)
@@ -3876,10 +3878,9 @@ struct
                 (* End of code.  We should have had a BeginFunction. *)
                 raise InternalError "splitCode - no begin"
             
-            |   splitCode(BlockBegin regArgs :: _, sinceLabel, flow) =
+            |   splitCode(BlockBegin args :: _, sinceLabel, flow) =
                     (* Final instruction.  Create the initial block and exit. *)
-                    createEntry(0,
-                        BeginFunction{regArgs=regArgs, stackArgs=stackArguments @ [returnAddressEntry]}::sinceLabel, flow)
+                    createEntry(0, BeginFunction args ::sinceLabel, flow)
             
             |   splitCode(BlockSimple instr :: rest, sinceLabel, flow) =
                     splitCode(rest, instr :: sinceLabel, flow)
