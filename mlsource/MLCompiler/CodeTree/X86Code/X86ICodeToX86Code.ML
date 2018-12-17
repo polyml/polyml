@@ -386,9 +386,19 @@ struct
                                like to avoid that. *)
                             val exchangeCode =
                                 case (selectDst, selectSrc) of
-                                    (RegDest regA, OtherSource(RegisterArg regB)) =>
-                                        XChng { reg=asGenReg regA, arg=RegisterArg(asGenReg regB), opSize=nativeWordOpSize } :: code
+                                    (RegDest(GenReg regA), OtherSource(RegisterArg(GenReg regB))) =>
+                                        XChng { reg=regA, arg=RegisterArg regB, opSize=nativeWordOpSize } :: code
 
+                                |   (RegDest(XMMReg regA), OtherSource(RegisterArg(XMMReg regB))) =>
+                                        (* This is the only case where we can have a cycle with SSE2 regs.
+                                           There are various ways of doing it but XORs are probably the easiest. *)
+                                        XMMArith{opc=SSE2Xor, source=RegisterArg regA, output=regB} ::
+                                        XMMArith{opc=SSE2Xor, source=RegisterArg regB, output=regA} ::
+                                        XMMArith{opc=SSE2Xor, source=RegisterArg regA, output=regB} :: code
+
+                                |   (RegDest _, OtherSource(RegisterArg _)) =>
+                                        raise InternalError "moveEachValue: invalid register combination"
+                                        
                                 |   (RegDest regA, src as StackSource addr) =>
                                     let
                                         val workReg = valOf workReg
