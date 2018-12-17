@@ -1844,14 +1844,20 @@ struct
                                     then SOME dest
                                     else NONE
                             |   Conditional {trueJump, falseJump, condition, ...} =>
-                                (* Try the falseJump first - this is the usual case.  If that fails
-                                   try the trueJump.  The exception is if this is JNO.  It's better
-                                   to generate JO since the default branch prediction is not to
-                                   take forward jumps and we'd expect overflow to be unusual. *)
+                                (* We can usually choose either destination and in nearly all cases
+                                   it won't matter.  The default branch is not to take forward jumps
+                                   so if there is reason to believe that one branch is more likely
+                                   we should follow that branch now and leave the other.  If we
+                                   have JO/JNO we assume that overflow is unusual.  If one branch
+                                   raises an exception we assume that that is unusual. *)
                                 let
                                     val (first, second) =
-                                        case condition of
-                                            JNO => (trueJump, falseJump)
+                                        case (condition, Vector.sub(blocks, falseJump)) of
+                                            (JNO, _) => (trueJump, falseJump)
+                                        |   (_, ExtendedBasicBlock{ flow=ExitCode, block, ...}) =>
+                                                if List.exists(fn{instr=RaiseExceptionPacket _, ...} => true | _ => false) block
+                                                then (trueJump, falseJump)
+                                                else (falseJump, trueJump)
                                         |   _ => (falseJump, trueJump)
                                 in
                                     if not (haveProcessed first) andalso available first
