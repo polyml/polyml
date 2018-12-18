@@ -151,7 +151,7 @@ struct
             fun optCode([], brCond, _, code) = (code, brCond)
 
             |   optCode({instr=SetToCondition({dest, highOrder, ccRef, condition=setCCond, trueValue, falseValue, opSize}), ...} :: rest,
-                         BRChangeCond(ccCond as {srcCC, ...}), memRefs, code) =
+                         inCond as BRChangeCond(ccCond as {srcCC, ...}), memRefs, code) =
                 let
                     (* If we have a BRChangeCond then we need to adjust the condition. *)
                     val _ = ccRef = srcCC orelse raise InternalError "optCode: SetToCondition/BRChangeCond"
@@ -169,12 +169,10 @@ struct
                             in
                                 LoadArgument{dest=dest, source=IntegerConstant constVal, kind=moveKind}
                             end
-                    val outCond =
-                        if trueValue = 3 andalso falseValue = 1
-                        then BRSetCond {dest=dest, test=ccCond}
-                        else BRNone
+                    (* We have to continue with this BRChangeCond.  There could be more than one
+                       use of this condition, for example if we have changed a previous BooleanNot. *)
                 in
-                    optCode(rest, outCond, memRefs, outInstr :: code)
+                    optCode(rest, inCond, memRefs, outInstr :: code)
                 end
 
             |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition, trueValue, falseValue, opSize=_}, ...} :: rest,
@@ -186,7 +184,7 @@ struct
                         memRefs, instr :: code)
 
             |   optCode({instr=ConditionalMove{dest, falseSrc, trueSrc, ccRef, condition=moveCond, opSize}, ...} :: rest,
-                         BRChangeCond(ccCond as {srcCC, ...}), memRefs, code) =
+                         inCond as BRChangeCond(ccCond as {srcCC, ...}), memRefs, code) =
                 let
                     val _ = ccRef = srcCC orelse raise InternalError "optCode: ConditionalMove/BRChangeCond"
                     val () = hasChanged := true
@@ -203,7 +201,7 @@ struct
                                 LoadArgument{dest=dest, source=use, kind=kind}
                             end
                 in
-                    optCode(rest, BRNone, memRefs, outInstr :: code)
+                    optCode(rest, inCond, memRefs, outInstr :: code)
                 end
 
             |   optCode({instr=ConditionalMove{dest, falseSrc, trueSrc, ccRef, condition, opSize}, kill, ...} :: rest,
