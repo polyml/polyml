@@ -365,9 +365,10 @@ struct
                 |   (_, [FastArgDouble, FastArgDouble]) => [ ]
 
                     (* X64 on both Windows and Unix take the first arg in xmm0.  On Unix the integer argument is treated
-                       as the first argument and goes into edi.  On Windows it's treated as the second and goes into edx. *)
-                |   (X64Unix, [FastArgDouble, FastArgFixed]) => [ moveRR{source=mlArg2Reg, output=edi, opSize=nativeWordOpSize} ]
-                |   (X64Win, [FastArgDouble, FastArgFixed]) => [ moveRR{source=mlArg2Reg, output=edx, opSize=nativeWordOpSize} ]
+                       as the first argument and goes into edi.  On Windows it's treated as the second and goes into edx.
+                       N.B.  It's also the first argument in ML so is in rax. *)
+                |   (X64Unix, [FastArgDouble, FastArgFixed]) => [ moveRR{source=eax, output=edi, opSize=nativeWordOpSize} ]
+                |   (X64Win, [FastArgDouble, FastArgFixed]) => [ moveRR{source=eax, output=edx, opSize=nativeWordOpSize} ]
                 |   (X86_32, [FastArgDouble, FastArgFixed]) =>
                      (* ebx must be pushed to the stack but eax must be unboxed.. *)
                     [
