@@ -488,7 +488,7 @@ struct
                             block=[{instr as LoadArgument{source=sourceT, dest=destT, kind=kindT, ...}, ...}], ...},
                          ExtendedBasicBlock{flow=Unconditional toFalse,
                             block=[{instr=LoadArgument{source=sourceF, dest=destF, kind=kindF, ...}, ...}], ...}) =>
-                        if toTrue = toFalse andalso destT = destF andalso not (memMove sourceT) andalso not (memMove sourceF)
+                        (*if toTrue = toFalse andalso destT = destF andalso not (memMove sourceT) andalso not (memMove sourceF)
                            andalso kindT = kindF andalso (kindT = Move32Bit orelse kindT = Move64Bit)
                         then
                         let
@@ -510,7 +510,7 @@ struct
                         in
                             optimiseBlock (cmov :: blkCode) (toTrue, target)
                         end
-                        else BasicBlock{flow=flow, block=List.rev blkCode}
+                        else*) BasicBlock{flow=flow, block=List.rev blkCode}
 
                     |   (ExtendedBasicBlock{flow=ExitCode,
                             block=[{instr as LoadArgument{source=sourceT, dest=destT, kind=kindT, ...}, ...},
@@ -518,7 +518,7 @@ struct
                          ExtendedBasicBlock{flow=ExitCode,
                             block=[{instr=LoadArgument{source=sourceF, dest=destF, kind=kindF, ...}, ...},
                                    {instr=ReturnResultFromFunction{resultReg=resF, realReg=realT, ...}, ...}], ...}) =>
-                        if destT = resT andalso destF = resF andalso not (memMove sourceT) andalso not (memMove sourceF)
+                        (*if destT = resT andalso destF = resF andalso not (memMove sourceT) andalso not (memMove sourceF)
                            andalso kindT = kindF andalso realF = realT andalso (kindT = Move32Bit orelse kindT = Move64Bit)
                         then
                         let
@@ -539,7 +539,7 @@ struct
                         in
                             BasicBlock{flow=ExitCode, block=List.rev resCode}
                         end
-                        else BasicBlock{flow=flow, block=List.rev blkCode}
+                        else *)BasicBlock{flow=flow, block=List.rev blkCode}
 
                     |   _ => BasicBlock{flow=flow, block=List.rev blkCode}
                 end

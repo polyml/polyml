@@ -516,6 +516,24 @@ struct
                 (code @ [BlockSimple(LoadArgument{source=arg, dest=target, kind=moveSize})], RegisterArgument target, false)
             end
 
+        fun makeBoolResultRev(condition, ccRef, target, testCode) =
+        let
+            val trueLab = newLabel() and falseLab = newLabel() and mergeLab = newLabel()
+            val mergeReg = newPReg()
+        in
+            BlockSimple(LoadArgument{dest=target, source=RegisterArgument mergeReg, kind=Move32Bit}) ::
+            BlockLabel mergeLab ::
+            BlockFlow(Unconditional mergeLab) ::
+            BlockSimple(LoadArgument{dest=mergeReg, source=IntegerConstant(tag 0), kind=Move32Bit}) ::
+            BlockLabel falseLab ::
+            BlockFlow(Unconditional mergeLab) ::
+            BlockSimple(LoadArgument{dest=mergeReg, source=IntegerConstant(tag 1), kind=Move32Bit}) ::
+            BlockLabel trueLab ::
+            BlockFlow(Conditional{ ccRef=ccRef, condition=condition, trueJump=trueLab, falseJump=falseLab }) ::
+            testCode
+        end
+
+
         fun moveIfNotAllowedRev(NoResult, code, arg) = (code, arg, false)
 
         |   moveIfNotAllowedRev(Allowed{anyConstant=true, ...}, code, arg as AddressConstant _) = (code, arg, false)
@@ -2234,28 +2252,21 @@ struct
                 val code =
                     case (arg1Result, arg2Result) of
                         (RegisterArgument arg1Reg, arg2Result) =>
-                            BlockSimple(
-                                SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, trueValue=tag 1, falseValue=tag 0,
-                                    condition=testAsBranch(test, isSigned, true), opSize=polyWordOpSize}) ::
-                            BlockSimple(WordComparison{arg1=arg1Reg, arg2=arg2Result, ccRef=ccRef, opSize=polyWordOpSize}) ::
-                            BlockSimple(ZeroRegister{dest=zeroReg}) :: arg2Code
+                            makeBoolResultRev(testAsBranch(test, isSigned, true), ccRef, target,
+                                BlockSimple(WordComparison{arg1=arg1Reg, arg2=arg2Result, ccRef=ccRef, opSize=polyWordOpSize}) ::
+                                    arg2Code)
                     |   (arg1Result, RegisterArgument arg2Reg) =>
                             (* The second argument is in a register - switch the sense of the test. *)
-                            BlockSimple(
-                                SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, trueValue=tag 1, falseValue=tag 0,
-                                    condition=testAsBranch(leftRightTest test, isSigned, true), opSize=polyWordOpSize}) ::
-                            BlockSimple(WordComparison{arg1=arg2Reg, arg2=arg1Result, ccRef=ccRef, opSize=polyWordOpSize}) ::
-                            BlockSimple(ZeroRegister{dest=zeroReg}) :: arg2Code
+                            makeBoolResultRev(testAsBranch(leftRightTest test, isSigned, true), ccRef, target,
+                                BlockSimple(WordComparison{arg1=arg2Reg, arg2=arg1Result, ccRef=ccRef, opSize=polyWordOpSize}) ::
+                                    arg2Code)
                     |   (arg1Result, arg2Result) =>
                         let (* Have to load an argument - pick the first. *)
                             val arg1Reg = newPReg()
                         in
-                            BlockSimple(
-                                SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg,
-                                    condition=testAsBranch(test, isSigned, true), trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
-                            BlockSimple(WordComparison{arg1=arg1Reg, arg2=arg2Result, ccRef=ccRef, opSize=polyWordOpSize}) ::
-                            BlockSimple(ZeroRegister{dest=zeroReg}) :: 
-                            BlockSimple(LoadArgument{source=arg1Result, dest=arg1Reg, kind=movePolyWord})  :: arg2Code
+                            makeBoolResultRev(testAsBranch(test, isSigned, true), ccRef, target,
+                                BlockSimple(WordComparison{arg1=arg1Reg, arg2=arg2Result, ccRef=ccRef, opSize=polyWordOpSize}) ::
+                                BlockSimple(LoadArgument{source=arg1Result, dest=arg1Reg, kind=movePolyWord})  :: arg2Code)
                         end
             in
                 (code, RegisterArgument target, false)

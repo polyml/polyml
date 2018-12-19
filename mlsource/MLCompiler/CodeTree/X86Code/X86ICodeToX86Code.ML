@@ -1781,6 +1781,10 @@ struct
                flow.  This in turn may allow us to use short branches rather
                than long ones. *)
             val labelRefs = Array.array(numBlocks, [])
+
+            datatype flowCode =
+                FlowCodeSimple of int
+            |   FlowCodeCMove of {code: operation list, trueJump: int, falseJump: int}
             
             (* Process this recursively to set the references.  If we have
                unreachable blocks, perhaps because they've been merged, we
@@ -1851,36 +1855,202 @@ struct
                             |   IndexedBr _ => NONE (* We could put the last branch in here. *)
                             |   Unconditional dest =>
                                     if not (haveProcessed dest) andalso available dest
-                                    then SOME dest
+                                    then SOME(FlowCodeSimple dest)
                                     else NONE
                             |   Conditional {trueJump, falseJump, condition, ...} =>
-                                (* We can usually choose either destination and in nearly all cases
-                                   it won't matter.  The default branch is not to take forward jumps
-                                   so if there is reason to believe that one branch is more likely
-                                   we should follow that branch now and leave the other.  If we
-                                   have JO/JNO we assume that overflow is unusual.  If one branch
-                                   raises an exception we assume that that is unusual. *)
                                 let
-                                    val (first, second) =
-                                        case (condition, Vector.sub(blocks, falseJump)) of
-                                            (JNO, _) => (trueJump, falseJump)
-                                        |   (_, ExtendedBasicBlock{ flow=ExitCode, block, ...}) =>
-                                                if List.exists(fn{instr=RaiseExceptionPacket _, ...} => true | _ => false) block
-                                                then (trueJump, falseJump)
-                                                else (falseJump, trueJump)
-                                        |   _ => (falseJump, trueJump)
+                                    (* Can we replace this with a SETCC or CMOV?  If both arms simply set
+                                       a register to a value and either return or jump to the same location
+                                       we can use a SETCC or a CMOV.  *)
+                                    val ExtendedBasicBlock { flow=tFlow, block=tBlock, ...} = Vector.sub(blocks, trueJump)
+                                    and ExtendedBasicBlock { flow=fFlow, block=fBlock, ...} = Vector.sub(blocks, falseJump)
+
+                                    fun cmoveOrSetcc{condition, output, tSource=IntegerConstant trueValue, fSource=IntegerConstant falseValue, kind, code} =
+                                        let (* Could use SETCC.  Only if we can use LEA for multiplication.  The result must be
+                                               tagged so we will always have a multiplier. *)
+                                            val (multiplier, fValue, testCondition) =
+                                                if trueValue >= falseValue
+                                                then (trueValue-falseValue, falseValue, condition)
+                                                else (falseValue-trueValue, trueValue, invertTest condition)
+                                        in
+                                            if multiplier = 2 orelse multiplier = 4 orelse multiplier = 8
+                                            then
+                                            let
+                                                val destReg = asGenReg output
+                                                val (moveSize, opSize) =
+                                                    case kind of
+                                                        Move32Bit => (Move32, OpSize32)
+                                                    |   Move64Bit => (Move64, OpSize64)
+                                                    | _ => raise InternalError "move size"
+                                                val (index, base) =
+                                                    case multiplier of
+                                                        2 => (Index1 destReg, SOME destReg)
+                                                    |   4 => (Index4 destReg, NONE)
+                                                    |   8 => (Index8 destReg, NONE)
+                                                    |   _ => (NoIndex, NONE)
+                                                (* Try to put the instruction to zero the register before any compare.  We can do it
+                                                   provided the register we're going to zero isn't used in the comparison. *)
+                                                fun checkArg(RegisterArg r) = r <> destReg
+                                                |   checkArg(MemoryArg mem) = checkMem mem
+                                                |   checkArg _ = true
+                                                
+                                                and checkMem{base, index=NoIndex, ...} = base <> destReg
+                                                |   checkMem{base, index=Index1 index, ...} = base <> destReg andalso index <> destReg
+                                                |   checkMem{base, index=Index2 index, ...} = base <> destReg andalso index <> destReg
+                                                |   checkMem{base, index=Index4 index, ...} = base <> destReg andalso index <> destReg
+                                                |   checkMem{base, index=Index8 index, ...} = base <> destReg andalso index <> destReg
+
+                                                val maySwap =
+                                                    case hd code of
+                                                        ArithToGenReg{output, source, ...} => output <> destReg andalso checkArg source
+                                                    |   ArithMemConst{address, ...} => checkMem address
+                                                    |   instr => (print (PolyML.makestring instr ^ "\n"); false) 
+                                                val codeAndZero =
+                                                    if maySwap
+                                                    then hd code ::
+                                                            ArithToGenReg { opc=XOR, output=destReg, source=RegisterArg destReg, opSize=OpSize32 } ::
+                                                                tl code
+                                                    else Move{destination=RegisterArg destReg, source=NonAddressConstArg 0, moveSize=moveSize} ::
+                                                        code
+                                                val code =
+                                                    LoadAddress{output=destReg, offset=Int.fromLarge fValue, base=base, index=index, opSize=opSize} ::
+                                                    SetCondition{output=destReg, test=testCondition} ::
+                                                    codeAndZero
+                                            in
+                                                SOME code
+                                            end
+                                            else NONE
+                                        end
+
+                                        (* If either value is a memory location it isn't safe to load it.  The base address
+                                           may not be valid if the condition does not hold. *)
+                                    |   cmoveOrSetcc{tSource=MemoryLocation _, ...} = NONE
+                                    |   cmoveOrSetcc{fSource=MemoryLocation _, ...} = NONE
+                                        
+                                    |   cmoveOrSetcc{condition, output, tSource, fSource, kind, code} =
+                                        if targetArch = Native32Bit
+                                        then NONE (* CMov doesn't work for constants. *)
+                                        else
+                                        let
+                                            val output = asGenReg output
+                                            val codeTrue = codeExtArgumentAsGenReg tSource
+                                            and codeFalse = codeExtArgumentAsGenReg fSource
+                                            val opSize =
+                                                case kind of
+                                                    Move32Bit => OpSize32
+                                                |   Move64Bit => OpSize64
+                                                | _ => raise InternalError "move size"
+                                            (* One argument has to be loaded into a register first and the other
+                                               is conditionally moved.  *)
+                                            val loadFalseCmoveTrue =
+                                                if (case codeFalse of RegisterArg regFalse => regFalse = output | _ => false)
+                                                then true (* The false value is already in the right register. *)
+                                                else if (case codeTrue of RegisterArg regTrue => regTrue = output | _ => false)
+                                                then false (* The true value is in the right register - have to reverse. *)
+                                                else if (case codeTrue of NonAddressConstArg _ => true | _ => false)
+                                                then false (* The true value is a short constant.  If we use a CMOV we will have to put that
+                                                              in the non-constant area and use a PC-relative reference.  Try to avoid it. *)
+                                                else true
+                                            fun cmov{codeLoad, codeMove, condition} =
+                                            let
+                                                val load =
+                                                    case codeLoad of
+                                                        RegisterArg regLoad =>
+                                                            moveIfNecessary({src=GenReg regLoad, dst=GenReg output, kind=opSizeToIMove opSize}, code)
+                                                    |   codeLoad =>
+                                                            Move{source=codeLoad, destination=RegisterArg output, moveSize=opSizeToMove opSize} ::  code
+                                            in
+                                                CondMove{test=condition, output=output, source=codeMove, opSize=opSize} :: load
+                                            end
+                                        in
+                                            if loadFalseCmoveTrue
+                                            then SOME(cmov{codeLoad=codeFalse, codeMove=codeTrue, condition=condition})
+                                            else SOME(cmov{codeLoad=codeTrue, codeMove=codeFalse, condition=invertTest condition})
+                                        end
+                                    
+                                    val isPossSetCCOrCmov =
+                                        if not (haveProcessed trueJump) andalso available trueJump
+                                            andalso not (haveProcessed falseJump) andalso available falseJump
+                                        then case (tFlow, fFlow, tBlock, fBlock) of
+                                            (ExitCode,
+                                             ExitCode,
+                                             [{instr=LoadArgument{dest=PReg tReg, source=tSource, kind=kindT}, ...},
+                                                {instr=ReturnResultFromFunction{resultReg=PReg resReg, realReg, numStackArgs, ...}, ...}],
+                                             [{instr=LoadArgument{dest=PReg fReg, source=fSource, kind=kindF}, ...},
+                                                {instr=ReturnResultFromFunction _, ...}]) =>
+                                             (* The real register for the two sides should both be rax. *)
+                                            let
+                                                val realTReg = getAllocatedReg tReg and realFReg = getAllocatedReg fReg
+                                            in
+                                                if realTReg = realFReg andalso kindT = kindF andalso (kindT = Move32Bit orelse kindT = Move64Bit)
+                                                then
+                                                (
+                                                    case cmoveOrSetcc{condition=condition, output=realTReg, tSource=tSource, fSource=fSource,
+                                                                      kind=kindT, code=code} of
+                                                        SOME code =>
+                                                        let
+                                                            val resultReg = getAllocatedReg resReg
+                                                            val code =
+                                                                ReturnFromFunction numStackArgs ::
+                                                                    moveIfNecessary({src=resultReg, dst=realReg, kind=moveNativeWord}, code)
+                                                        in
+                                                            SOME{code=code, trueJump=trueJump, falseJump=falseJump}
+                                                        end
+                                                    |   NONE => NONE
+                                               )
+                                               else NONE
+                                            end
+                                        |   (Unconditional tDest,
+                                             Unconditional fDest,
+                                             [{instr=LoadArgument{dest=PReg tReg, source=tSource, kind=kindT}, ...}],
+                                             [{instr=LoadArgument{dest=PReg fReg, source=fSource, kind=kindF}, ...}]) =>
+                                            let
+                                                val realTReg = getAllocatedReg tReg and realFReg = getAllocatedReg fReg
+                                            in
+                                                if tDest = fDest andalso realTReg = realFReg andalso kindT = kindF andalso (kindT = Move32Bit orelse kindT = Move64Bit)
+                                                then
+                                                (
+                                                    case cmoveOrSetcc{condition=condition, output=realTReg, tSource=tSource, fSource=fSource,
+                                                                      kind=kindT, code=code} of
+                                                        SOME code => SOME{code=code, trueJump=trueJump, falseJump=falseJump}
+                                                    |   NONE => NONE
+                                                )
+                                                else NONE
+                                            end
+                                        |   _ => NONE
+                                        else NONE
                                 in
-                                    if not (haveProcessed first) andalso available first
-                                    then SOME first
-                                    else if not (haveProcessed second) andalso available second
-                                    then SOME second
-                                    else NONE
+                                    case isPossSetCCOrCmov of
+                                        NONE =>
+                                        (* We can usually choose either destination and in nearly all cases
+                                           it won't matter.  The default branch is not to take forward jumps
+                                           so if there is reason to believe that one branch is more likely
+                                           we should follow that branch now and leave the other.  If we
+                                           have JO/JNO we assume that overflow is unusual.  If one branch
+                                           raises an exception we assume that that is unusual. *)
+                                        let
+                                            val (first, second) =
+                                                case (condition, Vector.sub(blocks, falseJump)) of
+                                                    (JNO, _) => (trueJump, falseJump)
+                                                |   (_, ExtendedBasicBlock{ flow=ExitCode, block, ...}) =>
+                                                        if List.exists(fn{instr=RaiseExceptionPacket _, ...} => true | _ => false) block
+                                                        then (trueJump, falseJump)
+                                                        else (falseJump, trueJump)
+                                                |   _ => (falseJump, trueJump)
+                                        in
+                                            if not (haveProcessed first) andalso available first
+                                            then SOME(FlowCodeSimple first)
+                                            else if not (haveProcessed second) andalso available second
+                                            then SOME(FlowCodeSimple second)
+                                            else NONE
+                                        end
+                                    |   SOME args => SOME(FlowCodeCMove args)
                                 end
                            |    SetHandler { continue, ... } =>
                                     (* We want the continuation if possible.  We'll need a
                                        branch round the handler so that won't help. *)
                                     if not (haveProcessed continue) andalso available continue
-                                    then SOME continue
+                                    then SOME(FlowCodeSimple continue)
                                     else NONE
                            |    UnconditionalHandle _ => NONE
                            |    ConditionalHandle _ => NONE
@@ -1894,83 +2064,111 @@ struct
                                 SOME c => c
                             |   NONE =>
                                     case List.find available stillToDo of
-                                        SOME c => c
-                                    |   NONE => head
+                                        SOME c => FlowCodeSimple c
+                                    |   NONE => FlowCodeSimple head
                     end
-                        
-                    val () = Array.update(processed, picked, true)
-
-                    (* Code to terminate the previous block. *)
-                    val startCode =
-                        case lastFlow of
-                            ExitCode => []
-                        |   IndexedBr _ => []
-                        |   UnconditionalHandle _ => []
-                        |   Unconditional dest =>
-                                if dest = picked then [] else [UncondBranch(getBlockLabel dest)]
-                        |   ConditionalHandle { continue, ...} =>
-                                if continue = picked then [] else [UncondBranch(getBlockLabel continue)]
-                        |   SetHandler { continue, ... } =>
-                                if continue = picked then [] else [UncondBranch(getBlockLabel continue)]
-                        |   Conditional { condition, trueJump, falseJump, ...} =>
-                            if picked = falseJump (* Usual case. *)
-                            then [ConditionalBranch{test=condition, label=getBlockLabel trueJump}]
-                            else if picked = trueJump
-                            then (* We have a jump to the true condition. Invert the jump.
-                                    This is more than an optimisation.  Because this immediately precedes the
-                                    true block we're not going to generate a label. *)
-                                [ConditionalBranch{test=invertTest condition, label=getBlockLabel falseJump}]
-                            else
-                            [
-                                UncondBranch(getBlockLabel falseJump),
-                                ConditionalBranch{test=condition, label=getBlockLabel trueJump}
-                            ]
-
-                    (* Code-generate the body with the code we've done so far
-                       at the end.  Add a label at the start if necessary. *)
-                    local
-                        (* If the previous block dropped through to this and this was
-                           the only reference then we don't need a label. *)
-                        fun onlyJumpingHere lab =
-                            if lab <> picked then false
-                            else case Array.sub(labelRefs, picked) of
-                                [singleton] => singleton = lab
-                            |   _ => false
-                        
-                        val noLabel =
-                            case lastFlow of
-                                ExitCode => picked = 0 (* Unless this was the first block. *)
-                            |   Unconditional dest => onlyJumpingHere dest
-                            |   Conditional { trueJump, falseJump, ...} =>
-                                    onlyJumpingHere trueJump orelse onlyJumpingHere falseJump
-                            |   IndexedBr _ => false
-                            |   SetHandler _ => false
-                            |   UnconditionalHandle _ => false
-                            |   ConditionalHandle { continue, ...} => onlyJumpingHere continue
-                    in
-                        val startLabel = if noLabel then [] else [JumpLabel(getBlockLabel picked)]
-                    end
-
-                    val ExtendedBasicBlock { flow, block, ...} = Vector.sub(blocks, picked)
-
-                    local
-                        fun genCodeBlock(instr, code) = codeExtended {flow=flow} (instr, code)
-                    in
-                        val bodyCode = List.foldl genCodeBlock (startLabel @ startCode @ code) block
-                    end
- 
-                    val addSet =
-                        case flow of
-                            ExitCode => []
-                        |   IndexedBr cases => cases
-                        |   Unconditional dest => [dest]
-                        |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
-                        |   SetHandler { handler, continue } => [handler, continue]
-                        |   UnconditionalHandle _ => []
-                        |   ConditionalHandle { continue, ...} => [continue]
-
+                    
                 in
-                    genCode(addSet @ stillToDo, flow, bodyCode)
+                    case picked of
+                        FlowCodeSimple picked =>
+                        let
+                            val () = Array.update(processed, picked, true)
+
+                            (* Code to terminate the previous block. *)
+                            val startCode =
+                                case lastFlow of
+                                    ExitCode => []
+                                |   IndexedBr _ => []
+                                |   UnconditionalHandle _ => []
+                                |   Unconditional dest =>
+                                        if dest = picked then [] else [UncondBranch(getBlockLabel dest)]
+                                |   ConditionalHandle { continue, ...} =>
+                                        if continue = picked then [] else [UncondBranch(getBlockLabel continue)]
+                                |   SetHandler { continue, ... } =>
+                                        if continue = picked then [] else [UncondBranch(getBlockLabel continue)]
+                                |   Conditional { condition, trueJump, falseJump, ...} =>
+                                    if picked = falseJump (* Usual case. *)
+                                    then [ConditionalBranch{test=condition, label=getBlockLabel trueJump}]
+                                    else if picked = trueJump
+                                    then (* We have a jump to the true condition. Invert the jump.
+                                            This is more than an optimisation.  Because this immediately precedes the
+                                            true block we're not going to generate a label. *)
+                                        [ConditionalBranch{test=invertTest condition, label=getBlockLabel falseJump}]
+                                    else
+                                    [
+                                        UncondBranch(getBlockLabel falseJump),
+                                        ConditionalBranch{test=condition, label=getBlockLabel trueJump}
+                                    ]
+
+                            (* Code-generate the body with the code we've done so far
+                               at the end.  Add a label at the start if necessary. *)
+                            local
+                                (* If the previous block dropped through to this and this was
+                                   the only reference then we don't need a label. *)
+                                fun onlyJumpingHere (lab: int) =
+                                    if lab <> picked then false
+                                    else case Array.sub(labelRefs, picked) of
+                                        [singleton] => singleton = lab
+                                    |   _ => false
+                    
+                                val noLabel =
+                                    case lastFlow of
+                                        ExitCode => picked = 0 (* Unless this was the first block. *)
+                                    |   Unconditional dest => onlyJumpingHere dest
+                                    |   Conditional { trueJump, falseJump, ...} =>
+                                            onlyJumpingHere trueJump orelse onlyJumpingHere falseJump
+                                    |   IndexedBr _ => false
+                                    |   SetHandler _ => false
+                                    |   UnconditionalHandle _ => false
+                                    |   ConditionalHandle { continue, ...} => onlyJumpingHere continue
+                            in
+                                val startLabel = if noLabel then [] else [JumpLabel(getBlockLabel picked)]
+                            end
+
+                            val ExtendedBasicBlock { flow, block, ...} = Vector.sub(blocks, picked)
+
+                            local
+                                fun genCodeBlock(instr, code) = codeExtended {flow=flow} (instr, code)
+                            in
+                                val bodyCode = List.foldl genCodeBlock (startLabel @ startCode @ code) block
+                            end
+
+                            val addSet =
+                                case flow of
+                                    ExitCode => []
+                                |   IndexedBr cases => cases
+                                |   Unconditional dest => [dest]
+                                |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
+                                |   SetHandler { handler, continue } => [handler, continue]
+                                |   UnconditionalHandle _ => []
+                                |   ConditionalHandle { continue, ...} => [continue]
+
+                        in
+                            genCode(addSet @ stillToDo, flow, bodyCode)
+                        end
+                
+                    |   FlowCodeCMove{code, trueJump, falseJump} =>
+                        let
+                            (* We've generated a conditional move and possibly a return.  If the
+                               trueJump and falseJump are only ever referenced from this block
+                               they're done, otherwise we still need to do them. *)
+                            val _ =
+                                case Array.sub(labelRefs, trueJump) of
+                                    [_] => Array.update(processed, trueJump, true)
+                                |   _ => ()
+                            val _ =
+                                case Array.sub(labelRefs, falseJump) of
+                                    [_] => Array.update(processed, falseJump, true)
+                                |   _ => ()
+                            val ExtendedBasicBlock { flow, ...} = Vector.sub(blocks, trueJump)
+                            val addSet =
+                                case flow of
+                                    ExitCode => []
+                                |   Unconditional dest => [dest]
+                                |   _ => raise InternalError "FlowCodeCMove"
+                        in
+                            genCode(addSet @ stillToDo, flow, code)
+                        end
                 end
         in
             val ops = genCode([0], ExitCode, [])
