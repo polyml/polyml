@@ -320,6 +320,20 @@ struct
             { sources=argRegs trueSrc @ argRegs falseSrc, dests=[dest], sStacks=argStacks trueSrc @ argStacks falseSrc,
               dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCUnchanged }
 
+    (* These instructions can be eliminated if their register sources are not used.
+       There may be other cases. *)
+    fun eliminateable(LoadArgument _) = true
+    |   eliminateable(TagValue _) = true
+    |   eliminateable(UntagValue _) = true
+    |   eliminateable(LoadEffectiveAddress _) = true
+    |   eliminateable(BoxValue _) = true
+    |   eliminateable(CopyToCache _) = true
+    |   eliminateable(LoadMemReg _) = true
+    |   eliminateable(SetToCondition _) = true
+    |   eliminateable(BooleanNot _) = true
+    |   eliminateable(ZeroRegister _) = true
+    |   eliminateable _ = false
+
     fun identifyRegs(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let
         val maxPRegs = Vector.length pregProps
@@ -367,19 +381,6 @@ struct
                 let
                     val { sources, dests, sStacks=stackSrcs, dStacks=stackDests, ccIn, ccOut, ... } =
                         getInstructionState instr
-                    val eliminateable =
-                        case instr of
-                            LoadArgument _ => true
-                        |   TagValue _ => true
-                        |   UntagValue _ => true
-                        |   LoadEffectiveAddress _ => true
-                        |   BoxValue _ => true
-                        |   CopyToCache _ => true
-                        |   LoadMemReg _ => true
-                        |   SetToCondition _ => true
-                        |   BooleanNot _ => true
-                        |   ZeroRegister _ => true
-                        |   _ => false
                     fun regNo(PReg i) = i
                     and stackNo(StackLoc{rno, ...}) = rno
                     val destRegNos = map regNo dests
@@ -408,7 +409,7 @@ struct
                        the CC state are ignored until we reach an instruction that sets it. *)
                     val newOutCC = case occOut of CCUnchanged => ccOut | _ => occOut
                 in
-                    if eliminateable andalso
+                    if eliminateable instr andalso
                         List.all(fn dReg => Array.sub(regRefs, dReg) = 0) destRegNos
                     then original (* Don't include this instruction. *)
                     else
@@ -587,167 +588,185 @@ struct
                 (instr, (tail, activeAfterThis, stackActiveAfterThis)) =
             let
                 val { sources, dests, sStacks=stackSrcs, dStacks=stackDests, ... } = getInstructionState instr
-                fun regNo(PReg i) = i
-                fun stackNo(StackLoc{rno, ...}) = rno
-                val destRegNos = map regNo dests
-                and sourceRegNos = map regNo sources
-                val destSet = listToSet destRegNos
-                (* Remove any sources that are present in passThrough since
-                   they are going to be active throughout the block. *)
-                and sourceSet = minus(listToSet sourceRegNos, passThrough)
-                val stackDestRegNos = map stackNo stackDests
-                and stackSourceRegNos = map stackNo stackSrcs
-                val stackDestSet = listToSet stackDestRegNos
-                and stackSourceSet = minus(listToSet stackSourceRegNos, stackPassThrough)
+            in
+                (* Eliminate instructions if their results are not required.  The earlier check for this
+                   will remove most cases but if we have duplicated a block we may have a register that
+                   is required elsewhere but not in this particular branch.  *)
+                if not(List.exists(fn PReg d => member(d, activeAfterThis)) dests) andalso eliminateable instr
+                then (tail, activeAfterThis, stackActiveAfterThis)
+                else
+                let
+                    fun regNo(PReg i) = i
+                    fun stackNo(StackLoc{rno, ...}) = rno
+                    val destRegNos = map regNo dests
+                    and sourceRegNos = map regNo sources
+                    val destSet = listToSet destRegNos
+                    (* Remove any sources that are present in passThrough since
+                       they are going to be active throughout the block. *)
+                    and sourceSet = minus(listToSet sourceRegNos, passThrough)
+                    val stackDestRegNos = map stackNo stackDests
+                    and stackSourceRegNos = map stackNo stackSrcs
+                    val stackDestSet = listToSet stackDestRegNos
+                    and stackSourceSet = minus(listToSet stackSourceRegNos, stackPassThrough)
 
-                (* To compute the active set for the PREVIOUS instruction (we're processing from the
-                   end back to the start) we remove any registers that have been given values in this
-                   instruction and add anything that we are using in this instruction since they will
-                   now need to have values. *)
-                val afterRemoveDests = minus(activeAfterThis, destSet)
-                val stackAfterRemoveDests = minus(stackActiveAfterThis, stackDestSet)
-                val activeForPrevious = union(sourceSet, afterRemoveDests)
-                val stackActiveForPrevious = union(stackSourceSet, stackAfterRemoveDests)
+                    (* To compute the active set for the PREVIOUS instruction (we're processing from the
+                       end back to the start) we remove any registers that have been given values in this
+                       instruction and add anything that we are using in this instruction since they will
+                       now need to have values. *)
+                    val afterRemoveDests = minus(activeAfterThis, destSet)
+                    val stackAfterRemoveDests = minus(stackActiveAfterThis, stackDestSet)
+                    val activeForPrevious = union(sourceSet, afterRemoveDests)
+                    val stackActiveForPrevious = union(stackSourceSet, stackAfterRemoveDests)
             
-                (* The "active" set is the set of registers that need to be active DURING the
-                   instruction.  It includes destinations, which will usually be in
-                   "activeAfterThis", because there may be destinations that are not actually used
-                   subsequently but still need a register.  That will also include work registers.
-                   Usually sources aren't included if this is the last use but the
-                   AllocateMemoryVariable "instruction" can't set the size after the memory is
-                   allocated so the active set includes the source(s). *)
-                val activeForInstr =
-                    case instr of
-                        FunctionCall _ => sourceSet (* Is this still needed? *)
-                    |   TailRecursiveCall _ =>
-                            (* Set the active set to the total set of registers we require including
-                               the work register.  This ensures that we will spill as many registers
-                               as we require when we look at the size of the active set. *)
-                            union(sourceSet, destSet)
-                    |   AllocateMemoryVariable _ => (* We can only set the size after the memory is allocated. *)
-                            union(activeAfterThis, union(sourceSet, destSet))
-                    |   BoxValue _ => (* We can only store the value in the box after the box is allocated. *)
-                            union(activeAfterThis, union(sourceSet, destSet))
-                    |   _ => union(activeAfterThis, destSet)
-                
-                val () = List.app(addActivity 1) (setToList activeForInstr)
-
-                local
-                    (* If we are allocating memory we have to save the current registers if
-                       they could contain an address.  We mustn't push untagged registers
-                       and we mustn't push the destination. *)
-                    fun getSaveSet dReg =
-                    let
-                        val activeAfter = union(activeAfterThis, passThrough)
-                        (* Remove any registers marked - must-not-push.  These are
-                           registers holding non-address values.  They will actually
-                           be saved by the RTS across any GC but not checked or
-                           modified by the GC.
-                           Exclude the result register. *)
-                        fun getSave i =
-                            if i = dReg
-                            then NONE
-                            else case Vector.sub(pregProps, i) of
-                                RegPropGeneral => SOME(PReg i)
-                            |   RegPropCacheTagged => SOME(PReg i)
-                            |   _ => NONE
-                    in
-                        List.mapPartial getSave (setToList activeAfter)
-                    end
-                in
-                    (* Sometimes we need to modify the instruction e.g. to include the set
-                       of registers to save. *)
-                    val convertedInstr =
+                    (* The "active" set is the set of registers that need to be active DURING the
+                       instruction.  It includes destinations, which will usually be in
+                       "activeAfterThis", because there may be destinations that are not actually used
+                       subsequently but still need a register.  That will also include work registers.
+                       Usually sources aren't included if this is the last use but the
+                       AllocateMemoryVariable "instruction" can't set the size after the memory is
+                       allocated so the active set includes the source(s). *)
+                    val activeForInstr =
                         case instr of
-                            AllocateMemoryOperation{size, flags, dest, saveRegs=_} =>
-                                AllocateMemoryOperation{size=size, flags=flags, dest=dest,
-                                    saveRegs=getSaveSet(regNo dest)}
+                            FunctionCall _ => sourceSet (* Is this still needed? *)
+                        |   TailRecursiveCall _ =>
+                                (* Set the active set to the total set of registers we require including
+                                   the work register.  This ensures that we will spill as many registers
+                                   as we require when we look at the size of the active set. *)
+                                union(sourceSet, destSet)
+                        |   AllocateMemoryVariable _ => (* We can only set the size after the memory is allocated. *)
+                                union(activeAfterThis, union(sourceSet, destSet))
+                        |   BoxValue _ => (* We can only store the value in the box after the box is allocated. *)
+                                union(activeAfterThis, union(sourceSet, destSet))
+                        |   _ => union(activeAfterThis, destSet)
+                
+                    val () = List.app(addActivity 1) (setToList activeForInstr)
 
-                        |   AllocateMemoryVariable{size, dest, saveRegs=_} =>
-                                AllocateMemoryVariable{size=size, dest=dest, saveRegs=getSaveSet(regNo dest)}
-
-                        |   BoxValue{source, dest, boxKind, saveRegs=_} =>
-                                BoxValue{source=source, dest=dest, boxKind=boxKind,
-                                    saveRegs=getSaveSet(regNo dest)}
-                        
-                        |   JumpLoop{regArgs, stackArgs, checkInterrupt, workReg, ...} =>
-                            let
-                                (* If we have to check for interrupts we must preserve registers across
-                                   the RTS call. *)
-                                fun getSave i =
-                                    case Vector.sub(pregProps, i) of
+                    local
+                        (* If we are allocating memory we have to save the current registers if
+                           they could contain an address.  We mustn't push untagged registers
+                           and we mustn't push the destination. *)
+                        fun getSaveSet dReg =
+                        let
+                            val activeAfter = union(activeAfterThis, passThrough)
+                            (* Remove any registers marked - must-not-push.  These are
+                               registers holding non-address values.  They will actually
+                               be saved by the RTS across any GC but not checked or
+                               modified by the GC.
+                               Exclude the result register. *)
+                            fun getSave i =
+                                if i = dReg
+                                then NONE
+                                else case Vector.sub(pregProps, i) of
                                     RegPropGeneral => SOME(PReg i)
                                 |   RegPropCacheTagged => SOME(PReg i)
                                 |   _ => NONE
-                                val currentRegs = union(activeAfterThis, passThrough)
-                                val check =
-                                    case checkInterrupt of
-                                        NONE => NONE
-                                    |   SOME _ => SOME(List.mapPartial getSave (setToList currentRegs))
-                            in
-                                JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=check, workReg=workReg}
-                            end
-                        
-                        |   FunctionCall{regArgs, stackArgs=[], dest, realDest, callKind as ConstantCode m, saveRegs=_} =>
-                            (* If this is arbitrary precision push the registers rather than marking them as "save".
-                               stringOfWord returns 'CODE "PolyAddArbitrary"' etc. *)
-                            if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
-                            then FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dest=dest,
-                                    realDest=realDest, saveRegs=getSaveSet(regNo dest) }
-                            else instr
-
-                        |   _ => instr
-                end
-                
-                (* FunctionCall must mark all registers as "push". *)
-                local
-                    fun pushRegisters () =
-                    let
-                        val activeAfter = union(activeAfterThis, passThrough)
-                        fun pushAllButDests i =
-                            if List.exists(fn j => i=j) destRegNos
-                            then ()
-                            else case Vector.sub(pregProps, i) of
-                                RegPropCacheTagged => raise InternalError "pushRegisters: cache reg"
-                            |   RegPropCacheUntagged => raise InternalError "pushRegisters: cache reg"
-                            |  _ => Array.update(requirePushOrDiscard, i, true)
+                        in
+                            List.mapPartial getSave (setToList activeAfter)
+                        end
                     in
-                        (* We need to push everything active after this
-                           except the result register. *)
-                        List.app pushAllButDests (setToList activeAfter)
-                    end
-                in
-                    val () =
-                        case instr of
-                            FunctionCall{ stackArgs=[], callKind=ConstantCode m, ...} =>
-                            if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
-                            then ()
-                            else pushRegisters ()
-                            
-                        |   FunctionCall _ => pushRegisters ()
-                            
-                            (* It should no longer be necessary to push across a handler but
-                               there still seem to be cases that need it. *)
-                        |   BeginHandler _ => pushRegisters ()
+                        (* Sometimes we need to modify the instruction e.g. to include the set
+                           of registers to save. *)
+                        val convertedInstr =
+                            case instr of
+                                AllocateMemoryOperation{size, flags, dest, saveRegs=_} =>
+                                    AllocateMemoryOperation{size=size, flags=flags, dest=dest,
+                                        saveRegs=getSaveSet(regNo dest)}
+
+                            |   AllocateMemoryVariable{size, dest, saveRegs=_} =>
+                                    AllocateMemoryVariable{size=size, dest=dest, saveRegs=getSaveSet(regNo dest)}
+
+                            |   BoxValue{source, dest, boxKind, saveRegs=_} =>
+                                    BoxValue{source=source, dest=dest, boxKind=boxKind,
+                                        saveRegs=getSaveSet(regNo dest)}
                         
-                        |   CopyToCache {source=PReg srcReg, dest=PReg dstReg, ...} =>
-                            (* If the source is a cache register marked as "must push" i.e. discard,
-                               the destination must also be discarded i.e. not available. 
-                               Note: the source could be a non-cache register marked for pushing. *)
-                            (
-                                case (Vector.sub(pregProps, srcReg), Array.sub(requirePushOrDiscard, srcReg)) of
-                                    (RegPropCacheTagged, true) => Array.update(requirePushOrDiscard, dstReg, true)
-                                |   (RegPropCacheUntagged, true) => Array.update(requirePushOrDiscard, dstReg, true)
-                                |   _ => ()
-                            )
-                        |   _ => ()
-                end
+                            |   JumpLoop{regArgs, stackArgs, checkInterrupt, workReg, ...} =>
+                                let
+                                    (* If we have to check for interrupts we must preserve registers across
+                                       the RTS call. *)
+                                    fun getSave i =
+                                        case Vector.sub(pregProps, i) of
+                                        RegPropGeneral => SOME(PReg i)
+                                    |   RegPropCacheTagged => SOME(PReg i)
+                                    |   _ => NONE
+                                    val currentRegs = union(activeAfterThis, passThrough)
+                                    val check =
+                                        case checkInterrupt of
+                                            NONE => NONE
+                                        |   SOME _ => SOME(List.mapPartial getSave (setToList currentRegs))
+                                in
+                                    JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=check, workReg=workReg}
+                                end
+                        
+                            |   FunctionCall{regArgs, stackArgs=[], dest, realDest, callKind as ConstantCode m, saveRegs=_} =>
+                                (* If this is arbitrary precision push the registers rather than marking them as "save".
+                                   stringOfWord returns 'CODE "PolyAddArbitrary"' etc. *)
+                                if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
+                                then FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dest=dest,
+                                        realDest=realDest, saveRegs=getSaveSet(regNo dest) }
+                                else instr
+                        
+                            |   instr as LoadArgument{dest=PReg dreg, ...} =>
+                                (
+                                    if member(dreg, activeAfterThis)
+                                    then ()
+                                    else print("Register " ^ Int.toString dreg ^ " inactive-" ^ PolyML.makestring instr ^ "\n");
+                                    instr
+                                )
+
+                            |   _ => instr
+                    end
                 
-                (* Which entries are active in this instruction but not afterwards? *)
-                val kill = union(minus(stackSourceSet, stackActiveAfterThis), minus(sourceSet, activeAfterThis))
-            in
-                ({instr=convertedInstr, active=activeForInstr, current=activeAfterThis, kill=kill} :: tail, activeForPrevious,
-                 stackActiveForPrevious)
+                    (* FunctionCall must mark all registers as "push". *)
+                    local
+                        fun pushRegisters () =
+                        let
+                            val activeAfter = union(activeAfterThis, passThrough)
+                            fun pushAllButDests i =
+                                if List.exists(fn j => i=j) destRegNos
+                                then ()
+                                else case Vector.sub(pregProps, i) of
+                                    RegPropCacheTagged => raise InternalError "pushRegisters: cache reg"
+                                |   RegPropCacheUntagged => raise InternalError "pushRegisters: cache reg"
+                                |  _ => Array.update(requirePushOrDiscard, i, true)
+                        in
+                            (* We need to push everything active after this
+                               except the result register. *)
+                            List.app pushAllButDests (setToList activeAfter)
+                        end
+                    in
+                        val () =
+                            case instr of
+                                FunctionCall{ stackArgs=[], callKind=ConstantCode m, ...} =>
+                                if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
+                                then ()
+                                else pushRegisters ()
+                            
+                            |   FunctionCall _ => pushRegisters ()
+                            
+                                (* It should no longer be necessary to push across a handler but
+                                   there still seem to be cases that need it. *)
+                            |   BeginHandler _ => pushRegisters ()
+                        
+                            |   CopyToCache {source=PReg srcReg, dest=PReg dstReg, ...} =>
+                                (* If the source is a cache register marked as "must push" i.e. discard,
+                                   the destination must also be discarded i.e. not available. 
+                                   Note: the source could be a non-cache register marked for pushing. *)
+                                (
+                                    case (Vector.sub(pregProps, srcReg), Array.sub(requirePushOrDiscard, srcReg)) of
+                                        (RegPropCacheTagged, true) => Array.update(requirePushOrDiscard, dstReg, true)
+                                    |   (RegPropCacheUntagged, true) => Array.update(requirePushOrDiscard, dstReg, true)
+                                    |   _ => ()
+                                )
+
+                            |   _ => ()
+                    end
+                
+                    (* Which entries are active in this instruction but not afterwards? *)
+                    val kill = union(minus(stackSourceSet, stackActiveAfterThis), minus(sourceSet, activeAfterThis))
+                in
+                    ({instr=convertedInstr, active=activeForInstr, current=activeAfterThis, kill=kill} :: tail, activeForPrevious,
+                     stackActiveForPrevious)
+                end
             end
 
             fun createResult blockNo =
