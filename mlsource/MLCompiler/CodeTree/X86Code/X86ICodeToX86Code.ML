@@ -639,11 +639,8 @@ struct
             |   instructionUses(X87RealToInt{source, ...}) = used source
             |   instructionUses(SSE2RealToInt{source, ...}) = argUses source
             |   instructionUses(SignExtend32To64{source, dest}) = if isUsed dest then argUses source else ()
-            |   instructionUses(ConditionalMove{trueSrc, falseSrc, dest, ...}) =
-                    if isUsed dest then (argUses trueSrc; argUses falseSrc) else ()
-            
-            
-           (* Depth-first scan. *)
+
+            (* Depth-first scan. *)
             val visited = Array.array(numBlocks, false)
 
             fun processBlocks blockNo =
@@ -1721,54 +1718,6 @@ struct
                 Move{moveSize=Move32X, source=opArg, destination=RegisterArg regResult } :: code
             end
 
-        |   codeExtended _ ({instr=ConditionalMove{trueSrc, falseSrc, dest=PReg dReg, condition, opSize, ...}, ...}, code) =
-            let
-                val regResult = getAllocatedGenReg dReg
-                
-                val codeTrue = codeExtArgumentAsGenReg trueSrc
-                and codeFalse = codeExtArgumentAsGenReg falseSrc
-                
-                (* One argument has to be loaded into a register first and the other
-                   is conditionally moved.  *)
-                val loadFalseCmoveTrue =
-                    if (case codeFalse of RegisterArg regFalse => regFalse = regResult | _ => false)
-                    then true (* The false value is already in the right register. *)
-                    else if (case codeTrue of RegisterArg regTrue => regTrue = regResult | _ => false)
-                    then false (* The true value is in the right register - have to reverse. *)
-                    else if (case codeTrue of NonAddressConstArg _ => true | _ => false)
-                    then false (* The true value is a short constant.  If we use a CMOV we will have to put that
-                                  in the non-constant area and use a PC-relative reference.  Try to avoid it. *)
-                    else true
-               
-                fun cmov{codeLoad, codeMove, condition} =
-                let
-                    val load =
-                        case codeLoad of
-                            RegisterArg regLoad =>
-                                moveIfNecessary({src=GenReg regLoad, dst=GenReg regResult, kind=opSizeToIMove opSize}, code)
-                        |   codeLoad =>
-                                Move{source=codeLoad, destination=RegisterArg regResult, moveSize=opSizeToMove opSize} ::  code
-                in
-                    case targetArch of
-                        Native32Bit =>
-                        (* Don't use CMOV.  It doesn't work for constants *)
-                        let
-                            (* Don't move if the condition is false. *)
-                            val brLab = makeLabel()
-                        in
-                            JumpLabel brLab ::
-                            Move{moveSize=opSizeToMove opSize, destination=RegisterArg regResult, source=codeMove} ::
-                            ConditionalBranch{test=invertTest condition, label=brLab} :: load
-                        end
-                    |   _ =>
-                        CondMove{test=condition, output=regResult, source=codeMove, opSize=opSize} :: load
-                end
-            in
-                if loadFalseCmoveTrue
-                then cmov{codeLoad=codeFalse, codeMove=codeTrue, condition=condition}
-                else cmov{codeLoad=codeTrue, codeMove=codeFalse, condition=invertTest condition}
-            end
-
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 
         
         local
@@ -1876,12 +1825,10 @@ struct
                                             if multiplier = 2 orelse multiplier = 4 orelse multiplier = 8
                                             then
                                             let
+                                                val effectiveOpSize =
+                                                    if kind = Move32Bit orelse falseValue >= 0 andalso trueValue <= 0x7fffffff
+                                                    then OpSize32 else OpSize64
                                                 val destReg = asGenReg output
-                                                val (moveSize, opSize) =
-                                                    case kind of
-                                                        Move32Bit => (Move32, OpSize32)
-                                                    |   Move64Bit => (Move64, OpSize64)
-                                                    | _ => raise InternalError "move size"
                                                 val (index, base) =
                                                     case multiplier of
                                                         2 => (Index1 destReg, SOME destReg)
@@ -1904,16 +1851,19 @@ struct
                                                     case hd code of
                                                         ArithToGenReg{output, source, ...} => output <> destReg andalso checkArg source
                                                     |   ArithMemConst{address, ...} => checkMem address
+                                                    |   ArithByteMemConst{address, ...} => checkMem address
+                                                    |   XMMArith{source=MemoryArg mem, ...} => checkMem mem
+                                                    |   XMMArith _ => true
                                                     |   instr => (print (PolyML.makestring instr ^ "\n"); false) 
                                                 val codeAndZero =
                                                     if maySwap
                                                     then hd code ::
                                                             ArithToGenReg { opc=XOR, output=destReg, source=RegisterArg destReg, opSize=OpSize32 } ::
                                                                 tl code
-                                                    else Move{destination=RegisterArg destReg, source=NonAddressConstArg 0, moveSize=moveSize} ::
+                                                    else Move{destination=RegisterArg destReg, source=NonAddressConstArg 0, moveSize=opSizeToMove effectiveOpSize} ::
                                                         code
                                                 val code =
-                                                    LoadAddress{output=destReg, offset=Int.fromLarge fValue, base=base, index=index, opSize=opSize} ::
+                                                    LoadAddress{output=destReg, offset=Int.fromLarge fValue, base=base, index=index, opSize=effectiveOpSize} ::
                                                     SetCondition{output=destReg, test=testCondition} ::
                                                     codeAndZero
                                             in

@@ -110,13 +110,6 @@ struct
                     |   Multiplication{operand2 as MemoryLocation _, ...} =>
                         (* Likewise for multiplication.  *)
                             destRegNos @ map regNo (argRegs operand2)
-                        (* And likewise for condition move.  It's unfortunate that if
-                           both arguments are memory locations we're going to produce
-                           a conflict between the base registers. *)
-                    |   ConditionalMove{trueSrc, falseSrc, ...} =>
-                            destRegNos @
-                                (case trueSrc of MemoryLocation _ => map regNo (argRegs trueSrc) | _ => []) @
-                                (case falseSrc of MemoryLocation _ => map regNo (argRegs falseSrc) | _ => [])
                         (* TailRecursiveCall and JumpLoop may require a work register.
                            This is the only destination but if present it must be distinct
                            from the arguments. *)

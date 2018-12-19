@@ -316,10 +316,6 @@ struct
     |   getInstructionState(SignExtend32To64{ source, dest }) =
             { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionState(ConditionalMove{trueSrc, falseSrc, dest, ccRef, ...}) =
-            { sources=argRegs trueSrc @ argRegs falseSrc, dests=[dest], sStacks=argStacks trueSrc @ argStacks falseSrc,
-              dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCUnchanged }
-
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
     fun eliminateable(LoadArgument _) = true

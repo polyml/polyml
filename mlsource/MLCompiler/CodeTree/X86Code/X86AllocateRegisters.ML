@@ -215,16 +215,6 @@ struct
             |   addHints{instr=SSE2FPBinary{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
 
-            |   addHints{instr=ConditionalMove{trueSrc, falseSrc, dest=PReg dreg, ...}, ...} =
-                (
-                    case decache trueSrc of
-                        RegisterArgument(PReg sreg) => addSourceAndDestinationHint {src=sreg, dst=dreg}
-                    |   _ => ();
-                    case decache falseSrc of
-                        RegisterArgument(PReg sreg) => addSourceAndDestinationHint {src=sreg, dst=dreg}
-                    |   _ => ()
-                )
-
             |   addHints _ = ()
         
         end
@@ -809,22 +799,6 @@ struct
                 allocateRegister(destReg, NONE, generalRegisters);
                 allocateArgGeneral source
             )
-
-        |   registerAllocate({instr=ConditionalMove{dest=PReg resReg, trueSrc, falseSrc, ...}, ...}) =
-                (* Similar to ArithmeticFunction.  We can change the sense of the condition
-                   if we want to have the operands reversed. *)
-            let
-                val realDestReg = findRegister(resReg, NONE, generalRegisters)
-            in
-                case decache trueSrc of
-                    RegisterArgument(PReg sReg) =>
-                        allocateRegister(sReg, SOME realDestReg, generalRegisters)
-                |   trueSrc => allocateArgGeneral trueSrc;
-                case decache falseSrc of
-                    RegisterArgument(PReg sReg) =>
-                        allocateRegister(sReg, SOME realDestReg, generalRegisters)
-                |   falseSrc => allocateArgGeneral falseSrc
-            end
     
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

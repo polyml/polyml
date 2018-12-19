@@ -367,13 +367,6 @@ sig
            simply reuse the register. *)
     |   SignExtend32To64 of { source: argument, dest: preg }
 
-        (* Test the condition and set the register to either the true value or the false value.
-           N.B.  If either argument is a memory location it must be valid whether or not it
-           is actually used. *)
-    |   ConditionalMove of
-            { trueSrc: argument, falseSrc: argument, dest: preg, ccRef: ccRef,
-              condition: branchOps, opSize: opSize }
-
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)

@@ -1321,16 +1321,6 @@ struct
                             destCode @ SignExtend32To64{source=sourceVal, dest=destVal} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=ConditionalMove{trueSrc, falseSrc, dest, ccRef, condition, opSize}, ...}, code) =
-                        let
-                            val (tVal, tCode) = mapSource trueSrc
-                            val (fVal, fCode) = mapSource falseSrc
-                            val (destVal, destCode) = mapDestReg dest
-                        in
-                            destCode @ ConditionalMove{dest=destVal, trueSrc=tVal, falseSrc=fVal, ccRef=ccRef,
-                                        condition=condition, opSize=opSize} :: fCode @ tCode @ code
-                        end
-
                     (* Find the common cache state. *)
                     val () = setCommonCacheState(List.map (#cache o asub blockOutput) (asub blockRefs blockNo))
 
