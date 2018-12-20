@@ -911,14 +911,6 @@ struct
                         in
                             destCode @ ZeroRegister{dest=destVal} ::  code
                         end
- 
-                    |   pushRegisters({instr=BooleanNot{dest, source}, ...}, code) =
-                        let
-                            val (sourceVal, sourceCode) = mapSrcReg source
-                            val (destVal, destCode) = mapDestReg dest
-                        in
-                            destCode @ BooleanNot{source=sourceVal, dest=destVal} :: sourceCode @ code
-                        end
 
                     |   pushRegisters({instr=PushExceptionHandler{workReg}, ...}, code) =
                         let

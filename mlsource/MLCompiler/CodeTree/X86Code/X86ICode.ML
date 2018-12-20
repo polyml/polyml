@@ -198,10 +198,6 @@ struct
            codes.  Used before a test that is followed by SetToCondition. *)
     |   ZeroRegister of { dest: preg }
 
-        (* Invert boolean value.  This can be defined using XOR but
-           simplies optimisation. *)
-    |   BooleanNot of { dest: preg, source: preg }
-
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
 
@@ -582,13 +578,6 @@ struct
             )
 
         |   printICode(ZeroRegister{dest}, stream) = (stream "\tZeroRegister\t"; printReg(dest, stream) )
-
-        |   printICode(BooleanNot{dest, source,...}, stream) =
-            (
-                stream "\tBooleanNot\t";
-                printReg(source, stream);
-                stream " => "; printReg(dest, stream)
-            )
 
         |   printICode(PushExceptionHandler{workReg }, stream) =
             (

@@ -228,10 +228,6 @@ sig
            codes.  Used before a test that is followed by SetToCondition. *)
     |   ZeroRegister of { dest: preg }
 
-        (* Invert boolean value.  This can be defined using XOR but
-           simplies optimisation. *)
-    |   BooleanNot of { dest: preg, source: preg }
-
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
 

@@ -181,9 +181,6 @@ struct
     |   getInstructionState(ZeroRegister{dest}) =
             { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(BooleanNot{dest, source}) =
-            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
-
     |   getInstructionState(PushExceptionHandler{workReg, ...}) =
             { sources=[], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
@@ -326,7 +323,6 @@ struct
     |   eliminateable(CopyToCache _) = true
     |   eliminateable(LoadMemReg _) = true
     |   eliminateable(SetToCondition _) = true
-    |   eliminateable(BooleanNot _) = true
     |   eliminateable(ZeroRegister _) = true
     |   eliminateable _ = false
 

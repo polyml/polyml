@@ -71,7 +71,6 @@ struct
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
-    and semitag c = 2 * c
 
     local
         val regs =
@@ -598,7 +597,6 @@ struct
             |   instructionUses(CompareByteMem{arg1={base, index, ...}, ...}) = (used base; indexUses index)
             |   instructionUses(SetToCondition{ dest, highOrder, ...}) = if isUsed dest then used highOrder else ()
             |   instructionUses(ZeroRegister _) = ()
-            |   instructionUses(BooleanNot{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(PushExceptionHandler _) = ()
             |   instructionUses(PopExceptionHandler _) = ()
             |   instructionUses(BeginHandler _) = ()
@@ -1124,21 +1122,6 @@ struct
             in
                 ArithToGenReg { opc=XOR, output=realDestReg, source=RegisterArg realDestReg, opSize=OpSize32 } :: code
             end            
-
-        |   codeExtended _ ({instr=BooleanNot{dest as PReg resReg, source=PReg sReg}, ...}, code) =
-            if not (isUsed dest)
-            then code
-            else
-            let
-                val realDestReg = getAllocatedReg resReg
-                val realSrcReg = getAllocatedReg sReg
-                (* Changing between true and false involves XOR with 2. *)
-                val bitFlip = NonAddressConstArg(semitag 1)
-            in
-                (* Use 32-bit ops since this can only be tagged 0 or tagged 1 *)
-                ArithToGenReg { opc=XOR, output=asGenReg realDestReg, source=bitFlip, opSize=OpSize32 } ::
-                    moveIfNecessary({src=realSrcReg, dst=realDestReg, kind=Move32Bit}, code)
-            end
 
             (* Set up an exception handler. *)
         |   codeExtended {flow} ({instr=PushExceptionHandler{workReg=PReg hReg}, ...}, code) =
@@ -1854,6 +1837,8 @@ struct
                                                     |   ArithByteMemConst{address, ...} => checkMem address
                                                     |   XMMArith{source=MemoryArg mem, ...} => checkMem mem
                                                     |   XMMArith _ => true
+                                                    |   TestByteBits{arg, ...} => checkArg arg
+                                                        (* ResetStack?  RepeatOperation CMPS8? *)
                                                     |   instr => (print (PolyML.makestring instr ^ "\n"); false) 
                                                 val codeAndZero =
                                                     if maySwap

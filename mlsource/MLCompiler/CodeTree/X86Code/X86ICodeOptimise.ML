@@ -178,58 +178,6 @@ struct
                             test=CASetCond{condition=condition, highOrder=highOrder, outCC=ccRef, trueValue=trueValue, falseValue=falseValue}},
                         memRefs, instr :: code)
 
-            |   optCode({instr as BooleanNot(boolOp as {source=notSrc, dest=notDest}), ...} :: rest,
-                        BRSetCond{dest=setDest, test}, memRefs, code) =
-                    if setDest = notSrc
-                    then
-                    let
-                        val _ = hasChanged := true
-                        val (outSet, outInstr) =
-                            case test of
-                                CASetCond{outCC, condition, highOrder, trueValue, falseValue} =>
-                                let
-                                    val _ = trueValue = 3 andalso falseValue = 1 orelse raise InternalError "optCode: BooleanNot"
-                                    (* Turn the NOT into a set of the reverse of the condition.  Use the
-                                       original zero register since we're probably going to be eliminating
-                                       the previous SetCondition.  If we weren't we'd be better to use
-                                       a new one. *)
-                                    val outCond = X86CODE.invertTest condition
-                                    val condNot =
-                                        {dest=notDest, ccRef=outCC, condition=outCond, highOrder = highOrder,
-                                         trueValue=trueValue, falseValue=falseValue, opSize=polyWordOpSize}
-                                    val caNot =
-                                        {outCC=outCC, condition=outCond, highOrder = highOrder,
-                                         trueValue=trueValue, falseValue=falseValue}
-                                in
-                                    (CASetCond caNot, SetToCondition condNot)
-                                end
-                            |   CAConst cv =>
-                                let
-                                    (* The source was set by a constant.  This must have come from merging
-                                       after an unconditional jump otherwise it would have been processed
-                                       in the simplifier. *)
-                                    val newCv = if cv = 3 then 1 else 3
-                                    val newInstr =
-                                        LoadArgument{dest=notDest, source=IntegerConstant newCv, kind=Move32Bit}
-                                in
-                                    (CAConst newCv, newInstr)
-                                end
-                                    
-                    in
-                        (* Replace the BooleanNot with a SetToCondition.  Pass this
-                           SetToCondition on in case we have a TestBoolean. *)
-                        optCode(rest, BRSetCond{dest=notDest, test=outSet}, memRefs, outInstr :: code)
-                    end
-                    else 
-                    (* The source wasn't set by a SetToCondition so we can't eliminate
-                       the not by changing the SetCondition.  Perhaps it will be tested
-                       in which case we can eliminate it in the test.  Don't bother
-                       to see if the source is a "NOT".  That should have been
-                       eliminated in the higher levels. *)
-                    optCode(rest, BRNot boolOp, memRefs, instr :: code)
-
-            |   optCode({instr as BooleanNot boolOp, ...} :: rest, _, memRefs, code) =
-                    optCode(rest, BRNot boolOp, memRefs, instr :: code)
 
             |   optCode({instr as CompareLiteral{arg1, arg2, ccRef=ccRefOut, opSize}, kill, ...} :: rest,
                         brCond, memRefs, code) =
@@ -451,8 +399,6 @@ struct
                     |   isMerge({instr=ZeroRegister _, ...} :: rest, possopt) = isMerge(rest, possopt)
                     |   isMerge({instr=SetToCondition{dest, ccRef, ...}, ...} :: rest, POCond ccCond) =
                             ccRef = ccCond andalso isMerge(rest, POReg dest)
-                    |   isMerge({instr=BooleanNot{source, dest}, ...} :: rest, POReg testR) =
-                            testR = source andalso isMerge(rest, POReg dest)
                     |   isMerge({instr=ReturnResultFromFunction _, ...} :: rest, possopt) =
                             (* This should always be the last but check it anyway. *)
                             isMerge(rest, possopt)

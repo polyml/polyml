@@ -516,6 +516,7 @@ struct
                 (code @ [BlockSimple(LoadArgument{source=arg, dest=target, kind=moveSize})], RegisterArgument target, false)
             end
 
+        (* Create a bool result from a test by returning true or false. *)
         fun makeBoolResultRev(condition, ccRef, target, testCode) =
         let
             val trueLab = newLabel() and falseLab = newLabel() and mergeLab = newLabel()
@@ -1688,15 +1689,12 @@ struct
                     codeAddressRev(destRight, true, context, leftCode)
                 val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToRegRev(length, false (* unsigned *), context, rightCode)
                 val target = asTarget destination
-                val zeroReg = newUReg()
                 val code =
-                    BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JE, highOrder=zeroReg,
-                                               trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
-                    BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }) ::
-                    BlockSimple(ZeroRegister{dest=zeroReg}) ::
-                    lengthUntag @ BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}) ::
-                    rightUntag @ BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}) ::
-                    leftUntag @ lengthCode
+                    makeBoolResultRev(JE, ccRef, target,
+                        BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }) ::
+                        lengthUntag @ BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}) ::
+                        rightUntag @ BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}) ::
+                        leftUntag @ lengthCode)
             in
                 (code, RegisterArgument target, false)
             end
@@ -1711,9 +1709,15 @@ struct
         and codeToICodeUnaryRev({oper=BuiltIns.NotBoolean, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
-                val (argCode, tReg) = codeToPRegRev(arg1, context, tailCode)
+                val ccRef = newCCRef()
+                val allow = Allowed {anyConstant=false, const32s=false, memAddr=true, existingPreg=true}
+                val (argCode, testDest, _) = codeToICodeRev(arg1, context, false, allow, tailCode)
             in
-                (BlockSimple(BooleanNot{dest=target, source=tReg}) :: argCode, RegisterArgument target, false)
+                (* Test the argument and return a boolean result.  If either the argument is a condition
+                   or the result is used in a test this will be better than using XOR. *)
+                (makeBoolResultRev(JNE, ccRef, target,
+                        BlockSimple(CompareLiteral{arg1=testDest, arg2=tag 1, opSize=polyWordOpSize, ccRef=ccRef}) ::
+                            argCode), RegisterArgument target, false)
             end
 
         |   codeToICodeUnaryRev({oper=BuiltIns.IsTaggedValue, arg1}, context, _, destination, tailCode) =
@@ -2150,7 +2154,6 @@ struct
             let
                 (* If we have the constant first we need to reverse the test so the first argument is a register. *)
                 val ccRef = newCCRef()
-                val zeroReg = newUReg()
                 val comparison =
                     if isShort arg1Value andalso is32bit(tag(Word.toLargeIntX(toShort arg1Value)))
                     then
@@ -2160,7 +2163,7 @@ struct
                         val literal = tag(Word.toLargeIntX(toShort arg1Value))
                     in
                         BlockSimple(CompareLiteral{arg1=testDest, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
-                            BlockSimple(ZeroRegister{dest=zeroReg}) :: testCode
+                            testCode
                     end
                     else (* Addresses or larger values.  We need to use a register comparison. *)
                     let
@@ -2168,15 +2171,13 @@ struct
                         val arg1Arg = constantAsArgument arg1Value
                     in
                         BlockSimple(WordComparison{arg1=testReg, arg2=arg1Arg, ccRef=ccRef, opSize=polyWordOpSize}) ::
-                            BlockSimple(ZeroRegister{dest=zeroReg}) :: testCode
+                            testCode
                     end
 
                 val target = asTarget destination
             in
-                (BlockSimple(
-                    SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, trueValue=tag 1, falseValue=tag 0,
-                        condition=testAsBranch(leftRightTest test, isSigned, true), opSize=polyWordOpSize}) ::
-                    comparison, RegisterArgument target, false)
+                (makeBoolResultRev(testAsBranch(leftRightTest test, isSigned, true), ccRef, target, comparison),
+                     RegisterArgument target, false)
             end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.WordComparison {test, isSigned}, arg1, arg2}, context, _, destination, tailCode) =
@@ -2186,7 +2187,6 @@ struct
                 val (arg1Code, arg1Result, _) = codeToICodeRev(arg1, context, false, Allowed memOrReg, tailCode)
                 val (arg2Code, arg2Result, _) = codeToICodeRev(arg2, context, false, Allowed memOrReg, arg1Code)
                 val target = asTarget destination
-                val zeroReg = newUReg()
                 val code =
                     case (arg1Result, arg2Result) of
                         (RegisterArgument arg1Reg, arg2Result) =>
@@ -3335,27 +3335,29 @@ struct
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
                     codeAddress(destRight, true, context)
                 val ccRef = newCCRef()
-                val labEqual = newLabel() and exitLab = newLabel() and labNotEqual = newLabel() 
+                val labLess = newLabel() and labGreater = newLabel() and exitLab = newLabel()
+                val labNotLess = newLabel() and labNotGreater = newLabel()
                 
                 val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
-                
-                val zeroReg = newUReg()
 
                 val code =
                     leftCode @ rightCode @ lengthCode @
                     leftUntag @ [BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
                     rightUntag @ [BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
                     lengthUntag @
-                    [BlockSimple(ZeroRegister{dest=zeroReg}),
-                     BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }),
-                     BlockFlow(Conditional{ ccRef=ccRef, condition=JE, trueJump=labEqual, falseJump=labNotEqual }),
-                     BlockLabel labNotEqual,
-                     (* N.B. This is an unsigned comparison. *)
-                     BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JA,
-                                                highOrder=zeroReg, trueValue=tag 1, falseValue=tag ~1, opSize=polyWordOpSize}),
-                     BlockFlow(Unconditional exitLab),
-                     BlockLabel labEqual,
+                    [BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }),
+                     (* N.B. These are unsigned comparisons. *)
+                     BlockFlow(Conditional{ ccRef=ccRef, condition=JB, trueJump=labLess, falseJump=labNotLess }),
+                     BlockLabel labNotLess,
+                     BlockFlow(Conditional{ ccRef=ccRef, condition=JA, trueJump=labGreater, falseJump=labNotGreater }),
+                     BlockLabel labNotGreater,
                      BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=movePolyWord }),
+                     BlockFlow(Unconditional exitLab),
+                     BlockLabel labLess,
+                     BlockSimple(LoadArgument{ source=IntegerConstant(tag ~1), dest=target, kind=movePolyWord }),
+                     BlockFlow(Unconditional exitLab),
+                     BlockLabel labGreater,
+                     BlockSimple(LoadArgument{ source=IntegerConstant(tag 1), dest=target, kind=movePolyWord }),
                      BlockLabel exitLab]
             in
                 (code, RegisterArgument target, false)
@@ -3430,6 +3432,7 @@ struct
             end
 
         |   codeToICodeBlock({kind=BlockOpEqualByte, ...}, _, _, _) =
+                (* TODO: Move the code from codeToICodeRev.  However, that is already reversed. *)
                 raise InternalError "codeToICodeBlock - BlockOpEqualByte" (* Already done *)
 
         and codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
