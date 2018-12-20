@@ -1654,14 +1654,11 @@ struct
                 val memOrReg = { anyConstant=false, const32s=false, memAddr=true, existingPreg=true }
                 val (testCode, tagArg, _) = codeToICodeRev(test, context, false, Allowed memOrReg, tailCode)
                 val target = asTarget destination
-                val zeroReg = newUReg()
             in
-                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JE, highOrder=zeroReg,
-                                            trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
+                (makeBoolResultRev(JE, ccRef, target,
                     (* Use CompareLiteral because the tag must fit in 32-bits. *)
                     BlockSimple(CompareLiteral{arg1=tagArg,
-                            arg2=tag(Word.toLargeInt tagValue), opSize=polyWordOpSize, ccRef=ccRef}) ::
-                    BlockSimple(ZeroRegister{dest=zeroReg}) :: testCode,
+                            arg2=tag(Word.toLargeInt tagValue), opSize=polyWordOpSize, ccRef=ccRef}) :: testCode),
                     RegisterArgument target, false)
             end
 
@@ -1727,12 +1724,9 @@ struct
                 val (testCode, testResult, _) = codeToICodeRev(arg1, context, false, Allowed memOrReg, tailCode)
                 (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
                 val target = asTarget destination
-                val zeroReg = newUReg()
             in
-                (BlockSimple(SetToCondition{dest=target, ccRef=ccRef, condition=JNE, highOrder=zeroReg,
-                                            trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
-                    BlockSimple(TestTagBit{arg=testResult, ccRef=ccRef}) ::
-                    BlockSimple(ZeroRegister{dest=zeroReg}) :: testCode, RegisterArgument target, false)
+                (makeBoolResultRev(JNE, ccRef, target,
+                    BlockSimple(TestTagBit{arg=testResult, ccRef=ccRef}) :: testCode), RegisterArgument target, false)
             end
 
         |   codeToICodeUnaryRev({oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination, tailCode) =
@@ -2080,7 +2074,6 @@ struct
                 (* Comparisons.  Because this is also used for pointer equality and even for exception matching it
                    is perfectly possible that the argument could be an address. *)
                 val ccRef = newCCRef()
-                val zeroReg = newUReg()
                 val comparison =
                     (* If the argument is a tagged value that will fit in 32-bits we can use
                        the literal version.  Use toLargeIntX here because the value will be
@@ -2100,7 +2093,7 @@ struct
                                 val literal = Word.toLargeIntX(toShort arg2Value)
                             in
                                 BlockSimple(CompareLiteral{arg1=MemoryLocation memLoc, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
-                                    BlockSimple(ZeroRegister{dest=zeroReg}) :: codeUntag @ codeBaseIndex
+                                    codeUntag @ codeBaseIndex
                             end
                         |   BICLoadOperation{kind=LoadStoreMLByte _, address} =>
                             let
@@ -2111,7 +2104,7 @@ struct
                                 val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
                             in
                                 BlockSimple(CompareByteMem{arg1={base=base, index=index, offset=offset}, arg2=literal, ccRef=ccRef}) ::
-                                    BlockSimple(ZeroRegister{dest=zeroReg}) ::  codeUntag @ codeBaseIndex
+                                    codeUntag @ codeBaseIndex
                             end
                         |   BICUnary({oper=BuiltIns.MemoryCellFlags, arg1}) =>
                                 (* This occurs particularly in arbitrary precision comparisons. *)
@@ -2122,7 +2115,7 @@ struct
                                 val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
                             in
                                 BlockSimple(CompareByteMem{arg1={base=baseReg, index=memIndexOrObject, offset= ~1}, arg2=literal, ccRef=ccRef}) ::
-                                    BlockSimple(ZeroRegister{dest=zeroReg}) :: baseCode
+                                    baseCode
                             end
                         |    _ =>
                             let
@@ -2132,7 +2125,7 @@ struct
                                 val literal = tag(Word.toLargeIntX(toShort arg2Value))
                             in
                                 BlockSimple(CompareLiteral{arg1=testDest, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
-                                    BlockSimple(ZeroRegister{dest=zeroReg}) :: testCode
+                                    testCode
                             end    
                     end
                     else (* Addresses or larger values.  We need to use a register comparison. *)
@@ -2141,13 +2134,11 @@ struct
                         val arg2Arg = constantAsArgument arg2Value
                     in
                         BlockSimple(WordComparison{arg1=testReg, arg2=arg2Arg, ccRef=ccRef, opSize=polyWordOpSize}) ::
-                            BlockSimple(ZeroRegister{dest=zeroReg}) :: testCode
+                            testCode
                     end
                 val target = asTarget destination
             in
-                (BlockSimple(
-                    SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, trueValue=tag 1, falseValue=tag 0,
-                        condition=testAsBranch(test, isSigned, true), opSize=polyWordOpSize}) :: comparison, RegisterArgument target, false)
+                (makeBoolResultRev(testAsBranch(test, isSigned, true), ccRef, target, comparison), RegisterArgument target, false)
             end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2}, context, _, destination, tailCode) =
@@ -2537,14 +2528,10 @@ struct
                     end
                 val argReg = newUReg()
                 val target = asTarget destination
-                val zeroReg = newUReg()
                 val code =
-                    BlockSimple(
-                        SetToCondition{dest=target, ccRef=ccRef, highOrder=zeroReg, condition=testAsBranch(test, false, true),
-                                       trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
-                    BlockSimple(WordComparison{arg1=argReg, arg2=arg2Operand, ccRef=ccRef, opSize=nativeWordOpSize}) ::
-                    BlockSimple(ZeroRegister{dest=zeroReg}) ::
-                    BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=moveNativeWord}) :: arg2Code
+                    makeBoolResultRev(testAsBranch(test, false, true), ccRef, target,
+                        BlockSimple(WordComparison{arg1=argReg, arg2=arg2Operand, ccRef=ccRef, opSize=nativeWordOpSize}) ::
+                        BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=moveNativeWord}) :: arg2Code)
             in
                 (code, RegisterArgument target, false)
             end
@@ -2812,7 +2799,6 @@ struct
               of unordered (NaN) values right.  All the tests are treated as false
               if either argument is a NaN.  To combine that test with the other tests
               we sometimes have to reverse the comparison. *)
-
         |   codeToICodeBinaryRev({oper=BuiltIns.RealComparison(BuiltIns.TestEqual, precision), arg1, arg2}, context, _, destination, tailCode) =
             let
                 (* Get the arguments.  It's commutative. *)
@@ -2823,42 +2809,42 @@ struct
                    it is SSE2 we have to treat the unordered result (parity set) specially. *)
                 val isDouble = precision = BuiltIns.PrecDouble
                 val target = asTarget destination
-                val zeroReg = newUReg()
                 
                 val code =
                 case fpMode of
                     FPModeX87 =>
-                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef2, highOrder=zeroReg, condition=JE,
-                                                   trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
-                        BlockSimple(ArithmeticFunction{
-                            oper=XOR, resultReg=testReg3, operand1=testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2, opSize=OpSize32 }) ::
-                        BlockSimple(ZeroRegister{dest=zeroReg}) :: (* Just before we set the CC. *)
-                        BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef(), opSize=OpSize32 }) ::
-                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=arg2Val, ccRef=ccRef1, isDouble = isDouble}) ::
-                        arg2Code
+                        makeBoolResultRev(JE, ccRef2, target,
+                            BlockSimple(ArithmeticFunction{
+                                oper=XOR, resultReg=testReg3, operand1=testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2, opSize=OpSize32 }) ::
+                            BlockSimple(ArithmeticFunction{
+                                oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef(), opSize=OpSize32 }) ::
+                            BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
+                            BlockSimple(X87Compare{arg1=fpReg, arg2=arg2Val, ccRef=ccRef1, isDouble = isDouble}) ::
+                            arg2Code)
                 |   FPModeSSE2 =>
                     let
                         val noParityLabel = newLabel()
-                        val parityLabel = newLabel()
+                        
                         val resultLabel = newLabel()
-                        (* This has to be coded as a conditional as well as using SetToCondition.
-                           We could force the condition code and then use SETCC but it's probably not worth it. *)
+                        val falseLabel = newLabel()
+                        val trueLabel = newLabel()
                     in
                         BlockLabel resultLabel ::
-                        (* Otherwise the result is true if it was equal and false if not. *)
-                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef1, highOrder=zeroReg, condition=JE,
-                                                   trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
-                        BlockLabel noParityLabel ::
                         BlockFlow(Unconditional resultLabel) ::
-                        (* Result is false if parity is set i.e. unordered. *)
+                        (* Result is false if parity is set i.e. unordered or if unequal. *)
                         BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=Move32Bit }) ::
-                        BlockLabel parityLabel ::
-                        (* Go to parityLabel if unordered and therefore not equal. *)
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=parityLabel, falseJump=noParityLabel}) ::
+                        BlockLabel falseLabel ::
+                        BlockFlow(Unconditional resultLabel) ::
+                        (* Result is true if it's ordered and equal. *)
+                        BlockSimple(LoadArgument{ source=IntegerConstant(tag 1), dest=target, kind=Move32Bit }) ::
+                        BlockLabel trueLabel ::
+                        (* Not unordered - test the equality *)
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=JE, trueJump=trueLabel, falseJump=falseLabel}) ::
+                        BlockLabel noParityLabel ::
+                        (* Go to falseLabel if unordered and therefore not equal. *)
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=falseLabel, falseJump=noParityLabel}) ::
                         BlockSimple(SSE2Compare{arg1=fpReg, arg2=arg2Val, ccRef=ccRef1, isDouble = isDouble}) ::
-                        BlockSimple(ZeroRegister{dest=zeroReg}) :: arg2Code
+                        arg2Code
                     end
             in
                 (code, RegisterArgument target, false)
@@ -2877,25 +2863,22 @@ struct
                    it is SSE2 we have to treat the unordered result (parity set) specially. *)
                 val isDouble = precision = BuiltIns.PrecDouble
                 val target = asTarget destination
-                val zeroReg = newUReg()
                 val code =
                     case fpMode of
                         FPModeX87 =>
                             (* And with 0x4500.  We have to use XOR rather than CMP to avoid having an untagged constant comparison. *)
-                            BlockSimple(SetToCondition{dest=target, ccRef=ccRef2, highOrder=zeroReg, condition=JE,
-                                                       trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
-                            BlockSimple(ArithmeticFunction{
-                                oper=XOR, resultReg=testReg3, operand1=testReg2, operand2=IntegerConstant 0x4500, ccRef=ccRef2, opSize=OpSize32 }) ::
-                            BlockSimple(ArithmeticFunction{
-                                oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=newCCRef(), opSize=OpSize32 }) ::
-                            BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                            BlockSimple(X87Compare{arg1=fpReg, arg2=arg2Val, ccRef=ccRef1, isDouble = isDouble}) ::
-                            BlockSimple(ZeroRegister{dest=zeroReg}) :: arg2Code
+                            makeBoolResultRev(JE, ccRef2, target,
+                                BlockSimple(ArithmeticFunction{
+                                    oper=XOR, resultReg=testReg3, operand1=testReg2, operand2=IntegerConstant 0x4500, ccRef=ccRef2, opSize=OpSize32 }) ::
+                                BlockSimple(ArithmeticFunction{
+                                    oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=newCCRef(), opSize=OpSize32 }) ::
+                                BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
+                                BlockSimple(X87Compare{arg1=fpReg, arg2=arg2Val, ccRef=ccRef1, isDouble = isDouble}) ::
+                                arg2Code)
                     |   FPModeSSE2 =>
-                            BlockSimple(SetToCondition{dest=target, ccRef=ccRef1, highOrder=zeroReg, condition=JP,
-                                                       trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
-                            BlockSimple(SSE2Compare{arg1=fpReg, arg2=arg2Val, ccRef=ccRef1, isDouble = isDouble}) ::
-                            BlockSimple(ZeroRegister{dest=zeroReg}) :: arg2Code
+                            makeBoolResultRev(JP, ccRef1, target,
+                                BlockSimple(SSE2Compare{arg1=fpReg, arg2=arg2Val, ccRef=ccRef1, isDouble = isDouble}) ::
+                                arg2Code)
             in
                 (code, RegisterArgument target, false)
             end
@@ -2932,7 +2915,6 @@ struct
                 
                 val isDouble = precision = BuiltIns.PrecDouble
                 val target = asTarget destination
-                val zeroReg = newUReg()
 
                 val code =
                 case fpMode of
@@ -2942,14 +2924,12 @@ struct
                         val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                         val testBits = if isGeq then 0x500 else 0x4500
                     in
-                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef2, highOrder=zeroReg, condition=JE,
-                                                   trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
-                        BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant testBits, ccRef=ccRef2, opSize=OpSize32 }) ::
-                        BlockSimple(ZeroRegister{dest=zeroReg}) :: (* Just before we set the CC. *)
-                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
-                        BlockSimple(X87Compare{arg1=fpReg, arg2=opArg, ccRef=ccRef1, isDouble = isDouble}) ::
-                        loadCode
+                        makeBoolResultRev(JE, ccRef2, target,
+                            BlockSimple(ArithmeticFunction{
+                                oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant testBits, ccRef=ccRef2, opSize=OpSize32 }) ::
+                            BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) ::
+                            BlockSimple(X87Compare{arg1=fpReg, arg2=opArg, ccRef=ccRef1, isDouble = isDouble}) ::
+                            loadCode)
                     end
                         
                 |   FPModeSSE2 =>
@@ -2957,11 +2937,8 @@ struct
                         val ccRef1 = newCCRef()
                         val condition = if isGeq then JNB (* >=, <= *) else  JA  (* >, < *)
                     in
-                        BlockSimple(SetToCondition{dest=target, ccRef=ccRef1, highOrder=zeroReg, condition=condition,
-                                                   trueValue=tag 1, falseValue=tag 0, opSize=polyWordOpSize}) ::
-                        BlockSimple(SSE2Compare{arg1=fpReg, arg2=opArg, ccRef=ccRef1, isDouble = isDouble}) ::
-                        BlockSimple(ZeroRegister{dest=zeroReg}) ::
-                        loadCode
+                        makeBoolResultRev(condition, ccRef1, target,
+                            BlockSimple(SSE2Compare{arg1=fpReg, arg2=opArg, ccRef=ccRef1, isDouble = isDouble}) :: loadCode)
                     end
             in
                 (code, RegisterArgument target, false)
