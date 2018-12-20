@@ -187,17 +187,6 @@ struct
            operations. *)
     |   CompareByteMem of { arg1: { base: preg, offset: int, index: memoryIndex }, arg2: Word8.word, ccRef: ccRef }
 
-        (* Set a register to one of two values depending on a condition.  The high order bytes need
-           to be zeroed before the test using ZeroRegister.   The trueValue is always larger than
-           the falseValue.  opSize is only needed to decide how to deal with negative values. *)
-    |   SetToCondition of
-           { dest: preg, highOrder: preg, ccRef: ccRef, condition: branchOps,
-             trueValue: LargeInt.int, falseValue: LargeInt.int, opSize: opSize }
-
-        (* Clear a register to zero using XOR.  Unlike LoadArgument this affects the condition
-           codes.  Used before a test that is followed by SetToCondition. *)
-    |   ZeroRegister of { dest: preg }
-
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
 
@@ -567,17 +556,6 @@ struct
                 stream ","; stream(Word8.toString arg2);
                 stream " => "; printCC(ccRef, stream)
             )
-
-        |   printICode(SetToCondition{dest, ccRef, condition, highOrder, trueValue, falseValue, opSize}, stream) =
-            (
-                stream "\tSetToCondition";  printOpsize(opSize, stream); stream "\t"; printCC(ccRef, stream);
-                stream " is "; printCondition(condition, stream); stream " ";
-                stream(LargeInt.toString trueValue); stream " else "; stream(LargeInt.toString falseValue);
-                stream " => "; printReg(dest, stream);
-                stream " high-order "; printReg(highOrder, stream)
-            )
-
-        |   printICode(ZeroRegister{dest}, stream) = (stream "\tZeroRegister\t"; printReg(dest, stream) )
 
         |   printICode(PushExceptionHandler{workReg }, stream) =
             (

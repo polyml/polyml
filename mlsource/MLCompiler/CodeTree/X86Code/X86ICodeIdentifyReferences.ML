@@ -35,7 +35,7 @@ struct
     }
 
     (* CC states before and after.  The instruction may use the CC or ignore it. The only
-       instructions to use the CC are SetToCondition and X87FPGetCondition.  Conditional branches
+       instructions to use the CC is X87FPGetCondition.  Conditional branches
        are handled at the block level.
        The result of executing the instruction may be to set the condition code to a
        defined state, an undefined state or leave it unchanged.
@@ -174,12 +174,6 @@ struct
 
     |   getInstructionState(CompareByteMem{arg1={base, index, ...}, ccRef, ...}) =
             { sources=base :: argIndex index, dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
-
-    |   getInstructionState(SetToCondition{dest, ccRef, highOrder, ...}) =
-            { sources=[highOrder], dests=[dest], sStacks=[], dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCUnchanged }
-
-    |   getInstructionState(ZeroRegister{dest}) =
-            { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(PushExceptionHandler{workReg, ...}) =
             { sources=[], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
@@ -322,8 +316,6 @@ struct
     |   eliminateable(BoxValue _) = true
     |   eliminateable(CopyToCache _) = true
     |   eliminateable(LoadMemReg _) = true
-    |   eliminateable(SetToCondition _) = true
-    |   eliminateable(ZeroRegister _) = true
     |   eliminateable _ = false
 
     fun identifyRegs(blockVector, pregProps): extendedBasicBlock vector * regState vector =

@@ -48,57 +48,13 @@ struct
        possibility is that we have a ResetStackPtr in between. *)
     datatype boolRegRewrite =
         BRNone
-    |   BRSetCond of { dest: preg, test: changeArg }
-    |   BRNot of { dest: preg, source: preg }
+    |   BRSetCond of { dest: preg, newValue: LargeInt.int }
         (* This follows a comparison with a constant where the value we're comparing came from a BRSetCond or
            a load of a short constant.  It's complicated because we include comparisons with constants and
            also have the possibility of comparing with a value other than tagged 0 or tagged 1 and having
            ordering rather than just equality. *)
     |   BRChangeCond of
-            { srcCC: ccRef, compare: LargeInt.int, test: changeArg }
-
-    and changeArg =
-        CASetCond of
-        { condition: branchOps, outCC: ccRef, highOrder: preg,
-          trueValue: LargeInt.int, falseValue: LargeInt.int } (*i.e. from SetCond *)
-    |   CAConst of LargeInt.int
-  
-    local
-        fun comparison(testVal, compare, JE) = testVal = compare
-        |   comparison(testVal, compare, JNE) = testVal <> compare
-        |   comparison(testVal, compare, JL) = testVal < compare
-        |   comparison(testVal, compare, JG) = testVal > compare
-        |   comparison(testVal, compare, JLE) = testVal <= compare
-        |   comparison(testVal, compare, JGE) = testVal >= compare
-            (* Unsigned tests.  We converted the values from Word to LargeInt.  We can therefore
-               turn the tests back to Word for the unsigned comparisons. *)
-        |   comparison(testVal, compare, JB) = Word.fromLargeInt testVal < Word.fromLargeInt compare
-        |   comparison(testVal, compare, JA) = Word.fromLargeInt testVal > Word.fromLargeInt compare
-        |   comparison(testVal, compare, JNA) = Word.fromLargeInt testVal <= Word.fromLargeInt compare
-        |   comparison(testVal, compare, JNB) = Word.fromLargeInt testVal >= Word.fromLargeInt compare
-            (* The overflow and parity checks should never occur. *)
-        |   comparison _ = raise InternalError "getCondResult: comparison"
-   
-        val constTrue = CAConst 3 and constFalse = CAConst 1
-    in
-        (* Sort out comparisons.  Start with the boolean values (0, 1) *)
-        fun getCondResult({compare, test=CASetCond{trueValue, falseValue, condition, outCC, highOrder, ...}, ...}, cond) =
-            (
-                (* SetToCondition sets the register to one of two values.  If the test we're applying
-                   gives true to both values or false to both values we return a constant result. *)
-                case (comparison(falseValue, compare, cond), comparison(trueValue, compare, cond)) of
-                    (true, true) => constTrue (* Both true *)
-                |   (false, false) => constFalse (* Both false *)
-                |   (false, true) =>
-                        CASetCond{trueValue=3, falseValue=1, condition=condition, outCC=outCC, highOrder=highOrder}
-                |   (true, false) =>
-                        CASetCond{trueValue=3, falseValue=1, condition=X86CODE.invertTest condition, outCC=outCC, highOrder=highOrder}
-            )
-
-            (* Constant values. *)
-        |   getCondResult({compare, test=CAConst testVal, ...},   cond) = 
-                if comparison(testVal, compare, cond) then constTrue else constFalse
-    end
+            { srcCC: ccRef, compare: LargeInt.int, newValue: LargeInt.int }
 
     fun optimiseICode{ code, pregProps=_, ccCount=_ } =
     let
@@ -145,40 +101,6 @@ struct
         let
             fun optCode([], brCond, _, code) = (code, brCond)
 
-            |   optCode({instr=SetToCondition({dest, highOrder, ccRef, condition=setCCond, trueValue, falseValue, opSize}), ...} :: rest,
-                         inCond as BRChangeCond(ccCond as {srcCC, ...}), memRefs, code) =
-                let
-                    (* If we have a BRChangeCond then we need to adjust the condition. *)
-                    val _ = ccRef = srcCC orelse raise InternalError "optCode: SetToCondition/BRChangeCond"
-                    val () = hasChanged := true
-                    val ccCond = getCondResult(ccCond, setCCond)
-                    val outInstr =
-                        case ccCond of
-                            CASetCond({condition=outCondition, outCC, ...}) =>
-                                SetToCondition{ dest=dest, highOrder=highOrder, ccRef=outCC, condition=outCondition,
-                                                trueValue=trueValue, falseValue=falseValue, opSize=opSize }
-                        |   CAConst cv =>
-                            let
-                                val constVal = if cv = 3 then trueValue else falseValue
-                                val moveKind = case opSize of OpSize32 => Move32Bit | OpSize64 => Move64Bit
-                            in
-                                LoadArgument{dest=dest, source=IntegerConstant constVal, kind=moveKind}
-                            end
-                    (* We have to continue with this BRChangeCond.  There could be more than one
-                       use of this condition, for example if we have changed a previous BooleanNot. *)
-                in
-                    optCode(rest, inCond, memRefs, outInstr :: code)
-                end
-
-            |   optCode({instr as SetToCondition{dest, highOrder, ccRef, condition, trueValue, falseValue, opSize=_}, ...} :: rest,
-                        _, memRefs, code) =
-                    (* Record this SetCondition in case it can be used later. *)
-                    optCode(rest,
-                        BRSetCond{dest=dest,
-                            test=CASetCond{condition=condition, highOrder=highOrder, outCC=ccRef, trueValue=trueValue, falseValue=falseValue}},
-                        memRefs, instr :: code)
-
-
             |   optCode({instr as CompareLiteral{arg1, arg2, ccRef=ccRefOut, opSize}, kill, ...} :: rest,
                         brCond, memRefs, code) =
                 let
@@ -192,53 +114,20 @@ struct
                         then
                         (
                             case brCond of
-                                BRSetCond{dest=setDest, test} =>
+                                BRSetCond{dest=setDest, newValue=test} =>
                                 if setDest = source
                                 then
-                                (*  We recently set this register to a condition and the condition is still
-                                    active. Rather than test it again we can just change references to the
-                                    condition we're setting to refer to the old one.  We have to check that
-                                    we're not exporting the condition to another block since we only
-                                    change references in this block.
-                                    N.B.  If this is a boolean we will only ever be testing it against
-                                    true (tagged 1 i.e. 3) or false (tagged 0 i.e. 1).
-                                    However the CODETREE_SIMPLIFIER turns any if..then..else that returns just
-                                    these two values into a conditional and we could then compare this with
-                                    something else.  Since the comparison could be an ordering it gets very
-                                    complicated.  Just consider 1 and 3 for the moment. *)
                                 let
                                     val _ = hasChanged := true
                                     (* Put in a replacement so that if we were previously testing ccRefOut
                                        we should instead test ccRef. *)
                                     val _ = arg2 = 1 orelse arg2 = 3 orelse raise InternalError "cv"
-                                    val repl = BRChangeCond{srcCC=ccRefOut, compare=arg2, test=test}
+                                    val repl = BRChangeCond{srcCC=ccRefOut, compare=arg2, newValue=test}
                                     val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
                                 in
                                     optCode(rest, repl, memRefsOut, code)
                                 end
                                 else optCode(rest, BRNone, memRefsOut, instr::code)
-
-                            |   BRNot{dest, source=notSource} =>
-                                if dest = source
-                                then
-                                let
-                                    (* We have a NOT of a boolean other than a test.  There's no test
-                                       to pass on but we can change this test. *)
-                                    val _ = hasChanged := true
-                                    val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
-                                    val outArg =
-                                        case arg2 of
-                                            1 (* i.e. tagged false *) => 3
-                                        |   3 (* i.e. tagged true *)  => 1
-                                        |   _ => raise InternalError "optCode: test is not true or false"
-                                    val outCompare =
-                                        CompareLiteral{arg1=RegisterArgument notSource, arg2=outArg,
-                                            opSize=OpSize32, ccRef=ccRefOut}
-                                in
-                                    optCode(rest, BRNone, memRefsOut, outCompare :: code)
-                                end
-                                else optCode(rest, BRNone, memRefsOut, instr::code)
-                     
 
                             |   _ => optCode(rest, BRNone, memRefsOut, instr::code)
                         )
@@ -249,40 +138,20 @@ struct
                                 CompareLiteral{arg1=repArg1, arg2=arg2, ccRef=ccRefOut, opSize=opSize}::code)
                 end
 
-            |   optCode({instr=ZeroRegister{dest}, ...} :: rest, brCond as BRSetCond{test=CASetCond{highOrder, ...}, ...}, memRefs, code) =
-                (* We've had a SetCondition before this and we're about to test some condition in order
-                   to do another SetCondition.  It may be the original condition or some other.  If it's
-                   the original we need to preserve the CC if we're going to pass on the BRSetCond
-                   but ZeroRegister will clobber it.  Change this to use a Move from the original high-order
-                   which will preserve the CC. *)
-                    optCode(rest, brCond, memRefs, LoadArgument{source=RegisterArgument highOrder, dest=dest, kind=Move32Bit} :: code)
-
-            |   optCode({instr as ZeroRegister _, ...} :: rest, brCond as BRSetCond{test=CAConst _, ...}, memRefs, code) =
-                (* Because this is a constant it won't be clobbered and can be passed on to the test. *)
-                    optCode(rest, brCond, memRefs, instr :: code)
-
-            |   optCode({instr as ZeroRegister _, ...} :: rest, _, memRefs, code) = optCode(rest, BRNone, memRefs, instr :: code)
-
             |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant ivalue, ...}, ...} :: rest, _, memRefs, code) =
                     (* Register is loading a constant. *)
-                    optCode(rest, BRSetCond{dest=dest, test=CAConst ivalue}, memRefs, instr :: code)
+                    optCode(rest, BRSetCond{dest=dest, newValue=ivalue}, memRefs, instr :: code)
 
             |   optCode({instr as LoadArgument{dest, source=RegisterArgument srReg, kind} , ...} :: rest,
-                        brCond as BRSetCond{dest=setDest, test}, memRefs, code) =
+                        brCond as BRSetCond{dest=setDest, newValue}, memRefs, code) =
                 (* We frequently have a move if we have followed an unconditional branch. *)
                 if srReg = setDest
                 then
                 let
-                    val outInstr =
-                        case test of
-                            CAConst cv =>
-                            (
-                                hasChanged := true;
-                                LoadArgument{dest=dest, source=IntegerConstant cv, kind=kind}
-                            )
-                        |   _ => instr
+                    val () = hasChanged := true
+                    val outInstr = LoadArgument{dest=dest, source=IntegerConstant newValue, kind=kind}
                 in
-                    optCode(rest, BRSetCond{dest=dest, test=test}, memRefs, outInstr :: code)
+                    optCode(rest, BRSetCond{dest=dest, newValue=newValue}, memRefs, outInstr :: code)
                 end
                 else optCode(rest, brCond, memRefs, instr :: code)
 
@@ -364,17 +233,29 @@ struct
             case (flow, finalRepl) of
                 (* We have a Condition and a change to the condition. *)
                 (flow as Conditional{ccRef, condition=brCond, trueJump, falseJump},
-                 BRChangeCond(cCond as {srcCC, ...})) =>
+                 BRChangeCond({srcCC, compare, newValue, ...})) =>
                     if srcCC = ccRef
                     then
                     let
+                        fun comparison(testVal, compare, JE) = testVal = compare
+                        |   comparison(testVal, compare, JNE) = testVal <> compare
+                        |   comparison(testVal, compare, JL) = testVal < compare
+                        |   comparison(testVal, compare, JG) = testVal > compare
+                        |   comparison(testVal, compare, JLE) = testVal <= compare
+                        |   comparison(testVal, compare, JGE) = testVal >= compare
+                            (* Unsigned tests.  We converted the values from Word to LargeInt.  We can therefore
+                               turn the tests back to Word for the unsigned comparisons. *)
+                        |   comparison(testVal, compare, JB) = Word.fromLargeInt testVal < Word.fromLargeInt compare
+                        |   comparison(testVal, compare, JA) = Word.fromLargeInt testVal > Word.fromLargeInt compare
+                        |   comparison(testVal, compare, JNA) = Word.fromLargeInt testVal <= Word.fromLargeInt compare
+                        |   comparison(testVal, compare, JNB) = Word.fromLargeInt testVal >= Word.fromLargeInt compare
+                            (* The overflow and parity checks should never occur. *)
+                        |   comparison _ = raise InternalError "getCondResult: comparison"
+
                         val newFlow =
-                            case getCondResult(cCond, brCond) of
-                                CASetCond{condition, outCC, trueValue=3, falseValue=1, ...} =>
-                                    Conditional{ccRef=outCC, condition=condition, trueJump=trueJump, falseJump=falseJump}
-                            |   CAConst 3 => Unconditional trueJump
-                            |   CAConst 1 => Unconditional falseJump
-                            |   _ => raise InternalError "BRChangeCond: CAConst/CASetCond"
+                            if comparison(newValue, compare, brCond)
+                            then Unconditional trueJump
+                            else Unconditional falseJump
                     in
                         BasicBlock{flow=newFlow, block=List.rev blkCode}
                     end
@@ -396,9 +277,6 @@ struct
                             source = testR andalso isMerge(rest, POCond ccRef)
                     |   isMerge({instr=LoadArgument{source=RegisterArgument source, dest, ...}, ...} :: rest, POReg testR) =
                             source = testR andalso isMerge(rest, POReg dest)
-                    |   isMerge({instr=ZeroRegister _, ...} :: rest, possopt) = isMerge(rest, possopt)
-                    |   isMerge({instr=SetToCondition{dest, ccRef, ...}, ...} :: rest, POCond ccCond) =
-                            ccRef = ccCond andalso isMerge(rest, POReg dest)
                     |   isMerge({instr=ReturnResultFromFunction _, ...} :: rest, possopt) =
                             (* This should always be the last but check it anyway. *)
                             isMerge(rest, possopt)

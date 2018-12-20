@@ -895,22 +895,6 @@ struct
                         in
                             CompareByteMem{arg1=newArg1, arg2=arg2, ccRef=ccRef} :: indexCode @ baseCode @ code
                         end
- 
-                    |   pushRegisters({instr=SetToCondition{dest, ccRef, condition, highOrder, trueValue, falseValue, opSize}, ...}, code) =
-                        let
-                            val (highVal, highCode) = mapSrcReg highOrder
-                            val (destVal, destCode) = mapDestReg dest
-                        in
-                            destCode @ SetToCondition{dest=destVal, ccRef=ccRef, condition=condition, highOrder=highVal,
-                                                      trueValue=trueValue, falseValue=falseValue, opSize=opSize} :: highCode @ code
-                        end
- 
-                    |   pushRegisters({instr=ZeroRegister{dest}, ...}, code) =
-                        let
-                            val (destVal, destCode) = mapDestReg dest
-                        in
-                            destCode @ ZeroRegister{dest=destVal} ::  code
-                        end
 
                     |   pushRegisters({instr=PushExceptionHandler{workReg}, ...}, code) =
                         let

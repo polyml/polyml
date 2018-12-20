@@ -528,20 +528,6 @@ struct
         |   registerAllocate({instr=CompareByteMem{ arg1={base=PReg bReg, index, ...}, ...}, ...}) =
                 (allocateGeneralReg bReg; allocateArgIndex index)
 
-        |   registerAllocate({instr=SetToCondition{ dest=PReg dReg, highOrder=PReg hReg, ...}, ...}) =
-            let
-                (* On the X86/32 we can't use Setcc to set esi or edi.  codeExtended gets round
-                   that by using jumps instead if that ever happens but we try to avoid it by
-                   preferring ecx. *)
-                val choose =
-                    if targetArch = Native32Bit then SOME(GenReg ecx) else NONE
-                val destReg = findRegister(dReg, choose, generalRegisters)
-            in
-                allocateRegister(hReg, SOME destReg, generalRegisters)
-            end
-
-        |   registerAllocate({instr=ZeroRegister{dest=PReg dReg}, ...}) = allocateRegister(dReg, NONE, generalRegisters)
-
             (* Set up an exception handler. *)
         |   registerAllocate({instr=PushExceptionHandler{workReg=PReg hReg}, ...}) = allocateGeneralReg hReg
 

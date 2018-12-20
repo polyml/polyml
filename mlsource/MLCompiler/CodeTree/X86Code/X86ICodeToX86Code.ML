@@ -595,8 +595,6 @@ struct
             |   instructionUses(WordComparison{arg1, arg2, ...}) = (used arg1; argUses arg2)
             |   instructionUses(CompareLiteral{arg1, ...}) = argUses arg1
             |   instructionUses(CompareByteMem{arg1={base, index, ...}, ...}) = (used base; indexUses index)
-            |   instructionUses(SetToCondition{ dest, highOrder, ...}) = if isUsed dest then used highOrder else ()
-            |   instructionUses(ZeroRegister _) = ()
             |   instructionUses(PushExceptionHandler _) = ()
             |   instructionUses(PopExceptionHandler _) = ()
             |   instructionUses(BeginHandler _) = ()
@@ -1064,64 +1062,6 @@ struct
             in
                 ArithByteMemConst{ opc=CMP, address={offset=offset, base=bReg, index=index}, source=arg2 } :: code
             end
-
-        |   codeExtended _ ({instr=SetToCondition{dest as PReg resReg, condition, highOrder=PReg high, trueValue, falseValue, opSize, ...}, ...}, code) =
-            if not(isUsed dest)
-            then code
-            else
-            let
-                val effectiveOpSize =
-                    if opSize = OpSize32
-                        orelse falseValue >= 0 andalso trueValue <= 0x7fffffff
-                    then OpSize32 else OpSize64
-                val realDestReg = getAllocatedGenReg resReg
-                val _ = trueValue > falseValue orelse raise InternalError "codeExtended: SetToCondition"
-                (* Because we're always producing tagged values the difference should always be even. *)
-                val diff = trueValue - falseValue
-                (* See if we can use a LEA.   These are the only cases that should be generated. *)
-                val (index, base) =
-                    case diff of
-                        2 => (Index1 realDestReg, SOME realDestReg)
-                    |   4 => (Index4 realDestReg, NONE)
-                    |   8 => (Index8 realDestReg, NONE)
-                    |   _ => (NoIndex, NONE)
-            in
-                (* SetCC cannot use esi or edi in X86/32.  We try to use ecx if possible on the X86/32 but
-                   if we happen to choose esi or edi we have to use test and branch instead. *)
-                if (targetArch = Native32Bit andalso (realDestReg = esi orelse realDestReg = edi))
-                    orelse index = NoIndex
-                then
-                let
-                    val lab1 = makeLabel() and lab2 = makeLabel()
-                    (* We've cleared the high-order unnecessarily but it's not worth having a special
-                       case for that. *)
-                in
-                    JumpLabel lab2 ::
-                    Move{source=NonAddressConstArg trueValue, destination=RegisterArg realDestReg, moveSize=opSizeToMove effectiveOpSize} ::
-                    JumpLabel lab1 ::
-                    UncondBranch lab2 ::
-                    Move{source=NonAddressConstArg falseValue, destination=RegisterArg realDestReg, moveSize=opSizeToMove effectiveOpSize} ::
-                    ConditionalBranch{test=condition, label=lab1} :: code
-                end
-                else
-                let
-                    val highReg = getAllocatedGenReg high
-                in
-                    LoadAddress{output=realDestReg, offset=Int.fromLarge falseValue, base=base, index=index, opSize=effectiveOpSize} ::
-                    SetCondition{output=realDestReg, test=condition} ::
-                    moveIfNecessary({src=GenReg highReg, dst=GenReg realDestReg, kind=Move32Bit (* This is zero *)}, code)
-                end
-            end
-
-        |   codeExtended _ ({instr=ZeroRegister{dest as PReg resReg}, ...}, code) =
-            if not(isUsed dest)
-            then code
-            else
-            let
-                val realDestReg = getAllocatedGenReg resReg
-            in
-                ArithToGenReg { opc=XOR, output=realDestReg, source=RegisterArg realDestReg, opSize=OpSize32 } :: code
-            end            
 
             (* Set up an exception handler. *)
         |   codeExtended {flow} ({instr=PushExceptionHandler{workReg=PReg hReg}, ...}, code) =

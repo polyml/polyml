@@ -217,17 +217,6 @@ sig
            operations. *)
     |   CompareByteMem of { arg1: { base: preg, offset: int, index: memoryIndex }, arg2: Word8.word, ccRef: ccRef }
 
-        (* Set a register to one of two values depending on a condition.  The high order bytes need
-           to be zeroed before the test using ZeroRegister.   The trueValue is always larger than
-           the falseValue.  opSize is only needed to decide how to deal with negative values. *)
-    |   SetToCondition of
-           { dest: preg, highOrder: preg, ccRef: ccRef, condition: branchOps,
-             trueValue: LargeInt.int, falseValue: LargeInt.int, opSize: opSize }
-
-        (* Clear a register to zero using XOR.  Unlike LoadArgument this affects the condition
-           codes.  Used before a test that is followed by SetToCondition. *)
-    |   ZeroRegister of { dest: preg }
-
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
 
