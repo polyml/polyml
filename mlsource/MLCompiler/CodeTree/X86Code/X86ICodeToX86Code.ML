@@ -1816,7 +1816,7 @@ struct
                                                     case addXOR code of
                                                         SOME withXOR => loadAddr :: setCond :: withXOR
                                                     |   NONE =>
-                                                        if true orelse (targetArch = Native32Bit andalso (destReg = esi orelse destReg = edi))
+                                                        if targetArch = Native32Bit andalso (destReg = esi orelse destReg = edi)
                                                         then loadAddr :: setCond ::
                                                                 Move{destination=RegisterArg destReg, source=NonAddressConstArg 0, moveSize=opSizeToMove effectiveOpSize} ::
                                                                     code
