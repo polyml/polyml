@@ -1749,9 +1749,12 @@ struct
                                             if not (targetArch = Native32Bit andalso (destReg=esi orelse destReg=edi))
                                                 (* We can't use Setcc with esi or edi on native 32-bit. *)
                                                andalso (multiplier = 2 orelse multiplier = 4 orelse multiplier = 8)
+                                               (* We're using LEA so can only be multiplying by 2, 4 or 8. *)
+                                               andalso is32bit fValue (* and we're going to put this in the offset *)
                                             then
                                             let
                                                 val effectiveOpSize =
+                                                    (* We can generally use 32-bit LEA except if the result is negative. *)
                                                     if kind = Move32Bit orelse fValue >= 0 andalso fValue+multiplier <= 0x7fffffff
                                                     then OpSize32 else OpSize64
                                                 val (index, base) =
