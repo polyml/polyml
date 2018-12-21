@@ -1752,7 +1752,7 @@ struct
                                             then
                                             let
                                                 val effectiveOpSize =
-                                                    if kind = Move32Bit orelse falseValue >= 0 andalso trueValue <= 0x7fffffff
+                                                    if kind = Move32Bit orelse fValue >= 0 andalso fValue+multiplier <= 0x7fffffff
                                                     then OpSize32 else OpSize64
                                                 val (index, base) =
                                                     case multiplier of
