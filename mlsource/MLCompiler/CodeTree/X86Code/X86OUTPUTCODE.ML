@@ -1594,10 +1594,28 @@ struct
         |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move64 }) =
                 opAddress(MOVL_A_R64, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output,moveSize=Move8 }) =
+        |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move8 }) =
                 (* We don't need a REX.W bit here because the top 32-bits of a
                    64-bit register will always be zeroed. *)
                 opAddress(MOVZB32, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(Move{source=RegisterArg source, destination=RegisterArg output, moveSize=Move8 }) =
+            let
+                (* Zero extend an 8-bit value in a register to 32/64 bits. *)
+                val (rrC, rrX) = getReg output
+                val (rbC, rbX) = getReg source
+                (* We don't need a REX.W bit here because the top 32-bits of a
+                   64-bit register will always be zeroed but we may need a REX byte
+                   if we're using esi or edi. *)
+                val rexByte =
+                    if rrC < 0w4 andalso not rrX andalso not rbX
+                    then NONE
+                    else if hostIsX64
+                    then SOME {w=false, r=rrX, b=rbX, x=false}
+                    else raise InternalError "Move8 with esi/edi"
+            in
+                opCodeBytes(MOVZB32, rexByte) @ [modrm(Register, rrC, rbC)]
+            end
 
         |   cgOp(Move{moveSize=Move16, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
                 (* Likewise *)

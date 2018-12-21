@@ -1770,27 +1770,58 @@ struct
                                                 |   checkMem{base, index=Index4 index, ...} = base <> destReg andalso index <> destReg
                                                 |   checkMem{base, index=Index8 index, ...} = base <> destReg andalso index <> destReg
 
-                                                val maySwap =
-                                                    case hd code of
-                                                        ArithToGenReg{output, source, ...} => output <> destReg andalso checkArg source
-                                                    |   ArithMemConst{address, ...} => checkMem address
-                                                    |   ArithByteMemConst{address, ...} => checkMem address
-                                                    |   XMMArith{source=MemoryArg mem, ...} => checkMem mem
-                                                    |   XMMArith _ => true
-                                                    |   TestByteBits{arg, ...} => checkArg arg
-                                                        (* ResetStack?  RepeatOperation CMPS8? *)
-                                                    |   instr => (print (PolyML.makestring instr ^ "\n"); false) 
-                                                val codeAndZero =
-                                                    if maySwap
-                                                    then hd code ::
-                                                            ArithToGenReg { opc=XOR, output=destReg, source=RegisterArg destReg, opSize=OpSize32 } ::
-                                                                tl code
-                                                    else Move{destination=RegisterArg destReg, source=NonAddressConstArg 0, moveSize=opSizeToMove effectiveOpSize} ::
-                                                        code
+                                                val zeroReg = ArithToGenReg { opc=XOR, output=destReg, source=RegisterArg destReg, opSize=OpSize32 } 
+
+                                                fun addXOR [] = NONE
+                                                |   addXOR ((instr as ResetStack _) :: tl) =
+                                                        (* If we can add the XOR before the ResetStack do so. *)
+                                                        Option.map(fn code => instr :: code) (addXOR tl)
+                                                |   addXOR ((instr as ArithToGenReg{output, source, ...}) :: tl) =
+                                                        if output <> destReg andalso checkArg source
+                                                        then SOME(instr :: zeroReg :: tl)
+                                                        else NONE
+                                                |   addXOR ((instr as ArithMemConst{address, ...}) :: tl) =
+                                                        if checkMem address
+                                                        then SOME(instr :: zeroReg :: tl)
+                                                        else NONE
+                                                |   addXOR ((instr as ArithByteMemConst{address, ...}) :: tl) =
+                                                        if checkMem address
+                                                        then SOME(instr :: zeroReg :: tl)
+                                                        else NONE
+                                                |   addXOR ((instr as XMMArith{source=MemoryArg mem, ...}) :: tl) =
+                                                        if checkMem mem
+                                                        then SOME(instr :: zeroReg :: tl)
+                                                        else NONE
+                                                |   addXOR ((instr as XMMArith _) :: tl) = SOME(instr :: zeroReg :: tl)
+                                                |   addXOR ((instr as TestByteBits{arg, ...}) :: tl) =
+                                                        if checkArg arg
+                                                        then SOME(instr :: zeroReg :: tl)
+                                                        else NONE
+                                                |   addXOR ((instr as RepeatOperation CMPS8) :: tl) =
+                                                        (* This uses edi, esi and ecx implicitly *)
+                                                        if destReg <> esi andalso destReg <> edi andalso destReg <> ecx
+                                                        then SOME(instr :: zeroReg :: tl)
+                                                        else NONE
+                                                    (* This seems to be just a conditional jump as a result of
+                                                       testing the condition code twice in Real.== *)
+                                                |   addXOR _ = NONE
+
+                                                (* If we can't put the XOR before the instruction we need to zero
+                                                   the register with an instruction that does not affect the source.
+                                                   An alternative would be to use MOVZXB except in 32-bit mode with esi/edi
+                                                   as the register. *)
+                                                val loadAddr = LoadAddress{output=destReg, offset=Int.fromLarge fValue, base=base, index=index, opSize=effectiveOpSize}
+                                                and setCond = SetCondition{output=destReg, test=testCondition}
                                                 val code =
-                                                    LoadAddress{output=destReg, offset=Int.fromLarge fValue, base=base, index=index, opSize=effectiveOpSize} ::
-                                                    SetCondition{output=destReg, test=testCondition} ::
-                                                    codeAndZero
+                                                    case addXOR code of
+                                                        SOME withXOR => loadAddr :: setCond :: withXOR
+                                                    |   NONE =>
+                                                        if true orelse (targetArch = Native32Bit andalso (destReg = esi orelse destReg = edi))
+                                                        then loadAddr :: setCond ::
+                                                                Move{destination=RegisterArg destReg, source=NonAddressConstArg 0, moveSize=opSizeToMove effectiveOpSize} ::
+                                                                    code
+                                                        else loadAddr ::
+                                                                Move{destination=RegisterArg destReg, source=RegisterArg destReg, moveSize=Move8} :: setCond :: code
                                             in
                                                 SOME code
                                             end
