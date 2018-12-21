@@ -48,13 +48,11 @@ struct
        possibility is that we have a ResetStackPtr in between. *)
     datatype boolRegRewrite =
         BRNone
-    |   BRSetCond of { dest: preg, newValue: LargeInt.int }
-        (* This follows a comparison with a constant where the value we're comparing came from a BRSetCond or
-           a load of a short constant.  It's complicated because we include comparisons with constants and
-           also have the possibility of comparing with a value other than tagged 0 or tagged 1 and having
-           ordering rather than just equality. *)
-    |   BRChangeCond of
-            { srcCC: ccRef, compare: LargeInt.int, newValue: LargeInt.int }
+        (* BRSetConditionToConstant - we have a comparison of two constant value.
+           This will usually happen because we've duplicated a branch and
+           set a register to a constant which we then compare. *)
+    |   BRSetConditionToConstant of
+            { srcCC: ccRef, signedCompare: order, unsignedCompare: order }
 
     fun optimiseICode{ code, pregProps=_, ccCount=_ } =
     let
@@ -78,117 +76,138 @@ struct
             val () = visitRefs 0 (* Start from the root. *)
         end
         
-        (* If this argument is a register that refers to a recently loaded memory address we can
-           replace the argument with the memory reference. *)
-        fun replaceWithMemory(arg as RegisterArgument (preg as PReg pregNo), kill, memRefs, instrOpSize) =
+        (* If this argument is a register and the register is mapped to a memory location, a constant
+           or another register replace the value.  Memory locations are only replaced if this is
+           the only use.  If there is more than one reference it's better to load it into a
+           register and retain the register references.  *)
+        fun replaceWithValue(arg as RegisterArgument (preg as PReg pregNo), kill, regMap, instrOpSize) =
         (
-            case List.find(fn {dest, opSize, ... } => dest = preg andalso opSize = instrOpSize) memRefs of
-                SOME { source, ...} =>
-                    (
-                    if member(pregNo, kill)
+            case List.find(fn {dest, ... } => dest = preg) regMap of
+                SOME { source as MemoryLocation _, opSize, ...} =>
+                (
+                    if member(pregNo, kill) andalso opSize = instrOpSize
                     then ( hasChanged := true; source )
                     else arg,
                     (* Filter this from the list.  If this is not the last
                        reference we want to use the register and if it is then
                        we don't need it any longer. *)
-                    List.filter(fn {dest, ...} => dest <> preg) memRefs)
-           |    NONE => (arg, memRefs)
+                    List.filter(fn {dest, ...} => dest <> preg) regMap
+                )
+           |    SOME { source, ...} =>
+                (
+                    source,
+                    (* Filter it if it is the last reference. *)
+                    if member(pregNo, kill)
+                    then List.filter(fn {dest, ...} => dest <> preg) regMap
+                    else regMap
+                )
+           |    NONE => (arg, regMap)
         )
         
-        |   replaceWithMemory(arg, _, memRefs, _) = (arg, memRefs)
+        |   replaceWithValue(arg, _, regMap, _) = (arg, regMap)
 
         fun optimiseBlock processed (blockNo, ExtendedBasicBlock{block, flow, outCCState, ...}) =
         let
-            fun optCode([], brCond, _, code) = (code, brCond)
+            fun optCode([], brCond, regMap, code) = (code, brCond, regMap)
 
-            |   optCode({instr as CompareLiteral{arg1, arg2, ccRef=ccRefOut, opSize}, kill, ...} :: rest,
-                        brCond, memRefs, code) =
+            |   optCode({instr=CompareLiteral{arg1, arg2, ccRef=ccRefOut, opSize}, kill, ...} :: rest,
+                        _, regMap, code) =
                 let
-                    val (repArg1, memRefsOut) = replaceWithMemory(arg1, kill, memRefs, opSize)
+                    val (repArg1, memRefsOut) = replaceWithValue(arg1, kill, regMap, opSize)
                 in
                     case repArg1 of
-                        RegisterArgument source =>
+                        IntegerConstant test =>
                         (* CompareLiteral is put in by CodetreeToIcode to test a boolean value.  It can also
-                           arise as the result of pattern matching on booleans or even by tests such as = true. *)
-                        if arg2 = 1 orelse arg2 = 3
-                        then
-                        (
-                            case brCond of
-                                BRSetCond{dest=setDest, newValue=test} =>
-                                if setDest = source
-                                then
-                                let
-                                    val _ = hasChanged := true
-                                    (* Put in a replacement so that if we were previously testing ccRefOut
-                                       we should instead test ccRef. *)
-                                    val _ = arg2 = 1 orelse arg2 = 3 orelse raise InternalError "cv"
-                                    val repl = BRChangeCond{srcCC=ccRefOut, compare=arg2, newValue=test}
-                                    val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
-                                in
-                                    optCode(rest, repl, memRefsOut, code)
-                                end
-                                else optCode(rest, BRNone, memRefsOut, instr::code)
-
-                            |   _ => optCode(rest, BRNone, memRefsOut, instr::code)
-                        )
-                        else optCode(rest, BRNone, memRefsOut, instr::code)
+                           arise as the result of pattern matching on booleans or even by tests such as = true.
+                           If the source register is now a constant we want to propagate the constant
+                           condition. *)
+                        let
+                            (* This comparison reduces to a constant.  *)
+                            val _ = hasChanged := true
+                            (* Put in a replacement so that if we were previously testing ccRefOut
+                               we should instead test ccRef. *)
+                            val repl =
+                                BRSetConditionToConstant{srcCC=ccRefOut, signedCompare=LargeInt.compare(test, arg2),
+                                (* Unsigned tests.  We converted the values from Word to LargeInt.  We can therefore
+                                   turn the tests back to Word for the unsigned comparisons. *)
+                                    unsignedCompare=Word.compare(Word.fromLargeInt test, Word.fromLargeInt arg2)}
+                            val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
+                        in
+                            optCode(rest, repl, memRefsOut, code)
+                        end
                 
                     |   repArg1 =>
                             optCode(rest, BRNone, memRefsOut,
                                 CompareLiteral{arg1=repArg1, arg2=arg2, ccRef=ccRefOut, opSize=opSize}::code)
                 end
 
-            |   optCode({instr as LoadArgument{dest=dest, source=IntegerConstant ivalue, ...}, ...} :: rest, _, memRefs, code) =
-                    (* Register is loading a constant. *)
-                    optCode(rest, BRSetCond{dest=dest, newValue=ivalue}, memRefs, instr :: code)
-
-            |   optCode({instr as LoadArgument{dest, source=RegisterArgument srReg, kind} , ...} :: rest,
-                        brCond as BRSetCond{dest=setDest, newValue}, memRefs, code) =
-                (* We frequently have a move if we have followed an unconditional branch. *)
-                if srReg = setDest
-                then
+            |   optCode({instr=LoadArgument{dest, source, kind=Move64Bit}, kill, ...} :: rest, inCond, regMap, code) =
                 let
-                    val () = hasChanged := true
-                    val outInstr = LoadArgument{dest=dest, source=IntegerConstant newValue, kind=kind}
+                    val (repSource, mapAfterReplace) = replaceWithValue(source, kill, regMap, OpSize64)
+                    (* If the value is a constant or memory after replacement we include this. *)
+                    val mapOut =
+                        if (case repSource of MemoryLocation _ => true | IntegerConstant _ => true | _ => false)
+                        then {dest=dest, source=repSource, opSize=OpSize64} :: mapAfterReplace
+                        else mapAfterReplace
+                    val outInstr = LoadArgument{dest=dest, source=repSource, kind=Move64Bit}
                 in
-                    optCode(rest, BRSetCond{dest=dest, newValue=newValue}, memRefs, outInstr :: code)
+                    optCode(rest, inCond, mapOut, outInstr::code)
                 end
-                else optCode(rest, brCond, memRefs, instr :: code)
 
-            |   optCode({instr as LoadArgument{dest, source as MemoryLocation _, kind} , ...} :: rest, inCond, memRefs, code) =
+            |   optCode({instr=LoadArgument{dest, source, kind=Move32Bit}, kill, ...} :: rest, inCond, regMap, code) =
+                let
+                    val (repSource, mapAfterReplace) = replaceWithValue(source, kill, regMap, OpSize32)
+                    val mapOut =
+                        if (case repSource of MemoryLocation _ => true | IntegerConstant _ => true | _ => false)
+                        then {dest=dest, source=repSource, opSize=OpSize32} :: mapAfterReplace
+                        else mapAfterReplace
+                    val outInstr = LoadArgument{dest=dest, source=repSource, kind=Move32Bit}
+                in
+                    optCode(rest, inCond, mapOut, outInstr::code)
+                end
+
+            |   optCode({instr as LoadArgument{dest, source as MemoryLocation _, kind} , ...} :: rest, inCond, regMap, code) =
                 let
                     (* If we load a memory location add it to the list in case we can use it later. *)
                     val memRefsOut =
                         case kind of
-                            Move64Bit => {dest=dest, source=source, opSize=OpSize64} :: memRefs
-                        |   Move32Bit => {dest=dest, source=source, opSize=OpSize32} :: memRefs
-                        |   _ => memRefs
+                            Move64Bit => {dest=dest, source=source, opSize=OpSize64} :: regMap
+                        |   Move32Bit => {dest=dest, source=source, opSize=OpSize32} :: regMap
+                        |   _ => regMap
                 in
                     optCode(rest, inCond, memRefsOut, instr::code)
                 end
 
             |   optCode({instr as StoreArgument _, ...} :: rest, inCond, _, code) =
-                    (* For safety assume that this clears the "cache". *)
+                    (* This may change a value in memory.  For safety remove everything. *)
                     optCode(rest, inCond, [], instr::code)
 
             |   optCode({instr as FunctionCall _, ...} :: rest, _, _, code) =
                     optCode(rest, BRNone, [], instr::code)                
 
+            |   optCode({instr as BeginLoop, ...} :: rest, _, _, code) =
+                    (* Any register value from outside the loop are not valid inside. *)
+                    optCode(rest, BRNone, [], instr::code)                
+
+            |   optCode({instr as JumpLoop _, ...} :: rest, _, _, code) =
+                    (* Likewise at the end of the loop.  Not sure if this is essential. *)
+                    optCode(rest, BRNone, [], instr::code)                
+
                 (* These instructions could take memory operands.  This isn't the full set but the others are
                    rare or only take memory operands that refer to boxed memory. *)
-            |   optCode({instr=WordComparison{arg1, arg2, ccRef, opSize}, kill, ...} :: rest, _, memRefs, code) =
+            |   optCode({instr=WordComparison{arg1, arg2, ccRef, opSize}, kill, ...} :: rest, _, regMap, code) =
                 let
                     (* Replace register reference with memory if possible. *)
-                    val (source, memRefsOut) = replaceWithMemory(arg2, kill, memRefs, opSize)
+                    val (source, memRefsOut) = replaceWithValue(arg2, kill, regMap, opSize)
                 in
                     (* This affects the CC. *)
                     optCode(rest, BRNone, memRefsOut, WordComparison{arg1=arg1, arg2=source, ccRef=ccRef, opSize=opSize}::code)
                 end
 
-            |   optCode({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef, opSize}, kill, ...} :: rest, _, memRefs, code) =
+            |   optCode({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef, opSize}, kill, ...} :: rest, _, regMap, code) =
                 let
                     (* Replace register reference with memory if possible. *)
-                    val (source, memRefsOut) = replaceWithMemory(operand2, kill, memRefs, opSize)
+                    val (source, memRefsOut) = replaceWithValue(operand2, kill, regMap, opSize)
                 in
                     (* This affects the CC. *)
                     optCode(rest, BRNone, memRefsOut,
@@ -196,25 +215,25 @@ struct
                                            operand2=source, ccRef=ccRef, opSize=opSize}::code)
                 end
 
-            |   optCode({instr=TestTagBit{arg, ccRef}, kill, ...} :: rest, _, memRefs, code) =
+            |   optCode({instr=TestTagBit{arg, ccRef}, kill, ...} :: rest, _, regMap, code) =
                 let
                     (* Replace register reference with memory if possible. *)
-                    val (source, memRefsOut) = replaceWithMemory(arg, kill, memRefs, polyWordOpSize)
+                    val (source, memRefsOut) = replaceWithValue(arg, kill, regMap, polyWordOpSize)
                 in
                     (* This affects the CC. *)
                     optCode(rest, BRNone, memRefsOut, TestTagBit{arg=source, ccRef=ccRef}::code)
                 end
 
-            |   optCode({instr=UntagFloat{source, dest, cache=_}, kill, ...} :: rest, _, memRefs, code) =
+            |   optCode({instr=UntagFloat{source, dest, cache=_}, kill, ...} :: rest, _, regMap, code) =
                 let
                     (* Replace register reference with memory if possible. *)
-                    val (source, memRefsOut) = replaceWithMemory(source, kill, memRefs, polyWordOpSize)
+                    val (source, memRefsOut) = replaceWithValue(source, kill, regMap, polyWordOpSize)
                 in
                     (* Not sure if this affects the CC but assume it might. *)
                     optCode(rest, BRNone, memRefsOut, UntagFloat{source=source, dest=dest, cache=NONE}::code)
                 end
 
-            |   optCode({instr, ...} :: rest, inCond, memRefs, code) =
+            |   optCode({instr, ...} :: rest, inCond, regMap, code) =
                 let
                     (* If this instruction affects the CC the cached SetToCondition will no longer be valid. *)
                     val afterCond =
@@ -222,88 +241,104 @@ struct
                             CCUnchanged => inCond
                         |   _ => BRNone
                 in
-                    optCode(rest, afterCond, memRefs, instr::code)
+                    optCode(rest, afterCond, regMap, instr::code)
                 end
 
-            val (blkCode, finalRepl) =
+            val (blkCode, finalRepl, finalMap) =
                 if IntArray.sub(refCounts, blockNo) = 0
-                then ([], BRNone)
+                then ([], BRNone, [])
                 else optCode(block, BRNone, [], processed)
         in
             case (flow, finalRepl) of
                 (* We have a Condition and a change to the condition. *)
-                (flow as Conditional{ccRef, condition=brCond, trueJump, falseJump},
-                 BRChangeCond({srcCC, compare, newValue, ...})) =>
+                (flow as Conditional{ccRef, condition, trueJump, falseJump},
+                 BRSetConditionToConstant({srcCC, signedCompare, unsignedCompare, ...})) =>
                     if srcCC = ccRef
                     then
                     let
-                        fun comparison(testVal, compare, JE) = testVal = compare
-                        |   comparison(testVal, compare, JNE) = testVal <> compare
-                        |   comparison(testVal, compare, JL) = testVal < compare
-                        |   comparison(testVal, compare, JG) = testVal > compare
-                        |   comparison(testVal, compare, JLE) = testVal <= compare
-                        |   comparison(testVal, compare, JGE) = testVal >= compare
-                            (* Unsigned tests.  We converted the values from Word to LargeInt.  We can therefore
-                               turn the tests back to Word for the unsigned comparisons. *)
-                        |   comparison(testVal, compare, JB) = Word.fromLargeInt testVal < Word.fromLargeInt compare
-                        |   comparison(testVal, compare, JA) = Word.fromLargeInt testVal > Word.fromLargeInt compare
-                        |   comparison(testVal, compare, JNA) = Word.fromLargeInt testVal <= Word.fromLargeInt compare
-                        |   comparison(testVal, compare, JNB) = Word.fromLargeInt testVal >= Word.fromLargeInt compare
-                            (* The overflow and parity checks should never occur. *)
-                        |   comparison _ = raise InternalError "getCondResult: comparison"
+                        val testResult =
+                            case (condition, signedCompare, unsignedCompare) of
+                                (JE,    EQUAL,  _)   => true
+                            |   (JE,    _,      _)   => false
+                            |   (JNE,   EQUAL,  _)   => false
+                            |   (JNE,   _,      _)   => true
+                            |   (JL,    LESS,   _)   => true
+                            |   (JL,    _,      _)   => false
+                            |   (JG,    GREATER,_)   => true
+                            |   (JG,    _,      _)   => false
+                            |   (JLE,   GREATER,_)   => false
+                            |   (JLE,   _,      _)   => true
+                            |   (JGE,   LESS,   _)   => false
+                            |   (JGE,   _,      _)   => true
+                            |   (JB,    _, LESS  )   => true
+                            |   (JB,    _,      _)   => false
+                            |   (JA,    _,GREATER)   => true
+                            |   (JA,    _,      _)   => false
+                            |   (JNA,   _,GREATER)   => false
+                            |   (JNA,   _,      _)   => true
+                            |   (JNB,   _, LESS  )   => false
+                            |   (JNB,   _,      _)   => true
+                                (* The overflow and parity checks should never occur. *)
+                            |   _   => raise InternalError "getCondResult: comparison"
 
                         val newFlow =
-                            if comparison(newValue, compare, brCond)
+                            if testResult
                             then Unconditional trueJump
                             else Unconditional falseJump
                     in
                         BasicBlock{flow=newFlow, block=List.rev blkCode}
                     end
                     else BasicBlock{flow=flow, block=List.rev blkCode}
-
-            
-            |   (flow as Unconditional jmp, BRSetCond{dest=destCond, ...}) =>
-                (* We have an unconditional branch with a SetCondition.  It could be that we
-                   want the boolean result but it's also possible that we're going to test it. *)
-                let
-                    val target as ExtendedBasicBlock{block=targetBlck, ...} = Vector.sub(code, jmp)
-                    
-                    datatype possOpt = POReg of preg | POCond of ccRef
-
-                    (* We want to see if following this can be optimised. *)
-                    fun isMerge([], _) = true
-                    |   isMerge({instr=ResetStackPtr _, ...} :: rest, possopt) = isMerge(rest, possopt)
-                    |   isMerge({instr=CompareLiteral{arg1=RegisterArgument source, ccRef, ...}, ...} :: rest, POReg testR) =
-                            source = testR andalso isMerge(rest, POCond ccRef)
-                    |   isMerge({instr=LoadArgument{source=RegisterArgument source, dest, ...}, ...} :: rest, POReg testR) =
-                            source = testR andalso isMerge(rest, POReg dest)
-                    |   isMerge({instr=ReturnResultFromFunction _, ...} :: rest, possopt) =
-                            (* This should always be the last but check it anyway. *)
-                            isMerge(rest, possopt)
-                    |   isMerge _ = false
-                in
-                    (* Merge it if the target block is only referenced from here or if it
-                       is small enough. *)
-                    if IntArray.sub(refCounts, jmp) = 1 orelse isMerge(targetBlck, POReg destCond)
-                    then (hasChanged := true; optimiseBlock blkCode (jmp, target))
-                    else BasicBlock{flow=flow, block=List.rev blkCode}
-                end
-             
+              
             |   (flow as Unconditional jmp, _) =>
                 let
                     val target as ExtendedBasicBlock{block=targetBlck, ...} = Vector.sub(code, jmp)
                     (* If the target is empty or is simply one or more Resets or a Return we're
                        better off merging this in rather than doing the jump.  We allow a single
-                       Load  e.g. when loading a constant or moving a register. *)
-                    fun isSimple([], _) = true
-                    |   isSimple ({instr=ResetStackPtr _, ...} :: instrs, moves) = isSimple(instrs, moves)
-                    |   isSimple ({instr=ReturnResultFromFunction _, ...} :: instrs, moves) = isSimple(instrs, moves)
-                    |   isSimple ({instr=RaiseExceptionPacket _, ...} :: instrs, moves) = isSimple(instrs, moves)
-                    |   isSimple ({instr=LoadArgument _, ...} :: instrs, moves) = moves = 0 andalso isSimple(instrs, moves+1)
+                       Load  e.g. when loading a constant or moving a register.
+                       If we have a CompareLiteral and we're comparing with a register in the map
+                       that has been set to a constant we include that because the comparison will
+                       then be reduced to a constant. *)
+                    fun isSimple([], _, _) = true
+                    |   isSimple ({instr=ResetStackPtr _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)
+                    |   isSimple ({instr=ReturnResultFromFunction _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)
+                    |   isSimple ({instr=RaiseExceptionPacket _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)
+                    |   isSimple ({instr=LoadArgument{source=RegisterArgument preg, dest, kind=Move64Bit}, ...} :: instrs, moves, regMap) =
+                        let
+                            (* We frequently have a move of the original register into a new register before the test. *)
+                            val newMap =
+                                case List.find(fn {dest, ... } => dest = preg) regMap of
+                                    SOME {source, ...} => {dest=dest, source=source, opSize=OpSize64} :: regMap
+                                |   NONE => regMap
+                        in
+                            moves = 0 andalso isSimple(instrs, moves+1, newMap)
+                        end
+                    |   isSimple ({instr=LoadArgument{source=RegisterArgument preg, dest, kind=Move32Bit}, ...} :: instrs, moves, regMap) =
+                        let
+                            (* We frequently have a move of the original register into a new register before the test. *)
+                            val newMap =
+                                case List.find(fn {dest, ... } => dest = preg) regMap of
+                                    SOME {source, ...} => {dest=dest, source=source, opSize=OpSize32} :: regMap
+                                |   NONE => regMap
+                        in
+                            moves = 0 andalso isSimple(instrs, moves+1, newMap)
+                        end
+                    |   isSimple ({instr=LoadArgument _, ...} :: instrs, moves, regMap) = moves = 0 andalso isSimple(instrs, moves+1, regMap)
+                    |   isSimple ({instr=CompareLiteral{arg1=RegisterArgument preg, ...}, ...} :: instrs, moves, regMap) =
+                        let
+                            val isReplace = List.find(fn {dest, ... } => dest = preg) regMap
+                        in
+                            case isReplace of
+                                SOME {source=IntegerConstant _, ...} => isSimple(instrs, moves, regMap)
+                            |   _ => false
+                        end
                     |   isSimple _ = false
+                    
+                    fun stopHere() = ()
+                    val _ = stopHere()
                 in
                     (* Merge it if the target block is only referenced from here or if it is small enough. *)
-                    if IntArray.sub(refCounts, jmp) = 1 orelse isSimple(targetBlck, 0)
+                    if IntArray.sub(refCounts, jmp) = 1 orelse isSimple(targetBlck, 0, finalMap)
                     then
                     (
                         hasChanged := true;
