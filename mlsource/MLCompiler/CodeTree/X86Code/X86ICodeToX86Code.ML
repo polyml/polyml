@@ -1744,14 +1744,16 @@ struct
                                                 if trueValue >= falseValue
                                                 then (trueValue-falseValue, falseValue, condition)
                                                 else (falseValue-trueValue, trueValue, invertTest condition)
+                                            val destReg = asGenReg output
                                         in
-                                            if multiplier = 2 orelse multiplier = 4 orelse multiplier = 8
+                                            if not (targetArch = Native32Bit andalso (destReg=esi orelse destReg=edi))
+                                                (* We can't use Setcc with esi or edi on native 32-bit. *)
+                                               andalso (multiplier = 2 orelse multiplier = 4 orelse multiplier = 8)
                                             then
                                             let
                                                 val effectiveOpSize =
                                                     if kind = Move32Bit orelse falseValue >= 0 andalso trueValue <= 0x7fffffff
                                                     then OpSize32 else OpSize64
-                                                val destReg = asGenReg output
                                                 val (index, base) =
                                                     case multiplier of
                                                         2 => (Index1 destReg, SOME destReg)
@@ -1806,22 +1808,18 @@ struct
                                                        testing the condition code twice in Real.== *)
                                                 |   addXOR _ = NONE
 
-                                                (* If we can't put the XOR before the instruction we need to zero
-                                                   the register with an instruction that does not affect the source.
-                                                   An alternative would be to use MOVZXB except in 32-bit mode with esi/edi
-                                                   as the register. *)
+                                                (* If we can't put the XOR before the instruction we need to either zero
+                                                   it using a move which won't affect the CC or we use MOVZB to extend
+                                                   the byte value to 32/64 bits. *)
                                                 val loadAddr = LoadAddress{output=destReg, offset=Int.fromLarge fValue, base=base, index=index, opSize=effectiveOpSize}
                                                 and setCond = SetCondition{output=destReg, test=testCondition}
                                                 val code =
                                                     case addXOR code of
                                                         SOME withXOR => loadAddr :: setCond :: withXOR
                                                     |   NONE =>
-                                                        if targetArch = Native32Bit andalso (destReg = esi orelse destReg = edi)
-                                                        then loadAddr :: setCond ::
-                                                                Move{destination=RegisterArg destReg, source=NonAddressConstArg 0, moveSize=opSizeToMove effectiveOpSize} ::
-                                                                    code
-                                                        else loadAddr ::
-                                                                Move{destination=RegisterArg destReg, source=RegisterArg destReg, moveSize=Move8} :: setCond :: code
+                                                        loadAddr ::
+                                                            (* We've already check that we're not using esi/edi on native 32-bits. *)
+                                                            Move{destination=RegisterArg destReg, source=RegisterArg destReg, moveSize=Move8} :: setCond :: code
                                             in
                                                 SOME code
                                             end
