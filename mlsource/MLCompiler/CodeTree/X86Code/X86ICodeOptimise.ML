@@ -57,24 +57,6 @@ struct
     fun optimiseICode{ code, pregProps=_, ccCount=_ } =
     let
         val hasChanged = ref false
-
-        val refCounts = IntArray.array(Vector.length code, 0)
-
-        local
-            open IntArray
-            fun visitRefs i =
-                if sub(refCounts, i) = 0
-                then
-                let
-                    val ExtendedBasicBlock{flow, ...} = Vector.sub(code, i)
-                    val () = update(refCounts, i, 1)
-                in
-                    List.app visitRefs (successorBlocks flow)
-                end
-                else update(refCounts, i, 1+sub(refCounts, i))
-        in
-            val () = visitRefs 0 (* Start from the root. *)
-        end
         
         (* If this argument is a register and the register is mapped to a memory location, a constant
            or another register replace the value.  Memory locations are only replaced if this is
@@ -106,7 +88,7 @@ struct
         
         |   replaceWithValue(arg, _, regMap, _) = (arg, regMap)
 
-        fun optimiseBlock processed (blockNo, ExtendedBasicBlock{block, flow, outCCState, ...}) =
+        fun optimiseBlock processed (ExtendedBasicBlock{block, flow, outCCState, ...}) =
         let
             fun optCode([], brCond, regMap, code) = (code, brCond, regMap)
 
@@ -244,10 +226,7 @@ struct
                     optCode(rest, afterCond, regMap, instr::code)
                 end
 
-            val (blkCode, finalRepl, finalMap) =
-                if IntArray.sub(refCounts, blockNo) = 0
-                then ([], BRNone, [])
-                else optCode(block, BRNone, [], processed)
+            val (blkCode, finalRepl, finalMap) = optCode(block, BRNone, [], processed)
         in
             case (flow, finalRepl) of
                 (* We have a Condition and a change to the condition. *)
@@ -285,6 +264,8 @@ struct
                             if testResult
                             then Unconditional trueJump
                             else Unconditional falseJump
+
+                        val() = hasChanged := true
                     in
                         BasicBlock{flow=newFlow, block=List.rev blkCode}
                     end
@@ -333,16 +314,17 @@ struct
                             |   _ => false
                         end
                     |   isSimple _ = false
-                    
-                    fun stopHere() = ()
-                    val _ = stopHere()
                 in
-                    (* Merge it if the target block is only referenced from here or if it is small enough. *)
-                    if IntArray.sub(refCounts, jmp) = 1 orelse isSimple(targetBlck, 0, finalMap)
+                    (* Merge trivial blocks.  This previously also tried to merge non-trivial blocks if
+                       they only had one reference but this ends up duplicating non-trivial code.  If we
+                       have a trivial block that has multiple references but is the only reference to
+                       a non-trivial block we can merge the non-trivial block into it.  That would
+                       be fine except that at the same time we may merge this trivial block elsewhere. *)
+                    if isSimple(targetBlck, 0, finalMap)
                     then
                     (
                         hasChanged := true;
-                        optimiseBlock blkCode (jmp, target)
+                        optimiseBlock blkCode target
                     )
                     else BasicBlock{flow=flow, block=List.rev blkCode}
                 end
@@ -350,7 +332,7 @@ struct
             |   (flow, _) => BasicBlock{flow=flow, block=List.rev blkCode}
         end
         
-        val resVector = Vector.mapi (optimiseBlock []) code
+        val resVector = Vector.map (optimiseBlock []) code
     in
         if !hasChanged then Changed resVector else Unchanged
     end
