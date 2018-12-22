@@ -284,19 +284,6 @@ struct
         val mlArgsOnStack =
             Int.max(case abi of X86_32 => List.length argFormats - 2 | _ => List.length argFormats - 5, 0)
 
-        fun unboxAddress breg =
-            case targetArch of
-                ObjectId32Bit => MemoryArg{base=ebx, offset=0, index=Index4 breg}
-            |   _ => MemoryArg{base=breg, offset=0, index=NoIndex}
-        
-        (* Floats are boxed in 32-in-64 but tagged in native 64-bit *)
-        fun unboxOrUntagFloat(source, dest) =
-            case targetArch of
-                ObjectId32Bit => [XMMArith { opc= SSE2MoveFloat, source=unboxAddress source, output=dest }]
-            |   Native64Bit =>
-                    [MoveGenRegToXMMReg {source=source, output=dest}, XMMShiftRight{ output=dest, shift=0w4 (* Bytes - not bits *) }]
-            |   Native32Bit => raise InternalError "unboxOrUntagFloat"
-
         val code =
             [
                 Move{source=AddressConstArg entryPointAddr, destination=RegisterArg entryPtrReg, moveSize=opSizeToMove polyWordOpSize}, (* Load the entry point ref. *)
