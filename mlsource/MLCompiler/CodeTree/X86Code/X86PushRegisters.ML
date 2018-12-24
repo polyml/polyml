@@ -224,18 +224,19 @@ struct
                         |   NONE => head
                 
                     (* This is the first time we've come to this block.  *)
-                    val ExtendedBasicBlock{ block, flow, imports, passThrough, inCCState, initialStacks, ...} = vsub code blockNo
+                    val ExtendedBasicBlock{ block, flow, imports, passThrough, loopRegs, inCCState, initialStacks, ...} = vsub code blockNo
                     val requiresCC = isSome inCCState
 
                     (* Remove any items from the input state that are no longer needed for
                        this block.  They could be local to the previous block or needed by
-                       a different successor. *)
+                       a different successor.  Although the values in loopRegs are not
+                       required the stack space is so that they can be updated. *)
                     fun removeItems(result as {stack=[], stackCount=0}) = result
                 
                     |   removeItems{stack=[], ...} = raise InternalError "removeItems - stack size"
 
                     |   removeItems (thisStack as {stack=NewEntry{pregNo} :: rest, stackCount}) =
-                        if member(pregNo, imports) orelse member(pregNo, passThrough)
+                        if member(pregNo, imports) orelse member(pregNo, passThrough) orelse member(pregNo, loopRegs)
                         then thisStack
                         else removeItems{stack=rest, stackCount=stackCount-1}
 
@@ -1306,7 +1307,7 @@ struct
                             val newCode = pushRegisters(instr, code)
                             (* Can we pop the stack? *)
                             val stackReset =
-                                case setToList kill of
+                                case setToList (minus(kill, loopRegs)) of
                                     [] => []
                                 |   killList =>
                                     let
@@ -1342,6 +1343,7 @@ struct
                                             if !stackCount = oldStack
                                             then deletedItems := toAdd @ !deletedItems
                                             else deletedItems := reprocess(toAdd @ !deletedItems)
+                                        val _ = oldStack >= !stackCount orelse raise InternalError "negative stack offset"
                                     in
                                         if !stackCount = oldStack then []
                                         else [ResetStackPtr{numWords=oldStack - !stackCount, preserveCC=true (* In case*)}]
@@ -1420,6 +1422,7 @@ struct
                                we can include any stack adjustment needed to match the
                                destination in here.  In particular this includes loops. *)
                             val {expectedInput, reqCC} = valOf (asub inputStackSizes m)
+                            val _ = outputCount >= expectedInput orelse raise InternalError "negative reset"
                             val resultCode =
                                 if expectedInput = outputCount
                                 then codeResult
@@ -1446,6 +1449,7 @@ struct
                         let
                             (* As for unconditional branch *)
                             val {expectedInput, reqCC} = valOf (asub inputStackSizes continue)
+                            val _ = outputCount >= expectedInput orelse raise InternalError "negative reset"
                             val resultCode =
                                 if expectedInput = outputCount
                                 then codeResult

@@ -52,6 +52,7 @@ struct
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
             exports: intSet, (* Defined within the block, possibly used inside, but used outside. *)
             passThrough: intSet, (* Active throughout the block. May be referred to by it but needed afterwards. *)
+            loopRegs: intSet, (* Destination registers for a loop.  They will be updated by this block. *)
             initialStacks: intSet, (* Stack items required at the start i.e. imports+passThrough for stack items. *)
             inCCState: ccRef option, (* The state this block assumes.  If SOME _ all predecessors must set it. *)
             outCCState: ccRef option (* The condition code set by this block.  SOME _ if at least one successor needs it. *)
@@ -329,6 +330,7 @@ struct
         and importArray = Array.array(vectorLength, emptySet)
         val stackDecArray = Array.array(vectorLength, emptySet)
         and stackImportArray = Array.array(vectorLength, emptySet)
+        and localLoopRegArray = Array.array(vectorLength, emptySet)
         
         (* References - this is used locally to see if a register is ever
            actually used and also included in the result which uses it as
@@ -361,7 +363,7 @@ struct
                 (* Visit everything reachable first. *)
                 val () = List.app blockScan successors
                 
-                fun scanCode(instr, original as { code, decs, refs, sDecs, sRefs, occIn, occOut }) =
+                fun scanCode(instr, original as { code, decs, refs, sDecs, sRefs, occIn, occOut, loopRegs, ... }) =
                 let
                     val { sources, dests, sStacks=stackSrcs, dStacks=stackDests, ccIn, ccOut, ... } =
                         getInstructionState instr
@@ -392,6 +394,11 @@ struct
                     (* The output CC is the last CC set.  Tail instructions that don't change
                        the CC state are ignored until we reach an instruction that sets it. *)
                     val newOutCC = case occOut of CCUnchanged => ccOut | _ => occOut
+
+                    val instrLoopRegs =
+                        case instr of
+                            JumpLoop{regArgs, ...} => listToSet (map (regNo o #2) regArgs)
+                        |   _ => emptySet
                 in
                     if eliminateable instr andalso
                         List.all(fn dReg => Array.sub(regRefs, dReg) = 0) destRegNos
@@ -404,7 +411,7 @@ struct
                     in
                         { code = instr :: code, decs = union(listToSet destRegNos, decs), refs = union(listToSet sourceRegNos, refs),
                           sDecs = union(listToSet stackDestRegNos, sDecs), sRefs = union(listToSet stackSourceRegNos, sRefs),
-                          occIn = newInCC, occOut = newOutCC}
+                          occIn = newInCC, occOut = newOutCC, loopRegs = union(loopRegs, instrLoopRegs)}
                     end
                 end
                 
@@ -412,13 +419,14 @@ struct
                    be set here or in a preceding block. *)
                 val inCC = case flow of Conditional { ccRef, ...} => CCNeeded ccRef | _ => CCUnused
 
-                val { code, decs, refs, sDecs, sRefs, occIn, occOut, ... } =
+                val { code, decs, refs, sDecs, sRefs, occIn, occOut, loopRegs, ... } =
                     List.foldr scanCode
-                        {code=[], decs=emptySet, refs=emptySet, sDecs=emptySet, sRefs=emptySet, occIn=inCC, occOut=CCUnchanged} block
+                        {code=[], decs=emptySet, refs=emptySet, sDecs=emptySet, sRefs=emptySet, occIn=inCC, occOut=CCUnchanged, loopRegs=emptySet} block
             in
                 Array.update(declarationArray, blockNo, decs);
                 (* refs includes local declarations. Remove before adding to the result. *)
                 Array.update(importArray, blockNo, minus(refs, decs));
+                Array.update(localLoopRegArray, blockNo, loopRegs);
                 Array.update(stackDecArray, blockNo, sDecs);
                 Array.update(stackImportArray, blockNo, minus(sRefs, sDecs));
                 Array.update(resultCode, blockNo, SOME code);
@@ -441,12 +449,18 @@ struct
         (* Exports - those of our declarations that are used in other blocks. *)
         val exportArray = Array.array(vectorLength, emptySet)
         val stackExportArray = Array.array(vectorLength, emptySet)
+        (* Loop registers.  This contains the registers that are not exported
+           from or passed through this block but are used subsequently as
+           loop registers. *)
+        val loopRegArray = Array.array(vectorLength, emptySet)
+        val () = Array.copy{src=localLoopRegArray, dst=loopRegArray, di=0}
         (* If any one of the successors requires the CC then this is set.
            Otherwise we leave it as Unused. *)
         val ccRequiredOut = Array.array(vectorLength, CCUnused)
         local
             datatype loopData =
-                Unprocessed | Processing | Processed | Looped of { regSet: intSet, stackSet: intSet, ccState: inCCState }
+                Unprocessed | Processing | Processed
+            |   Looped of { regSet: intSet, loopSet: intSet, stackSet: intSet, ccState: inCCState }
             
             fun reprocessLoop () =
             let
@@ -459,7 +473,8 @@ struct
                             {
                                 regSet = union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo)),
                                 stackSet = union(Array.sub(stackPassThroughArray, blockNo), Array.sub(stackImportArray, blockNo)),
-                                ccState = Array.sub(ccInStates, blockNo)
+                                ccState = Array.sub(ccInStates, blockNo),
+                                loopSet = Array.sub(loopRegArray, blockNo)
                             }
                     |   Looped s => s (* We've already seen this in a loop. *)
                     |   Processing => (* We have a loop. *)
@@ -469,7 +484,8 @@ struct
                             {
                                 regSet = union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo)),
                                 stackSet = union(Array.sub(stackPassThroughArray, blockNo), Array.sub(stackImportArray, blockNo)),
-                                ccState = Array.sub(ccInStates, blockNo)
+                                ccState = Array.sub(ccInStates, blockNo),
+                                loopSet = Array.sub(loopRegArray, blockNo)
                             }
                             val () = Array.update(loopArray, blockNo, Looped inputs)
                         in
@@ -481,11 +497,15 @@ struct
                             val thisBlock = Vector.sub(blockVector, blockNo)
                             val ourDeclarations = Array.sub(declarationArray, blockNo)
                             and ourStackDeclarations = Array.sub(stackDecArray, blockNo)
+                            and ourLocalLoopRegs = Array.sub(localLoopRegArray, blockNo)
                             val successors = blockSuccessors thisBlock
 
                             fun addSuccessor b =
                             let
-                                val {regSet=theirImports, stackSet=theirStackImports, ccState=theirInState} = processBlocks b
+                                val {regSet=theirImports, stackSet=theirStackImports, ccState=theirInState, loopSet=theirLoops} = processBlocks b
+                                (* Remove loop regs from the imports if they are actually given new
+                                   values by this block.  We don't want to pass the old loop regs through here. *)
+                                val theirImports = minus(theirImports, ourLocalLoopRegs)
                                 (* Split the imports.  If a register is a local declaration then
                                    it becomes an export.  If it is not it becomes part of our
                                    passThrough. *)
@@ -500,6 +520,10 @@ struct
                                             if ts = req then () else raise InternalError "Mismatched states"
                                     |   (ts as CCNeeded _, _) => Array.update(ccRequiredOut, blockNo, ts)
                                     |   _ => ()
+                                (* Add loop registers to the set if they are not declared here.  The
+                                   only place they are declared is at the entry to the loop so that
+                                   stops them being propagated further. *)
+                                val addToLoops = minus(theirLoops, ourDeclarations)
                             in
                                 Array.update(exportArray, blockNo,
                                     union(Array.sub(exportArray, blockNo), addToExp));
@@ -508,7 +532,9 @@ struct
                                 Array.update(stackExportArray, blockNo,
                                     union(Array.sub(stackExportArray, blockNo), addToStackExp));
                                 Array.update(stackPassThroughArray, blockNo,
-                                    union(Array.sub(stackPassThroughArray, blockNo), addToStackImp))
+                                    union(Array.sub(stackPassThroughArray, blockNo), addToStackImp));
+                                Array.update(loopRegArray, blockNo,
+                                    union(Array.sub(loopRegArray, blockNo), addToLoops))
                             end
                             val () = List.app addSuccessor successors
                             val ourInputs =
@@ -545,9 +571,9 @@ struct
                                 )
                             |   _ => ();
                             Array.update(loopArray, blockNo, Processed);
-                            { regSet = ourInputs, stackSet = ourStackInputs, ccState = Array.sub(ccInStates, blockNo) }
+                            { regSet = ourInputs, stackSet = ourStackInputs,
+                              ccState = Array.sub(ccInStates, blockNo), loopSet=Array.sub(loopRegArray, blockNo)}
                         end
-
             in
                 reprocess := false;
                 processBlocks 0;
@@ -759,6 +785,7 @@ struct
                 val declSet   = Array.sub(declarationArray, blockNo)
                 and importSet = Array.sub(importArray, blockNo)
                 and passSet   = Array.sub(passThroughArray, blockNo)
+                and loopSet   = Array.sub(loopRegArray, blockNo)
                 and exportSet = Array.sub(exportArray, blockNo)
                 and stackPassSet = Array.sub(stackPassThroughArray, blockNo)
                 and stackImportSet = Array.sub(stackImportArray, blockNo)
@@ -781,6 +808,7 @@ struct
                     imports = importSet,
                     exports = exportSet,
                     passThrough = passSet,
+                    loopRegs = loopSet,
                     initialStacks = union(stackPassSet, stackImportSet),
                     inCCState = inCCState,
                     outCCState = outCCState
