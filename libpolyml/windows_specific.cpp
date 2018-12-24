@@ -1055,27 +1055,30 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
 
     Handle str_token = make_stream_entry(taskData);
     if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
-    PIOSTRUCT strm = &basic_io_vector[STREAMID(str_token)];
-    strm->device.ioDesc = _open_osfhandle ((POLYSIGNED) hStream, mode);
-    if (strm->device.ioDesc == -1)
-        raise_syscall(taskData, "_open_osfhandle failed", _doserrno);
-    strm->ioBits = ioBits | IO_BIT_OPEN | IO_BIT_PIPE;
+    {
+        PLocker lock(&ioLock);
+        PIOSTRUCT strm = &basic_io_vector[STREAMID(str_token)];
+        strm->device.ioDesc = _open_osfhandle((POLYSIGNED)hStream, mode);
+        if (strm->device.ioDesc == -1)
+            raise_syscall(taskData, "_open_osfhandle failed", _doserrno);
+        strm->ioBits = ioBits | IO_BIT_OPEN | IO_BIT_PIPE;
 
-    /* The responsibility for closing the handle is passed to
-       the stream package.  We need to retain a pointer to the
-       stream entry so that we can close the stream in "reap". */
-    if (fIsRead)
-    {
-        hnd->hInput = INVALID_HANDLE_VALUE;
-        hnd->readToken = strm->token;
-        // Pass the "input available" event.
-        strm->hAvailable = hnd->hEvent;
-        hnd->hEvent = NULL;
-    }
-    else
-    {
-        hnd->hOutput = INVALID_HANDLE_VALUE;
-        hnd->writeToken = strm->token;
+        /* The responsibility for closing the handle is passed to
+           the stream package.  We need to retain a pointer to the
+           stream entry so that we can close the stream in "reap". */
+        if (fIsRead)
+        {
+            hnd->hInput = INVALID_HANDLE_VALUE;
+            hnd->readToken = strm->token;
+            // Pass the "input available" event.
+            strm->hAvailable = hnd->hEvent;
+            hnd->hEvent = NULL;
+        }
+        else
+        {
+            hnd->hOutput = INVALID_HANDLE_VALUE;
+            hnd->writeToken = strm->token;
+        }
     }
 
     return str_token;

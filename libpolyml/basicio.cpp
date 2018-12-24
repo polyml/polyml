@@ -197,23 +197,7 @@ DCJM May 2000
 */
 
 PIOSTRUCT basic_io_vector;
-PLock ioLock; // Currently this just protects against two threads using the same entry
-
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-class WaitStream: public WaitHandle
-{
-public:
-    WaitStream(PIOSTRUCT strm): WaitHandle(strm == NULL ? NULL : strm->hAvailable) {}
-};
-
-#else
-
-class WaitStream: public WaitInputFD
-{
-public:
-    WaitStream(PIOSTRUCT strm): WaitInputFD(strm == NULL ? -1 : strm->device.ioDesc) {}
-};
-#endif
+PLock ioLock; // Protects basic_io_vector
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 
@@ -310,6 +294,8 @@ void close_stream(PIOSTRUCT str)
 #endif
 }
 
+// Get a stream.  This must always be called with ioLock held since basic_io_vector
+// can be moved.
 PIOSTRUCT get_stream(PolyWord stream_token)
 /* Checks that the stream number is valid and returns the actual stream. 
    Returns NULL if the stream is closed. */
@@ -334,12 +320,20 @@ PIOSTRUCT get_stream(PolyWord stream_token)
     return &basic_io_vector[stream_no];
 }
 
+static int getStreamFileDescriptor(TaskData *taskData, Handle strm)
+{
+    PLocker lock(&ioLock);
+    PIOSTRUCT str = get_stream(strm->Word());
+    if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+    return str->device.ioDesc;
+}
+
 Handle make_stream_entry(TaskData *taskData)
 // Find a free entry in the stream vector and return a token for it.  
 {
+    PLocker lock(&ioLock);
     POLYUNSIGNED stream_no;
 
-    ioLock.Lock();
     // Find an unused entry.
     for(stream_no = 0;
         stream_no < max_streams && basic_io_vector[stream_no].token != ClosedToken;
@@ -372,8 +366,6 @@ Handle make_stream_entry(TaskData *taskData)
     /* Clear the entry then set the token. */
     memset(&basic_io_vector[stream_no], 0, sizeof(IOSTRUCT));
     basic_io_vector[stream_no].token = str_token->Word();
-
-    ioLock.Unlock();
     
     return str_token;
 }
@@ -392,12 +384,11 @@ Handle make_stream_entry(TaskData *taskData)
 */ 
 void free_stream_entry(POLYUNSIGNED stream_no)
 {
-    ASSERT(stream_no < max_streams);
+    PLocker lock(&ioLock);
 
-    ioLock.Lock();
+    ASSERT(stream_no < max_streams);
     basic_io_vector[stream_no].token  = ClosedToken;
     basic_io_vector[stream_no].ioBits = 0;
-    ioLock.Unlock();
 }
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -431,6 +422,7 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
 
         if (stream >= 0)
         {
+            PLocker lock(&ioLock);
             PIOSTRUCT strm = &basic_io_vector[stream_no];
             strm->device.ioDesc = stream;
             strm->ioBits = IO_BIT_OPEN;
@@ -482,6 +474,7 @@ static Handle close_file(TaskData *taskData, Handle stream)
     // Closed streams, stdin, stdout or stderr are all short ints.
     if (stream->Word().IsDataPtr())
     {
+        PLocker lock(&ioLock);
         PIOSTRUCT strm = get_stream(stream->Word());
         if (strm != NULL && strm->token.IsTagged()) strm = NULL; // Backwards compatibility for stdin etc.
         // Ignore closed streams, stdin, stdout or stderr.
@@ -490,6 +483,45 @@ static Handle close_file(TaskData *taskData, Handle stream)
 
     return Make_fixed_precision(taskData, 0);
 }
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+static void waitForAvailableInput(TaskData *taskData, Handle stream)
+{
+    while (true)
+    {
+        HANDLE hWait;
+        {
+            PLocker lock(&ioLock);
+            PIOSTRUCT strm = get_stream(stream->Word());
+            /* Raise an exception if the stream has been closed. */
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+            if (isAvailable(taskData, strm))
+                return;
+            hWait = strm->hAvailable;
+        }
+        WaitHandle waiter(hWait);
+        processes->ThreadPauseForIO(taskData, &waiter);
+    }
+}
+#else
+static void waitForAvailableInput(TaskData *taskData, Handle stream)
+{
+    while (true)
+    {
+        int fd;
+        {
+            PLocker lock(&ioLock);
+            PIOSTRUCT strm = get_stream(stream->Word());
+            /* Raise an exception if the stream has been closed. */
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+            if (isAvailable(taskData, strm))
+                return;
+            fd = strm->device.ioDesc;
+        }
+        WaitInputFD waiter(fd);
+        processes->ThreadPauseForIO(taskData, &waiter);
+    }
+}
+#endif
 
 /* Read into an array. */
 // We can't combine readArray and readString because we mustn't compute the
@@ -509,49 +541,44 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
         // These tests may result in a GC if another thread is running.
         // First test to see if we have input available.
         // These tests may result in a GC if another thread is running.
-        PIOSTRUCT   strm;
+        waitForAvailableInput(taskData, stream);
 
-        while (true) {
-            strm = get_stream(stream->Word());
-            /* Raise an exception if the stream has been closed. */
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (isAvailable(taskData, strm))
-                break;
-            WaitStream waiter(strm);
-            processes->ThreadPauseForIO(taskData, &waiter);
-        }
+        {
+            PLocker lock(&ioLock);
+            PIOSTRUCT strm = get_stream(stream->Word());
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-        if (strm->hAvailable != NULL) ResetEvent(strm->hAvailable);
+            if (strm->hAvailable != NULL) ResetEvent(strm->hAvailable);
 #endif
-        // We can now try to read without blocking.
-        // Actually there's a race here in the unlikely situation that there
-        // are multiple threads sharing the same low-level reader.  They could
-        // both detect that input is available but only one may succeed in
-        // reading without blocking.  This doesn't apply where the threads use
-        // the higher-level IO interfaces in ML which have their own mutexes.
-        int fd = strm->device.ioDesc;
-        byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
-        POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+            // We can now try to read without blocking.
+            // Actually there's a race here in the unlikely situation that there
+            // are multiple threads sharing the same low-level reader.  They could
+            // both detect that input is available but only one may succeed in
+            // reading without blocking.  This doesn't apply where the threads use
+            // the higher-level IO interfaces in ML which have their own mutexes.
+            int fd = strm->device.ioDesc;
+            byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
+            POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-        unsigned length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
-        int haveRead;
+            unsigned length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+            int haveRead;
 #else
-        size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
-        ssize_t haveRead;
+            size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+            ssize_t haveRead;
 #endif
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-        if (isConsole(strm))
-            haveRead = getConsoleInput((char*)base+offset, length);
-        else
+            if (isConsole(strm))
+                haveRead = getConsoleInput((char*)base + offset, length);
+            else
 #endif
-            // Unix and Windows other than console.
-            haveRead = read(fd, base+offset, length);
-        if (haveRead >= 0)
-            return Make_fixed_precision(taskData, haveRead); // Success.
-        // If it failed because it was interrupted keep trying otherwise it's an error.
-        if (errno != EINTR)
-            raise_syscall(taskData, "Error while reading", ERRORNUMBER);
+                // Unix and Windows other than console.
+                haveRead = read(fd, base + offset, length);
+            if (haveRead >= 0)
+                return Make_fixed_precision(taskData, haveRead); // Success.
+            // If it failed because it was interrupted keep trying otherwise it's an error.
+            if (errno != EINTR)
+                raise_syscall(taskData, "Error while reading", ERRORNUMBER);
+        }
     }
 }
 
@@ -575,48 +602,43 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
     {
         // First test to see if we have input available.
         // These tests may result in a GC if another thread is running.
-        PIOSTRUCT   strm;
+        waitForAvailableInput(taskData, stream);
 
-        while (true) {
-            strm = get_stream(DEREFWORD(stream));
-            /* Raise an exception if the stream has been closed. */
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (isAvailable(taskData, strm))
-                break;
-            WaitStream waiter(strm);
-            processes->ThreadPauseForIO(taskData, &waiter);
-        }
-
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        if (strm->hAvailable != NULL) ResetEvent(strm->hAvailable);
-#endif
-
-        // We can now try to read without blocking.
-        int fd = strm->device.ioDesc;
-        // We previously allocated the buffer on the stack but that caused
-        // problems with multi-threading at least on Mac OS X because of
-        // stack exhaustion.  We limit the space to 100k. */
-        if (length > 102400) length = 102400;
-        byte *buff = (byte*)malloc(length);
-        if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", NOMEMORY);
-
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        if (isConsole(strm))
-            haveRead = getConsoleInput((char*)buff, length);
-        else
-#endif
-            // Unix and Windows other than console.
-            haveRead = read(fd, buff, length);
-        if (haveRead >= 0)
         {
-            Handle result = SAVE(C_string_to_Poly(taskData, (char*)buff, haveRead));
+            PLocker lock(&ioLock);
+            PIOSTRUCT strm = get_stream(DEREFWORD(stream));
+
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+            if (strm->hAvailable != NULL) ResetEvent(strm->hAvailable);
+#endif
+
+            // We can now try to read without blocking.
+            int fd = strm->device.ioDesc;
+            // We previously allocated the buffer on the stack but that caused
+            // problems with multi-threading at least on Mac OS X because of
+            // stack exhaustion.  We limit the space to 100k. */
+            if (length > 102400) length = 102400;
+            byte *buff = (byte*)malloc(length);
+            if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", NOMEMORY);
+
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+            if (isConsole(strm))
+                haveRead = getConsoleInput((char*)buff, length);
+            else
+#endif
+                // Unix and Windows other than console.
+                haveRead = read(fd, buff, length);
+            if (haveRead >= 0)
+            {
+                Handle result = SAVE(C_string_to_Poly(taskData, (char*)buff, haveRead));
+                free(buff);
+                return result;
+            }
             free(buff);
-            return result;
+            // If it failed because it was interrupted keep trying otherwise it's an error.
+            if (errno != EINTR)
+                raise_syscall(taskData, "Error while reading", ERRORNUMBER);
         }
-        free(buff);
-        // If it failed because it was interrupted keep trying otherwise it's an error.
-        if (errno != EINTR)
-            raise_syscall(taskData, "Error while reading", ERRORNUMBER);
     }
 }
 
@@ -635,25 +657,10 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     ssize_t haveWritten;
 #endif
-    PIOSTRUCT       strm = get_stream(stream->Word());
-    byte    ch;
-    /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-
+    int fd = getStreamFileDescriptor(taskData, stream);
     /* We don't actually handle cases of blocking on output. */
-    byte *toWrite;
-    if (IS_INT(base))
-    {
-        /* To allow this function to work on strings as well as
-           vectors we have to be able to handle the special case of
-           a single character string. */
-        ch = (byte)(UNTAGGED(base));
-        toWrite = &ch;
-        offset = 0;
-        length = 1;
-    }
-    else toWrite = base.AsObjPtr()->AsBytePtr();
-    haveWritten = write(strm->device.ioDesc, toWrite+offset, length);
+    byte *toWrite = base.AsObjPtr()->AsBytePtr();
+    haveWritten = write(fd, toWrite+offset, length);
     if (haveWritten < 0) raise_syscall(taskData, "Error while writing", ERRORNUMBER);
 
     return Make_fixed_precision(taskData, haveWritten);
@@ -663,8 +670,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
 // true if it will not.
 static bool canOutput(TaskData *taskData, Handle stream)
 {
-    PIOSTRUCT strm = get_stream(stream->Word());
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+    int fd = getStreamFileDescriptor(taskData, stream);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* There's no way I can see of doing this in Windows. */
@@ -681,7 +687,7 @@ static bool canOutput(TaskData *taskData, Handle stream)
     FD_ZERO(&read_fds);
     FD_ZERO(&write_fds);
     FD_ZERO(&except_fds);
-    FD_SET(strm->device.ioDesc, &write_fds);
+    FD_SET(fd, &write_fds);
     sel = select(FD_SETSIZE,&read_fds,&write_fds,&except_fds,&poll);
     if (sel < 0 && errno != EINTR)
         raise_syscall(taskData, "select failed", ERRORNUMBER);
@@ -689,10 +695,9 @@ static bool canOutput(TaskData *taskData, Handle stream)
 #endif
 }
 
-static long seekStream(TaskData *taskData, PIOSTRUCT strm, long pos, int origin)
+static long seekStream(TaskData *taskData, int fd, long pos, int origin)
 {
-    long lpos;
-    lpos = lseek(strm->device.ioDesc, pos, origin);
+    long lpos = lseek(fd, pos, origin);
     if (lpos < 0) raise_syscall(taskData, "Position error", ERRORNUMBER);
     return lpos;
 }
@@ -701,13 +706,11 @@ static long seekStream(TaskData *taskData, PIOSTRUCT strm, long pos, int origin)
    files since it is meaningless for other devices. */
 static Handle bytesAvailable(TaskData *taskData, Handle stream)
 {
-    PIOSTRUCT strm = get_stream(stream->Word());
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-
+    int fd = getStreamFileDescriptor(taskData, stream);
     /* Remember our original position, seek to the end, then seek back. */
-    long original = seekStream(taskData, strm, 0L, SEEK_CUR);
-    long endOfStream = seekStream(taskData, strm, 0L, SEEK_END);
-    if (seekStream(taskData, strm, original, SEEK_SET) != original) 
+    long original = seekStream(taskData, fd, 0L, SEEK_CUR);
+    long endOfStream = seekStream(taskData, fd, 0L, SEEK_END);
+    if (seekStream(taskData, fd, original, SEEK_SET) != original)
         raise_syscall(taskData, "Position error", ERRORNUMBER);
     return Make_fixed_precision(taskData, endOfStream-original);
 }
@@ -724,6 +727,7 @@ static Handle bytesAvailable(TaskData *taskData, Handle stream)
 
 static Handle fileKind(TaskData *taskData, Handle stream)
 {
+    PLocker lock(&ioLock);
     PIOSTRUCT strm = get_stream(stream->Word());
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -785,6 +789,7 @@ static Handle fileKind(TaskData *taskData, Handle stream)
    the stream was opened. */
 Handle pollTest(TaskData *taskData, Handle stream)
 {
+    PLocker lock(&ioLock);
     PIOSTRUCT strm = get_stream(stream->Word());
     int nRes = 0;
     if (strm == NULL) return Make_fixed_precision(taskData, 0);
@@ -825,6 +830,7 @@ TryAgain:
     for (POLYUNSIGNED i = 0; i < nDesc; i++)
     {
         Handle marker = taskData->saveVec.mark();
+        PLocker lock(&ioLock);
         PIOSTRUCT strm = get_stream(strmVec->Get(i));
         taskData->saveVec.reset(marker);
         int bits = get_C_int(taskData, bitVec->Get(i));
@@ -1009,10 +1015,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
         /* Set up the request vector. */
         for (unsigned i = 0; i < nDesc; i++)
         {
-            PIOSTRUCT strm = get_stream(strmVec->Get(i));
-            POLYUNSIGNED bits = UNTAGGED(bitVec->Get(i));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            fds[i].fd = strm->device.ioDesc;
+            fds[i].fd = getStreamFileDescriptor(taskData, stream);
             fds[i].events = 0;
             if (bits & POLL_BIT_IN) fds[i].events |= POLLIN; /* | POLLRDNORM??*/
             if (bits & POLL_BIT_OUT) fds[i].events |= POLLOUT;
@@ -1056,35 +1059,37 @@ static Handle openDirectory(TaskData *taskData, Handle dirname)
         Handle str_token = make_stream_entry(taskData);
         if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
         POLYUNSIGNED stream_no    = STREAMID(str_token);
-        PIOSTRUCT strm = &basic_io_vector[stream_no];
+        {
+            PLocker lock(&ioLock);
+            PIOSTRUCT strm = &basic_io_vector[stream_no];
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-        {
-            // Get the directory name but add on two characters for the \* plus one for the NULL.
-            POLYUNSIGNED length = PolyStringLength(dirname->Word());
-            TempString dirName((TCHAR*)malloc((length + 3)*sizeof(TCHAR)));
-            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-            Poly_string_to_C(dirname->Word(), dirName, length+2);
-            // Tack on \* to the end so that we find all files in the directory.
-            lstrcat(dirName, _T("\\*"));
-            HANDLE hFind = FindFirstFile(dirName, &strm->device.directory.lastFind);
-            if (hFind == INVALID_HANDLE_VALUE)
-                raise_syscall(taskData, "FindFirstFile failed", GetLastError());
-            strm->device.directory.hFind = hFind;
-            /* There must be at least one file which matched. */
-            strm->device.directory.fFindSucceeded = 1;
-        }
-#else
-        TempString dirName(dirname->Word());
-        if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-        DIR *dirp = opendir(dirName);
-        if (dirp == NULL)
-        {
-            free_stream_entry(stream_no);
-            switch (errno)
             {
-            case EINTR:
-                continue; // Just retry the call.
-            case EMFILE:
+                // Get the directory name but add on two characters for the \* plus one for the NULL.
+                POLYUNSIGNED length = PolyStringLength(dirname->Word());
+                TempString dirName((TCHAR*)malloc((length + 3) * sizeof(TCHAR)));
+                if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+                Poly_string_to_C(dirname->Word(), dirName, length + 2);
+                // Tack on \* to the end so that we find all files in the directory.
+                lstrcat(dirName, _T("\\*"));
+                HANDLE hFind = FindFirstFile(dirName, &strm->device.directory.lastFind);
+                if (hFind == INVALID_HANDLE_VALUE)
+                    raise_syscall(taskData, "FindFirstFile failed", GetLastError());
+                strm->device.directory.hFind = hFind;
+                /* There must be at least one file which matched. */
+                strm->device.directory.fFindSucceeded = 1;
+            }
+#else
+            TempString dirName(dirname->Word());
+            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+            DIR *dirp = opendir(dirName);
+            if (dirp == NULL)
+            {
+                free_stream_entry(stream_no);
+                switch (errno)
+                {
+                case EINTR:
+                    continue; // Just retry the call.
+                case EMFILE:
                 {
                     if (emfileFlag) /* Previously had an EMFILE error. */
                         raise_syscall(taskData, "Cannot open", TOOMANYFILES);
@@ -1092,13 +1097,14 @@ static Handle openDirectory(TaskData *taskData, Handle dirname)
                     FullGC(taskData); /* May clear emfileFlag if we close a file. */
                     continue;
                 }
-            default:
-                raise_syscall(taskData, "opendir failed", ERRORNUMBER);
+                default:
+                    raise_syscall(taskData, "opendir failed", ERRORNUMBER);
+                }
             }
-        }
-        strm->device.ioDir = dirp;
+            strm->device.ioDir = dirp;
 #endif
-        strm->ioBits = IO_BIT_OPEN | IO_BIT_DIR;
+            strm->ioBits = IO_BIT_OPEN | IO_BIT_DIR;
+        }
         return(str_token);
     }
 }
@@ -1107,6 +1113,7 @@ static Handle openDirectory(TaskData *taskData, Handle dirname)
    parent arcs ("." and ".." in Windows and Unix) */
 Handle readDirectory(TaskData *taskData, Handle stream)
 {
+    PLocker lock(&ioLock);
     PIOSTRUCT strm = get_stream(stream->Word());
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     Handle result = NULL;
@@ -1156,6 +1163,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
 
 Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
 {
+    PLocker lock(&ioLock);
     PIOSTRUCT strm = get_stream(stream->Word());
     /* Raise an exception if the stream has been closed. */
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
@@ -1480,11 +1488,20 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     switch (c)
     {
     case 0: /* Return standard input */
+    {
+        PLocker lock(&ioLock);
         return SAVE(basic_io_vector[0].token);
+    }
     case 1: /* Return standard output */
+    {
+        PLocker lock(&ioLock);
         return SAVE(basic_io_vector[1].token);
+    }
     case 2: /* Return standard error */
+    {
+        PLocker lock(&ioLock);
         return SAVE(basic_io_vector[2].token);
+    }
     case 3: /* Open file for text input. */
         return open_file(taskData, args, O_RDONLY, 0666, 0);
     case 4: /* Open file for binary input. */
@@ -1520,6 +1537,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 
     case 16: /* See if we can get some input. */
         {
+            PLocker lock(&ioLock);
             PIOSTRUCT str = get_stream(strm->Word());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             return Make_fixed_precision(taskData, isAvailable(taskData, str) ? 1 : 0);
@@ -1533,32 +1551,26 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
             /* Get the current position in the stream.  This is used to test
                for the availability of random access so it should raise an
                exception if setFilePos or endFilePos would fail. */
-            PIOSTRUCT str = get_stream(strm->Word());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-
-            long pos = seekStream(taskData, str, 0L, SEEK_CUR);
+            int fd = getStreamFileDescriptor(taskData, strm);
+            long pos = seekStream(taskData, fd, 0L, SEEK_CUR);
             return Make_arbitrary_precision(taskData, pos);
         }
 
     case 19: /* Seek to position on stream. */
         {
             long position = (long)get_C_long(taskData, DEREFWORD(args));
-            PIOSTRUCT str = get_stream(strm->Word());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-
-            (void)seekStream(taskData, str, position, SEEK_SET);
+            int fd = getStreamFileDescriptor(taskData, strm);
+            (void)seekStream(taskData, fd, position, SEEK_SET);
             return Make_arbitrary_precision(taskData, 0);
         }
 
     case 20: /* Return position at end of stream. */
         {
-            PIOSTRUCT str = get_stream(strm->Word());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-
+            int fd = getStreamFileDescriptor(taskData, strm);
             /* Remember our original position, seek to the end, then seek back. */
-            long original = seekStream(taskData, str, 0L, SEEK_CUR);
-            long endOfStream = seekStream(taskData, str, 0L, SEEK_END);
-            if (seekStream(taskData, str, original, SEEK_SET) != original) 
+            long original = seekStream(taskData, fd, 0L, SEEK_CUR);
+            long endOfStream = seekStream(taskData, fd, 0L, SEEK_END);
+            if (seekStream(taskData, fd, original, SEEK_SET) != original)
                 raise_syscall(taskData, "Position error", ERRORNUMBER);
             return Make_arbitrary_precision(taskData, endOfStream);
         }
@@ -1579,14 +1591,8 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 27: /* Block until input is available. */
         // We should check for interrupts even if we're not going to block.
         processes->TestAnyEvents(taskData);
-        while (true) {
-            PIOSTRUCT str = get_stream(strm->Word());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (isAvailable(taskData, str))
-                return Make_fixed_precision(taskData, 0);
-            WaitStream waiter(str);
-            processes->ThreadPauseForIO(taskData, &waiter);
-        }
+        waitForAvailableInput(taskData, strm);
+        return Make_fixed_precision(taskData, 0);
 
     case 28: /* Test whether output is possible. */
         return Make_fixed_precision(taskData, canOutput(taskData, strm) ? 1:0);
@@ -1607,34 +1613,36 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         /* This is now also used internally to test for
            stdIn, stdOut and stdErr. */
         {
-            PIOSTRUCT str = get_stream(strm->Word());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            return Make_fixed_precision(taskData, str->device.ioDesc);
+            int fd = getStreamFileDescriptor(taskData, strm);
+            return Make_fixed_precision(taskData, fd);
         }
 
     case 31: /* Make an entry for a given descriptor. */
         {
             int ioDesc = get_C_int(taskData, DEREFWORD(args));
-            PIOSTRUCT str;
             /* First see if it's already in the table. */
             for (unsigned i = 0; i < max_streams; i++)
             {
-                str = &(basic_io_vector[i]);
+                PLocker lock(&ioLock);
+                PIOSTRUCT str = &(basic_io_vector[i]);
                 if (str->token != ClosedToken && str->device.ioDesc == ioDesc)
                     return taskData->saveVec.push(str->token);
             }
             /* Have to make a new entry. */
             Handle str_token = make_stream_entry(taskData);
             if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-            POLYUNSIGNED stream_no    = STREAMID(str_token);
-            str = &basic_io_vector[stream_no];
-            str->device.ioDesc = get_C_int(taskData, DEREFWORD(args));
-            /* We don't know whether it's open for read, write or even if
-               it's open at all. */
-            str->ioBits = IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE ;
+            POLYUNSIGNED stream_no = STREAMID(str_token);
+            {
+                PLocker lock(&ioLock);
+                PIOSTRUCT str = &basic_io_vector[stream_no];
+                str->device.ioDesc = get_C_int(taskData, DEREFWORD(args));
+                /* We don't know whether it's open for read, write or even if
+                   it's open at all. */
+                str->ioBits = IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            str->ioBits |= getFileType(ioDesc);
+                str->ioBits |= getFileType(ioDesc);
 #endif
+            }
             return str_token;
         }
 

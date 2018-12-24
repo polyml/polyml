@@ -398,6 +398,16 @@ public:
     WaitNetSend(SOCKET sock) { SetWrite(sock); }
 };
 
+
+static SOCKET getStreamSocket(TaskData *taskData, PolyWord strm)
+{
+    PLocker lock(&ioLock);
+    PIOSTRUCT str = get_stream(strm);
+    if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+    return str->device.sock;
+}
+
+
 static Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, code->Word());
@@ -431,7 +441,6 @@ TryAgain: // Used for various retries.
         {
             Handle str_token = make_stream_entry(taskData);
             if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-            PIOSTRUCT strm;
             POLYUNSIGNED stream_no = STREAMID(str_token);
             int af = get_C_int(taskData, DEREFHANDLE(args)->Get(0));
             int type = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
@@ -474,10 +483,13 @@ TryAgain: // Used for various retries.
 #endif
                 raise_syscall(taskData, "ioctl failed", GETERROR);
             }
-            strm = &basic_io_vector[stream_no];
-            strm->device.sock = skt;
-            strm->ioBits =
-                IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET ;
+            {
+                PLocker lock(&ioLock);
+                PIOSTRUCT strm = &basic_io_vector[stream_no];
+                strm->device.sock = skt;
+                strm->ioBits =
+                    IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET;
+            }
             return(str_token);
         }
 
@@ -544,7 +556,8 @@ TryAgain: // Used for various retries.
     case 35: /* Set Linger time. */
         {
             struct linger linger;
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+            PLocker lock(&ioLock);
+            SOCKET skt = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             int lTime = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
             /* We pass in a negative value to turn the option off,
                zero or positive to turn it on. */
@@ -558,8 +571,7 @@ TryAgain: // Used for various retries.
                 linger.l_onoff = 1;
                 linger.l_linger = lTime;
             }
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (setsockopt(strm->device.sock, SOL_SOCKET, SO_LINGER,
+            if (setsockopt(skt, SOL_SOCKET, SO_LINGER,
                 (char*)&linger, sizeof(linger)) != 0)
                 raise_syscall(taskData, "setsockopt failed", GETERROR);
             return Make_arbitrary_precision(taskData, 0);
@@ -568,11 +580,10 @@ TryAgain: // Used for various retries.
     case 36: /* Get Linger time. */
         {
             struct linger linger;
-            PIOSTRUCT strm = get_stream(args->Word());
+            SOCKET skt = getStreamSocket(taskData, args->Word());
             socklen_t size = sizeof(linger);
             int lTime = 0;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (getsockopt(strm->device.sock, SOL_SOCKET, SO_LINGER,
+            if (getsockopt(skt, SOL_SOCKET, SO_LINGER,
                 (char*)&linger, &size) != 0)
                 raise_syscall(taskData, "getsockopt failed", GETERROR);
             /* If the option is off return a negative. */
@@ -583,11 +594,10 @@ TryAgain: // Used for various retries.
 
     case 37: /* Get peer name. */
         {
-            PIOSTRUCT strm = get_stream(args->Word());
+            SOCKET skt = getStreamSocket(taskData, args->Word());
             struct sockaddr sockA;
             socklen_t   size = sizeof(sockA);
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (getpeername(strm->device.sock, &sockA, &size) != 0)
+            if (getpeername(skt, &sockA, &size) != 0)
                 raise_syscall(taskData, "getpeername failed", GETERROR);
             /* Addresses are treated as strings. */
             return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
@@ -595,11 +605,10 @@ TryAgain: // Used for various retries.
 
     case 38: /* Get socket name. */
         {
-            PIOSTRUCT strm = get_stream(args->Word());
+            SOCKET skt = getStreamSocket(taskData, args->Word());
             struct sockaddr sockA;
             socklen_t   size = sizeof(sockA);
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (getsockname(strm->device.sock, &sockA, &size) != 0)
+            if (getsockname(skt, &sockA, &size) != 0)
                 raise_syscall(taskData, "getsockname failed", GETERROR);
             return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
         }
@@ -645,15 +654,14 @@ TryAgain: // Used for various retries.
 
     case 44: /* Find number of bytes available. */
         {
-            PIOSTRUCT strm = get_stream(args->Word());
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+            SOCKET skt = getStreamSocket(taskData, args->Word());
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             unsigned long readable;
-            if (ioctlsocket(strm->device.sock, FIONREAD, &readable) != 0)
+            if (ioctlsocket(skt, FIONREAD, &readable) != 0)
                 raise_syscall(taskData, "ioctlsocket failed", GETERROR);
 #else
             int readable;
-            if (ioctl(strm->device.sock, FIONREAD, &readable) < 0)
+            if (ioctl(skt, FIONREAD, &readable) < 0)
                 raise_syscall(taskData, "ioctl failed", GETERROR);
 #endif
             return Make_arbitrary_precision(taskData, readable);
@@ -661,15 +669,14 @@ TryAgain: // Used for various retries.
 
     case 45: /* Find out if we are at the mark. */
         {
-            PIOSTRUCT strm = get_stream(args->Word());
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+            SOCKET skt = getStreamSocket(taskData, args->Word());
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             unsigned long atMark;
-            if (ioctlsocket(strm->device.sock, SIOCATMARK, &atMark) != 0)
+            if (ioctlsocket(skt, SIOCATMARK, &atMark) != 0)
                 raise_syscall(taskData, "ioctlsocket failed", GETERROR);
 #else
             int atMark;
-            if (ioctl(strm->device.sock, SIOCATMARK, &atMark) < 0)
+            if (ioctl(skt, SIOCATMARK, &atMark) < 0)
                 raise_syscall(taskData, "ioctl failed", GETERROR);
 #endif
             return Make_arbitrary_precision(taskData, atMark == 0 ? 0 : 1);
@@ -681,78 +688,76 @@ TryAgain: // Used for various retries.
 
     case 58: /* Non-blocking accept. */
         {
-            PIOSTRUCT strm = get_stream(args->Word());
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            else {
-                SOCKET sock = strm->device.sock;
-                struct sockaddr resultAddr;
-                Handle addrHandle, pair;
-                PIOSTRUCT newStrm;
-                /* Get a token for the new socket - may raise an
-                   exception if it fails. */
-                Handle str_token = make_stream_entry(taskData);
-                if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-                POLYUNSIGNED stream_no = STREAMID(str_token);
-                socklen_t addrLen = sizeof(resultAddr);
-                SOCKET result = accept(sock, &resultAddr, &addrLen);
+            SOCKET sock = getStreamSocket(taskData, args->Word());
+            struct sockaddr resultAddr;
+            Handle addrHandle, pair;
+            /* Get a token for the new socket - may raise an
+                exception if it fails. */
+            Handle str_token = make_stream_entry(taskData);
+            if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+            POLYUNSIGNED stream_no = STREAMID(str_token);
+            socklen_t addrLen = sizeof(resultAddr);
+            SOCKET result = accept(sock, &resultAddr, &addrLen);
 
-                if (result == INVALID_SOCKET)
+            if (result == INVALID_SOCKET)
+            {
+                /* Free the stream entry */
+                free_stream_entry(stream_no);
+                switch (GETERROR)
                 {
-                    /* Free the stream entry */
-                    free_stream_entry(stream_no);
-                    switch (GETERROR)
+                case CALLINTERRUPTED:
+                    taskData->saveVec.reset(hSave);
+                    goto TryAgain; /* Have to retry if we got EINTR. */
+                case TOOMANYFILES: /* Too many files. */
                     {
-                    case CALLINTERRUPTED:
+                        if (emfileFlag) /* Previously had an EMFILE error. */
+                            raise_syscall(taskData, "accept failed", TOOMANYFILES);
+                        emfileFlag = true;
                         taskData->saveVec.reset(hSave);
-                        goto TryAgain; /* Have to retry if we got EINTR. */
-                    case TOOMANYFILES: /* Too many files. */
-                        {
-                            if (emfileFlag) /* Previously had an EMFILE error. */
-                                raise_syscall(taskData, "accept failed", TOOMANYFILES);
-                            emfileFlag = true;
-                            taskData->saveVec.reset(hSave);
-                            FullGC(taskData); /* May clear emfileFlag if we close a file. */
-                            goto TryAgain;
-                        }
-                    case WOULDBLOCK:
-#if (WOULDBLOCK != INPROGRESS)
-                    case INPROGRESS:
-#endif
-                        /* If the socket is in non-blocking mode we pass
-                           this back to the caller.  If it is blocking we
-                           suspend this process and try again later. */
-                        if (c == 46 /* blocking version. */) {
-                            WaitNet waiter(strm->device.sock);
-                            processes->ThreadPauseForIO(taskData, &waiter);
-                            taskData->saveVec.reset(hSave);
-                            goto TryAgain;
-                        }
-                        /* else drop through. */
-                    default:
-                        raise_syscall(taskData, "accept failed", GETERROR);
+                        FullGC(taskData); /* May clear emfileFlag if we close a file. */
+                        goto TryAgain;
                     }
+                case WOULDBLOCK:
+#if (WOULDBLOCK != INPROGRESS)
+                case INPROGRESS:
+#endif
+                    /* If the socket is in non-blocking mode we pass
+                        this back to the caller.  If it is blocking we
+                        suspend this process and try again later. */
+                    if (c == 46 /* blocking version. */) {
+                        WaitNet waiter(sock);
+                        processes->ThreadPauseForIO(taskData, &waiter);
+                        taskData->saveVec.reset(hSave);
+                        goto TryAgain;
+                    }
+                    /* else drop through. */
+                default:
+                    raise_syscall(taskData, "accept failed", GETERROR);
                 }
+            }
 
-                addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
-                newStrm = &basic_io_vector[stream_no];
+            addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
+            {
+                PLocker locker(&ioLock);
+                POLYUNSIGNED stream_no = STREAMID(str_token);
+                PIOSTRUCT newStrm = &basic_io_vector[stream_no];
                 newStrm->device.sock = result;
                 newStrm->ioBits =
                     IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET;
-                /* Return a pair of the new socket and the address. */
-                pair = ALLOC(2);
-                DEREFHANDLE(pair)->Set(0, str_token->Word());
-                DEREFHANDLE(pair)->Set(1, addrHandle->Word());
-                return pair;
             }
+            /* Return a pair of the new socket and the address. */
+            pair = ALLOC(2);
+            DEREFHANDLE(pair)->Set(0, str_token->Word());
+            DEREFHANDLE(pair)->Set(1, addrHandle->Word());
+            return pair;
         }
 
     case 47: /* Bind an address to a socket. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+            SOCKET skt = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (bind(strm->device.sock, psock, (int)psAddr->length) != 0)
+            if (bind(skt, psock, (int)psAddr->length) != 0)
                 raise_syscall(taskData, "bind failed", GETERROR);
             return Make_arbitrary_precision(taskData, 0);
         }
@@ -762,16 +767,15 @@ TryAgain: // Used for various retries.
         processes->TestAnyEvents(taskData);
     case 59: /* Non-blocking connect. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             /* In Windows, and possibly also in Unix, if we have
                received a previous EWOULDBLOCK we have to use "select"
                to tell us whether the connection actually succeeded. */
             while (1)
             {
-                int res = connect(strm->device.sock, psock, (int)psAddr->length);
+                int res = connect(sock, psock, (int)psAddr->length);
                 if (res == 0) return Make_arbitrary_precision(taskData, 0); /* OK */
                 /* It isn't clear that EINTR can ever occur with
                     connect, but just to be safe, we retry. */
@@ -783,13 +787,8 @@ TryAgain: // Used for various retries.
                 /* else try again. */
             }
 
-
             while (1)
             {
-                // ThreadPause may GC.  We need to reload the socket for security.
-                strm = get_stream(DEREFHANDLE(args)->Get(0));
-                if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-                SOCKET sock = strm->device.sock;
                 /* In Windows failure is indicated by the bit being set in
                     the exception set rather than the write set. */
                 WaitSelect waiter;
@@ -819,26 +818,24 @@ TryAgain: // Used for various retries.
 
     case 49: /* Put socket into listening mode. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             int backlog = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (listen(strm->device.sock, backlog) != 0)
+            if (listen(sock, backlog) != 0)
                 raise_syscall(taskData, "listen failed", GETERROR);
             return Make_arbitrary_precision(taskData, 0);
         }
 
     case 50: /* Shutdown the socket. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             int mode = 0;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             switch (get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)))
             {
             case 1: mode = SHUT_RD; break;
             case 2: mode = SHUT_WR; break;
             case 3: mode = SHUT_RDWR;
             }
-            if (shutdown(strm->device.sock, mode) != 0)
+            if (shutdown(sock, mode) != 0)
                 raise_syscall(taskData, "shutdown failed", GETERROR);
             return Make_arbitrary_precision(taskData, 0);
         }
@@ -848,7 +845,7 @@ TryAgain: // Used for various retries.
         processes->TestAnyEvents(taskData);
     case 60: /* Non-blocking send. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             PolyWord pBase = DEREFHANDLE(args)->Get(1);
             char    ch, *base;
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
@@ -862,7 +859,6 @@ TryAgain: // Used for various retries.
             int flags = 0;
             if (dontRoute != 0) flags |= MSG_DONTROUTE;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (IS_INT(pBase)) {
                 /* Handle the special case where we are sending a single
                    byte vector and the "address" is the tagged byte itself. */
@@ -881,7 +877,7 @@ TryAgain: // Used for various retries.
 #else
                 ssize_t sent;
 #endif
-                sent = send(strm->device.sock, base+offset, length, flags);
+                sent = send(sock, base+offset, length, flags);
                 /* It isn't clear that EINTR can ever occur with
                    send but just to be safe we deal with that case and
                    retry the send. */
@@ -890,7 +886,7 @@ TryAgain: // Used for various retries.
                 err = GETERROR;
                 if ((err == WOULDBLOCK || err == INPROGRESS) && c == 51 /* blocking */)
                 {
-                    WaitNetSend waiter(strm->device.sock);
+                    WaitNetSend waiter(sock);
                     processes->ThreadPauseForIO(taskData, &waiter);
                     // It is NOT safe to just loop here.  We may have GCed.
                     taskData->saveVec.reset(hSave);
@@ -907,7 +903,7 @@ TryAgain: // Used for various retries.
         processes->TestAnyEvents(taskData);
     case 61: /* Non-blocking send. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             PolyWord pBase = DEREFHANDLE(args)->Get(2);
             char    ch, *base;
@@ -922,7 +918,6 @@ TryAgain: // Used for various retries.
             int flags = 0;
             if (dontRoute != 0) flags |= MSG_DONTROUTE;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (IS_INT(pBase)) {
                 /* Handle the special case where we are sending a single
                    byte vector and the "address" is the tagged byte itself. */
@@ -941,7 +936,7 @@ TryAgain: // Used for various retries.
 #else
                 ssize_t sent;
 #endif
-                sent = sendto(strm->device.sock, base+offset, length, flags,
+                sent = sendto(sock, base+offset, length, flags,
                             (struct sockaddr *)psAddr->chars, (int)psAddr->length);
                 /* It isn't clear that EINTR can ever occur with
                    send but just to be safe we deal with that case and
@@ -951,7 +946,7 @@ TryAgain: // Used for various retries.
                 err = GETERROR;
                 if ((err == WOULDBLOCK || err == INPROGRESS) && c == 52 /* blocking */)
                 {
-                    WaitNetSend waiter(strm->device.sock);
+                    WaitNetSend waiter(sock);
                     processes->ThreadPauseForIO(taskData, &waiter);
                     // It is NOT safe to just loop here.  We may have GCed.
                     taskData->saveVec.reset(hSave);
@@ -968,7 +963,7 @@ TryAgain: // Used for various retries.
         processes->TestAnyEvents(taskData);
     case 62: /* Non-blocking receive. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
 #if(defined(_WIN32) && ! defined(_CYGWIN))
@@ -981,7 +976,6 @@ TryAgain: // Used for various retries.
             int flags = 0;
             if (peek != 0) flags |= MSG_PEEK;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
             while (1) {
                 int err;
@@ -990,7 +984,7 @@ TryAgain: // Used for various retries.
 #else
                 ssize_t recvd;
 #endif
-                recvd = recv(strm->device.sock, base+offset, length, flags);
+                recvd = recv(sock, base+offset, length, flags);
                 err = GETERROR;
                 if (recvd != SOCKET_ERROR) { /* OK. */
                     /* It appears that recv may return the length of the
@@ -1001,7 +995,7 @@ TryAgain: // Used for various retries.
                 if ((err == WOULDBLOCK || err == INPROGRESS) && c == 53 /* blocking */)
                 {
                     /* Block until something arrives. */
-                    WaitNet waiter(strm->device.sock, outOfBand != 0);
+                    WaitNet waiter(sock, outOfBand != 0);
                     processes->ThreadPauseForIO(taskData, &waiter);
                     // It is NOT safe to just loop here.  We may have GCed.
                     taskData->saveVec.reset(hSave);
@@ -1020,7 +1014,7 @@ TryAgain: // Used for various retries.
         processes->TestAnyEvents(taskData);
     case 63: /* Non-blocking receive. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
 #if(defined(_WIN32) && ! defined(_CYGWIN))
@@ -1036,7 +1030,6 @@ TryAgain: // Used for various retries.
 
             if (peek != 0) flags |= MSG_PEEK;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
             while (1) {
                 int err;
@@ -1045,8 +1038,7 @@ TryAgain: // Used for various retries.
 #else
                 ssize_t recvd;
 #endif
-                recvd = recvfrom(strm->device.sock, base+offset,
-                                 length, flags, &resultAddr, &addrLen);
+                recvd = recvfrom(sock, base+offset, length, flags, &resultAddr, &addrLen);
                 err = GETERROR;
 
                 if (recvd != SOCKET_ERROR) { /* OK. */
@@ -1061,7 +1053,7 @@ TryAgain: // Used for various retries.
                 }
                 if ((err == WOULDBLOCK || err == INPROGRESS) && c == 54 /* blocking */)
                 {
-                    WaitNet waiter(strm->device.sock, outOfBand != 0);
+                    WaitNet waiter(sock, outOfBand != 0);
                     processes->ThreadPauseForIO(taskData, &waiter);
                     // It is NOT safe to just loop here.  We may have GCed.
                     taskData->saveVec.reset(hSave);
@@ -1083,10 +1075,10 @@ TryAgain: // Used for various retries.
             if (str_token1 == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
             Handle str_token2 = make_stream_entry(taskData);
             if (str_token2 == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            POLYUNSIGNED stream_no1 = STREAMID(str_token1);
+            POLYUNSIGNED stream_no2 = STREAMID(str_token2);
             Handle pair;
-            PIOSTRUCT strm1, strm2;
-            unsigned stream_no1 = STREAMID(str_token1);
-            unsigned stream_no2 = STREAMID(str_token2);
+            
             int af = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
             int type = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             int proto = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
@@ -1123,14 +1115,17 @@ TryAgain: // Used for various retries.
                 close(skt[1]);
                 raise_syscall(taskData, "ioctl failed", GETERROR);
             }
-            strm1 = &basic_io_vector[stream_no1];
-            strm1->device.sock = skt[0];
-            strm1->ioBits =
-                IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET ;
-            strm2 = &basic_io_vector[stream_no2];
-            strm2->device.sock = skt[1];
-            strm2->ioBits =
-                IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET ;
+            {
+                PLocker lock(&ioLock);
+                PIOSTRUCT strm1 = &basic_io_vector[stream_no1];
+                strm1->device.sock = skt[0];
+                strm1->ioBits =
+                    IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET;
+                PIOSTRUCT strm2 = &basic_io_vector[stream_no2];
+                strm2->device.sock = skt[1];
+                strm2->ioBits =
+                    IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET;
+            }
             /* Return the two streams as a pair. */
             pair = ALLOC(2);
             DEREFHANDLE(pair)->Set(0, DEREFWORD(str_token1));
@@ -1320,10 +1315,9 @@ static Handle mkSktab(TaskData *taskData, void *arg, char *p)
 /* This sets an option and can also be used to set an integer. */
 static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt)
 {
-    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+    SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
     int onOff = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-    if (setsockopt(strm->device.sock, level, opt,
+    if (setsockopt(sock, level, opt,
         (char*)&onOff, sizeof(int)) != 0)
         raise_syscall(taskData, "setsockopt failed", GETERROR);
     return Make_arbitrary_precision(taskData, 0);
@@ -1332,12 +1326,10 @@ static Handle setSocketOption(TaskData *taskData, Handle args, int level, int op
 /* Get a socket option as a boolean */
 static Handle getSocketOption(TaskData *taskData, Handle args, int level, int opt)
 {
-    PIOSTRUCT strm = get_stream(args->Word());
+    SOCKET sock = getStreamSocket(taskData, args->Word());
     int onOff = 0;
     socklen_t size = sizeof(int);
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-    if (getsockopt(strm->device.sock, level, opt,
-        (char*)&onOff, &size) != 0)
+    if (getsockopt(sock, level, opt, (char*)&onOff, &size) != 0)
         raise_syscall(taskData, "getsockopt failed", GETERROR);
     return Make_arbitrary_precision(taskData, onOff == 0 ? 0 : 1);
 }
@@ -1345,12 +1337,10 @@ static Handle getSocketOption(TaskData *taskData, Handle args, int level, int op
 /* Get a socket option as an integer */
 static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt)
 {
-    PIOSTRUCT strm = get_stream(args->Word());
+    SOCKET sock = getStreamSocket(taskData, args->Word());
     int optVal = 0;
     socklen_t size = sizeof(int);
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-    if (getsockopt(strm->device.sock, level, opt,
-        (char*)&optVal, &size) != 0)
+    if (getsockopt(sock, level, opt, (char*)&optVal, &size) != 0)
         raise_syscall(taskData, "getsockopt failed", GETERROR);
     return Make_arbitrary_precision(taskData, optVal);
 }
@@ -1375,8 +1365,8 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, WaitS
     int nRes = 0;
     POLYUNSIGNED i;
     for (i = 0; i < nVec; i++) {
-        PIOSTRUCT strm = get_stream(inVec->Get(i));
-        if (testBit(offset, strm->device.sock, pSelect)) nRes++;
+        SOCKET sock = getStreamSocket(taskData, inVec->Get(i));
+        if (testBit(offset, sock, pSelect)) nRes++;
     }
     if (nRes == 0)
         return ALLOC(0); /* None - return empty vector. */
@@ -1385,8 +1375,8 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, WaitS
         inVec = DEREFHANDLE(args)->Get(offset).AsObjPtr(); /* It could have moved as a result of a gc. */
         nRes = 0;
         for (i = 0; i < nVec; i++) {
-            PIOSTRUCT strm = get_stream(inVec->Get(i));
-            if (testBit(offset, strm->device.sock, pSelect))
+            SOCKET sock = getStreamSocket(taskData, inVec->Get(i));
+            if (testBit(offset, sock, pSelect))
                 DEREFWORDHANDLE(result)->Set(nRes++, inVec->Get(i));
         }
         return result;
@@ -1464,23 +1454,14 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
         PolyObject *writeVec = DEREFHANDLE(args)->Get(1).AsObjPtr();
         PolyObject *excVec = DEREFHANDLE(args)->Get(2).AsObjPtr();
         nVec = readVec->Length();
-        for (i = 0; i < nVec; i++) {
-            PIOSTRUCT strm = get_stream(readVec->Get(i));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            waitSelect.SetRead(strm->device.sock);
-        }
+        for (i = 0; i < nVec; i++)
+            waitSelect.SetRead(getStreamSocket(taskData, readVec->Get(i)));
         nVec = writeVec->Length();
-        for (i = 0; i < nVec; i++) {
-            PIOSTRUCT strm = get_stream(writeVec->Get(i));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            waitSelect.SetWrite(strm->device.sock);
-        }
+        for (i = 0; i < nVec; i++)
+            waitSelect.SetWrite(getStreamSocket(taskData, writeVec->Get(i)));
         nVec = excVec->Length();
-        for (i = 0; i < nVec; i++) {
-            PIOSTRUCT strm = get_stream(excVec->Get(i));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            waitSelect.SetExcept(strm->device.sock);
-        }
+        for (i = 0; i < nVec; i++)
+            waitSelect.SetExcept(getStreamSocket(taskData, excVec->Get(i)));
 
         // Do the select.  This may return immediately if the maximum time-out is short.
         processes->ThreadPauseForIO(taskData, &waitSelect);

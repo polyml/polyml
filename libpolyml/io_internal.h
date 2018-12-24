@@ -1,7 +1,7 @@
 /*
     Title:      Data structures shared between basioio.c and network.c.
 
-    Copyright (c) 2000, 2016 David C. J. Matthews
+    Copyright (c) 2000, 2016, 2018 David C. J. Matthews
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
 
@@ -23,6 +23,7 @@
 #ifndef IO_INTERNAL_H
 #define IO_INTERNAL_H
 
+#include "locking.h" // For PLock
 
 #define IO_BIT_OPEN         1
 #define IO_BIT_READ         2
@@ -112,6 +113,7 @@ extern void free_stream_entry(POLYUNSIGNED stream_no);
 extern void close_stream(PIOSTRUCT str);
 
 extern PIOSTRUCT basic_io_vector;
+extern PLock ioLock;
 
 extern bool emfileFlag;
 
