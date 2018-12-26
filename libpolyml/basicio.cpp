@@ -269,14 +269,6 @@ bool emfileFlag = false;
 void close_stream(PIOSTRUCT str)
 {
     if (!isOpen(str)) return;
-    if (isDirectory(str))
-    {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        FindClose(str->device.directory.hFind);
-#else
-        closedir(str->device.ioDir);
-#endif
-    }
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     else if (isSocket(str))
     {
@@ -1051,147 +1043,171 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
 }
 #endif
 
-/* Directory functions. */
-/* Open a directory. */
+// Directory functions.
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+class WinDirData
+{
+public:
+    HANDLE  hFind; /* FindFirstFile handle */
+    WIN32_FIND_DATA lastFind;
+    int fFindSucceeded;
+};
+
 static Handle openDirectory(TaskData *taskData, Handle dirname)
 {
-    while (1) // Only certain errors
-    {
-        Handle str_token = make_stream_entry(taskData);
-        if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-        POLYUNSIGNED stream_no    = STREAMID(str_token);
-        {
-            PLocker lock(&ioLock);
-            PIOSTRUCT strm = &basic_io_vector[stream_no];
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            {
-                // Get the directory name but add on two characters for the \* plus one for the NULL.
-                POLYUNSIGNED length = PolyStringLength(dirname->Word());
-                TempString dirName((TCHAR*)malloc((length + 3) * sizeof(TCHAR)));
-                if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-                Poly_string_to_C(dirname->Word(), dirName, length + 2);
-                // Tack on \* to the end so that we find all files in the directory.
-                lstrcat(dirName, _T("\\*"));
-                HANDLE hFind = FindFirstFile(dirName, &strm->device.directory.lastFind);
-                if (hFind == INVALID_HANDLE_VALUE)
-                    raise_syscall(taskData, "FindFirstFile failed", GetLastError());
-                strm->device.directory.hFind = hFind;
-                /* There must be at least one file which matched. */
-                strm->device.directory.fFindSucceeded = 1;
-            }
-#else
-            TempString dirName(dirname->Word());
-            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-            DIR *dirp = opendir(dirName);
-            if (dirp == NULL)
-            {
-                free_stream_entry(stream_no);
-                switch (errno)
-                {
-                case EINTR:
-                    continue; // Just retry the call.
-                case EMFILE:
-                {
-                    if (emfileFlag) /* Previously had an EMFILE error. */
-                        raise_syscall(taskData, "Cannot open", TOOMANYFILES);
-                    emfileFlag = true;
-                    FullGC(taskData); /* May clear emfileFlag if we close a file. */
-                    continue;
-                }
-                default:
-                    raise_syscall(taskData, "opendir failed", ERRORNUMBER);
-                }
-            }
-            strm->device.ioDir = dirp;
-#endif
-            strm->ioBits = IO_BIT_OPEN | IO_BIT_DIR;
-        }
-        return(str_token);
-    }
+    // Get the directory name but add on two characters for the \* plus one for the NULL.
+    POLYUNSIGNED length = PolyStringLength(dirname->Word());
+    TempString dirName((TCHAR*)malloc((length + 3) * sizeof(TCHAR)));
+    if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+    Poly_string_to_C(dirname->Word(), dirName, length + 2);
+    // Tack on \* to the end so that we find all files in the directory.
+    lstrcat(dirName, _T("\\*"));
+    WinDirData *pData = new WinDirData; // TODO: Handle failue
+    HANDLE hFind = FindFirstFile(dirName, &pData->lastFind);
+    if (hFind == INVALID_HANDLE_VALUE)
+        raise_syscall(taskData, "FindFirstFile failed", GetLastError());
+    pData->hFind = hFind;
+    /* There must be at least one file which matched. */
+    pData->fFindSucceeded = 1;
+    return MakeVolatileWord(taskData, pData);
 }
 
+
 /* Return the next entry from the directory, ignoring current and
-   parent arcs ("." and ".." in Windows and Unix) */
+parent arcs ("." and ".." in Windows and Unix) */
 Handle readDirectory(TaskData *taskData, Handle stream)
 {
-    PLocker lock(&ioLock);
-    PIOSTRUCT strm = get_stream(stream->Word());
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+    WinDirData *pData = *(WinDirData**)(stream->WordP()); // In a Volatile
+    if (pData == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
     Handle result = NULL;
-#endif
-    /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-    /* The next entry to read is already in the buffer. FindFirstFile
-       both opens the directory and returns the first entry. If
-       fFindSucceeded is false we have already reached the end. */
-    if (! strm->device.directory.fFindSucceeded)
+    // The next entry to read is already in the buffer. FindFirstFile
+    // both opens the directory and returns the first entry. If
+    // fFindSucceeded is false we have already reached the end.
+    if (!pData->fFindSucceeded)
         return SAVE(EmptyString(taskData));
     while (result == NULL)
     {
-        WIN32_FIND_DATA *pFind = &strm->device.directory.lastFind;
+        WIN32_FIND_DATA *pFind = &(pData->lastFind);
         if (!((pFind->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
             (lstrcmp(pFind->cFileName, _T(".")) == 0 ||
-             lstrcmp(pFind->cFileName, _T("..")) == 0)))
+                lstrcmp(pFind->cFileName, _T("..")) == 0)))
         {
             result = SAVE(C_string_to_Poly(taskData, pFind->cFileName));
         }
         /* Get the next entry. */
-        if (! FindNextFile(strm->device.directory.hFind, pFind))
+        if (!FindNextFile(pData->hFind, pFind))
         {
             DWORD dwErr = GetLastError();
             if (dwErr == ERROR_NO_MORE_FILES)
             {
-                strm->device.directory.fFindSucceeded = 0;
+                pData->fFindSucceeded = 0;
                 if (result == NULL) return SAVE(EmptyString(taskData));
             }
         }
     }
     return result;
-#else
-    while (1)
-    {
-        struct dirent *dp = readdir(strm->device.ioDir);
-        int len;
-        if (dp == NULL) return taskData->saveVec.push(EmptyString(taskData));
-        len = NAMLEN(dp);
-        if (!((len == 1 && strncmp(dp->d_name, ".", 1) == 0) ||
-              (len == 2 && strncmp(dp->d_name, "..", 2) == 0)))
-            return SAVE(C_string_to_Poly(taskData, dp->d_name, len));
-    }
-#endif
 }
 
 Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
 {
-    PLocker lock(&ioLock);
-    PIOSTRUCT strm = get_stream(stream->Word());
-    /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-    {
-        /* There's no rewind - close and reopen. */
-        FindClose(strm->device.directory.hFind);
-        strm->ioBits = 0;
-        POLYUNSIGNED length = PolyStringLength(dirname->Word());
-        TempString dirName((TCHAR*)malloc((length + 3)*sizeof(TCHAR)));
-        if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-        Poly_string_to_C(dirname->Word(), dirName, length+2);
-        // Tack on \* to the end so that we find all files in the directory.
-        lstrcat(dirName, _T("\\*"));
-        HANDLE hFind = FindFirstFile(dirName, &strm->device.directory.lastFind);
-        if (hFind == INVALID_HANDLE_VALUE)
-            raise_syscall(taskData, "FindFirstFile failed", GetLastError());
-        strm->device.directory.hFind = hFind;
-        /* There must be at least one file which matched. */
-        strm->device.directory.fFindSucceeded = 1;
-        strm->ioBits = IO_BIT_OPEN | IO_BIT_DIR;
-    }
-#else
-    rewinddir(strm->device.ioDir);
-#endif
+    WinDirData *pData = *(WinDirData**)(stream->WordP()); // In a SysWord
+    if (pData == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+    // There's no rewind - close and reopen.
+    FindClose(pData->hFind);
+    POLYUNSIGNED length = PolyStringLength(dirname->Word());
+    TempString dirName((TCHAR*)malloc((length + 3) * sizeof(TCHAR)));
+    if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+    Poly_string_to_C(dirname->Word(), dirName, length + 2);
+    // Tack on \* to the end so that we find all files in the directory.
+    lstrcat(dirName, _T("\\*"));
+    HANDLE hFind = FindFirstFile(dirName, &(pData->lastFind));
+    if (hFind == INVALID_HANDLE_VALUE)
+        raise_syscall(taskData, "FindFirstFile failed", GetLastError());
+    pData->hFind = hFind;
+    /* There must be at least one file which matched. */
+    pData->fFindSucceeded = 1;
     return Make_fixed_precision(taskData, 0);
 }
+
+static Handle closeDirectory(TaskData *taskData, Handle stream)
+{
+    WinDirData *pData = *(WinDirData**)(stream->WordP()); // In a SysWord
+    if (pData != 0)
+    {
+        FindClose(pData->hFind);
+        delete(pData);
+        *((WinDirData**)stream->WordP()) = 0; // Clear this - no longer valid
+    }
+    return Make_fixed_precision(taskData, 0);
+}
+#else
+// Unix
+static Handle openDirectory(TaskData *taskData, Handle dirname)
+{
+    TempString dirName(dirname->Word());
+    if (dirName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+    DIR *dirp = opendir(dirName);
+    if (dirp == NULL)
+    {
+        free_stream_entry(stream_no);
+        switch (errno)
+        {
+        case EINTR:
+            continue; // Just retry the call.
+        case EMFILE:
+        {
+            if (emfileFlag) /* Previously had an EMFILE error. */
+                raise_syscall(taskData, "Cannot open", TOOMANYFILES);
+            emfileFlag = true;
+            FullGC(taskData); /* May clear emfileFlag if we close a file. */
+            continue;
+        }
+        default:
+            raise_syscall(taskData, "opendir failed", ERRORNUMBER);
+        }
+    }
+    return MakeVolatileWord(taskData, (uintptr_t)dirp);
+}
+
+
+/* Return the next entry from the directory, ignoring current and
+parent arcs ("." and ".." in Windows and Unix) */
+Handle readDirectory(TaskData *taskData, Handle stream)
+{
+    DIR *pDir = *(DIR**)(stream->WordP()); // In a Volatile
+    if (pData == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+    while (1)
+    {
+        struct dirent *dp = readdir(pDir);
+        int len;
+        if (dp == NULL) return taskData->saveVec.push(EmptyString(taskData));
+        len = NAMLEN(dp);
+        if (!((len == 1 && strncmp(dp->d_name, ".", 1) == 0) ||
+            (len == 2 && strncmp(dp->d_name, "..", 2) == 0)))
+            return SAVE(C_string_to_Poly(taskData, dp->d_name, len));
+    }
+}
+
+Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
+{
+    DIR *pDir = *(DIR**)(stream->WordP()); // In a Volatile
+    if (pData == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+    rewinddir(pDir);
+    return Make_fixed_precision(taskData, 0);
+}
+
+static Handle closeDirectory(TaskData *taskData, Handle stream)
+{
+    DIR *pDir = *(DIR**)(stream->WordP()); // In a SysWord
+    if (pDir != 0)
+    {
+        closedir(pDir);
+        *((pDir**)stream->WordP()) = 0; // Clear this - no longer valid
+    }
+    return Make_fixed_precision(taskData, 0);
+}
+
+#endif
 
 /* change_dirc - this is called directly and not via the dispatch
    function. */
@@ -1656,7 +1672,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         return readDirectory(taskData, strm);
 
     case 52: /* Close the directory */
-        return close_file(taskData, strm);
+        return closeDirectory(taskData, strm);
 
     case 53: /* Rewind the directory. */
         return rewindDirectory(taskData, strm, args);

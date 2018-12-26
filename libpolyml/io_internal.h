@@ -28,7 +28,6 @@
 #define IO_BIT_OPEN         1
 #define IO_BIT_READ         2
 #define IO_BIT_WRITE        4
-#define IO_BIT_DIR          8 /* Is it a directory entry? */
 #define IO_BIT_SOCKET       16 /* Is it a socket? */
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -71,15 +70,9 @@ typedef struct basic_io_struct
     union {
         int ioDesc; /* File descriptor. */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-        struct {
-            HANDLE  hFind; /* FindFirstFile handle */
-            WIN32_FIND_DATA lastFind;
-            int fFindSucceeded;
-        } directory;
         SOCKET sock;
 #else
 #define sock ioDesc
-        DIR *ioDir; /* Directory entry. */
 #endif
     } device;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -92,7 +85,6 @@ class TaskData;
 #define isOpen(s)   ((s)->ioBits & IO_BIT_OPEN)
 #define isRead(s)   ((s)->ioBits & IO_BIT_READ)
 #define isWrite(s)  ((s)->ioBits & IO_BIT_WRITE)
-#define isDirectory(s)  ((s)->ioBits & IO_BIT_DIR)
 #define isSocket(s) ((s)->ioBits & IO_BIT_SOCKET)
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
