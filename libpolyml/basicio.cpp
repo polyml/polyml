@@ -320,10 +320,10 @@ PIOSTRUCT get_stream(PolyWord stream_token)
     return &basic_io_vector[stream_no];
 }
 
-static int getStreamFileDescriptor(TaskData *taskData, Handle strm)
+static int getStreamFileDescriptor(TaskData *taskData, PolyWord strm)
 {
     PLocker lock(&ioLock);
-    PIOSTRUCT str = get_stream(strm->Word());
+    PIOSTRUCT str = get_stream(strm);
     if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
     return str->device.ioDesc;
 }
@@ -657,7 +657,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     ssize_t haveWritten;
 #endif
-    int fd = getStreamFileDescriptor(taskData, stream);
+    int fd = getStreamFileDescriptor(taskData, stream->Word());
     /* We don't actually handle cases of blocking on output. */
     byte *toWrite = base.AsObjPtr()->AsBytePtr();
     haveWritten = write(fd, toWrite+offset, length);
@@ -670,7 +670,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
 // true if it will not.
 static bool canOutput(TaskData *taskData, Handle stream)
 {
-    int fd = getStreamFileDescriptor(taskData, stream);
+    int fd = getStreamFileDescriptor(taskData, stream->Word());
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* There's no way I can see of doing this in Windows. */
@@ -706,7 +706,7 @@ static long seekStream(TaskData *taskData, int fd, long pos, int origin)
    files since it is meaningless for other devices. */
 static Handle bytesAvailable(TaskData *taskData, Handle stream)
 {
-    int fd = getStreamFileDescriptor(taskData, stream);
+    int fd = getStreamFileDescriptor(taskData, stream->Word());
     /* Remember our original position, seek to the end, then seek back. */
     long original = seekStream(taskData, fd, 0L, SEEK_CUR);
     long endOfStream = seekStream(taskData, fd, 0L, SEEK_END);
@@ -1015,7 +1015,8 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
         /* Set up the request vector. */
         for (unsigned i = 0; i < nDesc; i++)
         {
-            fds[i].fd = getStreamFileDescriptor(taskData, stream);
+            fds[i].fd = getStreamFileDescriptor(taskData, strmVec->Get(i));
+            POLYUNSIGNED bits = UNTAGGED(bitVec->Get(i));
             fds[i].events = 0;
             if (bits & POLL_BIT_IN) fds[i].events |= POLLIN; /* | POLLRDNORM??*/
             if (bits & POLL_BIT_OUT) fds[i].events |= POLLOUT;
@@ -1551,7 +1552,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
             /* Get the current position in the stream.  This is used to test
                for the availability of random access so it should raise an
                exception if setFilePos or endFilePos would fail. */
-            int fd = getStreamFileDescriptor(taskData, strm);
+            int fd = getStreamFileDescriptor(taskData, strm->Word());
             long pos = seekStream(taskData, fd, 0L, SEEK_CUR);
             return Make_arbitrary_precision(taskData, pos);
         }
@@ -1559,14 +1560,14 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 19: /* Seek to position on stream. */
         {
             long position = (long)get_C_long(taskData, DEREFWORD(args));
-            int fd = getStreamFileDescriptor(taskData, strm);
+            int fd = getStreamFileDescriptor(taskData, strm->Word());
             (void)seekStream(taskData, fd, position, SEEK_SET);
             return Make_arbitrary_precision(taskData, 0);
         }
 
     case 20: /* Return position at end of stream. */
         {
-            int fd = getStreamFileDescriptor(taskData, strm);
+            int fd = getStreamFileDescriptor(taskData, strm->Word());
             /* Remember our original position, seek to the end, then seek back. */
             long original = seekStream(taskData, fd, 0L, SEEK_CUR);
             long endOfStream = seekStream(taskData, fd, 0L, SEEK_END);
@@ -1613,7 +1614,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         /* This is now also used internally to test for
            stdIn, stdOut and stdErr. */
         {
-            int fd = getStreamFileDescriptor(taskData, strm);
+            int fd = getStreamFileDescriptor(taskData, strm->Word());
             return Make_fixed_precision(taskData, fd);
         }
 

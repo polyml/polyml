@@ -887,7 +887,6 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             uid_t uid = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             gid_t gid = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fchown(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), uid, gid) < 0)
                 raise_syscall(taskData, "fchown failed", errno);
             return Make_fixed_precision(taskData, 0);
@@ -1113,7 +1112,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 114: /* Get the file descriptor flags. */
         {
-            int res = fcntl(getStreamFileDescriptor(taskData, (args->Word()), F_GETFD);
+            int res = fcntl(getStreamFileDescriptor(taskData, args->Word()), F_GETFD);
             if (res < 0) raise_syscall(taskData, "fcntl failed", errno);
             return Make_fixed_precision(taskData, res);
         }
@@ -1121,7 +1120,6 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 115: /* Set the file descriptor flags. */
         {
             int flags = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fcntl(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), F_SETFD, flags) < 0)
                 raise_syscall(taskData, "fcntl failed", errno);
             return Make_fixed_precision(taskData, 0);
@@ -1189,7 +1187,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                check whether the stream has drained and run another
                process until it has. */
 #ifdef HAVE_TCDRAIN
-            if (tcdrain(getStreamFileDescriptor(taskData, (args->Word())) < 0)
+            if (tcdrain(getStreamFileDescriptor(taskData, args->Word())) < 0)
                 raise_syscall(taskData, "tcdrain failed", errno);
 #else
             raise_syscall(taskData, "tcdrain is not implemented", 0);
@@ -1449,7 +1447,6 @@ static Handle getTTYattrs(TaskData *taskData, Handle args)
     speed_t ispeed, ospeed;
     Handle ifHandle, ofHandle, cfHandle, lfHandle, ccHandle;
     Handle isHandle, osHandle, result;
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
     if (tcgetattr(fd, &tios) < 0)
         raise_syscall(taskData, "tcgetattr failed", errno);
     /* Extract the speed entries. */
