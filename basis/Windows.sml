@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Windows signature and structure
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2012
+    Copyright   David Matthews 2000, 2005, 2012, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -54,7 +54,7 @@ sig
         val deleteKey : hkey * string -> unit
         val deleteValue : hkey * string -> unit
         val enumKeyEx : hkey * int -> string option
-        val enumValue : hkey * int -> string option
+        val enumValueEx : hkey * int -> string option
         datatype value =
               SZ of string
             | DWORD of SysWord.word
@@ -379,9 +379,9 @@ struct
              |  enumKeyEx(SUBKEY i, n) =
                     (winCall(1019, (i, n)))
 
-            fun enumValue(PREDEFINED i, n) =
+            fun enumValueEx(PREDEFINED i, n) =
                     (winCall(1020, (i, n)))
-             |  enumValue(SUBKEY i, n) =
+             |  enumValueEx(SUBKEY i, n) =
                     (winCall(1021, (i, n)))
         end
 
@@ -494,14 +494,23 @@ struct
             winCall(1035, (command, arg))
     end
 
-    abstype ('a,'b) proc = ABS of int with end;
+    datatype winExecState =
+        WinExecRunning of int (* Abstract *)
+    |   WinExecFinished of OS.Process.status
+    
+    datatype ('a,'b) proc = WinProc of winExecState ref
 
     (* Run a process and return a proces object which will
        allow us to extract the input and output streams. *)
     local
         val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
-        fun execute(command, arg): ('a,'b) proc = RunCall.unsafeCast(winCall (1000, (command, arg)))
+        fun execute(command, arg): ('a,'b) proc =
+        let
+            val run: int (* abstract *) = RunCall.unsafeCast(winCall (1000, (command, arg)))
+        in
+            WinProc(ref(WinExecRunning run))
+        end
     end
 
     local
@@ -513,7 +522,7 @@ struct
     local
         val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
-        fun textInstreamOf p =
+        fun textInstreamOf(WinProc(ref(WinExecRunning p))) =
         let
             (* Get the underlying file descriptor. *)
             val n = winCall (1001, RunCall.unsafeCast p)
@@ -524,8 +533,9 @@ struct
         in
             TextIO.mkInstream streamIo
         end
+        |   textInstreamOf _ = raise OS.SysErr("Process is not running", NONE)
         
-        fun textOutstreamOf p =
+        fun textOutstreamOf(WinProc(ref(WinExecRunning p))) =
         let
             val n = winCall (1002, RunCall.unsafeCast p)
             val buffSize = sys_get_buffsize n
@@ -537,8 +547,9 @@ struct
         in
             TextIO.mkOutstream streamIo
         end
+        |   textOutstreamOf _ = raise OS.SysErr("Process is not running", NONE)
 
-        fun binInstreamOf p =
+        fun binInstreamOf(WinProc(ref(WinExecRunning p))) =
         let
             (* Get the underlying file descriptor. *)
             val n = winCall (1003, RunCall.unsafeCast p)
@@ -550,8 +561,9 @@ struct
         in
             BinIO.mkInstream streamIo
         end
+        |   binInstreamOf _ = raise OS.SysErr("Process is not running", NONE)
         
-        fun binOutstreamOf p =
+        fun binOutstreamOf(WinProc(ref(WinExecRunning p))) =
         let
             val n = winCall (1004, RunCall.unsafeCast p)
             val buffSize = sys_get_buffsize n
@@ -563,16 +575,22 @@ struct
         in
             BinIO.mkOutstream streamIo
         end
+        |   binOutstreamOf _ = raise OS.SysErr("Process is not running", NONE)
     end
 
     (* reap - wait until the process finishes and get the result.
-       Note: this is defined to be able to return the result repeatedly.
-       At present that's done by not closing the handle except in the
-       garbage collector.  That could cause us to run out of handles. *)
+       Note: this is defined to be able to return the result repeatedly. *)
     local
         val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
-        fun reap p = winCall (1005, RunCall.unsafeCast p)
+        fun reap(WinProc(ref(WinExecFinished result))) = result
+        |   reap(WinProc(r as ref(WinExecRunning p))) =
+            let
+                val res: OS.Process.status = winCall (1005, RunCall.unsafeCast p)
+            in
+                r := WinExecFinished res;
+                res
+            end
     end
 
     local
