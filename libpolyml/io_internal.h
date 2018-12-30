@@ -45,50 +45,6 @@ typedef int SOCKET;
 
 #endif
 
-typedef struct basic_io_struct
-{
-    PolyWord token; // Either a pointer or a tagged int for stdIn etc.
-    int ioBits; /* Flag bits */
-    union {
-        int ioDesc; /* File descriptor. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        SOCKET sock;
-#else
-#define sock ioDesc
-#endif
-    } device;
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-    HANDLE hAvailable; // Used to signal available data
-#endif
-} IOSTRUCT, *PIOSTRUCT;
-
-class TaskData;
-
-#define isOpen(s)   ((s)->ioBits & IO_BIT_OPEN)
-#define isRead(s)   ((s)->ioBits & IO_BIT_READ)
-#define isWrite(s)  ((s)->ioBits & IO_BIT_WRITE)
-#define isSocket(s) ((s)->ioBits & IO_BIT_SOCKET)
-
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-// Needed because testing for available input is different depending on the device.
-// Console here means our Windows GUI.
-#define isPipe(s)       ((s)->ioBits & IO_BIT_PIPE)
-#define isDevice(s)     ((s)->ioBits & IO_BIT_DEV)
-#define isConsole(s)    ((s)->ioBits & IO_BIT_GUI_CONSOLE)
-#endif
-
-// Token representing a closed stream.
-#define ClosedToken TAGGED(-1)
-
-extern PIOSTRUCT get_stream(PolyWord token);
-
-extern Handle make_stream_entry(TaskData *mdTaskData);
-extern void free_stream_entry(POLYUNSIGNED stream_no);
-extern void close_stream(PIOSTRUCT str);
-
-extern PIOSTRUCT basic_io_vector;
-extern PLock ioLock;
-
 // This is used in both basicio and unix-specific
 #if defined(HAVE_STRUCT_STAT_ST_ATIM)
 # define STAT_SECS(stat,kind)    (stat)->st_##kind##tim.tv_sec

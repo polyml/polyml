@@ -397,6 +397,11 @@ Handle MakeVolatileWord(TaskData *taskData, void *p)
     return result;
 }
 
+Handle MakeVolatileWord(TaskData *taskData, uintptr_t p)
+{
+    return MakeVolatileWord(taskData, (void*)p);
+}
+
 // This is used to determine the endian-ness that Poly/ML is running under.
 // It's really only needed for the interpreter.  In particular the pre-built
 // compiler may be running under either byte order and has to check at

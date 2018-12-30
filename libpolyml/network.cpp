@@ -398,15 +398,16 @@ public:
     WaitNetSend(SOCKET sock) { SetWrite(sock); }
 };
 
-
 static SOCKET getStreamSocket(TaskData *taskData, PolyWord strm)
 {
-    PLocker lock(&ioLock);
-    PIOSTRUCT str = get_stream(strm);
-    if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-    return str->device.sock;
+    // The strm argument is a volatile word containing the descriptor.
+    // Volatiles are set to zero on entry to indicate a closed descriptor.
+    // Zero is a valid descriptor but -1 is not so we add 1 when storing and
+    // subtract 1 when loading.
+    int descr = *(int*)(strm.AsObjPtr()) -1;
+    if (descr == -1) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+    return descr;
 }
-
 
 static Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
@@ -439,16 +440,12 @@ TryAgain: // Used for various retries.
 
     case 14: /* Create a socket */
         {
-            Handle str_token = make_stream_entry(taskData);
-            if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-            POLYUNSIGNED stream_no = STREAMID(str_token);
             int af = get_C_int(taskData, DEREFHANDLE(args)->Get(0));
             int type = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
             int proto = get_C_int(taskData, DEREFHANDLE(args)->Get(2));
             SOCKET skt = socket(af, type, proto);
             if (skt == INVALID_SOCKET)
             {
-                free_stream_entry(stream_no);
                 switch (GETERROR)
                 {
                 case CALLINTERRUPTED:
@@ -466,7 +463,6 @@ TryAgain: // Used for various retries.
             if (ioctl(skt, FIONBIO, &onOff) < 0)
 #endif
             {
-                free_stream_entry(stream_no);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
                 closesocket(skt);
 #else
@@ -474,14 +470,7 @@ TryAgain: // Used for various retries.
 #endif
                 raise_syscall(taskData, "ioctl failed", GETERROR);
             }
-            {
-                PLocker lock(&ioLock);
-                PIOSTRUCT strm = &basic_io_vector[stream_no];
-                strm->device.sock = skt;
-                strm->ioBits =
-                    IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET;
-            }
-            return(str_token);
+            return MakeVolatileWord(taskData, skt+1);
         }
 
     case 15: /* Set TCP No-delay option. */
@@ -547,7 +536,6 @@ TryAgain: // Used for various retries.
     case 35: /* Set Linger time. */
         {
             struct linger linger;
-            PLocker lock(&ioLock);
             SOCKET skt = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             int lTime = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
             /* We pass in a negative value to turn the option off,
@@ -682,18 +670,11 @@ TryAgain: // Used for various retries.
             SOCKET sock = getStreamSocket(taskData, args->Word());
             struct sockaddr resultAddr;
             Handle addrHandle, pair;
-            /* Get a token for the new socket - may raise an
-                exception if it fails. */
-            Handle str_token = make_stream_entry(taskData);
-            if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-            POLYUNSIGNED stream_no = STREAMID(str_token);
             socklen_t addrLen = sizeof(resultAddr);
             SOCKET result = accept(sock, &resultAddr, &addrLen);
 
             if (result == INVALID_SOCKET)
             {
-                /* Free the stream entry */
-                free_stream_entry(stream_no);
                 switch (GETERROR)
                 {
                 case CALLINTERRUPTED:
@@ -719,15 +700,8 @@ TryAgain: // Used for various retries.
             }
 
             addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
-            {
-                PLocker locker(&ioLock);
-                POLYUNSIGNED stream_no = STREAMID(str_token);
-                PIOSTRUCT newStrm = &basic_io_vector[stream_no];
-                newStrm->device.sock = result;
-                newStrm->ioBits =
-                    IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET;
-            }
             /* Return a pair of the new socket and the address. */
+            Handle str_token = MakeVolatileWord(taskData, result+1);
             pair = ALLOC(2);
             DEREFHANDLE(pair)->Set(0, str_token->Word());
             DEREFHANDLE(pair)->Set(1, addrHandle->Word());
@@ -1053,12 +1027,6 @@ TryAgain: // Used for various retries.
         raise_syscall(taskData, "socketpair not implemented", WSAEAFNOSUPPORT);
 #else
         {
-            Handle str_token1 = make_stream_entry(taskData);
-            if (str_token1 == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-            Handle str_token2 = make_stream_entry(taskData);
-            if (str_token2 == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-            POLYUNSIGNED stream_no1 = STREAMID(str_token1);
-            POLYUNSIGNED stream_no2 = STREAMID(str_token2);
             Handle pair;
             
             int af = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
@@ -1068,8 +1036,6 @@ TryAgain: // Used for various retries.
             SOCKET skt[2];
             if (socketpair(af, type, proto, skt) != 0)
             {
-                free_stream_entry(stream_no1);
-                free_stream_entry(stream_no2);
                 switch (GETERROR)
                 {
                 case CALLINTERRUPTED:
@@ -1082,23 +1048,12 @@ TryAgain: // Used for various retries.
             if (ioctl(skt[0], FIONBIO, &onOff) < 0 ||
                 ioctl(skt[1], FIONBIO, &onOff) < 0)
             {
-                free_stream_entry(stream_no1);
-                free_stream_entry(stream_no2);
                 close(skt[0]);
                 close(skt[1]);
                 raise_syscall(taskData, "ioctl failed", GETERROR);
             }
-            {
-                PLocker lock(&ioLock);
-                PIOSTRUCT strm1 = &basic_io_vector[stream_no1];
-                strm1->device.sock = skt[0];
-                strm1->ioBits =
-                    IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET;
-                PIOSTRUCT strm2 = &basic_io_vector[stream_no2];
-                strm2->device.sock = skt[1];
-                strm2->ioBits =
-                    IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET;
-            }
+            Handle str_token1 = MakeVolatileWord(taskData, skt[0]+1);
+            Handle str_token2 = MakeVolatileWord(taskData, skt[1]+1);
             /* Return the two streams as a pair. */
             pair = ALLOC(2);
             DEREFHANDLE(pair)->Set(0, DEREFWORD(str_token1));

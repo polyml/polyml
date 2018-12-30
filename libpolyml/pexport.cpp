@@ -666,7 +666,7 @@ bool PImport::DoImport()
                 ch = getc(f);
                 ASSERT(ch == '\n');
                 // If this is an entry point object set its value.
-                if (p->IsMutable() && p->IsWeakRefObject())
+                if (p->IsMutable() && p->IsWeakRefObject() && p->Length() > sizeof(uintptr_t)/sizeof(PolyWord))
                 {
                     bool loadEntryPt = setEntryPoint(p);
                     ASSERT(loadEntryPt);

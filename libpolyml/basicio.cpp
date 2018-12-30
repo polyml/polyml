@@ -166,36 +166,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg);
 }
 
-/* Points to tokens which represent the streams and the stream itself. 
-   For each stream a single word token is made containing the file 
-   number, and its address is put in here. When the stream is closed 
-   the entry is overwritten. Any further activity will be trapped 
-   because the address in the vector will not be the same as the 
-   address of the token. This also prevents streams other than stdin 
-   and stdout from being made persistent. stdin, stdout and stderr are
-   treated specially.  The tokens for them are entries in the
-   interface vector and so can be made persistent. */
-/*
-I've tried various ways of getting asynchronous IO to work in a
-consistent manner across different kinds of IO devices in Windows.
-It is possible to pass some kinds of handles to WaitForMultipleObjects
-but not all.  Anonymous pipes, for example, cannot be used in Windows 95
-and don't seem to do what is expected in Windows NT (they return signalled
-even when there is no input).  The console is even more of a mess. The
-handle is signalled when there are any events (such as mouse movements)
-available but these are ignored by ReadFile, which may then block.
-Conversely using ReadFile to read less than a line causes the handle
-to be unsignalled, supposedly meaning that no input is available, yet
-ReadFile will return subsequent characters without blocking.  The eventual
-solution was to replace the console completely.
-DCJM May 2000 
-*/
-
-PIOSTRUCT basic_io_vector;
-PLock ioLock; // Protects basic_io_vector
-
-
-static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
+static bool isAvailable(TaskData *taskData, int ioDesc)
 {
 #ifdef __CYGWIN__
       static struct timeval poll = {0,1};
@@ -205,7 +176,7 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
       fd_set read_fds;
       int selRes;
       FD_ZERO(&read_fds);
-      FD_SET((int)strm->device.ioDesc, &read_fds);
+      FD_SET(ioDesc, &read_fds);
 
       /* If there is something there we can return. */
       selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
@@ -215,108 +186,19 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
       else return false;
 }
 
-static POLYUNSIGNED max_streams;
-
-/* Close a stream, either explicitly or as a result of detecting an
-   unreferenced stream in the g.c.  Doesn't report any errors. */
-void close_stream(PIOSTRUCT str)
-{
-    if (!isOpen(str)) return;
-    else close(str->device.ioDesc);
-    str->ioBits = 0;
-    str->token = TAGGED(0);
-}
-
-// Get a stream.  This must always be called with ioLock held since basic_io_vector
-// can be moved.
-PIOSTRUCT get_stream(PolyWord stream_token)
-/* Checks that the stream number is valid and returns the actual stream. 
-   Returns NULL if the stream is closed. */
-{
-    POLYUNSIGNED stream_no;
-    if (stream_token.IsTagged())
-        stream_no = stream_token.UnTaggedUnsigned();
-    else stream_no = ((StreamToken*)stream_token.AsObjPtr())->streamNo;
-
-    if (stream_no >= max_streams)
-        return 0;
-    if (basic_io_vector[stream_no].token != stream_token)
-    {
-        // Backwards compatibility.  The persistent streams may either be
-        // tagged values or IO entry pointers.
-        if (stream_no >= 3)
-            return 0;
-    }
-    if (! isOpen(&basic_io_vector[stream_no])) 
-        return 0; 
-
-    return &basic_io_vector[stream_no];
-}
-
 static int getStreamFileDescriptor(TaskData *taskData, PolyWord strm)
 {
-    PLocker lock(&ioLock);
-    PIOSTRUCT str = get_stream(strm);
-    if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-    return str->device.ioDesc;
-}
-
-Handle make_stream_entry(TaskData *taskData)
-// Find a free entry in the stream vector and return a token for it.  
-{
-    PLocker lock(&ioLock);
-    POLYUNSIGNED stream_no;
-
-    // Find an unused entry.
-    for(stream_no = 0;
-        stream_no < max_streams && basic_io_vector[stream_no].token != ClosedToken;
-        stream_no++);
-    
-    /* Check we have enough space. */
-    if (stream_no >= max_streams)
-    { /* No space. */
-        POLYUNSIGNED oldMax = max_streams;
-        max_streams += max_streams/2;
-        PIOSTRUCT newVector =
-            (PIOSTRUCT)realloc(basic_io_vector, max_streams*sizeof(IOSTRUCT));
-        if (newVector == NULL) return NULL;
-        basic_io_vector = newVector;
-        /* Clear the new space. */
-        memset(basic_io_vector+oldMax, 0, (max_streams-oldMax)*sizeof(IOSTRUCT));
-        for (POLYUNSIGNED i = oldMax; i < max_streams; i++)
-            basic_io_vector[i].token = ClosedToken;
-    }
-
-    // Create the token.  This must be mutable not because it will be updated but
-    // because we will use pointer-equality on it and the GC does not guarantee to
-    // preserve pointer-equality for immutables.
-    Handle str_token =
-        alloc_and_save(taskData, (sizeof(StreamToken) + sizeof(PolyWord) - 1)/sizeof(PolyWord), 
-                       F_BYTE_OBJ|F_MUTABLE_BIT);
-    STREAMID(str_token) = stream_no;
-
-    ASSERT(!isOpen(&basic_io_vector[stream_no]));
-    /* Clear the entry then set the token. */
-    memset(&basic_io_vector[stream_no], 0, sizeof(IOSTRUCT));
-    basic_io_vector[stream_no].token = str_token->Word();
-    
-    return str_token;
-}
-
-/* Free an entry in the stream vector - used when openstreamc grabs a
-   stream vector entry, but then fails to open the associated file. 
-   (This happens frequently when we are using the Poly make system.)
-   If we don't recycle the stream vector entries immediately we quickly
-   run out and must perform a full garbage collection to recover
-   the unused ones. SPF 12/9/95
-*/ 
-void free_stream_entry(POLYUNSIGNED stream_no)
-{
-    PLocker lock(&ioLock);
-
-    ASSERT(stream_no < max_streams);
-    basic_io_vector[stream_no].token  = ClosedToken;
-    basic_io_vector[stream_no].ioBits = 0;
+    // Legacy: During the bootstrap we may have old file descriptors for
+    // the standard streams which are tagged integers.
+    if (strm.IsTagged())
+        return strm.UnTagged();
+    // The strm argument is a volatile word containing the descriptor.
+    // Volatiles are set to zero on entry to indicate a closed descriptor.
+    // Zero is a valid descriptor but -1 is not so we add 1 when storing and
+    // subtract 1 when loading.
+    int descr = *(int*)(strm.AsObjPtr()) -1;
+    if (descr == -1) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+    return descr;
 }
 
 /* Open a file in the required mode. */
@@ -326,21 +208,10 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
     {
         TempString cFileName(filename->Word()); // Get file name
         if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-        Handle str_token = make_stream_entry(taskData);
-        if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-        POLYUNSIGNED stream_no = STREAMID(str_token);
         int stream = open(cFileName, mode, access);
 
         if (stream >= 0)
         {
-            PLocker lock(&ioLock);
-            PIOSTRUCT strm = &basic_io_vector[stream_no];
-            strm->device.ioDesc = stream;
-            strm->ioBits = IO_BIT_OPEN;
-            if ((mode & O_ACCMODE) != O_WRONLY)
-                strm->ioBits |= IO_BIT_READ;
-            if ((mode & O_ACCMODE) != O_RDONLY)
-                strm->ioBits |= IO_BIT_WRITE;
             if (! isPosix)
             {
                 /* Set the close-on-exec flag.  We don't set this if we are being
@@ -350,10 +221,8 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
                    of the underlying function. */
                 fcntl(stream, F_SETFD, 1);
             }
-            return str_token;
+            return MakeVolatileWord(taskData, stream+1);
         }
-
-        free_stream_entry(stream_no);
         switch (errno)
         {
         case EINTR: // Just try the call.  Is it possible to block here indefinitely?
@@ -369,14 +238,12 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
 /* Close the stream unless it is stdin or stdout or already closed. */
 static Handle close_file(TaskData *taskData, Handle stream)
 {
-    // Closed streams, stdin, stdout or stderr are all short ints.
-    if (stream->Word().IsDataPtr())
+    int descr = *(int*)(stream->WordP()) -1;
+    // Don't close it if it's already closed or any of the standard streams 
+    if (descr > 2)
     {
-        PLocker lock(&ioLock);
-        PIOSTRUCT strm = get_stream(stream->Word());
-        if (strm != NULL && strm->token.IsTagged()) strm = NULL; // Backwards compatibility for stdin etc.
-        // Ignore closed streams, stdin, stdout or stderr.
-        if (strm != NULL) close_stream(strm);
+        close(descr);
+        *(int*)(stream->WordP()) = 0; // Mark as closed
     }
 
     return Make_fixed_precision(taskData, 0);
@@ -384,18 +251,9 @@ static Handle close_file(TaskData *taskData, Handle stream)
 
 static void waitForAvailableInput(TaskData *taskData, Handle stream)
 {
-    while (true)
+    int fd = getStreamFileDescriptor(taskData, stream->Word());
+    while (!isAvailable(taskData, fd))
     {
-        int fd;
-        {
-            PLocker lock(&ioLock);
-            PIOSTRUCT strm = get_stream(stream->Word());
-            /* Raise an exception if the stream has been closed. */
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            if (isAvailable(taskData, strm))
-                return;
-            fd = strm->device.ioDesc;
-        }
         WaitInputFD waiter(fd);
         processes->ThreadPauseForIO(taskData, &waiter);
     }
@@ -421,27 +279,22 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
         // These tests may result in a GC if another thread is running.
         waitForAvailableInput(taskData, stream);
 
-        {
-            PLocker lock(&ioLock);
-            PIOSTRUCT strm = get_stream(stream->Word());
-
-            // We can now try to read without blocking.
-            // Actually there's a race here in the unlikely situation that there
-            // are multiple threads sharing the same low-level reader.  They could
-            // both detect that input is available but only one may succeed in
-            // reading without blocking.  This doesn't apply where the threads use
-            // the higher-level IO interfaces in ML which have their own mutexes.
-            int fd = strm->device.ioDesc;
-            byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
-            POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
-            size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
-            ssize_t haveRead = read(fd, base + offset, length);
-            if (haveRead >= 0)
-                return Make_fixed_precision(taskData, haveRead); // Success.
-            // If it failed because it was interrupted keep trying otherwise it's an error.
-            if (errno != EINTR)
-                raise_syscall(taskData, "Error while reading", ERRORNUMBER);
-        }
+        // We can now try to read without blocking.
+        // Actually there's a race here in the unlikely situation that there
+        // are multiple threads sharing the same low-level reader.  They could
+        // both detect that input is available but only one may succeed in
+        // reading without blocking.  This doesn't apply where the threads use
+        // the higher-level IO interfaces in ML which have their own mutexes.
+        int fd = getStreamFileDescriptor(taskData, stream->Word());
+        byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
+        POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+        size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+        ssize_t haveRead = read(fd, base + offset, length);
+        if (haveRead >= 0)
+            return Make_fixed_precision(taskData, haveRead); // Success.
+        // If it failed because it was interrupted keep trying otherwise it's an error.
+        if (errno != EINTR)
+            raise_syscall(taskData, "Error while reading", ERRORNUMBER);
     }
 }
 
@@ -461,29 +314,25 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         // These tests may result in a GC if another thread is running.
         waitForAvailableInput(taskData, stream);
 
+        // We can now try to read without blocking.
+        int fd = getStreamFileDescriptor(taskData, stream->Word());
+        // We previously allocated the buffer on the stack but that caused
+        // problems with multi-threading at least on Mac OS X because of
+        // stack exhaustion.  We limit the space to 100k. */
+        if (length > 102400) length = 102400;
+        byte *buff = (byte*)malloc(length);
+        if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", NOMEMORY);
+        ssize_t haveRead = read(fd, buff, length);
+        if (haveRead >= 0)
         {
-            PLocker lock(&ioLock);
-            PIOSTRUCT strm = get_stream(DEREFWORD(stream));
-            // We can now try to read without blocking.
-            int fd = strm->device.ioDesc;
-            // We previously allocated the buffer on the stack but that caused
-            // problems with multi-threading at least on Mac OS X because of
-            // stack exhaustion.  We limit the space to 100k. */
-            if (length > 102400) length = 102400;
-            byte *buff = (byte*)malloc(length);
-            if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", NOMEMORY);
-            ssize_t haveRead = read(fd, buff, length);
-            if (haveRead >= 0)
-            {
-                Handle result = SAVE(C_string_to_Poly(taskData, (char*)buff, haveRead));
-                free(buff);
-                return result;
-            }
+            Handle result = SAVE(C_string_to_Poly(taskData, (char*)buff, haveRead));
             free(buff);
-            // If it failed because it was interrupted keep trying otherwise it's an error.
-            if (errno != EINTR)
-                raise_syscall(taskData, "Error while reading", ERRORNUMBER);
+            return result;
         }
+        free(buff);
+        // If it failed because it was interrupted keep trying otherwise it's an error.
+        if (errno != EINTR)
+            raise_syscall(taskData, "Error while reading", ERRORNUMBER);
     }
 }
 
@@ -561,18 +410,16 @@ static Handle bytesAvailable(TaskData *taskData, Handle stream)
 
 static Handle fileKind(TaskData *taskData, Handle stream)
 {
-    PLocker lock(&ioLock);
-    PIOSTRUCT strm = get_stream(stream->Word());
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+    int fd = getStreamFileDescriptor(taskData, stream->Word());
     struct stat statBuff;
-    if (fstat(strm->device.ioDesc, &statBuff) < 0) raise_syscall(taskData, "Stat failed", ERRORNUMBER);
+    if (fstat(fd, &statBuff) < 0) raise_syscall(taskData, "Stat failed", ERRORNUMBER);
     switch (statBuff.st_mode & S_IFMT)
     {
     case S_IFIFO:
         return Make_fixed_precision(taskData, FILEKIND_PIPE);
     case S_IFCHR:
     case S_IFBLK:
-        if (isatty(strm->device.ioDesc))
+        if (isatty(fd))
             return Make_fixed_precision(taskData, FILEKIND_TTY);
         else return Make_fixed_precision(taskData, FILEKIND_DEV);
     case S_IFDIR:
@@ -600,15 +447,8 @@ static Handle fileKind(TaskData *taskData, Handle stream)
    the stream was opened. */
 Handle pollTest(TaskData *taskData, Handle stream)
 {
-    PLocker lock(&ioLock);
-    PIOSTRUCT strm = get_stream(stream->Word());
-    int nRes = 0;
-    if (strm == NULL) return Make_fixed_precision(taskData, 0);
-    /* Allow for the possibility of both being set in the future. */
-    if (isRead(strm)) nRes |= POLL_BIT_IN;
-    if (isWrite(strm)) nRes |= POLL_BIT_OUT;
-        /* For the moment we don't allow POLL_BIT_PRI.  */
-    return Make_fixed_precision(taskData, nRes);
+    // How do we test this?  Assume all of them.
+    return Make_fixed_precision(taskData, POLL_BIT_IN|POLL_BIT_OUT|POLL_BIT_PRI);
 }
 
 // Do the polling.  Takes a vector of io descriptors, a vector of bits to test
@@ -951,20 +791,11 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     switch (c)
     {
     case 0: /* Return standard input */
-    {
-        PLocker lock(&ioLock);
-        return SAVE(basic_io_vector[0].token);
-    }
+        return MakeVolatileWord(taskData, 0+1);
     case 1: /* Return standard output */
-    {
-        PLocker lock(&ioLock);
-        return SAVE(basic_io_vector[1].token);
-    }
+        return MakeVolatileWord(taskData, 1+1);
     case 2: /* Return standard error */
-    {
-        PLocker lock(&ioLock);
-        return SAVE(basic_io_vector[2].token);
-    }
+       return MakeVolatileWord(taskData, 2+1);
     case 3: /* Open file for text input. */
     case 4: /* Open file for binary input. */
         return open_file(taskData, args, O_RDONLY, 0666, 0);
@@ -972,6 +803,9 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 6: /* Open file for binary output. */
         return open_file(taskData, args, O_WRONLY | O_CREAT | O_TRUNC, 0666, 0);
     case 7: /* Close file */
+        // Legacy: During the bootstrap we will have old format references.
+        if (strm->Word().IsTagged())
+            return Make_fixed_precision(taskData, 0);
         return close_file(taskData, strm);
     case 8: /* Read text into an array. */
         return readArray(taskData, strm, args, true);
@@ -994,10 +828,8 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 
     case 16: /* See if we can get some input. */
         {
-            PLocker lock(&ioLock);
-            PIOSTRUCT str = get_stream(strm->Word());
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-            return Make_fixed_precision(taskData, isAvailable(taskData, str) ? 1 : 0);
+            int fd = getStreamFileDescriptor(taskData, strm->Word());
+            return Make_fixed_precision(taskData, isAvailable(taskData, fd) ? 1 : 0);
         }
 
     case 17: /* Return the number of bytes available.  */
@@ -1077,27 +909,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 31: /* Make an entry for a given descriptor. */
         {
             int ioDesc = get_C_int(taskData, DEREFWORD(args));
-            /* First see if it's already in the table. */
-            for (unsigned i = 0; i < max_streams; i++)
-            {
-                PLocker lock(&ioLock);
-                PIOSTRUCT str = &(basic_io_vector[i]);
-                if (str->token != ClosedToken && str->device.ioDesc == ioDesc)
-                    return taskData->saveVec.push(str->token);
-            }
-            /* Have to make a new entry. */
-            Handle str_token = make_stream_entry(taskData);
-            if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-            POLYUNSIGNED stream_no = STREAMID(str_token);
-            {
-                PLocker lock(&ioLock);
-                PIOSTRUCT str = &basic_io_vector[stream_no];
-                str->device.ioDesc = get_C_int(taskData, DEREFWORD(args));
-                /* We don't know whether it's open for read, write or even if
-                   it's open at all. */
-                str->ioBits = IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE;
-            }
-            return str_token;
+            return MakeVolatileWord(taskData, ioDesc+1);
         }
 
 
@@ -1322,81 +1134,3 @@ struct _entrypts basicIOEPT[] =
 
     { NULL, NULL} // End of list.
 };
-
-class BasicIO: public RtsModule
-{
-public:
-    virtual void Init(void);
-    virtual void Start(void);
-    virtual void Stop(void);
-    void GarbageCollect(ScanAddress *process);
-};
-
-// Declare this.  It will be automatically added to the table.
-static BasicIO basicIOModule;
-
-void BasicIO::Init(void)
-{    
-    max_streams = 20; // Initialise to the old Unix maximum. Will grow if necessary.
-    /* A vector for the streams (initialised by calloc) */
-    basic_io_vector = (PIOSTRUCT)calloc(max_streams, sizeof(IOSTRUCT));
-    for (unsigned i = 0; i < max_streams; i++)
-        basic_io_vector[i].token = ClosedToken;
-}
-
-void BasicIO::Start(void)
-{
-    basic_io_vector[0].token  = TAGGED(0);
-    basic_io_vector[0].device.ioDesc = 0;
-    basic_io_vector[0].ioBits = IO_BIT_OPEN | IO_BIT_READ;
-
-    basic_io_vector[1].token  = TAGGED(1);
-    basic_io_vector[1].device.ioDesc = 1;
-    basic_io_vector[1].ioBits = IO_BIT_OPEN | IO_BIT_WRITE;
-
-    basic_io_vector[2].token  = TAGGED(2);
-    basic_io_vector[2].device.ioDesc = 2;
-    basic_io_vector[2].ioBits = IO_BIT_OPEN | IO_BIT_WRITE;
-
-    return;
-}
-
-/* Release all resources.  Not strictly necessary since the OS should
-   do this but probably a good idea. */
-void BasicIO::Stop(void)
-{
-    if (basic_io_vector)
-    {
-        // Don't close the standard streams since we may need
-        // stdout at least to produce final debugging output.
-        for (unsigned i = 3; i < max_streams; i++)
-        {
-            if (isOpen(&basic_io_vector[i]))
-                close_stream(&basic_io_vector[i]);
-        }
-        free(basic_io_vector);
-    }
-    basic_io_vector = NULL;
-}
-
-void BasicIO::GarbageCollect(ScanAddress *process)
-/* Ensures that all the objects are retained and their addresses updated. */
-{
-    /* Entries in the file table. These are marked as weak references so may
-       return 0 for unreferenced streams. */
-    for(unsigned i = 0; i < max_streams; i++)
-    {
-        PIOSTRUCT str = &(basic_io_vector[i]);
-        
-        if (str->token.IsDataPtr())
-        {
-            PolyObject *token = str->token.AsObjPtr();
-            process->ScanRuntimeAddress(&token, ScanAddress::STRENGTH_WEAK);
-            
-            /* Unreferenced streams may return zero. */ 
-            if (token == 0 && isOpen(str))
-                close_stream(str);
-            str->token = token == 0 ? ClosedToken : token;
-        }
-    }
-}

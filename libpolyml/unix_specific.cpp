@@ -394,10 +394,13 @@ static void restoreSignals(void)
 
 static int getStreamFileDescriptor(TaskData *taskData, PolyWord strm)
 {
-    PLocker lock(&ioLock);
-    PIOSTRUCT str = get_stream(strm);
-    if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-    return str->device.ioDesc;
+    // The strm argument is a volatile word containing the descriptor.
+    // Volatiles are set to zero on entry to indicate a closed descriptor.
+    // Zero is a valid descriptor but -1 is not so we add 1 when storing and
+    // subtract 1 when loading.
+    int descr = *(int*)(strm.AsObjPtr()) -1;
+    if (descr == -1) raise_syscall(taskData, "Stream is closed", EBADF);
+    return descr;
 }
 
 Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
@@ -737,9 +740,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 32: /* Test if file descriptor is a terminal.  Returns false if
             the stream is closed. */
         {
-            PLocker lock(&ioLock);
-            PIOSTRUCT str = get_stream(args->Word());
-            if (str != NULL && isatty(str->device.ioDesc))
+            int descr = *(int*)(args->WordP()) -1;
+            if (descr != -1 && isatty(descr))
                 return Make_fixed_precision(taskData, 1);
             else return Make_fixed_precision(taskData, 0);
         }
@@ -1024,20 +1026,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 110: /* Create a pipe. */
         {
             int filedes[2];
-            Handle strRead = make_stream_entry(taskData);
-            Handle strWrite = make_stream_entry(taskData);
-            Handle result;
             if (pipe(filedes) < 0) raise_syscall(taskData, "pipe failed", errno);
-            {
-                PLocker lock(&ioLock);
-                PIOSTRUCT instrm = &basic_io_vector[STREAMID(strRead)];
-                PIOSTRUCT outstrm = &basic_io_vector[STREAMID(strWrite)];
-                instrm->device.ioDesc = filedes[0];
-                instrm->ioBits = IO_BIT_OPEN | IO_BIT_READ;
-                outstrm->device.ioDesc = filedes[1];
-                outstrm->ioBits = IO_BIT_OPEN | IO_BIT_WRITE;
-            }
-            result = ALLOC(2);
+            Handle strRead = MakeVolatileWord(taskData, filedes[0]+1);
+            Handle strWrite = MakeVolatileWord(taskData, filedes[1]+1);
+            Handle result = ALLOC(2);
             DEREFHANDLE(result)->Set(0, strRead->Word());
             DEREFHANDLE(result)->Set(1, strWrite->Word());
             return result;
@@ -1045,69 +1037,28 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 111: /* Duplicate a file descriptor. */
         {
-            int srcFd, ioBits;
-            {
-                PLocker lock(&ioLock);
-                PIOSTRUCT str = get_stream(args->Word());
-                if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-                srcFd = str->device.ioDesc;
-                ioBits = str->ioBits;
-            }
-            Handle strToken = make_stream_entry(taskData);
+            int srcFd = getStreamFileDescriptor(taskData, args->WordP());
             int fd = dup(srcFd);
             if (fd < 0) raise_syscall(taskData, "dup failed", errno);
-            {
-                PLocker lock(&ioLock);
-                PIOSTRUCT newstr = &basic_io_vector[STREAMID(strToken)];
-                newstr->device.ioDesc = fd;
-                /* I'm assuming that we're not going to put any other
-                   status information in the bits. */
-                newstr->ioBits = ioBits;
-            }
-            return strToken;
+            return MakeVolatileWord(taskData, fd+1);
         }
 
     case 112: /* Duplicate a file descriptor to a given entry. */
         {
-            PLocker lock(&ioLock);
-            PIOSTRUCT old = get_stream(DEREFHANDLE(args)->Get(0));
-            PIOSTRUCT newp = get_stream(DEREFHANDLE(args)->Get(1));
-            /* The "newp" entry must be an open entry in our io table.
-               It may, though, be an entry added through wordToFD
-               (basicio call 31) which may not refer to a valid
-               descriptor. */
-            if (old == NULL || newp == NULL)
-                raise_syscall(taskData, "Stream is closed", EBADF);
-            if (dup2(old->device.ioDesc, newp->device.ioDesc) < 0)
+            int oldFd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0));
+            int newFd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(1));
+            if (dup2(oldFd, newFd) < 0)
                 raise_syscall(taskData, "dup2 failed", errno);
-            newp->ioBits = old->ioBits;
             return Make_fixed_precision(taskData, 0);
         }
 
     case 113: /* Duplicate a file descriptor to an entry equal to or greater
              than the given value. */
         {
-            PLocker lock(&ioLock);
-            PIOSTRUCT old = get_stream(DEREFHANDLE(args)->Get(0));
-            PIOSTRUCT base = get_stream(DEREFHANDLE(args)->Get(1));
-            int newfd;
-            Handle strToken = make_stream_entry(taskData);
-            /* The "base" entry must be an open entry in our io table.
-               It may, though, be an entry added through wordToFD
-               (basicio call 31) which may not refer to a valid
-               descriptor. */
-            if (old == NULL || base == NULL)
-                raise_syscall(taskData, "Stream is closed", EBADF);
-            newfd = fcntl(old->device.ioDesc, F_DUPFD, base->device.ioDesc);
-            if (newfd < 0) raise_syscall(taskData, "dup2 failed", errno);
-            {
-                PIOSTRUCT newstr = &basic_io_vector[STREAMID(strToken)];
-                newstr->device.ioDesc = newfd;
-                /* I'm assuming that we're not going to put any other
-                   status information in the bits. */
-                newstr->ioBits = old->ioBits;
-            }
-            return strToken;
+            int oldFd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0));
+            int baseFd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(1));
+            int newFd = fcntl(oldFd, F_DUPFD, baseFd);
+            return MakeVolatileWord(taskData, newFd+1);
         }
 
     case 114: /* Get the file descriptor flags. */
