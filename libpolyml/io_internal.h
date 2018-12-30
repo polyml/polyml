@@ -23,25 +23,15 @@
 #ifndef IO_INTERNAL_H
 #define IO_INTERNAL_H
 
-#include "locking.h" // For PLock
-
-#define IO_BIT_OPEN         1
-#define IO_BIT_READ         2
-#define IO_BIT_WRITE        4
-#define IO_BIT_SOCKET       16 /* Is it a socket? */
-
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 
-#define IO_BIT_PIPE         128
-#define IO_BIT_DEV          256
-#define IO_BIT_GUI_CONSOLE  512
-
-#include <winsock2.h>
 
 #else
 
-typedef int SOCKET;
-//#include <dirent.h>
+extern Handle wrapFileDescriptor(TaskData *taskData, int fd);
+// Get a file descriptor and raise an exception if it is closed.
+extern int getStreamFileDescriptor(TaskData *taskData, PolyWord strm);
+extern int getStreamFileDescriptorWithoutCheck(PolyWord strm);
 
 #endif
 

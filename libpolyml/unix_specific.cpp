@@ -392,17 +392,6 @@ static void restoreSignals(void)
     sigprocmask(SIG_SETMASK, &sigset, NULL);
 }
 
-static int getStreamFileDescriptor(TaskData *taskData, PolyWord strm)
-{
-    // The strm argument is a volatile word containing the descriptor.
-    // Volatiles are set to zero on entry to indicate a closed descriptor.
-    // Zero is a valid descriptor but -1 is not so we add 1 when storing and
-    // subtract 1 when loading.
-    int descr = *(int*)(strm.AsObjPtr()) -1;
-    if (descr == -1) raise_syscall(taskData, "Stream is closed", EBADF);
-    return descr;
-}
-
 Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     unsigned lastSigCount = receivedSignalCount; // Have we received a signal?
@@ -740,7 +729,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 32: /* Test if file descriptor is a terminal.  Returns false if
             the stream is closed. */
         {
-            int descr = *(int*)(args->WordP()) -1;
+            int descr = getStreamFileDescriptorWithoutCheck(args->Word());
             if (descr != -1 && isatty(descr))
                 return Make_fixed_precision(taskData, 1);
             else return Make_fixed_precision(taskData, 0);
@@ -1027,8 +1016,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             int filedes[2];
             if (pipe(filedes) < 0) raise_syscall(taskData, "pipe failed", errno);
-            Handle strRead = MakeVolatileWord(taskData, filedes[0]+1);
-            Handle strWrite = MakeVolatileWord(taskData, filedes[1]+1);
+            Handle strRead = wrapFileDescriptor(taskData, filedes[0]);
+            Handle strWrite = wrapFileDescriptor(taskData, filedes[1]);
             Handle result = ALLOC(2);
             DEREFHANDLE(result)->Set(0, strRead->Word());
             DEREFHANDLE(result)->Set(1, strWrite->Word());
@@ -1040,7 +1029,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             int srcFd = getStreamFileDescriptor(taskData, args->WordP());
             int fd = dup(srcFd);
             if (fd < 0) raise_syscall(taskData, "dup failed", errno);
-            return MakeVolatileWord(taskData, fd+1);
+            return wrapFileDescriptor(taskData, fd);
         }
 
     case 112: /* Duplicate a file descriptor to a given entry. */
@@ -1058,7 +1047,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             int oldFd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0));
             int baseFd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(1));
             int newFd = fcntl(oldFd, F_DUPFD, baseFd);
-            return MakeVolatileWord(taskData, newFd+1);
+            return wrapFileDescriptor(taskData, newFd);
         }
 
     case 114: /* Get the file descriptor flags. */

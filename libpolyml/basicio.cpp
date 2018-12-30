@@ -186,17 +186,30 @@ static bool isAvailable(TaskData *taskData, int ioDesc)
       else return false;
 }
 
-static int getStreamFileDescriptor(TaskData *taskData, PolyWord strm)
+// The strm argument is a volatile word containing the descriptor.
+// Volatiles are set to zero on entry to indicate a closed descriptor.
+// Zero is a valid descriptor but -1 is not so we add 1 when storing and
+// subtract 1 when loading.
+Handle wrapFileDescriptor(TaskData *taskData, int fd)
+{
+    return MakeVolatileWord(taskData, fd+1);
+}
+
+// Return a file descriptor or -1 if it is invalid.
+int getStreamFileDescriptorWithoutCheck(PolyWord strm)
 {
     // Legacy: During the bootstrap we may have old file descriptors for
     // the standard streams which are tagged integers.
     if (strm.IsTagged())
         return strm.UnTagged();
-    // The strm argument is a volatile word containing the descriptor.
-    // Volatiles are set to zero on entry to indicate a closed descriptor.
-    // Zero is a valid descriptor but -1 is not so we add 1 when storing and
-    // subtract 1 when loading.
-    int descr = *(int*)(strm.AsObjPtr()) -1;
+    return *(int*)(strm.AsObjPtr()) -1;
+}
+
+// Most of the time we want to raise an exception if the file descriptor
+// has been closed although this could be left to the system call.
+int getStreamFileDescriptor(TaskData *taskData, PolyWord strm)
+{
+    int descr = getStreamFileDescriptorWithoutCheck(strm);
     if (descr == -1) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
     return descr;
 }
@@ -221,7 +234,7 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
                    of the underlying function. */
                 fcntl(stream, F_SETFD, 1);
             }
-            return MakeVolatileWord(taskData, stream+1);
+            return wrapFileDescriptor(taskData, stream);
         }
         switch (errno)
         {
@@ -238,7 +251,7 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
 /* Close the stream unless it is stdin or stdout or already closed. */
 static Handle close_file(TaskData *taskData, Handle stream)
 {
-    int descr = *(int*)(stream->WordP()) -1;
+    int descr = getStreamFileDescriptorWithoutCheck(stream->Word());
     // Don't close it if it's already closed or any of the standard streams 
     if (descr > 2)
     {
@@ -791,11 +804,11 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     switch (c)
     {
     case 0: /* Return standard input */
-        return MakeVolatileWord(taskData, 0+1);
+        return wrapFileDescriptor(taskData, 0);
     case 1: /* Return standard output */
-        return MakeVolatileWord(taskData, 1+1);
+        return wrapFileDescriptor(taskData, 1);
     case 2: /* Return standard error */
-       return MakeVolatileWord(taskData, 2+1);
+       return wrapFileDescriptor(taskData, 2);
     case 3: /* Open file for text input. */
     case 4: /* Open file for binary input. */
         return open_file(taskData, args, O_RDONLY, 0666, 0);
@@ -909,7 +922,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 31: /* Make an entry for a given descriptor. */
         {
             int ioDesc = get_C_int(taskData, DEREFWORD(args));
-            return MakeVolatileWord(taskData, ioDesc+1);
+            return wrapFileDescriptor(taskData, ioDesc);
         }
 
 

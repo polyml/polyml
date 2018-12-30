@@ -106,6 +106,8 @@ typedef int socklen_t;
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <winsock2.h>
+#else
+typedef int SOCKET;
 #endif
 
 #ifdef HAVE_WINDOWS_H
@@ -400,13 +402,12 @@ public:
 
 static SOCKET getStreamSocket(TaskData *taskData, PolyWord strm)
 {
-    // The strm argument is a volatile word containing the descriptor.
-    // Volatiles are set to zero on entry to indicate a closed descriptor.
-    // Zero is a valid descriptor but -1 is not so we add 1 when storing and
-    // subtract 1 when loading.
-    int descr = *(int*)(strm.AsObjPtr()) -1;
-    if (descr == -1) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-    return descr;
+    return getStreamFileDescriptor(taskData, strm);
+}
+
+static Handle wrapStreamSocket(TaskData *taskData, SOCKET skt)
+{
+    return wrapFileDescriptor(taskData, skt);
 }
 
 static Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
@@ -470,7 +471,7 @@ TryAgain: // Used for various retries.
 #endif
                 raise_syscall(taskData, "ioctl failed", GETERROR);
             }
-            return MakeVolatileWord(taskData, skt+1);
+            return wrapStreamSocket(taskData, skt);
         }
 
     case 15: /* Set TCP No-delay option. */
@@ -700,10 +701,10 @@ TryAgain: // Used for various retries.
             }
 
             addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
-            /* Return a pair of the new socket and the address. */
-            Handle str_token = MakeVolatileWord(taskData, result+1);
+            // Return a pair of the new socket and the address.
+            Handle resSkt = wrapStreamSocket(taskData, result);
             pair = ALLOC(2);
-            DEREFHANDLE(pair)->Set(0, str_token->Word());
+            DEREFHANDLE(pair)->Set(0, resSkt->Word());
             DEREFHANDLE(pair)->Set(1, addrHandle->Word());
             return pair;
         }
@@ -1052,8 +1053,8 @@ TryAgain: // Used for various retries.
                 close(skt[1]);
                 raise_syscall(taskData, "ioctl failed", GETERROR);
             }
-            Handle str_token1 = MakeVolatileWord(taskData, skt[0]+1);
-            Handle str_token2 = MakeVolatileWord(taskData, skt[1]+1);
+            Handle str_token1 = wrapStreamSocket(taskData, skt[0]);
+            Handle str_token2 = wrapStreamSocket(taskData, skt[1]);
             /* Return the two streams as a pair. */
             pair = ALLOC(2);
             DEREFHANDLE(pair)->Set(0, DEREFWORD(str_token1));
