@@ -1,7 +1,7 @@
 /*
     Title:      Diagnostics
 
-    Copyright (c) 2011, 2015 David C.J. Matthews
+    Copyright (c) 2011, 2015, 2018 David C.J. Matthews
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -57,7 +57,7 @@
 #endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-#include "Console.h"
+#include "winguiconsole.h"
 #endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))

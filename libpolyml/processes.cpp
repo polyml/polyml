@@ -127,10 +127,6 @@
 #include "statistics.h"
 #include "rtsentry.h"
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-#include "Console.h"
-#endif
-
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(PolyObject *threadId);

@@ -300,10 +300,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="arb.cpp" />
-    <ClCompile Include="basicio.cpp" />
+    <ClCompile Include="winbasicio.cpp" />
     <ClCompile Include="bitmap.cpp" />
     <ClCompile Include="check_objects.cpp" />
-    <ClCompile Include="Console.cpp" />
+    <ClCompile Include="winguiconsole.cpp" />
     <ClCompile Include="diagnostics.cpp" />
     <ClCompile Include="errors.cpp" />
     <ClCompile Include="exporter.cpp" />
@@ -379,7 +379,7 @@
     <ClInclude Include="basicio.h" />
     <ClInclude Include="bitmap.h" />
     <ClInclude Include="check_objects.h" />
-    <ClInclude Include="Console.h" />
+    <ClInclude Include="winguiconsole.h" />
     <ClInclude Include="diagnostics.h" />
     <ClInclude Include="errors.h" />
     <ClInclude Include="exporter.h" />

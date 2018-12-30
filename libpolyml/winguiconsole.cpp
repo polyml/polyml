@@ -1,7 +1,7 @@
 /*
     Title:      Poly/ML Console Window.
 
-    Copyright (c) 2000, 2015 David C. J. Matthews
+    Copyright (c) 2000, 2015, 2018 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -64,7 +64,7 @@
 #include "mpoly.h"
 #include "run_time.h"
 #include "sighandler.h"
-#include "Console.h"
+#include "winguiconsole.h"
 #include "../polyexports.h"
 #include "processes.h"
 #include "polystring.h"

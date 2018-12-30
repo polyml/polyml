@@ -110,10 +110,6 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "locking.h"
 #include "rtsentry.h"
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-#include "Console.h"
-#endif
-
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyWord action);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyWaitForSignal(PolyObject *threadId);

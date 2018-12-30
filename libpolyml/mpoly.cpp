@@ -82,7 +82,7 @@
 #include "noreturn.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-#include "Console.h"
+#include "winguiconsole.h"
 
 static const TCHAR *lpszServiceName = 0; // DDE service name
 #endif

@@ -54,9 +54,9 @@ endif
 endif
 
 if NATIVE_WINDOWS
-OSSOURCE = Console.cpp windows_specific.cpp
+OSSOURCE = winbasicio.cpp winguiconsole.cpp windows_specific.cpp
 else
-OSSOURCE = unix_specific.cpp
+OSSOURCE = basicio.cpp unix_specific.cpp
 endif
 
 noinst_HEADERS = \
@@ -64,7 +64,6 @@ noinst_HEADERS = \
 	basicio.h \
 	bitmap.h \
 	check_objects.h \
-	Console.h \
 	diagnostics.h \
 	elfexport.h \
 	errors.h \
@@ -108,12 +107,12 @@ noinst_HEADERS = \
 	sys.h \
 	timing.h \
 	version.h \
+	winguiconsole.h \
 	xcall_numbers.h \
 	xwindows.h
 
 libpolyml_la_SOURCES = \
     arb.cpp \
-    basicio.cpp \
     bitmap.cpp \
     check_objects.cpp \
     diagnostics.cpp \

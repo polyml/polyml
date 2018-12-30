@@ -77,7 +77,7 @@
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <windows.h>
-#include "Console.h" /* For hApplicationInstance. */
+#include "winguiconsole.h" /* For hApplicationInstance. */
 #endif
 
 #include "scanaddrs.h"

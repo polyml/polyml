@@ -66,7 +66,7 @@
 #include "os_specific.h"
 #include "sys.h"
 #include "processes.h"
-#include "Console.h"
+#include "winguiconsole.h"
 #include "mpoly.h"
 #include "diagnostics.h"
 #include "scanaddrs.h"
