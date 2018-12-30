@@ -93,7 +93,6 @@ struct
         and sys_can_input(strm: fileDescr): int = doIo(16, strm, 0)
         and sys_can_output(strm: fileDescr): int = doIo(28, strm, 0)
         and sys_avail(strm: fileDescr): int = doIo(17, strm, 0)
-        and sys_get_iodesc(strm: fileDescr): int = doIo(30, strm, 0)
     end
 
     local
@@ -224,12 +223,7 @@ struct
             else (NONE, NONE, SOME(nonBlocking readVector),
                     SOME(nonBlocking readArray))
 
-        (* Don't allow random access on stdIn.  The reason is that we
-           create stdIn when we compile TextIO yet this stream is persistent
-           (unlike every other stream). *)
-        val (getPos, setPos, endPos) =
-            if sys_get_iodesc fd <= 2 then (NONE, NONE, NONE)
-            else getRandAccessFns fd
+        val (getPos, setPos, endPos) = getRandAccessFns fd
 
         (* Unlike the other functions "avail" is a function returning
            an option, not an optional function. *)
@@ -298,11 +292,8 @@ struct
             else (NONE, NONE, SOME(nonBlocking writeVector),
                     SOME(nonBlocking writeArray))
 
-        (* Random access is provided if getPos works except that we
-           don't allow it for standard output and standard error at all. *)
-        val (getPos, setPos, endPos) =
-            if sys_get_iodesc fd <= 2 then (NONE, NONE, NONE)
-            else getRandAccessFns fd
+        (* Random access is provided if getPos works. *)
+        val (getPos, setPos, endPos) = getRandAccessFns fd
         (* If we have opened the stream for append we will always
            write to the end of the stream so setPos won't work. *)
         val setPos = if appendMode then NONE else setPos
