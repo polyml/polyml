@@ -89,8 +89,6 @@ extern void close_stream(PIOSTRUCT str);
 extern PIOSTRUCT basic_io_vector;
 extern PLock ioLock;
 
-extern bool emfileFlag;
-
 // This is used in both basicio and unix-specific
 #if defined(HAVE_STRUCT_STAT_ST_ATIM)
 # define STAT_SECS(stat,kind)    (stat)->st_##kind##tim.tv_sec

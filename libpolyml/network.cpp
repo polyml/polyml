@@ -451,15 +451,6 @@ TryAgain: // Used for various retries.
                 free_stream_entry(stream_no);
                 switch (GETERROR)
                 {
-                case TOOMANYFILES: /* too many open files */
-                    {
-                        if (emfileFlag) /* Previously had an EMFILE error. */
-                            raise_syscall(taskData, "socket failed", TOOMANYFILES);
-                        emfileFlag = true;
-                        taskData->saveVec.reset(hSave);
-                        FullGC(taskData); /* May clear emfileFlag if we close a file. */
-                        goto TryAgain;
-                    }
                 case CALLINTERRUPTED:
                     taskData->saveVec.reset(hSave);
                     goto TryAgain;
@@ -708,15 +699,6 @@ TryAgain: // Used for various retries.
                 case CALLINTERRUPTED:
                     taskData->saveVec.reset(hSave);
                     goto TryAgain; /* Have to retry if we got EINTR. */
-                case TOOMANYFILES: /* Too many files. */
-                    {
-                        if (emfileFlag) /* Previously had an EMFILE error. */
-                            raise_syscall(taskData, "accept failed", TOOMANYFILES);
-                        emfileFlag = true;
-                        taskData->saveVec.reset(hSave);
-                        FullGC(taskData); /* May clear emfileFlag if we close a file. */
-                        goto TryAgain;
-                    }
                 case WOULDBLOCK:
 #if (WOULDBLOCK != INPROGRESS)
                 case INPROGRESS:
@@ -1090,15 +1072,6 @@ TryAgain: // Used for various retries.
                 free_stream_entry(stream_no2);
                 switch (GETERROR)
                 {
-                case TOOMANYFILES: /* too many open files */
-                    {
-                        if (emfileFlag) /* Previously had an EMFILE error. */
-                            raise_syscall(taskData, "socket failed", TOOMANYFILES);
-                        emfileFlag = true;
-                        FullGC(taskData); /* May clear emfileFlag if we close a file. */
-                        taskData->saveVec.reset(hSave);
-                        goto TryAgain;
-                    }
                 case CALLINTERRUPTED:
                     taskData->saveVec.reset(hSave);
                     goto TryAgain;
