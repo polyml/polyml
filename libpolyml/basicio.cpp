@@ -411,16 +411,6 @@ static Handle bytesAvailable(TaskData *taskData, Handle stream)
     return Make_fixed_precision(taskData, endOfStream-original);
 }
 
-
-#define FILEKIND_FILE   0
-#define FILEKIND_DIR    1
-#define FILEKIND_LINK   2
-#define FILEKIND_TTY    3
-#define FILEKIND_PIPE   4
-#define FILEKIND_SKT    5
-#define FILEKIND_DEV    6
-#define FILEKIND_ERROR  (-1)
-
 static Handle fileKind(TaskData *taskData, Handle stream)
 {
     int fd = getStreamFileDescriptor(taskData, stream->Word());
@@ -448,12 +438,6 @@ static Handle fileKind(TaskData *taskData, Handle stream)
     }
 }
 
-/* Polling.  For the moment this applies only to objects which can
-   be opened in the file system.  It may need to be extended to sockets
-   later.  */
-#define POLL_BIT_IN     1
-#define POLL_BIT_OUT    2
-#define POLL_BIT_PRI    4
 /* Find out what polling options, if any, are allowed on this
    file descriptor.  We assume that polling is allowed on all
    descriptors, either for reading or writing depending on how

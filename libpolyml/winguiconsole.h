@@ -1,7 +1,7 @@
 /*
     Title:      Poly/ML Console Window.
 
-    Copyright (c) 2000, 2015 David C. J. Matthews
+    Copyright (c) 2000, 2015, 2018 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -18,15 +18,12 @@
 
 */
 
-#ifndef _CONSOLE_H
-#define _CONSOLE_H
+#ifndef _WINGUICONSOLE_H
+#define _WINGUICONSOLE_H
 
 #include <windows.h>
 
-/* Test whether input is available. */
-extern bool isConsoleInput(void);
-/* Read characters from the input.  Only returns zero on EOF. */
-extern unsigned getConsoleInput(char *buff, int nChars);
+extern bool useConsole;
 
 // Create a copying thread that can also signal an event.
 // This is used both in stdin and also in Windows.execute.
@@ -43,11 +40,10 @@ extern LRESULT ExecuteDDE(char *command, HCONV hConv);
 
 extern HANDLE hInputEvent; // Handle to console input event
 
-extern HANDLE hOldStdin; // If stdin has been provided
-
-// If the original stdin handle was missing we're using our console.
-#define useConsole (hOldStdin == INVALID_HANDLE_VALUE)
-
 extern void SetupDDEHandler(const TCHAR *lpszName);
+
+class WinStream;
+// The stream object is created by the Console package.
+extern WinStream *stdInStream;
 
 #endif

@@ -119,6 +119,8 @@ typedef int SOCKET;
 #undef max
 #endif
 
+#include <new>
+
 #include "globals.h"
 #include "gc.h"
 #include "arb.h"
@@ -400,6 +402,75 @@ public:
     WaitNetSend(SOCKET sock) { SetWrite(sock); }
 };
 
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+class WinSocket : public WinStreamBase
+{
+public:
+    WinSocket(SOCKET skt) : socket(skt) {}
+
+    virtual SOCKET getSocket() {
+        return socket;
+    }
+
+    virtual int pollTest() {
+        // We can poll for any of these.
+        return POLL_BIT_IN | POLL_BIT_OUT | POLL_BIT_PRI;
+    }
+
+    virtual int poll(int test);
+
+public:
+    SOCKET socket;
+};
+
+// Poll without blocking.
+int WinSocket::poll(int bits)
+{
+    int result = 0;
+    if (bits & POLL_BIT_PRI)
+    {
+        u_long atMark = 0;
+        ioctlsocket(socket, SIOCATMARK, &atMark);
+        if (atMark) { result |= POLL_BIT_PRI; }
+    }
+    if (bits & (POLL_BIT_IN | POLL_BIT_OUT))
+    {
+        FD_SET readFds, writeFds;
+        TIMEVAL poll = { 0, 0 };
+        FD_ZERO(&readFds); FD_ZERO(&writeFds);
+        if (bits & POLL_BIT_IN) FD_SET(socket, &readFds);
+        if (bits & POLL_BIT_OUT) FD_SET(socket, &writeFds);
+        if (select(FD_SETSIZE, &readFds, &writeFds, NULL, &poll) > 0)
+        {
+            // N.B. select only tells us about out-of-band data if SO_OOBINLINE is FALSE. */
+            if (FD_ISSET(socket, &readFds)) result |= POLL_BIT_IN;
+            if (FD_ISSET(socket, &writeFds)) result |= POLL_BIT_OUT;
+        }
+    }
+    return result;
+}
+
+static SOCKET getStreamSocket(TaskData *taskData, PolyWord strm)
+{
+    WinSocket *winskt = *(WinSocket**)(strm.AsObjPtr());
+    if (winskt == 0)
+        raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+    return winskt->getSocket();
+}
+
+static Handle wrapStreamSocket(TaskData *taskData, SOCKET skt)
+{
+    try {
+        WinSocket *winskt = new WinSocket(skt);
+        return MakeVolatileWord(taskData, winskt);
+    }
+    catch (std::bad_alloc&) {
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+    }
+}
+
+#else
+
 static SOCKET getStreamSocket(TaskData *taskData, PolyWord strm)
 {
     return getStreamFileDescriptor(taskData, strm);
@@ -409,6 +480,7 @@ static Handle wrapStreamSocket(TaskData *taskData, SOCKET skt)
 {
     return wrapFileDescriptor(taskData, skt);
 }
+#endif
 
 static Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {

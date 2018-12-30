@@ -31,6 +31,7 @@
 #endif
 
 #ifdef HAVE_WINDOWS_H
+#include <winsock2.h> // Include first to avoid conflicts
 #include <windows.h>
 #endif
 
@@ -68,6 +69,8 @@
 #include "../polyexports.h"
 #include "processes.h"
 #include "polystring.h"
+#include "io_internal.h"
+#include "locking.h"
 
 /*
 This module takes the place of the Windows console which
@@ -97,10 +100,9 @@ static int  nBuffLen;       // Length of input buffer.
 static int  nNextPosn;      // Position to add input. (<= nBuffLen)
 static int  nAvailable;     // Position of "committed" input (<= nNextPosn)
 static int  nReadPosn;      // Position of last read (<= nAvailable)
-static CRITICAL_SECTION csIOInterlock;
+static PLock iOInterlock;
 HANDLE hInputEvent;  // Signalled when input is available.
 static HWND hDDEWindow;     // Window to handle DDE requests from ML thread.
-HANDLE hOldStdin = INVALID_HANDLE_VALUE;
 
 static LPTSTR*  lpArgs = 0; // Argument list.
 static int      nArgs = 0;
@@ -110,6 +112,13 @@ static DWORD dwDDEInstance;
 
 static int nInitialShow; // Value of nCmdShow passed in.
 static bool isActive = false;
+
+// useConsole is read in diagnostics to indicate whether to
+// put up a message box.
+bool useConsole = false;
+
+// The WinStream set by PolyWinMain.
+WinStream *stdInStream;
 
 // Default DDE service name.
 #define POLYMLSERVICE   _T("PolyML")
@@ -127,68 +136,6 @@ static bool isActive = false;
 #define WM_DDESTOP      (WM_APP+2)
 #define WM_DDEEXEC      (WM_APP+3)
 #define WM_DDESERVINIT      (WM_APP+4)
-
-/* These functions are called by the I/O routines to test for input and
-   to read from the keyboard. */
-bool isConsoleInput(void)
-{
-    if (! isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
-    EnterCriticalSection(&csIOInterlock);
-    bool nRes = nAvailable != nReadPosn;
-    LeaveCriticalSection(&csIOInterlock);
-    return nRes;
-}
-
-/* Read characters from the input.  Only returns zero on EOF. */
-unsigned getConsoleInput(char *buff, int nChars)
-{
-    unsigned nRes = 0;
-    if (! isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
-    EnterCriticalSection(&csIOInterlock);
-    while (nAvailable == nReadPosn)
-    {
-        ResetEvent(hInputEvent);
-        /* Must block until there is input.
-           This will only actually happen when called from HandleINT
-           since normally we check that input is available first.
-           We check for messages while blocking since we may have a
-           DDE hidden window around.
-        */
-        LeaveCriticalSection(&csIOInterlock);
-        while (MsgWaitForMultipleObjects(1, &hInputEvent,
-                        FALSE, INFINITE, QS_ALLINPUT) == WAIT_OBJECT_0+1)
-        {
-            MSG Msg;
-            while (PeekMessage(&Msg, NULL, 0, 0, PM_REMOVE))
-            {
-                TranslateMessage(&Msg);
-                DispatchMessage(&Msg);
-            }
-        }
-        EnterCriticalSection(&csIOInterlock);
-    }
-    // Copy the available characters into the buffer.
-    while (nReadPosn != nAvailable && nChars-- > 0)
-    {
-        char ch;
-        ch = pchInputBuffer[nReadPosn];
-        if (ch == 4 || ch == 26)
-        {
-            // EOF character.  We have to return this as
-            // a separate buffer of size zero so if we've
-            // already returned some characters we leave it till
-            // next time.
-            if (nRes == 0) if (++nReadPosn == nBuffLen) nReadPosn = 0;
-            break;
-        }
-        buff[nRes++] = ch;
-        if (++nReadPosn == nBuffLen) nReadPosn = 0;
-    }
-    if (nAvailable == nReadPosn) ResetEvent(hInputEvent);
-    LeaveCriticalSection(&csIOInterlock);
-    return nRes;
-}
-
 
 /* All addition is made at the end of the text so this function is
    called to find out if we're there. */
@@ -389,7 +336,7 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
     case WM_CHAR:
         {
             LPARAM nRpt = lParam & 0xffff;
-            EnterCriticalSection(&csIOInterlock);
+            PLocker locker(&iOInterlock);
             if (wParam == '\b')
             {
                 // Delete the previous character(s).
@@ -403,7 +350,6 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
                         nNextPosn--;
                     }
                     lParam = (lParam & 0xffff0000) | nCanRemove;
-                    LeaveCriticalSection(&csIOInterlock);
                     return CallWindowProc(wpOrigEditProc, hwnd, uMsg,  wParam, lParam); 
                 }
             }
@@ -457,12 +403,10 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
                     if (nAvailable == nBuffLen) nAvailable = 0;
                 }
                 MoveToEnd();
-                LeaveCriticalSection(&csIOInterlock);
                 // Add this to the window except if it's ctrl-Z or ctrl-D.
                 if (wParam == 4 || wParam == 26) return 0;
                 return CallWindowProc(wpOrigEditProc, hwnd, uMsg,  wParam, lParam); 
             }
-            LeaveCriticalSection(&csIOInterlock);
             return 0;
         }
 
@@ -612,7 +556,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     // Add it to the screen.
                     SendMessage(hEditWnd, EM_REPLACESEL, FALSE, (LPARAM)lpszText);
                     // Add to the type-ahead.
-                    EnterCriticalSection(&csIOInterlock);
+                    PLocker locker(&iOInterlock);
                     // Check there's enough space.  This may be an
                     // over-estimate since we replace CRNL by NL.
                     CheckForBufferSpace(lstrlen(lpszText));
@@ -635,7 +579,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                         }
                     }
                     if (nAvailable != nReadPosn) SetEvent(hInputEvent);
-                    LeaveCriticalSection(&csIOInterlock);
                     GlobalUnlock(hClip);
                     CloseClipboard();
                 }
@@ -739,6 +682,92 @@ static BOOL WINAPI CtrlHandler(DWORD dwCtrlType)
     return FALSE;
 }
 
+// This is used if a standard input was provided.  Because
+// we don't know anything about that stream we have to interpose a
+// thread.  We record the type of the original standard input and
+// return that as the file kind if necessary.
+class WinStdInPipeStream : public WinCopyInStream
+{
+public:
+    WinStdInPipeStream(HANDLE hEvent, int kind) : WinCopyInStream(0, hEvent), originalKind(kind) {}
+    virtual int fileKind() {
+        return originalKind;
+    }
+protected:
+    int originalKind;
+};
+
+class WinGuiConsoleStream : public WinStream
+{
+public:
+    WinGuiConsoleStream() : WinStream(OPENREAD) {}
+    virtual bool isAvailable(TaskData *taskData);
+    virtual void waitUntilAvailable(TaskData *taskData);
+
+    virtual ssize_t readStream(TaskData *taskData, byte *base, size_t length);
+
+    virtual int fileKind() {
+        return FILEKIND_TTY; // Treat it as a TTY i.e. an interactive input
+    }
+
+    virtual void closeEntry(TaskData *taskData) { } // Not closed
+
+    virtual long seekStream(TaskData *taskData, long pos, int origin) {
+        return -1; // Seeking not allowed
+    }
+    virtual bool canOutput(TaskData *taskData) {
+        return false;
+    }
+    virtual ssize_t writeStream(TaskData *taskData, byte *base, size_t length) {
+        return -1;
+    }
+};
+
+bool WinGuiConsoleStream::isAvailable(TaskData *taskData)
+{
+    if (!isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
+    PLocker locker(&iOInterlock);
+    return nAvailable != nReadPosn;
+}
+
+ssize_t WinGuiConsoleStream::readStream(TaskData *taskData, byte *base, size_t length)
+    /* Read characters from the input.  Only returns zero on EOF. */
+{
+    unsigned nRes = 0;
+    if (!isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
+    PLocker locker(&iOInterlock);
+    
+    // Copy the available characters into the buffer.
+    while (nReadPosn != nAvailable && length-- > 0)
+    {
+        char ch;
+        ch = pchInputBuffer[nReadPosn];
+        if (ch == 4 || ch == 26)
+        {
+            // EOF character.  We have to return this as
+            // a separate buffer of size zero so if we've
+            // already returned some characters we leave it till
+            // next time.
+            if (nRes == 0) if (++nReadPosn == nBuffLen) nReadPosn = 0;
+            break;
+        }
+        base[nRes++] = ch;
+        if (++nReadPosn == nBuffLen) nReadPosn = 0;
+    }
+    if (nAvailable == nReadPosn) ResetEvent(hInputEvent);
+
+    return nRes;
+}
+
+void WinGuiConsoleStream::waitUntilAvailable(TaskData *taskData)
+{
+    while (!isAvailable(taskData))
+    {
+        WaitHandle waiter(hInputEvent); // Global event
+        processes->ThreadPauseForIO(taskData, &waiter);
+    }
+}
+
 // Main entry point.  Called from WinMain with a pointer to the ML code.
 int PolyWinMain(
   HINSTANCE hInstance,
@@ -753,7 +782,6 @@ int PolyWinMain(
 
     SetErrorMode(0); // Force a proper error report
 
-    InitializeCriticalSection(&csIOInterlock);
     hInputEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     hApplicationInstance = hInstance;
 
@@ -766,10 +794,20 @@ int PolyWinMain(
     HANDLE hStdOutHandle = (HANDLE)_get_osfhandle(fileno(stdout));
     HANDLE hStdErrHandle = (HANDLE)_get_osfhandle(fileno(stderr));
 
+    // If we don't have standard output we're going to create a console for output.
+    // We also use this for input except if we've provided standard input but not standard ouput.
+    useConsole = hStdOutHandle == INVALID_HANDLE_VALUE;
+
     // Do we have stdin?  If we do we need to create a pipe to buffer
     // the input.
     if (hStdInHandle != INVALID_HANDLE_VALUE)
     {
+        // We have to capture the original type here.  hStdInHandle itself will
+        // be closed when we set the new stdin and hOldStdin could be closed by
+        // the pipe input thread almost immediately if the input is a small file.
+        int originalKInd = WinStream::fileTypeOfHandle(hStdInHandle);
+
+        HANDLE hOldStdin;
         // We're using the stdin passed in by the caller.  This may well
         // be a pipe and in order to get reasonable performance we need
         // to interpose a thread.  This is the only way to be able to have
@@ -791,6 +829,15 @@ int PolyWinMain(
         int newstdin = _open_osfhandle ((INT_PTR)hNewStdin, _O_RDONLY | _O_TEXT);
         if (newstdin != 0) _dup2(newstdin, 0);
         fdopen(0, "rt");
+
+        // Set this to a duplicate of the handle so it can be closed when we
+        // close the stream.
+        HANDLE hDup;
+        if (!DuplicateHandle(GetCurrentProcess(), hInputEvent, GetCurrentProcess(),
+            &hDup, 0, FALSE, DUPLICATE_SAME_ACCESS))
+            hDup = INVALID_HANDLE_VALUE;
+
+        stdInStream = new WinStdInPipeStream(hDup, originalKInd);
     }
     else
     {
@@ -806,15 +853,13 @@ int PolyWinMain(
         _fdopen(0, "rt");
         hStdInHandle =  (HANDLE)_get_osfhandle(newstdin);
         SetStdHandle(STD_INPUT_HANDLE, hStdInHandle);
-
-        // If we're not going to create a console because we have a stdout
-        // we need to set this as the original stdin.
-        if (hStdOutHandle != INVALID_HANDLE_VALUE)
-            hOldStdin = hStdInHandle;
+        if (useConsole)
+            stdInStream = new WinGuiConsoleStream(); // Also use for input
+        else stdInStream = new WinStream(0); // We have standard ouput but not input
     }
 
     // If we don't have a standard output we use our own console.
-    if (hStdOutHandle == INVALID_HANDLE_VALUE)
+    if (useConsole)
     {
         WNDCLASSEX wndClass;
         ATOM atClass;
@@ -1012,7 +1057,6 @@ int PolyWinMain(
 
     uninitDDEControl();
     DestroyWindow(hDDEWindow);
-    DeleteCriticalSection(&csIOInterlock);
     if (hInputEvent) CloseHandle(hInputEvent);
     return dwRes;
 }

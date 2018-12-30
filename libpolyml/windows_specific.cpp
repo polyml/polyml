@@ -57,6 +57,7 @@
 #define ASSERT(x) 0
 #endif
 
+#include <new>
 
 #include "globals.h"
 #include "arb.h"
@@ -107,7 +108,6 @@ typedef enum
 */
 typedef struct {
     HANDLE hProcess, hInput, hOutput, hEvent;
-    PolyWord readToken, writeToken;
 } PROCESSDATA;
 
 static Handle execute(TaskData *taskData, Handle pname);
@@ -239,22 +239,9 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (hnd->hEvent)
                 CloseHandle(hnd->hEvent);
             hnd->hEvent = NULL;
-            if (hnd->readToken.IsDataPtr())
-            {
-                PIOSTRUCT strm = get_stream(hnd->readToken);
-                if (strm != NULL) close_stream(strm);
-            }
-            hnd->readToken = ClosedToken;
             if (hnd->hOutput != INVALID_HANDLE_VALUE)
                 CloseHandle(hnd->hOutput);
             hnd->hOutput = INVALID_HANDLE_VALUE;
-            if (hnd->writeToken.IsDataPtr())
-            {
-                PIOSTRUCT strm =
-                    get_stream(hnd->writeToken);
-                if (strm != NULL) close_stream(strm);
-            }
-            hnd->writeToken = ClosedToken;
 
             // See if it's finished.
             while (true) {
@@ -835,8 +822,6 @@ static Handle execute(TaskData *taskData, Handle args)
     pProcData->hInput = hReadFromChild;
     pProcData->hOutput = hWriteToChild;
     pProcData->hEvent = hEvent;
-    pProcData->readToken = ClosedToken;
-    pProcData->writeToken = ClosedToken;
 
     return(MakeVolatileWord(taskData, pProcData));
 
@@ -914,8 +899,6 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
     pProcData->hInput = INVALID_HANDLE_VALUE;
     pProcData->hOutput = INVALID_HANDLE_VALUE;
     pProcData->hEvent = NULL;
-    pProcData->readToken = ClosedToken;
-    pProcData->writeToken = ClosedToken;
 
     return(MakeVolatileWord(taskData, pProcData));
 }
@@ -925,7 +908,7 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
 {
     PROCESSDATA *hnd = *(PROCESSDATA**)(args->WordP());
     HANDLE hStream;
-    int mode = 0, ioBits = 0;
+    int mode = 0;
     if (hnd == 0)
         raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
 
@@ -937,41 +920,43 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
        we don't allow it because we could get problems with closing
        the same handle twice. */
     if (hStream == INVALID_HANDLE_VALUE)
-        raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
+        raise_syscall(taskData, "Stream is already open", 0);
 
-    if (fIsRead) { mode = _O_RDONLY; ioBits = IO_BIT_READ; }
-    else { mode = 0; ioBits = IO_BIT_WRITE; }
+    if (fIsRead) mode = _O_RDONLY;
+    else mode = 0;
     if (fIsText) mode |= _O_TEXT; else mode |= _O_BINARY;
 
-    Handle str_token = make_stream_entry(taskData);
-    if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
-    {
-        PLocker lock(&ioLock);
-        PIOSTRUCT strm = &basic_io_vector[STREAMID(str_token)];
-        strm->device.ioDesc = _open_osfhandle((POLYSIGNED)hStream, mode);
-        if (strm->device.ioDesc == -1)
-            raise_syscall(taskData, "_open_osfhandle failed", _doserrno);
-        strm->ioBits = ioBits | IO_BIT_OPEN | IO_BIT_PIPE;
+    int ioDesc = _open_osfhandle((intptr_t)hStream, mode);
+    if (ioDesc == -1)
+        raise_syscall(taskData, "_open_osfhandle failed", _doserrno);
 
-        /* The responsibility for closing the handle is passed to
-           the stream package.  We need to retain a pointer to the
-           stream entry so that we can close the stream in "reap". */
+    WinStream *pStream;
+    try {
         if (fIsRead)
-        {
-            hnd->hInput = INVALID_HANDLE_VALUE;
-            hnd->readToken = strm->token;
-            // Pass the "input available" event.
-            strm->hAvailable = hnd->hEvent;
-            hnd->hEvent = NULL;
-        }
+            pStream = new WinCopyInStream(ioDesc, hnd->hEvent);
         else
-        {
-            hnd->hOutput = INVALID_HANDLE_VALUE;
-            hnd->writeToken = strm->token;
-        }
+            pStream = new WinStream(ioDesc);
+    }
+    catch (std::bad_alloc&)
+    {
+        raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
     }
 
-    return str_token;
+    Handle streamToken = MakeVolatileWord(taskData, pStream);
+
+    // The responsibility for closing the handle is passed to
+    // the stream package.
+    if (fIsRead)
+    {
+        hnd->hInput = INVALID_HANDLE_VALUE;
+        hnd->hEvent = NULL;
+    }
+    else
+    {
+        hnd->hOutput = INVALID_HANDLE_VALUE;
+    }
+
+    return streamToken;
 }
 
 // Open a registry key and make an entry in the table for it.
