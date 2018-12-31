@@ -44,6 +44,7 @@
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 
 #include <WinSock2.h>
+#include "locking.h" // For PLock
 
 // Unlike Unix where select and poll can be used on both sockets and other
 // streams, in Windows there is no single way of testing different sorts of
@@ -82,9 +83,19 @@ public:
     virtual void closeEntry(TaskData *taskData);
     virtual void waitUntilAvailable(TaskData *taskData);
     virtual void waitUntilOutputPossible(TaskData *taskData);
-    virtual ssize_t readStream(TaskData *taskData, byte *base, size_t length);
-    virtual long seekStream(TaskData *taskData, long pos, int origin);
-    virtual ssize_t writeStream(TaskData *taskData, byte *base, size_t length);
+    virtual size_t readStream(TaskData *taskData, byte *base, size_t length);
+    virtual uint64_t getPos(TaskData *taskData) {
+        unimplemented(taskData);
+        return 0;
+    }
+    virtual void setPos(TaskData *taskData, uint64_t pos) {
+        unimplemented(taskData);
+    }
+    virtual uint64_t fileSize(TaskData *taskData) {
+        unimplemented(taskData);
+        return 0;
+    }
+    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length);
     virtual int fileKind();
     static int fileTypeOfHandle(HANDLE hStream);
 
@@ -100,6 +111,7 @@ public:
     }
 
 protected:
+    void unimplemented(TaskData *taskData);
     int ioDesc;
 };
 
@@ -111,13 +123,16 @@ public:
     ~WinInStream();
     virtual void closeEntry(TaskData *taskData);
     virtual void openEntry(TaskData * taskData, TCHAR *name, bool text);
-    virtual ssize_t readStream(TaskData *taskData, byte *base, size_t length);
+    virtual size_t readStream(TaskData *taskData, byte *base, size_t length);
     virtual bool isAvailable(TaskData *taskData);
     virtual void waitUntilAvailable(TaskData *taskData);
-    virtual long seekStream(TaskData *taskData, long pos, int origin);
+    virtual uint64_t getPos(TaskData *taskData);
+    virtual void setPos(TaskData *taskData, uint64_t pos);
+    virtual uint64_t fileSize(TaskData *taskData);
 
-    virtual ssize_t writeStream(TaskData *taskData, byte *base, size_t length) {
-        return -1;
+    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length) {
+        unimplemented(taskData);
+        return 0;
     }
 
     virtual int fileKind() {
@@ -135,6 +150,13 @@ public:
 
 protected:
     void beginReading(TaskData *taskData);
+    uint64_t getOverlappedPos() {
+        return ((uint64_t)(overlap.OffsetHigh) << 32) + overlap.Offset;
+    }
+    void setOverlappedPos(uint64_t newPos) {
+        overlap.Offset = (DWORD)newPos;
+        overlap.OffsetHigh = (DWORD)(newPos >> 32);
+    }
 
     bool isText; // Remove CRs?
     byte *buffer;
@@ -143,6 +165,7 @@ protected:
     HANDLE hStream;
     HANDLE hEvent;
     OVERLAPPED overlap;
+    PLock lock;
 };
 
 // Stream opened on an internal pipe.  This is used for standard input

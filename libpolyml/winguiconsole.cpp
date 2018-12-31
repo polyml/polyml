@@ -704,7 +704,7 @@ public:
     virtual bool isAvailable(TaskData *taskData);
     virtual void waitUntilAvailable(TaskData *taskData);
 
-    virtual ssize_t readStream(TaskData *taskData, byte *base, size_t length);
+    virtual size_t readStream(TaskData *taskData, byte *base, size_t length);
 
     virtual int fileKind() {
         return FILEKIND_TTY; // Treat it as a TTY i.e. an interactive input
@@ -712,14 +712,12 @@ public:
 
     virtual void closeEntry(TaskData *taskData) { } // Not closed
 
-    virtual long seekStream(TaskData *taskData, long pos, int origin) {
-        return -1; // Seeking not allowed
-    }
     virtual bool canOutput(TaskData *taskData) {
         return false;
     }
-    virtual ssize_t writeStream(TaskData *taskData, byte *base, size_t length) {
-        return -1;
+    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length) {
+        unimplemented(taskData);
+        return 0;
     }
 };
 
@@ -730,7 +728,7 @@ bool WinGuiConsoleStream::isAvailable(TaskData *taskData)
     return nAvailable != nReadPosn;
 }
 
-ssize_t WinGuiConsoleStream::readStream(TaskData *taskData, byte *base, size_t length)
+size_t WinGuiConsoleStream::readStream(TaskData *taskData, byte *base, size_t length)
     /* Read characters from the input.  Only returns zero on EOF. */
 {
     unsigned nRes = 0;

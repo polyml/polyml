@@ -211,12 +211,12 @@ int WinStream::fileKind()
     return fileTypeOfHandle((HANDLE)_get_osfhandle(ioDesc));
 }
 
-ssize_t WinStream::readStream(TaskData *taskData, byte *base, size_t length)
+size_t WinStream::readStream(TaskData *taskData, byte *base, size_t length)
 {
     ssize_t haveRead = read(ioDesc, base, (unsigned int)length);
     if (haveRead < 0)
         raise_syscall(taskData, "Error while reading", ERRORNUMBER);
-    return haveRead;
+    return (size_t)haveRead;
 }
 
 void WinStream::waitUntilAvailable(TaskData *taskData)
@@ -238,18 +238,17 @@ void WinStream::waitUntilOutputPossible(TaskData *taskData)
     }
 }
 
-long WinStream::seekStream(TaskData *taskData, long pos, int origin)
+void WinStream::unimplemented(TaskData *taskData)
 {
-    long position = lseek(ioDesc, pos, origin);
-    if (position < 0) raise_syscall(taskData, "Position error", ERRORNUMBER);
-    return position;
+    // Called on the random access functions
+    raise_syscall(taskData, "Position error", ERROR_NOT_SUPPORTED);
 }
 
-ssize_t WinStream::writeStream(TaskData *taskData, byte *base, size_t length)
+size_t WinStream::writeStream(TaskData *taskData, byte *base, size_t length)
 {
     ssize_t haveWritten = write(ioDesc, base, (unsigned int)length);
     if (haveWritten < 0) raise_syscall(taskData, "Error while writing", ERRORNUMBER);
-    return haveWritten;
+    return (size_t)haveWritten;
 }
 
 void WinCopyInStream::closeEntry(TaskData *taskData)
@@ -360,6 +359,7 @@ void WinInStream::beginReading(TaskData *taskData)
 
 void WinInStream::closeEntry(TaskData *taskData)
 {
+    PLocker locker(&lock);
     DWORD dwWait = WaitForSingleObject(hEvent, 0);
     if (dwWait == WAIT_FAILED)
         raise_syscall(taskData, "WaitForSingleObject failed", GetLastError());
@@ -374,12 +374,13 @@ void WinInStream::closeEntry(TaskData *taskData)
     hEvent = INVALID_HANDLE_VALUE;
 }
 
-ssize_t WinInStream::readStream(TaskData *taskData, byte *base, size_t length)
+size_t WinInStream::readStream(TaskData *taskData, byte *base, size_t length)
 {
+    PLocker locker(&lock);
     if (endOfStream) return 0;
-    ssize_t copied = 0;
+    size_t copied = 0;
     // Copy as much as we can from the buffer.
-    while (currentPtr < currentInBuffer && length != 0)
+    while (currentPtr < currentInBuffer && copied < length)
     {
         byte b = buffer[currentPtr++];
         // In text mode we want to return NL for CRNL.  Assume that this is
@@ -407,38 +408,39 @@ bool WinInStream::isAvailable(TaskData *taskData)
 {
     while (1)
     {
-        // It is available if we have something in the buffer or we're at EOF
-        if (currentInBuffer < currentPtr || endOfStream)
-            return true;
-        // We should have had a read in progress.
-        DWORD bytesRead = 0;
-        if (!GetOverlappedResult(hStream, &overlap, &bytesRead, FALSE))
         {
-            DWORD err = GetLastError();
-            switch (err)
-            {
-            case ERROR_HANDLE_EOF:
-                // We've had EOF - That result is available
-                endOfStream = true;
+            PLocker locker(&lock);
+            // It is available if we have something in the buffer or we're at EOF
+            if (currentInBuffer < currentPtr || endOfStream)
                 return true;
-            case ERROR_IO_INCOMPLETE:
-                // It's still in progress.
-                return false;
-            default:
-                raise_syscall(taskData, "GetOverlappedResult failed", err);
+            // We should have had a read in progress.
+            DWORD bytesRead = 0;
+            if (!GetOverlappedResult(hStream, &overlap, &bytesRead, FALSE))
+            {
+                DWORD err = GetLastError();
+                switch (err)
+                {
+                case ERROR_HANDLE_EOF:
+                    // We've had EOF - That result is available
+                    endOfStream = true;
+                    return true;
+                case ERROR_IO_INCOMPLETE:
+                    // It's still in progress.
+                    return false;
+                default:
+                    raise_syscall(taskData, "GetOverlappedResult failed", err);
+                }
             }
+            // The next read must be after this.
+            setOverlappedPos(getOverlappedPos() + bytesRead);
+            currentInBuffer = bytesRead;
+            // If this is a text stream skip CRs.
+            while (isText && currentPtr < currentInBuffer && buffer[currentPtr] == '\r')
+                currentPtr++;
+            // If we have some real data it can be read now
+            if (currentPtr < currentInBuffer)
+                return true;
         }
-        // The next read must be after this.
-        uint64_t newPos = ((uint64_t)(overlap.OffsetHigh) << 32) + overlap.Offset + bytesRead;
-        overlap.Offset = (DWORD)newPos;
-        overlap.OffsetHigh = (DWORD)(newPos >> 32);
-        currentInBuffer = bytesRead;
-        // If this is a text stream skip CRs.
-        while (isText && currentPtr < currentInBuffer && buffer[currentPtr] == '\r')
-            currentPtr++;
-        // If we have some real data it can be read now
-        if (currentPtr < currentInBuffer)
-            return true;
         // Try again.
         beginReading(taskData); // And loop
     }
@@ -453,10 +455,39 @@ void WinInStream::waitUntilAvailable(TaskData *taskData)
     }
 }
 
-long WinInStream::seekStream(TaskData *taskData, long pos, int origin)
+// Random access functions
+uint64_t WinInStream::getPos(TaskData *taskData)
 {
-    // We need to finish any pending input first.
-    raise_syscall(taskData, "Not implemented", 0);
+    if (GetFileType(hStream) != FILE_TYPE_DISK)
+        raise_syscall(taskData, "Stream is not a file", ERROR_SEEK_ON_DEVICE);
+    PLocker locker(&lock);
+    return getOverlappedPos() - currentInBuffer + currentPtr;
+}
+
+void WinInStream::setPos(TaskData *taskData, uint64_t pos)
+{
+    if (GetFileType(hStream) != FILE_TYPE_DISK)
+        raise_syscall(taskData, "Stream is not a file", ERROR_SEEK_ON_DEVICE);
+    PLocker locker(&lock);
+    // Need to wait until any pending operation is complete.
+    while (WaitForSingleObject(hEvent, 0) == WAIT_TIMEOUT)
+    {
+        WaitHandle waiter(hEvent);
+        processes->ThreadPauseForIO(taskData, &waiter);
+    }
+    setOverlappedPos(pos);
+    // Discard any unread data and start reading at the new position.
+    currentInBuffer = currentPtr = 0;
+    endOfStream = false;
+    beginReading(taskData);
+}
+
+uint64_t WinInStream::fileSize(TaskData *taskData)
+{
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hStream, &fileSize))
+        raise_syscall(taskData, "Stream is not a file", GetLastError());
+    return fileSize.QuadPart;
 }
 
 
@@ -489,7 +520,7 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
     byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
     POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
     size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
-    ssize_t haveRead = strm->readStream(taskData, base + offset, length);
+    size_t haveRead = strm->readStream(taskData, base + offset, length);
     return Make_fixed_precision(taskData, haveRead); // Success.
 }
 
@@ -523,7 +554,7 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
     if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", NOMEMORY);
 
     try {
-        ssize_t haveRead = strm->readStream(taskData, buff, length);
+        size_t haveRead = strm->readStream(taskData, buff, length);
         Handle result = SAVE(C_string_to_Poly(taskData, (char*)buff, haveRead));
         free(buff);
         return result;
@@ -551,7 +582,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     if (strm == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
     /* We don't actually handle cases of blocking on output. */
     byte *toWrite = base.AsObjPtr()->AsBytePtr();
-    ssize_t haveWritten = strm->writeStream(taskData, toWrite + offset, length);
+    size_t haveWritten = strm->writeStream(taskData, toWrite + offset, length);
     return Make_fixed_precision(taskData, haveWritten);
 }
 
@@ -981,46 +1012,40 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         return Make_fixed_precision(taskData, stream->isAvailable(taskData) ? 1 : 0);
     }
 
-    case 17: /* Return the number of bytes available.  */
+    case 17: // Return the number of bytes available. PrimIO.avail.
     {
         WinStream *stream = *(WinStream**)(strm->WordP());
         if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        /* Remember our original position, seek to the end, then seek back. */
-        long original = stream->seekStream(taskData, 0L, SEEK_CUR);
-        long endOfStream = stream->seekStream(taskData, 0L, SEEK_END);
-        stream->seekStream(taskData, original, SEEK_SET);
-        return Make_fixed_precision(taskData, endOfStream - original);
+        uint64_t endOfStream = stream->fileSize(taskData); // May raise an exception if this isn't a file.
+        uint64_t current = stream->getPos(taskData);
+        return Make_fixed_precision(taskData, endOfStream - current);
     }
 
-    case 18: /* Get position on stream. */
+    case 18: // Get position on stream.  PrimIO.getPos
     {
         WinStream *stream = *(WinStream**)(strm->WordP());
         if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        /* Get the current position in the stream.  This is used to test
-        for the availability of random access so it should raise an
-        exception if setFilePos or endFilePos would fail. */
-        long pos = stream->seekStream(taskData, 0L, SEEK_CUR);
-        return Make_arbitrary_precision(taskData, pos);
+        // Get the current position in the stream.  This is used to test
+        // for the availability of random access so it should raise an
+        // exception if setFilePos or endFilePos would fail. 
+        return Make_arbitrary_precision(taskData, stream->getPos(taskData));
     }
 
-    case 19: /* Seek to position on stream. */
+    case 19: // Seek to position on stream.  PrimIO.setPos
     {
         WinStream *stream = *(WinStream**)(strm->WordP());
         if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        long position = (long)get_C_long(taskData, DEREFWORD(args));
-        stream->seekStream(taskData, position, SEEK_SET);
+        // TODO: This doesn't necessarily return a 64-bit value.
+        uint64_t position = (uint64_t)getPolyUnsigned(taskData, DEREFWORD(args));
+        stream->setPos(taskData, position);
         return Make_arbitrary_precision(taskData, 0);
     }
 
-    case 20: /* Return position at end of stream. */
+    case 20: // Return position at end of stream.  PrimIO.endPos.
     {
         WinStream *stream = *(WinStream**)(strm->WordP());
         if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        /* Remember our original position, seek to the end, then seek back. */
-        long original = stream->seekStream(taskData, 0L, SEEK_CUR);
-        long endOfStream = stream->seekStream(taskData, 0L, SEEK_END);
-        stream->seekStream(taskData, original, SEEK_SET);
-        return Make_arbitrary_precision(taskData, endOfStream);
+        return Make_arbitrary_precision(taskData, stream->fileSize(taskData));
     }
 
     case 21: /* Get the kind of device underlying the stream. */
