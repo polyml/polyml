@@ -56,7 +56,7 @@ public:
     virtual int pollTest() { // Return the valid options for this descriptor
         return 0;
     }
-    virtual int poll(int test) { // Return the values set
+    virtual int poll(TaskData *taskData, int test) { // Return the values set
         return 0;
     }
     // These are not currently used but could be used to poll
@@ -139,10 +139,12 @@ public:
         return WinStream::fileTypeOfHandle(hStream);
     }
 
-    virtual int poll(int test) {
+    virtual int pollTest() {
         // We can poll this to test for input.
         return POLL_BIT_IN;
     }
+
+    virtual int poll(TaskData *taskData, int test);
 
     virtual HANDLE getHandle() {
         return hEvent;
@@ -158,10 +160,60 @@ protected:
         overlap.OffsetHigh = (DWORD)(newPos >> 32);
     }
 
+protected:
     bool isText; // Remove CRs?
     byte *buffer;
     unsigned buffSize, currentInBuffer, currentPtr;
     bool endOfStream;
+    HANDLE hStream;
+    HANDLE hEvent;
+    OVERLAPPED overlap;
+    PLock lock;
+};
+
+// Output stream.  Probably merge with WinInStream.
+class WinOutStream : public WinStream
+{
+public:
+    WinOutStream();
+    ~WinOutStream();
+    virtual void closeEntry(TaskData *taskData);
+    virtual void openEntry(TaskData * taskData, TCHAR *name, bool isAppend, bool isText);
+    virtual bool canOutput(TaskData *taskData);
+    virtual void waitUntilOutputPossible(TaskData *taskData);
+    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length);
+
+    virtual size_t readStream(TaskData *taskData, byte *base, size_t length) {
+        unimplemented(taskData);
+        return 0;
+    }
+
+    virtual int fileKind() {
+        return WinStream::fileTypeOfHandle(hStream);
+    }
+
+    virtual int pollTest() {
+        // We can poll this to test for input.
+        return POLL_BIT_IN;
+    }
+
+    virtual int poll(TaskData *taskData, int test);
+
+    virtual HANDLE getHandle() {
+        return hEvent;
+    }
+
+protected:
+    uint64_t getOverlappedPos() {
+        return ((uint64_t)(overlap.OffsetHigh) << 32) + overlap.Offset;
+    }
+    void setOverlappedPos(uint64_t newPos) {
+        overlap.Offset = (DWORD)newPos;
+        overlap.OffsetHigh = (DWORD)(newPos >> 32);
+    }
+    bool isText; // Convert NL to CRNL?
+    byte *buffer;
+    unsigned buffSize, currentInBuffer;
     HANDLE hStream;
     HANDLE hEvent;
     OVERLAPPED overlap;

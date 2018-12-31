@@ -146,22 +146,6 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg);
 }
 
-/*
-I've tried various ways of getting asynchronous IO to work in a
-consistent manner across different kinds of IO devices in Windows.
-It is possible to pass some kinds of handles to WaitForMultipleObjects
-but not all.  Anonymous pipes, for example, cannot be used in Windows 95
-and don't seem to do what is expected in Windows NT (they return signalled
-even when there is no input).  The console is even more of a mess. The
-handle is signalled when there are any events (such as mouse movements)
-available but these are ignored by ReadFile, which may then block.
-Conversely using ReadFile to read less than a line causes the handle
-to be unsignalled, supposedly meaning that no input is available, yet
-ReadFile will return subsequent characters without blocking.  The eventual
-solution was to replace the console completely.
-DCJM May 2000
-*/
-
 // Standard streams.
 static WinStream *standardInput, *standardOutput, *standardError;
 
@@ -282,30 +266,6 @@ void WinCopyInStream::waitUntilAvailable(TaskData *taskData)
     }
 }
 
-/* Open a file in the required mode. */
-static Handle openWinFile(TaskData *taskData, Handle filename, openMode mode, bool isAppend, bool isBinary)
-{
-    TempString cFileName(filename->Word()); // Get file name
-    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-    try {
-        if (mode == OPENREAD)
-        {
-            WinInStream *stream = new WinInStream();
-            stream->openEntry(taskData, cFileName, !isBinary);
-            return MakeVolatileWord(taskData, stream);
-        }
-        else
-        {
-            WinStream *stream = new WinStream();
-            stream->openEntry(taskData, cFileName, mode, isAppend, isBinary);
-            return MakeVolatileWord(taskData, stream);
-        }
-    }
-    catch (std::bad_alloc&) {
-        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-    }
-}
-
 WinInStream::WinInStream()
 {
     hStream = hEvent = INVALID_HANDLE_VALUE;
@@ -360,14 +320,9 @@ void WinInStream::beginReading(TaskData *taskData)
 void WinInStream::closeEntry(TaskData *taskData)
 {
     PLocker locker(&lock);
-    DWORD dwWait = WaitForSingleObject(hEvent, 0);
-    if (dwWait == WAIT_FAILED)
-        raise_syscall(taskData, "WaitForSingleObject failed", GetLastError());
-    if (dwWait == WAIT_TIMEOUT)
-    {
+    if (WaitForSingleObject(hEvent, 0) == WAIT_TIMEOUT)
         // Something is in progress.
         CancelIoEx(hStream, &overlap);
-    }
     CloseHandle(hStream);
     hStream = INVALID_HANDLE_VALUE;
     CloseHandle(hEvent);
@@ -455,6 +410,16 @@ void WinInStream::waitUntilAvailable(TaskData *taskData)
     }
 }
 
+int WinInStream::poll(TaskData *taskData, int test)
+{
+    if (test & POLL_BIT_IN)
+    {
+        if (isAvailable(taskData))
+            return POLL_BIT_IN;
+    }
+    return 0;
+}
+
 // Random access functions
 uint64_t WinInStream::getPos(TaskData *taskData)
 {
@@ -490,6 +455,160 @@ uint64_t WinInStream::fileSize(TaskData *taskData)
     return fileSize.QuadPart;
 }
 
+WinOutStream::WinOutStream()
+{
+    hStream = hEvent = INVALID_HANDLE_VALUE;
+    buffer = 0;
+    currentInBuffer = 0;
+    //endOfStream = false;
+    buffSize = 4096; // Seems like a good number
+    ZeroMemory(&overlap, sizeof(overlap));
+    //isText = false;
+}
+
+WinOutStream::~WinOutStream()
+{
+    free(buffer);
+}
+
+void WinOutStream::openEntry(TaskData * taskData, TCHAR *name, bool isAppend, bool isT)
+{
+    isText = isT;
+    ASSERT(hStream == INVALID_HANDLE_VALUE); // We should never reuse an object.
+    buffer = (byte*)malloc(buffSize);
+    if (buffer == 0)
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+    // Create a manual reset event with state=signalled.  This means
+    // that no operation is in progress.
+    hEvent = CreateEvent(NULL, TRUE, TRUE, NULL);
+    overlap.hEvent = hEvent;
+    hStream = CreateFile(name, GENERIC_WRITE, FILE_SHARE_READ, NULL, isAppend ? OPEN_ALWAYS : CREATE_ALWAYS, FILE_FLAG_OVERLAPPED, NULL);
+    if (hStream == INVALID_HANDLE_VALUE)
+        raise_syscall(taskData, "CreateFile failed", GetLastError());
+    if (isAppend)
+    {
+        // We could use the special 0xfff... value in the overlapped structure for this
+        // but that would mess up getPos/endPos.
+        LARGE_INTEGER fileSize;
+        if (!GetFileSizeEx(hStream, &fileSize))
+            raise_syscall(taskData, "Stream is not a file", GetLastError());
+        setOverlappedPos(fileSize.QuadPart);
+    }
+}
+
+bool WinOutStream::canOutput(TaskData *taskData)
+{
+    PLocker locker(&lock);
+    // If the buffer is empty we're fine.
+    if (currentInBuffer == 0)
+        return true;
+    // Otherwise there is an operation in progress.  Has it finished?
+    DWORD bytesWritten = 0;
+    if (!GetOverlappedResult(hStream, &overlap, &bytesWritten, FALSE))
+    {
+        DWORD err = GetLastError();
+        if (err == ERROR_IO_INCOMPLETE)
+            return false;
+        else raise_syscall(taskData, "GetOverlappedResult failed", err);
+    }
+    setOverlappedPos(getOverlappedPos() + bytesWritten);
+    // If we haven't written everything copy down what we have left.
+    if (bytesWritten < currentInBuffer)
+        memmove(buffer, buffer + bytesWritten, currentInBuffer - bytesWritten);
+    currentInBuffer -= bytesWritten;
+    // This will then be written before anything else.
+    return true;
+}
+
+int WinOutStream::poll(TaskData *taskData, int test)
+{
+    if (test & POLL_BIT_OUT)
+    {
+        if (canOutput(taskData))
+            return POLL_BIT_OUT;
+    }
+    return 0;
+}
+
+void WinOutStream::waitUntilOutputPossible(TaskData *taskData)
+{
+    while (!canOutput(taskData))
+    {
+        WaitHandle waiter(hEvent);
+        processes->ThreadPauseForIO(taskData, &waiter);
+    }
+}
+
+// Write data.  N.B.  This is also used with zero data from closeEntry.
+size_t WinOutStream::writeStream(TaskData *taskData, byte *base, size_t length)
+{
+    PLocker locker(&lock);
+    // Copy as much as we can into the buffer.
+    size_t copied = 0;
+    while (currentInBuffer < buffSize && copied < length)
+    {
+        if (isText && base[copied] == '\n')
+        {
+            // Put in a CR but make sure we've space for both.
+            if (currentInBuffer == buffSize - 1)
+                break; // Exit the loop with what we've done.
+            buffer[currentInBuffer++] = '\r';
+        }
+        buffer[currentInBuffer++] = base[copied++];
+    }
+
+    // Write what's in the buffer.
+    if (!WriteFile(hStream, buffer, currentInBuffer, NULL, &overlap))
+    {
+        DWORD dwErr = GetLastError();
+        if (dwErr != ERROR_IO_PENDING)
+            raise_syscall(taskData, "WriteFile failed", dwErr);
+    }
+    // Even if it actually succeeded we still pick up the result in canOutput.
+    return copied; // Return what we copied.
+}
+
+void WinOutStream::closeEntry(TaskData *taskData)
+{
+    while (currentInBuffer != 0)
+    {
+        // If currentInBuffer is not zero we have an operation in progress.
+        waitUntilOutputPossible(taskData); // canOutput will test the result and may update currentInBuffer.
+        // We may not have written everything so check and repeat if necessary.
+        if (currentInBuffer != 0)
+            writeStream(taskData, NULL, 0);
+    }
+
+    if (!CloseHandle(hStream))
+        raise_syscall(taskData, "CloseHandle failed", GetLastError());
+    hStream = INVALID_HANDLE_VALUE;
+    CloseHandle(hEvent);
+    hEvent = INVALID_HANDLE_VALUE;
+}
+
+/* Open a file in the required mode. */
+static Handle openWinFile(TaskData *taskData, Handle filename, openMode mode, bool isAppend, bool isBinary)
+{
+    TempString cFileName(filename->Word()); // Get file name
+    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+    try {
+        if (mode == OPENREAD)
+        {
+            WinInStream *stream = new WinInStream();
+            stream->openEntry(taskData, cFileName, !isBinary);
+            return MakeVolatileWord(taskData, stream);
+        }
+        else
+        {
+            WinOutStream *stream = new WinOutStream();
+            stream->openEntry(taskData, cFileName, isAppend, !isBinary);
+            return MakeVolatileWord(taskData, stream);
+        }
+    }
+    catch (std::bad_alloc&) {
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
+    }
+}
 
 /* Read into an array. */
 // We can't combine readArray and readString because we mustn't compute the
@@ -505,8 +624,6 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
     // We should check for interrupts even if we're not going to block.
     processes->TestAnyEvents(taskData);
 
-    // First test to see if we have input available.
-    // These tests may result in a GC if another thread is running.
     // First test to see if we have input available.
     // These tests may result in a GC if another thread is running.
     strm->waitUntilAvailable(taskData);
@@ -567,19 +684,24 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
 
 static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
-    /* The isText argument is ignored in both Unix and Windows but
-    is provided for future use.  Windows remembers the mode used
-    when the file was opened to determine whether to translate
-    LF into CRLF. */
-    PolyWord base = DEREFWORDHANDLE(args)->Get(0);
-    POLYUNSIGNED    offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
-    size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+    // The isText argument is ignored in both Unix and Windows but
+    // is provided for future use.  Windows remembers the mode used
+    // when the file was opened to determine whether to translate
+    // LF into CRLF.
     WinStream *strm;
     // Legacy: We may have this during the bootstrap.
     if (stream->Word().IsTagged() && stream->Word().UnTagged() == 1)
         strm = standardOutput;
     else strm = *(WinStream**)(stream->WordP());
     if (strm == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+
+    // We should check for interrupts even if we're not going to block.
+    processes->TestAnyEvents(taskData);
+    strm->waitUntilOutputPossible(taskData);
+
+    PolyWord base = DEREFWORDHANDLE(args)->Get(0);
+    POLYUNSIGNED    offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+    size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     /* We don't actually handle cases of blocking on output. */
     byte *toWrite = base.AsObjPtr()->AsBytePtr();
     size_t haveWritten = strm->writeStream(taskData, toWrite + offset, length);
@@ -624,7 +746,7 @@ TryAgain:
         WinStream *strm = *(WinStream**)(strmVec->Get(i).AsObjPtr());
         if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
         int bits = get_C_int(taskData, bitVec->Get(i));
-        int res = strm->poll(bits);
+        int res = strm->poll(taskData, bits);
         if (res != 0)
             haveResult = true;
     }
@@ -1088,7 +1210,6 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
         // We should check for interrupts even if we're not going to block.
         processes->TestAnyEvents(taskData);
-        // This doesn't actually do anything in Windows.
         stream->waitUntilOutputPossible(taskData);
         return Make_fixed_precision(taskData, 0);
     }

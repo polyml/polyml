@@ -417,20 +417,21 @@ public:
         return POLL_BIT_IN | POLL_BIT_OUT | POLL_BIT_PRI;
     }
 
-    virtual int poll(int test);
+    virtual int poll(TaskData *taskData, int test);
 
 public:
     SOCKET socket;
 };
 
 // Poll without blocking.
-int WinSocket::poll(int bits)
+int WinSocket::poll(TaskData *taskData, int bits)
 {
     int result = 0;
     if (bits & POLL_BIT_PRI)
     {
         u_long atMark = 0;
-        ioctlsocket(socket, SIOCATMARK, &atMark);
+        if (ioctlsocket(socket, SIOCATMARK, &atMark) != 0)
+            raise_syscall(taskData, "ioctlsocket failed", GETERROR);
         if (atMark) { result |= POLL_BIT_PRI; }
     }
     if (bits & (POLL_BIT_IN | POLL_BIT_OUT))
@@ -440,7 +441,10 @@ int WinSocket::poll(int bits)
         FD_ZERO(&readFds); FD_ZERO(&writeFds);
         if (bits & POLL_BIT_IN) FD_SET(socket, &readFds);
         if (bits & POLL_BIT_OUT) FD_SET(socket, &writeFds);
-        if (select(FD_SETSIZE, &readFds, &writeFds, NULL, &poll) > 0)
+        int selRes = select(FD_SETSIZE, &readFds, &writeFds, NULL, &poll);
+        if (selRes < 0)
+            raise_syscall(taskData, "select failed", GETERROR);
+        else if (selRes > 0)
         {
             // N.B. select only tells us about out-of-band data if SO_OOBINLINE is FALSE. */
             if (FD_ISSET(socket, &readFds)) result |= POLL_BIT_IN;
