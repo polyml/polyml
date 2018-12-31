@@ -116,13 +116,13 @@ protected:
 };
 
 // Windows stream input using overlapped IO and the Windows calls.
-class WinInStream : public WinStream
+class WinInOutStream : public WinStream
 {
 public:
-    WinInStream();
-    ~WinInStream();
+    WinInOutStream();
+    ~WinInOutStream();
     virtual void closeEntry(TaskData *taskData);
-    virtual void openEntry(TaskData * taskData, TCHAR *name, bool text);
+    virtual void openForReading(TaskData * taskData, TCHAR *name, bool text);
     virtual size_t readStream(TaskData *taskData, byte *base, size_t length);
     virtual bool isAvailable(TaskData *taskData);
     virtual void waitUntilAvailable(TaskData *taskData);
@@ -130,10 +130,10 @@ public:
     virtual void setPos(TaskData *taskData, uint64_t pos);
     virtual uint64_t fileSize(TaskData *taskData);
 
-    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length) {
-        unimplemented(taskData);
-        return 0;
-    }
+    virtual void openForWriting(TaskData * taskData, TCHAR *name, bool isAppend, bool isText);
+    virtual bool canOutput(TaskData *taskData);
+    virtual void waitUntilOutputPossible(TaskData *taskData);
+    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length);
 
     virtual int fileKind() {
         return WinStream::fileTypeOfHandle(hStream);
@@ -141,7 +141,7 @@ public:
 
     virtual int pollTest() {
         // We can poll this to test for input.
-        return POLL_BIT_IN;
+        return isRead ? POLL_BIT_IN : POLL_BIT_OUT;
     }
 
     virtual int poll(TaskData *taskData, int test);
@@ -152,6 +152,7 @@ public:
 
 protected:
     void beginReading(TaskData *taskData);
+    void flushOut(TaskData *taskData);
     uint64_t getOverlappedPos() {
         return ((uint64_t)(overlap.OffsetHigh) << 32) + overlap.Offset;
     }
@@ -161,59 +162,11 @@ protected:
     }
 
 protected:
+    bool isRead;
     bool isText; // Remove CRs?
     byte *buffer;
     unsigned buffSize, currentInBuffer, currentPtr;
     bool endOfStream;
-    HANDLE hStream;
-    HANDLE hEvent;
-    OVERLAPPED overlap;
-    PLock lock;
-};
-
-// Output stream.  Probably merge with WinInStream.
-class WinOutStream : public WinStream
-{
-public:
-    WinOutStream();
-    ~WinOutStream();
-    virtual void closeEntry(TaskData *taskData);
-    virtual void openEntry(TaskData * taskData, TCHAR *name, bool isAppend, bool isText);
-    virtual bool canOutput(TaskData *taskData);
-    virtual void waitUntilOutputPossible(TaskData *taskData);
-    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length);
-
-    virtual size_t readStream(TaskData *taskData, byte *base, size_t length) {
-        unimplemented(taskData);
-        return 0;
-    }
-
-    virtual int fileKind() {
-        return WinStream::fileTypeOfHandle(hStream);
-    }
-
-    virtual int pollTest() {
-        // We can poll this to test for input.
-        return POLL_BIT_IN;
-    }
-
-    virtual int poll(TaskData *taskData, int test);
-
-    virtual HANDLE getHandle() {
-        return hEvent;
-    }
-
-protected:
-    uint64_t getOverlappedPos() {
-        return ((uint64_t)(overlap.OffsetHigh) << 32) + overlap.Offset;
-    }
-    void setOverlappedPos(uint64_t newPos) {
-        overlap.Offset = (DWORD)newPos;
-        overlap.OffsetHigh = (DWORD)(newPos >> 32);
-    }
-    bool isText; // Convert NL to CRNL?
-    byte *buffer;
-    unsigned buffSize, currentInBuffer;
     HANDLE hStream;
     HANDLE hEvent;
     OVERLAPPED overlap;

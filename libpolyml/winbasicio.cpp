@@ -266,7 +266,7 @@ void WinCopyInStream::waitUntilAvailable(TaskData *taskData)
     }
 }
 
-WinInStream::WinInStream()
+WinInOutStream::WinInOutStream()
 {
     hStream = hEvent = INVALID_HANDLE_VALUE;
     buffer = 0;
@@ -275,15 +275,17 @@ WinInStream::WinInStream()
     buffSize = 4096; // Seems like a good number
     ZeroMemory(&overlap, sizeof(overlap));
     isText = false;
+    isRead = true;
 }
 
-WinInStream::~WinInStream()
+WinInOutStream::~WinInOutStream()
 {
     free(buffer);
 }
 
-void WinInStream::openEntry(TaskData * taskData, TCHAR *name, bool isT)
+void WinInOutStream::openForReading(TaskData * taskData, TCHAR *name, bool isT)
 {
+    isRead = true;
     isText = isT;
     ASSERT(hStream == INVALID_HANDLE_VALUE); // We should never reuse an object.
     buffer = (byte*)malloc(buffSize);
@@ -301,7 +303,7 @@ void WinInStream::openEntry(TaskData * taskData, TCHAR *name, bool isT)
 }
 
 // Start reading.  This may complete immediately.
-void WinInStream::beginReading(TaskData *taskData)
+void WinInOutStream::beginReading(TaskData *taskData)
 {
     if (!ReadFile(hStream, buffer, buffSize, NULL, &overlap))
     {
@@ -317,19 +319,38 @@ void WinInStream::beginReading(TaskData *taskData)
     }
 }
 
-void WinInStream::closeEntry(TaskData *taskData)
+void WinInOutStream::closeEntry(TaskData *taskData)
 {
+    if (isRead)
+    {
+        if (WaitForSingleObject(hEvent, 0) == WAIT_TIMEOUT)
+            // Something is in progress.
+            CancelIoEx(hStream, &overlap);
+    }
+    else flushOut(taskData);
+
     PLocker locker(&lock);
-    if (WaitForSingleObject(hEvent, 0) == WAIT_TIMEOUT)
-        // Something is in progress.
-        CancelIoEx(hStream, &overlap);
-    CloseHandle(hStream);
+    if (!CloseHandle(hStream))
+        raise_syscall(taskData, "CloseHandle failed", GetLastError());
     hStream = INVALID_HANDLE_VALUE;
     CloseHandle(hEvent);
     hEvent = INVALID_HANDLE_VALUE;
 }
 
-size_t WinInStream::readStream(TaskData *taskData, byte *base, size_t length)
+// Make sure that everything has been written.
+void WinInOutStream::flushOut(TaskData *taskData)
+{
+    while (currentInBuffer != 0)
+    {
+        // If currentInBuffer is not zero we have an operation in progress.
+        waitUntilOutputPossible(taskData); // canOutput will test the result and may update currentInBuffer.
+        // We may not have written everything so check and repeat if necessary.
+        if (currentInBuffer != 0)
+            writeStream(taskData, NULL, 0);
+    }
+}
+
+size_t WinInOutStream::readStream(TaskData *taskData, byte *base, size_t length)
 {
     PLocker locker(&lock);
     if (endOfStream) return 0;
@@ -359,7 +380,7 @@ size_t WinInStream::readStream(TaskData *taskData, byte *base, size_t length)
 
 // This actually does most of the work.  In particular for text streams we may have a
 // block that consists only of CRs.
-bool WinInStream::isAvailable(TaskData *taskData)
+bool WinInOutStream::isAvailable(TaskData *taskData)
 {
     while (1)
     {
@@ -401,7 +422,7 @@ bool WinInStream::isAvailable(TaskData *taskData)
     }
 }
 
-void WinInStream::waitUntilAvailable(TaskData *taskData)
+void WinInOutStream::waitUntilAvailable(TaskData *taskData)
 {
     while (!isAvailable(taskData))
     {
@@ -410,44 +431,60 @@ void WinInStream::waitUntilAvailable(TaskData *taskData)
     }
 }
 
-int WinInStream::poll(TaskData *taskData, int test)
+int WinInOutStream::poll(TaskData *taskData, int test)
 {
     if (test & POLL_BIT_IN)
     {
         if (isAvailable(taskData))
             return POLL_BIT_IN;
     }
+    if (test & POLL_BIT_OUT)
+    {
+        if (canOutput(taskData))
+            return POLL_BIT_OUT;
+    }
+
     return 0;
 }
 
 // Random access functions
-uint64_t WinInStream::getPos(TaskData *taskData)
+uint64_t WinInOutStream::getPos(TaskData *taskData)
 {
     if (GetFileType(hStream) != FILE_TYPE_DISK)
         raise_syscall(taskData, "Stream is not a file", ERROR_SEEK_ON_DEVICE);
     PLocker locker(&lock);
-    return getOverlappedPos() - currentInBuffer + currentPtr;
+    if (isRead)
+        return getOverlappedPos() - currentInBuffer + currentPtr;
+    else return getOverlappedPos() + currentInBuffer;
 }
 
-void WinInStream::setPos(TaskData *taskData, uint64_t pos)
+void WinInOutStream::setPos(TaskData *taskData, uint64_t pos)
 {
     if (GetFileType(hStream) != FILE_TYPE_DISK)
         raise_syscall(taskData, "Stream is not a file", ERROR_SEEK_ON_DEVICE);
-    PLocker locker(&lock);
-    // Need to wait until any pending operation is complete.
-    while (WaitForSingleObject(hEvent, 0) == WAIT_TIMEOUT)
+    // Need to wait until any pending operation is complete.  If this is a write
+    // we need to flush anything before changing the position.
+    if (isRead)
     {
-        WaitHandle waiter(hEvent);
-        processes->ThreadPauseForIO(taskData, &waiter);
+        
+        while (WaitForSingleObject(hEvent, 0) == WAIT_TIMEOUT)
+        {
+            WaitHandle waiter(hEvent);
+            processes->ThreadPauseForIO(taskData, &waiter);
+        }
     }
+    else flushOut(taskData);
+
+    PLocker locker(&lock);
     setOverlappedPos(pos);
     // Discard any unread data and start reading at the new position.
     currentInBuffer = currentPtr = 0;
     endOfStream = false;
-    beginReading(taskData);
+    if (isRead)
+        beginReading(taskData);
 }
 
-uint64_t WinInStream::fileSize(TaskData *taskData)
+uint64_t WinInOutStream::fileSize(TaskData *taskData)
 {
     LARGE_INTEGER fileSize;
     if (!GetFileSizeEx(hStream, &fileSize))
@@ -455,24 +492,9 @@ uint64_t WinInStream::fileSize(TaskData *taskData)
     return fileSize.QuadPart;
 }
 
-WinOutStream::WinOutStream()
+void WinInOutStream::openForWriting(TaskData * taskData, TCHAR *name, bool isAppend, bool isT)
 {
-    hStream = hEvent = INVALID_HANDLE_VALUE;
-    buffer = 0;
-    currentInBuffer = 0;
-    //endOfStream = false;
-    buffSize = 4096; // Seems like a good number
-    ZeroMemory(&overlap, sizeof(overlap));
-    //isText = false;
-}
-
-WinOutStream::~WinOutStream()
-{
-    free(buffer);
-}
-
-void WinOutStream::openEntry(TaskData * taskData, TCHAR *name, bool isAppend, bool isT)
-{
+    isRead = false;
     isText = isT;
     ASSERT(hStream == INVALID_HANDLE_VALUE); // We should never reuse an object.
     buffer = (byte*)malloc(buffSize);
@@ -496,8 +518,11 @@ void WinOutStream::openEntry(TaskData * taskData, TCHAR *name, bool isAppend, bo
     }
 }
 
-bool WinOutStream::canOutput(TaskData *taskData)
+bool WinInOutStream::canOutput(TaskData *taskData)
 {
+    if (isRead)
+        unimplemented(taskData);
+
     PLocker locker(&lock);
     // If the buffer is empty we're fine.
     if (currentInBuffer == 0)
@@ -520,18 +545,11 @@ bool WinOutStream::canOutput(TaskData *taskData)
     return true;
 }
 
-int WinOutStream::poll(TaskData *taskData, int test)
+void WinInOutStream::waitUntilOutputPossible(TaskData *taskData)
 {
-    if (test & POLL_BIT_OUT)
-    {
-        if (canOutput(taskData))
-            return POLL_BIT_OUT;
-    }
-    return 0;
-}
+    if (isRead)
+        unimplemented(taskData);
 
-void WinOutStream::waitUntilOutputPossible(TaskData *taskData)
-{
     while (!canOutput(taskData))
     {
         WaitHandle waiter(hEvent);
@@ -540,8 +558,11 @@ void WinOutStream::waitUntilOutputPossible(TaskData *taskData)
 }
 
 // Write data.  N.B.  This is also used with zero data from closeEntry.
-size_t WinOutStream::writeStream(TaskData *taskData, byte *base, size_t length)
+size_t WinInOutStream::writeStream(TaskData *taskData, byte *base, size_t length)
 {
+    if (isRead)
+        unimplemented(taskData);
+
     PLocker locker(&lock);
     // Copy as much as we can into the buffer.
     size_t copied = 0;
@@ -568,42 +589,17 @@ size_t WinOutStream::writeStream(TaskData *taskData, byte *base, size_t length)
     return copied; // Return what we copied.
 }
 
-void WinOutStream::closeEntry(TaskData *taskData)
-{
-    while (currentInBuffer != 0)
-    {
-        // If currentInBuffer is not zero we have an operation in progress.
-        waitUntilOutputPossible(taskData); // canOutput will test the result and may update currentInBuffer.
-        // We may not have written everything so check and repeat if necessary.
-        if (currentInBuffer != 0)
-            writeStream(taskData, NULL, 0);
-    }
-
-    if (!CloseHandle(hStream))
-        raise_syscall(taskData, "CloseHandle failed", GetLastError());
-    hStream = INVALID_HANDLE_VALUE;
-    CloseHandle(hEvent);
-    hEvent = INVALID_HANDLE_VALUE;
-}
-
 /* Open a file in the required mode. */
 static Handle openWinFile(TaskData *taskData, Handle filename, openMode mode, bool isAppend, bool isBinary)
 {
     TempString cFileName(filename->Word()); // Get file name
     if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
     try {
+        WinInOutStream *stream = new WinInOutStream();
         if (mode == OPENREAD)
-        {
-            WinInStream *stream = new WinInStream();
-            stream->openEntry(taskData, cFileName, !isBinary);
-            return MakeVolatileWord(taskData, stream);
-        }
-        else
-        {
-            WinOutStream *stream = new WinOutStream();
-            stream->openEntry(taskData, cFileName, isAppend, !isBinary);
-            return MakeVolatileWord(taskData, stream);
-        }
+            stream->openForReading(taskData, cFileName, !isBinary);
+        else stream->openForWriting(taskData, cFileName, isAppend, !isBinary);
+        return MakeVolatileWord(taskData, stream);
     }
     catch (std::bad_alloc&) {
         raise_syscall(taskData, "Insufficient memory", NOMEMORY);
