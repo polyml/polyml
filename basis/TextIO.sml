@@ -377,9 +377,6 @@ structure TextIO :> TEXT_IO = struct
         and readVecNB l = SOME(readVec l)
         and block () = ()
         and canInput () = true
-        and getPos () = Position.fromInt(!posN)
-        and setPos n = posN := Position.toInt n
-        and endPos () = Position.fromInt stringLength
 
         val textPrimRd =
             TextPrimIO.RD {
@@ -392,10 +389,10 @@ structure TextIO :> TEXT_IO = struct
                 block = SOME block,
                 canInput = SOME canInput,
                 avail = avail,
-                getPos = SOME getPos,
-                setPos = SOME setPos,
-                endPos = SOME endPos,
-                verifyPos = SOME getPos,
+                getPos = NONE, (* Difficult because the position is abstract. *)
+                setPos = NONE,
+                endPos = NONE,
+                verifyPos = NONE,
                 close = close,
                 ioDesc = NONE
             }
