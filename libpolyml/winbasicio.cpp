@@ -716,8 +716,8 @@ TryAgain:
         WinStream *strm = *(WinStream**)(strmVec->Get(i).AsObjPtr());
         if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
         int bits = get_C_int(taskData, bitVec->Get(i));
-        int res = strm->poll(taskData, bits);
-        if (res != 0)
+        results[i] = strm->poll(taskData, bits);
+        if (results[i] != 0)
             haveResult = true;
     }
     if (haveResult == 0)
