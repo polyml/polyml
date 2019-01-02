@@ -1,7 +1,7 @@
 /*
     Title:      Poly/ML Console Window.
 
-    Copyright (c) 2000, 2015, 2018 David C. J. Matthews
+    Copyright (c) 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -22,23 +22,12 @@
 #define _WINGUICONSOLE_H
 
 #include <windows.h>
-
-extern bool useConsole;
+class WinStream;
 
 extern HWND hMainWindow; /* Handle to main window - NULL if none. */
-
-extern HINSTANCE hApplicationInstance; /* Application instance */
-
-/* DDE requests. */
-extern HCONV StartDDEConversation(TCHAR *serviceName, TCHAR *topicName);
-extern void CloseDDEConversation(HCONV hConv);
-extern LRESULT ExecuteDDE(char *command, HCONV hConv);
-
-extern void SetupDDEHandler(const TCHAR *lpszName);
-
-class WinStream;
-// The stream objects created by winguiconsole.
-// Standard streams. 
-extern WinStream *standardInput, *standardOutput, *standardError;
-
+// Create the console window and return the handle to stream used to
+// write to it.
+HANDLE createConsoleWindow(int nCmdShow);
+// Create a stream that can read from the console.
+extern WinStream *createConsoleStream();
 #endif

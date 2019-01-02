@@ -76,6 +76,7 @@
 #include "rts_module.h"
 #include "machine_dep.h"
 #include "rtsentry.h"
+#include "winstartup.h"
 
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
 

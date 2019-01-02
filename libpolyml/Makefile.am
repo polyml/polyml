@@ -54,7 +54,7 @@ endif
 endif
 
 if NATIVE_WINDOWS
-OSSOURCE = winbasicio.cpp winguiconsole.cpp windows_specific.cpp
+OSSOURCE = winstartup.cpp winbasicio.cpp winguiconsole.cpp windows_specific.cpp
 else
 OSSOURCE = basicio.cpp unix_specific.cpp
 endif
@@ -71,7 +71,7 @@ noinst_HEADERS = \
 	gc.h \
 	gctaskfarm.h \
 	globals.h \
-        heapsizing.h \
+    heapsizing.h \
 	int_opcodes.h \
 	io_internal.h \
 	locking.h \
@@ -108,6 +108,7 @@ noinst_HEADERS = \
 	timing.h \
 	version.h \
 	winguiconsole.h \
+    winstartup.h \
 	xcall_numbers.h \
 	xwindows.h
 

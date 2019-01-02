@@ -363,6 +363,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="windows_specific.cpp" />
+    <ClCompile Include="winstartup.cpp" />
     <ClCompile Include="x86_dep.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">true</ExcludedFromBuild>
@@ -421,6 +422,7 @@
     <ClInclude Include="sys.h" />
     <ClInclude Include="timing.h" />
     <ClInclude Include="version.h" />
+    <ClInclude Include="winstartup.h" />
     <ClInclude Include="xcall_numbers.h" />
     <ClInclude Include="xwindows.h" />
   </ItemGroup>

@@ -121,8 +121,8 @@
 #include "locking.h"
 #include "rtsentry.h"
 #include "timing.h"
+#include "winstartup.h"
 
-#include "winguiconsole.h"
 #define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
 #define STREAMCLOSED ERROR_INVALID_HANDLE
 #define FILEDOESNOTEXIST ERROR_FILE_NOT_FOUND
