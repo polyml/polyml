@@ -122,6 +122,7 @@
 #include "processes.h"
 #include "heapsizing.h"
 #include "rtsentry.h"
+#include "mpoly.h" // For polyStderr
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
@@ -572,23 +573,23 @@ time_t getBuildTime(void)
         char *endptr;
         long long epoch = StrToLL(source_date_epoch, &endptr, 10);
         if ((errno == ERANGE && (epoch == LLONG_MIN || epoch == LLONG_MAX)) || (errno != 0 && epoch == 0)) {
-            fprintf(stderr, "Environment variable $SOURCE_DATE_EPOCH: " XSTR(StrToLL) ": %s\n", strerror(errno));
+            fprintf(polyStderr, "Environment variable $SOURCE_DATE_EPOCH: " XSTR(StrToLL) ": %s\n", strerror(errno));
             goto err;
         }
         if (endptr == source_date_epoch) {
-            fprintf(stderr, "Environment variable $SOURCE_DATE_EPOCH: No digits were found: %s\n", endptr);
+            fprintf(polyStderr, "Environment variable $SOURCE_DATE_EPOCH: No digits were found: %s\n", endptr);
             goto err;
         }
         if (*endptr != '\0') {
-            fprintf(stderr, "Environment variable $SOURCE_DATE_EPOCH: Trailing garbage: %s\n", endptr);
+            fprintf(polyStderr, "Environment variable $SOURCE_DATE_EPOCH: Trailing garbage: %s\n", endptr);
             goto err;
         }
         if (epoch < (long long)std::numeric_limits<time_t>::min()) {
-            fprintf(stderr, "Environment variable $SOURCE_DATE_EPOCH: value must be greater than or equal to: %lld but was found to be: %lld\n", (long long)std::numeric_limits<time_t>::min(), epoch);
+            fprintf(polyStderr, "Environment variable $SOURCE_DATE_EPOCH: value must be greater than or equal to: %lld but was found to be: %lld\n", (long long)std::numeric_limits<time_t>::min(), epoch);
             goto err;
         }
         if (epoch > (long long)std::numeric_limits<time_t>::max()) {
-            fprintf(stderr, "Environment variable $SOURCE_DATE_EPOCH: value must be smaller than or equal to: %lld but was found to be: %lld\n", (long long)std::numeric_limits<time_t>::max(), epoch);
+            fprintf(polyStderr, "Environment variable $SOURCE_DATE_EPOCH: value must be smaller than or equal to: %lld but was found to be: %lld\n", (long long)std::numeric_limits<time_t>::max(), epoch);
             goto err;
         }
         return (time_t) epoch;

@@ -1,7 +1,7 @@
 /*
     Title:      Poly/ML Console Window.
 
-    Copyright (c) 2000, 2015, 2018 David C. J. Matthews
+    Copyright (c) 2000, 2015, 2018, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -101,7 +101,7 @@ static int  nNextPosn;      // Position to add input. (<= nBuffLen)
 static int  nAvailable;     // Position of "committed" input (<= nNextPosn)
 static int  nReadPosn;      // Position of last read (<= nAvailable)
 static PLock iOInterlock;
-HANDLE hInputEvent;  // Signalled when input is available.
+static HANDLE hInputEvent;  // Signalled when input is available.
 static HWND hDDEWindow;     // Window to handle DDE requests from ML thread.
 
 static LPTSTR*  lpArgs = 0; // Argument list.
@@ -113,12 +113,14 @@ static DWORD dwDDEInstance;
 static int nInitialShow; // Value of nCmdShow passed in.
 static bool isActive = false;
 
+static HANDLE hWriteToScreen = INVALID_HANDLE_VALUE;
+
 // useConsole is read in diagnostics to indicate whether to
 // put up a message box.
 bool useConsole = false;
 
-// The WinStream set by PolyWinMain.
-WinStream *stdInStream;
+// The streams set by PolyWinMain.  These are used by winbasicio.
+WinStream *standardInput, *standardOutput, *standardError;
 
 // Default DDE service name.
 #define POLYMLSERVICE   _T("PolyML")
@@ -645,7 +647,7 @@ static DWORD WINAPI InThrdProc(LPVOID lpParameter)
     {
         CHAR buff[4096];
         DWORD dwRead;
-        if (! ReadFile(hReadFromML, buff, sizeof(buff)-1, &dwRead, NULL))
+        if (!ReadFile(hReadFromML, buff, sizeof(buff) - 1, &dwRead, NULL))
             return 0;
         buff[dwRead] = 0;
         if (! isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
@@ -682,25 +684,10 @@ static BOOL WINAPI CtrlHandler(DWORD dwCtrlType)
     return FALSE;
 }
 
-// This is used if a standard input was provided.  Because
-// we don't know anything about that stream we have to interpose a
-// thread.  We record the type of the original standard input and
-// return that as the file kind if necessary.
-class WinStdInPipeStream : public WinCopyInStream
-{
-public:
-    WinStdInPipeStream(HANDLE hEvent, int kind) : WinCopyInStream(0, hEvent), originalKind(kind) {}
-    virtual int fileKind() {
-        return originalKind;
-    }
-protected:
-    int originalKind;
-};
-
 class WinGuiConsoleStream : public WinStream
 {
 public:
-    WinGuiConsoleStream() : WinStream(OPENREAD) {}
+    WinGuiConsoleStream()  {}
     virtual bool isAvailable(TaskData *taskData);
     virtual void waitUntilAvailable(TaskData *taskData);
 
@@ -766,6 +753,96 @@ void WinGuiConsoleStream::waitUntilAvailable(TaskData *taskData)
     }
 }
 
+// A wrapper for WinInOutStream for use with standard input that records the
+// original file type.
+class WinStdInPipeStream : public WinInOutStream
+{
+public:
+    WinStdInPipeStream(int kind) : fKind(kind) {}
+    virtual int fileKind() {
+        return fKind;
+    }
+protected:
+    int fKind;
+};
+
+// Thread to copy everything from the input to the output.
+class CopyThread {
+public:
+    CopyThread() :
+        hInput(INVALID_HANDLE_VALUE), hOutput(INVALID_HANDLE_VALUE) {}
+
+    bool RunCopy(HANDLE hIn, HANDLE hOut);
+private:
+    ~CopyThread();
+
+    void threadFunction(void);
+    HANDLE hInput, hOutput;
+    static DWORD WINAPI copyThread(LPVOID lpParameter);
+};
+
+CopyThread::~CopyThread()
+{
+    if (hOutput != INVALID_HANDLE_VALUE) CloseHandle(hOutput);
+    if (hInput != INVALID_HANDLE_VALUE) CloseHandle(hInput);
+}
+
+// Static thread function.  Deletes the CopyThread object when the copying is complete.
+// That closes the handles.
+DWORD WINAPI CopyThread::copyThread(LPVOID lpParameter)
+{
+    CopyThread *cp = (CopyThread *)lpParameter;
+    cp->threadFunction();
+    delete cp;
+    return 0;
+}
+
+void CopyThread::threadFunction()
+{
+    char buffer[4096];
+
+    while (true) {
+        DWORD dwRead;
+        if (!ReadFile(hInput, buffer, sizeof(buffer), &dwRead, NULL))
+            return;
+
+        if (dwRead == 0) // End-of-stream
+        {
+            DWORD dwErr = GetLastError();
+            // If we are reading from the (Windows) console and the user presses ctrl-C we
+            // may get a ERROR_OPERATION_ABORTED error.
+            if (dwErr == ERROR_OPERATION_ABORTED)
+            {
+                SetLastError(0); // Reset this.  We may have a normal EOF next.
+                continue;
+            }
+            // Normal exit.  Indicate EOF
+            return;
+        }
+
+        char *b = buffer;
+        do {
+            DWORD dwWritten;
+            if (!WriteFile(hOutput, b, dwRead, &dwWritten, NULL))
+                return;
+            b += dwWritten;
+            dwRead -= dwWritten;
+        } while (dwRead != 0);
+    }
+}
+
+// Set up the copying.  It closes the handles when it has finished.
+bool CopyThread::RunCopy(HANDLE hIn, HANDLE hOut)
+{
+    DWORD dwInId;
+    hInput = hIn;
+    hOutput = hOut;
+    HANDLE hInThread = CreateThread(NULL, 0, copyThread, this, 0, &dwInId);
+    if (hInThread == NULL) return false;
+    CloseHandle(hInThread);
+    return true;
+}
+
 // Main entry point.  Called from WinMain with a pointer to the ML code.
 int PolyWinMain(
   HINSTANCE hInstance,
@@ -775,12 +852,10 @@ int PolyWinMain(
   exportDescription *exports
 )
 {
-    HANDLE hWriteToScreen = INVALID_HANDLE_VALUE;
     DWORD dwInId, dwRes;
 
     SetErrorMode(0); // Force a proper error report
 
-    hInputEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     hApplicationInstance = hInstance;
 
     // If we already have standard input and standard output we
@@ -796,64 +871,54 @@ int PolyWinMain(
     // We also use this for input except if we've provided standard input but not standard ouput.
     useConsole = hStdOutHandle == INVALID_HANDLE_VALUE;
 
-    // Do we have stdin?  If we do we need to create a pipe to buffer
-    // the input.
+    // Do we have stdin?  If we do we need to create a pipe to buffer the input.
     if (hStdInHandle != INVALID_HANDLE_VALUE)
     {
         // We have to capture the original type here.  hStdInHandle itself will
         // be closed when we set the new stdin and hOldStdin could be closed by
         // the pipe input thread almost immediately if the input is a small file.
-        int originalKInd = WinStream::fileTypeOfHandle(hStdInHandle);
+        int originalKind = WinStream::fileTypeOfHandle(hStdInHandle);
 
-        HANDLE hOldStdin;
-        // We're using the stdin passed in by the caller.  This may well
-        // be a pipe and in order to get reasonable performance we need
-        // to interpose a thread.  This is the only way to be able to have
-        // something we can pass to MsgWaitForMultipleObjects, in this case
-        // hInputEvent, which will indicate the input is available.
-        // Duplicate the handle because we're going to close this.
-        if (! DuplicateHandle(GetCurrentProcess(), hStdInHandle,
-                              GetCurrentProcess(), &hOldStdin, 0, TRUE, // inheritable
-                              DUPLICATE_SAME_ACCESS ))
+        TCHAR pipeName[MAX_PATH];
+        newPipeName(pipeName);
+        HANDLE hOutputPipe =
+            CreateNamedPipe(pipeName, PIPE_ACCESS_OUTBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 4096, 4096, 0, NULL);
+        if (hOutputPipe == INVALID_HANDLE_VALUE)
             return 1;
 
-        HANDLE hNewStdin = CreateCopyPipe(hOldStdin, hInputEvent);
-        if (hNewStdin == NULL) return 1;
+        HANDLE hNewStdin =
+            CreateFile(pipeName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+        if (hNewStdin == INVALID_HANDLE_VALUE)
+            return 1;
+        // Copy everything from the original standard input to the pipe.
+        CopyThread *copyStdin = new CopyThread;
+        if (! copyStdin->RunCopy(hStdInHandle, hOutputPipe))
+            return 1;
 
         SetConsoleCtrlHandler(CtrlHandler, TRUE); // May fail if there's no console.
+        // Leave the original stdIn.
 
-        // Replace the current stdin with the output from the pipe.
-        fclose(stdin);
-        int newstdin = _open_osfhandle ((INT_PTR)hNewStdin, _O_RDONLY | _O_TEXT);
-        if (newstdin != 0) _dup2(newstdin, 0);
-        fdopen(0, "rt");
-
-        // Set this to a duplicate of the handle so it can be closed when we
-        // close the stream.
-        HANDLE hDup;
-        if (!DuplicateHandle(GetCurrentProcess(), hInputEvent, GetCurrentProcess(),
-            &hDup, 0, FALSE, DUPLICATE_SAME_ACCESS))
-            hDup = INVALID_HANDLE_VALUE;
-
-        stdInStream = new WinStdInPipeStream(hDup, originalKInd);
+        WinStdInPipeStream *stndIn = new WinStdInPipeStream(originalKind);
+        stndIn->openHandle(hNewStdin, OPENREAD, true);
+        standardInput = stndIn;
+        CloseHandle(hNewStdin); // Duplicated
     }
     else
     {
-        // No stdin.  Open it on NUL.  If we actually create our own console
-        // we won't actually use this and instead we'll read from the console.
-        // In that case we won't use stdin but something else might.
-        fclose(stdin);
-        int newstdin = open("NUL", _O_RDONLY);
-        _dup2(newstdin, 0);
-        // Open it for stdio as well.  Because the entries in the FILE table
-        // are opened in order we need to do this to ensure that stdout and
-        // stderr point to the correct entries.
-        _fdopen(0, "rt");
-        hStdInHandle =  (HANDLE)_get_osfhandle(newstdin);
-        SetStdHandle(STD_INPUT_HANDLE, hStdInHandle);
+        // There was no standard input.  If we didn't have standard output either and are using
+        // our GUI console use that for input.  Otherwise open a stream on "NUL"
         if (useConsole)
-            stdInStream = new WinGuiConsoleStream(); // Also use for input
-        else stdInStream = new WinStream(0); // We have standard ouput but not input
+            standardInput = new WinGuiConsoleStream(); // Also use for input
+        else
+        {
+            WinInOutStream *inStream = new WinInOutStream;
+            // We can't use openFile here because we don't have a taskData yet.
+            HANDLE hNewStdin =
+                CreateFile(_T("NUL"), GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+            inStream->openHandle(hNewStdin, OPENREAD, true);
+            standardInput = inStream;
+        }
     }
 
     // If we don't have a standard output we use our own console.
@@ -865,47 +930,49 @@ int PolyWinMain(
         nBuffLen = 80;
         pchInputBuffer = (char*)malloc(nBuffLen);
 
-        if (!CreatePipe(&hReadFromML, &hWriteToScreen, NULL, 0)) {
+        TCHAR pipeName[MAX_PATH];
+        newPipeName(pipeName);
+        hReadFromML =
+            CreateNamedPipe(pipeName, PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 4096, 4096, 0, NULL);
+        if (hReadFromML == INVALID_HANDLE_VALUE)
             return 1;
-        }
-        HANDLE hTemp;
-        // The pipe handles we have are not inheritable.  We have to
-        // make hWriteToScreen an inheritable handle so that
-        // processes we fork using "system" can write to the screen.
-        if (! DuplicateHandle(GetCurrentProcess(), hWriteToScreen,
-                             GetCurrentProcess(), &hTemp, 0, TRUE, // inheritable
-                             DUPLICATE_SAME_ACCESS )) {
+        // We want to be able to inherit this handle.
+        SECURITY_ATTRIBUTES secure;
+        secure.nLength = sizeof(SECURITY_ATTRIBUTES);
+        secure.lpSecurityDescriptor = NULL;
+        secure.bInheritHandle = TRUE;
+        hWriteToScreen =
+            CreateFile(pipeName, GENERIC_WRITE, 0, &secure, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL| FILE_FLAG_OVERLAPPED, NULL);
+        if (hWriteToScreen == INVALID_HANDLE_VALUE)
             return 1;
-        }
-        CloseHandle(hWriteToScreen);
-        hWriteToScreen = hTemp;
+        // hWriteToScreen is used as stdout .
+        // hReadFromML is what the screen thread reads from.
+        WinInOutStream *stdOut = new WinInOutStream;
+        // Safe since we duplicate the handle.
+        stdOut->openHandle(hWriteToScreen, OPENWRITE, true);
+        standardOutput = stdOut; // Pass to winbasicio
 
-        // Replace the standard Windows handles.
+        // Replace the standard Windows handles.  This may be used in OS.Process.system.
         SetStdHandle(STD_OUTPUT_HANDLE, hWriteToScreen);
-        // Close the stdio streams.  They may have been opened
-        // on dummy handles.
-        fclose(stdout);
-        // Set up the new handles.
-        int newstdout = _open_osfhandle ((INT_PTR)hWriteToScreen, _O_TEXT);
-        // We need this to be stream 1.  basicio.cpp uses this for TextIO.stdOut
-        if (newstdout != 1) _dup2(newstdout, 1);
         // A few RTS modules use stdio for output, primarily objsize and diagnostics.
-        // Previously this next line was sufficient to reopen stdout but that no longer
-        // works in VS 2015.  We have to use polyStdout now.
-        extern FILE *polyStdout;
-        polyStdout = _fdopen(1, "wt"); // == stdout
+        // Doing this causes the stdIn package to close hWriteToScreen during shut-down.
+        polyStdout = _fdopen(_open_osfhandle((INT_PTR)hWriteToScreen, _O_TEXT), "wt"); // == stdout
 
         if (hStdErrHandle == INVALID_HANDLE_VALUE)
         {
             // If we didn't have stderr write any stderr output to our console.
-            SetStdHandle(STD_ERROR_HANDLE, hWriteToScreen);
-            fclose(stderr);
-            _dup2(newstdout, 2); // Stderr
-            extern FILE *polyStderr;
-            polyStderr = _fdopen(2, "wt"); // == stderr
-            // Set stderr to unbuffered so that messages get written correctly.
-            // (stdout is explicitly flushed).
-            setvbuf(stderr, NULL, _IONBF, 0);
+            WinInOutStream *stdErr = new WinInOutStream;
+            stdErr->openHandle(hWriteToScreen, OPENWRITE, true);
+            standardError = stdErr;
+            HANDLE hStderr;
+            // We definitely need a duplicate for stdio since it closes each stream on exit
+            // We may also inherit it in OS.Process.system so make it inheritable.
+            if (! DuplicateHandle(GetCurrentProcess(), hWriteToScreen, GetCurrentProcess(), &hStderr, 0, TRUE, DUPLICATE_SAME_ACCESS))
+                return 1;
+            SetStdHandle(STD_ERROR_HANDLE, hStderr);
+            // Used in a few cases for diagnostics.
+            polyStderr = _fdopen(_open_osfhandle((INT_PTR)hStderr, _O_TEXT), "wt");
         }
 
         // Create a thread to manage the output from ML.
@@ -956,19 +1023,43 @@ int PolyWinMain(
         // actually using another window this will never get displayed.
         nInitialShow = nCmdShow;
     }
-    // We had a stdout but maybe not stderr.  We could choose to direct stderr output
-    // to the provided stdout but maybe that's not what the user wants.  Instead
-    // we open one on NUL.
-    else if (hStdErrHandle == INVALID_HANDLE_VALUE)
+    else
     {
-        fclose(stderr);
-        int newstderr = open("NUL", _O_WRONLY);
-        _dup2(newstderr, 2); // Stderr
-        _fdopen(2, "wt"); // == stderr
-        SetStdHandle(STD_ERROR_HANDLE, (HANDLE)_get_osfhandle(newstderr));
-        // Set stderr to unbuffered so that messages get written correctly.
-        // (stdout is explicitly flushed).
-        setvbuf(stderr, NULL, _IONBF, 0);
+        // Create a copy stream
+        TCHAR pipeName[MAX_PATH];
+        newPipeName(pipeName);
+        HANDLE hInputPipe =
+            CreateNamedPipe(pipeName, PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 4096, 4096, 0, NULL);
+        if (hInputPipe == INVALID_HANDLE_VALUE)
+            return 1;
+        HANDLE hNewStdout =
+            CreateFile(pipeName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+        if (hNewStdout == INVALID_HANDLE_VALUE)
+            return 1;
+        // Copy everything from the original standard input to the pipe.
+        CopyThread *copyStdout = new CopyThread;
+        if (!copyStdout->RunCopy(hInputPipe, hStdOutHandle))
+            return 1;
+        WinInOutStream *standOut = new WinInOutStream;
+        standOut->openHandle(hNewStdout, OPENWRITE, true);
+        standardOutput = standOut;
+        // Leave the existing stdout and use it for diagnostics if necessary.
+        polyStdout = stdout;
+        // We had a stdout but maybe not stderr.  We could choose to direct stderr output
+        // to the provided stdout but maybe that's not what the user wants.  Instead
+        // we open one on NUL.
+
+        if (hStdErrHandle == INVALID_HANDLE_VALUE)
+        {
+            polyStderr = fopen("NUL", "wt");
+            HANDLE hStdErr = (HANDLE)_get_osfhandle(fileno(polyStderr));
+            SetStdHandle(STD_ERROR_HANDLE, hStdErr);
+            // Also use this for ML writes to stdErr i.e. discard them.
+            WinInOutStream *stdErr = new WinInOutStream;
+            stdErr->openHandle(hStdErr, OPENWRITE, true);
+            standardError = stdErr;
+        }
     }
 
     // Set nArgs and lpArgs to the command line arguments.
@@ -1048,9 +1139,6 @@ int PolyWinMain(
         }
     }
 
-    // Closing this end of the pipe will cause the thread to go away.
-    if (hWriteToScreen != INVALID_HANDLE_VALUE) CloseHandle(hWriteToScreen);
-
     if (! GetExitCodeThread(hMainThread, &dwRes)) dwRes = 0;
 
     uninitDDEControl();
@@ -1124,116 +1212,3 @@ static void uninitDDEControl(void)
     // Unitialise DDE.
     DdeUninitialize(dwDDEInstance);
 }
-
-// We want copyThread to be static but also a friend of CopyPipe
-// GCC requires it to be declared static first otherwise it creates it
-// extern when it sees it as a friend then complains when it's static.
-static DWORD WINAPI copyThread(LPVOID lpParameter);
-
-class CopyPipe {
-public:
-    CopyPipe():
-      hOriginal(NULL), hOutput(NULL), hEvent(NULL) {}
-
-    HANDLE RunPipe(HANDLE hIn, HANDLE hEv);
-private:
-    ~CopyPipe();
-
-    void threadFunction(void);
-
-    HANDLE hOriginal;
-    HANDLE hOutput;
-    HANDLE hEvent;
-
-    friend DWORD WINAPI copyThread(LPVOID lpParameter);
-};
-
-CopyPipe::~CopyPipe()
-{
-    if (hOutput) CloseHandle(hOutput);
-    if (hOriginal) CloseHandle(hOriginal);
-    if (hEvent) CloseHandle(hEvent);
-}
-
-static DWORD WINAPI copyThread(LPVOID lpParameter)
-{
-    CopyPipe *cp = (CopyPipe *)lpParameter;
-    cp->threadFunction();
-    delete cp;
-    return 0;
-}
-
-// This thread is used when the caller has provided a standard input
-// stream and we're using that and not our console.  It copies the
-// standard input to a pipe and the ML code uses that as its input.
-// This way we can set hInputEvent whenever input is available.
-void CopyPipe::threadFunction()
-{
-    // Duplicate the event handle so that we can close it when we've finished
-    char buffer[4096];
-
-    while (true) {
-        DWORD dwRead;
-        if (! ReadFile(hOriginal, buffer, sizeof(buffer), &dwRead, NULL))
-        {
-            SetEvent(hEvent);
-            return;
-        }
-
-        if (dwRead == 0) // End-of-stream
-        {
-            // If we are reading from the (Windows) console and the user presses ctrl-C we
-            // may get a ERROR_OPERATION_ABORTED error.
-            if (GetLastError() == ERROR_OPERATION_ABORTED)
-            {
-                SetLastError(0); // Reset this.  We may have a normal EOF next.
-                continue;
-            }
-            // Normal exit.  Indicate EOF
-            SetEvent(hEvent);
-            return;
-        }
-
-        SetEvent(hEvent); // Signal input has arrived
-        char *b = buffer;
-        do {
-            DWORD dwWritten;
-            if (! WriteFile(hOutput, b, dwRead, &dwWritten, NULL))
-            {
-                SetEvent(hEvent);
-                return;
-            }
-            b += dwWritten;
-            dwRead -= dwWritten;
-        } while (dwRead != 0);
-    }
-}
-
-HANDLE CopyPipe::RunPipe(HANDLE hIn, HANDLE hEv)
-{
-    HANDLE hNewInput = NULL;
-    hOriginal = hIn;
-
-    if (!CreatePipe(&hNewInput, &hOutput, NULL, 0)) return NULL;
-
-    if (! DuplicateHandle(GetCurrentProcess(), hEv, GetCurrentProcess(),
-                    &hEvent, 0, FALSE, DUPLICATE_SAME_ACCESS))
-        return NULL;
-
-    DWORD dwInId;
-    HANDLE hInThread = CreateThread(NULL, 0, copyThread, this, 0, &dwInId);
-    if (hInThread == NULL) return NULL;
-    CloseHandle(hInThread);
-
-    return hNewInput;
-}
-
-// Create a pipe and a thread to read the input thread and signal the
-// event when input is available.  Returns a handle to a pipe that
-// supplies a copy of the original input.
-HANDLE CreateCopyPipe(HANDLE hInput, HANDLE hEvent)
-{
-    CopyPipe *cp = new CopyPipe();
-    return cp->RunPipe(hInput, hEvent);
-}
-

@@ -25,10 +25,6 @@
 
 extern bool useConsole;
 
-// Create a copying thread that can also signal an event.
-// This is used both in stdin and also in Windows.execute.
-extern HANDLE CreateCopyPipe(HANDLE hInput, HANDLE hEvent);
-
 extern HWND hMainWindow; /* Handle to main window - NULL if none. */
 
 extern HINSTANCE hApplicationInstance; /* Application instance */
@@ -38,12 +34,11 @@ extern HCONV StartDDEConversation(TCHAR *serviceName, TCHAR *topicName);
 extern void CloseDDEConversation(HCONV hConv);
 extern LRESULT ExecuteDDE(char *command, HCONV hConv);
 
-extern HANDLE hInputEvent; // Handle to console input event
-
 extern void SetupDDEHandler(const TCHAR *lpszName);
 
 class WinStream;
-// The stream object is created by the Console package.
-extern WinStream *stdInStream;
+// The stream objects created by winguiconsole.
+// Standard streams. 
+extern WinStream *standardInput, *standardOutput, *standardError;
 
 #endif

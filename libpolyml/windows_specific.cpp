@@ -1,7 +1,7 @@
 /*
     Title:      Operating Specific functions: Windows version.
 
-    Copyright (c) 2000, 2015, 2018 David C. J. Matthews
+    Copyright (c) 2000, 2015, 2018, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -93,26 +93,13 @@ typedef enum
     HE_PROCESS
 } HANDENTRYTYPE;
 
-/* Table of open handles.
-   This is modelled after the IO table in basicio.c and performs a
-   similar function.  Each resource has an entry in here and there
-   is a token which is an ML object.  The token is simply a word
-   containing the index in the table.  It is the token itself which
-   represents the entry within the ML world.  The token is checked
-   against the entry whenever it is used since it is possible for
-   the tokens to be persistent although the corresponding entry in
-   the table will not make sense in a subsequent session.  This table
-   also allows us to garbage-collect entries since if the token becomes
-   unreachable we know that there is no longer a reference to the
-   entry within ML.
-*/
 typedef struct {
-    HANDLE hProcess, hInput, hOutput, hEvent;
+    HANDLE hProcess, hInput, hOutput;
 } PROCESSDATA;
 
 static Handle execute(TaskData *taskData, Handle pname);
 static Handle simpleExecute(TaskData *taskData, Handle args);
-static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, BOOL fIsText);
+static Handle openProcessHandle(TaskData *taskData, Handle args, bool fIsRead, bool fIsText);
 static Handle openRegistryKey(TaskData *taskData, Handle args, HKEY hkParent);
 static Handle createRegistryKey(TaskData *taskData, Handle args, HKEY hkParent);
 static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkParent);
@@ -214,16 +201,16 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return execute(taskData, args);
 
     case 1001: /* Get input stream as text. */
-        return openProcessHandle(taskData, args, TRUE, TRUE);
+        return openProcessHandle(taskData, args, true, true);
 
     case 1002: /* Get output stream as text. */
-        return openProcessHandle(taskData, args, FALSE, TRUE);
+        return openProcessHandle(taskData, args, false, true);
 
     case 1003: /* Get input stream as binary. */
-        return openProcessHandle(taskData, args, TRUE, FALSE);
+        return openProcessHandle(taskData, args, true, false);
 
     case 1004: /* Get output stream as binary. */
-        return openProcessHandle(taskData, args, FALSE, FALSE);
+        return openProcessHandle(taskData, args, false, false);
 
     case 1005: /* Get result of process. */
         {
@@ -236,9 +223,6 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (hnd->hInput != INVALID_HANDLE_VALUE)
                 CloseHandle(hnd->hInput);
             hnd->hInput = INVALID_HANDLE_VALUE;
-            if (hnd->hEvent)
-                CloseHandle(hnd->hEvent);
-            hnd->hEvent = NULL;
             if (hnd->hOutput != INVALID_HANDLE_VALUE)
                 CloseHandle(hnd->hOutput);
             hnd->hOutput = INVALID_HANDLE_VALUE;
@@ -716,14 +700,7 @@ pipe to the child.  The end we pass to the child is "inheritable" (i.e. duplicat
 in the child as with Unix file descriptors) while the ends we keep in the parent
 are non-inheritable (i.e. not duplicated in the child). 
 DCJM: December 1999.
-This is now further complicated to improve the performance.  In Unix we can pass
-the file ID to "select" which will return immediately when input is available (we
-ignore blocking on output at the moment).  That allows the ML process to respond
-immediately.  There's no easy way to do that in Windows since the pipe handle is
-signalled whether there is input available or not.  One possibility would be to
-use overlapped IO but that requires using the ReadFile call directly and some
-contortions to create a pipe with overlapped IO.  The other, taken here, is to
-interpose a thread which can signal an event when input is available. 
+This now uses overlapped IO for the streams.
 */
 static Handle execute(TaskData *taskData, Handle args)
 {
@@ -732,8 +709,6 @@ static Handle execute(TaskData *taskData, Handle args)
            hReadFromParent = INVALID_HANDLE_VALUE,
            hWriteToParent = INVALID_HANDLE_VALUE,
            hReadFromChild = INVALID_HANDLE_VALUE;
-    HANDLE hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    HANDLE hTemp;
     STARTUPINFO startupInfo;
     PROCESS_INFORMATION processInfo;
     PROCESSDATA *pProcData = 0;
@@ -741,45 +716,44 @@ static Handle execute(TaskData *taskData, Handle args)
     LPTSTR commandName = Poly_string_to_T_alloc(args->WordP()->Get(0));
     LPTSTR arguments = Poly_string_to_T_alloc(args->WordP()->Get(1));
 
-    // Create pipes for connection. Setting the security argument to NULL creates
-    // the pipe handles as non-inheritable.  We have to make sure that the
-    // child process does not inherit handles for the parent end of the
-    // connection otherwise the pipe will remain open after the parent has
-    // closed its end, causing the child process to sit around even after
-    // the parent process has gone away.
-    if (!CreatePipe(&hReadFromParent, &hWriteToChild, NULL, 0)) {
-        lpszError = "Could not create pipe";
+    TCHAR toChildPipeName[MAX_PATH], fromChildPipeName[MAX_PATH];
+    newPipeName(toChildPipeName);
+    newPipeName(fromChildPipeName);
+    // Create the pipes as inheritable handles.  These will be passed to the child.
+    SECURITY_ATTRIBUTES secure;
+    secure.nLength = sizeof(SECURITY_ATTRIBUTES);
+    secure.lpSecurityDescriptor = NULL;
+    secure.bInheritHandle = TRUE;
+    hReadFromParent =
+        CreateNamedPipe(toChildPipeName, PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 4096, 4096, 0, &secure);
+    if (hReadFromParent == INVALID_HANDLE_VALUE)
+    {
+        lpszError = "CreateNamedPipe failed";
         goto error;
     }
-    if (!CreatePipe(&hReadFromChild, &hWriteToParent, NULL, 0)) {
-        lpszError = "Could not create pipe";
+    hWriteToChild =
+        CreateFile(toChildPipeName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+    if (hWriteToChild == INVALID_HANDLE_VALUE)
+    {
+        lpszError = "CreateFile failed";
         goto error;
     }
-    // Create the copying thread.
-    hTemp = CreateCopyPipe(hReadFromChild, hEvent);
-    if (hTemp == NULL) {
-        lpszError = "Could not create pipe";
+    hWriteToParent =
+        CreateNamedPipe(fromChildPipeName, PIPE_ACCESS_OUTBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 4096, 4096, 0, &secure);
+    if (hWriteToParent == INVALID_HANDLE_VALUE)
+    {
+        lpszError = "CreateNamedPipe failed";
         goto error;
     }
-    hReadFromChild = hTemp;
-    // Convert the handles we want to pass to the child into inheritable
-    // handles by duplicating and replacing them with the duplicates.
-    if (! DuplicateHandle(GetCurrentProcess(), hWriteToParent, GetCurrentProcess(),
-                          &hTemp, 0, TRUE, // inheritable
-                          DUPLICATE_SAME_ACCESS )) {
-        lpszError = "Could not create pipe";
+    hReadFromChild =
+        CreateFile(fromChildPipeName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+    if (hReadFromChild == INVALID_HANDLE_VALUE)
+    {
+        lpszError = "CreateFile failed";
         goto error;
     }
-    CloseHandle(hWriteToParent);
-    hWriteToParent = hTemp;
-    if (! DuplicateHandle(GetCurrentProcess(), hReadFromParent, GetCurrentProcess(),
-                          &hTemp, 0, TRUE, // inheritable
-                          DUPLICATE_SAME_ACCESS )) {
-        lpszError = "Could not create pipe";
-        goto error;
-    }
-    CloseHandle(hReadFromParent);
-    hReadFromParent = hTemp;
 
     // Create a STARTUPINFO structure in which to pass the pipes as stdin
     // and stdout to the new process.
@@ -802,14 +776,6 @@ static Handle execute(TaskData *taskData, Handle args)
         lpszError = "Could not create process";
         goto error;
     }
-
-    free(commandName);
-    free(arguments);
-    /* Close thread handle since we don't need it. */
-    CloseHandle(processInfo.hThread);
-    /* Close the sides of the pipes we don't use in the parent. */
-    CloseHandle(hReadFromParent);
-    CloseHandle(hWriteToParent);
     pProcData = (PROCESSDATA *)malloc(sizeof(PROCESSDATA));
     if (pProcData == 0)
     {
@@ -821,7 +787,15 @@ static Handle execute(TaskData *taskData, Handle args)
     pProcData->hProcess = processInfo.hProcess;
     pProcData->hInput = hReadFromChild;
     pProcData->hOutput = hWriteToChild;
-    pProcData->hEvent = hEvent;
+
+    // Everything has gone well - remove what we don't want
+    free(commandName);
+    free(arguments);
+    /* Close thread handle since we don't need it. */
+    CloseHandle(processInfo.hThread);
+    /* Close the sides of the pipes we don't use in the parent. */
+    CloseHandle(hReadFromParent);
+    CloseHandle(hWriteToParent);
 
     return(MakeVolatileWord(taskData, pProcData));
 
@@ -836,7 +810,6 @@ error:
         if (hReadFromParent != INVALID_HANDLE_VALUE) CloseHandle(hReadFromParent);
         if (hWriteToParent != INVALID_HANDLE_VALUE) CloseHandle(hWriteToParent);
         if (hReadFromChild != INVALID_HANDLE_VALUE) CloseHandle(hReadFromChild);
-        if (hEvent) CloseHandle(hEvent);
         raise_syscall(taskData, lpszError, err);
         return NULL; // Never reached.
     }
@@ -898,65 +871,38 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
     // We only use the process handle entry.
     pProcData->hInput = INVALID_HANDLE_VALUE;
     pProcData->hOutput = INVALID_HANDLE_VALUE;
-    pProcData->hEvent = NULL;
 
     return(MakeVolatileWord(taskData, pProcData));
 }
 
 /* Return a stream, either text or binary, connected to an open process. */
-static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, BOOL fIsText)
+static Handle openProcessHandle(TaskData *taskData, Handle args, bool fIsRead, bool fIsText)
 {
     PROCESSDATA *hnd = *(PROCESSDATA**)(args->WordP());
-    HANDLE hStream;
-    int mode = 0;
     if (hnd == 0)
         raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
 
-    if (fIsRead) hStream = hnd->hInput;
-    else hStream = hnd->hOutput;
-    /* I had previously assumed that it wasn't possible to get the
-       same stream twice.  The current basis library definition allows
-       it but warns it may produce unpredictable results.  For the moment
-       we don't allow it because we could get problems with closing
-       the same handle twice. */
-    if (hStream == INVALID_HANDLE_VALUE)
-        raise_syscall(taskData, "Stream is already open", 0);
+    // We allow multiple streams on the handles.  Since they are duplicated by openHandle that's safe.
+    // A consequence is that closing the stream does not close the pipe as far as the child is
+    // concerned.  That only happens when we close the final handle in reap.
+    try
+    {
+        WinInOutStream *stream = new WinInOutStream;
+        bool result;
+        if (fIsRead) result = stream->openHandle(hnd->hInput, OPENREAD, fIsText);
+        else result = stream->openHandle(hnd->hOutput, OPENWRITE, fIsText);
+        if (!result)
+        {
+            delete(stream);
+            raise_syscall(taskData, "openHandle failed", GetLastError());
+        }
 
-    if (fIsRead) mode = _O_RDONLY;
-    else mode = 0;
-    if (fIsText) mode |= _O_TEXT; else mode |= _O_BINARY;
-
-    int ioDesc = _open_osfhandle((intptr_t)hStream, mode);
-    if (ioDesc == -1)
-        raise_syscall(taskData, "_open_osfhandle failed", _doserrno);
-
-    WinStream *pStream;
-    try {
-        if (fIsRead)
-            pStream = new WinCopyInStream(ioDesc, hnd->hEvent);
-        else
-            pStream = new WinStream(ioDesc);
+        return MakeVolatileWord(taskData, stream);
     }
     catch (std::bad_alloc&)
     {
         raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
     }
-
-    Handle streamToken = MakeVolatileWord(taskData, pStream);
-
-    // The responsibility for closing the handle is passed to
-    // the stream package.
-    if (fIsRead)
-    {
-        hnd->hInput = INVALID_HANDLE_VALUE;
-        hnd->hEvent = NULL;
-    }
-    else
-    {
-        hnd->hOutput = INVALID_HANDLE_VALUE;
-    }
-
-    return streamToken;
 }
 
 // Open a registry key and make an entry in the table for it.

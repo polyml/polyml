@@ -50,10 +50,10 @@
 #include "version.h"
 #include "sys.h"
 #include "polystring.h"
-#include "processes.h" // For IO_SPACING
 #include "memmgr.h"
 #include "osmem.h"
 #include "rtsentry.h"
+#include "mpoly.h" // For polyStderr
 
 /*
 This file contains the code both to export the file and to import it
@@ -341,7 +341,7 @@ bool SpaceAlloc::AddToTable(void)
         MemSpace* space = gMem.NewPermanentSpace(base, used, isMutable ? MTF_WRITEABLE : 0, spaceIndex++);
         if (space == 0)
         {
-            fprintf(stderr, "Insufficient memory\n");
+            fprintf(polyStderr, "Insufficient memory\n");
             return false;
         }
     }
@@ -365,7 +365,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         base = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
         if (base == 0)
         {
-            fprintf(stderr, "Unable to allocate memory\n");
+            fprintf(polyStderr, "Unable to allocate memory\n");
             return 0;
         }
         currentSize = iSpace/sizeof(PolyWord);
@@ -473,7 +473,7 @@ bool PImport::GetValue(PolyWord *result)
     }
     else
     {
-        fprintf(stderr, "Unexpected character in stream");
+        fprintf(polyStderr, "Unexpected character in stream");
         return false;
     }
     return true;
@@ -509,7 +509,7 @@ bool PImport::DoImport()
     objMap = (PolyObject**)calloc(nObjects, sizeof(PolyObject*));
     if (objMap == 0)
     {
-        fprintf(stderr, "Unable to allocate memory\n");
+        fprintf(polyStderr, "Unable to allocate memory\n");
         return false;
     }
 
@@ -583,7 +583,7 @@ bool PImport::DoImport()
             break;
 
         default:
-            fprintf(stderr, "Invalid object type\n");
+            fprintf(polyStderr, "Invalid object type\n");
             return false;
         }
 
@@ -756,7 +756,7 @@ bool PImport::DoImport()
             }
 
         default:
-            fprintf(stderr, "Invalid object type\n");
+            fprintf(polyStderr, "Invalid object type\n");
             return false;
         }
     }
@@ -771,14 +771,14 @@ PolyObject *ImportPortable(const TCHAR *fileName)
     pImport.f = _wfopen(fileName, L"r");
     if (pImport.f == 0)
     {
-        fprintf(stderr, "Unable to open file: %S\n", fileName);
+        fprintf(polyStderr, "Unable to open file: %S\n", fileName);
         return 0;
     }
 #else
     pImport.f = fopen(fileName, "r");
     if (pImport.f == 0)
     {
-        fprintf(stderr, "Unable to open file: %s\n", fileName);
+        fprintf(polyStderr, "Unable to open file: %s\n", fileName);
         return 0;
     }
 #endif

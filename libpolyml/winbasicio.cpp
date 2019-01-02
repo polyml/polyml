@@ -1,7 +1,7 @@
 /*
     Title:      Basic IO for Windows.
 
-    Copyright (c) 2000, 2015-2018 David C. J. Matthews
+    Copyright (c) 2000, 2015-2019 David C. J. Matthews
 
     This was split from the common code for Unix and Windows.
 
@@ -146,8 +146,17 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg);
 }
 
-// Standard streams.
-static WinStream *standardInput, *standardOutput, *standardError;
+// References to the standard streams.  They are only needed if we are compiling
+// the basis library and make a second call to get the standard streams.
+static PolyObject *standardInputValue, *standardOutputValue, *standardErrorValue;
+
+// Creates a new unique pipename in the appropriate format.
+// Utility function provided for winguiconsole and windows_specific
+void newPipeName(TCHAR *pipeName)
+{
+    static LONG pipenum = 0;
+    wsprintf(pipeName, _T("\\\\.\\Pipe\\PolyPipe.%08x.%08x"), GetCurrentProcessId(), InterlockedIncrement(&pipenum));
+}
 
 int WinStream::fileTypeOfHandle(HANDLE hStream)
 {
@@ -161,46 +170,6 @@ int WinStream::fileTypeOfHandle(HANDLE hStream)
             return FILEKIND_UNKNOWN; // Error or unknown.
         else return FILEKIND_ERROR;
     }
-}
-
-void WinStream::openEntry(TaskData * taskData, TCHAR *name, openMode mode, bool isAppend, bool isBinary)
-{
-    int oMode = 0;
-    switch (mode)
-    {
-    case OPENREAD: oMode = O_RDONLY; break;
-    case OPENWRITE:
-        oMode = O_WRONLY | O_CREAT;
-        if (isAppend) oMode |= O_APPEND; else oMode |= O_TRUNC;
-        break;
-        // We don't open for read/write in Windows.
-    }
-    if (isBinary) oMode |= O_BINARY;
-
-    int stream = _topen(name, oMode);
-    if (stream < 0)
-        raise_syscall(taskData, "Cannot open", ERRORNUMBER);
-
-    ioDesc = stream;
-}
-
-void WinStream::closeEntry(TaskData *taskData)
-{
-    if (close(ioDesc) < 0)
-        raise_syscall(taskData, "Close failed", ERRORNUMBER);
-}
-
-int WinStream::fileKind()
-{
-    return fileTypeOfHandle((HANDLE)_get_osfhandle(ioDesc));
-}
-
-size_t WinStream::readStream(TaskData *taskData, byte *base, size_t length)
-{
-    ssize_t haveRead = read(ioDesc, base, (unsigned int)length);
-    if (haveRead < 0)
-        raise_syscall(taskData, "Error while reading", ERRORNUMBER);
-    return (size_t)haveRead;
 }
 
 void WinStream::waitUntilAvailable(TaskData *taskData)
@@ -228,44 +197,6 @@ void WinStream::unimplemented(TaskData *taskData)
     raise_syscall(taskData, "Position error", ERROR_NOT_SUPPORTED);
 }
 
-size_t WinStream::writeStream(TaskData *taskData, byte *base, size_t length)
-{
-    ssize_t haveWritten = write(ioDesc, base, (unsigned int)length);
-    if (haveWritten < 0) raise_syscall(taskData, "Error while writing", ERRORNUMBER);
-    return (size_t)haveWritten;
-}
-
-void WinCopyInStream::closeEntry(TaskData *taskData)
-{
-    WinStream::closeEntry(taskData);
-    CloseHandle(hInputAvailable);
-}
-
-bool WinCopyInStream::isAvailable(TaskData *taskData)
-{
-    HANDLE hFile = (HANDLE)_get_osfhandle(ioDesc);
-    DWORD dwAvail;
-    // hInputAvailable is set by the copy thread when it adds data.
-    // We may not have read everything yet.  Reset the event first and
-    // then set it if there is still data to read.  That way we avoid
-    // a race condition if the copy thread is just adding data.
-    ResetEvent(hInputAvailable);
-    if (PeekNamedPipe(hFile, NULL, 0, NULL, &dwAvail, NULL) && dwAvail == 0)
-        return false; // Succeeded and there really is nothing there.
-                      // Something there or an error including "pipe-closed".
-    SetEvent(hInputAvailable);
-    return true;
-}
-
-void WinCopyInStream::waitUntilAvailable(TaskData *taskData)
-{
-    while (!isAvailable(taskData))
-    {
-        WaitHandle waiter(hInputAvailable);
-        processes->ThreadPauseForIO(taskData, &waiter);
-    }
-}
-
 WinInOutStream::WinInOutStream()
 {
     hStream = hEvent = INVALID_HANDLE_VALUE;
@@ -283,9 +214,9 @@ WinInOutStream::~WinInOutStream()
     free(buffer);
 }
 
-void WinInOutStream::openForReading(TaskData * taskData, TCHAR *name, bool isT)
+void WinInOutStream::openFile(TaskData * taskData, TCHAR *name, openMode mode, bool isT)
 {
-    isRead = true;
+    isRead = mode == OPENREAD;
     isText = isT;
     ASSERT(hStream == INVALID_HANDLE_VALUE); // We should never reuse an object.
     buffer = (byte*)malloc(buffSize);
@@ -295,28 +226,87 @@ void WinInOutStream::openForReading(TaskData * taskData, TCHAR *name, bool isT)
     // that no operation is in progress.
     hEvent = CreateEvent(NULL, TRUE, TRUE, NULL);
     overlap.hEvent = hEvent;
-    hStream = CreateFile(name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+    switch (mode)
+    {
+    case OPENREAD:
+        hStream = CreateFile(name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+        break;
+    case OPENWRITE:
+        hStream = CreateFile(name, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_FLAG_OVERLAPPED, NULL);
+        break;
+    case OPENAPPEND:
+        hStream = CreateFile(name, GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_FLAG_OVERLAPPED, NULL);
+        break;
+    }
     if (hStream == INVALID_HANDLE_VALUE)
         raise_syscall(taskData, "CreateFile failed", GetLastError());
     // Start a read immediately so that there is something in the buffer.
-    beginReading(taskData);
+    switch (mode)
+    {
+    case OPENREAD:
+        if(!beginReading())
+            raise_syscall(taskData, "Read failure", GetLastError()); break;
+    case OPENWRITE: break;
+    case OPENAPPEND:
+    {
+        // We could use the special 0xfff... value in the overlapped structure for this
+        // but that would mess up getPos/endPos.
+        LARGE_INTEGER fileSize;
+        if (!GetFileSizeEx(hStream, &fileSize))
+            raise_syscall(taskData, "Stream is not a file", GetLastError());
+        setOverlappedPos(fileSize.QuadPart);
+    }
+    break;
+    }
+}
+
+// This is only used to set up standard output.
+// Now also used for Windows.execute.
+bool WinInOutStream::openHandle(HANDLE hndl, openMode mode, bool isT)
+{
+    // Need to check the handle.  It seems DuplicateHandle actually allows an invalid handle
+    if (hndl == INVALID_HANDLE_VALUE)
+    {
+        SetLastError(ERROR_INVALID_HANDLE);
+        return false;
+    }
+    isRead = mode == OPENREAD;
+    isText = isT;
+    ASSERT(hStream == INVALID_HANDLE_VALUE); // We should never reuse an object.
+    buffer = (byte*)malloc(buffSize);
+    if (buffer == 0)
+    {
+        SetLastError(NOMEMORY);
+        return false;
+    }
+    hEvent = CreateEvent(NULL, TRUE, TRUE, NULL);
+    overlap.hEvent = hEvent;
+    // Duplicate the handle so we can safely close it.
+    if (!DuplicateHandle(GetCurrentProcess(), hndl, GetCurrentProcess(), &hStream, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        return false;
+    if (isRead)
+        return beginReading();
+    return true;
 }
 
 // Start reading.  This may complete immediately.
-void WinInOutStream::beginReading(TaskData *taskData)
+bool WinInOutStream::beginReading()
 {
     if (!ReadFile(hStream, buffer, buffSize, NULL, &overlap))
     {
         switch (GetLastError())
         {
         case ERROR_HANDLE_EOF:
+            // We get ERROR_BROKEN_PIPE as EOF on a pipe.
+        case ERROR_BROKEN_PIPE:
             endOfStream = true;
         case ERROR_IO_PENDING:
-            return;
+            return true;
         default:
-            raise_syscall(taskData, "ReadFile failed", GetLastError());
+            return false;
         }
     }
+    return true;
 }
 
 void WinInOutStream::closeEntry(TaskData *taskData)
@@ -373,7 +363,8 @@ size_t WinInOutStream::readStream(TaskData *taskData, byte *base, size_t length)
     {
         // We need to start a new read
         currentInBuffer = currentPtr = 0;
-        beginReading(taskData);
+        if (!beginReading())
+            raise_syscall(taskData, "Read failure", GetLastError());
     }
     return copied;
 }
@@ -397,6 +388,7 @@ bool WinInOutStream::isAvailable(TaskData *taskData)
                 switch (err)
                 {
                 case ERROR_HANDLE_EOF:
+                case ERROR_BROKEN_PIPE:
                     // We've had EOF - That result is available
                     endOfStream = true;
                     return true;
@@ -418,7 +410,8 @@ bool WinInOutStream::isAvailable(TaskData *taskData)
                 return true;
         }
         // Try again.
-        beginReading(taskData); // And loop
+        if (!beginReading()) // And loop
+            raise_syscall(taskData, "Read failure", GetLastError());
     }
 }
 
@@ -480,8 +473,8 @@ void WinInOutStream::setPos(TaskData *taskData, uint64_t pos)
     // Discard any unread data and start reading at the new position.
     currentInBuffer = currentPtr = 0;
     endOfStream = false;
-    if (isRead)
-        beginReading(taskData);
+    if (isRead && !beginReading())
+        raise_syscall(taskData, "Read failure", GetLastError());
 }
 
 uint64_t WinInOutStream::fileSize(TaskData *taskData)
@@ -492,31 +485,6 @@ uint64_t WinInOutStream::fileSize(TaskData *taskData)
     return fileSize.QuadPart;
 }
 
-void WinInOutStream::openForWriting(TaskData * taskData, TCHAR *name, bool isAppend, bool isT)
-{
-    isRead = false;
-    isText = isT;
-    ASSERT(hStream == INVALID_HANDLE_VALUE); // We should never reuse an object.
-    buffer = (byte*)malloc(buffSize);
-    if (buffer == 0)
-        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-    // Create a manual reset event with state=signalled.  This means
-    // that no operation is in progress.
-    hEvent = CreateEvent(NULL, TRUE, TRUE, NULL);
-    overlap.hEvent = hEvent;
-    hStream = CreateFile(name, GENERIC_WRITE, FILE_SHARE_READ, NULL, isAppend ? OPEN_ALWAYS : CREATE_ALWAYS, FILE_FLAG_OVERLAPPED, NULL);
-    if (hStream == INVALID_HANDLE_VALUE)
-        raise_syscall(taskData, "CreateFile failed", GetLastError());
-    if (isAppend)
-    {
-        // We could use the special 0xfff... value in the overlapped structure for this
-        // but that would mess up getPos/endPos.
-        LARGE_INTEGER fileSize;
-        if (!GetFileSizeEx(hStream, &fileSize))
-            raise_syscall(taskData, "Stream is not a file", GetLastError());
-        setOverlappedPos(fileSize.QuadPart);
-    }
-}
 
 bool WinInOutStream::canOutput(TaskData *taskData)
 {
@@ -596,9 +564,7 @@ static Handle openWinFile(TaskData *taskData, Handle filename, openMode mode, bo
     if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
     try {
         WinInOutStream *stream = new WinInOutStream();
-        if (mode == OPENREAD)
-            stream->openForReading(taskData, cFileName, !isBinary);
-        else stream->openForWriting(taskData, cFileName, isAppend, !isBinary);
+        stream->openFile(taskData, cFileName, mode, !isBinary);
         return MakeVolatileWord(taskData, stream);
     }
     catch (std::bad_alloc&) {
@@ -685,10 +651,18 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     // when the file was opened to determine whether to translate
     // LF into CRLF.
     WinStream *strm;
-    // Legacy: We may have this during the bootstrap.
+    // Legacy: During the bootstrap we may have old-format file descriptors
+    // which were assumed to be persistent.
     if (stream->Word().IsTagged() && stream->Word().UnTagged() == 1)
-        strm = standardOutput;
-    else strm = *(WinStream**)(stream->WordP());
+    {
+        if (standardOutputValue == 0)
+        {
+            stream = MakeVolatileWord(taskData, standardOutput);
+            standardOutputValue = stream->WordP();
+        }
+        else stream = taskData->saveVec.push(standardOutputValue);
+    }
+    strm = *(WinStream**)(stream->WordP());
     if (strm == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
     // We should check for interrupts even if we're not going to block.
@@ -1071,12 +1045,30 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     switch (c)
     {
     case 0: // Return standard input. 
-            // N.B.  If these next functions are called again we will have multiple references.
-        return MakeVolatileWord(taskData, standardInput);
-    case 1: /* Return standard output */
-        return MakeVolatileWord(taskData, standardOutput);
-    case 2: /* Return standard error */
-        return MakeVolatileWord(taskData, standardError);
+        // This and the next two are normally only called once during start-up.
+        // The exception is when we build the basis library during bootstrap.
+        // We need to maintain the invariant that each WinStream object is referenced
+        // by precisely one volatile word in order to be able to delete it when we close it.
+    {
+        if (standardInputValue != 0) return taskData->saveVec.push(standardInputValue);
+        Handle stdStrm = MakeVolatileWord(taskData, standardInput);
+        standardInputValue = stdStrm->WordP();
+        return stdStrm;
+    }
+    case 1: // Return standard output
+    {
+        if (standardOutputValue != 0) return taskData->saveVec.push(standardOutputValue);
+        Handle stdStrm = MakeVolatileWord(taskData, standardOutput);
+        standardOutputValue = stdStrm->WordP();
+        return stdStrm;
+    }
+    case 2: // Return standard error
+    {
+        if (standardErrorValue != 0) return taskData->saveVec.push(standardErrorValue);
+        Handle stdStrm = MakeVolatileWord(taskData, standardError);
+        standardErrorValue = stdStrm->WordP();
+        return stdStrm;
+    }
     case 3: /* Open file for text input. */
         return openWinFile(taskData, args, OPENREAD, false, false);
     case 4: /* Open file for binary input. */
@@ -1097,15 +1089,20 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         if (strm->Word().IsTagged())
             return Make_fixed_precision(taskData, 0);
         WinStream *stream = *(WinStream **)(strm->WordP());
-        // Mustn't delete the standard streams.  At least during bootstrapping we can return
-        // multiple references to them.
-        if (stream != 0 && stream != standardInput &&
-            stream != standardOutput && stream != standardError)
+        // May already have been closed.
+        if (stream != 0)
         {
-            stream->closeEntry(taskData);
-            // TODO: If there was an error it could have raised an exception.
-            delete(stream);
-            *(WinStream **)(strm->WordP()) = 0;
+            try {
+                stream->closeEntry(taskData);
+                delete(stream);
+                *(WinStream **)(strm->WordP()) = 0;
+            }
+            catch (...) {
+                // If there was an error and we've raised an exception.
+                delete(stream);
+                *(WinStream **)(strm->WordP()) = 0;
+                throw;
+            }
         }
         return Make_fixed_precision(taskData, 0);
     }
@@ -1409,18 +1406,26 @@ struct _entrypts basicIOEPT[] =
     { NULL, NULL } // End of list.
 };
 
-class BasicIO : public RtsModule
+class WinBasicIO : public RtsModule
 {
 public:
     virtual void Start(void);
+    virtual void GarbageCollect(ScanAddress * /*process*/);
 };
 
 // Declare this.  It will be automatically added to the table.
-static BasicIO basicIOModule;
+static WinBasicIO basicIOModule;
 
-void BasicIO::Start(void)
+void WinBasicIO::Start(void)
 {
-    standardInput = stdInStream; // Created in Console
-    standardOutput = new WinStream(1);
-    standardError = new WinStream(2);
+}
+
+void WinBasicIO::GarbageCollect(ScanAddress *process)
+{
+    if (standardInputValue != 0)
+        process->ScanRuntimeAddress(&standardInputValue, ScanAddress::STRENGTH_STRONG);
+    if (standardOutputValue != 0)
+        process->ScanRuntimeAddress(&standardOutputValue, ScanAddress::STRENGTH_STRONG);
+    if (standardErrorValue != 0)
+        process->ScanRuntimeAddress(&standardErrorValue, ScanAddress::STRENGTH_STRONG);
 }

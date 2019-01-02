@@ -69,21 +69,19 @@ public:
     }
 };
 
-typedef enum { OPENREAD, OPENWRITE } openMode;
+typedef enum { OPENREAD, OPENWRITE, OPENAPPEND } openMode;
 
-// Normal Windows stream opened on an external file or device.
-// 
+// Abstract Windows stream
 class WinStream : public WinStreamBase
 {
 public:
-    WinStream() {}
-    WinStream(int i) : ioDesc(i) {}
-
-    virtual void openEntry(TaskData * taskData, TCHAR *name, openMode mode, bool isAppend, bool isBinary);
-    virtual void closeEntry(TaskData *taskData);
+    virtual void closeEntry(TaskData *taskData) = 0;
     virtual void waitUntilAvailable(TaskData *taskData);
     virtual void waitUntilOutputPossible(TaskData *taskData);
-    virtual size_t readStream(TaskData *taskData, byte *base, size_t length);
+    virtual size_t readStream(TaskData *taskData, byte *base, size_t length) {
+        unimplemented(taskData);
+        return 0;
+    }
     virtual uint64_t getPos(TaskData *taskData) {
         unimplemented(taskData);
         return 0;
@@ -95,8 +93,11 @@ public:
         unimplemented(taskData);
         return 0;
     }
-    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length);
-    virtual int fileKind();
+    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length) {
+        unimplemented(taskData);
+        return 0;
+    }
+    virtual int fileKind() = 0;
     static int fileTypeOfHandle(HANDLE hStream);
 
     // In general this class does not support polling.
@@ -112,7 +113,6 @@ public:
 
 protected:
     void unimplemented(TaskData *taskData);
-    int ioDesc;
 };
 
 // Windows stream input using overlapped IO and the Windows calls.
@@ -122,7 +122,7 @@ public:
     WinInOutStream();
     ~WinInOutStream();
     virtual void closeEntry(TaskData *taskData);
-    virtual void openForReading(TaskData * taskData, TCHAR *name, bool text);
+    virtual void openFile(TaskData * taskData, TCHAR *name, openMode mode, bool text);
     virtual size_t readStream(TaskData *taskData, byte *base, size_t length);
     virtual bool isAvailable(TaskData *taskData);
     virtual void waitUntilAvailable(TaskData *taskData);
@@ -130,10 +130,12 @@ public:
     virtual void setPos(TaskData *taskData, uint64_t pos);
     virtual uint64_t fileSize(TaskData *taskData);
 
-    virtual void openForWriting(TaskData * taskData, TCHAR *name, bool isAppend, bool isText);
     virtual bool canOutput(TaskData *taskData);
     virtual void waitUntilOutputPossible(TaskData *taskData);
     virtual size_t writeStream(TaskData *taskData, byte *base, size_t length);
+
+    // Open on a handle.  This returns an error result rather than raising an exception
+    virtual bool openHandle(HANDLE hndl, openMode mode, bool isText);
 
     virtual int fileKind() {
         return WinStream::fileTypeOfHandle(hStream);
@@ -151,7 +153,7 @@ public:
     }
 
 protected:
-    void beginReading(TaskData *taskData);
+    bool beginReading();
     void flushOut(TaskData *taskData);
     uint64_t getOverlappedPos() {
         return ((uint64_t)(overlap.OffsetHigh) << 32) + overlap.Offset;
@@ -173,28 +175,8 @@ protected:
     PLock lock;
 };
 
-// Stream opened on an internal pipe.  This is used for standard input
-// whether from the GUI console or the original standard input and also
-// for the output from a process created with Windows.execute.
-// An event handle is created and signalled whenever input is available.
-class WinCopyInStream : public WinStream
-{
-public:
-    WinCopyInStream(int i, HANDLE hEvent) : WinStream(i), hInputAvailable(hEvent) {}
-
-    virtual bool isAvailable(TaskData *taskData);
-    virtual void waitUntilAvailable(TaskData *taskData);
-    virtual void closeEntry(TaskData *taskData);
-
-    virtual int fileKind() {
-        return FILEKIND_PIPE;
-    }
-
-protected:
-    int ioDesc;
-    HANDLE hInputAvailable;
-};
-
+// Create a new pipe.
+extern void newPipeName(TCHAR *name);
 
 #else
 
