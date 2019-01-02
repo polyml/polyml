@@ -330,7 +330,6 @@ Processes::Processes(): singleThreaded(false),
     threadRequest(0), exitResult(0), exitRequest(false), sigTask(0)
 {
 #ifdef HAVE_WINDOWS_H
-    Waiter::hWakeupEvent = NULL;
     hStopEvent = NULL;
     profilingHd = NULL;
     lastCPUTime = 0;
@@ -885,10 +884,6 @@ void Processes::MakeRequest(TaskData *p, ThreadRequests request)
         // Set the value in the ML object as well so the ML code can see it
         p->threadObject->requestCopy = TAGGED(request);
     }
-#ifdef HAVE_WINDOWS_H
-    // Wake any threads waiting for IO
-    PulseEvent(Waiter::hWakeupEvent);
-#endif
 }
 
 void Processes::ThreadExit(TaskData *taskData)
@@ -1151,8 +1146,7 @@ void Processes::ThreadPauseForIO(TaskData *taskData, Waiter *pWait)
     TestAnyEvents(taskData); // Check if we've been interrupted.
 }
 
-// Default waiter: simply wait for the time.  In the case of Windows it
-// is also woken up if the event is signalled.  In Unix it may be woken
+// Default waiter: simply wait for the time.  In Unix it may be woken
 // up by a signal.
 void Waiter::Wait(unsigned maxMillisecs)
 {
@@ -1160,21 +1154,7 @@ void Waiter::Wait(unsigned maxMillisecs)
     // we set this to 10ms so that we're not waiting too long.
     if (maxMillisecs > 10) maxMillisecs = 10;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    /* We seem to need to reset the queue before calling
-       MsgWaitForMultipleObjects otherwise it frequently returns
-       immediately, often saying there is a message with a message ID
-       of 0x118 which doesn't correspond to any listed message.
-       While calling PeekMessage afterwards might be better this doesn't
-       seem to work properly.  We need to use MsgWaitForMultipleObjects
-       here so that we get a reasonable response with the Windows GUI. */
-    MSG msg;
-    // N.B.  It seems that calling PeekMessage may result in a callback
-    // to a window proc directly without a call to DispatchMessage.  That
-    // could result in a recursive call here if we have installed an ML
-    // window proc.
-    PeekMessage(&msg, 0, 0, 0, PM_NOREMOVE);
-    // Wait until we get input or we're woken up.
-    MsgWaitForMultipleObjects(1, &hWakeupEvent, FALSE, maxMillisecs, QS_ALLINPUT);
+    Sleep(maxMillisecs);
 #else
     // Unix
     fd_set read_fds, write_fds, except_fds;
@@ -1192,9 +1172,6 @@ static Waiter defWait;
 Waiter *Waiter::defaultWaiter = &defWait;
 
 #ifdef HAVE_WINDOWS_H
-// Windows and Cygwin
-HANDLE Waiter::hWakeupEvent; // Pulsed to wake up any threads waiting for IO.
-
 // Wait for the specified handle to be signalled.
 void WaitHandle::Wait(unsigned maxMillisecs)
 {
@@ -1203,11 +1180,12 @@ void WaitHandle::Wait(unsigned maxMillisecs)
 
     HANDLE hEvents[2];
     DWORD dwEvents = 0;
-    hEvents[dwEvents++] = Waiter::hWakeupEvent;
     if (m_Handle != NULL)
         hEvents[dwEvents++] = m_Handle;
     // Wait until we get input or we're woken up.
-    MsgWaitForMultipleObjects(dwEvents, hEvents, FALSE, maxMillisecs, QS_ALLINPUT);
+    if (m_Handle == NULL)
+        Sleep(maxMillisecs);
+    else WaitForSingleObject(m_Handle, maxMillisecs);
 }
 #endif
 
@@ -2045,11 +2023,6 @@ static void threaddata_destructor(void *p)
 
 void Processes::Init(void)
 {
-#ifdef HAVE_WINDOWS_H
-    // Create event to wake up from IO sleeping.
-    Waiter::hWakeupEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-#endif
-
 #ifdef HAVE_PTHREAD
     pthread_key_create(&tlsId, threaddata_destructor);
 #elif defined(HAVE_WINDOWS_H)
@@ -2086,15 +2059,6 @@ void Processes::StartProfilingTimer(void)
 
 void Processes::Stop(void)
 {     
-#ifdef HAVE_WINDOWS_H
-    if (Waiter::hWakeupEvent) SetEvent(Waiter::hWakeupEvent);
-#endif
-
-#ifdef HAVE_WINDOWS_H
-    if (Waiter::hWakeupEvent) CloseHandle(Waiter::hWakeupEvent);
-    Waiter::hWakeupEvent = NULL;
-#endif
-
 #ifdef HAVE_PTHREAD
     pthread_key_delete(tlsId);
 #elif defined(HAVE_WINDOWS_H)
