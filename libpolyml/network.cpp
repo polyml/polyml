@@ -149,6 +149,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hostName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(PolyObject *threadId, PolyWord arg);
 }
 
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
@@ -1701,6 +1702,46 @@ POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr)
     else return result->Word().AsUnsigned();
 }
 
+POLYUNSIGNED PolyNetworkCloseSocket(PolyObject *threadId, PolyWord strm)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+    Handle pushedStream = taskData->saveVec.push(strm);
+
+    try {
+        // This is defined to raise an exception if the socket has already been closed
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        WinSocket *winskt = *(WinSocket**)(pushedStream->WordP());
+        if (winskt != 0)
+        {
+            if (closesocket(winskt->getSocket()) != 0)
+                raise_syscall(taskData, "Error during close", GETERROR);
+        }
+        else raise_syscall(taskData, "Socket is closed", WSAEBADF);
+        *(WinSocket **)(pushedStream->WordP()) = 0; // Mark as closed
+#else
+        int descr = getStreamFileDescriptorWithoutCheck(pushedStream->Word());
+        if (descr >= 0)
+        {
+            if (close(descr) != 0)
+                raise_syscall(taskData, "Error during close", GETERROR);
+        }
+        else raise_syscall(taskData, "Socket is closed", EBADF);
+        *(int*)(pushedStream->WordP()) = 0; // Mark as closed
+#endif
+        result = Make_fixed_precision(taskData, 0);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 struct _entrypts networkingEPT[] =
 {
     { "PolyNetworkGeneral",                     (polyRTSFunction)&PolyNetworkGeneral},
@@ -1713,6 +1754,7 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkGetHostName",                 (polyRTSFunction)&PolyNetworkGetHostName},
     { "PolyNetworkGetHostByName",               (polyRTSFunction)&PolyNetworkGetHostByName},
     { "PolyNetworkGetHostByAddr",               (polyRTSFunction)&PolyNetworkGetHostByAddr},
+    { "PolyNetworkCloseSocket",                 (polyRTSFunction)&PolyNetworkCloseSocket },
 
     { NULL, NULL} // End of list.
 };
