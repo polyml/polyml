@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001, 2015
+    Copyright (c) 2001, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -1033,7 +1033,7 @@ struct
                     val driver = fromCstring(buff ++ Word.fromInt off0)
                     val device = fromCstring(buff ++ Word.fromInt off1)
                     val output = fromCstring(buff ++ Word.fromInt off2)
-                    val default = IntInf.andb(def, DN_DEFAULTPRN) <> 0
+                    val default = Word.andb(Word.fromInt def, Word.fromInt DN_DEFAULTPRN) <> 0w0
                 in
                     GlobalUnlock v;
                     SOME {driver=driver, device=device, output=output, default=default}

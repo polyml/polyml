@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001, 2015
+    Copyright (c) 2001, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -48,7 +48,7 @@ struct
             val WHITENESS                                    = W (0x00FF0062 (* dest = WHITE *))
 
             fun MAKEROP4{fore = (W fore): RasterOpCode, back = (W back): RasterOpCode} =
-                Y(IntInf.orb(fore, IntInf.andb(IntInf.<<(back, 0w8), 0xFF000000)))
+                Y(Word.toInt(Word.orb(Word.fromInt fore, Word.andb(Word.<<(Word.fromInt back, 0w8), 0wxFF000000))))
         end
 
 

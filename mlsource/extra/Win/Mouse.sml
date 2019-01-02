@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001, 2015
+    Copyright (c) 2001, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -39,9 +39,9 @@ struct
         val ReleaseCapture = winCall0 (user "ReleaseCapture") () (successState "ReleaseCapture")
         val SetDoubleClickTime =
             winCall1 (user "SetDoubleClickTime") (cUint) (successState "SetDoubleClickTime") o
-                Time.toMilliseconds
+                LargeInt.toInt o Time.toMilliseconds
         val GetDoubleClickTime =
-            Time.fromMilliseconds o winCall0 (user "GetDoubleClickTime") () cUint 
+            Time.fromMilliseconds o LargeInt.fromInt o winCall0 (user "GetDoubleClickTime") () cUint
         val SwapMouseButton = winCall1 (user "SwapMouseButton") (cBool) cBool
         val DragDetect = winCall2 (user "DragDetect") (cHWND, cPoint) cBool
     end

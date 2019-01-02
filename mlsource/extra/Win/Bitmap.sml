@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001-7, 2015
+    Copyright (c) 2001-7, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -344,7 +344,7 @@ struct
                         if clrUsed <> 0
                         then clrUsed
                         else if bitsPerPixel < 16
-                        then IntInf.<<(1, Word.fromInt bitsPerPixel)
+                        then Word.toInt(Word.<<(0w1, Word.fromInt bitsPerPixel))
                         else if compression = BI_BITFIELDS
                         then 3 (* These are DWORD colour masks not RGBQUADS. *)
                         else 0 (* No colour table. *)
@@ -378,7 +378,7 @@ struct
                     if clrUsed <> 0
                     then clrUsed
                     else if bitsPerPixel < 16
-                    then IntInf.<<(1, Word.fromInt bitsPerPixel)
+                    then Word.toInt(Word.<<(0w1, Word.fromInt bitsPerPixel))
                     else if compression = BI_BITFIELDS
                     then 3 (* These are DWORD colour masks not RGBQUADS. *)
                     else 0 (* No colour table. *)

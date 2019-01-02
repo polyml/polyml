@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001-7, 2015
+    Copyright (c) 2001-7, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -2504,7 +2504,7 @@ WM_DEVICECHANGE                 0x0219
     
     |   decompileMessage (0x0226, wp, _) = WM_MDITILE { tilingflag = fromCmdif(Word32.fromLargeWord wp)  } (* "0x0226" *)
     
-    |   decompileMessage (0x0227, wp, _) = WM_MDICASCADE { skipDisabled = IntInf.andb((SysWord.toInt wp), 2) <> 0 }
+    |   decompileMessage (0x0227, wp, _) = WM_MDICASCADE { skipDisabled = SysWord.andb(wp, 0w2) <> 0w0 }
  
     |   decompileMessage (0x0228, _, _) = WM_MDIICONARRANGE
     
@@ -2995,7 +2995,7 @@ WM_IME_KEYLAST                  0x010F
             (0x0111, makeLong(wId, notifyCode), fromHWND control, noFree)
 
     |   compileMessage (WM_SYSCOMMAND {commandvalue, sysBits, p={x,y}}) =
-            (0x0112, SysWord.fromInt(IntInf.orb(sysBits, fromSysCommand commandvalue)),
+            (0x0112, Word.toLargeWord(Word.orb(Word.fromInt sysBits, Word.fromInt(fromSysCommand commandvalue))),
              makeLong(x,y), noFree)
 
     |   compileMessage (WM_TIMER {timerid}) = (0x0113, SysWord.fromInt timerid, 0w0, noFree)
@@ -3372,7 +3372,7 @@ WM_IME_KEYUP                    0x0291
             let
                 val (msgId: int, wParam, lParam, freeMem) = compileMessage msg
                 val mem = Memory.malloc msgSize
-                val f = storeMsg(mem, (hwnd, msgId, wParam, lParam, Time.toMilliseconds time, pt))
+                val f = storeMsg(mem, (hwnd, msgId, wParam, lParam, Int.fromLarge(Time.toMilliseconds time), pt))
             in
                 setAddress(v, 0w0, mem);
                 fn () => (freeMem(); f(); Memory.free mem)
@@ -3388,7 +3388,7 @@ WM_IME_KEYUP                    0x0291
                 {
                     msg = msg,
                     hwnd = hWnd,
-                    time = Time.fromMilliseconds t,
+                    time = Time.fromMilliseconds(LargeInt.fromInt t),
                     pt = pt
                 }
             end
@@ -3715,7 +3715,7 @@ WM_IME_KEYUP                    0x0291
         (* TODO: This was originally implemented before we had threads.  The only reason
            for continuing with it is to allow the thread to be interrupted. *)
         local
-            val callWin = RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific
+            val callWin = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
         in
             fun pauseForMessage(hwnd: HWND, min, max): unit =
                 callWin(1101, (hwnd, min, max))
@@ -3809,7 +3809,7 @@ WM_IME_KEYUP                    0x0291
             end
         end
 
-        val GetMessageTime = Time.fromMilliseconds o 
+        val GetMessageTime = Time.fromMilliseconds o LargeInt.fromInt o
             winCall0 (user "GetMessageTime") () cLong
 
         datatype QueueStatus =
