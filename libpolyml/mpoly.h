@@ -51,6 +51,10 @@ extern time_t exportTimeStamp;
 extern int polymain(int argc, TCHAR **argv, exportDescription *exports);
 #endif
 
+#ifdef HAVE_STDIO_H
+#include <stdio.h>
+#endif
+
 // Outout streams.  These are the same as stdOut and stdErr in Unix but
 // may be redirected in Windows.
 extern FILE *polyStdout, *polyStderr;
