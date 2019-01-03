@@ -45,8 +45,10 @@ protected:
     // the address.
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
 
-    // As for ScanAddressAt except that the value is a pointer into a closure object.
-    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt);
+    // As for ScanAddressAt except that the value is a pointer to the first word in a closure object.
+    // In most cases we're just scanning the heap we don't need to do anything and we scan
+    // the code area separately.
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { return 0; }
 
 public:
     // The fundamental overridable for this class.  Takes the object address and returns

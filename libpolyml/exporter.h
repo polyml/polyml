@@ -100,6 +100,7 @@ public:
     ~CopyScan();
 protected:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
+    // Have to follow pointers from closures into code.
     virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt);
     POLYUNSIGNED ScanAddress(PolyObject **pt);
 

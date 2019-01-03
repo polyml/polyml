@@ -343,7 +343,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyCopyByteVecToCode(PolyObject * threadId, Pol
     return ((PolyWord)result).AsUnsigned();
 }
 
-// Copy the byte vector into 
+// Copy the byte vector into code space.
 POLYUNSIGNED PolyCopyByteVecToClosure(PolyObject *threadId, PolyWord byteVec, PolyWord closure)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);

@@ -1362,7 +1362,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         // the low order part of the object address.
         WinStream *stream = *(WinStream **)(strm->WordP());
         if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        return Make_fixed_precision(taskData, (POLYUNSIGNED)(stream) & 0xfffffff);
+        return Make_fixed_precision(taskData, (POLYUNSIGNED)((uintptr_t)(stream)) & 0xfffffff);
     }
 
     default:

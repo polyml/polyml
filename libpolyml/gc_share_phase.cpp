@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Data sharing phase
 
-    Copyright (c) 2012, 2017 David C. J. Matthews
+    Copyright (c) 2012, 2017, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -61,6 +61,14 @@
     be removed from the list.  We stop when it appears that we are
     not making progress and simply do a final bit-wise share of the
     remainder.
+
+    This now uses the forwarding pointer both to indicate that a cell
+    shares with another and also to link together cells that have yet
+    to be tested for sharing.  To detect the difference the bitmap is
+    used.  The initial scan to create the sharing chains sets the bit
+    for each visited cell so at the start of the sharing phase all
+    reachable cells will be marked.  We remove the mark if the cell
+    is to be removed.  This requires the bitmap to be locked.
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -95,13 +103,27 @@
 #include "gctaskfarm.h"
 #include "heapsizing.h"
 
-#ifndef POLYML32IN64
-
 #ifdef POLYML32IN64
 #define ENDOFLIST ((PolyObject*)globalHeapBase)
 #else
 #define ENDOFLIST 0
 #endif
+
+// Set the forwarding so that references to objToSet will be forwarded to
+// objToShare.  objToSet will be garbage.
+void shareWith(PolyObject *objToSet, PolyObject *objToShare)
+{
+    // We need to remove the bit from this so that we know it's not
+    // a share chain.
+    PolyWord *lengthWord = ((PolyWord*)objToSet) - 1;
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
+    ASSERT(space);
+    PLocker locker(&space->bitmapLock);
+    ASSERT(space->bitmap.TestBit(space->wordNo(lengthWord)));
+    space->bitmap.ClearBit(space->wordNo(lengthWord));
+    // Actually do the forwarding
+    objToSet->SetForwardingPtr(objToShare);
+}
 
 class ObjEntry
 {
@@ -120,6 +142,8 @@ public:
     SortVector(): totalCount(0), carryOver(0) {}
 
     void AddToVector(PolyObject *obj, POLYUNSIGNED length);
+
+    void Verify(void);
 
     void SortData(void);
     POLYUNSIGNED TotalCount() const { return totalCount; }
@@ -152,7 +176,7 @@ POLYUNSIGNED SortVector::Shared() const
 
 void SortVector::AddToVector(PolyObject *obj, POLYUNSIGNED length)
 {
-    obj->SetShareChain(baseObject.objList);
+    obj->SetForwardingPtr(baseObject.objList);
     baseObject.objList = obj;
     baseObject.objCount++;
     totalCount++;
@@ -170,6 +194,7 @@ class GetSharing: public RecursiveScanWithStack
 {
 public:
     GetSharing();
+    void Verify(void);
     void SortData(void);
     static void shareByteData(GCTaskId *, void *, void *);
     static void shareWordData(GCTaskId *, void *, void *);
@@ -205,26 +230,31 @@ GetSharing::GetSharing()
 
 bool GetSharing::TestForScan(PolyWord *pt)
 {
-    PolyWord p = *pt;
-    ASSERT(p.IsDataPtr());
-    PolyObject *obj = p.AsObjPtr();
+    PolyObject *obj;
 
-    while (obj->ContainsForwardingPtr())
+    // This may be a forwarding pointer left over from a minor GC that did
+    // not complete or it may be a sharing chain pointer that we've set up.
+    while (1)
     {
-        obj = obj->GetForwardingPtr();
-        *pt = obj;
+        PolyWord p = *pt;
+        ASSERT(p.IsDataPtr());
+        obj = p.AsObjPtr();
+        PolyWord *lengthWord = ((PolyWord*)obj) - 1;
+        LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
+        if (space == 0)
+            return false; // Ignore it if it points to a permanent area
+
+        if (space->bitmap.TestBit(space->wordNo(lengthWord)))
+            return false;
+
+        // Wasn't marked - must be a forwarding pointer.
+        if (obj->ContainsForwardingPtr())
+        {
+            obj = obj->GetForwardingPtr();
+            *pt = obj;
+        }
+        else break;
     }
-    ASSERT(obj == (*pt).AsObjPtr());
-    
-    PolyWord *lengthWord = ((PolyWord*)obj) - 1;
-
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
-
-    if (space == 0)
-        return false; // Ignore it if it points to a permanent area
-
-    if (space->bitmap.TestBit(space->wordNo(lengthWord)))
-        return false;
 
     ASSERT(obj->ContainsNormalLengthWord());
 
@@ -289,29 +319,29 @@ void SortVector::sortList(PolyObject *head, POLYUNSIGNED nItems, POLYUNSIGNED &s
     {
         size_t bytesToCompare = OBJ_OBJECT_LENGTH(lengthWord)*sizeof(PolyWord);
         PolyObject *median = head;
-        head = head->GetShareChain();
+        head = head->GetForwardingPtr();
         median->SetLengthWord(lengthWord);
         PolyObject *left = ENDOFLIST, *right = ENDOFLIST;
         POLYUNSIGNED leftCount = 0, rightCount = 0;
         while (head != ENDOFLIST)
         {
-            PolyObject *next = head->GetShareChain();
+            PolyObject *next = head->GetForwardingPtr();
             int res = memcmp(median, head, bytesToCompare);
             if (res == 0)
             {
                 // Equal - they can share
-                head->SetForwardingPtr(median);
+                shareWith(head, median);
                 shareCount++;
             }
             else if (res < 0)
             {
-                head->SetShareChain(left);
+                head->SetForwardingPtr(left);
                 left = head;
                 leftCount++;
             }
             else
             {
-                head->SetShareChain(right);
+                head->SetForwardingPtr(right);
                 right = head;
                 rightCount++;
             }
@@ -337,11 +367,11 @@ void SortVector::sortList(PolyObject *head, POLYUNSIGNED nItems, POLYUNSIGNED &s
         head->SetLengthWord(lengthWord);
     else if (nItems == 2)
     {
-        PolyObject *next = head->GetShareChain();
+        PolyObject *next = head->GetForwardingPtr();
         head->SetLengthWord(lengthWord);
         if (memcmp(head, next, OBJ_OBJECT_LENGTH(lengthWord)*sizeof(PolyWord)) == 0)
         {
-            next->SetForwardingPtr(head);
+            shareWith(next, head);
             shareCount++;
         }
         else next->SetLengthWord(lengthWord);
@@ -388,7 +418,7 @@ void SortVector::wordDataTask(GCTaskId*, void *a, void *)
 
     while (h != ENDOFLIST)
     {
-        PolyObject *next = h->GetShareChain();
+        PolyObject *next = h->GetForwardingPtr();
         bool deferred = false;
         for (POLYUNSIGNED i = 0; i < words; i++)
         {
@@ -396,24 +426,34 @@ void SortVector::wordDataTask(GCTaskId*, void *a, void *)
             if (w.IsDataPtr())
             {
                 PolyObject *p = w.AsObjPtr();
-                // Update the addresses of objects that have been merged
                 if (p->ContainsForwardingPtr())
                 {
-                    h->Set(i, p->GetForwardingPtr());
-                    s->carryOver++;
-                }
-                else if (p->ContainsShareChain())
-                {
-                    // If it is still to be shared leave it
-                    deferred = true;
-                    break;
+                    // Is this a real forwarding pointer i.e. something that has
+                    // been shared already or is it a sharing chain i.e. something
+                    // that has not yet been shared?
+                    PolyWord *lengthWord = ((PolyWord*)p) - 1;
+                    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
+                    ASSERT(space);
+                    PLocker locker(&space->bitmapLock);
+                    if (space->bitmap.TestBit(space->wordNo(lengthWord)))
+                    {
+                        // If it is still to be shared leave it
+                        deferred = true;
+                        break;
+                    }
+                    else
+                    {
+                        // Update the addresses of objects that have been merged
+                        h->Set(i, p->GetForwardingPtr());
+                        s->carryOver++;
+                    }
                 }
             }
         }
         if (deferred)
         {
             // We can't do it yet: add it back to the list
-            h->SetShareChain(s->baseObject.objList);
+            h->SetForwardingPtr(s->baseObject.objList);
             s->baseObject.objList = h;
             s->baseObject.objCount++;
         }
@@ -423,13 +463,46 @@ void SortVector::wordDataTask(GCTaskId*, void *a, void *)
             unsigned char hash = 0;
             for (POLYUNSIGNED i = 0; i < words*sizeof(PolyWord); i++)
                 hash += h->AsBytePtr()[i];
-            h->SetShareChain(s->processObjects[hash].objList);
+            h->SetForwardingPtr(s->processObjects[hash].objList);
             s->processObjects[hash].objList = h;
             s->processObjects[hash].objCount++;
         }
         h = next;
     }
     s->SortData();
+}
+
+void SortVector::Verify()
+{
+    for (unsigned j = 0; j < 256; j++)
+    {
+        ObjEntry *oentry = &processObjects[j];
+        PolyObject *head = oentry->objList;
+        while (head != ENDOFLIST)
+        {
+            ASSERT(head->ContainsForwardingPtr());
+            PolyWord *addrOflengthWord = ((PolyWord*)head) - 1;
+            LocalMemSpace *space = gMem.LocalSpaceForAddress(addrOflengthWord);
+            ASSERT(space->bitmap.TestBit(space->wordNo(addrOflengthWord)));
+            if ((lengthWord & _OBJ_BYTE_OBJ) == 0)
+            {
+                // It's word data.  Check each word is marked.
+                for (POLYUNSIGNED n = 0; n < lengthWord; n++)
+                {
+                    PolyWord w = head->Get(n);
+                    if (w.IsDataPtr())
+                    {
+                        PolyObject *o = w.AsObjPtr();
+                        PolyWord *addrOflengthWord = ((PolyWord*)o) - 1;
+                        LocalMemSpace *space = gMem.LocalSpaceForAddress(addrOflengthWord);
+                        ASSERT(space->bitmap.TestBit(space->wordNo(addrOflengthWord)));
+                    }
+                }
+            }
+
+            PolyObject *next = head->GetForwardingPtr();
+        }
+    }
 }
 
 // Sort the entries in the hash table.
@@ -451,11 +524,11 @@ void SortVector::SortData()
             {
                 // Two items - process now
                 PolyObject *obj1 = oentry->objList;
-                PolyObject *obj2 = obj1->GetShareChain();
+                PolyObject *obj2 = obj1->GetForwardingPtr();
                 obj1->SetLengthWord(lengthWord);
                 if (memcmp(obj1, obj2, OBJ_OBJECT_LENGTH(lengthWord)*sizeof(PolyWord)) == 0)
                 {
-                    obj2->SetForwardingPtr(obj1);
+                    shareWith(obj2, obj1);
                     oentry->shareCount++;
                 }
                 else obj2->SetLengthWord(lengthWord);
@@ -482,11 +555,11 @@ void SortVector::hashAndSortAllTask(GCTaskId*, void *a, void *b)
     POLYUNSIGNED bytes = OBJ_OBJECT_LENGTH(s->lengthWord)*sizeof(PolyWord);
     while (h != ENDOFLIST)
     {
-        PolyObject *next = h->GetShareChain();
+        PolyObject *next = h->GetForwardingPtr();
         unsigned char hash = 0;
         for (POLYUNSIGNED j = 0; j < bytes; j++)
             hash += h->AsBytePtr()[j];
-        h->SetShareChain(s->processObjects[hash].objList);
+        h->SetForwardingPtr(s->processObjects[hash].objList);
         s->processObjects[hash].objList = h;
         s->processObjects[hash].objCount++;
         h = next;
@@ -526,6 +599,17 @@ void GetSharing::shareRemainingWordData(GCTaskId *, void *a, void *)
         if (s->wordVectors[i].CurrentCount() != 0)
             gpTaskFarm->AddWorkOrRunNow(SortVector::hashAndSortAllTask, &(s->wordVectors[i]), 0);
     }
+}
+
+void GetSharing::Verify()
+{
+    // Check that every entry on the list has a bit set in the bitmap
+    // and that every address in every entry on the list also has a
+    // bit set and that nothing is a forwarding pointer.
+    for (unsigned i = 0; i < NUM_BYTE_VECTORS; i++)
+        byteVectors[i].Verify();
+    for (unsigned i = 0; i < NUM_WORD_VECTORS; i++)
+        wordVectors[i].Verify();
 }
 
 void GetSharing::SortData()
@@ -682,13 +766,10 @@ void GCSharingPhase(void)
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Table");
 
+    sharer.Verify();
+
     // Sort and merge the data.
     sharer.SortData();
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Sort");
 }
-#else
-void GCSharingPhase(void)
-{
-}
-#endif

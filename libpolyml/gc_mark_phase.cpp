@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Mark phase
 
-    Copyright (c) 2010-12, 2015-16 David C. J. Matthews
+    Copyright (c) 2010-12, 2015-16, 2019 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -97,6 +97,8 @@ public:
         { ScanAddressesInObject(base, base->LengthWord()); }
 
     virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code);
+    // ScanCodeAddressAt should never be called.
+    POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { ASSERT(0); return 0; }
 
     static void MarkPointersTask(GCTaskId *, void *arg1, void *arg2);
 
@@ -436,6 +438,9 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
         else if (OBJ_IS_CODE_OBJECT(lengthWord))
         {
+            // Legacy: The code-generator now uses PolyCopyByteVecToClosure to allocate mutable
+            // code cells in the code area.  Previously they were allocated in the heap and copied
+            // into the code area only when they were locked.
             // It's better to process the whole code object in one go.
             ScanAddress::ScanAddressesInObject(obj, lengthWord);
             length = 0; // Finished
@@ -620,6 +625,7 @@ public:
 
     // Have to define this.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { ASSERT(false); return 0; }
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { ASSERT(false); return 0; }
 
     bool ScanSpace(MarkableSpace *space);
 private:

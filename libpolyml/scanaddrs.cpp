@@ -1,7 +1,7 @@
 /*
     Title:      Address scanner
 
-    Copyright (c) 2006-8, 2012 David C.J. Matthews
+    Copyright (c) 2006-8, 2012, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -59,17 +59,6 @@ POLYUNSIGNED ScanAddress::ScanAddressAt(PolyWord *pt)
     }
     if (newVal != val) // Only update if we need to.
         *pt = newVal;
-    return 0;
-}
-
-// As with ScanAddressAt except we know that the address we're pointing to is code.
-POLYUNSIGNED ScanAddress::ScanCodeAddressAt(PolyObject **pt)
-{
-    PolyObject *oldAddr = *pt;
-    ASSERT(oldAddr->IsCodeObject());
-    PolyObject *newAddr = ScanObjectAddress(*pt);
-    if (newAddr != oldAddr)
-        *pt = newAddr;
     return 0;
 }
 

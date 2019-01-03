@@ -205,7 +205,7 @@ POLYUNSIGNED parseSize(const TCHAR *p, const TCHAR *arg)
         Usage("Value of %s option must not exceeed 4Gbytes\n", arg);
 #else
     // For completion only!
-    if (result > 8 * 1024 * 1024 * 1024 * 1024 * 1024)
+    if (result > (POLYUNSIGNED)8 * 1024 * 1024 * 1024 * 1024 * 1024)
         Usage("Value of %s option must not exceeed 8Ebytes\n", arg);
 #endif
     return result;

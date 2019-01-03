@@ -1,7 +1,7 @@
 /*
     Title:  savestate.cpp - Save and Load state
 
-    Copyright (c) 2007, 2015, 2017-18 David C.J. Matthews
+    Copyright (c) 2007, 2015, 2017-19 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -302,6 +302,7 @@ protected:
 
     friend class SaveRequest;
 };
+
 
 // Generate the address relative to the start of the segment.
 void SaveStateExport::setRelocationAddress(void *p, POLYUNSIGNED *reloc)

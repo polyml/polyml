@@ -58,8 +58,6 @@ class MTGCProcessUpdate: public ScanAddress
 {
 public:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
-    // Don't need to do anything for code.
-    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { return 0; }
     virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 

@@ -477,6 +477,8 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     return lengthWord;  // This new object needs to be scanned.
 }
 
+// The address of code in the code area.  We treat this as a normal heap cell.
+// We will probably need to copy this and to process addresses within it.
 POLYUNSIGNED CopyScan::ScanCodeAddressAt(PolyObject **pt)
 {
     POLYUNSIGNED lengthWord = ScanAddress(pt);

@@ -70,8 +70,6 @@ public:
 
     // Overrides for ScanAddress class
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
-    // We don't need to process code addresses.
-    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { return 0; }
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 private:
     PolyObject *FindNewAddress(PolyObject *obj, POLYUNSIGNED L, LocalMemSpace *srcSpace);
