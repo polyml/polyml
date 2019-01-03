@@ -19,28 +19,73 @@
    TextPrimIO and BinPrimIO readers and writers.  It is used both from the
    TextIO and BinIO structures and also from the Windows and Unix structures
    to wrap up pipes. *)
-structure LibraryIOSupport:
+structure LibraryIOSupport:>
 sig
-val wrapInFileDescr :
-    { fd : OS.IO.iodesc, name : string, initBlkMode : bool } -> TextPrimIO.reader
-val wrapOutFileDescr :
-    { fd : OS.IO.iodesc, name : string, appendMode : bool,
-      initBlkMode : bool, chunkSize : int } -> TextPrimIO.writer
-val wrapBinInFileDescr :
-    { fd : OS.IO.iodesc, name : string, initBlkMode : bool } -> BinPrimIO.reader
-val wrapBinOutFileDescr :
-    { fd : OS.IO.iodesc, name : string, appendMode : bool,
-      initBlkMode : bool, chunkSize : int } -> BinPrimIO.writer
 
-val readBinVector: OS.IO.iodesc * int -> Word8Vector.vector
-val readBinArray: OS.IO.iodesc * Word8ArraySlice.slice -> int
-val writeBinVec: OS.IO.iodesc * Word8VectorSlice.slice -> int
-val writeBinArray: OS.IO.iodesc * Word8ArraySlice.slice -> int
-val nonBlocking : ('a->'b) -> 'a ->'b option
-val protect: Thread.Mutex.mutex -> ('a -> 'b) -> 'a -> 'b
+    structure BinPrimIO: PRIM_IO
+        where type vector = Word8Vector.vector
+        where type elem = Word8.word
+        where type array = Word8Array.array
+        (* BinPrimIO.pos is defined to be Position.int.
+           Is it?  Can't find that in G&R 2004. *)
+        where type pos = Position.int
+        where type vector_slice = Word8VectorSlice.slice
+        where type array_slice = Word8ArraySlice.slice
+
+    and TextPrimIO:
+        sig
+            include PRIM_IO
+            where type vector = CharVector.vector
+            where type elem = Char.char
+            where type array = CharArray.array
+            (* TextPrimIO.pos is abstract.  In particular it could be a
+               problem in Windows with CRNL <-> NL conversion. *)
+            where type vector_slice = CharVectorSlice.slice
+            where type array_slice = CharArraySlice.slice
+        end
+
+    val wrapInFileDescr :
+        { fd : OS.IO.iodesc, name : string, initBlkMode : bool } -> TextPrimIO.reader
+    val wrapOutFileDescr :
+        { fd : OS.IO.iodesc, name : string, appendMode : bool,
+          initBlkMode : bool, chunkSize : int } -> TextPrimIO.writer
+    val wrapBinInFileDescr :
+        { fd : OS.IO.iodesc, name : string, initBlkMode : bool } -> BinPrimIO.reader
+    val wrapBinOutFileDescr :
+        { fd : OS.IO.iodesc, name : string, appendMode : bool,
+          initBlkMode : bool, chunkSize : int } -> BinPrimIO.writer
+
+    val readBinVector: OS.IO.iodesc * int -> Word8Vector.vector
+    val readBinArray: OS.IO.iodesc * Word8ArraySlice.slice -> int
+    val writeBinVec: OS.IO.iodesc * Word8VectorSlice.slice -> int
+    val writeBinArray: OS.IO.iodesc * Word8ArraySlice.slice -> int
+    val nonBlocking : ('a->'b) -> 'a ->'b option
+    val protect: Thread.Mutex.mutex -> ('a -> 'b) -> 'a -> 'b
 end
 =
 struct
+    structure BinPrimIO =
+        PrimIO (
+            structure Array : MONO_ARRAY = Word8Array
+            structure Vector : MONO_VECTOR = Word8Vector
+            structure VectorSlice = Word8VectorSlice
+            structure ArraySlice = Word8ArraySlice
+            val someElem : Vector.elem = 0wx00 (* Initialise to zero. *)
+            type pos = Position.int (* Position should always be LargeInt. *)
+            val compare = Position.compare
+        )
+
+    structure TextPrimIO =
+        PrimIO (
+            structure Array = CharArray
+            structure Vector = CharVector
+            structure ArraySlice = CharArraySlice
+            structure VectorSlice = CharVectorSlice
+            val someElem : Array.elem = #" " (* Initialise to spaces. *)
+            type pos = Position.int
+            val compare = Position.compare
+        );
+
     (* open IO *)
     type address = LibrarySupport.address
     type fileDescr = OS.IO.iodesc
@@ -93,7 +138,6 @@ struct
         and sys_can_input(strm: fileDescr): int = doIo(16, strm, 0)
         and sys_can_output(strm: fileDescr): int = doIo(28, strm, 0)
         and sys_avail(strm: fileDescr): int = doIo(17, strm, 0)
-        and sys_get_iodesc(strm: fileDescr): int = doIo(30, strm, 0)
     end
 
     local
@@ -224,12 +268,7 @@ struct
             else (NONE, NONE, SOME(nonBlocking readVector),
                     SOME(nonBlocking readArray))
 
-        (* Don't allow random access on stdIn.  The reason is that we
-           create stdIn when we compile TextIO yet this stream is persistent
-           (unlike every other stream). *)
-        val (getPos, setPos, endPos) =
-            if sys_get_iodesc fd <= 2 then (NONE, NONE, NONE)
-            else getRandAccessFns fd
+        val (getPos, setPos, endPos) = getRandAccessFns fd
 
         (* Unlike the other functions "avail" is a function returning
            an option, not an optional function. *)
@@ -298,11 +337,8 @@ struct
             else (NONE, NONE, SOME(nonBlocking writeVector),
                     SOME(nonBlocking writeArray))
 
-        (* Random access is provided if getPos works except that we
-           don't allow it for standard output and standard error at all. *)
-        val (getPos, setPos, endPos) =
-            if sys_get_iodesc fd <= 2 then (NONE, NONE, NONE)
-            else getRandAccessFns fd
+        (* Random access is provided if getPos works. *)
+        val (getPos, setPos, endPos) = getRandAccessFns fd
         (* If we have opened the stream for append we will always
            write to the end of the stream so setPos won't work. *)
         val setPos = if appendMode then NONE else setPos
@@ -423,3 +459,5 @@ struct
     val protect = ThreadLib.protect
 end;
 
+structure BinPrimIO = LibraryIOSupport.BinPrimIO
+and TextPrimIO = LibraryIOSupport.TextPrimIO;

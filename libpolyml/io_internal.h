@@ -1,7 +1,7 @@
 /*
     Title:      Data structures shared between basioio.c and network.c.
 
-    Copyright (c) 2000, 2016 David C. J. Matthews
+    Copyright (c) 2000, 2016, 2018 David C. J. Matthews
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
 
@@ -23,97 +23,169 @@
 #ifndef IO_INTERNAL_H
 #define IO_INTERNAL_H
 
+// Bits to define tests and results in poll.
+// These are the values passed to and from ML.
+#define POLL_BIT_IN     1
+#define POLL_BIT_OUT    2
+#define POLL_BIT_PRI    4
 
-#define IO_BIT_OPEN         1
-#define IO_BIT_READ         2
-#define IO_BIT_WRITE        4
-#define IO_BIT_DIR          8 /* Is it a directory entry? */
-#define IO_BIT_SOCKET       16 /* Is it a socket? */
+// Return values from fileKind
+#define FILEKIND_FILE   0
+#define FILEKIND_DIR    1
+#define FILEKIND_LINK   2
+#define FILEKIND_TTY    3
+#define FILEKIND_PIPE   4
+#define FILEKIND_SKT    5
+#define FILEKIND_DEV    6
+#define FILEKIND_UNKNOWN 7
+#define FILEKIND_ERROR  (-1)
+
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 
-#define IO_BIT_PIPE         128
-#define IO_BIT_DEV          256
-#define IO_BIT_GUI_CONSOLE  512
+#include <WinSock2.h>
+#include "locking.h" // For PLock
 
-#include <winsock2.h>
-
-#else
-
-typedef int SOCKET;
-//#include <dirent.h>
-
-#endif
-
-#ifdef HAVE_DIRENT_H
-# include <dirent.h>
-# define NAMLEN(dirent) strlen((dirent)->d_name)
-#else
-# define dirent direct
-# define NAMLEN(dirent) (dirent)->d_namlen
-# if HAVE_SYS_NDIR_H
-# include <sys/ndir.h>
-# endif
-# if HAVE_SYS_DIR_H
-# include <sys/dir.h>
-# endif
-# if HAVE_NDIR_H
-# include <ndir.h>
-# endif
-#endif
-
-
-typedef struct basic_io_struct
+// Unlike Unix where select and poll can be used on both sockets and other
+// streams, in Windows there is no single way of testing different sorts of
+// streams.
+class WinStreamBase
 {
-    PolyWord token; // Either a pointer or a tagged int for stdIn etc.
-    int ioBits; /* Flag bits */
-    union {
-        int ioDesc; /* File descriptor. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        struct {
-            HANDLE  hFind; /* FindFirstFile handle */
-            WIN32_FIND_DATA lastFind;
-            int fFindSucceeded;
-        } directory;
-        SOCKET sock;
+public:
+    virtual ~WinStreamBase() {} // Quieten some warnings
+    virtual int pollTest() { // Return the valid options for this descriptor
+        return 0;
+    }
+    virtual int poll(TaskData *taskData, int test) { // Return the values set
+        return 0;
+    }
+    // These are not currently used but could be used to poll
+    // multiple sockets or streams.
+    virtual SOCKET getSocket() {
+        return INVALID_SOCKET;
+    }
+    virtual HANDLE getHandle() {
+        return INVALID_HANDLE_VALUE;
+    }
+};
+
+typedef enum { OPENREAD, OPENWRITE, OPENAPPEND } openMode;
+
+// Abstract Windows stream
+class WinStream : public WinStreamBase
+{
+public:
+    virtual void closeEntry(TaskData *taskData) = 0;
+    virtual void waitUntilAvailable(TaskData *taskData);
+    virtual void waitUntilOutputPossible(TaskData *taskData);
+    virtual size_t readStream(TaskData *taskData, byte *base, size_t length) {
+        unimplemented(taskData);
+        return 0;
+    }
+    virtual uint64_t getPos(TaskData *taskData) {
+        unimplemented(taskData);
+        return 0;
+    }
+    virtual void setPos(TaskData *taskData, uint64_t pos) {
+        unimplemented(taskData);
+    }
+    virtual uint64_t fileSize(TaskData *taskData) {
+        unimplemented(taskData);
+        return 0;
+    }
+    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length) {
+        unimplemented(taskData);
+        return 0;
+    }
+    virtual int fileKind() = 0;
+    static int fileTypeOfHandle(HANDLE hStream);
+
+    // In general this class does not support polling.
+    // We return true for both of these so we will block.
+    virtual bool isAvailable(TaskData *taskData) {
+        return true; // No general way to test this
+    }
+
+    virtual bool canOutput(TaskData *taskData) {
+        // There doesn't seem to be a way to do this in Windows.
+        return true;
+    }
+
+protected:
+    void unimplemented(TaskData *taskData);
+};
+
+// Windows stream input using overlapped IO and the Windows calls.
+class WinInOutStream : public WinStream
+{
+public:
+    WinInOutStream();
+    ~WinInOutStream();
+    virtual void closeEntry(TaskData *taskData);
+    virtual void openFile(TaskData * taskData, TCHAR *name, openMode mode, bool text);
+    virtual size_t readStream(TaskData *taskData, byte *base, size_t length);
+    virtual bool isAvailable(TaskData *taskData);
+    virtual void waitUntilAvailable(TaskData *taskData);
+    virtual uint64_t getPos(TaskData *taskData);
+    virtual void setPos(TaskData *taskData, uint64_t pos);
+    virtual uint64_t fileSize(TaskData *taskData);
+
+    virtual bool canOutput(TaskData *taskData);
+    virtual void waitUntilOutputPossible(TaskData *taskData);
+    virtual size_t writeStream(TaskData *taskData, byte *base, size_t length);
+
+    // Open on a handle.  This returns an error result rather than raising an exception
+    virtual bool openHandle(HANDLE hndl, openMode mode, bool isText);
+
+    virtual int fileKind() {
+        return WinStream::fileTypeOfHandle(hStream);
+    }
+
+    virtual int pollTest() {
+        // We can poll this to test for input.
+        return isRead ? POLL_BIT_IN : POLL_BIT_OUT;
+    }
+
+    virtual int poll(TaskData *taskData, int test);
+
+    virtual HANDLE getHandle() {
+        return hEvent;
+    }
+
+protected:
+    bool beginReading();
+    void flushOut(TaskData *taskData);
+    uint64_t getOverlappedPos() {
+        return ((uint64_t)(overlap.OffsetHigh) << 32) + overlap.Offset;
+    }
+    void setOverlappedPos(uint64_t newPos) {
+        overlap.Offset = (DWORD)newPos;
+        overlap.OffsetHigh = (DWORD)(newPos >> 32);
+    }
+
+protected:
+    bool isRead;
+    bool isText; // Remove CRs?
+    byte *buffer;
+    unsigned buffSize, currentInBuffer, currentPtr;
+    bool endOfStream;
+    HANDLE hStream;
+    HANDLE hEvent;
+    OVERLAPPED overlap;
+    PLock lock;
+};
+
+// Create a new pipe.
+extern void newPipeName(TCHAR *name);
+
 #else
-#define sock ioDesc
-        DIR *ioDir; /* Directory entry. */
+
+extern Handle wrapFileDescriptor(TaskData *taskData, int fd);
+// Get a file descriptor and raise an exception if it is closed.
+extern int getStreamFileDescriptor(TaskData *taskData, PolyWord strm);
+extern int getStreamFileDescriptorWithoutCheck(PolyWord strm);
+
 #endif
-    } device;
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-    HANDLE hAvailable; // Used to signal available data
-#endif
-} IOSTRUCT, *PIOSTRUCT;
-
-class TaskData;
-
-#define isOpen(s)   ((s)->ioBits & IO_BIT_OPEN)
-#define isRead(s)   ((s)->ioBits & IO_BIT_READ)
-#define isWrite(s)  ((s)->ioBits & IO_BIT_WRITE)
-#define isDirectory(s)  ((s)->ioBits & IO_BIT_DIR)
-#define isSocket(s) ((s)->ioBits & IO_BIT_SOCKET)
-
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-// Needed because testing for available input is different depending on the device.
-// Console here means our Windows GUI.
-#define isPipe(s)       ((s)->ioBits & IO_BIT_PIPE)
-#define isDevice(s)     ((s)->ioBits & IO_BIT_DEV)
-#define isConsole(s)    ((s)->ioBits & IO_BIT_GUI_CONSOLE)
-#endif
-
-// Token representing a closed stream.
-#define ClosedToken TAGGED(-1)
-
-extern PIOSTRUCT get_stream(PolyWord token);
-
-extern Handle make_stream_entry(TaskData *mdTaskData);
-extern void free_stream_entry(POLYUNSIGNED stream_no);
-extern void close_stream(PIOSTRUCT str);
-
-extern PIOSTRUCT basic_io_vector;
-
-extern bool emfileFlag;
 
 // This is used in both basicio and unix-specific
 #if defined(HAVE_STRUCT_STAT_ST_ATIM)

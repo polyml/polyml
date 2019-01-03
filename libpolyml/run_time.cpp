@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2009, 2012, 2015-16
+    Further work copyright David C. J. Matthews 2009, 2012, 2015-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -378,6 +378,21 @@ Handle Make_sysword(TaskData *taskData, uintptr_t p)
     Handle result = alloc_and_save(taskData, sizeof(uintptr_t)/sizeof(PolyWord), F_BYTE_OBJ);
     *(uintptr_t*)(result->Word().AsCodePtr()) = p;
     return result;
+}
+
+// A volatile ref is used for data that is not valid in a different session.
+// When loaded from a saved state it is cleared to zero.
+Handle MakeVolatileWord(TaskData *taskData, void *p)
+{
+    Handle result = alloc_and_save(taskData,
+            WORDS(SIZEOF_VOIDP), F_BYTE_OBJ | F_WEAK_BIT | F_MUTABLE_BIT | F_NO_OVERWRITE);
+    *(void**)(result->Word().AsCodePtr()) = p;
+    return result;
+}
+
+Handle MakeVolatileWord(TaskData *taskData, uintptr_t p)
+{
+    return MakeVolatileWord(taskData, (void*)p);
 }
 
 // This is used to determine the endian-ness that Poly/ML is running under.

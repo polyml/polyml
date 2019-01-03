@@ -959,7 +959,8 @@ struct
                 val k = doIo(21, i, 0)
             in
                 (* Returns a negative number if the call fails,
-                   otherwise one of the above numbers. *)
+                   otherwise one of the above numbers.
+                   Returns 7 on unknown or something else. *)
                 if k < 0 orelse k > 6
                 then raise SysErr("Invalid result", NONE)
                 else k

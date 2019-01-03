@@ -721,10 +721,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 31: /* Get terminal name for file descriptor. */
         {
-            PIOSTRUCT str = get_stream(args->Word());
-            char *term;
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            term = ttyname(str->device.ioDesc);
+            char *term = ttyname(getStreamFileDescriptor(taskData, args->Word()));
             if (term == 0) raise_syscall(taskData, "ttyname failed", errno);
             return SAVE(C_string_to_Poly(taskData, term));
         }
@@ -732,8 +729,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 32: /* Test if file descriptor is a terminal.  Returns false if
             the stream is closed. */
         {
-            PIOSTRUCT str = get_stream(args->Word());
-            if (str != NULL && isatty(str->device.ioDesc))
+            int descr = getStreamFileDescriptorWithoutCheck(args->Word());
+            if (descr != -1 && isatty(descr))
                 return Make_fixed_precision(taskData, 1);
             else return Make_fixed_precision(taskData, 0);
         }
@@ -826,9 +823,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 57: /* Get information about an open file. */
         {
             struct stat buf;
-            PIOSTRUCT strm = get_stream(args->Word());
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (fstat(strm->device.ioDesc, &buf) < 0)
+            if (fstat(getStreamFileDescriptor(taskData, args->Word()), &buf) < 0)
                 raise_syscall(taskData, "fstat failed", errno);
             return getStatInfo(taskData, &buf);
         }
@@ -860,10 +855,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 60: /* Change access rights on open file. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             mode_t mode = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (fchmod(strm->device.ioDesc, mode) < 0)
+            if (fchmod(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), mode) < 0)
                 raise_syscall(taskData, "fchmod failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
@@ -883,11 +876,9 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 62: /* Change owner and group on open file. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             uid_t uid = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             gid_t gid = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (fchown(strm->device.ioDesc, uid, gid) < 0)
+            if (fchown(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), uid, gid) < 0)
                 raise_syscall(taskData, "fchown failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
@@ -940,10 +931,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 65: /* Truncate an open file. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int size = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (ftruncate(strm->device.ioDesc, size) < 0)
+            if (ftruncate(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), size) < 0)
                 raise_syscall(taskData, "ftruncate failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
@@ -969,11 +958,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             /* Look up the variable. May raise an exception. */
             int nvar = findPathVar(taskData, DEREFHANDLE(args)->Get(1));
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
-            int res;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             errno = 0; /* Unchanged if there is no limit. */
-            res = fpathconf(strm->device.ioDesc, nvar);
+            int res = fpathconf(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), nvar);
             if (res < 0 && errno != 0) raise_syscall(taskData, "fpathconf failed", errno);
             return Make_fixed_precision(taskData, res);
         }
@@ -1029,18 +1015,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 110: /* Create a pipe. */
         {
             int filedes[2];
-            Handle strRead = make_stream_entry(taskData);
-            Handle strWrite = make_stream_entry(taskData);
-            Handle result;
-            PIOSTRUCT instrm, outstrm;
             if (pipe(filedes) < 0) raise_syscall(taskData, "pipe failed", errno);
-            instrm = &basic_io_vector[STREAMID(strRead)];
-            outstrm = &basic_io_vector[STREAMID(strWrite)];
-            instrm->device.ioDesc = filedes[0];
-            instrm->ioBits = IO_BIT_OPEN | IO_BIT_READ;
-            outstrm->device.ioDesc = filedes[1];
-            outstrm->ioBits = IO_BIT_OPEN | IO_BIT_WRITE;
-            result = ALLOC(2);
+            Handle strRead = wrapFileDescriptor(taskData, filedes[0]);
+            Handle strWrite = wrapFileDescriptor(taskData, filedes[1]);
+            Handle result = ALLOC(2);
             DEREFHANDLE(result)->Set(0, strRead->Word());
             DEREFHANDLE(result)->Set(1, strWrite->Word());
             return result;
@@ -1048,118 +1026,72 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 111: /* Duplicate a file descriptor. */
         {
-            PIOSTRUCT str = get_stream(args->Word());
-            PIOSTRUCT newstr;
-            Handle strToken = make_stream_entry(taskData);
-            int fd;
-            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            fd = dup(str->device.ioDesc);
+            int srcFd = getStreamFileDescriptor(taskData, args->WordP());
+            int fd = dup(srcFd);
             if (fd < 0) raise_syscall(taskData, "dup failed", errno);
-            newstr = &basic_io_vector[STREAMID(strToken)];
-            newstr->device.ioDesc = fd;
-            /* I'm assuming that we're not going to put any other
-               status information in the bits. */
-            newstr->ioBits = str->ioBits;
-            return strToken;
+            return wrapFileDescriptor(taskData, fd);
         }
 
     case 112: /* Duplicate a file descriptor to a given entry. */
         {
-            PIOSTRUCT old = get_stream(DEREFHANDLE(args)->Get(0));
-            PIOSTRUCT newp = get_stream(DEREFHANDLE(args)->Get(1));
-            /* The "newp" entry must be an open entry in our io table.
-               It may, though, be an entry added through wordToFD
-               (basicio call 31) which may not refer to a valid
-               descriptor. */
-            if (old == NULL || newp == NULL)
-                raise_syscall(taskData, "Stream is closed", EBADF);
-            if (dup2(old->device.ioDesc, newp->device.ioDesc) < 0)
+            int oldFd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0));
+            int newFd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(1));
+            if (dup2(oldFd, newFd) < 0)
                 raise_syscall(taskData, "dup2 failed", errno);
-            newp->ioBits = old->ioBits;
             return Make_fixed_precision(taskData, 0);
         }
 
     case 113: /* Duplicate a file descriptor to an entry equal to or greater
              than the given value. */
         {
-            PIOSTRUCT old = get_stream(DEREFHANDLE(args)->Get(0));
-            PIOSTRUCT base = get_stream(DEREFHANDLE(args)->Get(1));
-            int newfd;
-            Handle strToken = make_stream_entry(taskData);
-            PIOSTRUCT newstr;
-            /* The "base" entry must be an open entry in our io table.
-               It may, though, be an entry added through wordToFD
-               (basicio call 31) which may not refer to a valid
-               descriptor. */
-            if (old == NULL || base == NULL)
-                raise_syscall(taskData, "Stream is closed", EBADF);
-            newfd = fcntl(old->device.ioDesc, F_DUPFD, base->device.ioDesc);
-            if (newfd < 0) raise_syscall(taskData, "dup2 failed", errno);
-            newstr = &basic_io_vector[STREAMID(strToken)];
-            newstr->device.ioDesc = newfd;
-            /* I'm assuming that we're not going to put any other
-               status information in the bits. */
-            newstr->ioBits = old->ioBits;
-            return strToken;
+            int oldFd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0));
+            int baseFd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(1));
+            int newFd = fcntl(oldFd, F_DUPFD, baseFd);
+            return wrapFileDescriptor(taskData, newFd);
         }
 
     case 114: /* Get the file descriptor flags. */
         {
-            PIOSTRUCT strm = get_stream(args->Word());
-            int res;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            res = fcntl(strm->device.ioDesc, F_GETFD);
+            int res = fcntl(getStreamFileDescriptor(taskData, args->Word()), F_GETFD);
             if (res < 0) raise_syscall(taskData, "fcntl failed", errno);
             return Make_fixed_precision(taskData, res);
         }
 
     case 115: /* Set the file descriptor flags. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int flags = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (fcntl(strm->device.ioDesc, F_SETFD, flags) < 0)
+            if (fcntl(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), F_SETFD, flags) < 0)
                 raise_syscall(taskData, "fcntl failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
 
     case 116: /* Get the file status and access flags. */
         {
-            PIOSTRUCT strm = get_stream(args->Word());
-            int res;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            res = fcntl(strm->device.ioDesc, F_GETFL);
+            int res = fcntl(getStreamFileDescriptor(taskData, args->Word()), F_GETFL);
             if (res < 0) raise_syscall(taskData, "fcntl failed", errno);
             return Make_fixed_precision(taskData, res);
         }
 
     case 117: /* Set the file status and access flags. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int flags = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (fcntl(strm->device.ioDesc, F_SETFL, flags) < 0)
+            if (fcntl(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), F_SETFL, flags) < 0)
                 raise_syscall(taskData, "fcntl failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
 
     case 118: /* Seek to a position on the stream. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             long position = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             int whence = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
-            long newpos;
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            newpos = lseek(strm->device.ioDesc, position, whence);
+            long newpos = lseek(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), position, whence);
             if (newpos < 0) raise_syscall(taskData, "lseek failed", errno);
             return Make_arbitrary_precision(taskData, (POLYSIGNED)newpos); // Position.int
         }
 
     case 119: /* Synchronise file contents. */
         {
-            PIOSTRUCT strm = get_stream(args->Word());
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (fsync(strm->device.ioDesc) < 0) raise_syscall(taskData, "fsync failed", errno);
+            if (fsync(getStreamFileDescriptor(taskData, args->Word())) < 0) raise_syscall(taskData, "fsync failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
 
@@ -1183,10 +1115,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 152: /* Send a break. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int duration = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (tcsendbreak(strm->device.ioDesc, duration) < 0)
+            if (tcsendbreak(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), duration) < 0)
                 raise_syscall(taskData, "tcsendbreak failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
@@ -1196,10 +1126,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             /* TODO: This will block the process.  It really needs to
                check whether the stream has drained and run another
                process until it has. */
-            PIOSTRUCT strm = get_stream(args->Word());
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #ifdef HAVE_TCDRAIN
-            if (tcdrain(strm->device.ioDesc) < 0)
+            if (tcdrain(getStreamFileDescriptor(taskData, args->Word())) < 0)
                 raise_syscall(taskData, "tcdrain failed", errno);
 #else
             raise_syscall(taskData, "tcdrain is not implemented", 0);
@@ -1209,39 +1137,31 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     
     case 154: /* Flush terminal stream. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int qs = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (tcflush(strm->device.ioDesc, qs) < 0)
+            if (tcflush(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), qs) < 0)
                 raise_syscall(taskData, "tcflush failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
     
     case 155: /* Flow control. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int action = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (tcflow(strm->device.ioDesc, action) < 0)
+            if (tcflow(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), action) < 0)
                 raise_syscall(taskData, "tcflow failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
     
     case 156: /* Get process group. */
         {
-            PIOSTRUCT strm = get_stream(args->Word());
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            pid_t pid = tcgetpgrp(strm->device.ioDesc);
+            pid_t pid = tcgetpgrp(getStreamFileDescriptor(taskData, args->Word()));
             if (pid < 0) raise_syscall(taskData, "tcgetpgrp failed", errno);
             return Make_fixed_precision(taskData, pid);
         }
     
     case 157: /* Set process group. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             pid_t pid = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (tcsetpgrp(strm->device.ioDesc, pid) < 0)
+            if (tcsetpgrp(getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0)), pid) < 0)
                 raise_syscall(taskData, "tcsetpgrp failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
@@ -1462,13 +1382,12 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf)
 
 static Handle getTTYattrs(TaskData *taskData, Handle args)
 {
-    PIOSTRUCT strm = get_stream(args->Word());
+    int fd = getStreamFileDescriptor(taskData, args->Word());
     struct termios tios;
     speed_t ispeed, ospeed;
     Handle ifHandle, ofHandle, cfHandle, lfHandle, ccHandle;
     Handle isHandle, osHandle, result;
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-    if (tcgetattr(strm->device.ioDesc, &tios) < 0)
+    if (tcgetattr(fd, &tios) < 0)
         raise_syscall(taskData, "tcgetattr failed", errno);
     /* Extract the speed entries. */
     ospeed = cfgetospeed(&tios);
@@ -1502,11 +1421,10 @@ static Handle getTTYattrs(TaskData *taskData, Handle args)
 /* Assemble the tios structure from the arguments and set the TTY attributes. */
 static Handle setTTYattrs(TaskData *taskData, Handle args)
 {
-    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+    int fd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0));
     int actions = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
     struct termios tios;
     speed_t ispeed, ospeed;
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
     /* Make sure anything unset is zero.  It might be better to call
        tcgetattr instead. */
     memset(&tios, 0, sizeof(tios));
@@ -1530,7 +1448,7 @@ static Handle setTTYattrs(TaskData *taskData, Handle args)
     if (cfsetospeed(&tios, ospeed) < 0)
         raise_syscall(taskData, "cfsetospeed failed", errno);
     /* Now it's all set we can call tcsetattr to do the work. */
-    if (tcsetattr(strm->device.ioDesc, actions, &tios) < 0)
+    if (tcsetattr(fd, actions, &tios) < 0)
         raise_syscall(taskData, "tcsetattr failed", errno);
     return Make_fixed_precision(taskData, 0);
 }
@@ -1538,16 +1456,15 @@ static Handle setTTYattrs(TaskData *taskData, Handle args)
 /* Lock/unlock/test file locks.  Returns the, possibly modified, argument structure. */
 static Handle lockCommand(TaskData *taskData, int cmd, Handle args)
 {
-    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
+    int fd = getStreamFileDescriptor(taskData, DEREFHANDLE(args)->Get(0));
     struct flock lock;
     memset(&lock, 0, sizeof(lock)); /* Make sure unused fields are zero. */
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
     lock.l_type = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
     lock.l_whence = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
     lock.l_start = get_C_long(taskData, DEREFHANDLE(args)->Get(3));
     lock.l_len = get_C_long(taskData, DEREFHANDLE(args)->Get(4));
     lock.l_pid = get_C_long(taskData, DEREFHANDLE(args)->Get(5));
-    if (fcntl(strm->device.ioDesc, cmd, &lock) < 0) 
+    if (fcntl(fd, cmd, &lock) < 0) 
         raise_syscall(taskData, "fcntl failed", errno);
     /* Construct the result. */
     Handle typeHandle = Make_fixed_precision(taskData, lock.l_type);

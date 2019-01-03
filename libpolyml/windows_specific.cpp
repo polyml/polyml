@@ -1,7 +1,7 @@
 /*
     Title:      Operating Specific functions: Windows version.
 
-    Copyright (c) 2000, 2015 David C. J. Matthews
+    Copyright (c) 2000, 2015, 2018, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -57,6 +57,7 @@
 #define ASSERT(x) 0
 #endif
 
+#include <new>
 
 #include "globals.h"
 #include "arb.h"
@@ -66,7 +67,7 @@
 #include "os_specific.h"
 #include "sys.h"
 #include "processes.h"
-#include "Console.h"
+#include "winguiconsole.h"
 #include "mpoly.h"
 #include "diagnostics.h"
 #include "scanaddrs.h"
@@ -75,6 +76,7 @@
 #include "rts_module.h"
 #include "machine_dep.h"
 #include "rtsentry.h"
+#include "winstartup.h"
 
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
 
@@ -89,131 +91,16 @@ extern "C" {
 typedef enum
 {
     HE_UNUSED,
-    HE_REGISTRY,
-    HE_PROCESS,
-    HE_DDECONVERSATION
+    HE_PROCESS
 } HANDENTRYTYPE;
 
-/* Table of open handles.
-   This is modelled after the IO table in basicio.c and performs a
-   similar function.  Each resource has an entry in here and there
-   is a token which is an ML object.  The token is simply a word
-   containing the index in the table.  It is the token itself which
-   represents the entry within the ML world.  The token is checked
-   against the entry whenever it is used since it is possible for
-   the tokens to be persistent although the corresponding entry in
-   the table will not make sense in a subsequent session.  This table
-   also allows us to garbage-collect entries since if the token becomes
-   unreachable we know that there is no longer a reference to the
-   entry within ML.
-*/
 typedef struct {
-    PolyObject *token; /* pointer into ML heap */
-    HANDENTRYTYPE  entryType; /* Type of handle */
-
-    // Only some of these are used in particular cases
-    // but using a union here complicates things.
-    HKEY    hKey; /* Registry key. */
-    /* Process and IO channels. */
-    HANDLE hProcess, hInput, hOutput, hEvent;
-    PolyWord readToken, writeToken;
-    HCONV hcDDEConv; /* DDE Conversation. */
-} HANDLETAB, *PHANDLETAB;
-
-
-static PHANDLETAB handleTable;
-static POLYUNSIGNED maxHandleTab;
-
-/* General "close" function which may be called from the
-   garbage-collector. */
-static void close_handle(PHANDLETAB pTab)
-{
-    switch (pTab->entryType)
-    {
-    case HE_REGISTRY:
-        RegCloseKey(pTab->hKey);
-        break;
-
-    case HE_PROCESS:
-        if (pTab->hProcess)
-            CloseHandle(pTab->hProcess);
-        if (pTab->hInput != INVALID_HANDLE_VALUE)
-            CloseHandle(pTab->hInput);
-        if (pTab->hOutput != INVALID_HANDLE_VALUE)
-            CloseHandle(pTab->hOutput);
-        if (pTab->hEvent)
-            CloseHandle(pTab->hEvent);
-        break;
-
-    case HE_DDECONVERSATION:
-        CloseDDEConversation(pTab->hcDDEConv);
-        break;
-    case HE_UNUSED:
-        break; // Avoid warnings
-    }
-    pTab->token = 0;
-    pTab->entryType = HE_UNUSED;
-}
-
-static PHANDLETAB get_handle(PolyWord token, HANDENTRYTYPE heType)
-{
-    StreamToken *handle_token = (StreamToken*)token.AsObjPtr();
-    POLYUNSIGNED  handle_no    = handle_token->streamNo;
-
-    if (handle_no >= maxHandleTab ||
-        handleTable[handle_no].token != handle_token ||
-        handleTable[handle_no].entryType != heType) 
-        return 0;
-
-    return &handleTable[handle_no];
-}
-
-static Handle make_handle_entry(TaskData *taskData)
-{
-    unsigned handle_no;
-    Handle str_token;
-    bool have_collected = false;
-
-    do {
-        for(handle_no = 0;
-            handle_no < maxHandleTab && handleTable[handle_no].token != 0;
-            handle_no++);
-            
-        /* Check we have enough space. */
-        if (handle_no >= maxHandleTab)
-        { /* No space. */
-           /* See if we have unreferenced streams. */
-            if (! have_collected)
-            {
-                FullGC(taskData);
-                have_collected = true;
-            }
-            else /* No space - expand vector. */
-            {
-                POLYUNSIGNED oldMax = maxHandleTab;
-                maxHandleTab += maxHandleTab/2;
-                void *p = realloc(handleTable, maxHandleTab*sizeof(HANDLETAB));
-                // If there's insufficient memory leave the old table.
-                if (p == 0) raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
-                handleTable = (PHANDLETAB)p;
-                /* Clear the new space. */
-                memset(handleTable+oldMax, 0, (maxHandleTab-oldMax)*sizeof(HANDLETAB));
-            }
-        }
-    } while (handle_no >= maxHandleTab);
-     
-    str_token = alloc_and_save(taskData, 1, F_BYTE_OBJ);
-    STREAMID(str_token) = handle_no;
-
-    /* Clear the entry then set the token. */
-    memset(&handleTable[handle_no], 0, sizeof(HANDLETAB));
-    handleTable[handle_no].token = DEREFWORDHANDLE(str_token);
-    return str_token;
-}
+    HANDLE hProcess, hInput, hOutput;
+} PROCESSDATA;
 
 static Handle execute(TaskData *taskData, Handle pname);
 static Handle simpleExecute(TaskData *taskData, Handle args);
-static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, BOOL fIsText);
+static Handle openProcessHandle(TaskData *taskData, Handle args, bool fIsRead, bool fIsText);
 static Handle openRegistryKey(TaskData *taskData, Handle args, HKEY hkParent);
 static Handle createRegistryKey(TaskData *taskData, Handle args, HKEY hkParent);
 static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkParent);
@@ -315,20 +202,21 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return execute(taskData, args);
 
     case 1001: /* Get input stream as text. */
-        return openProcessHandle(taskData, args, TRUE, TRUE);
+        return openProcessHandle(taskData, args, true, true);
 
     case 1002: /* Get output stream as text. */
-        return openProcessHandle(taskData, args, FALSE, TRUE);
+        return openProcessHandle(taskData, args, false, true);
 
     case 1003: /* Get input stream as binary. */
-        return openProcessHandle(taskData, args, TRUE, FALSE);
+        return openProcessHandle(taskData, args, true, false);
 
     case 1004: /* Get output stream as binary. */
-        return openProcessHandle(taskData, args, FALSE, FALSE);
+        return openProcessHandle(taskData, args, false, false);
 
     case 1005: /* Get result of process. */
         {
-            PHANDLETAB hnd = get_handle(DEREFWORD(args), HE_PROCESS);
+            PROCESSDATA *hnd = *(PROCESSDATA**)(args->WordP());
+            *(PROCESSDATA**)(args->WordP()) = 0; // Mark as inaccessible.
             if (hnd == 0)
                 raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
             // Close the streams. Either of them may have been
@@ -336,26 +224,9 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (hnd->hInput != INVALID_HANDLE_VALUE)
                 CloseHandle(hnd->hInput);
             hnd->hInput = INVALID_HANDLE_VALUE;
-            if (hnd->hEvent)
-                CloseHandle(hnd->hEvent);
-            hnd->hEvent = NULL;
-            if (hnd->readToken.IsDataPtr())
-            {
-                PIOSTRUCT strm =
-                    get_stream(hnd->readToken);
-                if (strm != NULL) close_stream(strm);
-            }
-            hnd->readToken = ClosedToken;
             if (hnd->hOutput != INVALID_HANDLE_VALUE)
                 CloseHandle(hnd->hOutput);
             hnd->hOutput = INVALID_HANDLE_VALUE;
-            if (hnd->writeToken.IsDataPtr())
-            {
-                PIOSTRUCT strm =
-                    get_stream(hnd->writeToken);
-                if (strm != NULL) close_stream(strm);
-            }
-            hnd->writeToken = ClosedToken;
 
             // See if it's finished.
             while (true) {
@@ -363,11 +234,9 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 if (GetExitCodeProcess(hnd->hProcess, &dwResult) == 0)
                     raise_syscall(taskData, "GetExitCodeProcess failed", GetLastError());
                 if (dwResult != STILL_ACTIVE) {
-                    /* Finished - return the result. */
-                    /* Note: we haven't closed the handle because we might want to ask
-                       for the result again.  We only close it when we've garbage-collected
-                       the token.  Doing this runs the risk of running out of handles.
-                       Maybe change it and remember the result in ML. */
+                    // Finished - return the result.
+                    // Remove the process object.  The result is cached in ML.
+                    free(hnd);
                     return Make_fixed_precision(taskData, dwResult);
                 }
                 // Block and try again.
@@ -397,11 +266,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1008: // Open a subkey of an opened key.
         {
-            PHANDLETAB hnd =
-                get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
-            if (hnd == 0)
+            HKEY hKey = *(HKEY*)(args->WordP()->Get(0).AsObjPtr());
+            if (hKey == 0)
                 raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
-            return openRegistryKey(taskData, args, hnd->hKey);
+            return openRegistryKey(taskData, args, hKey);
         }
 
     case 1009: // Create a subkey within one of the roots.
@@ -416,17 +284,20 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1010: // Create a subkey within an opened key.
         {
-            PHANDLETAB hnd =
-                get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
-            if (hnd == 0)
+            HKEY hKey = *(HKEY*)(args->WordP()->Get(0).AsObjPtr());
+            if (hKey == 0)
                 raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
-            return createRegistryKey(taskData, args, hnd->hKey);
+            return createRegistryKey(taskData, args, hKey);
         }
 
     case 1011: // Close a registry handle.
         {
-            PHANDLETAB hnd = get_handle(DEREFWORD(args), HE_REGISTRY);
-            if (hnd != 0) close_handle(hnd);
+            HKEY hKey = *(HKEY*)(args->WordP());
+            if (hKey != 0)
+            {
+                RegCloseKey(hKey);
+                *(void**)(args->WordP()) = 0;
+            }
             return Make_fixed_precision(taskData, 0);
         }
 
@@ -442,11 +313,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1013: // Get a value
         {
-            PHANDLETAB hnd =
-                get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
-            if (hnd == 0)
+            HKEY hKey = *(HKEY*)(args->WordP()->Get(0).AsObjPtr());
+            if (hKey == 0)
                 raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
-            return queryRegistryKey(taskData, args, hnd->hKey);
+            return queryRegistryKey(taskData, args, hKey);
         }
 
     case 1014: // Delete a subkey
@@ -461,11 +331,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1015: // Delete a subkey
         {
-            PHANDLETAB hnd =
-                get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
-            if (hnd == 0)
+            HKEY hKey = *(HKEY*)(args->WordP()->Get(0).AsObjPtr());
+            if (hKey == 0)
                 raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
-            return deleteRegistryKey(taskData, args, hnd->hKey);
+            return deleteRegistryKey(taskData, args, hKey);
         }
 
     case 1016: // Set a value
@@ -480,11 +349,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1017: // Set a value
         {
-            PHANDLETAB hnd =
-                get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
-            if (hnd == 0)
+            HKEY hKey = *(HKEY*)(args->WordP()->Get(0).AsObjPtr());
+            if (hKey == 0)
                 raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
-            return setRegistryKey(taskData, args, hnd->hKey);
+            return setRegistryKey(taskData, args, hKey);
         }
 
     case 1018: // Enumerate a key in the predefined keys
@@ -497,11 +365,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1019: // Enumerate a key in an opened key
         {
-            PHANDLETAB hnd =
-                get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
-            if (hnd == 0)
+            HKEY hKey = *(HKEY*)(args->WordP()->Get(0).AsObjPtr());
+            if (hKey == 0)
                 raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
-            return enumerateRegistry(taskData, args, hnd->hKey, TRUE);
+            return enumerateRegistry(taskData, args, hKey, TRUE);
         }
 
     case 1020: // Enumerate a value in the predefined keys
@@ -514,11 +381,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1021: // Enumerate a value in an opened key
         {
-            PHANDLETAB hnd =
-                get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
-            if (hnd == 0)
+            HKEY hKey = *(HKEY*)(args->WordP()->Get(0).AsObjPtr());
+            if (hKey == 0)
                 raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
-            return enumerateRegistry(taskData, args, hnd->hKey, FALSE);
+            return enumerateRegistry(taskData, args, hKey, FALSE);
         }
 
     case 1022: // Delete a value
@@ -533,11 +399,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1023: // Delete a value
         {
-            PHANDLETAB hnd =
-                get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
-            if (hnd == 0)
+            HKEY hKey = *(HKEY*)(args->WordP()->Get(0).AsObjPtr());
+            if (hKey == 0)
                 raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
-            return deleteRegistryValue(taskData, args, hnd->hKey);
+            return deleteRegistryValue(taskData, args, hKey);
         }
 
 
@@ -653,36 +518,23 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         // DDE
     case 1038: // Start DDE dialogue.
         {
-            Handle handToken;
-            PHANDLETAB pTab;
-            HCONV hcDDEConv;
             TCHAR *serviceName = Poly_string_to_T_alloc(args->WordP()->Get(0));
             TCHAR *topicName = Poly_string_to_T_alloc(args->WordP()->Get(1));
             /* Send a request to the main thread to do the work. */
-            hcDDEConv = StartDDEConversation(serviceName, topicName);
+            HCONV hcDDEConv = StartDDEConversation(serviceName, topicName);
             free(serviceName); free(topicName);
             if (hcDDEConv == 0) raise_syscall(taskData, "DdeConnect failed", 0);
             // Create an entry to return the conversation.
-            handToken = make_handle_entry(taskData);
-            pTab = &handleTable[STREAMID(handToken)];
-            pTab->entryType = HE_DDECONVERSATION;
-            pTab->hcDDEConv = hcDDEConv;
-            return handToken;
+            return MakeVolatileWord(taskData, hcDDEConv);
         }
 
     case 1039: // Send DDE execute request.
         {
-            PHANDLETAB hnd =
-                get_handle(DEREFHANDLE(args)->Get(0), HE_DDECONVERSATION);
-            LRESULT res;
-            char *command;
-            if (hnd == NULL)
-            {
-                raise_syscall(taskData, "DDE Conversation is closed", 0);
-            }
-            command = Poly_string_to_C_alloc(args->WordP()->Get(1));
+            HCONV hcDDEConv = *(HCONV*)(args->WordP()->Get(0).AsObjPtr());
+            if (hcDDEConv == 0) raise_syscall(taskData, "DDE Conversation is closed", 0);
+            char *command = Poly_string_to_C_alloc(args->WordP()->Get(1));
             /* Send a request to the main thread to do the work. */
-            res = ExecuteDDE(command, hnd->hcDDEConv);
+            LRESULT res = ExecuteDDE(command, hcDDEConv);
             free(command);
             if (res == -1) raise_syscall(taskData, "DdeClientTransaction failed", 0);
             else return Make_arbitrary_precision(taskData, res);
@@ -690,8 +542,12 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1040: // Close a DDE conversation.
         {
-            PHANDLETAB hnd = get_handle(args->Word(), HE_DDECONVERSATION);
-            if (hnd != 0) close_handle(hnd);
+            HCONV hcDDEConv = *(HCONV*)(args->WordP()->Get(0).AsObjPtr());
+            if (hcDDEConv != 0)
+            {
+                CloseDDEConversation(hcDDEConv);
+                *(void**)(args->WordP()->Get(0).AsObjPtr()) = 0;
+            }
             return Make_fixed_precision(taskData, 0);
         }
 
@@ -845,14 +701,7 @@ pipe to the child.  The end we pass to the child is "inheritable" (i.e. duplicat
 in the child as with Unix file descriptors) while the ends we keep in the parent
 are non-inheritable (i.e. not duplicated in the child). 
 DCJM: December 1999.
-This is now further complicated to improve the performance.  In Unix we can pass
-the file ID to "select" which will return immediately when input is available (we
-ignore blocking on output at the moment).  That allows the ML process to respond
-immediately.  There's no easy way to do that in Windows since the pipe handle is
-signalled whether there is input available or not.  One possibility would be to
-use overlapped IO but that requires using the ReadFile call directly and some
-contortions to create a pipe with overlapped IO.  The other, taken here, is to
-interpose a thread which can signal an event when input is available. 
+This now uses overlapped IO for the streams.
 */
 static Handle execute(TaskData *taskData, Handle args)
 {
@@ -861,55 +710,51 @@ static Handle execute(TaskData *taskData, Handle args)
            hReadFromParent = INVALID_HANDLE_VALUE,
            hWriteToParent = INVALID_HANDLE_VALUE,
            hReadFromChild = INVALID_HANDLE_VALUE;
-    HANDLE hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    HANDLE hTemp;
     STARTUPINFO startupInfo;
     PROCESS_INFORMATION processInfo;
-    Handle handToken = make_handle_entry(taskData);
-    PHANDLETAB pTab = &handleTable[STREAMID(handToken)];
+    PROCESSDATA *pProcData = 0;
 
     LPTSTR commandName = Poly_string_to_T_alloc(args->WordP()->Get(0));
     LPTSTR arguments = Poly_string_to_T_alloc(args->WordP()->Get(1));
 
-    // Create pipes for connection. Setting the security argument to NULL creates
-    // the pipe handles as non-inheritable.  We have to make sure that the
-    // child process does not inherit handles for the parent end of the
-    // connection otherwise the pipe will remain open after the parent has
-    // closed its end, causing the child process to sit around even after
-    // the parent process has gone away.
-    if (!CreatePipe(&hReadFromParent, &hWriteToChild, NULL, 0)) {
-        lpszError = "Could not create pipe";
+    TCHAR toChildPipeName[MAX_PATH], fromChildPipeName[MAX_PATH];
+    newPipeName(toChildPipeName);
+    newPipeName(fromChildPipeName);
+    // Create the pipes as inheritable handles.  These will be passed to the child.
+    SECURITY_ATTRIBUTES secure;
+    secure.nLength = sizeof(SECURITY_ATTRIBUTES);
+    secure.lpSecurityDescriptor = NULL;
+    secure.bInheritHandle = TRUE;
+    hReadFromParent =
+        CreateNamedPipe(toChildPipeName, PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 4096, 4096, 0, &secure);
+    if (hReadFromParent == INVALID_HANDLE_VALUE)
+    {
+        lpszError = "CreateNamedPipe failed";
         goto error;
     }
-    if (!CreatePipe(&hReadFromChild, &hWriteToParent, NULL, 0)) {
-        lpszError = "Could not create pipe";
+    hWriteToChild =
+        CreateFile(toChildPipeName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+    if (hWriteToChild == INVALID_HANDLE_VALUE)
+    {
+        lpszError = "CreateFile failed";
         goto error;
     }
-    // Create the copying thread.
-    hTemp = CreateCopyPipe(hReadFromChild, hEvent);
-    if (hTemp == NULL) {
-        lpszError = "Could not create pipe";
+    hWriteToParent =
+        CreateNamedPipe(fromChildPipeName, PIPE_ACCESS_OUTBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 4096, 4096, 0, &secure);
+    if (hWriteToParent == INVALID_HANDLE_VALUE)
+    {
+        lpszError = "CreateNamedPipe failed";
         goto error;
     }
-    hReadFromChild = hTemp;
-    // Convert the handles we want to pass to the child into inheritable
-    // handles by duplicating and replacing them with the duplicates.
-    if (! DuplicateHandle(GetCurrentProcess(), hWriteToParent, GetCurrentProcess(),
-                          &hTemp, 0, TRUE, // inheritable
-                          DUPLICATE_SAME_ACCESS )) {
-        lpszError = "Could not create pipe";
+    hReadFromChild =
+        CreateFile(fromChildPipeName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+    if (hReadFromChild == INVALID_HANDLE_VALUE)
+    {
+        lpszError = "CreateFile failed";
         goto error;
     }
-    CloseHandle(hWriteToParent);
-    hWriteToParent = hTemp;
-    if (! DuplicateHandle(GetCurrentProcess(), hReadFromParent, GetCurrentProcess(),
-                          &hTemp, 0, TRUE, // inheritable
-                          DUPLICATE_SAME_ACCESS )) {
-        lpszError = "Could not create pipe";
-        goto error;
-    }
-    CloseHandle(hReadFromParent);
-    hReadFromParent = hTemp;
 
     // Create a STARTUPINFO structure in which to pass the pipes as stdin
     // and stdout to the new process.
@@ -932,7 +777,19 @@ static Handle execute(TaskData *taskData, Handle args)
         lpszError = "Could not create process";
         goto error;
     }
+    pProcData = (PROCESSDATA *)malloc(sizeof(PROCESSDATA));
+    if (pProcData == 0)
+    {
+        lpszError = "Insufficient memory";
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        goto error;
+    }
 
+    pProcData->hProcess = processInfo.hProcess;
+    pProcData->hInput = hReadFromChild;
+    pProcData->hOutput = hWriteToChild;
+
+    // Everything has gone well - remove what we don't want
     free(commandName);
     free(arguments);
     /* Close thread handle since we don't need it. */
@@ -940,27 +797,20 @@ static Handle execute(TaskData *taskData, Handle args)
     /* Close the sides of the pipes we don't use in the parent. */
     CloseHandle(hReadFromParent);
     CloseHandle(hWriteToParent);
-    pTab->entryType = HE_PROCESS;
-    pTab->hProcess = processInfo.hProcess;
-    pTab->hInput = hReadFromChild;
-    pTab->hOutput = hWriteToChild;
-    pTab->hEvent = hEvent;
-    pTab->readToken = ClosedToken;
-    pTab->writeToken = ClosedToken;
 
-    return(handToken);
+    return(MakeVolatileWord(taskData, pProcData));
 
 error:
     {
         int err = GetLastError();
         free(commandName);
         free(arguments);
+        free(pProcData);
         // Close all the pipe handles.
         if (hWriteToChild != INVALID_HANDLE_VALUE) CloseHandle(hWriteToChild);
         if (hReadFromParent != INVALID_HANDLE_VALUE) CloseHandle(hReadFromParent);
         if (hWriteToParent != INVALID_HANDLE_VALUE) CloseHandle(hWriteToParent);
         if (hReadFromChild != INVALID_HANDLE_VALUE) CloseHandle(hReadFromChild);
-        if (hEvent) CloseHandle(hEvent);
         raise_syscall(taskData, lpszError, err);
         return NULL; // Never reached.
     }
@@ -970,9 +820,6 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
 {
     HANDLE hNull = INVALID_HANDLE_VALUE;
     PROCESS_INFORMATION processInfo;
-    Handle handToken;
-    PHANDLETAB pTab;
-
     TCHAR *commandName = Poly_string_to_T_alloc(args->WordP()->Get(0));
     TCHAR *arguments = Poly_string_to_T_alloc(args->WordP()->Get(1));
 
@@ -984,6 +831,7 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
 
     // Create a STARTUPINFO structure in which to pass hNULL as stdin
     // and stdout to the new process.
+    // TODO: The handles should really be open on "NUL".
     memset(&startupInfo, 0, sizeof(startupInfo));
     startupInfo.cb = sizeof(startupInfo);
     startupInfo.dwFlags = STARTF_USESTDHANDLES;
@@ -1016,104 +864,68 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
     CloseHandle(hNull); // We no longer need this
 #endif
 
-    handToken = make_handle_entry(taskData);
-    pTab = &handleTable[STREAMID(handToken)];
-    pTab->entryType = HE_PROCESS;
-    pTab->hProcess = processInfo.hProcess;
-    // We only use the process handle entry.
-    pTab->hInput = INVALID_HANDLE_VALUE;
-    pTab->hOutput = INVALID_HANDLE_VALUE;
-    pTab->hEvent = NULL;
-    pTab->readToken = ClosedToken;
-    pTab->writeToken = ClosedToken;
+    PROCESSDATA *pProcData = (PROCESSDATA *)malloc(sizeof(PROCESSDATA));
+    if (pProcData == 0)
+        raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
 
-    return(handToken);
+    pProcData->hProcess = processInfo.hProcess;
+    // We only use the process handle entry.
+    pProcData->hInput = INVALID_HANDLE_VALUE;
+    pProcData->hOutput = INVALID_HANDLE_VALUE;
+
+    return(MakeVolatileWord(taskData, pProcData));
 }
 
 /* Return a stream, either text or binary, connected to an open process. */
-static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, BOOL fIsText)
+static Handle openProcessHandle(TaskData *taskData, Handle args, bool fIsRead, bool fIsText)
 {
-    PHANDLETAB hnd = get_handle(args->Word(), HE_PROCESS);
-    HANDLE hStream;
-    int mode = 0, ioBits = 0;
+    PROCESSDATA *hnd = *(PROCESSDATA**)(args->WordP());
     if (hnd == 0)
         raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
-
-    if (fIsRead) hStream = hnd->hInput;
-    else hStream = hnd->hOutput;
-    /* I had previously assumed that it wasn't possible to get the
-       same stream twice.  The current basis library definition allows
-       it but warns it may produce unpredictable results.  For the moment
-       we don't allow it because we could get problems with closing
-       the same handle twice. */
-    if (hStream == INVALID_HANDLE_VALUE)
-        raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
-
-    if (fIsRead) { mode = _O_RDONLY; ioBits = IO_BIT_READ; }
-    else { mode = 0; ioBits = IO_BIT_WRITE; }
-    if (fIsText) mode |= _O_TEXT; else mode |= _O_BINARY;
-
-    Handle str_token = make_stream_entry(taskData);
-    if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
-    PIOSTRUCT strm = &basic_io_vector[STREAMID(str_token)];
-    strm->device.ioDesc = _open_osfhandle ((intptr_t) hStream, mode);
-    if (strm->device.ioDesc == -1)
-        raise_syscall(taskData, "_open_osfhandle failed", _doserrno);
-    strm->ioBits = ioBits | IO_BIT_OPEN | IO_BIT_PIPE;
-
-    /* The responsibility for closing the handle is passed to
-       the stream package.  We need to retain a pointer to the
-       stream entry so that we can close the stream in "reap". */
-    if (fIsRead)
+    // We allow multiple streams on the handles.  Since they are duplicated by openHandle that's safe.
+    // A consequence is that closing the stream does not close the pipe as far as the child is
+    // concerned.  That only happens when we close the final handle in reap.
+    try
     {
-        hnd->hInput = INVALID_HANDLE_VALUE;
-        hnd->readToken = strm->token;
-        // Pass the "input available" event.
-        strm->hAvailable = hnd->hEvent;
-        hnd->hEvent = NULL;
-    }
-    else
-    {
-        hnd->hOutput = INVALID_HANDLE_VALUE;
-        hnd->writeToken = strm->token;
-    }
+        WinInOutStream *stream = new WinInOutStream;
+        bool result;
+        if (fIsRead) result = stream->openHandle(hnd->hInput, OPENREAD, fIsText);
+        else result = stream->openHandle(hnd->hOutput, OPENWRITE, fIsText);
+        if (!result)
+        {
+            delete(stream);
+            raise_syscall(taskData, "openHandle failed", GetLastError());
+        }
 
-    return str_token;
+        return MakeVolatileWord(taskData, stream);
+    }
+    catch (std::bad_alloc&)
+    {
+        raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
+    }
 }
 
 // Open a registry key and make an entry in the table for it.
 static Handle openRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
 {
     TCHAR keyName[MAX_PATH];
-    LONG lRes;
-    Handle result;
-    PHANDLETAB pTab;
-    HKEY hkey;
     REGSAM sam = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
     if (length > MAX_PATH)
         raise_syscall(taskData, "Key name too long", ERROR_BAD_LENGTH);
-
     // Try opening the key.
-    lRes = RegOpenKeyEx(hkParent, keyName, 0, sam, &hkey);
+    HKEY hkey;
+    LONG lRes = RegOpenKeyEx(hkParent, keyName, 0, sam, &hkey);
     if (lRes != ERROR_SUCCESS)
         raise_syscall(taskData, "RegOpenKeyEx failed", lRes);
 
-    // Make an entry in the table.
-    result = make_handle_entry(taskData);
-    pTab = &handleTable[STREAMID(result)];
-    pTab->entryType = HE_REGISTRY;
-    pTab->hKey = hkey;
-    return result;
+    return MakeVolatileWord(taskData, hkey);
 }
 
 // Create a registry key and make an entry in the table for it.
 static Handle createRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
 {
     TCHAR keyName[MAX_PATH];
-    LONG lRes;
-    Handle keyResult, dispRes, pair;
-    PHANDLETAB pTab;
     HKEY hkey;
     DWORD dwDisp;
     REGSAM sam = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(3));
@@ -1123,21 +935,18 @@ static Handle createRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
         raise_syscall(taskData, "Key name too long", ERROR_BAD_LENGTH);
 
     // Try opening the key.
-    lRes = RegCreateKeyEx(hkParent, keyName, 0, NULL,
+    LONG lRes = RegCreateKeyEx(hkParent, keyName, 0, NULL,
                 opt ? REG_OPTION_NON_VOLATILE : REG_OPTION_VOLATILE,
                 sam, NULL, &hkey, &dwDisp);
     if (lRes != ERROR_SUCCESS)
         raise_syscall(taskData, "RegCreateKeyEx failed", lRes);
 
     // Make an entry in the table.
-    keyResult = make_handle_entry(taskData);
-    pTab = &handleTable[STREAMID(keyResult)];
-    pTab->entryType = HE_REGISTRY;
-    pTab->hKey = hkey;
+    Handle keyResult = MakeVolatileWord(taskData, hkey);
     // Record whether this was new or old.
-    dispRes = Make_fixed_precision(taskData, dwDisp == REG_CREATED_NEW_KEY ? 0: 1);
+    Handle dispRes = Make_fixed_precision(taskData, dwDisp == REG_CREATED_NEW_KEY ? 0: 1);
     /* Return a pair of the disposition and the token. */
-    pair = alloc_and_save(taskData, 2);
+    Handle pair = alloc_and_save(taskData, 2);
     DEREFHANDLE(pair)->Set(0, dispRes->Word());
     DEREFHANDLE(pair)->Set(1, keyResult->Word());
     return pair;
@@ -1304,74 +1113,3 @@ struct _entrypts osSpecificEPT[] =
 
     { NULL, NULL} // End of list.
 };
-
-class WindowsModule: public RtsModule
-{
-public:
-    virtual void Init(void);
-    virtual void Stop(void);
-    void GarbageCollect(ScanAddress *process);
-};
-
-// Declare this.  It will be automatically added to the table.
-static WindowsModule windowsModule;
-
-void WindowsModule::GarbageCollect(ScanAddress *process)
-/* Ensures that all the objects are retained and their addresses updated. */
-{
-    POLYUNSIGNED i;
-    /* Entries in the file table. These are marked as weak references so may
-       return 0 for unreferenced streams. */
-    for(i = 0; i < maxHandleTab; i++)
-    {
-        PHANDLETAB str = &(handleTable[i]);
-        if (str->token != 0)
-        {
-            if (str->entryType == HE_PROCESS)
-            {
-                /* Update the references to opened streams but
-                   do this only as weak references.  If the stream
-                   has gone away then that's fine. */
-                if (str->readToken.IsDataPtr())
-                {
-                    PolyObject *token = str->readToken.AsObjPtr();
-                    process->ScanRuntimeAddress(&token, ScanAddress::STRENGTH_WEAK);
-                    str->readToken = token == 0 ? ClosedToken : token;
-                }
-                if (str->writeToken.IsDataPtr())
-                {
-                    PolyObject *token = str->writeToken.AsObjPtr();
-                    process->ScanRuntimeAddress(&token, ScanAddress::STRENGTH_WEAK);
-                    str->writeToken = token == 0 ? ClosedToken : token;
-                }
-            }
-            process->ScanRuntimeAddress(&str->token, ScanAddress::STRENGTH_WEAK);
-            /* Unreferenced entries may return zero. */ 
-            if (str->token == 0 && str->entryType != HE_UNUSED)
-                close_handle(str);
-        }
-    }
-}
-
-void WindowsModule::Stop(void)
-{
-    if (handleTable)
-    {
-        for (POLYUNSIGNED i = 0; i < maxHandleTab; i++)
-        {
-            if (handleTable[i].token != 0)
-                close_handle(&handleTable[i]);
-        }
-        free(handleTable);
-    }
-    handleTable = NULL;
-}
-
-void WindowsModule::Init(void)
-{
-    maxHandleTab = 5; /* Initialise to a small number. */
-    /* A vector for the streams (initialised by calloc) */
-    handleTable = (PHANDLETAB)calloc(maxHandleTab,sizeof(HANDLETAB));
-}
-
-

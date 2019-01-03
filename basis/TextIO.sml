@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Text IO
-    Copyright   David C.J. Matthews 2000, 2005, 2016
+    Copyright   David C.J. Matthews 2000, 2005, 2016, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -220,8 +220,6 @@ structure TextIO :> TEXT_IO = struct
         val doIo: int*int*string -> fileDescr
              = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
-        val stdInDesc: fileDescr = RunCall.unsafeCast 0
-
         fun sys_open_in_text name = doIo(3, 0, name)
         and sys_open_out_text name = doIo(5, 0, name)
         and sys_open_append_text name = doIo(13, 0, name)
@@ -237,11 +235,9 @@ structure TextIO :> TEXT_IO = struct
     fun wrapInFileDescr(n, name) =
     let
         val textPrimRd =
-            LibraryIOSupport.wrapInFileDescr{fd=n,
-                name=name, initBlkMode=true}
-        val streamIo = StreamIO.mkInstream(textPrimRd, "")
+            LibraryIOSupport.wrapInFileDescr{fd=n, name=name, initBlkMode=true}
     in
-        ImpIO.mkInstream streamIo
+        StreamIO.mkInstream(textPrimRd, "")
     end
 
     fun wrapOutFileDescr(n, name, buffering, isAppend) =
@@ -250,10 +246,8 @@ structure TextIO :> TEXT_IO = struct
         val textPrimWr =
             LibraryIOSupport.wrapOutFileDescr{fd=n,
                 name=name, appendMode=isAppend, initBlkMode=true, chunkSize=buffSize}
-        (* Construct a stream. *)
-        val streamIo = StreamIO.mkOutstream(textPrimWr, buffering)
     in
-        mkOutstream streamIo
+        StreamIO.mkOutstream(textPrimWr, buffering)
     end
 
     (* Open a file for output. *)
@@ -265,9 +259,9 @@ structure TextIO :> TEXT_IO = struct
         (* Look at the stream to see what kind of buffering to use. *)
         val k = OS.IO.kind f        
     in
-        wrapOutFileDescr (f, s,
+        mkOutstream(wrapOutFileDescr (f, s,
             if k = OS.IO.Kind.tty then IO.LINE_BUF else IO.BLOCK_BUF,
-            false (* Not append *))
+            false (* Not append *)))
     end
 
     fun openAppend s =
@@ -277,9 +271,9 @@ structure TextIO :> TEXT_IO = struct
                 handle exn => raise mapToIo(exn, s, "TextIO.openAppend")
         val k = OS.IO.kind f        
     in
-        wrapOutFileDescr (f, s,
+        mkOutstream(wrapOutFileDescr (f, s,
             if k = OS.IO.Kind.tty then IO.LINE_BUF else IO.BLOCK_BUF,
-            true (* setPos will not work. *))
+            true (* setPos will not work. *)))
     end
 
     (* Open a file for input. *)
@@ -289,61 +283,45 @@ structure TextIO :> TEXT_IO = struct
             sys_open_in_text s
                 handle exn => raise mapToIo(exn, s, "TextIO.openIn")
     in
-        wrapInFileDescr(f, s)
+        ImpIO.mkInstream(wrapInFileDescr(f, s))
     end
-
-    (* Get the entries for standard input, standard output and standard error. *)
-    val stdIn = wrapInFileDescr(stdInDesc, "stdIn")
 
     local
-        (* On startup reset stdIn to the original stream.  Among other things this clears
-           any data that may have been in the buffer when we exported. *)
-        fun onStartUp () =
-        let
-            val textPrimRd =
-                LibraryIOSupport.wrapInFileDescr{fd=stdInDesc,
-                    name="stdIn", initBlkMode=true}
-            val streamIo = StreamIO.mkInstream(textPrimRd, "")
+        val doIo: int*int*int -> fileDescr = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
+        fun getStdDescriptors() =
+            {stdInDesc=doIo(0, 0, 0), stdOutDesc=doIo(1, 0, 0), stdErrDesc=doIo(2, 0, 0) }
+        (* Get the current descriptors for the rest of the bootstrap and use
+           them to initialise stdIn, stdOut and stdErr. *)
+        val {stdInDesc, stdOutDesc, stdErrDesc} = getStdDescriptors()
+    in
+
+        (* Get the entries for standard input, standard output and standard error. *)
+        val stdIn = ImpIO.mkInstream(wrapInFileDescr(stdInDesc, "stdIn"))
+
+        (* Set buffering on standard output to block buffering during bootstrap. *)
+        val stdOut = mkOutstream(wrapOutFileDescr(stdOutDesc, "stdOut", IO.BLOCK_BUF, false))
+        and stdErr = mkOutstream(wrapOutFileDescr(stdErrDesc, "stdErr", IO.NO_BUF (* Defined to be unbuffered. *), false))
+
+        local
+            (* On startup set the streams. *)
+            fun onStartUp () =
+            let
+                val {stdInDesc, stdOutDesc, stdErrDesc} = getStdDescriptors()
+                (* If we're READING from a tty set the OUTPUT stream to line buffering.
+                   This ensures that prompts are written out as soon as they're needed. *)
+                val stdOutBuff = if OS.IO.kind stdInDesc = OS.IO.Kind.tty then IO.LINE_BUF else IO.BLOCK_BUF
+                val stdInStream = wrapInFileDescr(stdInDesc, "stdIn")
+                and stdOutStream = wrapOutFileDescr(stdOutDesc, "stdOut", stdOutBuff, false)
+                and stdErrStream = wrapOutFileDescr(stdErrDesc, "stdErr", IO.NO_BUF (* Defined to be unbuffered. *), false)
+            in
+                ImpIO.setInstream(stdIn, stdInStream);
+                ImpIO.setOutstream(stdOut, stdOutStream);
+                ImpIO.setOutstream(stdErr, stdErrStream)
+            end
         in
-            ImpIO.setInstream(stdIn, streamIo)
+            (* Set up an onEntry handler so that this is always installed. *)
+            val () = PolyML.onEntry onStartUp
         end
-    in
-        (* Set up an onEntry handler so that this is always installed. *)
-        val () = PolyML.onEntry onStartUp
-    end;
-
-    (* We may want to consider unbuffered output or even linking stdOut with stdIn
-       so that any unbuffered
-       output is flushed before reading from stdIn. That's the way that stdio
-       works to ensure that prompts are written out. *)
-    (* PROBLEM: The following declaration is evaluated when this structure is
-       created, not at the start of the session.  The buffering will be set
-       permanently to the buffering in effect at that point.
-       Two solutions are possible.  One is to define special versions of the
-       "write" functions to examine the stream whenever they are called and
-       decide whether to change the buffering.  Another is simply to set it
-       to unbuffered.  That can be changed, though, which may not be
-       satisfactory. *)
-    (* I've changed this from NO_BUF to LINE_BUF which should improve
-       the performance.  An alternative might be to set up an "OnEntry"
-       call which would examine the stream and decide what kind of
-       buffering to use.  DCJM 1/9/00. *)
-    val stdOut =
-    let
-        val f: fileDescr = RunCall.unsafeCast 1
-    in
-        wrapOutFileDescr (f, "stdOut", IO.LINE_BUF
-            (* if System_is_term f then IO.LINE_BUF else IO.BLOCK_BUF *),
-            false)
-    end
-
-    val stdErr =
-    let
-        val f: fileDescr = RunCall.unsafeCast 2
-    in
-        wrapOutFileDescr (f, "stdErr",
-            IO.NO_BUF (* Defined to be unbuffered. *),
-            false)
     end
 
     local
@@ -399,9 +377,6 @@ structure TextIO :> TEXT_IO = struct
         and readVecNB l = SOME(readVec l)
         and block () = ()
         and canInput () = true
-        and getPos () = Position.fromInt(!posN)
-        and setPos n = posN := Position.toInt n
-        and endPos () = Position.fromInt stringLength
 
         val textPrimRd =
             TextPrimIO.RD {
@@ -414,10 +389,10 @@ structure TextIO :> TEXT_IO = struct
                 block = SOME block,
                 canInput = SOME canInput,
                 avail = avail,
-                getPos = SOME getPos,
-                setPos = SOME setPos,
-                endPos = SOME endPos,
-                verifyPos = SOME getPos,
+                getPos = NONE, (* Difficult because the position is abstract. *)
+                setPos = NONE,
+                endPos = NONE,
+                verifyPos = NONE,
                 close = close,
                 ioDesc = NONE
             }

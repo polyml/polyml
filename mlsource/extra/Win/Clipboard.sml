@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001, 2015
+    Copyright (c) 2001, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -77,9 +77,9 @@ struct
     local
         open Foreign
         open Base
-        val GMEM_SHARE = 0x2000
-        and GMEM_MOVEABLE = 0x0002
-        val GMEM_OPTS = IntInf.orb(GMEM_SHARE, GMEM_MOVEABLE)
+        val GMEM_SHARE = 0wx2000
+        and GMEM_MOVEABLE = 0wx0002
+        val GMEM_OPTS = Word.toInt(Word.orb(GMEM_SHARE, GMEM_MOVEABLE))
 
         val {load=fromMFP, store=toMFP, ctype={size=sizeMfp, ...}, ...} = breakConversion GdiBase.cMETAFILEPICT
     in

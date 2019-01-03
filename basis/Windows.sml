@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Windows signature and structure
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2012
+    Copyright   David Matthews 2000, 2005, 2012, 2018
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -54,7 +54,7 @@ sig
         val deleteKey : hkey * string -> unit
         val deleteValue : hkey * string -> unit
         val enumKeyEx : hkey * int -> string option
-        val enumValue : hkey * int -> string option
+        val enumValueEx : hkey * int -> string option
         datatype value =
               SZ of string
             | DWORD of SysWord.word
@@ -379,9 +379,9 @@ struct
              |  enumKeyEx(SUBKEY i, n) =
                     (winCall(1019, (i, n)))
 
-            fun enumValue(PREDEFINED i, n) =
+            fun enumValueEx(PREDEFINED i, n) =
                     (winCall(1020, (i, n)))
-             |  enumValue(SUBKEY i, n) =
+             |  enumValueEx(SUBKEY i, n) =
                     (winCall(1021, (i, n)))
         end
 
@@ -493,16 +493,33 @@ struct
         fun launchApplication (command, arg) =
             winCall(1035, (command, arg))
     end
-
-    abstype ('a,'b) proc = ABS of int with end;
+    
+    abstype pid = PID of int with end; (* Abstract *)
+    
+    datatype ('a,'b) proc =
+        WinProc of
+        {
+            pid: pid,
+            result: OS.Process.status option ref,
+            closeActions: (unit->unit) list ref,
+            lock: Thread.Mutex.mutex
+        }
 
     (* Run a process and return a proces object which will
        allow us to extract the input and output streams. *)
     local
         val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
-        fun execute(command, arg): ('a,'b) proc = RunCall.unsafeCast(winCall (1000, (command, arg)))
+        fun execute(command, arg): ('a,'b) proc =
+        let
+            val run: pid = RunCall.unsafeCast(winCall (1000, (command, arg)))
+        in
+            WinProc{ pid=run, result=ref NONE, closeActions=ref [], lock=Thread.Mutex.mutex() }
+        end
     end
+
+    (* Local function to protect access. *)
+    fun winProtect f (w as WinProc{lock, ...}) = ThreadLib.protect lock f w
 
     local
         val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
@@ -512,67 +529,90 @@ struct
 
     local
         val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
-    in
-        fun textInstreamOf p =
+
+        fun textInstreamOf'(WinProc{pid, closeActions, ...}) =
         let
             (* Get the underlying file descriptor. *)
-            val n = winCall (1001, RunCall.unsafeCast p)
+            val n = winCall (1001, RunCall.unsafeCast pid)
             val textPrimRd =
                 LibraryIOSupport.wrapInFileDescr
                     {fd=n, name="TextPipeInput", initBlkMode=true}
-            val streamIo = TextIO.StreamIO.mkInstream(textPrimRd, "")
+            val streamIo = TextIO.mkInstream(TextIO.StreamIO.mkInstream(textPrimRd, ""))
+            fun closeThis() = TextIO.closeIn streamIo
+            val () = closeActions := closeThis :: ! closeActions
         in
-            TextIO.mkInstream streamIo
+            streamIo
         end
         
-        fun textOutstreamOf p =
+        fun textOutstreamOf'(WinProc{pid, closeActions, ...}) =
         let
-            val n = winCall (1002, RunCall.unsafeCast p)
+            val n = winCall (1002, RunCall.unsafeCast pid)
             val buffSize = sys_get_buffsize n
             val textPrimWr =
                 LibraryIOSupport.wrapOutFileDescr{fd=n, name="TextPipeOutput",
                     appendMode=false, initBlkMode=true, chunkSize=buffSize}
             (* Construct a stream. *)
-            val streamIo = TextIO.StreamIO.mkOutstream(textPrimWr, IO.LINE_BUF)
+            val streamIo = TextIO.mkOutstream(TextIO.StreamIO.mkOutstream(textPrimWr, IO.LINE_BUF))
+            fun closeThis() = TextIO.closeOut streamIo
+            val () = closeActions := closeThis :: ! closeActions
         in
-            TextIO.mkOutstream streamIo
+            streamIo
         end
 
-        fun binInstreamOf p =
+        fun binInstreamOf'(WinProc{pid, closeActions, ...}) =
         let
             (* Get the underlying file descriptor. *)
-            val n = winCall (1003, RunCall.unsafeCast p)
+            val n = winCall (1003, RunCall.unsafeCast pid)
             val binPrimRd =
                 LibraryIOSupport.wrapBinInFileDescr
                     {fd=n, name="BinPipeInput", initBlkMode=true}
             val streamIo =
-                BinIO.StreamIO.mkInstream(binPrimRd, Word8Vector.fromList [])
+                BinIO.mkInstream(BinIO.StreamIO.mkInstream(binPrimRd, Word8Vector.fromList []))
+            fun closeThis() = BinIO.closeIn streamIo
+            val () = closeActions := closeThis :: ! closeActions
         in
-            BinIO.mkInstream streamIo
+            streamIo
         end
         
-        fun binOutstreamOf p =
+        fun binOutstreamOf'(WinProc{pid, closeActions, ...}) =
         let
-            val n = winCall (1004, RunCall.unsafeCast p)
+            val n = winCall (1004, RunCall.unsafeCast pid)
             val buffSize = sys_get_buffsize n
             val binPrimWr =
                 LibraryIOSupport.wrapBinOutFileDescr{fd=n, name="BinPipeOutput",
                     appendMode=false, initBlkMode=true, chunkSize=buffSize}
             (* Construct a stream. *)
-            val streamIo = BinIO.StreamIO.mkOutstream(binPrimWr, IO.LINE_BUF)
+            val streamIo = BinIO.mkOutstream(BinIO.StreamIO.mkOutstream(binPrimWr, IO.LINE_BUF))
+            fun closeThis() = BinIO.closeOut streamIo
+            val () = closeActions := closeThis :: ! closeActions
         in
-            BinIO.mkOutstream streamIo
+            streamIo
         end
+    in
+        fun textInstreamOf w = winProtect textInstreamOf' w
+        and textOutstreamOf w = winProtect textOutstreamOf' w
+        and binInstreamOf w = winProtect binInstreamOf' w
+        and binOutstreamOf w = winProtect binOutstreamOf' w
     end
 
     (* reap - wait until the process finishes and get the result.
-       Note: this is defined to be able to return the result repeatedly.
-       At present that's done by not closing the handle except in the
-       garbage collector.  That could cause us to run out of handles. *)
+       Note: this is defined to be able to return the result repeatedly. *)
     local
         val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+
+        fun reap'(WinProc{result=ref(SOME r), ...}) = r
+
+        |   reap'(WinProc{pid, result, closeActions, ...}) =
+            let
+                val _ = List.app(fn f => f()) (!closeActions)
+                val _ = closeActions := []
+                val res: OS.Process.status = winCall (1005, RunCall.unsafeCast pid)
+                val _ = result := SOME res
+            in
+                res
+            end
     in
-        fun reap p = winCall (1005, RunCall.unsafeCast p)
+        fun reap w = winProtect reap' w
     end
 
     local

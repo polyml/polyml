@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001, 2015
+    Copyright (c) 2001, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -65,13 +65,13 @@ struct
 
         val DestroyCaret = winCall0 (user "DestroyCaret") () (successState "DestroyCaret")
 
-        val GetCaretBlinkTime = Time.fromMilliseconds o (winCall0 (user "GetCaretBlinkTime") () cUint)
+        val GetCaretBlinkTime = Time.fromMilliseconds o LargeInt.fromInt o (winCall0 (user "GetCaretBlinkTime") () cUint)
 
         val HideCaret = winCall1 (user "HideCaret") (cHWND) (successState "HideCaret")
 
         val SetCaretBlinkTime =
             (winCall1 (user "SetCaretBlinkTime") cUint (successState "SetCaretBlinkTime")) o
-                Time.toMilliseconds
+                LargeInt.toInt o Time.toMilliseconds
 
         (* The result of ShowCaret may be false either if there was an error or
            if HideCaret was called more than once. *)

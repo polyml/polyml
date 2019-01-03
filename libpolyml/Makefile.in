@@ -139,21 +139,21 @@ am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(pkgconfigdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 @INTERNAL_LIBFFI_TRUE@libpolyml_la_DEPENDENCIES =  \
 @INTERNAL_LIBFFI_TRUE@	libffi/libffi_convenience.la
-am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
-	check_objects.cpp diagnostics.cpp errors.cpp exporter.cpp \
-	gc.cpp gc_check_weak_ref.cpp gc_copy_phase.cpp \
-	gc_mark_phase.cpp gc_share_phase.cpp gc_update_phase.cpp \
-	gctaskfarm.cpp heapsizing.cpp locking.cpp memmgr.cpp mpoly.cpp \
-	network.cpp objsize.cpp osmem.cpp pexport.cpp \
-	poly_specific.cpp polyffi.cpp polystring.cpp process_env.cpp \
-	processes.cpp profiling.cpp quick_gc.cpp realconv.cpp \
-	reals.cpp rts_module.cpp rtsentry.cpp run_time.cpp \
-	save_vec.cpp savestate.cpp scanaddrs.cpp sharedata.cpp \
-	sighandler.cpp statistics.cpp timing.cpp xwindows.cpp \
-	x86_dep.cpp x86assembly_gas64.S interpret.cpp \
-	x86assembly_gas32.S machoexport.cpp elfexport.cpp \
-	pecoffexport.cpp unix_specific.cpp Console.cpp \
-	windows_specific.cpp
+am__libpolyml_la_SOURCES_DIST = arb.cpp bitmap.cpp check_objects.cpp \
+	diagnostics.cpp errors.cpp exporter.cpp gc.cpp \
+	gc_check_weak_ref.cpp gc_copy_phase.cpp gc_mark_phase.cpp \
+	gc_share_phase.cpp gc_update_phase.cpp gctaskfarm.cpp \
+	heapsizing.cpp locking.cpp memmgr.cpp mpoly.cpp network.cpp \
+	objsize.cpp osmem.cpp pexport.cpp poly_specific.cpp \
+	polyffi.cpp polystring.cpp process_env.cpp processes.cpp \
+	profiling.cpp quick_gc.cpp realconv.cpp reals.cpp \
+	rts_module.cpp rtsentry.cpp run_time.cpp save_vec.cpp \
+	savestate.cpp scanaddrs.cpp sharedata.cpp sighandler.cpp \
+	statistics.cpp timing.cpp xwindows.cpp x86_dep.cpp \
+	x86assembly_gas64.S interpret.cpp x86assembly_gas32.S \
+	machoexport.cpp elfexport.cpp pecoffexport.cpp basicio.cpp \
+	unix_specific.cpp winstartup.cpp winbasicio.cpp \
+	winguiconsole.cpp windows_specific.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@am__objects_1 = x86_dep.lo \
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@	x86assembly_gas64.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
@@ -165,9 +165,10 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
 @EXPELF_FALSE@@EXPMACHO_TRUE@@EXPPECOFF_FALSE@	machoexport.lo
 @EXPELF_TRUE@@EXPPECOFF_FALSE@am__objects_2 = elfexport.lo
 @EXPPECOFF_TRUE@am__objects_2 = pecoffexport.lo
-@NATIVE_WINDOWS_FALSE@am__objects_3 = unix_specific.lo
-@NATIVE_WINDOWS_TRUE@am__objects_3 = Console.lo windows_specific.lo
-am_libpolyml_la_OBJECTS = arb.lo basicio.lo bitmap.lo check_objects.lo \
+@NATIVE_WINDOWS_FALSE@am__objects_3 = basicio.lo unix_specific.lo
+@NATIVE_WINDOWS_TRUE@am__objects_3 = winstartup.lo winbasicio.lo \
+@NATIVE_WINDOWS_TRUE@	winguiconsole.lo windows_specific.lo
+am_libpolyml_la_OBJECTS = arb.lo bitmap.lo check_objects.lo \
 	diagnostics.lo errors.lo exporter.lo gc.lo \
 	gc_check_weak_ref.lo gc_copy_phase.lo gc_mark_phase.lo \
 	gc_share_phase.lo gc_update_phase.lo gctaskfarm.lo \
@@ -485,14 +486,13 @@ DIST_SUBDIRS = libffi
 
 # Select the object-format-specific modules
 @EXPPECOFF_TRUE@EXPORTSOURCE = pecoffexport.cpp
-@NATIVE_WINDOWS_FALSE@OSSOURCE = unix_specific.cpp
-@NATIVE_WINDOWS_TRUE@OSSOURCE = Console.cpp windows_specific.cpp
+@NATIVE_WINDOWS_FALSE@OSSOURCE = basicio.cpp unix_specific.cpp
+@NATIVE_WINDOWS_TRUE@OSSOURCE = winstartup.cpp winbasicio.cpp winguiconsole.cpp windows_specific.cpp
 noinst_HEADERS = \
 	arb.h \
 	basicio.h \
 	bitmap.h \
 	check_objects.h \
-	Console.h \
 	diagnostics.h \
 	elfexport.h \
 	errors.h \
@@ -500,7 +500,7 @@ noinst_HEADERS = \
 	gc.h \
 	gctaskfarm.h \
 	globals.h \
-        heapsizing.h \
+    heapsizing.h \
 	int_opcodes.h \
 	io_internal.h \
 	locking.h \
@@ -536,12 +536,13 @@ noinst_HEADERS = \
 	sys.h \
 	timing.h \
 	version.h \
+	winguiconsole.h \
+    winstartup.h \
 	xcall_numbers.h \
 	xwindows.h
 
 libpolyml_la_SOURCES = \
     arb.cpp \
-    basicio.cpp \
     bitmap.cpp \
     check_objects.cpp \
     diagnostics.cpp \
@@ -666,7 +667,6 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/Console.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/arb.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/basicio.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bitmap.Plo@am__quote@
@@ -713,7 +713,10 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/statistics.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/timing.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/unix_specific.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/winbasicio.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/windows_specific.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/winguiconsole.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/winstartup.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/x86_dep.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/x86assembly_gas32.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/x86assembly_gas64.Plo@am__quote@

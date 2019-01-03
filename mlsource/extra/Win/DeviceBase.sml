@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001, 2015
+    Copyright (c) 2001, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -337,7 +337,7 @@ struct
                 (* The "fields" value determines which of the fields are valid. *)
                 val fields              = getDWord()
                 fun getOpt opt conv v =
-                    if IntInf.andb(fields, opt) = 0 then NONE else SOME(conv v)
+                    if Word.andb(Word.fromInt fields, Word.fromInt opt) = 0w0 then NONE else SOME(conv v)
                 fun I x = x
 
                 val orientation         = (getOpt DM_ORIENTATION toDMO o getShort) ()
@@ -453,7 +453,7 @@ struct
                    appropriate bit in "fields". *)
                 val fields = ref 0
                 fun setOpt _ _ NONE = 0
-                 |  setOpt opt conv (SOME v) = (fields := IntInf.orb(!fields, opt); conv v)
+                 |  setOpt opt conv (SOME v) = (fields := Word.toInt(Word.orb(Word.fromInt(!fields), Word.fromInt opt)); conv v)
                 fun I x = x
                 fun fromCollate true = 1 | fromCollate false = 0
                 val form =

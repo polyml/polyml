@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001, 2015
+    Copyright (c) 2001, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -29,23 +29,30 @@ structure Globals :
   end
  =
 struct
-local
-    open Foreign
-    open Base
-in
-    type 'a HANDLE = 'a HANDLE
-    val hNull = hNull
-    and isHNull = isHNull
-    type HINSTANCE = HINSTANCE
+    local
+        open Foreign
+        open Base
+    in
+        type 'a HANDLE = 'a HANDLE
+        val hNull = hNull
+        and isHNull = isHNull
+        type HINSTANCE = HINSTANCE
 
-    type HWND = HWND
+        type HWND = HWND
 
-    val GetLastError = Base.GetLastError
+        val GetLastError = Base.GetLastError
 
-    fun ApplicationInstance() =
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1103, ())
-    and MainWindow() =
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1104, ())
+        local
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+        in
+            fun ApplicationInstance() = winCall (1103, ())
+        end
 
-end
+        local
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+        in
+            fun MainWindow() = winCall (1104, ())
+        end
+
+    end
 end;

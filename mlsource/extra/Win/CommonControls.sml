@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2007, 2015
+    Copyright (c) 2007, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -275,7 +275,7 @@ struct
         fun StatusBarSetText{hWnd, iPart, uType, text}:int =
         let
             val s = toCstring text
-            val res = sendMsg(hWnd, 0x401, IntInf.orb(iPart, LargeWord.toInt(StatusBarType.toWord uType)), s)
+            val res = sendMsg(hWnd, 0x401, LargeWord.toInt(LargeWord.orb(LargeWord.fromInt iPart, StatusBarType.toWord uType)), s)
                 handle ex => (Memory.free s; raise ex)
             val () = Memory.free s
         in

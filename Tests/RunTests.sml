@@ -1,5 +1,9 @@
 (* Run the regression tests. *)
 
+(* Some tests are not applicable on some platforms.  If they raise this exception
+   they are treated as succeeding. *)
+exception NotApplicable;
+
 fun runTests parentDir =
 let
     val defaultInlineSize = ! PolyML.Compiler.maxInlineSize
@@ -98,7 +102,8 @@ let
                 expectSuccess (* OK if we expected success. *)
             ) handle
                 CompilerException => (TextIO.StreamIO.closeIn(!stream); not expectSuccess)
-                | exn => (TextIO.StreamIO.closeIn(!stream); false)
+                |   NotApplicable => (TextIO.StreamIO.closeIn(!stream); expectSuccess)
+                |   exn => (TextIO.StreamIO.closeIn(!stream); false)
 
         end;
 

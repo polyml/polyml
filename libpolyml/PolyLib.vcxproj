@@ -584,10 +584,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="arb.cpp" />
-    <ClCompile Include="basicio.cpp" />
+    <ClCompile Include="winbasicio.cpp" />
     <ClCompile Include="bitmap.cpp" />
     <ClCompile Include="check_objects.cpp" />
-    <ClCompile Include="Console.cpp" />
+    <ClCompile Include="winguiconsole.cpp" />
     <ClCompile Include="diagnostics.cpp" />
     <ClCompile Include="errors.cpp" />
     <ClCompile Include="exporter.cpp" />
@@ -663,6 +663,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="windows_specific.cpp" />
+    <ClCompile Include="winstartup.cpp" />
     <ClCompile Include="x86_dep.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">true</ExcludedFromBuild>
@@ -683,7 +684,7 @@
     <ClInclude Include="basicio.h" />
     <ClInclude Include="bitmap.h" />
     <ClInclude Include="check_objects.h" />
-    <ClInclude Include="Console.h" />
+    <ClInclude Include="winguiconsole.h" />
     <ClInclude Include="diagnostics.h" />
     <ClInclude Include="errors.h" />
     <ClInclude Include="exporter.h" />
@@ -725,6 +726,7 @@
     <ClInclude Include="sys.h" />
     <ClInclude Include="timing.h" />
     <ClInclude Include="version.h" />
+    <ClInclude Include="winstartup.h" />
     <ClInclude Include="xcall_numbers.h" />
     <ClInclude Include="xwindows.h" />
   </ItemGroup>

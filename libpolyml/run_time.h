@@ -96,6 +96,8 @@ extern Handle Make_fixed_precision(TaskData *taskData, unsigned long long);
 #endif
 
 extern Handle Make_sysword(TaskData *taskData, uintptr_t p);
+extern Handle MakeVolatileWord(TaskData *taskData, void *p);
+extern Handle MakeVolatileWord(TaskData *taskData, uintptr_t p);
 
 extern struct _entrypts runTimeEPT[];
 

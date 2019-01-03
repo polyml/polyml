@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001, 2015
+    Copyright (c) 2001, 2015, 2019
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -32,11 +32,12 @@ struct
         local
             (* The arrows are disabled if the bit is set. *)
             fun toInt({enableLeftUp: bool, enableRightDown}: enableArrows) =
-                IntInf.orb(if enableLeftUp then 0 else 1,
-                           if enableRightDown then 0 else 2)
+                Word.toInt(
+                    Word.orb(if enableLeftUp then 0w0 else 0w1,
+                           if enableRightDown then 0w0 else 0w2))
             and fromInt i : enableArrows =
-                {enableLeftUp = IntInf.andb(i, 1) = 0,
-                 enableRightDown = IntInf.andb(i, 2) = 0} 
+                {enableLeftUp = Word.andb(Word.fromInt i, 0w1) = 0w0,
+                 enableRightDown = Word.andb(Word.fromInt i, 0w2) = 0w0} 
         in
             (* It's easier to use the functions directly for messages *)
             val ENABLESCROLLBARFLAG = (toInt, fromInt)

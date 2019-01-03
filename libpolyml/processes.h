@@ -253,9 +253,6 @@ public:
     virtual ~Waiter() {}
     virtual void Wait(unsigned maxMillisecs);
     static Waiter *defaultWaiter;
-#ifdef HAVE_WINDOWS_H
-    static HANDLE hWakeupEvent;
-#endif
 };
 
 #ifdef HAVE_WINDOWS_H

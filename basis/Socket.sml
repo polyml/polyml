@@ -386,11 +386,11 @@ struct
     fun listen (SOCK s, b) =
         doNetCall (49, (s, b))
 
-    (* We use the normal "close" for streams. *)
+    (* On Windows sockets and streams are different. *)
     local
-        val doCall = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
+        val doCall = RunCall.rtsCallFull1 "PolyNetworkCloseSocket"
     in
-        fun close (SOCK strm): unit = doCall(7, strm, 0)
+        fun close (SOCK strm): unit = doCall(strm)
     end
 
     datatype shutdown_mode = NO_RECVS | NO_SENDS | NO_RECVS_OR_SENDS
