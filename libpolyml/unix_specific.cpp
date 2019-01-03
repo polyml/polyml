@@ -137,8 +137,6 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
 }
 
-#define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
-
 #define SAVE(x) taskData->saveVec.push(x)
 #define ALLOC(n) alloc_and_save(taskData, n)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))

@@ -78,8 +78,6 @@
 #include "rtsentry.h"
 #include "winstartup.h"
 
-#define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
-
 #define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(word))
 

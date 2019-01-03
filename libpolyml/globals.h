@@ -395,16 +395,6 @@ public:
 
 typedef PolyException poly_exn;
 
-/* 
- * Stream tokens are pointers to UNTAGGED C integers 
- * (stored in byte objects) 
- */
-class StreamToken: public PolyObject
-{
-public:
-    POLYUNSIGNED streamNo;
-};
-
 /* Macro to round a number of bytes up to a number of words. */
 #define WORDS(s) ((s+sizeof(PolyWord)-1)/sizeof(PolyWord))
 

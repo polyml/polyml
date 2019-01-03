@@ -132,8 +132,6 @@
 #define O_ACCMODE   (O_RDONLY|O_RDWR|O_WRONLY)
 #endif
 
-#define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
-
 #define SAVE(x) taskData->saveVec.push(x)
 
 #ifdef _MSC_VER
@@ -1358,8 +1356,14 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     }
 
     case 69:
+    {
         // Return an index for a token.  It is used in OS.IO.hash.
-        return Make_fixed_precision(taskData, STREAMID(strm));
+        // This is supposed to be well distributed for any 2^n but simply return
+        // the low order part of the object address.
+        WinStream *stream = *(WinStream **)(strm->WordP());
+        if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+        return Make_fixed_precision(taskData, (POLYUNSIGNED)(stream) & 0xfffffff);
+    }
 
     default:
     {
