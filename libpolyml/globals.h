@@ -28,40 +28,22 @@
 #define _GLOBALS_H
 
 /*
-    Poly words, pointers and objects.
+    Poly words, pointers and cells (objects).
 
     The garbage collector needs to be able to distinguish different uses of a
     memory word.  We need to be able find which words are pointers to other
     objects and which are simple integers.  The simple distinction is between
     integers, which are tagged by having the bottom bit set, and Addresses
-    which are word aligned (bottom 2 bits set on a 32 bit machine, bottom 3
-    bits on a 64 bit machine).  There is a third case that can arise where
-    we have a return address to a piece of code.  These
-    are generally aligned on a word+two-byte boundary except that they can
-    appear with any alignment in the saved PC field of a stack.  Normally
-    these will only appear on the stack or in a register saved to the stack
-    but they can be passed as an argument to SetCodeConstant.
+    which are word aligned (bottom 2 bits zero on a 32 bit machine, bottom 3
+    bits on a 64 bit machine, bottom bit in 32-in-64).  
 
-    Addresses always point to the start of objects.  There is one exception:
-    a stack object can contain addresses within the current stack.  The
-    preceding word of a stack object is the length word.  This contains the
-    length of the object in words in the low-order 3 (7 on a 64-bit machine)
+    Addresses always point to the start of cells.  The preceding word of a
+    cell is the length word.  This contains the
+    length of the cell in words in the low-order 3 (7 in native 64-bits)
     bytes and a flag byte in the top byte.  The flags give information about
     the type of the object.  The length word is also used by the garbage
     collector and other object processors.
 */
-
-/* Generally we use a tagged integer representation with 31 bits of
-   precision and the low-order bit as a tag bit.  one represents a tagged
-   integer, zero a pointer.  Code pointers are always aligned onto a
-   word + 2 byte boundary.
-   The exception is the Sparc which has special tagged add and subtract
-   instructions.  These cause a trap if given a value which is not a
-   multiple of 4.  To make use of these instructions we represent tagged
-   integers using 30 bits of precision and with the low order bits
-   containing 01. 
-   DCJM 27/9/00.
- */
 
 #if HAVE_STDINT_H
 #  include <stdint.h>
@@ -82,9 +64,6 @@
 #  include <stddef.h>
 #endif
 
-// Integers (non-pointers) have the bottom bit set and the rest of the word
-// contains the significant bits.  The original native code Sparc version
-// shifted by two so that it could use the Taddcc/Tsubcc instructions.
 #define POLY_TAGSHIFT    1
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
