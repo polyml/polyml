@@ -1175,13 +1175,6 @@ Waiter *Waiter::defaultWaiter = &defWait;
 // Wait for the specified handle to be signalled.
 void WaitHandle::Wait(unsigned maxMillisecs)
 {
-    MSG msg;
-    PeekMessage(&msg, 0, 0, 0, PM_NOREMOVE);
-
-    HANDLE hEvents[2];
-    DWORD dwEvents = 0;
-    if (m_Handle != NULL)
-        hEvents[dwEvents++] = m_Handle;
     // Wait until we get input or we're woken up.
     if (m_Handle == NULL)
         Sleep(maxMillisecs);
