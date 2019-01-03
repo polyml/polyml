@@ -1,7 +1,7 @@
 /*
     Title:      Basic IO.
 
-    Copyright (c) 2000, 2015-2018 David C. J. Matthews
+    Copyright (c) 2000, 2015-2019 David C. J. Matthews
 
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
@@ -151,8 +151,6 @@ DCJM May 2000.
 #ifndef O_ACCMODE
 #define O_ACCMODE   (O_RDONLY|O_RDWR|O_WRONLY)
 #endif
-
-#define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
 
 #define SAVE(x) taskData->saveVec.push(x)
 
@@ -1069,8 +1067,10 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
             return Make_arbitrary_precision(taskData, fbuff.st_ino);
         }
 
-    case 69: /* Return an index for a token. */
-        return Make_fixed_precision(taskData, STREAMID(strm));
+    case 69: // Return an index for a token.  It is used in OS.IO.hash.
+        // This is supposed to be well distributed for any 2^n but simply return
+        // the stream number.
+        return Make_fixed_precision(taskData, getStreamFileDescriptor(taskData, strm->Word()));
 
     case 70: /* Posix.FileSys.openf - open a file with given mode. */
         {

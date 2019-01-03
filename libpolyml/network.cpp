@@ -152,7 +152,6 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(PolyObject *threadId, PolyWord arg);
 }
 
-#define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
 #define SAVE(x) taskData->saveVec.push(x)
 #define ALLOC(n) alloc_and_save(taskData, n)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
