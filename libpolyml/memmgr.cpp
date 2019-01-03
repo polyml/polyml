@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006-7, 2011-12, 2016-17 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-12, 2016-18 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -140,11 +140,9 @@ MemMgr::~MemMgr()
 bool MemMgr::Initialise()
 {
 #ifdef POLYML32IN64
-    // Allocate a single 8G area but with no access.
-    // This currently only allocates 8G because we need two bits in the header
-    // for the sharing scans.
+    // Allocate a single 16G area but with no access.
     void *heapBase;
-    if (!osHeapAlloc.Initialise((size_t)8 * 1024 * 1024 * 1024, &heapBase))
+    if (!osHeapAlloc.Initialise((size_t)16 * 1024 * 1024 * 1024, &heapBase))
         return false;
     globalHeapBase = (PolyWord*)heapBase;
 
@@ -517,8 +515,9 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                         {
 #ifdef POLYML32IN64
                             PolyObject *forwardedTo = obj;
+                            // This is relative to globalCodeBase not globalHeapBase
                             while (forwardedTo->ContainsForwardingPtr())
-                                forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+                                forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
 #else
                             PolyObject *forwardedTo = obj->FollowForwardingChain();
 #endif
@@ -1233,8 +1232,9 @@ void MemMgr::ReportHeapSizes(const char *phase)
             if (obj->ContainsForwardingPtr())
             {
 #ifdef POLYML32IN64
+                // This is relative to globalCodeBase not globalHeapBase
                 while (obj->ContainsForwardingPtr())
-                    obj = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+                    obj = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
 #else
                 obj = obj->FollowForwardingChain();
 #endif
@@ -1307,8 +1307,9 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
         PolyObject *obj = (PolyObject*)(ptr+1);
 #ifdef POLYML32IN64
         PolyObject *lastObj = obj;
+        // This is relative to globalCodeBase not globalHeapBase.
         while (lastObj->ContainsForwardingPtr())
-            lastObj = (PolyObject*)(globalCodeBase + ((lastObj->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+            lastObj = (PolyObject*)(globalCodeBase + ((lastObj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
 #else
         PolyObject *lastObj = obj->FollowForwardingChain();
 #endif
