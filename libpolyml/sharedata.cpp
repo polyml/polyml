@@ -123,7 +123,9 @@ extern "C" {
 
 // The depth is stored in the length field.  If the Weak bit is set but the Mutable bit
 // is clear the value in the length word is a depth rather than a real length.
-
+// The tombstone bit is zero.
+// Previously "depth" values were encoded with the tombstone bit set but that isn't
+// possible in 32-in-64 because we need 31 bits in a forwarding pointer.
 inline bool OBJ_IS_DEPTH(POLYUNSIGNED L) { return (L & (_OBJ_WEAK_BIT| _OBJ_MUTABLE_BIT)) == _OBJ_WEAK_BIT; }
 inline POLYUNSIGNED OBJ_GET_DEPTH(POLYUNSIGNED L) { return OBJ_OBJECT_LENGTH(L); }
 inline POLYUNSIGNED OBJ_SET_DEPTH(POLYUNSIGNED n) { return n | _OBJ_WEAK_BIT; }
