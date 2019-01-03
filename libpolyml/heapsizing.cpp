@@ -128,7 +128,9 @@ static size_t GetPhysicalMemorySize(void);
 
 // These are the maximum values for the number of words.
 #if (SIZEOF_VOIDP == 4)
-#   define MAXIMUMADDRESS   0x3fffffff
+#   define MAXIMUMADDRESS   0x3fffffff /* 4Gbytes as words */
+#elif defined(POLYML32IN64)
+#   define MAXIMUMADDRESS   0xffffffff /* 16Gbytes as words */
 #else
 #   define MAXIMUMADDRESS   0x1fffffffffffffff
 #endif
@@ -145,6 +147,7 @@ void HeapSizeParameters::SetHeapParameters(uintptr_t minsize, uintptr_t maxsize,
 
     // If no maximum is given default it to 80% of the physical memory.
     // This allows some space for the OS and other things.
+    // We now check maxsize so it should never exceed the maximum.
     if (maxHeapSize == 0 || maxHeapSize > MAXIMUMADDRESS)
     {
         if (memsize != 0)

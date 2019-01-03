@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development copyright David C.J. Matthews 2001-12, 2015, 2017
+    Further development copyright David C.J. Matthews 2001-12, 2015, 2017-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -196,10 +196,18 @@ POLYUNSIGNED parseSize(const TCHAR *p, const TCHAR *arg)
     }
     if (*p != 0)
         Usage("Malformed %s option\n", arg);
-    // Check that the number of kbytes is less than the address space.
-    // The value could overflow when converted to bytes.
-    if (result >= ((uintptr_t)1 << (SIZEOF_VOIDP*8 - 10)))
-        Usage("Value of %s option is too large\n", arg);
+    // The sizes must not exceed the possible heap size.
+#ifdef POLYML32IN64
+    if (result > 16 * 1024 * 1024)
+        Usage("Value of %s option must not exceeed 16Gbytes\n", arg);
+#elif (SIZEOF_VOIDP == 4)
+    if (result > 4 * 1024 * 1024)
+        Usage("Value of %s option must not exceeed 4Gbytes\n", arg);
+#else
+    // For completion only!
+    if (result > 8 * 1024 * 1024 * 1024 * 1024 * 1024)
+        Usage("Value of %s option must not exceeed 8Ebytes\n", arg);
+#endif
     return result;
 }
 

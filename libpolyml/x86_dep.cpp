@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-18
+    Further work copyright David C. J. Matthews 2011-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -153,8 +153,9 @@ union stackItem
     stackItem(PolyWord v) { argValue = v.AsUnsigned(); }
     stackItem() { argValue = TAGGED(0).AsUnsigned(); }
 
-    PolyWord w()const { return PolyWord::FromUnsigned(argValue); }
-    operator PolyWord () { return PolyWord::FromUnsigned(argValue); }
+    // These return the low order word.
+    PolyWord w()const { return PolyWord::FromUnsigned((POLYUNSIGNED)argValue); }
+    operator PolyWord () { return PolyWord::FromUnsigned((POLYUNSIGNED)argValue); }
     POLYCODEPTR codeAddr; // Return addresses
     stackItem *stackAddr; // Stack addresses
     uintptr_t argValue; // Treat an address as an int
@@ -999,7 +1000,7 @@ void X86TaskData::HeapOverflowTrap(byte *pcPtr)
     }
     stackItem *reg = get_reg(this->allocReg);
     stackItem reg_val = *reg;
-    wordsNeeded = (this->allocPointer - (PolyWord*)reg_val.stackAddr) + 1;
+    wordsNeeded = (POLYUNSIGNED)((this->allocPointer - (PolyWord*)reg_val.stackAddr) + 1);
     *reg = TAGGED(0); // Clear this - it's not a valid address.
  #endif /* HOSTARCHITECTURE_X86_64 */
     if (profileMode == kProfileStoreAllocation)

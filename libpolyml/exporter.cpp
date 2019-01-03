@@ -1,7 +1,7 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006-7, 2015, 2016-17 David C.J. Matthews
+    Copyright (c) 2006-7, 2015, 2016-19 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -440,7 +440,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #ifdef POLYML32IN64
                 if (isCodeObj)
                 {
-                    POLYUNSIGNED ll = ((PolyWord*)newObj - globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT;
+                    POLYUNSIGNED ll = (POLYUNSIGNED)(((PolyWord*)newObj - globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT);
                     tombObject->SetLengthWord(ll);
                 }
                 else tombObject->SetForwardingPtr(newObj);
@@ -457,7 +457,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     // Instead we have to compute the offset relative to the base of the code.
     else if (isCodeObj)
     {
-        POLYUNSIGNED ll = ((PolyWord*)newObj-globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT;
+        POLYUNSIGNED ll = (POLYUNSIGNED)(((PolyWord*)newObj-globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT);
         obj->SetLengthWord(ll);
     }
 #endif
