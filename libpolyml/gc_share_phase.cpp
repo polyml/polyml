@@ -161,11 +161,7 @@ class SortVector
 {
 public:
     SortVector(): totalCount(0), carryOver(0) {}
-
     void AddToVector(PolyObject *obj, POLYUNSIGNED length);
-
-    void Verify(void);
-
     void SortData(void);
     POLYUNSIGNED TotalCount() const { return totalCount; }
     POLYUNSIGNED CurrentCount() const { return baseObject.objCount; }
@@ -215,7 +211,6 @@ class GetSharing: public RecursiveScanWithStack
 {
 public:
     GetSharing();
-    void Verify(void);
     void SortData(void);
     static void shareByteData(GCTaskId *, void *, void *);
     static void shareWordData(GCTaskId *, void *, void *);
@@ -485,36 +480,6 @@ void SortVector::wordDataTask(GCTaskId*, void *a, void *)
     s->SortData();
 }
 
-void SortVector::Verify()
-{
-    for (PolyObject *head = baseObject.objList; head != ENDOFLIST; head = head->GetForwardingPtr())
-    {
-        ASSERT(head->ContainsForwardingPtr());
-        PolyWord *addrOflengthWord = ((PolyWord*)head) - 1;
-        LocalMemSpace *space = gMem.LocalSpaceForAddress(addrOflengthWord);
-        ASSERT(space->bitmap.TestBit(space->wordNo(addrOflengthWord)));
-        if ((lengthWord & _OBJ_BYTE_OBJ) == 0)
-        {
-            // It's word data.  Check each word is marked.
-            for (POLYUNSIGNED n = 0; n < lengthWord; n++)
-            {
-                PolyWord w = head->Get(n);
-                if (w.IsDataPtr())
-                {
-                    PolyObject *o = w.AsObjPtr();
-                    PolyWord *addrOflengthWord = ((PolyWord*)o) - 1;
-                    LocalMemSpace *space = gMem.LocalSpaceForAddress(addrOflengthWord);
-                    if (space != 0)
-                    {
-                        ASSERT(space->bitmap.TestBit(space->wordNo(addrOflengthWord)));
-                    }
-                }
-            }
-        }
-        
-    }
-}
-
 // Sort the entries in the hash table.
 void SortVector::SortData()
 {
@@ -609,17 +574,6 @@ void GetSharing::shareRemainingWordData(GCTaskId *, void *a, void *)
         if (s->wordVectors[i].CurrentCount() != 0)
             gpTaskFarm->AddWorkOrRunNow(SortVector::hashAndSortAllTask, &(s->wordVectors[i]), 0);
     }
-}
-
-void GetSharing::Verify()
-{
-    // Check that every entry on the list has a bit set in the bitmap
-    // and that every address in every entry on the list also has a
-    // bit set and that nothing is a forwarding pointer.
-    for (unsigned i = 0; i < NUM_BYTE_VECTORS; i++)
-        byteVectors[i].Verify();
-    for (unsigned i = 0; i < NUM_WORD_VECTORS; i++)
-        wordVectors[i].Verify();
 }
 
 void GetSharing::SortData()
@@ -775,8 +729,6 @@ void GCSharingPhase(void)
             sharer.totalVisited, sharer.totalSize, sharer.byteAdded, sharer.wordAdded);
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Table");
-
-    sharer.Verify();
 
     // Sort and merge the data.
     sharer.SortData();
