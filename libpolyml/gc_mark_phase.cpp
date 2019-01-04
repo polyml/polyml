@@ -209,7 +209,7 @@ void MTGCProcessMarkPointers::Reset()
 // in the range to be rescanned.
 void MTGCProcessMarkPointers::StackOverflow(PolyObject *obj)
 {
-    MarkableSpace *space = (MarkableSpace*)gMem.SpaceForAddress(obj-1);
+    MarkableSpace *space = (MarkableSpace*)gMem.SpaceForAddress((PolyWord*)obj-1);
     ASSERT(space != 0 && (space->spaceType == ST_LOCAL || space->spaceType == ST_CODE));
     PLocker lock(&space->spaceLock);
     // Have to include this in the range to rescan.
@@ -314,7 +314,7 @@ bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
         *pt = obj;
     }
 
-    MemSpace *sp = gMem.SpaceForAddress(obj-1);
+    MemSpace *sp = gMem.SpaceForAddress((PolyWord*)obj-1);
     if (sp == 0 || (sp->spaceType != ST_LOCAL && sp->spaceType != ST_CODE))
         return false; // Ignore it if it points to a permanent area
 
