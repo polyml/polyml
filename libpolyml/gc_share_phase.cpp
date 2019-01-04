@@ -474,34 +474,31 @@ void SortVector::wordDataTask(GCTaskId*, void *a, void *)
 
 void SortVector::Verify()
 {
-    for (unsigned j = 0; j < 256; j++)
+    for (PolyObject *head = baseObject.objList; head != ENDOFLIST; head = head->GetForwardingPtr())
     {
-        ObjEntry *oentry = &processObjects[j];
-        PolyObject *head = oentry->objList;
-        while (head != ENDOFLIST)
+        ASSERT(head->ContainsForwardingPtr());
+        PolyWord *addrOflengthWord = ((PolyWord*)head) - 1;
+        LocalMemSpace *space = gMem.LocalSpaceForAddress(addrOflengthWord);
+        ASSERT(space->bitmap.TestBit(space->wordNo(addrOflengthWord)));
+        if ((lengthWord & _OBJ_BYTE_OBJ) == 0)
         {
-            ASSERT(head->ContainsForwardingPtr());
-            PolyWord *addrOflengthWord = ((PolyWord*)head) - 1;
-            LocalMemSpace *space = gMem.LocalSpaceForAddress(addrOflengthWord);
-            ASSERT(space->bitmap.TestBit(space->wordNo(addrOflengthWord)));
-            if ((lengthWord & _OBJ_BYTE_OBJ) == 0)
+            // It's word data.  Check each word is marked.
+            for (POLYUNSIGNED n = 0; n < lengthWord; n++)
             {
-                // It's word data.  Check each word is marked.
-                for (POLYUNSIGNED n = 0; n < lengthWord; n++)
+                PolyWord w = head->Get(n);
+                if (w.IsDataPtr())
                 {
-                    PolyWord w = head->Get(n);
-                    if (w.IsDataPtr())
+                    PolyObject *o = w.AsObjPtr();
+                    PolyWord *addrOflengthWord = ((PolyWord*)o) - 1;
+                    LocalMemSpace *space = gMem.LocalSpaceForAddress(addrOflengthWord);
+                    if (space != 0)
                     {
-                        PolyObject *o = w.AsObjPtr();
-                        PolyWord *addrOflengthWord = ((PolyWord*)o) - 1;
-                        LocalMemSpace *space = gMem.LocalSpaceForAddress(addrOflengthWord);
                         ASSERT(space->bitmap.TestBit(space->wordNo(addrOflengthWord)));
                     }
                 }
             }
-
-            PolyObject *next = head->GetForwardingPtr();
         }
+        
     }
 }
 
