@@ -125,6 +125,27 @@ void shareWith(PolyObject *objToSet, PolyObject *objToShare)
     objToSet->SetForwardingPtr(objToShare);
 }
 
+// When we find an address it could be a cell that:
+// 1. is never processed or one that is the copy to be retained,
+// 2. has been merged with another and contains a forwarding pointer or
+// 3. has not yet been processed.
+typedef enum { REALOBJECT, FORWARDED, CHAINED } objectState;
+
+objectState getObjectState(PolyObject *p)
+{
+    PolyWord *lengthWord = ((PolyWord*)p) - 1;
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
+    if (space == 0)
+        return REALOBJECT; // May be the address of a permanent or something else.
+    PLocker locker(&space->bitmapLock);
+    if (!p->ContainsForwardingPtr())
+        return REALOBJECT;
+    if (space->bitmap.TestBit(space->wordNo(lengthWord)))
+        return CHAINED;
+    else return FORWARDED;
+
+}
+
 class ObjEntry
 {
 public:
@@ -426,27 +447,19 @@ void SortVector::wordDataTask(GCTaskId*, void *a, void *)
             if (w.IsDataPtr())
             {
                 PolyObject *p = w.AsObjPtr();
-                if (p->ContainsForwardingPtr())
+                objectState state = getObjectState(p);
+                if (state == FORWARDED)
                 {
-                    // Is this a real forwarding pointer i.e. something that has
-                    // been shared already or is it a sharing chain i.e. something
-                    // that has not yet been shared?
-                    PolyWord *lengthWord = ((PolyWord*)p) - 1;
-                    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
-                    ASSERT(space);
-                    PLocker locker(&space->bitmapLock);
-                    if (space->bitmap.TestBit(space->wordNo(lengthWord)))
-                    {
-                        // If it is still to be shared leave it
-                        deferred = true;
-                        break;
-                    }
-                    else
-                    {
-                        // Update the addresses of objects that have been merged
-                        h->Set(i, p->GetForwardingPtr());
-                        s->carryOver++;
-                    }
+                    // Update the addresses of objects that have been merged
+                    h->Set(i, p->GetForwardingPtr());
+                    s->carryOver++;
+                    break;
+                }
+                else if (state == CHAINED)
+                {
+                    // If it is still to be shared leave it
+                    deferred = true;
+                    break; // from the loop
                 }
             }
         }
