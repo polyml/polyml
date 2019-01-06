@@ -117,7 +117,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         gMem.ReportHeapSizes("Full GC (before)");
 
     // Data sharing pass.
-    if (true || gHeapSizeParameters.PerformSharingPass())
+    if (gHeapSizeParameters.PerformSharingPass())
         GCSharingPhase();
 /*
  * There is a really weird bug somewhere.  An extra bit may be set in the bitmap during
