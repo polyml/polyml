@@ -816,7 +816,10 @@ struct
                                         in
                                             (otherRegArgs, (sourceVal, stackOff, stackC) :: otherStackArgs, sourceCode @ otherCode)
                                         end
-                                    |   Unset => (* Drop it.  It's never used. Probably a unit argument. *)
+                                    |   Unset =>
+                                        (* Drop it.  It's never used. This can happen if we are folding a
+                                           function over a list such that it always returns the last value and
+                                           then discard the result of the fold. *)
                                             (otherRegArgs, otherStackArgs, otherCode)
                                 end
                             val (newRegArguments, newStackArgs, sourceCode) = getValues regArgs
