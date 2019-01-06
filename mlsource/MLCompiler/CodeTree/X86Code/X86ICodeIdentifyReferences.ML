@@ -689,7 +689,7 @@ struct
                                     BoxValue{source=source, dest=dest, boxKind=boxKind,
                                         saveRegs=getSaveSet(regNo dest)}
                         
-                            |   JumpLoop{regArgs, stackArgs, checkInterrupt, workReg, ...} =>
+                            |   JumpLoop{regArgs, stackArgs, checkInterrupt = SOME _, workReg, ...} =>
                                 let
                                     (* If we have to check for interrupts we must preserve registers across
                                        the RTS call. *)
@@ -699,12 +699,11 @@ struct
                                     |   RegPropCacheTagged => SOME(PReg i)
                                     |   _ => NONE
                                     val currentRegs = union(activeAfterThis, passThrough)
-                                    val check =
-                                        case checkInterrupt of
-                                            NONE => NONE
-                                        |   SOME _ => SOME(List.mapPartial getSave (setToList currentRegs))
+                                    (* Have to include the loop registers.  These were previously included
+                                       automatically because they were part of the import set. *)
+                                    val check = List.mapPartial getSave (map (regNo o #2) regArgs @ setToList currentRegs)
                                 in
-                                    JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=check, workReg=workReg}
+                                    JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=SOME check, workReg=workReg}
                                 end
                         
                             |   FunctionCall{regArgs, stackArgs=[], dest, realDest, callKind as ConstantCode m, saveRegs=_} =>
