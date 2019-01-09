@@ -90,6 +90,7 @@ sig
     |   RegPropStack of int (* A stack location or container. *)
     |   RegPropCacheTagged
     |   RegPropCacheUntagged
+    |   RegPropMultiple     (* The result of a conditional or case. May be defined at multiple points. *)
  
     datatype argument =
         RegisterArgument of preg

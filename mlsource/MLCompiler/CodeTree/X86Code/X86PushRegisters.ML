@@ -353,16 +353,16 @@ struct
                            as a destination when returning the result from a conditional in which
                            case we have to use the same number.  We shouldn't have pushed it. *)
                             val newReg =
-                                case currentLocation of
-                                    Unset =>
+                                case (currentLocation, kind) of
+                                    (Unset, _) =>
                                     let
                                         val newReg = newPReg kind
                                         val () = Array.update(pregMap, n, ToPReg newReg)
                                     in
                                         newReg
                                     end
-                                |   ToPReg preg => preg
-                                |   ToStack _ => raise InternalError "mapDestReg - already on stack"
+                                |   (ToPReg preg, RegPropMultiple) => preg
+                                |   _ => raise InternalError "mapDestReg - multiply defined non-merge reg"
                         in
                             (newReg, [])
                         end
@@ -606,21 +606,22 @@ struct
                             val (sourceVal, sourceCodePre, sourceCodePost) = mapSourceEx(source, kind)
                             val dKind = Vector.sub(pregProps, dReg)
                             val destReg =
-                                case Array.sub(pregMap, dReg) of
-                                    Unset =>
+                                case (Array.sub(pregMap, dReg), dKind) of
+                                    (Unset, _) =>
                                     let
                                         val newReg = newPReg dKind
                                         val () = Array.update(pregMap, dReg, ToPReg newReg)
                                     in
                                         newReg
                                     end
-                                |   ToPReg preg => preg
-                                |   ToStack _ => raise InternalError "LoadArgument - already on stack"
+                                |   (ToPReg preg, RegPropMultiple) => preg
+                                |   _ => raise InternalError "LoadArgument - multiply defined non-merge reg"
                             
                             (* Can we cache this? . *)
                             val cacheCode =
                                 case source of
                                     MemoryLocation{base, offset, index, ...} =>
+                                    (* Only cache if we have a fixed offset (not indexed). *)
                                     if (case index of NoMemIndex => true | ObjectIndex => true | _ => false)
                                     then
                                     let
@@ -631,6 +632,10 @@ struct
                                         val (cacheType, isTagged) =
                                             case dKind of
                                                 RegPropGeneral => (RegPropCacheTagged, true)
+                                                (* Generally there's no point in caching a multiply-defined
+                                                   register because it is only used once but allow it in case
+                                                   the other definitions have been optimised out. *)
+                                            |   RegPropMultiple => (RegPropCacheTagged, true)
                                             |   RegPropUntagged => (RegPropCacheUntagged, false)
                                             |   _ => raise InternalError "cacheKind"
                                         val newCacheReg = newPReg cacheType

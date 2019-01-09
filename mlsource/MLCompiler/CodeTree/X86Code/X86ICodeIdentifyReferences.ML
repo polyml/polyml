@@ -669,7 +669,10 @@ struct
                                 else case Vector.sub(pregProps, i) of
                                     RegPropGeneral => SOME(PReg i)
                                 |   RegPropCacheTagged => SOME(PReg i)
-                                |   _ => NONE
+                                |   RegPropUntagged => NONE
+                                |   RegPropStack _ => NONE
+                                |   RegPropCacheUntagged => NONE
+                                |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
                         in
                             List.mapPartial getSave (setToList activeAfter)
                         end
@@ -697,7 +700,10 @@ struct
                                         case Vector.sub(pregProps, i) of
                                         RegPropGeneral => SOME(PReg i)
                                     |   RegPropCacheTagged => SOME(PReg i)
-                                    |   _ => NONE
+                                    |   RegPropUntagged => NONE
+                                    |   RegPropStack _ => NONE
+                                    |   RegPropCacheUntagged => NONE
+                                    |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
                                     val currentRegs = union(activeAfterThis, passThrough)
                                     (* Have to include the loop registers.  These were previously included
                                        automatically because they were part of the import set. *)

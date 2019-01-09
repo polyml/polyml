@@ -112,6 +112,7 @@ struct
                     case prop of
                         RegPropUntagged => (r, ~1, ~1)
                     |   RegPropStack _ => (r, ~1, ~1)
+                    |   RegPropMultiple => (r, ~1, ~1)
                     |   _ => (r, Array.sub(activeIn, r), if refs = 0 then 0 else Int.quot(active, refs))
                 end
                 val withCosts = List.map addCosts currentActive

@@ -320,7 +320,7 @@ struct
                        have a trivial block that has multiple references but is the only reference to
                        a non-trivial block we can merge the non-trivial block into it.  That would
                        be fine except that at the same time we may merge this trivial block elsewhere. *)
-                    if isSimple(targetBlck, 0, finalMap)
+                    if false andalso isSimple(targetBlck, 0, finalMap)
                     then
                     (
                         hasChanged := true;

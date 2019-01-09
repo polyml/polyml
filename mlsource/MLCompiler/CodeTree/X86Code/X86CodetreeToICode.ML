@@ -135,6 +135,14 @@ struct
             StackLoc{size=size, rno=regNo}
         end
         
+        and newMergeReg() =
+        let
+            val regNo = !pregCounter before pregCounter := !pregCounter + 1
+            val () = pregPropList := RegPropMultiple :: !pregPropList
+        in
+            PReg regNo
+        end
+        
         datatype locationValue =
             NoLocation
         |   PregLocation of preg
@@ -520,7 +528,7 @@ struct
         fun makeBoolResultRev(condition, ccRef, target, testCode) =
         let
             val trueLab = newLabel() and falseLab = newLabel() and mergeLab = newLabel()
-            val mergeReg = newPReg()
+            val mergeReg = newMergeReg()
         in
             BlockSimple(LoadArgument{dest=target, source=RegisterArgument mergeReg, kind=Move32Bit}) ::
             BlockLabel mergeLab ::
@@ -1084,7 +1092,7 @@ struct
             let
                 val startLong = newLabel() and resultLabel = newLabel()
                 val target = asTarget destination
-                val condResult = newPReg()
+                val condResult = newMergeReg()
                 (* Overflow check - if there's an overflow jump to the long precision case. *)
                 fun jumpOnOverflow ccRef =
                 let
@@ -1202,7 +1210,7 @@ struct
                    hold the result and then copy that to the final result. *)
                 (* If this is a tail each arm will exit separately and neither will return a result. *)
                 val target = asTarget destination
-                val condResult = newPReg()
+                val condResult = newMergeReg()
                 val thenTarget = if isTail then newPReg() else condResult
                 val startElse = newLabel()
                 val testCode = codeConditionRev(test, context, false, startElse, tailCode)
@@ -1238,7 +1246,7 @@ struct
             let
                 (* We have to create a new preg for the result in case we need to push
                    it to the stack. *)
-                val targetReg = newPReg()
+                val targetReg = newMergeReg()
                 
                 local
                     val initialTestReg = newPReg()
@@ -1294,8 +1302,7 @@ struct
                 val labelForExit = if isTail then ~1 (* Illegal label. *) else newLabel()
 
                 (* Generate the code for each of the cases and the default.  We need to put an
-                   unconditional branch after each to skip the other cases.
-                   TODO: This could be replaced by "returns" if we're at the tail. *)
+                   unconditional branch after each to skip the other cases. *)
                 fun codeCases (SOME c :: otherCases, startLabel :: otherLabels, tailCode) =
                     let
                         val caseTarget = if isTail then newPReg() else targetReg
@@ -1427,7 +1434,7 @@ struct
             let
                 (* As with BICCond and BICCase we need to create a new register for the
                    result in case we need to push it to the stack. *)
-                val handleResult = newPReg()
+                val handleResult = newMergeReg()
                 val handlerLab = newLabel() and startHandling = newLabel()
                 val (bodyTarget, handlerTarget) =
                     if isTail then (newPReg(), newPReg()) else (handleResult, handleResult)
@@ -2828,15 +2835,17 @@ struct
                         val resultLabel = newLabel()
                         val falseLabel = newLabel()
                         val trueLabel = newLabel()
+                        val mergeReg = newMergeReg()
                     in
+                        BlockSimple(LoadArgument{ source=RegisterArgument mergeReg, dest=target, kind=Move32Bit }) ::
                         BlockLabel resultLabel ::
                         BlockFlow(Unconditional resultLabel) ::
                         (* Result is false if parity is set i.e. unordered or if unequal. *)
-                        BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=Move32Bit }) ::
+                        BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=mergeReg, kind=Move32Bit }) ::
                         BlockLabel falseLabel ::
                         BlockFlow(Unconditional resultLabel) ::
                         (* Result is true if it's ordered and equal. *)
-                        BlockSimple(LoadArgument{ source=IntegerConstant(tag 1), dest=target, kind=Move32Bit }) ::
+                        BlockSimple(LoadArgument{ source=IntegerConstant(tag 1), dest=mergeReg, kind=Move32Bit }) ::
                         BlockLabel trueLabel ::
                         (* Not unordered - test the equality *)
                         BlockFlow(Conditional{ccRef=ccRef1, condition=JE, trueJump=trueLabel, falseJump=falseLabel}) ::
@@ -3306,6 +3315,7 @@ struct
                 (* This is effectively a big-endian comparison since we compare the bytes until we
                    find an inequality. *)
                 val target = asTarget destination
+                val mergeResult = newMergeReg()
                 val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
                     codeAddress(sourceLeft, true, context)
@@ -3328,14 +3338,15 @@ struct
                      BlockLabel labNotLess,
                      BlockFlow(Conditional{ ccRef=ccRef, condition=JA, trueJump=labGreater, falseJump=labNotGreater }),
                      BlockLabel labNotGreater,
-                     BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=movePolyWord }),
+                     BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=mergeResult, kind=movePolyWord }),
                      BlockFlow(Unconditional exitLab),
                      BlockLabel labLess,
-                     BlockSimple(LoadArgument{ source=IntegerConstant(tag ~1), dest=target, kind=movePolyWord }),
+                     BlockSimple(LoadArgument{ source=IntegerConstant(tag ~1), dest=mergeResult, kind=movePolyWord }),
                      BlockFlow(Unconditional exitLab),
                      BlockLabel labGreater,
-                     BlockSimple(LoadArgument{ source=IntegerConstant(tag 1), dest=target, kind=movePolyWord }),
-                     BlockLabel exitLab]
+                     BlockSimple(LoadArgument{ source=IntegerConstant(tag 1), dest=mergeResult, kind=movePolyWord }),
+                     BlockLabel exitLab,
+                     BlockSimple(LoadArgument{ source=RegisterArgument mergeResult, dest=target, kind=movePolyWord })]
             in
                 (code, RegisterArgument target, false)
             end
