@@ -848,7 +848,7 @@ struct
                 |   ContainerAddr{container, stackOffset} =>
                     let
                         val target = asTarget destination
-                        val finalOffset = stackPtr-stackOffset+offset
+                        val finalOffset = stackOffset+offset
                         val _ = finalOffset >= 0 orelse raise InternalError "offset"
                     in
                         (BlockSimple(LoadArgument{
