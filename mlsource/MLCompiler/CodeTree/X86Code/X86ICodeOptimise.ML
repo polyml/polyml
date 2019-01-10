@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2018
+    Copyright David C. J. Matthews 2018-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,7 +28,7 @@ struct
     open IDENTIFY
     val InternalError = Misc.InternalError
 
-    datatype optimise = Changed of basicBlock vector | Unchanged
+    datatype optimise = Changed of basicBlock vector * regProperty vector | Unchanged
     
     (* Optimiser.
        This could incorporate optimisations done elsewhere.
@@ -54,7 +54,7 @@ struct
     |   BRSetConditionToConstant of
             { srcCC: ccRef, signedCompare: order, unsignedCompare: order }
 
-    fun optimiseICode{ code, pregProps=_, ccCount=_ } =
+    fun optimiseICode{ code, pregProps, ccCount=_ } =
     let
         val hasChanged = ref false
         
@@ -334,7 +334,7 @@ struct
         
         val resVector = Vector.map (optimiseBlock []) code
     in
-        if !hasChanged then Changed resVector else Unchanged
+        if !hasChanged then Changed(resVector, pregProps) else Unchanged
     end
 
     structure Sharing =

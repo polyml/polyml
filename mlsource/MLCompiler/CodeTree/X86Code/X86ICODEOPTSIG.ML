@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2018
+    Copyright David C. J. Matthews 2018-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -19,7 +19,7 @@ signature X86ICODEOPTSIG =
 sig
     type extendedBasicBlock and basicBlock and regProperty
 
-    datatype optimise = Changed of basicBlock vector | Unchanged
+    datatype optimise = Changed of basicBlock vector * regProperty vector | Unchanged
     
     val optimiseICode:
         { code: extendedBasicBlock vector, pregProps: regProperty vector, ccCount: int } ->

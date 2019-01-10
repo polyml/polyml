@@ -203,37 +203,36 @@ struct
                 else ()
             (* First pass - identify register use patterns *)
             val (identified, regStates) = identifyRegisters(basicBlocks, pregProps)
-            val regsToSpill = spillRegisters(identified, regStates)
-            val needPhase2 = Vector.exists(fn t => t) regsToSpill
-            val (needPhase2, regsToSpill) =
-                if needPhase2 orelse passes <> 0 then (needPhase2, regsToSpill)
-                else (true, Vector.tabulate(Vector.length pregProps, fn _ => false))
+            (* Try optimising.  This may not do anything in which case we can continue with
+               the original code otherwise we need to reprocess. *)
+            val tryOpt =
+                if optPasses < maxOptimisePasses
+                then optimiseICode{code=identified, pregProps=pregProps, ccCount=ccCount}
+                else Unchanged
         in
-            if needPhase2
-            then
-            let
-                (* Push those registers we need to.  This also adds and renumbers pregs
-                   and may add labels. *)
-                val {code=postPushCode, pregProps=regPropsPhase2, maxStack=maxStackPhase2} =
-                    addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps, firstPass=passes=0}
-            in
-                (* And reprocess. *)
-                processCode(postPushCode, regPropsPhase2, maxStackPhase2, passes+1, optPasses)
-            end
-            else
-            let
-                (* Try optimising.  This may not do anything in which case we can continue with
-                   the original code otherwise we need to reprocess.  This does not add or renumber
-                   registers or add CC entries. *)
-                val tryOpt =
-                    if optPasses < maxOptimisePasses
-                    then optimiseICode{code=identified, pregProps=pregProps, ccCount=ccCount}
-                    else Unchanged
-            in
-                case tryOpt of
-                    Changed postOptimise => processCode(postOptimise, pregProps, maxStack, passes+1, optPasses)
+            case tryOpt of
+                Changed (postOptimise, postOpProps) => processCode(postOptimise, postOpProps, maxStack, passes+1, optPasses)
 
-                |   Unchanged =>
+            |   Unchanged =>
+                let
+                    val regsToSpill = spillRegisters(identified, regStates)
+                    val needPhase2 = Vector.exists(fn t => t) regsToSpill
+                    val (needPhase2, regsToSpill) =
+                        if needPhase2 orelse passes <> 0 then (needPhase2, regsToSpill)
+                        else (true, Vector.tabulate(Vector.length pregProps, fn _ => false))
+                in
+                    if needPhase2
+                    then
+                    let
+                        (* Push those registers we need to.  This also adds and renumbers pregs
+                           and may add labels. *)
+                        val {code=postPushCode, pregProps=regPropsPhase2, maxStack=maxStackPhase2} =
+                            addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps, firstPass=passes=0}
+                    in
+                        (* And reprocess. *)
+                        processCode(postPushCode, regPropsPhase2, maxStackPhase2, passes+1, optPasses)
+                    end
+                    else
                     let
                         val maxPRegs = Vector.length regStates
                 
