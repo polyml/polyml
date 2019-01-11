@@ -207,7 +207,7 @@ struct
                the original code otherwise we need to reprocess. *)
             val tryOpt =
                 if optPasses < maxOptimisePasses
-                then optimiseICode{code=identified, pregProps=pregProps, ccCount=ccCount}
+                then optimiseICode{code=identified, pregProps=pregProps, ccCount=ccCount, debugSwitches=debugSwitches}
                 else Unchanged
         in
             case tryOpt of

@@ -20,6 +20,8 @@ functor X86ICodeOptimise(
     structure INTSET: INTSETSIG
     structure IDENTIFY: X86IDENTIFYREFSSIG
     structure X86CODE: X86CODESIG (* For invertTest. *)
+    structure DEBUG: DEBUGSIG
+    structure PRETTY: PRETTYSIG
     sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET = X86CODE
 ): X86ICODEOPTSIG =
 struct
@@ -54,9 +56,16 @@ struct
     |   BRSetConditionToConstant of
             { srcCC: ccRef, signedCompare: order, unsignedCompare: order }
 
-    fun optimiseICode{ code, pregProps, ccCount=_ } =
+    fun optimiseICode{ code, pregProps, ccCount=_, debugSwitches } =
     let
         val hasChanged = ref false
+        val regCounter = ref(Vector.length pregProps)
+        val regList = ref []
+        fun newReg kind =
+        (
+            regList := kind :: ! regList;
+            PReg (!regCounter)
+        ) before regCounter := !regCounter + 1
         
         (* If this argument is a register and the register is mapped to a memory location, a constant
            or another register replace the value.  Memory locations are only replaced if this is
@@ -88,7 +97,7 @@ struct
         
         |   replaceWithValue(arg, _, regMap, _) = (arg, regMap)
 
-        fun optimiseBlock processed (ExtendedBasicBlock{block, flow, outCCState, ...}) =
+        fun optimiseBlock processed (block, flow, outCCState) =
         let
             fun optCode([], brCond, regMap, code) = (code, brCond, regMap)
 
@@ -273,7 +282,8 @@ struct
               
             |   (flow as Unconditional jmp, _) =>
                 let
-                    val target as ExtendedBasicBlock{block=targetBlck, ...} = Vector.sub(code, jmp)
+                    val ExtendedBasicBlock{block=targetBlck, locals, exports, flow=targetFlow, outCCState=targetCC, ...} =
+                        Vector.sub(code, jmp)
                     (* If the target is empty or is simply one or more Resets or a Return we're
                        better off merging this in rather than doing the jump.  We allow a single
                        Load  e.g. when loading a constant or moving a register.
@@ -314,27 +324,76 @@ struct
                             |   _ => false
                         end
                     |   isSimple _ = false
+                    
+                    
+                    
+                    val print = PRETTY.getSimplePrinter(debugSwitches, [])
+                    fun isAllowed() =
+                        if List.all (fn i => Vector.sub(pregProps, i) = RegPropMultiple) (setToList exports)
+                        then true
+                        else (print (Int.toString jmp ^ ": has non-merge exports. No\n"); false)
+                   
                 in
                     (* Merge trivial blocks.  This previously also tried to merge non-trivial blocks if
                        they only had one reference but this ends up duplicating non-trivial code.  If we
                        have a trivial block that has multiple references but is the only reference to
                        a non-trivial block we can merge the non-trivial block into it.  That would
                        be fine except that at the same time we may merge this trivial block elsewhere. *)
-                    if false andalso isSimple(targetBlck, 0, finalMap)
+                    if isSimple(targetBlck, 0, finalMap) andalso isAllowed ()
                     then
-                    (
+                    let
+                        (* Copy the block, creating new registers for the locals. *)
+                        val localMap = List.map (fn r => (PReg r, newReg(Vector.sub(pregProps, r)))) (setToList locals)
+                        fun mapReg r = case List.find (fn (s, _) => r = s) localMap of SOME(_, s) => s | NONE => r
+                        fun mapIndex(MemIndex1 r) = MemIndex1(mapReg r)
+                        |   mapIndex(MemIndex2 r) = MemIndex2(mapReg r)
+                        |   mapIndex(MemIndex4 r) = MemIndex4(mapReg r)
+                        |   mapIndex(MemIndex8 r) = MemIndex8(mapReg r)
+                        |   mapIndex index        = index
+                        fun mapArg(RegisterArgument r) = RegisterArgument(mapReg r)
+                        |   mapArg(MemoryLocation{base, offset, index, ...}) =
+                                MemoryLocation{base=mapReg base, offset=offset, index=mapIndex index, cache=NONE}
+                        |   mapArg arg = arg
+                        fun mapInstr(instr as ResetStackPtr _) = instr
+                        |   mapInstr(ReturnResultFromFunction{resultReg, realReg, numStackArgs}) =
+                                ReturnResultFromFunction{resultReg=mapReg resultReg, realReg=realReg, numStackArgs=numStackArgs}
+                        |   mapInstr(RaiseExceptionPacket{packetReg}) =
+                                RaiseExceptionPacket{packetReg=mapReg packetReg}
+                        |   mapInstr(LoadArgument{source, dest, kind}) =
+                                LoadArgument{source=mapArg source, dest=mapReg dest, kind=kind}
+                        |   mapInstr(CompareLiteral{arg1, arg2, opSize, ccRef}) =
+                                CompareLiteral{arg1=mapArg arg1, arg2=arg2, opSize=opSize, ccRef=ccRef}
+                        |   mapInstr _ = raise InternalError "mapInstr: other instruction"
+                        fun mapRegNo i = case(mapReg(PReg i)) of PReg r => r
+                        (* Map the instructions and the sets although we only use the kill set. *)
+                        fun mapCode{instr, current, active, kill} =
+                            {instr=mapInstr instr, current=listToSet(map mapRegNo (setToList current)),
+                             active=listToSet(map mapRegNo (setToList active)), kill=listToSet(map mapRegNo (setToList kill))}
+                    in
                         hasChanged := true;
-                        optimiseBlock blkCode target
-                    )
+                        optimiseBlock blkCode(map mapCode targetBlck, targetFlow, targetCC)
+                    end
                     else BasicBlock{flow=flow, block=List.rev blkCode}
                 end
 
             |   (flow, _) => BasicBlock{flow=flow, block=List.rev blkCode}
         end
         
-        val resVector = Vector.map (optimiseBlock []) code
+        fun optBlck(ExtendedBasicBlock{block, flow, outCCState, ...}) = optimiseBlock [] (block, flow, outCCState)
+        val resVector = Vector.map optBlck code
     in
-        if !hasChanged then Changed(resVector, pregProps) else Unchanged
+        if !hasChanged
+        then
+        let
+            val extraRegs = List.rev(! regList)
+            val props =
+                if null extraRegs
+                then pregProps
+                else Vector.concat[pregProps, Vector.fromList extraRegs]
+        in
+            Changed(resVector, props)
+        end
+        else Unchanged
     end
 
     structure Sharing =

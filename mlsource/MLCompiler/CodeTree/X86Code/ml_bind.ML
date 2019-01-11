@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2015-18
+    Copyright David C. J. Matthews 2015-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -69,6 +69,8 @@ local
             structure INTSET        = IntSet
             structure IDENTIFY      = X86ICodeIdentify
             structure X86CODE       = X86OutputCode
+            structure DEBUG         = Debug
+            structure PRETTY        = Pretty
         )
 
     structure X86IAllocate =

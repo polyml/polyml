@@ -22,8 +22,8 @@ sig
     datatype optimise = Changed of basicBlock vector * regProperty vector | Unchanged
     
     val optimiseICode:
-        { code: extendedBasicBlock vector, pregProps: regProperty vector, ccCount: int } ->
-            optimise
+        { code: extendedBasicBlock vector, pregProps: regProperty vector, ccCount: int,
+          debugSwitches: Universal.universal list } -> optimise
 
     structure Sharing:
     sig
