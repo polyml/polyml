@@ -117,7 +117,7 @@ private:
     void MarkAndTestForScan(PolyWord *pt);
     void Reset();
 
-    void PushToStack(PolyObject *obj, PolyWord *currentPtr = 0, POLYUNSIGNED originalLength = 0)
+    void PushToStack(PolyObject *obj, PolyWord *currentPtr = 0)
     {
         // If we don't have all the threads running we start a new one but
         // only once we have several items on the stack.  Otherwise we
@@ -416,10 +416,9 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
     {
         ASSERT (OBJ_IS_LENGTH(lengthWord));
 
-        // Get the length and base address.  N.B.  If this is a code segment
-        // these will be side-effected by GetConstSegmentForCode.
         POLYUNSIGNED length = OBJ_OBJECT_LENGTH(lengthWord);
         PolyWord *baseAddr = (PolyWord*)obj;
+        PolyWord *endWord = baseAddr + length;
 
         if (OBJ_IS_WEAKREF_OBJECT(lengthWord))
         {
@@ -428,12 +427,11 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             ASSERT(OBJ_IS_WORD_OBJECT(lengthWord)); // Should be a plain object.
             // We need to mark the "SOME" values in this object but we don't mark
             // the references contained within the "SOME".
-            PolyWord *baseAddr = (PolyWord*)obj;
             // Mark every word but ignore the result.
             for (POLYUNSIGNED i = 0; i < length; i++)
                 (void)MarkAndTestForScan(baseAddr+i);
             // We've finished with this.
-            length = 0;
+            endWord = baseAddr;
         }
 
         else if (OBJ_IS_CODE_OBJECT(lengthWord))
@@ -443,7 +441,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             // into the code area only when they were locked.
             // It's better to process the whole code object in one go.
             ScanAddress::ScanAddressesInObject(obj, lengthWord);
-            length = 0; // Finished
+            endWord = baseAddr; // Finished
         }
 
         else if (OBJ_IS_CLOSURE_OBJECT(lengthWord))
@@ -454,7 +452,6 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             if (((uintptr_t)codeAddr & 1) == 0)
                 ScanObjectAddress(codeAddr);
             // The rest is a normal tuple.
-            length -= sizeof(PolyObject*) / sizeof(PolyWord);
             baseAddr += sizeof(PolyObject*) / sizeof(PolyWord);
         }
 
@@ -464,7 +461,6 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         // the stack, follow the first address and then rescan it.  That way
         // list cells are processed once only but we don't overflow the
         // stack by pushing all the addresses in a very large vector.
-        PolyWord *endWord = baseAddr + length;
         PolyObject *firstWord = 0;
         PolyObject *secondWord = 0;
         PolyWord *restartAddr = 0;
@@ -472,7 +468,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         if (obj == largeObjectCache[locPtr].base)
         {
             baseAddr = largeObjectCache[locPtr].current;
-            ASSERT(baseAddr > (PolyWord*)obj && baseAddr < ((PolyWord*)obj) + length);
+            ASSERT(baseAddr > (PolyWord*)obj && baseAddr < endWord);
             if (locPtr == 0) locPtr = LARGECACHE_SIZE - 1; else locPtr--;
         }
 
@@ -505,7 +501,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
         if (baseAddr != endWord)
             // Put this back on the stack while we process the first word
-            PushToStack(obj, length < largeObjectSize ? 0 : restartAddr, length);
+            PushToStack(obj, length < largeObjectSize ? 0 : restartAddr);
         else if (secondWord != 0)
         {
             // Mark it now because we will process it.
