@@ -56,7 +56,7 @@ struct
     |   BRSetConditionToConstant of
             { srcCC: ccRef, signedCompare: order, unsignedCompare: order }
 
-    fun optimiseICode{ code, pregProps, ccCount=_, debugSwitches } =
+    fun optimiseICode{ code, pregProps, ccCount=_, debugSwitches=_ } =
     let
         val hasChanged = ref false
         val regCounter = ref(Vector.length pregProps)
@@ -324,22 +324,22 @@ struct
                             |   _ => false
                         end
                     |   isSimple _ = false
-                    
-                    
-                    
-                    val print = PRETTY.getSimplePrinter(debugSwitches, [])
-                    fun isAllowed() =
-                        if List.all (fn i => Vector.sub(pregProps, i) = RegPropMultiple) (setToList exports)
-                        then true
-                        else (print (Int.toString jmp ^ ": has non-merge exports. No\n"); false)
-                   
+ 
                 in
                     (* Merge trivial blocks.  This previously also tried to merge non-trivial blocks if
                        they only had one reference but this ends up duplicating non-trivial code.  If we
                        have a trivial block that has multiple references but is the only reference to
                        a non-trivial block we can merge the non-trivial block into it.  That would
                        be fine except that at the same time we may merge this trivial block elsewhere. *)
-                    if isSimple(targetBlck, 0, finalMap) andalso isAllowed ()
+                    (* The restriction that a block must only export "merge" registers is unfortunate
+                       but necessary to avoid the situation where a non-merge register is defined at
+                       multiple points and cannot be pushed to the stack.  This really isn't an issue
+                       with blocks with unconditional branches but there are cases where we have
+                       successive tests of the same condition and that results in local registers
+                       being defined and then exported.  This occurs in, for example,
+                       fun f x = if x > "abcde" then "yes" else "no"; *)
+                    if isSimple(targetBlck, 0, finalMap) andalso
+                            List.all (fn i => Vector.sub(pregProps, i) = RegPropMultiple) (setToList exports)
                     then
                     let
                         (* Copy the block, creating new registers for the locals. *)
