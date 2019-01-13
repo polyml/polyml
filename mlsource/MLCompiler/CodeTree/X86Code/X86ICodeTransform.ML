@@ -211,7 +211,7 @@ struct
                 else Unchanged
         in
             case tryOpt of
-                Changed (postOptimise, postOpProps) => processCode(postOptimise, postOpProps, maxStack, passes+1, optPasses)
+                Changed (postOptimise, postOpProps) => processCode(postOptimise, postOpProps, maxStack, passes, optPasses+1)
 
             |   Unchanged =>
                 let
