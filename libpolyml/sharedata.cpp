@@ -658,7 +658,7 @@ PolyWord ProcessFixupAddress::GetNewAddress(PolyWord old)
 
 // This class is used to set up the depth vectors for sorting.  It subclasses ScanAddress
 // in order to be able to use that for code objects since they are complicated but it
-// handles most object types itself.  It scans them depth-first using an explicit stack.
+// handles all the other object types itself.  It scans them depth-first using an explicit stack.
 class ProcessAddToVector: public ScanAddress
 {
 public:
@@ -666,17 +666,19 @@ public:
 
     ~ProcessAddToVector();
 
+    // These are used when scanning code areas.  They return either
+    // a length or a possibly updated address.
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt)
-        { (void)AddObjectsToDepthVectors(*pt); return 0; }
+        { (void)AddPolyWordToDepthVectors(*pt); return 0; }
     virtual PolyObject *ScanObjectAddress(PolyObject *base)
-        { (void)AddObjectsToDepthVectors(base); return base; }
-    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt)
-        { (void)AddObjectsToDepthVectors(*pt); return 0; }
+        { (void)AddObjectToDepthVector(base); return base; }
 
     void ProcessRoot(PolyObject *root);
 
 protected:
-    POLYUNSIGNED AddObjectsToDepthVectors(PolyWord old);
+    // Process an address and return the "depth".
+    POLYUNSIGNED AddPolyWordToDepthVectors(PolyWord old);
+    POLYUNSIGNED AddObjectToDepthVector(PolyObject *obj);
 
     void PushToStack(PolyObject *obj);
 
@@ -702,6 +704,14 @@ ProcessAddToVector::~ProcessAddToVector()
     free(addStack); // Now free the stack
 }
 
+POLYUNSIGNED ProcessAddToVector::AddPolyWordToDepthVectors(PolyWord old)
+{
+    // If this is a tagged integer or an IO pointer that's simply a constant.
+    if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
+        return 0;
+    return AddObjectToDepthVector(old.AsObjPtr());
+}
+
 // Either adds an object to the stack or, if its depth is known, adds it
 // to the depth vector and returns the depth.
 // We use _OBJ_GC_MARK to detect when we have visited a cell but not yet
@@ -709,17 +719,12 @@ ProcessAddToVector::~ProcessAddToVector()
 // before we finish in the case that we run out of memory and throw an
 // exception.  PushToStack may throw the exception if the stack needs to
 // grow.
-POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
+POLYUNSIGNED ProcessAddToVector::AddObjectToDepthVector(PolyObject *obj)
 {
-    // If this is a tagged integer or an IO pointer that's simply a constant.
-    if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
-        return 0;
-
-    MemSpace *space = gMem.SpaceForAddress(old.AsStackAddr()-1);
+    MemSpace *space = gMem.SpaceForAddress(((PolyWord*)obj)-1);
     if (space == 0)
         return 0;
 
-    PolyObject *obj = old.AsObjPtr();
     POLYUNSIGNED L = obj->LengthWord();
 
     if (OBJ_IS_DEPTH(L)) // tombstone contains genuine depth or 0.
@@ -743,7 +748,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
             if (containsAddress)
             {
                 // Add it to the vector so we will update any addresses it contains.
-                m_parent->AddToVector(0, L, old.AsObjPtr());
+                m_parent->AddToVector(0, L, obj);
                 // and follow any addresses to try to merge those.
                 PushToStack(obj);
                 obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
@@ -779,7 +784,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     if (obj->IsCodeObject())
     {
         // We want to update addresses in the code segment.
-        m_parent->AddToVector(0, L, old.AsObjPtr());
+        m_parent->AddToVector(0, L, obj);
         PushToStack(obj);
         obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
 
@@ -789,7 +794,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     // Byte objects always have depth 1 and can't contain addresses.
     if (obj->IsByteObject())
     {
-        m_parent->AddToVector (1, L, old.AsObjPtr());// add to vector at correct depth
+        m_parent->AddToVector (1, L, obj);// add to vector at correct depth
         obj->SetLengthWord(OBJ_SET_DEPTH(1));
         return 1;
     }
@@ -833,7 +838,7 @@ void ProcessAddToVector::PushToStack(PolyObject *obj)
 void ProcessAddToVector::ProcessRoot(PolyObject *root)
 {
     // Mark the initial object
-    AddObjectsToDepthVectors(root);
+    AddObjectToDepthVector(root);
 
     // Process the stack until it's empty.
     while (asp != 0)
@@ -843,6 +848,7 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
 
         if (obj->IsCodeObject())
         {
+            // Code cells are now only found in the code area.
             /* There's a problem sharing code objects if they have relative calls/jumps
                in them to other code.  The code of two functions may be identical (e.g.
                they both call functions 100 bytes ahead) and so they will appear the
@@ -856,76 +862,76 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
                 obj->SetLengthWord(OBJ_SET_DEPTH(0)); // Now scanned
         }
 
-        // Immutable local objects.  These can be shared.  We need to compute the
-        // depth by computing the maximum of the depth of all the addresses in it.
-        else if ((obj->LengthWord() & _OBJ_GC_MARK) && ! obj->IsMutable())
-        {
-            POLYUNSIGNED depth = 0;
-            POLYUNSIGNED length = obj->Length();
-            PolyWord *pt = (PolyWord*)obj;
-            unsigned osp = asp;
-
-            if (obj->IsClosureObject())
-            {
-                // The first word of a closure is a code pointer.  We don't share code.
-                pt += sizeof(PolyObject*) / sizeof(PolyWord);
-                length -= sizeof(PolyObject*) / sizeof(PolyWord);
-            }
-
-            while (length != 0 && osp == asp)
-            {
-                POLYUNSIGNED d = AddObjectsToDepthVectors(*pt);
-                if (d > depth) depth = d;
-                pt++;
-                length--;
-            }
-
-            if (osp == asp)
-            {
-                // We've finished it
-                asp--; // Pop this item.
-                depth++; // One more for this object
-                obj->SetLengthWord(obj->LengthWord() & (~_OBJ_GC_MARK));
-                m_parent->AddToVector(depth, obj->LengthWord() & (~_OBJ_GC_MARK), obj);
-                obj->SetLengthWord(OBJ_SET_DEPTH(depth));
-            }
-        }
-
-        // Mutable or non-local objects.  These have depth zero.  Local objects have
-        // _OBJ_GC_MARK in their header.  Immutable permanent objects cannot be
-        // modified so we don't set the depth.  Mutable objects are added to the
-        // depth vectors even though they aren't shared so that they will be
-        // updated if they point to immutables that have been shared.
         else
         {
             POLYUNSIGNED length = obj->Length();
             PolyWord *pt = (PolyWord*)obj;
             unsigned osp = asp;
 
-            while (length != 0)
+            if (obj->IsClosureObject())
             {
-                if (! (*pt).IsTagged())
-                {
-                    // If we've already pushed an address break now
-                    if (osp != asp) break;
-                    // Process the address and possibly push it
-                    AddObjectsToDepthVectors(*pt);
-                }
-                pt++;
-                length--;
+                // The first word of a closure is a code pointer.  We don't share code but
+                // we do want to share anything reachable from the constants.
+                AddObjectToDepthVector(*(PolyObject**)pt);
+                pt += sizeof(PolyObject*) / sizeof(PolyWord);
+                length -= sizeof(PolyObject*) / sizeof(PolyWord);
             }
 
-            if (length == 0)
+            if (((obj->LengthWord() & _OBJ_GC_MARK) && !obj->IsMutable()))
             {
-                // We've finished it
-                if (osp != asp)
+                // Immutable local objects.  These can be shared.  We need to compute the
+                // depth by computing the maximum of the depth of all the addresses in it.
+                POLYUNSIGNED depth = 0;
+                while (length != 0 && osp == asp)
                 {
-                    ASSERT(osp == asp-1);
-                    addStack[osp-1] = addStack[osp];
+                    POLYUNSIGNED d = AddPolyWordToDepthVectors(*pt);
+                    if (d > depth) depth = d;
+                    pt++;
+                    length--;
                 }
-                asp--; // Pop this item.
-                if (obj->LengthWord() & _OBJ_GC_MARK)
-                    obj->SetLengthWord(OBJ_SET_DEPTH(0));
+
+                if (osp == asp)
+                {
+                    // We've finished it
+                    asp--; // Pop this item.
+                    depth++; // One more for this object
+                    obj->SetLengthWord(obj->LengthWord() & (~_OBJ_GC_MARK));
+                    m_parent->AddToVector(depth, obj->LengthWord() & (~_OBJ_GC_MARK), obj);
+                    obj->SetLengthWord(OBJ_SET_DEPTH(depth));
+                }
+            }
+            else
+            {
+                // Mutable or non-local objects.  These have depth zero.  Local objects have
+                // _OBJ_GC_MARK in their header.  Immutable permanent objects cannot be
+                // modified so we don't set the depth.  Mutable objects are added to the
+                // depth vectors even though they aren't shared so that they will be
+                // updated if they point to immutables that have been shared.
+                while (length != 0)
+                {
+                    if (!(*pt).IsTagged())
+                    {
+                        // If we've already pushed an address break now
+                        if (osp != asp) break;
+                        // Process the address and possibly push it
+                        AddPolyWordToDepthVectors(*pt);
+                    }
+                    pt++;
+                    length--;
+                }
+
+                if (length == 0)
+                {
+                    // We've finished it
+                    if (osp != asp)
+                    {
+                        ASSERT(osp == asp - 1);
+                        addStack[osp - 1] = addStack[osp];
+                    }
+                    asp--; // Pop this item.
+                    if (obj->LengthWord() & _OBJ_GC_MARK)
+                        obj->SetLengthWord(OBJ_SET_DEPTH(0));
+                }
             }
         }
     }
