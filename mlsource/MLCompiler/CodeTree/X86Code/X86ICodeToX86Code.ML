@@ -304,6 +304,10 @@ struct
                        we won't overwrite anything we might later need. *)
                     
                     val ordered = stronglyConnected arguments
+
+                    fun isFPReg(GenReg _) = false
+                    |   isFPReg(XMMReg _) = true
+                    |   isFPReg(FPReg _) = true
                     
                     fun moveEachValue ([], code) = code
 
@@ -311,7 +315,8 @@ struct
                             (* Source and dest are both regs - only move if they're different. *)
                             if r = reg
                             then moveEachValue(rest, code)
-                            else moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=moveNativeWord}, code))
+                            else moveEachValue(rest,
+                                    llLoadArgument({source=sourceToX86Code src, dest=reg, kind=if isFPReg reg then MoveDouble else moveNativeWord}, code))
 
                     |   moveEachValue ([{dst=RegDest reg, src}] :: rest, code) =
                             (* Load from store or a constant.  Have to use movePolyWord if it's an address constant. *)

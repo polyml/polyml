@@ -459,13 +459,16 @@ struct
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map decache oStackArgs
+                fun allocateRegArg(argReg, GenReg _) = allocateArgGeneral argReg
+                |   allocateRegArg(argReg, XMMReg _) = allocateArgument(argReg, floatingPtRegisters)
+                |   allocateRegArg(_, FPReg _) = raise InternalError "allocateRegArg" (* Never used. *)
             in
                 List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
                 (* Result will be in rax/fp0/xmm0. *)
                 allocateRegister(dReg, SOME realDest, [realDest]);
                 List.app allocateArgGeneral stackArgs;
                 (* We've already hinted the arguments. *)
-                List.app (allocateArgGeneral o #1) regArgs
+                List.app allocateRegArg regArgs
             end
 
         |   registerAllocate({instr=AllocateMemoryOperation{ dest=PReg dReg, saveRegs, ...}, ...}) =
