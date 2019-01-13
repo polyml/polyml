@@ -1561,6 +1561,9 @@ struct
                 |   MemoryArg{base, offset, index} =>
                         (* If the value is in memory we can just load the high order word. *)
                         XMMArith { opc=SSE2MoveFloat, source=MemoryArg{base=base, offset=offset+4, index=index}, output=regResult } :: code
+                |   NonAddressConstArg ic =>
+                        (* Shift down and then load from the non-constant area. *)
+                        XMMArith { opc=SSE2MoveFloat, source=NonAddressConstArg(IntInf.~>>(ic, 0w32)), output=regResult } :: code
                 |   _ => raise InternalError "UntagFloat - not register or memory"
             end
 
