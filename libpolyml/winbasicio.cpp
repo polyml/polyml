@@ -142,6 +142,7 @@
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(PolyObject *threadId, PolyWord streamVec, PolyWord bitVec, PolyWord maxMillisecs);
 }
 
 // References to the standard streams.  They are only needed if we are compiling
@@ -682,76 +683,80 @@ Handle pollTest(TaskData *taskData, Handle stream)
     return Make_fixed_precision(taskData, strm->pollTest());
 }
 
-// Do the polling.  Takes a vector of io descriptors, a vector of bits to test
-// and a time to wait and returns a vector of results.
+// Wait for the shorter of the times.
+class WaitUpto : public Waiter
+{
+public:
+    WaitUpto(unsigned mSecs) : maxTime(mSecs) {}
+    virtual void Wait(unsigned maxMillisecs)
+    {
+        Sleep(maxTime < maxMillisecs ? maxTime : maxMillisecs);
+    }
+private:
+    unsigned maxTime;
+};
 
+// Poll file descriptors.  Also used with empty descriptors as OS.Process.sleep.
+// Takes a vector of io descriptors, a vector of bits to test
+// and a time to wait and returns a vector of results.
 // Windows: This is messy because "select" only works on sockets.
 // Do the best we can.
-static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(PolyObject *threadId, PolyWord streamVector, PolyWord bitVector, PolyWord maxMillisecs)
 {
-    Handle hSave = taskData->saveVec.mark();
-TryAgain:
-    PolyObject  *strmVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
-    PolyObject  *bitVec = DEREFHANDLE(args)->Get(1).AsObjPtr();
-    POLYUNSIGNED nDesc = strmVec->Length();
-    ASSERT(nDesc == bitVec->Length());
-    // We should check for interrupts even if we're not going to block.
-    processes->TestAnyEvents(taskData);
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    POLYUNSIGNED maxMilliseconds = maxMillisecs.UnTaggedUnsigned();
+    Handle result = 0;
 
-    /* Simply do a non-blocking poll. */
-    /* Record the results in this vector. */
-    char *results = 0;
-    bool haveResult = false;
-    Handle  resVec;
-    if (nDesc > 0)
-    {
-        results = (char*)alloca(nDesc);
-        memset(results, 0, nDesc);
-    }
+    try {
+        PolyObject  *strmVec = streamVector.AsObjPtr();
+        PolyObject  *bitVec = bitVector.AsObjPtr();
+        POLYUNSIGNED nDesc = strmVec->Length();
+        ASSERT(nDesc == bitVec->Length());
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
 
-    for (POLYUNSIGNED i = 0; i < nDesc; i++)
-    {
-        WinStream *strm = *(WinStream**)(strmVec->Get(i).AsObjPtr());
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        int bits = get_C_int(taskData, bitVec->Get(i));
-        results[i] = strm->poll(taskData, bits);
-        if (results[i] != 0)
-            haveResult = true;
-    }
-    if (haveResult == 0)
-    {
-        /* Poll failed - treat as time out. */
-        switch (blockType)
+        /* Simply do a non-blocking poll. */
+        /* Record the results in this vector. */
+        char *results = 0;
+        bool haveResult = false;
+        if (nDesc > 0)
         {
-        case 0: /* Check the time out. */
+            results = (char*)alloca(nDesc);
+            memset(results, 0, nDesc);
+        }
+
+        for (POLYUNSIGNED i = 0; i < nDesc; i++)
         {
-            Handle hSave = taskData->saveVec.mark();
-            /* The time argument is an absolute time. */
-            FILETIME ftTime, ftNow;
-            /* Get the file time. */
-            getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(2)), &ftTime);
-            GetSystemTimeAsFileTime(&ftNow);
-            taskData->saveVec.reset(hSave);
-            /* If the timeout time is earlier than the current time
-            we must return, otherwise we block. */
-            if (CompareFileTime(&ftTime, &ftNow) <= 0)
-                break; /* Return the empty set. */
-                        /* else drop through and block. */
+            WinStream *strm = *(WinStream**)(strmVec->Get(i).AsObjPtr());
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+            int bits = get_C_int(taskData, bitVec->Get(i));
+            results[i] = strm->poll(taskData, bits);
+            if (results[i] != 0)
+                haveResult = true;
         }
-        case 1: /* Block until one of the descriptors is ready. */
-            processes->ThreadPause(taskData);
-            taskData->saveVec.reset(hSave);
-            goto TryAgain;
-            /*NOTREACHED*/
-        case 2: /* Just a simple poll - drop through. */
-            break;
+        if (haveResult == 0 && maxMilliseconds != 0)
+        {
+            /* Poll failed - treat as time out. */
+            WaitUpto waiter(maxMilliseconds);
+            processes->ThreadPauseForIO(taskData, &waiter);
         }
+        /* Copy the results to a result vector. */
+        result = alloc_and_save(taskData, nDesc);
+        for (POLYUNSIGNED j = 0; j < nDesc; j++)
+            (DEREFWORDHANDLE(result))->Set(j, TAGGED(results[j]));
     }
-    /* Copy the results to a result vector. */
-    resVec = alloc_and_save(taskData, nDesc);
-    for (POLYUNSIGNED j = 0; j < nDesc; j++)
-        (DEREFWORDHANDLE(resVec))->Set(j, TAGGED(results[j]));
-    return resVec;
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 // Directory functions.
@@ -1169,12 +1174,13 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     }
     case 22: /* Return the polling options allowed on this descriptor. */
         return pollTest(taskData, strm);
-    case 23: /* Poll the descriptor, waiting forever. */
-        return pollDescriptors(taskData, args, 1);
-    case 24: /* Poll the descriptor, waiting for the time requested. */
-        return pollDescriptors(taskData, args, 0);
-    case 25: /* Poll the descriptor, returning immediately.*/
-        return pollDescriptors(taskData, args, 2);
+//    case 23: /* Poll the descriptor, waiting forever. */
+//        return pollDescriptors(taskData, args, 1);
+//    case 24: /* Poll the descriptor, waiting for the time requested. */
+//        return pollDescriptors(taskData, args, 0);
+//    case 25: /* Poll the descriptor, returning immediately.*/
+//        return pollDescriptors(taskData, args, 2);
+
     case 26: /* Get binary as a vector. */
         return readString(taskData, strm, args, false);
 
@@ -1406,6 +1412,7 @@ struct _entrypts basicIOEPT[] =
 {
     { "PolyChDir",                      (polyRTSFunction)&PolyChDir },
     { "PolyBasicIOGeneral",             (polyRTSFunction)&PolyBasicIOGeneral },
+    { "PolyPollIODescriptors",          (polyRTSFunction)&PolyPollIODescriptors },
 
     { NULL, NULL } // End of list.
 };

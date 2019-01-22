@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: OS Structures and Signatures
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2015-16
+    Copyright   David Matthews 2000, 2005, 2015-16, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -983,16 +983,8 @@ struct
             fun sys_poll_test(i: iodesc) = doIo(22, i, 0)
         end
 
-        local
-            val doIo: int*int*
-                (iodesc Vector.vector * word Vector.vector * Time.time) ->
-                        word Vector.vector
-                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
-        in
-            fun sys_poll_block(iov, wv) = doIo(23, 0, (iov, wv, Time.zeroTime))
-            fun sys_poll_poll(iov, wv) = doIo(25, 0, (iov, wv, Time.zeroTime))
-            and sys_poll_wait (iov, wv, t) = doIo(24, 0, (iov, wv, t))
-        end
+        val sysPoll:iodesc Vector.vector * word Vector.vector * int -> word Vector.vector =
+            RunCall.rtsCallFull3 "PolyPollIODescriptors"
 
 
         fun pollDesc (i: iodesc): poll_desc option =
@@ -1018,8 +1010,7 @@ struct
             and pollPri = addBit priBit
         end
 
-        fun poll (l : poll_desc list, t: Time.time Option.option) :
-            poll_info list =
+        fun poll (l : poll_desc list, t: Time.time Option.option) : poll_info list =
         let
             (* The original poll descriptor list may contain multiple occurrences of
                the same IO descriptor with the same or different flags.  On Cygwin, at
@@ -1062,28 +1053,27 @@ struct
                 val bitVector: word Vector.vector = Vector.fromList bits
                 and ioVector: iodesc Vector.vector = Vector.fromList ioDescs
             end
-            (* Do the actual polling.  Returns a vector with bits
-               set for the results. *)
-            val resV: word Vector.vector =
-                case t of
-                    NONE => sys_poll_block(ioVector, bitVector)
-                |   SOME tt =>
-                    let
-                        open Time
-                    in
-                        if tt = Time.zeroTime
-                        then sys_poll_poll(ioVector, bitVector)
-                        else if tt < Time.zeroTime
-                        (* Must check for negative times since these can be
-                           interpreted as infinity. *)
-                        then raise SysErr("Invalid time", NONE)
-                        (* For non-zero times we convert this to a number of
-                           milliseconds since the current time.  We have to
-                           pass in an absolute time rather than a relative
-                           time because the RTS may retry this call if the
-                           polled events haven't happened. *)
-                        else sys_poll_wait(ioVector, bitVector, tt + Time.now())
-                    end
+            (* Do the actual polling.  Returns a vector with bits set for the results. *)
+            val finishTime = case t of NONE => NONE | SOME t => SOME(t + Time.now())
+            
+            val pollMillSeconds = 1000 (* 1 second *)
+            fun doPoll() =
+            let
+                val timeToGo =
+                    case finishTime of
+                        NONE => pollMillSeconds
+                    |   SOME finish => LargeInt.toInt(LargeInt.min(LargeInt.max(0, Time.toMilliseconds(finish-Time.now())), LargeInt.fromInt pollMillSeconds))
+                
+                (* Poll the descriptors.  Returns after the timeout whether or not they are ready. *)
+                val resV = sysPoll(ioVector, bitVector, timeToGo)
+            in
+                if timeToGo < pollMillSeconds orelse Vector.exists(fn w => w <> 0w0) resV
+                then resV
+                else doPoll()
+            end
+            
+            val resV : word Vector.vector = doPoll()
+
             (* Process the original list to see which items are present, retaining the
                original order. *)
             fun testResults(request as (bits, iod), tl) =
