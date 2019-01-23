@@ -256,6 +256,8 @@ public:
     // Get the task data value from the task reference.
     // The task data reference is a volatile ref containing the
     // address of the C++ task data.
+    // N.B.  This is updated when the thread exits and the TaskData object
+    // is deleted.
     TaskData *TaskForIdentifier(PolyObject *taskId) {
         return *(TaskData**)(((ThreadObject*)taskId)->threadRef.AsObjPtr());
     }
@@ -657,6 +659,8 @@ POLYUNSIGNED PolyThreadCondVarWake(PolyWord targetThread)
 // Test if a thread is active.
 POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread)
 {
+    // There's a race here: the thread may be exiting but since we're not doing
+    // anything with the TaskData object we don't need a lock.
     TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
     if (p != 0) return TAGGED(1).AsUnsigned();
     else return TAGGED(0).AsUnsigned();
@@ -665,6 +669,7 @@ POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread)
 // Send an interrupt to a specific thread
 POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread)
 {
+    // Must lock here because the thread may be exiting.
     processesModule.schedLock.Lock();
     TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
     if (p) processesModule.MakeRequest(p, kRequestInterrupt);
@@ -1455,7 +1460,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 #elif defined(HAVE_WINDOWS_H)
                     WaitForSingleObject(p->threadHandle, INFINITE);
 #endif
-                    delete(p);
+                    // The thread ref is no longer valid.
+                    *(TaskData**)(p->threadObject->threadRef.AsObjPtr()) = 0;
+                    delete(p); // Delete the task Data
                     *i = 0;
                     globalStats.decCount(PSC_THREADS);
                 }
