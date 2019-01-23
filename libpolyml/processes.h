@@ -82,8 +82,7 @@ typedef void *HANDLE;
 // are read and set by the ML code.
 class ThreadObject: public PolyObject {
 public:
-    PolyWord    index;  // Tagged integer with the index into the taskArray
-                        // Not used by ML
+    PolyWord    threadRef;  // Weak ref containing the address of the thread data. Not used by ML
     PolyWord    flags;  // Tagged integer containing flags indicating how interrupts
                         // are handled.  Set by ML but only by the thread itself
     PolyWord    threadLocal; // Head of a list of thread-local store items.
@@ -156,7 +155,9 @@ public:
     bool        inML;          // True when this is in ML, false in the RTS
 
     // Get a TaskData pointer given the ML taskId.
-    static TaskData *FindTaskForId(PolyObject *taskId);
+    static TaskData *FindTaskForId(PolyObject *taskId) {
+        return *(TaskData**)(((ThreadObject*)taskId)->threadRef.AsObjPtr());
+    }
 
 private:
     // If a thread has to block it will block on this.
