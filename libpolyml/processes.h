@@ -155,6 +155,10 @@ public:
     bool        inML;          // True when this is in ML, false in the RTS
 
     // Get a TaskData pointer given the ML taskId.
+    // This is called at the start of every RTS function that may allocate memory.
+    // It is can be called safely to get the thread's own TaskData object without
+    // a lock but any call to get the TaskData for another thread must take the
+    // schedLock first in case the thread is exiting.
     static TaskData *FindTaskForId(PolyObject *taskId) {
         return *(TaskData**)(((ThreadObject*)taskId)->threadRef.AsObjPtr());
     }
