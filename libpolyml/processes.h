@@ -2,7 +2,7 @@
     Title:      Lightweight process library
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007-8, 2012, 2015, 2017 David C.J. Matthews
+    Copyright (c) 2007-8, 2012, 2015, 2017, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -146,7 +146,7 @@ public:
     SaveVec     saveVec;
     PolyWord    *allocPointer;  // Allocation pointer - decremented towards...
     PolyWord    *allocLimit;    // ... lower limit of allocation
-    POLYUNSIGNED allocSize;     // The preferred heap segment size
+    uintptr_t   allocSize;     // The preferred heap segment size
     unsigned    allocCount;     // The number of allocations since the last GC
     StackSpace  *stack;
     ThreadObject *threadObject;  // Pointer to the thread object.
