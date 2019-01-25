@@ -176,7 +176,7 @@ struct
                 else if (case eInProgress of SOME inProgress => e = inProgress | NONE => false) then NONE
                 else if (case wsaWouldBlock of SOME wouldBlock => e = wouldBlock | NONE => false) then NONE
                 else if (case wsaInProgress of SOME inProgress => e = inProgress | NONE => false) then NONE
-                else raise exn
+                else PolyML.Exception.reraise exn
     end
 
     val wordSize : word = LibrarySupport.wordSize;
