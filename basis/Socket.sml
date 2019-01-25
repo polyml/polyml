@@ -659,7 +659,7 @@ struct
                 sysSelect((rdVec, wrVec, exVec), timeToGo)
         in
             if timeToGo < maxMilliSeconds orelse Vector.length rdResult <> 0
-                orelse Vector.length wrResult <> 0 orelse Vector.length exVec <> 0
+                orelse Vector.length wrResult <> 0 orelse Vector.length exResult <> 0
             then results
             else doSelect()
         end
