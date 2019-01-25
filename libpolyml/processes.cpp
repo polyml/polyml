@@ -2,7 +2,7 @@
     Title:      Thread functions
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007,2008,2013-15, 2017 David C.J. Matthews
+    Copyright (c) 2007,2008,2013-15, 2017, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -253,9 +253,14 @@ public:
     // it may set this thread (or other threads) to raise an exception.
     PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg);
 
-    // Find a task that matches the specified identifier and returns
-    // it if it exists.  MUST be called with schedLock held.
-    TaskData *TaskForIdentifier(PolyObject *taskId);
+    // Get the task data value from the task reference.
+    // The task data reference is a volatile ref containing the
+    // address of the C++ task data.
+    // N.B.  This is updated when the thread exits and the TaskData object
+    // is deleted.
+    TaskData *TaskForIdentifier(PolyObject *taskId) {
+        return *(TaskData**)(((ThreadObject*)taskId)->threadRef.AsObjPtr());
+    }
 
     // Signal handling support.  The ML signal handler thread blocks until it is
     // woken up by the signal detection thread.
@@ -654,9 +659,9 @@ POLYUNSIGNED PolyThreadCondVarWake(PolyWord targetThread)
 // Test if a thread is active.
 POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread)
 {
-    processesModule.schedLock.Lock();
+    // There's a race here: the thread may be exiting but since we're not doing
+    // anything with the TaskData object we don't need a lock.
     TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
-    processesModule.schedLock.Unlock();
     if (p != 0) return TAGGED(1).AsUnsigned();
     else return TAGGED(0).AsUnsigned();
 }
@@ -664,6 +669,7 @@ POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread)
 // Send an interrupt to a specific thread
 POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread)
 {
+    // Must lock here because the thread may be exiting.
     processesModule.schedLock.Lock();
     TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
     if (p) processesModule.MakeRequest(p, kRequestInterrupt);
@@ -826,30 +832,6 @@ TaskData::~TaskData()
 #ifdef HAVE_WINDOWS_H
     if (threadHandle) CloseHandle(threadHandle);
 #endif
-}
-
-
-// Find a task that matches the specified identifier and returns
-// it if it exists.  MUST be called with schedLock held.
-TaskData *Processes::TaskForIdentifier(PolyObject *taskId)
-{
-    // The index is in the first word of the thread object.
-    unsigned index = (unsigned)(UNTAGGED_UNSIGNED(taskId->Get(0)));
-    // Check the index is valid and matches the object stored in the table.
-    if (index < taskArray.size())
-    {
-        TaskData *p = taskArray[index];
-        if (p && p->threadObject == taskId)
-            return p;
-    }
-    return 0;
-}
-
-// Return the task data for a task id.
-TaskData *TaskData::FindTaskForId(PolyObject *taskId)
-{
-    PLocker lock(&processesModule.schedLock);
-    return processesModule.TaskForIdentifier(taskId);
 }
 
 // Broadcast an interrupt to all relevant threads.
@@ -1279,8 +1261,11 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
         taskData->threadObject = (ThreadObject*)threadId->WordP();
     else
     {
+        // Make a thread reference to point to this taskData object.
+        Handle threadRef = MakeVolatileWord(taskData, taskData);
+        // Make a thread object.  Since it's in the thread table it can't be garbage collected.
         taskData->threadObject = (ThreadObject*)alloc(taskData, sizeof(ThreadObject)/sizeof(PolyWord), F_MUTABLE_BIT);
-        taskData->threadObject->index = TAGGED(thrdIndex); // Set to the index
+        taskData->threadObject->threadRef = threadRef->Word();
         taskData->threadObject->flags = flags != TAGGED(0) ? TAGGED(PFLAG_SYNCH): flags;
         taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
         taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
@@ -1385,8 +1370,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
     try {
         // We can't use ForkThread because we don't have a taskData object before we start
         TaskData *taskData = machineDependent->CreateTaskData();
+        Handle threadRef = MakeVolatileWord(taskData, taskData);
         taskData->threadObject = (ThreadObject*)alloc(taskData, sizeof(ThreadObject) / sizeof(PolyWord), F_MUTABLE_BIT);
-        taskData->threadObject->index = TAGGED(0); // Index 0
+        taskData->threadObject->threadRef = threadRef->Word();
         // The initial thread is set to accept broadcast interrupt requests
         // and handle them synchronously.  This is for backwards compatibility.
         taskData->threadObject->flags = TAGGED(PFLAG_BROADCAST|PFLAG_ASYNCH); // Flags
@@ -1474,7 +1460,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 #elif defined(HAVE_WINDOWS_H)
                     WaitForSingleObject(p->threadHandle, INFINITE);
 #endif
-                    delete(p);
+                    // The thread ref is no longer valid.
+                    *(TaskData**)(p->threadObject->threadRef.AsObjPtr()) = 0;
+                    delete(p); // Delete the task Data
                     *i = 0;
                     globalStats.decCount(PSC_THREADS);
                 }
@@ -1581,9 +1569,10 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
         // Create a taskData object for the new thread
         TaskData *newTaskData = machineDependent->CreateTaskData();
         // We allocate the thread object in the PARENT's space
+        Handle threadRef = MakeVolatileWord(taskData, newTaskData);
         Handle threadId = alloc_and_save(taskData, sizeof(ThreadObject) / sizeof(PolyWord), F_MUTABLE_BIT);
         newTaskData->threadObject = (ThreadObject*)DEREFHANDLE(threadId);
-        newTaskData->threadObject->index = TAGGED(0);
+        newTaskData->threadObject->threadRef = threadRef->Word();
         newTaskData->threadObject->flags = flags; // Flags
         newTaskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
         newTaskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
@@ -1622,7 +1611,6 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
         {
             taskArray[thrdIndex] = newTaskData;
         }
-        newTaskData->threadObject->index = TAGGED(thrdIndex); // Set to the index
         schedLock.Unlock();
 
         newTaskData->stack = gMem.NewStackSpace(machineDependent->InitialStackSize());
