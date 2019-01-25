@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Generic Sockets
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2015-16
+    Copyright   David Matthews 2000, 2005, 2015-16, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -626,18 +626,11 @@ struct
     fun sockDesc (SOCK sock) = SOCKDESC sock (* Create a socket descriptor from a socket. *)
     fun sameDesc (SOCKDESC a, SOCKDESC b) = a = b
 
-    local
-        (* The underlying call takes three arrays and updates them with the sockets that are
-           in the appropriate state.  It sets inactive elements to ~1. *)
-        val doIo: int * (OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * Time.time) ->
-                    OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector
-             = doNetCall
-    in
-        fun sys_select_block(rds, wrs, exs) = doIo(64, (rds, wrs, exs, Time.zeroTime))
-        fun sys_select_poll(rds, wrs, exs) = doIo(65, (rds, wrs, exs, Time.zeroTime))
-        (* The time parameter for a wait is the absolute time when the timeout expires. *)
-        and sys_select_wait (rds, wrs, exs, t) = doIo(66, (rds, wrs, exs, t))
-    end
+    (* The underlying call takes three arrays and updates them with the sockets that are
+       in the appropriate state.  It sets inactive elements to ~1. *)
+    val sysSelect: (OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector) * int ->
+        OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector
+         = RunCall.rtsCallFull2 "PolyNetworkSelect"
     
     fun select { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list, timeout: Time.time option } :
             { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list } =
@@ -647,14 +640,32 @@ struct
         val rdVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc rds)
         val wrVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc wrs)
         val exVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc exs)
-        open Time
-        val (rdResult, wrResult, exResult) =
-            (* Do the approriate select. *)
-            case timeout of
-                NONE => sys_select_block(rdVec, wrVec, exVec)
-            |   SOME t => if t <= Time.zeroTime
-                          then sys_select_poll(rdVec, wrVec, exVec)
-                          else sys_select_wait(rdVec, wrVec, exVec, t + Time.now());
+
+        (* As with OS.FileSys.poll we call the RTS to check the sockets for up to a second
+           and repeat until the time expires. *)
+        val finishTime = case timeout of NONE => NONE | SOME t => SOME(t + Time.now())
+            
+        val maxMilliSeconds = 1000 (* 1 second *)
+
+        fun doSelect() =
+        let
+            val timeToGo =
+                case finishTime of
+                    NONE => maxMilliSeconds
+                |   SOME finish => LargeInt.toInt(LargeInt.min(LargeInt.max(0, Time.toMilliseconds(finish-Time.now())),
+                        LargeInt.fromInt maxMilliSeconds))
+
+            val results as (rdResult, wrResult, exResult) =
+                sysSelect((rdVec, wrVec, exVec), timeToGo)
+        in
+            if timeToGo < maxMilliSeconds orelse Vector.length rdResult <> 0
+                orelse Vector.length wrResult <> 0 orelse Vector.length exVec <> 0
+            then results
+            else doSelect()
+        end
+
+        val (rdResult, wrResult, exResult) = doSelect()
+
         (* Function to create the results. *)
         fun getResults v = Vector.foldr (fn (sd, l) => SOCKDESC sd :: l) [] v
     in

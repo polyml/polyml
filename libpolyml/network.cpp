@@ -1,7 +1,7 @@
 /*
     Title:      Network functions.
 
-    Copyright (c) 2000-7, 2016, 2018 David C. J. Matthews
+    Copyright (c) 2000-7, 2016, 2018, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -150,6 +150,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hostName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(PolyObject *threadId, PolyWord fdVecTriple, PolyWord maxMillisecs);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -313,7 +314,6 @@ static Handle mkSktab(TaskData *taskData, void*, char *p);
 static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt);
 static Handle getSocketOption(TaskData *taskData, Handle args, int level, int opt);
 static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt);
-static Handle selectCall(TaskData *taskData, Handle args, int blockType);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #define GETERROR     (WSAGetLastError())
@@ -1170,16 +1170,6 @@ TryAgain: // Used for various retries.
         }
 #endif
 
-    case 64: /* Blocking select call. Infinite timeout. */
-        return selectCall(taskData, args, 1);
-
-    case 65: /* Polling select call. Zero timeout. */
-        return selectCall(taskData, args, 2);
-
-    case 66: /* Select call with non-zero timeout. */
-        return selectCall(taskData, args, 0);
-
-
     default:
         {
             char msg[100];
@@ -1391,103 +1381,50 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, WaitS
 /* Wrapper for "select" call.  The arguments are arrays of socket ids.  These arrays are
    updated so that "active" sockets are left unchanged and inactive sockets are set to
    minus one.  */
-static Handle selectCall(TaskData *taskData, Handle args, int blockType)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(PolyObject *threadId, PolyWord fdVecTriple, PolyWord maxMillisecs)
 {
-    Handle hSave = taskData->saveVec.mark();
-    
-    while (1) // Until we time-out or get a result.
-    {
-        POLYUNSIGNED i, nVec;
-        Handle rdResult, wrResult, exResult, result;
-        unsigned maxMillisecs = 1000; // Set the time to the maximum i.e. block
-        switch (blockType)
-        {
-        case 0: /* Check the timeout. */
-        {
-            /* The time argument is an absolute time. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            FILETIME ftTime, ftNow;
-            /* Get the file time. */
-            getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(3)), &ftTime);
-            GetSystemTimeAsFileTime(&ftNow);
-            /* If the timeout time is earlier than the current time
-               we must return, otherwise we block. */
-            if (CompareFileTime(&ftTime, &ftNow) <= 0)
-                maxMillisecs = 0;
-            else
-            {
-                subFiletimes(&ftTime, &ftNow);
-                if (ftTime.dwHighDateTime > 0 || ftTime.dwLowDateTime > 10000000)
-                    maxMillisecs = 1000; // No more than 1 second
-                else maxMillisecs = ftTime.dwLowDateTime / 10000;
-            }
-#else /* Unix */
-            struct timeval tvTime, tvNow;
-            /* We have a value in microseconds.  We need to split
-            it into seconds and microseconds. */
-            Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(3));
-            Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-            tvTime.tv_sec =
-                get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hTime)));
-            tvTime.tv_usec =
-                get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hTime)));
-            /* If the timeout time is earlier than the current time
-               we must return, otherwise we block. */
-            if (gettimeofday(&tvNow, NULL) != 0)
-                raise_syscall(taskData, "gettimeofday failed", errno);
-            if (tvNow.tv_sec > tvTime.tv_sec || (tvNow.tv_sec == tvTime.tv_sec && tvNow.tv_usec >= tvTime.tv_usec))
-                maxMillisecs = 0;
-            else
-            {
-                subTimevals(&tvTime, &tvNow);
-                if (tvTime.tv_sec >= 1) maxMillisecs = 1000; // Don't overflow if it's very long
-                else maxMillisecs = tvTime.tv_usec / 1000;
-            }
-#endif
-            break;
-        }
-        case 1: // Block until one of the descriptors is ready.
-            maxMillisecs = 1000; // Max 1 second
-            break;
-        case 2: // Just a simple poll
-            maxMillisecs = 0;
-            break;
-        }
-        WaitSelect waitSelect(maxMillisecs);
-        /* Set up the bitmaps for the select call from the arrays. */
-        PolyObject *readVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
-        PolyObject *writeVec = DEREFHANDLE(args)->Get(1).AsObjPtr();
-        PolyObject *excVec = DEREFHANDLE(args)->Get(2).AsObjPtr();
-        nVec = readVec->Length();
-        for (i = 0; i < nVec; i++)
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+    POLYUNSIGNED maxMilliseconds = maxMillisecs.UnTaggedUnsigned();
+    Handle fdVecTripleHandle = taskData->saveVec.push(fdVecTriple);
+    /* Set up the bitmaps for the select call from the arrays. */
+
+    try {
+        WaitSelect waitSelect(maxMilliseconds);
+        PolyObject *readVec = fdVecTripleHandle->WordP()->Get(0).AsObjPtr();
+        PolyObject *writeVec = fdVecTripleHandle->WordP()->Get(1).AsObjPtr();
+        PolyObject *excVec = fdVecTripleHandle->WordP()->Get(2).AsObjPtr();
+        for (POLYUNSIGNED i = 0; i < readVec->Length(); i++)
             waitSelect.SetRead(getStreamSocket(taskData, readVec->Get(i)));
-        nVec = writeVec->Length();
-        for (i = 0; i < nVec; i++)
+        for (POLYUNSIGNED i = 0; i < writeVec->Length(); i++)
             waitSelect.SetWrite(getStreamSocket(taskData, writeVec->Get(i)));
-        nVec = excVec->Length();
-        for (i = 0; i < nVec; i++)
+        for (POLYUNSIGNED i = 0; i < excVec->Length(); i++)
             waitSelect.SetExcept(getStreamSocket(taskData, excVec->Get(i)));
 
         // Do the select.  This may return immediately if the maximum time-out is short.
         processes->ThreadPauseForIO(taskData, &waitSelect);
         if (waitSelect.SelectResult() < 0)
             raise_syscall(taskData, "select failed", waitSelect.SelectError());
-        else if (waitSelect.SelectResult() > 0 || maxMillisecs == 0)
-        {
-            // There was a result or the time expired or it was just a poll.
-            // Construct the result vectors.
-            rdResult = getSelectResult(taskData, args, 0, &waitSelect);
-            wrResult = getSelectResult(taskData, args, 1, &waitSelect);
-            exResult = getSelectResult(taskData, args, 2, &waitSelect);
-            result = ALLOC(3);
-            DEREFHANDLE(result)->Set(0, rdResult->Word());
-            DEREFHANDLE(result)->Set(1, wrResult->Word());
-            DEREFHANDLE(result)->Set(2, exResult->Word());
-            return result;
-        }
-        // else try again.
-        taskData->saveVec.reset(hSave);
+
+        // Construct the result vectors.
+        Handle rdResult = getSelectResult(taskData, fdVecTripleHandle, 0, &waitSelect);
+        Handle wrResult = getSelectResult(taskData, fdVecTripleHandle, 1, &waitSelect);
+        Handle exResult = getSelectResult(taskData, fdVecTripleHandle, 2, &waitSelect);
+        result = ALLOC(3);
+        DEREFHANDLE(result)->Set(0, rdResult->Word());
+        DEREFHANDLE(result)->Set(1, wrResult->Word());
+        DEREFHANDLE(result)->Set(2, exResult->Word());
     }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+
 }
 
 // General interface to networking.  Ideally the various cases will be made into
@@ -1754,6 +1691,7 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkGetHostByName",               (polyRTSFunction)&PolyNetworkGetHostByName},
     { "PolyNetworkGetHostByAddr",               (polyRTSFunction)&PolyNetworkGetHostByAddr},
     { "PolyNetworkCloseSocket",                 (polyRTSFunction)&PolyNetworkCloseSocket },
+    { "PolyNetworkSelect",                      (polyRTSFunction)&PolyNetworkSelect },
 
     { NULL, NULL} // End of list.
 };
