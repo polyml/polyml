@@ -391,24 +391,6 @@ void WaitSelect::Wait(unsigned maxMillisecs)
     if (selectResult < 0) errorResult = GETERROR;
 }
 
-class WaitNet: public WaitSelect {
-public:
-    WaitNet(SOCKET sock, bool isOOB = false);
-};
-
-// Use "select" in both Windows and Unix.  In Windows that means we
-// don't watch hWakeupEvent but that's only a hint.
-WaitNet::WaitNet(SOCKET sock, bool isOOB)
-{
-    if (isOOB) SetExcept(sock); else SetRead(sock);
-}
-
-// Wait for a socket to be free to write.
-class WaitNetSend: public WaitSelect {
-public:
-    WaitNetSend(SOCKET sock) { SetWrite(sock); }
-};
-
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 class WinSocket : public WinStreamBase
 {
