@@ -539,26 +539,37 @@ struct
         end
 
         local
-            val doCall = doNetCall
-            fun doRecv i a = doCall (i, a)
+            val doRecv: OS.IO.iodesc * address * int * int * bool * bool -> int =
+                RunCall.rtsCallFull1 "PolyNetworkReceive"
         in
             (* Receive the data into an array. *)
-            fun recv (SOCK sock, base: address, offset: int, length: int, peek: bool, oob: bool): int =
-                doRecv 53 (RunCall.unsafeCast(sock, base, offset, length, peek, oob))
-
             fun recvNB (SOCK sock, base: address, offset: int, length: int, peek: bool, oob: bool): int option =
-                nonBlockingCall (doRecv 62) (RunCall.unsafeCast(sock, base, offset, length, peek, oob))
+                nonBlockingCall doRecv (sock, base, offset, length, peek, oob)
+            
+            fun recv (skt as SOCK sock, base, offset, length, rt, oob) =
+            (
+                (* Wait until we can read. *)
+                select{wrs=[], rds=[sockDesc skt], exs=[], timeout=NONE};
+                doRecv (sock, base, offset, length, rt, oob)
+            )
         end
 
         local
-            val doCall = doNetCall
-            fun doRecvFrom i a = doCall (i, a)
+            val doRecvFrom: OS.IO.iodesc * address * int * int * bool * bool -> int * Word8Vector.vector =
+                RunCall.rtsCallFull1 "PolyNetworkReceiveFrom"
         in 
-            fun recvFrom (SOCK sock, base: address, offset: int, length: int, peek: bool, oob: bool) =
-                RunCall.unsafeCast(doRecvFrom 54 (RunCall.unsafeCast (sock, base, offset, length, peek, oob)))
+            fun recvFromNB (SOCK sock, base, offset, length, peek, oob) =
+                case nonBlockingCall doRecvFrom (sock, base, offset, length, peek, oob) of
+                    SOME(length, addr) => SOME(length, SOCKADDR addr)
+                |   NONE => NONE
 
-            fun recvFromNB (SOCK sock, base: address, offset: int, length: int, peek: bool, oob: bool) =
-                RunCall.unsafeCast(nonBlockingCall (doRecvFrom 63) (RunCall.unsafeCast (sock, base, offset, length, peek, oob)))
+            fun recvFrom (skt as SOCK sock, base, offset, length, peek, oob) =
+            (
+                (* Wait until we can read. *)
+                select{wrs=[], rds=[sockDesc skt], exs=[], timeout=NONE};
+                case doRecvFrom (sock, base, offset, length, peek, oob) of
+                    (length, addr) => (length, SOCKADDR addr)
+            )
         end
     in
         fun sendVec' (sock, slice: Word8VectorSlice.slice, {don't_route, oob}) =

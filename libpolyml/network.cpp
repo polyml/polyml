@@ -156,6 +156,8 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(PolyObject *threadId, PolyWord skt);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(PolyObject *threadId, PolyWord args);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(PolyObject *threadId, PolyWord args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(PolyObject *threadId, PolyWord args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(PolyObject *threadId, PolyWord args);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -779,114 +781,6 @@ TryAgain: // Used for various retries.
             return Make_arbitrary_precision(taskData, 0);
         }
 
-    case 53: /* Receive data into an array. */
-        // We should check for interrupts even if we're not going to block.
-        processes->TestAnyEvents(taskData);
-    case 62: /* Non-blocking receive. */
-        {
-            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
-            char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
-            POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
-#if(defined(_WIN32) && ! defined(_CYGWIN))
-            int length = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
-#else
-            size_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
-#endif
-            unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
-            unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
-            int flags = 0;
-            if (peek != 0) flags |= MSG_PEEK;
-            if (outOfBand != 0) flags |= MSG_OOB;
-
-            while (1) {
-                int err;
-#if(defined(_WIN32) && ! defined(_CYGWIN))
-                int recvd;
-#else
-                ssize_t recvd;
-#endif
-                recvd = recv(sock, base+offset, length, flags);
-                err = GETERROR;
-                if (recvd != SOCKET_ERROR) { /* OK. */
-                    /* It appears that recv may return the length of the
-                       message if that is longer than the buffer. */
-                    if (recvd > (int)length) recvd = length;
-                    return Make_arbitrary_precision(taskData, recvd);
-                }
-                if ((err == WOULDBLOCK || err == INPROGRESS) && c == 53 /* blocking */)
-                {
-                    /* Block until something arrives. */
-                    WaitNet waiter(sock, outOfBand != 0);
-                    processes->ThreadPauseForIO(taskData, &waiter);
-                    // It is NOT safe to just loop here.  We may have GCed.
-                    taskData->saveVec.reset(hSave);
-                    goto TryAgain;
-                }
-                else if (err != CALLINTERRUPTED)
-                    raise_syscall(taskData, "recv failed", err);
-                /* else try again */
-            }
-        }
-
-    case 54: /* Receive data into an array and return the sender's
-                address along with the length.  In Windows this can
-                only be used with datagrams. */
-        // We should check for interrupts even if we're not going to block.
-        processes->TestAnyEvents(taskData);
-    case 63: /* Non-blocking receive. */
-        {
-            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
-            char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
-            POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
-#if(defined(_WIN32) && ! defined(_CYGWIN))
-            int length = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
-#else
-            size_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
-#endif
-            unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
-            unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
-            int flags = 0;
-            struct sockaddr_storage resultAddr;
-            socklen_t addrLen = sizeof(resultAddr);
-
-            if (peek != 0) flags |= MSG_PEEK;
-            if (outOfBand != 0) flags |= MSG_OOB;
-
-            while (1) {
-                int err;
-#if(defined(_WIN32) && ! defined(_CYGWIN))
-                int recvd;
-#else
-                ssize_t recvd;
-#endif
-                recvd = recvfrom(sock, base+offset, length, flags, (struct sockaddr*)&resultAddr, &addrLen);
-                err = GETERROR;
-
-                if (recvd != SOCKET_ERROR) { /* OK. */
-                    Handle addrHandle, lengthHandle, pair;
-                    if (recvd > (int)length) recvd = length;
-                    lengthHandle = Make_arbitrary_precision(taskData, recvd);
-                    if (addrLen > sizeof(resultAddr)) addrLen = sizeof(resultAddr);
-                    addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
-                    pair = ALLOC(2);
-                    DEREFHANDLE(pair)->Set(0, lengthHandle->Word());
-                    DEREFHANDLE(pair)->Set(1, addrHandle->Word());
-                    return pair;
-                }
-                if ((err == WOULDBLOCK || err == INPROGRESS) && c == 54 /* blocking */)
-                {
-                    WaitNet waiter(sock, outOfBand != 0);
-                    processes->ThreadPauseForIO(taskData, &waiter);
-                    // It is NOT safe to just loop here.  We may have GCed.
-                    taskData->saveVec.reset(hSave);
-                    goto TryAgain;
-                }
-                else if (err != CALLINTERRUPTED)
-                    raise_syscall(taskData, "recvfrom failed", err);
-                /* else try again */
-            }
-        }
-
     case 55: /* Create a socket pair. */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         /* Not implemented. */
@@ -1373,6 +1267,97 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(PolyObject *threadId, PolyWord
     return TAGGED(sent).AsUnsigned();
 }
 
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(PolyObject *threadId, PolyWord argsAsWord)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle args = taskData->saveVec.push(argsAsWord);
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+    int recvd = 0;
+#else
+    ssize_t recvd = 0;
+#endif
+
+    try {
+        SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
+        char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
+        POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+        int length = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
+#else
+        size_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
+#endif
+        unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
+        unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
+        int flags = 0;
+        if (peek != 0) flags |= MSG_PEEK;
+        if (outOfBand != 0) flags |= MSG_OOB;
+
+        recvd = recv(sock, base + offset, length, flags);
+        if (recvd == SOCKET_ERROR)
+            raise_syscall(taskData, "recv failed", GETERROR);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(recvd).AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(PolyObject *threadId, PolyWord argsAsWord)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle args = taskData->saveVec.push(argsAsWord);
+    Handle result = 0;
+
+    try {
+        SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
+        char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
+        POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+        int length = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
+#else
+        size_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
+#endif
+        unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
+        unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
+        int flags = 0;
+        struct sockaddr_storage resultAddr;
+        socklen_t addrLen = sizeof(resultAddr);
+
+        if (peek != 0) flags |= MSG_PEEK;
+        if (outOfBand != 0) flags |= MSG_OOB;
+
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+        int recvd;
+#else
+        ssize_t recvd;
+#endif
+        recvd = recvfrom(sock, base + offset, length, flags, (struct sockaddr*)&resultAddr, &addrLen);
+        if (recvd == SOCKET_ERROR)
+            raise_syscall(taskData, "recvfrom failed", GETERROR);
+
+        if (recvd > (int)length) recvd = length;
+        Handle lengthHandle = Make_arbitrary_precision(taskData, recvd);
+        if (addrLen > sizeof(resultAddr)) addrLen = sizeof(resultAddr);
+        Handle addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
+        result = ALLOC(2);
+        DEREFHANDLE(result)->Set(0, lengthHandle->Word());
+        DEREFHANDLE(result)->Set(1, addrHandle->Word());
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 // General interface to networking.  Ideally the various cases will be made into
 // separate functions.
 POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
@@ -1643,6 +1628,8 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkAccept",                      (polyRTSFunction)&PolyNetworkAccept },
     { "PolyNetworkSend",                        (polyRTSFunction)&PolyNetworkSend },
     { "PolyNetworkSendTo",                      (polyRTSFunction)&PolyNetworkSendTo },
+    { "PolyNetworkReceive",                     (polyRTSFunction)&PolyNetworkReceive },
+    { "PolyNetworkReceiveFrom",                 (polyRTSFunction)&PolyNetworkReceiveFrom },
 
     { NULL, NULL} // End of list.
 };
