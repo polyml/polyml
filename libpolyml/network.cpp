@@ -656,10 +656,11 @@ TryAgain: // Used for various retries.
     case 37: /* Get peer name. */
         {
             SOCKET skt = getStreamSocket(taskData, args->Word());
-            struct sockaddr sockA;
-            socklen_t   size = sizeof(sockA);
-            if (getpeername(skt, &sockA, &size) != 0)
+            struct sockaddr_storage sockA;
+            socklen_t size = sizeof(sockA);
+            if (getpeername(skt, (struct sockaddr*)&sockA, &size) != 0)
                 raise_syscall(taskData, "getpeername failed", GETERROR);
+            if (size > sizeof(sockA)) size = sizeof(sockA);
             /* Addresses are treated as strings. */
             return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
         }
@@ -667,10 +668,11 @@ TryAgain: // Used for various retries.
     case 38: /* Get socket name. */
         {
             SOCKET skt = getStreamSocket(taskData, args->Word());
-            struct sockaddr sockA;
+            struct sockaddr_storage sockA;
             socklen_t   size = sizeof(sockA);
-            if (getsockname(skt, &sockA, &size) != 0)
+            if (getsockname(skt, (struct sockaddr*)&sockA, &size) != 0)
                 raise_syscall(taskData, "getsockname failed", GETERROR);
+            if (size > sizeof(sockA)) size = sizeof(sockA);
             return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
         }
 
@@ -844,7 +846,7 @@ TryAgain: // Used for various retries.
             unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
             unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
             int flags = 0;
-            struct sockaddr resultAddr;
+            struct sockaddr_storage resultAddr;
             socklen_t addrLen = sizeof(resultAddr);
 
             if (peek != 0) flags |= MSG_PEEK;
@@ -857,13 +859,14 @@ TryAgain: // Used for various retries.
 #else
                 ssize_t recvd;
 #endif
-                recvd = recvfrom(sock, base+offset, length, flags, &resultAddr, &addrLen);
+                recvd = recvfrom(sock, base+offset, length, flags, (struct sockaddr*)&resultAddr, &addrLen);
                 err = GETERROR;
 
                 if (recvd != SOCKET_ERROR) { /* OK. */
                     Handle addrHandle, lengthHandle, pair;
                     if (recvd > (int)length) recvd = length;
                     lengthHandle = Make_arbitrary_precision(taskData, recvd);
+                    if (addrLen > sizeof(resultAddr)) addrLen = sizeof(resultAddr);
                     addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
                     pair = ALLOC(2);
                     DEREFHANDLE(pair)->Set(0, lengthHandle->Word());
@@ -1268,11 +1271,12 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(PolyObject *threadId, PolyWord
 
     try {
         SOCKET sock = getStreamSocket(taskData, skt);
-        struct sockaddr resultAddr;
+        struct sockaddr_storage resultAddr;
         socklen_t addrLen = sizeof(resultAddr);
-        SOCKET resultSkt = accept(sock, &resultAddr, &addrLen);
+        SOCKET resultSkt = accept(sock, (struct sockaddr*)&resultAddr, &addrLen);
         if (resultSkt == INVALID_SOCKET)
             raise_syscall(taskData, "accept failed", GETERROR);
+        if (addrLen > sizeof(resultAddr)) addrLen = sizeof(resultAddr);
         Handle addrHandle = taskData->saveVec.push(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
         // Return a pair of the new socket and the address.
         Handle resSkt = wrapStreamSocket(taskData, resultSkt);
