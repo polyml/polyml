@@ -135,8 +135,6 @@ sig
     val kill : killpid_arg * signal -> unit
     val alarm : Time.time -> Time.time
     val pause : unit -> unit
-    (* QUESTION: Why does sleep return a Time.time ? Is it intended to be the
-       time remaining?  Assume so. *)
     val sleep : Time.time -> Time.time
 end;
 
@@ -862,43 +860,50 @@ struct
 
         local
             val doCall = osSpecificGeneral
-            fun toAbsolute t =
-                if t < Time.zeroTime
-                then raise OS.SysErr("Invalid time", NONE)
-                else t + Time.now()
-            (* Because of rounding we may get a negative time.  In that
-               case we return zero. *)
-            fun endTime t =
-            let
-                val now = Time.now()
-            in
-                if t > now then t-now else Time.zeroTime
-            end
         in
             (* This previously used absolute times.  Now uses relative. *)
             fun alarm t = doCall(20, t)
-
-            fun sleep t =
-            let
-                val finish = toAbsolute t
-            in
-                (* We need to pass in the absolute time here.  That's
-                   because the process scheduler retries the
-                   function until a signal occurs or the time expires. *)
-                (* The result is zero if it returns successfully.  If
-                   an exception is raised we return the remaining
-                   time.  We assume that this only happens because
-                   the process is interrupted.  We don't handle the
-                   Interrupt exception, though. *)
-                (doCall(22, finish); Time.zeroTime) handle OS.SysErr _ => 
-                    endTime finish
-            end
         end
 
         local
-            val doCall = osSpecificGeneral
+            (* The underlying call waits for up to a second.  It takes the count of signals that
+               have been received and returns the last count.  This is necessary in case
+               a signal is received while we are in ML between calls to the RTS. *)
+            val doCall: int * int -> int = RunCall.rtsCallFull2 "PolyPosixSleep"
         in
-            fun pause() = doCall(21, ())
+            (* Sleep for a period.  Returns the unused wait time. *)
+            fun sleep sleepTime =
+            let
+                val endTime = sleepTime + Time.now()
+                val maxWait = 1000 (* Wait for up to a second *)
+                val initialCount = doCall (0, 0)
+                fun doWait () =
+                let
+                    val timeToGo =
+                        LargeInt.min(Time.toMilliseconds(endTime-Time.now()), LargeInt.fromInt maxWait)
+                in
+                    if timeToGo <= 0 orelse doCall(LargeInt.toInt timeToGo, initialCount) <> initialCount
+                    then (* Time has expired or we were interrupted. *)
+                    let
+                        val now = Time.now()
+                    in
+                        if endTime > now
+                        then endTime-now
+                        else Time.fromSeconds 0
+                    end
+                    else doWait() (* Resume the wait *)
+                end
+            in
+                doWait()
+            end
+
+            and pause() =
+            let
+                val initialCount = doCall(0, 0)
+                fun doPause() = if doCall(1000, initialCount) <> initialCount then () else doPause()
+            in
+                doPause()
+            end
         end
     end;
  
