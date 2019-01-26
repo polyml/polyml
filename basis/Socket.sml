@@ -502,32 +502,40 @@ struct
         datatype array = datatype LibrarySupport.Word8Array.array
         val wordSize = LibrarySupport.wordSize
 
-        (* Send the data from an array or vector.  Note: the underlying RTS function
-           deals with the special case of sending a single byte vector where the
-           "address" is actually the byte itself. *)
+        (* Send the data from an array or vector. *)
         local
-            val doCall = doNetCall
-            fun doSend i a = doCall (i, a)
-        in
-            fun send (SOCK sock, base: address, offset: int, length: int, rt: bool, oob: bool): int =
-                doSend 51 (sock, base, offset, length, rt, oob)
-    
+            val doSend: OS.IO.iodesc * address * int * int * bool * bool -> int =
+                RunCall.rtsCallFull1 "PolyNetworkSend"
+        in    
             fun sendNB (SOCK sock, base: address, offset: int, length: int, rt: bool, oob: bool): int option =
-                nonBlockingCall (doSend 60) (sock, base, offset, length, rt, oob)
+                nonBlockingCall doSend (sock, base, offset, length, rt, oob)
+            
+            fun send (skt as SOCK sock, base, offset, length, rt, oob) =
+            (
+                (* Wait until we can write. *)
+                select{wrs=[sockDesc skt], rds=[], exs=[], timeout=NONE};
+                (* Send it.  We should never get a WOULDBLOCK result so if we do we pass that back. *)
+                doSend (sock, base, offset, length, rt, oob)
+            )
         end
 
         local
             (* Although the underlying call returns the number of bytes written the
                ML functions now return unit. *)
-            val doCall = doNetCall
-            fun doSendTo i a = doCall (i, a)
-        in
-            fun sendTo (SOCK sock, addr, base: address, offset: int, length: int, rt: bool, oob: bool): unit =
-                doSendTo 52 (RunCall.unsafeCast(sock, addr, base, offset, length, rt, oob))
-    
-            fun sendToNB (SOCK sock, addr, base: address, offset: int, length: int, rt: bool, oob: bool): bool =
-                case nonBlockingCall (doSendTo 61) (RunCall.unsafeCast(sock, addr, base, offset, length, rt, oob)) of
+            val doSend: OS.IO.iodesc * Word8Vector.vector * address * int * int * bool * bool -> int =
+                RunCall.rtsCallFull1 "PolyNetworkSendTo"
+        in    
+            fun sendToNB (SOCK sock, SOCKADDR addr, base: address, offset, length, rt, oob): bool =
+                case nonBlockingCall doSend (sock, addr, base, offset, length, rt, oob) of
                     NONE => false | SOME _ => true
+            
+            fun sendTo (skt as SOCK sock, SOCKADDR addr, base: address, offset, length, rt, oob): unit =
+            (
+                (* Wait until we can write. *)
+                select{wrs=[sockDesc skt], rds=[], exs=[], timeout=NONE};
+                doSend (sock, addr, base, offset, length, rt, oob);
+                ()
+            )
         end
 
         local
