@@ -153,6 +153,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(PolyObject *threadId, PolyWord fdVecTriple, PolyWord maxMillisecs);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSocketError(PolyObject *threadId, PolyWord skt);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(PolyObject *threadId, PolyWord skt, PolyWord addr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(PolyObject *threadId, PolyWord skt);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -738,53 +739,6 @@ TryAgain: // Used for various retries.
                 raise_syscall(taskData, "ioctl failed", GETERROR);
 #endif
             return Make_arbitrary_precision(taskData, atMark == 0 ? 0 : 1);
-        }
-
-    case 46: /* Accept a connection. */
-        // We should check for interrupts even if we're not going to block.
-        processes->TestAnyEvents(taskData);
-
-    case 58: /* Non-blocking accept. */
-        {
-            SOCKET sock = getStreamSocket(taskData, args->Word());
-            struct sockaddr resultAddr;
-            Handle addrHandle, pair;
-            socklen_t addrLen = sizeof(resultAddr);
-            SOCKET result = accept(sock, &resultAddr, &addrLen);
-
-            if (result == INVALID_SOCKET)
-            {
-                switch (GETERROR)
-                {
-                case CALLINTERRUPTED:
-                    taskData->saveVec.reset(hSave);
-                    goto TryAgain; /* Have to retry if we got EINTR. */
-                case WOULDBLOCK:
-#if (WOULDBLOCK != INPROGRESS)
-                case INPROGRESS:
-#endif
-                    /* If the socket is in non-blocking mode we pass
-                        this back to the caller.  If it is blocking we
-                        suspend this process and try again later. */
-                    if (c == 46 /* blocking version. */) {
-                        WaitNet waiter(sock);
-                        processes->ThreadPauseForIO(taskData, &waiter);
-                        taskData->saveVec.reset(hSave);
-                        goto TryAgain;
-                    }
-                    /* else drop through. */
-                default:
-                    raise_syscall(taskData, "accept failed", GETERROR);
-                }
-            }
-
-            addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
-            // Return a pair of the new socket and the address.
-            Handle resSkt = wrapStreamSocket(taskData, result);
-            pair = ALLOC(2);
-            DEREFHANDLE(pair)->Set(0, resSkt->Word());
-            DEREFHANDLE(pair)->Set(1, addrHandle->Word());
-            return pair;
         }
 
     case 47: /* Bind an address to a socket. */
@@ -1420,6 +1374,39 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(PolyObject *threadId, PolyWor
     return TAGGED(0).AsUnsigned(); // Always returns unit
 }
 
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(PolyObject *threadId, PolyWord skt)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
+
+        SOCKET sock = getStreamSocket(taskData, skt);
+        struct sockaddr resultAddr;
+        socklen_t addrLen = sizeof(resultAddr);
+        SOCKET resultSkt = accept(sock, &resultAddr, &addrLen);
+        if (resultSkt == INVALID_SOCKET)
+            raise_syscall(taskData, "accept failed", GETERROR);
+        Handle addrHandle = taskData->saveVec.push(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
+        // Return a pair of the new socket and the address.
+        Handle resSkt = wrapStreamSocket(taskData, resultSkt);
+        result = alloc_and_save(taskData, 2);
+        result->WordP()->Set(0, resSkt->Word());
+        result->WordP()->Set(1, addrHandle->Word());
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 // General interface to networking.  Ideally the various cases will be made into
 // separate functions.
 POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
@@ -1687,6 +1674,7 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkSelect",                      (polyRTSFunction)&PolyNetworkSelect },
     { "PolyNetworkGetSocketError",              (polyRTSFunction)&PolyNetworkGetSocketError },
     { "PolyNetworkConnect",                     (polyRTSFunction)&PolyNetworkConnect },
+    { "PolyNetworkAccept",                      (polyRTSFunction)&PolyNetworkAccept },
 
 
     { NULL, NULL} // End of list.

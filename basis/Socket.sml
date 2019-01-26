@@ -407,19 +407,25 @@ struct
     (* Run an operation in non-blocking mode.  This catches EWOULDBLOCK and returns NONE,
        otherwise returns SOME result.  Other exceptions are passed back as normal. *)
     val nonBlockingCall = LibraryIOSupport.nonBlocking
-
+    
     local
-        val doCall = doNetCall
+        val accpt: OS.IO.iodesc -> OS.IO.iodesc * Word8Vector.vector = RunCall.rtsCallFull1 "PolyNetworkAccept"
     in
-        fun accept (SOCK s) = RunCall.unsafeCast(doCall (46, s))
+        fun acceptNB (SOCK sk) =
+            case nonBlockingCall accpt sk of
+                SOME (resSkt, resAddr) => SOME (SOCK resSkt, SOCKADDR resAddr)
+            |   NONE => NONE
     end
-
-    local
-        val doCall = doNetCall
-        fun acc sock = doCall (58, RunCall.unsafeCast sock)
-    in
-        fun acceptNB sock = RunCall.unsafeCast(nonBlockingCall acc sock)
-    end
+    
+    (* Blocking accept - keep trying until we get a result. *)
+    fun accept skt =
+        case acceptNB skt of
+            SOME result => result
+        |   NONE =>
+            (
+                select{wrs=[], rds=[sockDesc skt], exs=[sockDesc skt], timeout=NONE};
+                accept skt
+            )
 
     local
         val doCall = doNetCall
