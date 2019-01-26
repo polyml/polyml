@@ -151,6 +151,8 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(PolyObject *threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(PolyObject *threadId, PolyWord fdVecTriple, PolyWord maxMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSocketError(PolyObject *threadId, PolyWord skt);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(PolyObject *threadId, PolyWord skt, PolyWord addr);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -795,60 +797,6 @@ TryAgain: // Used for various retries.
             return Make_arbitrary_precision(taskData, 0);
         }
 
-    case 48: /* Connect to an address. */
-        // We should check for interrupts even if we're not going to block.
-        processes->TestAnyEvents(taskData);
-    case 59: /* Non-blocking connect. */
-        {
-            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
-            PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
-            struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            /* In Windows, and possibly also in Unix, if we have
-               received a previous EWOULDBLOCK we have to use "select"
-               to tell us whether the connection actually succeeded. */
-            while (1)
-            {
-                int res = connect(sock, psock, (int)psAddr->length);
-                if (res == 0) return Make_arbitrary_precision(taskData, 0); /* OK */
-                /* It isn't clear that EINTR can ever occur with
-                    connect, but just to be safe, we retry. */
-                int err = GETERROR;
-                if ((err == WOULDBLOCK || err == INPROGRESS) && c == 48 /*blocking version*/)
-                    break; // It's in progress and we need to wait for completion
-                else if (err != CALLINTERRUPTED)
-                    raise_syscall(taskData, "connect failed", err);
-                /* else try again. */
-            }
-
-            while (1)
-            {
-                /* In Windows failure is indicated by the bit being set in
-                    the exception set rather than the write set. */
-                WaitSelect waiter;
-                waiter.SetWrite(sock);
-                waiter.SetExcept(sock);
-                processes->ThreadPauseForIO(taskData, &waiter);
-
-                if (waiter.SelectResult() < 0)
-                {
-                    int err = waiter.SelectError();
-                    if (err != CALLINTERRUPTED)
-                        raise_syscall(taskData, "select failed", err);
-                    /* else continue */
-                }
-                else if (waiter.SelectResult() != 0) /* Definite result. */
-                {
-                    int result = 0;
-                    socklen_t len = sizeof(result);
-                    if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&result, &len) != 0)
-                        raise_syscall(taskData, "connect failed", GETERROR);
-                    else if (result != 0)
-                        raise_syscall(taskData, "connect failed", result);
-                    return Make_arbitrary_precision(taskData, 0); /* Success. */
-                }
-            }
-        }
-
     case 49: /* Put socket into listening mode. */
         {
             SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
@@ -1340,6 +1288,30 @@ static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt)
     return Make_arbitrary_precision(taskData, optVal);
 }
 
+POLYUNSIGNED PolyNetworkGetSocketError(PolyObject *threadId, PolyWord skt)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        SOCKET sock = getStreamSocket(taskData, skt);
+        int intVal = 0;
+        socklen_t size = sizeof(int);
+        if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&intVal, &size) != 0)
+            raise_syscall(taskData, "getsockopt failed", GETERROR);
+        result = Make_sysword(taskData, intVal);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 // Helper function for selectCall.  Creates the result vector of active sockets.
 static bool testBit(int offset, SOCKET fd, WaitSelect *pSelect)
 {
@@ -1425,6 +1397,27 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(PolyObject *threadId, PolyWord
     if (result == 0) return TAGGED(0).AsUnsigned();
     else return result->Word().AsUnsigned();
 
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(PolyObject *threadId, PolyWord skt, PolyWord addr)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    try {
+        SOCKET sock = getStreamSocket(taskData, skt);
+        PolyStringObject * psAddr = (PolyStringObject *)(addr.AsObjPtr());
+        struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
+        // Begin the connection.  The socket is always non-blocking so this will return immediately.
+        if (connect(sock, psock, (int)psAddr->length) != 0)
+            raise_syscall(taskData, "connect failed", GETERROR);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned(); // Always returns unit
 }
 
 // General interface to networking.  Ideally the various cases will be made into
@@ -1692,6 +1685,9 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkGetHostByAddr",               (polyRTSFunction)&PolyNetworkGetHostByAddr},
     { "PolyNetworkCloseSocket",                 (polyRTSFunction)&PolyNetworkCloseSocket },
     { "PolyNetworkSelect",                      (polyRTSFunction)&PolyNetworkSelect },
+    { "PolyNetworkGetSocketError",              (polyRTSFunction)&PolyNetworkGetSocketError },
+    { "PolyNetworkConnect",                     (polyRTSFunction)&PolyNetworkConnect },
+
 
     { NULL, NULL} // End of list.
 };

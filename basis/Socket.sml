@@ -170,12 +170,9 @@ end;
 structure Socket :> SOCKET =
 struct
     (* We don't really need an implementation for these.  *)
-    (* TODO: We should really pull the definition of the sock type into a common structure so
-       it can be shared by the various socket structures.  In fact it doesn't matter since the
-       unary constructor here is compiled as an identity so the underlying representation of
-       "SOCK x" will be the same as "x". *)
-    datatype ('af,'sock_type) sock = SOCK of OS.IO.iodesc
-    and dgram = DGRAM
+    datatype sock = datatype LibraryIOSupport.sock
+     
+    datatype dgram = DGRAM
     and 'mode stream = STREAM
     and passive = PASSIVE
     and active = ACTIVE
@@ -263,7 +260,7 @@ struct
     end
 
     (* Socket addresses are implemented as strings. *)
-    datatype 'af sock_addr = SOCKADDR of Word8Vector.vector
+    datatype sock_addr = datatype LibraryIOSupport.sock_addr
 
     (* Note: The definition did not make these equality type variables.
        The assumption is probably that it works much like equality on
@@ -276,6 +273,15 @@ struct
         val doCall = doNetCall
     in
         fun familyOfAddr (sa: 'af sock_addr) = doCall(39, RunCall.unsafeCast sa)
+    end
+    
+    
+    (* Get the error state as an OS.syserror value.  This is a SysWord.word value. *)
+    local
+        val sysGetError: OS.IO.iodesc -> SysWord.word =
+            RunCall.rtsCallFull1 "PolyNetworkGetSocketError"
+    in
+        fun getAndClearError(SOCK s): SysWord.word = sysGetError s
     end
 
     structure Ctl =
@@ -300,7 +306,7 @@ struct
         and setBROADCAST s = setOpt 25 s
         and getOOBINLINE s = getOpt 28 s
         and setOOBINLINE s = setOpt 27 s
-        and getERROR s = getOpt 34 s
+        and getERROR s = getAndClearError s <> 0w0
         and getATMARK s = getOpt 45 s
 
         local
@@ -346,6 +352,58 @@ struct
         end (* Ctl *)
 
 
+    (* "select" call. *)
+    datatype sock_desc = SOCKDESC of OS.IO.iodesc
+    fun sockDesc (SOCK sock) = SOCKDESC sock (* Create a socket descriptor from a socket. *)
+    fun sameDesc (SOCKDESC a, SOCKDESC b) = a = b
+
+    (* The underlying call takes three arrays and updates them with the sockets that are
+       in the appropriate state.  It sets inactive elements to ~1. *)
+    val sysSelect: (OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector) * int ->
+        OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector
+         = RunCall.rtsCallFull2 "PolyNetworkSelect"
+    
+    fun select { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list, timeout: Time.time option } :
+            { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list } =
+    let
+        fun sockDescToDesc(SOCKDESC sock) = sock
+        (* Create the initial vectors. *)
+        val rdVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc rds)
+        val wrVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc wrs)
+        val exVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc exs)
+
+        (* As with OS.FileSys.poll we call the RTS to check the sockets for up to a second
+           and repeat until the time expires. *)
+        val finishTime = case timeout of NONE => NONE | SOME t => SOME(t + Time.now())
+            
+        val maxMilliSeconds = 1000 (* 1 second *)
+
+        fun doSelect() =
+        let
+            val timeToGo =
+                case finishTime of
+                    NONE => maxMilliSeconds
+                |   SOME finish => LargeInt.toInt(LargeInt.min(LargeInt.max(0, Time.toMilliseconds(finish-Time.now())),
+                        LargeInt.fromInt maxMilliSeconds))
+
+            val results as (rdResult, wrResult, exResult) =
+                sysSelect((rdVec, wrVec, exVec), timeToGo)
+        in
+            if timeToGo < maxMilliSeconds orelse Vector.length rdResult <> 0
+                orelse Vector.length wrResult <> 0 orelse Vector.length exResult <> 0
+            then results
+            else doSelect()
+        end
+
+        val (rdResult, wrResult, exResult) = doSelect()
+
+        (* Function to create the results. *)
+        fun getResults v = Vector.foldr (fn (sd, l) => SOCKDESC sd :: l) [] v
+    in
+        (* Convert the results. *)
+        { rds = getResults rdResult, wrs = getResults wrResult, exs = getResults exResult }
+    end
+
     (* Run an operation in non-blocking mode.  This catches EWOULDBLOCK and returns NONE,
        otherwise returns SOME result.  Other exceptions are passed back as normal. *)
     val nonBlockingCall = LibraryIOSupport.nonBlocking
@@ -370,17 +428,27 @@ struct
     end
 
     local
-        val doCall = doNetCall
+        val connct: OS.IO.iodesc * Word8Vector.vector -> unit = RunCall.rtsCallFull2 "PolyNetworkConnect"
     in
-        fun connect (SOCK s, a) = doCall (48, RunCall.unsafeCast (s, a))
-    end
-
-    local
-        val doCall = doNetCall
-        fun connct sa = doCall (59, RunCall.unsafeCast sa)
-    in
-        fun connectNB (SOCK s, a) =
+        fun connectNB (SOCK s, SOCKADDR a) =
             case nonBlockingCall connct (s,a) of SOME () => true | NONE => false
+            
+        fun connect (sockAndAddr as (skt, _)) =
+            if connectNB sockAndAddr
+            then ()
+            else
+            let
+                (* In Windows failure is indicated by the bit being set in
+                    the exception set rather than the write set. *)
+                val _ = select{wrs=[sockDesc skt], rds=[], exs=[sockDesc skt], timeout=NONE}
+                val anyError = getAndClearError skt
+                val theError = LibrarySupport.syserrorFromWord anyError
+            in
+                if anyError = 0w0
+                then ()
+                else raise OS.SysErr(OS.errorMsg theError, SOME theError)
+            end
+                
     end
 
     fun listen (SOCK s, b) =
@@ -619,58 +687,6 @@ struct
         end
         and recvVecFromNB (sock, size) = recvVecFromNB'(sock, size, nullIn)
 
-    end
-
-    (* "select" call. *)
-    datatype sock_desc = SOCKDESC of OS.IO.iodesc
-    fun sockDesc (SOCK sock) = SOCKDESC sock (* Create a socket descriptor from a socket. *)
-    fun sameDesc (SOCKDESC a, SOCKDESC b) = a = b
-
-    (* The underlying call takes three arrays and updates them with the sockets that are
-       in the appropriate state.  It sets inactive elements to ~1. *)
-    val sysSelect: (OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector) * int ->
-        OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector
-         = RunCall.rtsCallFull2 "PolyNetworkSelect"
-    
-    fun select { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list, timeout: Time.time option } :
-            { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list } =
-    let
-        fun sockDescToDesc(SOCKDESC sock) = sock
-        (* Create the initial vectors. *)
-        val rdVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc rds)
-        val wrVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc wrs)
-        val exVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc exs)
-
-        (* As with OS.FileSys.poll we call the RTS to check the sockets for up to a second
-           and repeat until the time expires. *)
-        val finishTime = case timeout of NONE => NONE | SOME t => SOME(t + Time.now())
-            
-        val maxMilliSeconds = 1000 (* 1 second *)
-
-        fun doSelect() =
-        let
-            val timeToGo =
-                case finishTime of
-                    NONE => maxMilliSeconds
-                |   SOME finish => LargeInt.toInt(LargeInt.min(LargeInt.max(0, Time.toMilliseconds(finish-Time.now())),
-                        LargeInt.fromInt maxMilliSeconds))
-
-            val results as (rdResult, wrResult, exResult) =
-                sysSelect((rdVec, wrVec, exVec), timeToGo)
-        in
-            if timeToGo < maxMilliSeconds orelse Vector.length rdResult <> 0
-                orelse Vector.length wrResult <> 0 orelse Vector.length exResult <> 0
-            then results
-            else doSelect()
-        end
-
-        val (rdResult, wrResult, exResult) = doSelect()
-
-        (* Function to create the results. *)
-        fun getResults v = Vector.foldr (fn (sd, l) => SOCKDESC sd :: l) [] v
-    in
-        (* Convert the results. *)
-        { rds = getResults rdResult, wrs = getResults wrResult, exs = getResults exResult }
     end
 
 end;

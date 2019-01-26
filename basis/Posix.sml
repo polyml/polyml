@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Posix structure and signature.
-    Copyright   David Matthews 2000, 2016-17
+    Copyright   David Matthews 2000, 2016-17, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -620,8 +620,9 @@ struct
     struct
         type syserror = OS.syserror (* Implemented as a SysWord.word value. *)
         val errorMsg = OS.errorMsg
-        fun toWord (s: syserror): SysWord.word = RunCall.unsafeCast s
-        and fromWord (w: SysWord.word) : syserror = RunCall.unsafeCast w
+
+        val toWord = LibrarySupport.syserrorToWord
+        and fromWord = LibrarySupport.syserrorFromWord
 
         val toobig = fromWord(getConst 0)
         and acces = fromWord(getConst 1)

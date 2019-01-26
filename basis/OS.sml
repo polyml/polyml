@@ -148,7 +148,7 @@ signature OS_IO =
 
 signature OS =
   sig
-    eqtype  syserror
+    eqtype syserror
     exception SysErr of (string * syserror Option.option)
     val errorMsg : syserror -> string
     val errorName : syserror -> string
@@ -161,13 +161,13 @@ signature OS =
   end (* OS *);
 
 
-structure OS:> OS =
+structure OS:> OS where type syserror = LibrarySupport.syserror (* Don't make it abstract a second time *) =
 struct
-    type syserror = SysWord.word (* Implemented as a SysWord.word value. *)
+    type syserror = LibrarySupport.syserror (* Implemented as a SysWord.word value. *)
 
     (* The calls themselves raise the SysCall exception.
        That has to be turned into a SysError exception. *)
-    exception SysErr = RunCall.SysErr
+    exception SysErr = LibrarySupport.SysErr
 
     (* Convert a numeric system error to a string.
        Note: unlike Posix.Error.errorName and Posix.Error.sysError
@@ -186,7 +186,7 @@ struct
         let
             val n = doCall s
         in
-            if n = 0w0 then NONE else SOME n
+            if LibrarySupport.syserrorToWord n = 0w0 then NONE else SOME n
         end
     end
 
