@@ -637,6 +637,13 @@ PolyWord ProcessFixupAddress::GetNewAddress(PolyWord old)
     PolyObject *obj = old.AsObjPtr();
     POLYUNSIGNED L = obj->LengthWord();
 
+    if (obj->ContainsForwardingPtr()) // tombstone is a pointer to a shared object
+    {
+        PolyObject *newp = obj->GetForwardingPtr();
+//        ASSERT (newp->ContainsNormalLengthWord());
+        return newp;
+    }
+
     // Generally each address will point to an object processed at a lower depth.
     // The exception is if we have a cycle and have assigned the rest of the
     // structure to a higher depth.
@@ -644,13 +651,6 @@ PolyWord ProcessFixupAddress::GetNewAddress(PolyWord old)
     // with something else and not be retained.
     if (OBJ_IS_DEPTH(L))
         return old;
-
-    if (obj->ContainsForwardingPtr()) // tombstone is a pointer to a shared object
-    {
-        PolyObject *newp = obj->GetForwardingPtr();
-//        ASSERT (newp->ContainsNormalLengthWord());
-        return newp;
-    }
 
     ASSERT (obj->ContainsNormalLengthWord()); // object is not shared
     return old;
