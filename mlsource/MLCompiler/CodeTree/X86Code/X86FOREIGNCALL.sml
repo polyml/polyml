@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-18 David C.J. Matthews
+    Copyright (c) 2016-19 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -48,7 +48,21 @@ struct
     open X86CODE
     open Address
     open CODE_ARRAY
-   
+        
+    (* Unix X64.  The first six arguments are in rdi, rsi, rdx, rcx, r8, r9.
+                  The rest are on the stack.
+       Windows X64. The first four arguments are in rcx, rdx, r8 and r9.  The rest are
+                   on the stack.  The caller must ensure the stack is aligned on 16-byte boundary
+                   and must allocate 32-byte save area for the register args.
+                   rbx, rbp, rdi, rsi, rsp, r12-r15 are saved by the called function.
+       X86/32.  Arguments are pushed to the stack.
+               ebx, edi, esi, ebp and esp are saved by the called function.
+               We use esi to hold the argument data pointer and edi to save the ML stack pointer
+       Our ML conventions use eax, ebx for the first two arguments in X86/32,
+               rax, ebx, r8, r9, r10 for the first five arguments in X86/64 and
+               rax, rsi, r8, r9 and r10 for the first five arguments in X86/64-32 bit.
+    *)
+
     val (polyWordOpSize, nativeWordOpSize) =
         case targetArch of
             Native32Bit     => (OpSize32, OpSize32)
@@ -128,41 +142,28 @@ struct
         (* Branch to check for exception. *)
         val exLabel = Label{labelNo=0} (* There's just one label in this function. *)
         
-        (* Unix X64.  The first six arguments are in rdi, rsi, rdx, rcx, r8, r9.
-                      The rest are on the stack.
-           Windows X64. The first four arguments are in rcx, rdx, r8 and r9.  The rest are
-                       on the stack.  The caller must ensure the stack is aligned on 16-byte boundary
-                       and must allocate 32-byte save area for the register args.
-                       rbx, rbp, rdi, rsi, rsp, r12-r15 are saved by the called function.
-           X86/32.  Arguments are pushed to the stack.
-                   ebx, edi, esi, ebp and esp are saved by the called function.
-                   We use esi to hold the argument data pointer and edi to save the ML stack pointer
-           Our ML conventions use eax, ebx for the first two arguments in X86/32,
-                   rax, ebx, r8, r9, r10 for the first five arguments in X86/64 and
-                   rax, rsi, r8, r9 and r10 for the first five arguments in X86/64-32 bit.
-        *)
-        
         (* Previously the ML stack pointer was saved in a callee-save register.  This works
            in almost all circumstances except when a call to the FFI code results in a callback
            and the callback moves the ML stack.  Instead the RTS callback handler adjusts the value
            in memRegStackPtr and we reload the ML stack pointer from there. *)
         val entryPtrReg = if targetArch <> Native32Bit then r11 else ecx
         
-        val stackSpace =
-            case abi of
-                X64Unix => memRegSize
-            |   X64Win => memRegSize + 32 (* Requires 32-byte save area. *)
-            |   X86_32 =>
-                let
-                    (* GCC likes to keep the stack on a 16-byte alignment. *)
-                    val argSpace = (nArgs+1)*4
-                    val align = argSpace mod 16
-                in
-                    (* Add sufficient space so that esp will be 16-byte aligned *)
-                    if align = 0
-                    then memRegSize
-                    else memRegSize + 16 - align
-                end
+        local
+            (* Compute stack space.  The actual number of args passed is nArgs+1. *)
+            val argSpace =
+                case abi of
+                    X64Unix => Int.max(0, nArgs+1-6)*8
+                |   X64Win => Int.max(0, nArgs+1-4)*8
+                |   X86_32 => (nArgs+1)*4
+            val align = argSpace mod 16
+        in
+            (* Add sufficient space so that esp will be 16-byte aligned after we
+               have pushed any arguments we need to push. *)
+            val stackSpace =
+                if align = 0
+                then memRegSize
+                else memRegSize + 16 - align
+        end
 
         (* The RTS functions expect the real address of the thread Id. *)
         fun loadThreadId toReg =
@@ -191,38 +192,58 @@ struct
                 (* Have to save the stack pointer to the arg structure in case we need to scan the stack for a GC. *)
                 storeMemory(esp, ebp, memRegStackPtr, nativeWordOpSize), (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize), (*moveRR{source=ebp, output=esp},*) (* Load the saved C stack pointer. *)
-                (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
+                (* Set the stack pointer past the data on the stack.  *)
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
             ] @
             (
-                case (abi, nArgs) of  (* Set the argument registers. *)
-                    (X64Unix, 0) => loadThreadId edi
-                |   (X64Unix, 1) => moveRR{source=eax, output=esi, opSize=polyWordOpSize} :: loadThreadId edi
-                |   (X64Unix, 2) =>
-                        moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} ::
-                        moveRR{source=eax, output=esi, opSize=polyWordOpSize} :: loadThreadId edi
-                |   (X64Unix, 3) => 
-                        moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} :: moveRR{source=eax, output=esi, opSize=polyWordOpSize} ::
-                        moveRR{source=r8, output=ecx, opSize=polyWordOpSize} :: loadThreadId edi
-                |   (X64Win, 0) => loadThreadId ecx
-                |   (X64Win, 1) => moveRR{source=eax, output=edx, opSize=polyWordOpSize} :: loadThreadId ecx
-                |   (X64Win, 2) =>
-                        moveRR{source=eax, output=edx, opSize=polyWordOpSize} ::
-                        moveRR{source=mlArg2Reg, output=r8, opSize=polyWordOpSize} :: loadThreadId ecx
-                |   (X64Win, 3) =>
-                        moveRR{source=eax, output=edx, opSize=polyWordOpSize} :: moveRR{source=r8, output=r9, opSize=polyWordOpSize} ::
-                        moveRR{source=mlArg2Reg, output=r8, opSize=polyWordOpSize} :: loadThreadId ecx
-                |   (X86_32, 0) => [ PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
-                |   (X86_32, 1) => [ pushR eax, PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
-                |   (X86_32, 2) => [ pushR mlArg2Reg, pushR eax, PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
-                |   (X86_32, 3) =>
-                        [
-                            (* We need to move an argument from the ML stack. *)
-                            PushToStack(MemoryArg{base=edi, offset=4, index=NoIndex}), pushR mlArg2Reg, pushR eax,
-                            PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex})
-                        ]
-                |   _ => raise InternalError "rtsCall: Abi/argument count not implemented"
+                case abi of  (* Set the argument registers. *)
+                    X64Unix =>
+                    let
+                        fun pushArgs 0 = loadThreadId edi
+                        |   pushArgs 1 = moveRR{source=eax, output=esi, opSize=polyWordOpSize} :: pushArgs 0
+                        |   pushArgs 2 = moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} :: pushArgs 1
+                        |   pushArgs 3 = moveRR{source=r8, output=ecx, opSize=polyWordOpSize} :: pushArgs 2
+                        |   pushArgs 4 =
+                                (* Have to move r8 into rcx before we can move r9 into r8 *)
+                                moveRR{source=r8, output=ecx, opSize=polyWordOpSize} ::
+                                    moveRR{source=r9, output=r8, opSize=polyWordOpSize} :: pushArgs 2
+                        |   pushArgs 5 =
+                                moveRR{source=r8, output=ecx, opSize=polyWordOpSize} :: moveRR{source=r9, output=r8, opSize=polyWordOpSize} ::
+                                    moveRR{source=r10, output=r9, opSize=polyWordOpSize} :: pushArgs 2
+                        |   pushArgs _ = raise InternalError "rtsCall: Abi/argument count not implemented"
+                                    
+                    in
+                        pushArgs nArgs
+                    end
+                    
+                |   X64Win =>
+                    let
+                        fun pushArgs 0 = loadThreadId ecx
+                        |   pushArgs 1 = moveRR{source=eax, output=edx, opSize=polyWordOpSize} :: pushArgs 0
+                        |   pushArgs 2 = moveRR{source=mlArg2Reg, output=r8, opSize=polyWordOpSize} :: pushArgs 1
+                        |   pushArgs 3 = moveRR{source=r8, output=r9, opSize=polyWordOpSize} :: pushArgs 2
+                        |   pushArgs 4 = pushR r9 :: pushArgs 3
+                        |   pushArgs 5 = pushR r10 :: pushArgs 4
+                        |   pushArgs _ = raise InternalError "rtsCall: Abi/argument count not implemented"
+                    in
+                        pushArgs nArgs
+                    end
+
+                |   X86_32 =>
+                    let
+                        (* Arguments have to be pushed in reverse order so that they appear correctly on the
+                           final stack frame.  *)
+                        fun pushArgs 0 = [ PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
+                        |   pushArgs 1 = pushR eax :: pushArgs 0
+                        |   pushArgs 2 = pushR ebx :: pushArgs 1
+                        |   pushArgs n =
+                                PushToStack(MemoryArg{base=edi, offset=(nArgs-n+1)* 4, index=NoIndex}) :: pushArgs(n-1)
+                    in
+                        pushArgs nArgs
+                    end
             ) @
+            (*  For Windows/64 add in a 32 byte save area ater we've pushed any arguments. *)
+            (case abi of X64Win => [ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg 32, opSize=nativeWordOpSize}] | _ => []) @
             [
                 CallFunction(DirectReg entryPtrReg), (* Call the function *)
                 loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)

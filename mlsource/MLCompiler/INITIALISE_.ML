@@ -448,6 +448,7 @@ struct
                 and c = makeTV ()
                 and d = makeTV ()
                 and e = makeTV ()
+                and f = makeTV ()
                 
                 fun makeRtsCall(n, makeCall) = makeRunCallTupled(List.tabulate(n, fn _ => GeneralType), GeneralType, toMachineWord(makeCall n))
             in
@@ -463,8 +464,11 @@ struct
                 val rtsCallFull3Entry = makePolymorphic([a, b, c, d], makeRtsCall(3, makeFullCall))
                 val rtsCallFast3Entry = makePolymorphic([a, b, c, d], makeRtsCall(3, makeFastCall))
                 val rtsCall3Type = String ->> TYPETREE.mkProductType [a,b,c] ->> d
+                val rtsCallFull4Entry = makePolymorphic([a, b, c, d, e], makeRtsCall(4, makeFullCall))
                 val rtsCallFast4Entry = makePolymorphic([a, b, c, d, e], makeRtsCall(4, makeFastCall))
                 val rtsCall4Type = String ->> TYPETREE.mkProductType [a,b,c,d] ->> e
+                val rtsCallFull5Entry = makePolymorphic([a, b, c, d, e, f], makeRtsCall(5, makeFullCall))
+                val rtsCall5Type = String ->> TYPETREE.mkProductType [a,b,c,d,e] ->> f
             end
         in
             val () = enterRunCall ("rtsCallFull0", rtsCallFull0Entry, rtsCall0Type)
@@ -476,6 +480,8 @@ struct
             val () = enterRunCall ("rtsCallFull3", rtsCallFull3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type)
+            val () = enterRunCall ("rtsCallFull4", rtsCallFull4Entry, rtsCall4Type)
+            val () = enterRunCall ("rtsCallFull5", rtsCallFull5Entry, rtsCall5Type)
             
             val makeRunCallTupled = makeRunCallTupled (* Needed for reals. *)
         end

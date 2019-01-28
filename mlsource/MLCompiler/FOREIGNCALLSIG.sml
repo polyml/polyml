@@ -17,7 +17,7 @@
 
 signature FOREIGNCALLSIG =
 sig
-   val rtsCallFull: string * int * Universal.universal list -> Address.machineWord
+    val rtsCallFull: string * int * Universal.universal list -> Address.machineWord
     val rtsCallFast: string * int * Universal.universal list -> Address.machineWord
     val rtsCallFastRealtoReal: string * Universal.universal list -> Address.machineWord
     val rtsCallFastRealRealtoReal: string * Universal.universal list -> Address.machineWord
