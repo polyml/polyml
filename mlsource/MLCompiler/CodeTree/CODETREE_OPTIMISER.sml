@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15,17 David C.J. Matthews
+    Copyright (c) 2012,13,15,17-19 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -164,7 +164,7 @@ struct
         |   checkUse isMain (Eval{function, argList, ...}, cl, _) =
                 checkUse isMain (function, List.foldl(fn ((e, _), n) => checkUse isMain (e, n, false)) (cl--2) argList, false)
 
-        |   checkUse _ (GetThreadId, cl, _) = cl -- 1
+        |   checkUse _ (Nullary _, cl, _) = cl -- 1
         |   checkUse isMain (Unary{arg1, ...}, cl, _) = checkUse isMain (arg1, cl -- 1, false)
         |   checkUse isMain (Binary{arg1, arg2, ...}, cl, _) = checkUseList isMain ([arg1, arg2], cl -- 1)
         |   checkUse isMain (Arbitrary{arg1, arg2, ...}, cl, _) = checkUseList isMain ([arg1, arg2], cl -- 4)

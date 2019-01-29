@@ -991,14 +991,9 @@ struct
             end
 
         |   codeExtended _ ({instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...}, code) =
-            let
-                (* The argument must be put into rax. *)
-                val _ = getAllocatedGenReg preg = eax orelse raise InternalError "codeExtended: RaiseExceptionPacket"
-            in
                 (* We need a work register here.  It can be any register other than eax since
                    we don't preserve registers across calls. *)
-                RaiseException { workReg=ecx } :: code
-            end
+                RaiseException { workReg=ecx } :: moveIfNecessary({src=getAllocatedReg preg, dst=GenReg eax, kind=moveNativeWord}, code)
 
         |   codeExtended _ ({instr=ReserveContainer{size, ...}, ...}, code) =
                 (* The memory must be cleared in case we have a GC. *)

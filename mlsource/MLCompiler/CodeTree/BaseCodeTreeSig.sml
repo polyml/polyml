@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2016-18
+    Modified David C. J. Matthews 2008-2010, 2013, 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -81,6 +81,7 @@ sig
         }
 
         (* Built-in functions. *)
+    |   Nullary of {oper: BuiltIns.nullaryOps}
     |   Unary of {oper: BuiltIns.unaryOps, arg1: codetree}
     |   Binary of {oper: BuiltIns.binaryOps, arg1: codetree, arg2: codetree}
 
@@ -118,8 +119,6 @@ sig
     |   BlockOperation of
             { kind: blockOpKind, sourceLeft: codeAddress, destRight: codeAddress, length: codetree }
 
-    |   GetThreadId
-    
     |   AllocateWordMemory of {numWords: codetree, flags: codetree, initial: codetree}
 
     and codeBinding =
@@ -211,6 +210,7 @@ sig
         and  foldControl = foldControl
         and  unaryOps = BuiltIns.unaryOps
         and  binaryOps = BuiltIns.binaryOps
+        and  nullaryOps = BuiltIns.nullaryOps
         and  arbPrecisionOps = arbPrecisionOps
         and  testConditions = BuiltIns.testConditions
         and  arithmeticOperations = BuiltIns.arithmeticOperations

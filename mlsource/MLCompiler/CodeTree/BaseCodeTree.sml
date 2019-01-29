@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017
+    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -66,6 +66,7 @@ struct
         }
 
         (* Built-in functions. *)
+    |   Nullary of {oper: BuiltIns.nullaryOps}
     |   Unary of {oper: BuiltIns.unaryOps, arg1: codetree}
     |   Binary of {oper: BuiltIns.binaryOps, arg1: codetree, arg2: codetree}
 
@@ -107,8 +108,6 @@ struct
     |   BlockOperation of
             { kind: blockOpKind, sourceLeft: codeAddress, destRight: codeAddress, length: codetree }
 
-    |   GetThreadId
-    
     |   AllocateWordMemory of {numWords: codetree, flags: codetree, initial: codetree}
 
     and codeBinding =
@@ -284,13 +283,13 @@ struct
                     ]
                 )
 
-        |   GetThreadId => prettyBuiltin("GetThreadId", [])
-
         |   Unary { oper, arg1 } =>
                 prettyBuiltin(BuiltIns.unaryRepr oper, [arg1])
 
         |   Binary { oper, arg1, arg2 } =>
                 prettyBuiltin(BuiltIns.binaryRepr oper, [arg1, arg2])
+
+        |   Nullary { oper } => PrettyString(BuiltIns.nullaryRepr oper)
 
         |   Arbitrary { oper, shortCond, arg1, arg2, longCall } =>
             let
@@ -644,7 +643,7 @@ struct
                     argList = map (fn(c, a) => (mapCodetree f c, a)) argList,
                     resultType = resultType
                 }
-        |   mapt GetThreadId = GetThreadId
+        |   mapt(nullary as Nullary _) = nullary
         |   mapt(Unary { oper, arg1 }) =
                 Unary { oper = oper, arg1 = mapCodetree f arg1 }
         |   mapt(Binary { oper, arg1, arg2 }) =
@@ -719,7 +718,7 @@ struct
         |   ftree (Indirect{base, ...}, v) = foldtree f v base
         |   ftree (Eval { function, argList, ...}, v) =
                 foldl(fn((c, _), w) => foldtree f w c) (foldtree f v function) argList
-        |   ftree (GetThreadId, v) = v
+        |   ftree (Nullary _, v) = v
         |   ftree (Unary {arg1, ...}, v) = foldtree f v arg1
         |   ftree (Binary {arg1, arg2, ...}, v) = foldtree f (foldtree f v arg1) arg2
         |   ftree (Arbitrary {shortCond, arg1, arg2, longCall, ...}, v) =
@@ -767,6 +766,7 @@ struct
         and  foldControl = foldControl
         and  unaryOps = BuiltIns.unaryOps
         and  binaryOps = BuiltIns.binaryOps
+        and  nullaryOps = BuiltIns.nullaryOps
         and  arbPrecisionOps = arbPrecisionOps
         and  testConditions = BuiltIns.testConditions
         and  arithmeticOperations = BuiltIns.arithmeticOperations

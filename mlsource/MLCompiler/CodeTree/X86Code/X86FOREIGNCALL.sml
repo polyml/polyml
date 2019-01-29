@@ -126,6 +126,8 @@ struct
             |   n => raise InternalError ("Unknown ABI type " ^ Int.toString n)
     end
 
+    (* The RTS sets the exceptionPacket field to this at the start and then if
+       an exception is raised it stores the exception packet pointer there. *)
     val noException = 1
 
     (* Full RTS call version.  An extra argument is passed that contains the thread ID.
@@ -282,8 +284,7 @@ struct
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
         val abi = getABI()
 
-        val (entryPtrReg, saveMLStackPtrReg) =
-            if targetArch <> Native32Bit then (r11, r13) else (ecx, edi)
+        val entryPtrReg = if targetArch <> Native32Bit then r11 else ecx
         
         val stackSpace =
             case abi of
@@ -308,8 +309,20 @@ struct
         val code =
             [
                 Move{source=AddressConstArg entryPointAddr, destination=RegisterArg entryPtrReg, moveSize=opSizeToMove polyWordOpSize}, (* Load the entry point ref. *)
-                loadHeapMemory(entryPtrReg, entryPtrReg, 0, nativeWordOpSize),(* Load its value. *)
-                moveRR{source=esp, output=saveMLStackPtrReg, opSize=nativeWordOpSize}, (* Save ML stack and switch to C stack. *)
+                loadHeapMemory(entryPtrReg, entryPtrReg, 0, nativeWordOpSize)(* Load its value. *)
+            ] @
+            (
+                (* Save heap ptr.  This is in r15 in X86/64 *)
+                if targetArch <> Native32Bit then [storeMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize)] (* Save heap ptr *)
+                else []
+            ) @
+            (
+                if abi = X86_32 andalso List.length argFormats >= 3
+                then [moveRR{source=esp, output=edi, opSize=nativeWordOpSize}] (* Needed if we have to load from the stack. *)
+                else []
+            ) @
+            [
+                storeMemory(esp, ebp, memRegStackPtr, nativeWordOpSize), (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize),
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
@@ -338,13 +351,13 @@ struct
                 |   (X86_32, [FastArgFixed, FastArgFixed, FastArgFixed]) =>
                         [
                             (* We need to move an argument from the ML stack. *)
-                            loadMemory(edx, saveMLStackPtrReg, 4, polyWordOpSize), pushR edx, pushR mlArg2Reg, pushR eax
+                            loadMemory(edx, edi, 4, polyWordOpSize), pushR edx, pushR mlArg2Reg, pushR eax
                         ]
                 |   (X86_32, [FastArgFixed, FastArgFixed, FastArgFixed, FastArgFixed]) =>
                         [
                             (* We need to move an arguments from the ML stack. *)
-                            loadMemory(edx, saveMLStackPtrReg, 4, polyWordOpSize), pushR edx,
-                            loadMemory(edx, saveMLStackPtrReg, 8, polyWordOpSize), pushR edx,
+                            loadMemory(edx, edi, 4, polyWordOpSize), pushR edx,
+                            loadMemory(edx, edi, 8, polyWordOpSize), pushR edx,
                             pushR mlArg2Reg, pushR eax
                         ]
 
@@ -425,7 +438,13 @@ struct
             ) @
             [
                 CallFunction(DirectReg entryPtrReg), (* Call the function *)
-                moveRR{source=saveMLStackPtrReg, output=esp, opSize=nativeWordOpSize}, (* Restore the ML stack pointer *)
+                loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)
+            ] @
+            (
+            if targetArch <> Native32Bit then [loadMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize) ] (* Copy back the heap ptr *)
+            else []
+            ) @
+            [
                 (* Since this is an ML function we need to remove any ML stack arguments. *)
                 ReturnFromFunction mlArgsOnStack
             ]

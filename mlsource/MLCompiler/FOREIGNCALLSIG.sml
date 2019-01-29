@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016, 2018 David C.J. Matthews
+    Copyright (c) 2016, 2018-19 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,6 @@
 
 signature FOREIGNCALLSIG =
 sig
-    val rtsCallFull: string * int * Universal.universal list -> Address.machineWord
     val rtsCallFast: string * int * Universal.universal list -> Address.machineWord
     val rtsCallFastRealtoReal: string * Universal.universal list -> Address.machineWord
     val rtsCallFastRealRealtoReal: string * Universal.universal list -> Address.machineWord

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1074,12 +1074,32 @@ struct
                 (callCode, RegisterArgument target, tailCall (* We've exited if this was a tail jump *))
             end
 
-        |   codeToICodeRev(BICGetThreadId, _, _, destination, tailCode) =
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.GetCurrentThreadId}, _, _, destination, tailCode) =
             (* Get the ID of the current thread. *)
             let
                 val target = asTarget destination
             in
                 (BlockSimple(LoadMemReg{offset=memRegThreadSelf, dest=target}) :: tailCode, RegisterArgument target, false)
+            end
+
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, { currHandler, ...}, _, _, tailCode) =
+            let
+                (* Raise an exception in ML if the last RTS call set the exception packet. *)
+                val haveException = newLabel() and noException = newLabel()
+                val ccRef = newCCRef()
+                val testReg = newPReg()
+                val raiseCode = RaiseExceptionPacket{packetReg=testReg}
+                val code =
+                    BlockLabel noException ::
+                    (case currHandler of
+                        NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h)) ::
+                    BlockLabel haveException ::
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=JNE, trueJump=haveException, falseJump=noException }) ::
+                    BlockSimple(CompareLiteral{arg1=RegisterArgument testReg, arg2=tag 0, opSize=polyWordOpSize, ccRef=ccRef}) ::
+                    BlockSimple(LoadMemReg{offset=memRegExceptionPacket, dest=testReg}) ::
+                    tailCode
+            in
+                (code, (* Unit result *) IntegerConstant(tag 0), false)
             end
 
         |   codeToICodeRev(BICUnary instr, context, isTail, destination, tailCode) =
