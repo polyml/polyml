@@ -59,7 +59,7 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProfiling(PolyObject *threadId, PolyWord mode);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProfiling(FirstArgument threadId, PolyWord mode);
 }
 
 static POLYUNSIGNED mainThreadCounts[MTP_MAXENTRY];
@@ -450,7 +450,7 @@ static Handle profilerc(TaskData *taskData, Handle mode_handle)
     return request.extractAsList(taskData);
 }
 
-POLYUNSIGNED PolyProfiling(PolyObject *threadId, PolyWord mode)
+POLYUNSIGNED PolyProfiling(FirstArgument threadId, PolyWord mode)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

@@ -140,9 +140,9 @@
 #endif
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(PolyObject *threadId, PolyWord streamVec, PolyWord bitVec, PolyWord maxMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(FirstArgument threadId, PolyWord code, PolyWord strm, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(FirstArgument threadId, PolyWord streamVec, PolyWord bitVec, PolyWord maxMillisecs);
 }
 
 // References to the standard streams.  They are only needed if we are compiling
@@ -701,7 +701,7 @@ private:
 // and a time to wait and returns a vector of results.
 // Windows: This is messy because "select" only works on sockets.
 // Do the best we can.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(PolyObject *threadId, PolyWord streamVector, PolyWord bitVector, PolyWord maxMillisecs)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(FirstArgument threadId, PolyWord streamVector, PolyWord bitVector, PolyWord maxMillisecs)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -869,7 +869,7 @@ static Handle change_dirc(TaskData *taskData, Handle name)
 }
 
 // External call
-POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyChDir(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1383,7 +1383,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 
 // General interface to IO.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg)
+POLYUNSIGNED PolyBasicIOGeneral(FirstArgument threadId, PolyWord code, PolyWord strm, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

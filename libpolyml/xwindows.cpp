@@ -248,7 +248,7 @@ B      X_Acc_Object            XtAccelerators    acc                GetAcc
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXWindowsGeneral(FirstArgument threadId, PolyWord params);
 }
 /* The following are only forward so we can declare attributes */
 static void RaiseXWindows(TaskData *taskData, const char *s) __attribute__((noreturn));
@@ -9563,7 +9563,7 @@ void XWinModule::Init(void)
     XSetErrorHandler(XWindowsError);
 }
 
-POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params)
+POLYUNSIGNED PolyXWindowsGeneral(FirstArgument threadId, PolyWord params)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     taskData->PreRTSCall();
@@ -9599,7 +9599,7 @@ POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params)
 #include "xwindows.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXWindowsGeneral(FirstArgument threadId, PolyWord params);
 }
 
 Handle XWindows_c(TaskData *taskData, Handle/*params*/)
@@ -9610,7 +9610,7 @@ Handle XWindows_c(TaskData *taskData, Handle/*params*/)
     return taskData->saveVec.push(TAGGED(0)); /* just to keep lint happy */
 }
 
-POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord /*params*/)
+POLYUNSIGNED PolyXWindowsGeneral(FirstArgument threadId, PolyWord /*params*/)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     taskData->PreRTSCall();

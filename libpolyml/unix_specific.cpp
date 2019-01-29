@@ -133,9 +133,9 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixSleep(PolyObject *threadId, PolyWord maxTime, PolyWord sigCount);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixSleep(FirstArgument threadId, PolyWord maxTime, PolyWord sigCount);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -1129,7 +1129,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
 // General interface to Unix OS-specific.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1177,7 +1177,7 @@ public:
 // This waits for a period of up to a second.  The actual time calculations are
 // done in ML.  Takes the signal count as an argument and returns the last signal
 // count.  This ensures that it does not miss any signals that arrive while in ML.
-POLYUNSIGNED PolyPosixSleep(PolyObject *threadId, PolyWord maxMillisecs, PolyWord sigCount)
+POLYUNSIGNED PolyPosixSleep(FirstArgument threadId, PolyWord maxMillisecs, PolyWord sigCount)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

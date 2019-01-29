@@ -82,7 +82,7 @@
 #define SIZEOF(x) (sizeof(x)/sizeof(word))
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
 }
 
@@ -662,7 +662,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
 // General interface to Windows OS-specific.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

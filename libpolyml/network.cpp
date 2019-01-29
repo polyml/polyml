@@ -139,25 +139,25 @@ typedef int SOCKET;
 #include "timing.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByName(PolyObject *threadId, PolyWord servName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(PolyObject *threadId, PolyWord servName, PolyWord protName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPort(PolyObject *threadId, PolyWord portNo);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(PolyObject *threadId, PolyWord portNo, PolyWord protName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByName(PolyObject *threadId, PolyWord protocolName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByNo(PolyObject *threadId, PolyWord protoNo);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hostName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(PolyObject *threadId, PolyWord fdVecTriple, PolyWord maxMillisecs);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSocketError(PolyObject *threadId, PolyWord skt);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(PolyObject *threadId, PolyWord skt, PolyWord addr);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(PolyObject *threadId, PolyWord skt);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(PolyObject *threadId, PolyWord args);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(PolyObject *threadId, PolyWord args);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(PolyObject *threadId, PolyWord args);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(PolyObject *threadId, PolyWord args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByName(FirstArgument threadId, PolyWord servName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(FirstArgument threadId, PolyWord servName, PolyWord protName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPort(FirstArgument threadId, PolyWord portNo);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(FirstArgument threadId, PolyWord portNo, PolyWord protName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByName(FirstArgument threadId, PolyWord protocolName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByNo(FirstArgument threadId, PolyWord protoNo);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostName(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByName(FirstArgument threadId, PolyWord hostName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByAddr(FirstArgument threadId, PolyWord hostAddr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(FirstArgument threadId, PolyWord fdVecTriple, PolyWord maxMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSocketError(FirstArgument threadId, PolyWord skt);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(FirstArgument threadId, PolyWord skt, PolyWord addr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(FirstArgument threadId, PolyWord skt);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(FirstArgument threadId, PolyWord args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(FirstArgument threadId, PolyWord args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(FirstArgument threadId, PolyWord args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(FirstArgument threadId, PolyWord args);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -1005,7 +1005,7 @@ static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt)
     return Make_arbitrary_precision(taskData, optVal);
 }
 
-POLYUNSIGNED PolyNetworkGetSocketError(PolyObject *threadId, PolyWord skt)
+POLYUNSIGNED PolyNetworkGetSocketError(FirstArgument threadId, PolyWord skt)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1070,7 +1070,7 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, WaitS
 /* Wrapper for "select" call.  The arguments are arrays of socket ids.  These arrays are
    updated so that "active" sockets are left unchanged and inactive sockets are set to
    minus one.  */
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(PolyObject *threadId, PolyWord fdVecTriple, PolyWord maxMillisecs)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(FirstArgument threadId, PolyWord fdVecTriple, PolyWord maxMillisecs)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1116,7 +1116,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(PolyObject *threadId, PolyWord
 
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(PolyObject *threadId, PolyWord skt, PolyWord addr)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(FirstArgument threadId, PolyWord skt, PolyWord addr)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1137,7 +1137,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(PolyObject *threadId, PolyWor
     return TAGGED(0).AsUnsigned(); // Always returns unit
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(PolyObject *threadId, PolyWord skt)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(FirstArgument threadId, PolyWord skt)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1168,7 +1168,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(PolyObject *threadId, PolyWord
     else return result->Word().AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(PolyObject *threadId, PolyWord argsAsWord)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(FirstArgument threadId, PolyWord argsAsWord)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1207,7 +1207,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(PolyObject *threadId, PolyWord a
     return TAGGED(sent).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(PolyObject *threadId, PolyWord argsAsWord)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(FirstArgument threadId, PolyWord argsAsWord)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1249,7 +1249,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(PolyObject *threadId, PolyWord
     return TAGGED(sent).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(PolyObject *threadId, PolyWord argsAsWord)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(FirstArgument threadId, PolyWord argsAsWord)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1288,7 +1288,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(PolyObject *threadId, PolyWor
     return TAGGED(recvd).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(PolyObject *threadId, PolyWord argsAsWord)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(FirstArgument threadId, PolyWord argsAsWord)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1342,7 +1342,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(PolyObject *threadId, Pol
 
 // General interface to networking.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyNetworkGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1366,7 +1366,7 @@ POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord ar
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetServByName(PolyObject *threadId, PolyWord serviceName)
+POLYUNSIGNED PolyNetworkGetServByName(FirstArgument threadId, PolyWord serviceName)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1385,7 +1385,7 @@ POLYUNSIGNED PolyNetworkGetServByName(PolyObject *threadId, PolyWord serviceName
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(PolyObject *threadId, PolyWord serviceName, PolyWord protName)
+POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(FirstArgument threadId, PolyWord serviceName, PolyWord protName)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1404,7 +1404,7 @@ POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(PolyObject *threadId, PolyWord 
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetServByPort(PolyObject *threadId, PolyWord portNo)
+POLYUNSIGNED PolyNetworkGetServByPort(FirstArgument threadId, PolyWord portNo)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1422,7 +1422,7 @@ POLYUNSIGNED PolyNetworkGetServByPort(PolyObject *threadId, PolyWord portNo)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(PolyObject *threadId, PolyWord portNo, PolyWord protName)
+POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(FirstArgument threadId, PolyWord portNo, PolyWord protName)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1441,7 +1441,7 @@ POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(PolyObject *threadId, PolyWord 
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetProtByName(PolyObject *threadId, PolyWord protocolName)
+POLYUNSIGNED PolyNetworkGetProtByName(FirstArgument threadId, PolyWord protocolName)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1460,7 +1460,7 @@ POLYUNSIGNED PolyNetworkGetProtByName(PolyObject *threadId, PolyWord protocolNam
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetProtByNo(PolyObject *threadId, PolyWord protoNo)
+POLYUNSIGNED PolyNetworkGetProtByNo(FirstArgument threadId, PolyWord protoNo)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1478,7 +1478,7 @@ POLYUNSIGNED PolyNetworkGetProtByNo(PolyObject *threadId, PolyWord protoNo)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId)
+POLYUNSIGNED PolyNetworkGetHostName(FirstArgument threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1513,7 +1513,7 @@ POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hName)
+POLYUNSIGNED PolyNetworkGetHostByName(FirstArgument threadId, PolyWord hName)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1532,7 +1532,7 @@ POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hName)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr)
+POLYUNSIGNED PolyNetworkGetHostByAddr(FirstArgument threadId, PolyWord hostAddr)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1551,7 +1551,7 @@ POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkCloseSocket(PolyObject *threadId, PolyWord strm)
+POLYUNSIGNED PolyNetworkCloseSocket(FirstArgument threadId, PolyWord strm)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

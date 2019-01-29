@@ -126,154 +126,7 @@ struct
             |   n => raise InternalError ("Unknown ABI type " ^ Int.toString n)
     end
 
-    (* The RTS sets the exceptionPacket field to this at the start and then if
-       an exception is raised it stores the exception packet pointer there. *)
-    val noException = 1
-
-    (* Full RTS call version.  An extra argument is passed that contains the thread ID.
-       This allows the taskData object to be found which is needed if the code allocates
-       any ML memory or raises an exception.  It also saves the stack and heap pointers
-       in case of a GC. *)
-    fun rtsCallFull (functionName, nArgs (* Not counting the thread ID *), debugSwitches) =
-    let
-        val entryPointAddr = makeEntryPoint functionName
-
-        (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
-        val abi = getABI()
-
-        (* Branch to check for exception. *)
-        val exLabel = Label{labelNo=0} (* There's just one label in this function. *)
-        
-        (* Previously the ML stack pointer was saved in a callee-save register.  This works
-           in almost all circumstances except when a call to the FFI code results in a callback
-           and the callback moves the ML stack.  Instead the RTS callback handler adjusts the value
-           in memRegStackPtr and we reload the ML stack pointer from there. *)
-        val entryPtrReg = if targetArch <> Native32Bit then r11 else ecx
-        
-        local
-            (* Compute stack space.  The actual number of args passed is nArgs+1. *)
-            val argSpace =
-                case abi of
-                    X64Unix => Int.max(0, nArgs+1-6)*8
-                |   X64Win => Int.max(0, nArgs+1-4)*8
-                |   X86_32 => (nArgs+1)*4
-            val align = argSpace mod 16
-        in
-            (* Add sufficient space so that esp will be 16-byte aligned after we
-               have pushed any arguments we need to push. *)
-            val stackSpace =
-                if align = 0
-                then memRegSize
-                else memRegSize + 16 - align
-        end
-
-        (* The RTS functions expect the real address of the thread Id. *)
-        fun loadThreadId toReg =
-            if targetArch <> ObjectId32Bit
-            then [loadMemory(toReg, ebp, memRegThreadSelf, nativeWordOpSize)]
-            else [loadMemory(toReg, ebp, memRegThreadSelf, polyWordOpSize),
-                  LoadAddress{output=toReg, offset=0, base=SOME ebx, index=Index4 toReg, opSize=nativeWordOpSize}]
-
-        val code =
-            [
-                Move{source=AddressConstArg entryPointAddr, destination=RegisterArg entryPtrReg, moveSize=opSizeToMove polyWordOpSize}, (* Load the entry point ref. *)
-                loadHeapMemory(entryPtrReg, entryPtrReg, 0, nativeWordOpSize)(* Load its value. *)
-            ] @
-            (
-                (* Save heap ptr.  This is in r15 in X86/64 *)
-                if targetArch <> Native32Bit then [storeMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize)] (* Save heap ptr *)
-                else []
-            ) @
-            (
-                if abi = X86_32 andalso nArgs >= 3
-                then [moveRR{source=esp, output=edi, opSize=nativeWordOpSize}] (* Needed if we have to load from the stack. *)
-                else []
-            ) @
-            
-            [
-                (* Have to save the stack pointer to the arg structure in case we need to scan the stack for a GC. *)
-                storeMemory(esp, ebp, memRegStackPtr, nativeWordOpSize), (* Save ML stack and switch to C stack. *)
-                loadMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize), (*moveRR{source=ebp, output=esp},*) (* Load the saved C stack pointer. *)
-                (* Set the stack pointer past the data on the stack.  *)
-                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
-            ] @
-            (
-                case abi of  (* Set the argument registers. *)
-                    X64Unix =>
-                    let
-                        fun pushArgs 0 = loadThreadId edi
-                        |   pushArgs 1 = moveRR{source=eax, output=esi, opSize=polyWordOpSize} :: pushArgs 0
-                        |   pushArgs 2 = moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} :: pushArgs 1
-                        |   pushArgs 3 = moveRR{source=r8, output=ecx, opSize=polyWordOpSize} :: pushArgs 2
-                        |   pushArgs 4 =
-                                (* Have to move r8 into rcx before we can move r9 into r8 *)
-                                moveRR{source=r8, output=ecx, opSize=polyWordOpSize} ::
-                                    moveRR{source=r9, output=r8, opSize=polyWordOpSize} :: pushArgs 2
-                        |   pushArgs 5 =
-                                moveRR{source=r8, output=ecx, opSize=polyWordOpSize} :: moveRR{source=r9, output=r8, opSize=polyWordOpSize} ::
-                                    moveRR{source=r10, output=r9, opSize=polyWordOpSize} :: pushArgs 2
-                        |   pushArgs _ = raise InternalError "rtsCall: Abi/argument count not implemented"
-                                    
-                    in
-                        pushArgs nArgs
-                    end
-                    
-                |   X64Win =>
-                    let
-                        fun pushArgs 0 = loadThreadId ecx
-                        |   pushArgs 1 = moveRR{source=eax, output=edx, opSize=polyWordOpSize} :: pushArgs 0
-                        |   pushArgs 2 = moveRR{source=mlArg2Reg, output=r8, opSize=polyWordOpSize} :: pushArgs 1
-                        |   pushArgs 3 = moveRR{source=r8, output=r9, opSize=polyWordOpSize} :: pushArgs 2
-                        |   pushArgs 4 = pushR r9 :: pushArgs 3
-                        |   pushArgs 5 = pushR r10 :: pushArgs 4
-                        |   pushArgs _ = raise InternalError "rtsCall: Abi/argument count not implemented"
-                    in
-                        pushArgs nArgs
-                    end
-
-                |   X86_32 =>
-                    let
-                        (* Arguments have to be pushed in reverse order so that they appear correctly on the
-                           final stack frame.  *)
-                        fun pushArgs 0 = [ PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
-                        |   pushArgs 1 = pushR eax :: pushArgs 0
-                        |   pushArgs 2 = pushR ebx :: pushArgs 1
-                        |   pushArgs n =
-                                PushToStack(MemoryArg{base=edi, offset=(nArgs-n+1)* 4, index=NoIndex}) :: pushArgs(n-1)
-                    in
-                        pushArgs nArgs
-                    end
-            ) @
-            (*  For Windows/64 add in a 32 byte save area ater we've pushed any arguments. *)
-            (case abi of X64Win => [ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg 32, opSize=nativeWordOpSize}] | _ => []) @
-            [
-                CallFunction(DirectReg entryPtrReg), (* Call the function *)
-                loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)
-            ] @
-            (
-            if targetArch <> Native32Bit then [loadMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize) ] (* Copy back the heap ptr *)
-            else []
-            ) @
-            [
-                ArithMemConst{opc=CMP, address={offset=memRegExceptionPacket, base=ebp, index=NoIndex}, source=noException, opSize=polyWordOpSize},
-                ConditionalBranch{test=JNE, label=exLabel},
-                (* Remove any arguments that have been passed on the stack. *)
-                ReturnFromFunction(Int.max(case abi of X86_32 => nArgs-2 | _ => nArgs-5, 0)),
-                JumpLabel exLabel, (* else raise the exception *)
-                loadMemory(eax, ebp, memRegExceptionPacket, polyWordOpSize),
-                RaiseException { workReg=ecx }
-            ]
- 
-        val profileObject = createProfileObject functionName
-        val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val closure = makeConstantClosure()
-        val () = X86OPTIMISE.generateCode{code=newCode, labelCount=1(*One label.*), ops=code, resultClosure=closure}
-    in
-        closureAsAddress closure
-    end
-
-    (* This is a quicker version but can only be used if the RTS entry does
-       not allocated ML memory, raise an exception or need to suspend the thread. *)
+    (* This is now the standard entry call code. *)
     datatype fastArgs = FastArgFixed | FastArgDouble | FastArgFloat
 
 
@@ -286,25 +139,27 @@ struct
 
         val entryPtrReg = if targetArch <> Native32Bit then r11 else ecx
         
-        val stackSpace =
-            case abi of
-                X64Unix => memRegSize
-            |   X64Win => memRegSize + 32 (* Requires 32-byte save area. *)
-            |   X86_32 =>
-                let
-                    (* GCC likes to keep the stack on a 16-byte alignment. *)
-                    val argSpace = List.foldl(fn (FastArgDouble, n) => n+8 | (_, n) => n+4) 0 argFormats
-                    val align = argSpace mod 16
-                in
-                    (* Add sufficient space so that esp will be 16-byte aligned *)
-                    if align = 0
-                    then memRegSize
-                    else memRegSize + 16 - align
-                end
+        val nArgs = List.length argFormats
+        
+        local
+            (* Compute stack space.  The actual number of args passed is nArgs+1. *)
+            val argSpace =
+                case abi of
+                    X64Unix => Int.max(0, nArgs-6)*8
+                |   X64Win => Int.max(0, nArgs-4)*8
+                |   X86_32 => List.foldl(fn (FastArgDouble, n) => n+8 | (_, n) => n+4) 0 argFormats
+            val align = argSpace mod 16
+        in
+            (* Add sufficient space so that esp will be 16-byte aligned after we
+               have pushed any arguments we need to push. *)
+            val stackSpace =
+                if align = 0
+                then memRegSize
+                else memRegSize + 16 - align
+        end
 
         (* The number of ML arguments passed on the stack. *)
-        val mlArgsOnStack =
-            Int.max(case abi of X86_32 => List.length argFormats - 2 | _ => List.length argFormats - 5, 0)
+        val mlArgsOnStack = Int.max(case abi of X86_32 => nArgs - 2 | _ => nArgs - 5, 0)
 
         val code =
             [
@@ -317,7 +172,7 @@ struct
                 else []
             ) @
             (
-                if abi = X86_32 andalso List.length argFormats >= 3
+                if abi = X86_32 andalso nArgs >= 3 orelse abi = X64Win andalso nArgs >= 6
                 then [moveRR{source=esp, output=edi, opSize=nativeWordOpSize}] (* Needed if we have to load from the stack. *)
                 else []
             ) @
@@ -328,114 +183,129 @@ struct
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
             ] @
             (
-                case (abi, argFormats) of  (* Set the argument registers. *)
-                    (_, []) => []
-                |   (X64Unix, [FastArgFixed]) => [ moveRR{source=eax, output=edi, opSize=polyWordOpSize} ]
-                |   (X64Unix, [FastArgFixed, FastArgFixed]) =>
-                        (* Since mlArgs2Reg is esi on 32-in-64 this is redundant. *)
-                        [ moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize}, moveRR{source=eax, output=edi, opSize=polyWordOpSize} ]
-                |   (X64Unix, [FastArgFixed, FastArgFixed, FastArgFixed]) => 
-                        [ moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize}, moveRR{source=eax, output=edi, opSize=polyWordOpSize},
-                          moveRR{source=r8, output=edx, opSize=polyWordOpSize} ]
-                |   (X64Unix, [FastArgFixed, FastArgFixed, FastArgFixed, FastArgFixed]) => 
-                        [ moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize}, moveRR{source=eax, output=edi, opSize=polyWordOpSize},
-                          moveRR{source=r8, output=edx, opSize=polyWordOpSize}, moveRR{source=r9, output=ecx, opSize=polyWordOpSize} ]
-                |   (X64Win, [FastArgFixed]) => [ moveRR{source=eax, output=ecx, opSize=polyWordOpSize} ]
-                |   (X64Win, [FastArgFixed, FastArgFixed]) => [ moveRR{source=eax, output=ecx, opSize=polyWordOpSize}, moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} ]
-                |   (X64Win, [FastArgFixed, FastArgFixed, FastArgFixed]) =>
-                        [ moveRR{source=eax, output=ecx, opSize=polyWordOpSize}, moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} (* Arg3 is already in r8. *) ]
-                |   (X64Win, [FastArgFixed, FastArgFixed, FastArgFixed, FastArgFixed]) =>
-                        [ moveRR{source=eax, output=ecx, opSize=polyWordOpSize}, moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} (* Arg3 is already in r8 and arg4 in r9. *) ]
-                |   (X86_32, [FastArgFixed]) => [ pushR eax ]
-                |   (X86_32, [FastArgFixed, FastArgFixed]) => [ pushR mlArg2Reg, pushR eax ]
-                |   (X86_32, [FastArgFixed, FastArgFixed, FastArgFixed]) =>
-                        [
-                            (* We need to move an argument from the ML stack. *)
-                            loadMemory(edx, edi, 4, polyWordOpSize), pushR edx, pushR mlArg2Reg, pushR eax
-                        ]
-                |   (X86_32, [FastArgFixed, FastArgFixed, FastArgFixed, FastArgFixed]) =>
-                        [
-                            (* We need to move an arguments from the ML stack. *)
-                            loadMemory(edx, edi, 4, polyWordOpSize), pushR edx,
-                            loadMemory(edx, edi, 8, polyWordOpSize), pushR edx,
-                            pushR mlArg2Reg, pushR eax
-                        ]
+                case abi of  (* Set the argument registers. *)
+                    X86_32 =>
+                    let
+                        fun pushReg(reg, FastArgFixed) = [pushR reg]
+                        |   pushReg(reg, FastArgDouble) = 
+                            (* reg contains the address of the value.  This must be unboxed onto the stack. *)
+                                [
+                                    FPLoadFromMemory{address={base=reg, offset=0, index=NoIndex}, precision=DoublePrecision},
+                                    ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8, opSize=nativeWordOpSize},
+                                    FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
+                                ]
+                        |   pushReg(reg, FastArgFloat) =
+                            (* reg contains the address of the value.  This must be unboxed onto the stack. *)
+                            [
+                                FPLoadFromMemory{address={base=reg, offset=0, index=NoIndex}, precision=SinglePrecision},
+                                ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 4, opSize=nativeWordOpSize},
+                                FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true }
+                            ]
 
-                    (* One "double" argument.  The value needs to be unboxed. *)
-                |   (X86_32, [FastArgDouble]) =>
-                     (* eax contains the address of the value.  This must be unboxed onto the stack. *)
-                    [
-                        FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision},
-                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8, opSize=nativeWordOpSize},
-                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
-                    ]
+                        (* The stack arguments have to be copied first followed by the ebx and finally eax. *)
+                        fun pushArgs (_, []) = []
+                        |   pushArgs (_, [argType]) = pushReg(eax, argType)
+                        |   pushArgs (_, [arg2Type, arg1Type]) = pushReg(ebx, arg2Type) @ pushReg(eax, arg1Type)
+                        |   pushArgs (n, FastArgFixed :: argTypes) =
+                                PushToStack(MemoryArg{base=edi, offset=(nArgs-n+1)* 4, index=NoIndex}) :: pushArgs(n-1, argTypes)
+                        |   pushArgs (n, argType :: argTypes) =
+                                (* Use esi as a temporary register. *)
+                                loadMemory(esi, edi, (nArgs-n+1)* 4, polyWordOpSize) :: pushReg(esi, argType) @ pushArgs(n-1, argTypes)
+                    in
+                        pushArgs(nArgs, List.rev argFormats)
+                    end
+                
+                |   X64Unix =>
+                    (
+                        if List.all (fn FastArgFixed => true | _ => false) argFormats
+                        then
+                        let
+                            fun pushArgs 0 = []
+                            |   pushArgs 1 = [moveRR{source=eax, output=edi, opSize=polyWordOpSize}]
+                            |   pushArgs 2 = moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize} :: pushArgs 1
+                            |   pushArgs 3 = moveRR{source=r8, output=edx, opSize=polyWordOpSize} :: pushArgs 2
+                            |   pushArgs 4 = moveRR{source=r9, output=ecx, opSize=polyWordOpSize} :: pushArgs 3
+                            |   pushArgs 5 =
+                                    (* We have to move r8 into edx before we can move r10 into r8 *)
+                                    moveRR{source=r8, output=edx, opSize=polyWordOpSize} ::
+                                    moveRR{source=r9, output=ecx, opSize=polyWordOpSize} ::
+                                    moveRR{source=r10, output=r8, opSize=polyWordOpSize} :: pushArgs 2
+                            |   pushArgs 6 =
+                                    (* We have to move r9 into edi before we can load r9 from the stack. *)
+                                    moveRR{source=r8, output=edx, opSize=polyWordOpSize} ::
+                                    moveRR{source=r9, output=ecx, opSize=polyWordOpSize} ::
+                                    loadMemory(r9, edi, 8, polyWordOpSize) ::
+                                    moveRR{source=r10, output=r8, opSize=polyWordOpSize} :: pushArgs 2
+                            |   pushArgs _ = raise InternalError "rtsCall: Abi/argument count not implemented"
+                        in
+                            pushArgs nArgs
+                        end
+                        else case argFormats of
+                            [] => []
+                        |   [FastArgFixed] => [ moveRR{source=eax, output=edi, opSize=polyWordOpSize} ]
+                        |   [FastArgFixed, FastArgFixed] =>
+                                (* Since mlArgs2Reg is esi on 32-in-64 this is redundant. *)
+                                [ moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize}, moveRR{source=eax, output=edi, opSize=polyWordOpSize} ]
+                        |   [FastArgFixed, FastArgFixed, FastArgFixed] => 
+                                [ moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize}, moveRR{source=eax, output=edi, opSize=polyWordOpSize},
+                                  moveRR{source=r8, output=edx, opSize=polyWordOpSize} ]
+                        |   [FastArgFixed, FastArgFixed, FastArgFixed, FastArgFixed] => 
+                                [ moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize}, moveRR{source=eax, output=edi, opSize=polyWordOpSize},
+                                  moveRR{source=r8, output=edx, opSize=polyWordOpSize}, moveRR{source=r9, output=ecx, opSize=polyWordOpSize} ]
+                            (* One "double" argument.  The value needs to be unboxed. *)
+                        |   [FastArgDouble] => [] (* Already in xmm0 *)
+                            (* X64 on both Windows and Unix take the first arg in xmm0 and the second in xmm1. They are already there. *)
+                        |   [FastArgDouble, FastArgDouble] => []
+                        |   [FastArgDouble, FastArgFixed] => [ moveRR{source=eax, output=edi, opSize=nativeWordOpSize} ]
+                        |   [FastArgFloat] => [] (* Already in xmm0 *)
+                        |   [FastArgFloat, FastArgFloat] => [] (* Already in xmm0 and xmm1 *)
+                                (* One float argument and one fixed. *)
+                        |   [FastArgFloat, FastArgFixed] => [moveRR{source=mlArg2Reg, output=edi, opSize=polyWordOpSize} ]
+                        
+                        |   _ => raise InternalError "rtsCall: Abi/argument count not implemented"
+                            
+                    )
+                
+                |   X64Win =>
+                    (
+                        if List.all (fn FastArgFixed => true | _ => false) argFormats
+                        then
+                        let
+                            fun pushArgs 0 = []
+                            |   pushArgs 1 = [moveRR{source=eax, output=ecx, opSize=polyWordOpSize}]
+                            |   pushArgs 2 = moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} :: pushArgs 1
+                            |   pushArgs 3 = (* Already in r8 *) pushArgs 2
+                            |   pushArgs 4 = (* Already in r9, and r8 *) pushArgs 2
+                            |   pushArgs 5 = pushR r10 :: pushArgs 2
+                            |   pushArgs 6 = PushToStack(MemoryArg{base=edi, offset=8, index=NoIndex}) :: pushArgs 5
+                            |   pushArgs _ = raise InternalError "rtsCall: Abi/argument count not implemented"
+                        in
+                            pushArgs nArgs
+                        end
 
-                |   (_, [FastArgDouble]) => [ (* Already in xmm0 *) ]
+                        else case argFormats of
+                            [FastArgFixed] => [ moveRR{source=eax, output=ecx, opSize=polyWordOpSize} ]
+                        |   [FastArgFixed, FastArgFixed] => [ moveRR{source=eax, output=ecx, opSize=polyWordOpSize}, moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} ]
+                        |   [FastArgFixed, FastArgFixed, FastArgFixed] =>
+                                [ moveRR{source=eax, output=ecx, opSize=polyWordOpSize}, moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} (* Arg3 is already in r8. *) ]
+                        |   [FastArgFixed, FastArgFixed, FastArgFixed, FastArgFixed] =>
+                                [ moveRR{source=eax, output=ecx, opSize=polyWordOpSize}, moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} (* Arg3 is already in r8 and arg4 in r9. *) ]
+                        |   [FastArgDouble] => [ (* Already in xmm0 *) ]
+                            (* X64 on both Windows and Unix take the first arg in xmm0 and the second in xmm1. They are already there. *)
+                        |   [FastArgDouble, FastArgDouble] => [ ]
+                            (* X64 on both Windows and Unix take the first arg in xmm0.  On Unix the integer argument is treated
+                               as the first argument and goes into edi.  On Windows it's treated as the second and goes into edx.
+                               N.B.  It's also the first argument in ML so is in rax. *)
+                        |   [FastArgDouble, FastArgFixed] => [ moveRR{source=eax, output=edx, opSize=nativeWordOpSize} ]
+                        |   [FastArgFloat] => []
+                        |   [FastArgFloat, FastArgFloat] => [] (* Already in xmm0 and xmm1 *)
+                        |   [FastArgFloat, FastArgFixed] => [moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize}]
 
-                |   (X86_32, [FastArgDouble, FastArgDouble]) =>
-                     (* eax and ebx contain the addresses of the values.  They must be unboxed onto the stack. *)
-                    [
-                        FPLoadFromMemory{address={base=ebx, offset=0, index=NoIndex}, precision=DoublePrecision},
-                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8, opSize=nativeWordOpSize},
-                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
-                        FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision},
-                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8, opSize=nativeWordOpSize},
-                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
-                    ]
-                    (* X64 on both Windows and Unix take the first arg in xmm0 and the second in xmm1. They are already there. *)
-                |   (_, [FastArgDouble, FastArgDouble]) => [ ]
-
-                    (* X64 on both Windows and Unix take the first arg in xmm0.  On Unix the integer argument is treated
-                       as the first argument and goes into edi.  On Windows it's treated as the second and goes into edx.
-                       N.B.  It's also the first argument in ML so is in rax. *)
-                |   (X64Unix, [FastArgDouble, FastArgFixed]) => [ moveRR{source=eax, output=edi, opSize=nativeWordOpSize} ]
-                |   (X64Win, [FastArgDouble, FastArgFixed]) => [ moveRR{source=eax, output=edx, opSize=nativeWordOpSize} ]
-                |   (X86_32, [FastArgDouble, FastArgFixed]) =>
-                     (* ebx must be pushed to the stack but eax must be unboxed.. *)
-                    [
-                        pushR ebx,
-                        FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision},
-                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8, opSize=nativeWordOpSize},
-                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
-                    ]
-
-                    (* One "float" argument.  The value needs to be untagged on X86/64 but unboxed on X86/32. *)
-                |   (X86_32, [FastArgFloat]) =>
-                     (* eax contains the address of the value.  This must be unboxed onto the stack. *)
-                    [
-                        FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision},
-                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 4, opSize=nativeWordOpSize},
-                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true }
-                    ]
-                |   (_, [FastArgFloat]) => []
-
-                    (* Two float arguments.  Untag them on X86/64 but unbox on X86/32 *)
-                |   (X86_32, [FastArgFloat, FastArgFloat]) =>
-                     (* eax and ebx contain the addresses of the values.  They must be unboxed onto the stack. *)
-                    [
-                        FPLoadFromMemory{address={base=ebx, offset=0, index=NoIndex}, precision=SinglePrecision},
-                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 4, opSize=nativeWordOpSize},
-                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true },
-                        FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision},
-                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 4, opSize=nativeWordOpSize},
-                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true }
-                    ]
-                |   (_, [FastArgFloat, FastArgFloat]) => [] (* Already in xmm0 and xmm1 *)
-
-                    (* One float argument and one fixed. *)
-                |   (X64Unix, [FastArgFloat, FastArgFixed]) => [moveRR{source=mlArg2Reg, output=edi, opSize=polyWordOpSize} ]
-                |   (X64Win, [FastArgFloat, FastArgFixed]) => [moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize}]
-                |   (X86_32, [FastArgFloat, FastArgFixed]) =>
-                     (* ebx must be pushed to the stack but eax must be unboxed.. *)
-                    [
-                        pushR ebx,
-                        FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=SinglePrecision},
-                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 4, opSize=nativeWordOpSize},
-                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=SinglePrecision, andPop=true }
-                    ]
-
-                |   _ => raise InternalError "rtsCall: Abi/argument count not implemented"
+                        |   _ => raise InternalError "rtsCall: Abi/argument count not implemented"
+                    )
             ) @
+            (*  For Windows/64 add in a 32 byte save area ater we've pushed any arguments. *)
+            (case abi of X64Win => [ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg 32, opSize=nativeWordOpSize}] | _ => []) @
             [
                 CallFunction(DirectReg entryPtrReg), (* Call the function *)
                 loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)

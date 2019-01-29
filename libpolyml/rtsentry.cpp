@@ -95,7 +95,7 @@ extern "C" {
 #ifdef _MSC_VER
     __declspec(dllexport)
 #endif
-    POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg);
+    POLYUNSIGNED PolyCreateEntryPointObject(FirstArgument threadId, PolyWord arg);
 };
 
 // Create an entry point containing the address of the entry and the
@@ -158,7 +158,7 @@ bool setEntryPoint(PolyObject *p)
 }
 
 // External call
-POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyCreateEntryPointObject(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

@@ -104,10 +104,10 @@
 */
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord mode, PolyWord digits);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedFromString(PolyObject *threadId, PolyWord str);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToLongInt(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToString(FirstArgument threadId, PolyWord arg, PolyWord mode, PolyWord digits);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedFromString(FirstArgument threadId, PolyWord str);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToLongInt(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL double PolyRealSqrt(double arg);
     POLYEXTERNALSYMBOL double PolyRealSin(double arg);
     POLYEXTERNALSYMBOL double PolyRealCos(double arg);
@@ -135,7 +135,7 @@ extern "C" {
     POLYEXTERNALSYMBOL double PolyRealCopySign(double arg1, double arg2);
     POLYEXTERNALSYMBOL double PolyRealNextAfter(double arg1, double arg2);
     POLYEXTERNALSYMBOL double PolyRealLdexp(double arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealFrexp(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealFrexp(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL float PolyRealFSqrt(float arg);
     POLYEXTERNALSYMBOL float PolyRealFSin(float arg);
     POLYEXTERNALSYMBOL float PolyRealFCos(float arg);
@@ -252,7 +252,7 @@ POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg)
 }
 
 // Convert a boxed real to a long precision int.
-POLYUNSIGNED PolyRealBoxedToLongInt(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyRealBoxedToLongInt(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -443,7 +443,7 @@ double PolyRealLdexp(double arg1, PolyWord arg2)
 }
 
 // Return the normalised fraction and the exponent.
-POLYUNSIGNED PolyRealFrexp(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyRealFrexp(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -656,7 +656,7 @@ Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
 }/* Real_conv */
 
 // Convert a string to a boxed real.  This should really return an unboxed real.
-POLYUNSIGNED PolyRealBoxedFromString(PolyObject *threadId, PolyWord str)
+POLYUNSIGNED PolyRealBoxedFromString(FirstArgument threadId, PolyWord str)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -884,7 +884,7 @@ Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
 }
 
 // Convert boxed real to string.  This should be changed to use an unboxed real argument.
-POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord mode, PolyWord digits)
+POLYUNSIGNED PolyRealBoxedToString(FirstArgument threadId, PolyWord arg, PolyWord mode, PolyWord digits)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -984,7 +984,7 @@ POLYUNSIGNED PolyRealSize(PolyWord)
     return TAGGED(sizeof(double)).AsUnsigned();
 }
 
-POLYUNSIGNED PolyRealGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyRealGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

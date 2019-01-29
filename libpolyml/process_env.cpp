@@ -96,16 +96,16 @@ typedef char TCHAR;
 #include "version.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL void PolyFinish(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL void PolyTerminate(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorName(PolyObject *threadId, PolyWord syserr);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorMessage(PolyObject *threadId, PolyWord syserr);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorFromString(PolyObject *threadId, PolyWord string);
+    POLYEXTERNALSYMBOL void PolyFinish(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL void PolyTerminate(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorName(FirstArgument threadId, PolyWord syserr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorMessage(FirstArgument threadId, PolyWord syserr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvErrorFromString(FirstArgument threadId, PolyWord string);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetMaxAllocationSize();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetMaxStringSize();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetPolyVersionNumber();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(PolyObject *threadId, PolyWord fnAddr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(FirstArgument threadId, PolyWord fnAddr);
 }
 
 #define SAVE(x) mdTaskData->saveVec.push(x)
@@ -549,7 +549,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
 
 // General interface to process-env.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyProcessEnvGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyProcessEnvGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -574,7 +574,7 @@ POLYUNSIGNED PolyProcessEnvGeneral(PolyObject *threadId, PolyWord code, PolyWord
 }
 
 // Terminate normally with a result code.
-void PolyFinish(PolyObject *threadId, PolyWord arg)
+void PolyFinish(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -587,7 +587,7 @@ void PolyFinish(PolyObject *threadId, PolyWord arg)
 }
 
 // Terminate without running the atExit list or flushing buffers
-void PolyTerminate(PolyObject *threadId, PolyWord arg)
+void PolyTerminate(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -597,7 +597,7 @@ void PolyTerminate(PolyObject *threadId, PolyWord arg)
 }
 
 // Get the name of a numeric error message.
-POLYUNSIGNED PolyProcessEnvErrorName(PolyObject *threadId, PolyWord syserr)
+POLYUNSIGNED PolyProcessEnvErrorName(FirstArgument threadId, PolyWord syserr)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -627,7 +627,7 @@ POLYUNSIGNED PolyProcessEnvErrorName(PolyObject *threadId, PolyWord syserr)
 }
 
 /* Get the explanatory message for an error. */
-POLYUNSIGNED PolyProcessEnvErrorMessage(PolyObject *threadId, PolyWord syserr)
+POLYUNSIGNED PolyProcessEnvErrorMessage(FirstArgument threadId, PolyWord syserr)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -647,7 +647,7 @@ POLYUNSIGNED PolyProcessEnvErrorMessage(PolyObject *threadId, PolyWord syserr)
 }
 
 // Try to convert an error string to an error number.
-POLYUNSIGNED PolyProcessEnvErrorFromString(PolyObject *threadId, PolyWord string)
+POLYUNSIGNED PolyProcessEnvErrorFromString(FirstArgument threadId, PolyWord string)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -696,7 +696,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetPolyVersionNumber()
 }
 
 // Return the function name associated with a piece of compiled code.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(PolyObject *threadId, PolyWord fnAddr)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(FirstArgument threadId, PolyWord fnAddr)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

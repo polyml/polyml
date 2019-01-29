@@ -111,8 +111,8 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyWord action);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWaitForSignal(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetSignalHandler(FirstArgument threadId, PolyWord signalNo, PolyWord action);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWaitForSignal(FirstArgument threadId);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -273,7 +273,7 @@ static Handle waitForSignal(TaskData *taskData)
     }
 }
 
-POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyWord action)
+POLYUNSIGNED PolySetSignalHandler(FirstArgument threadId, PolyWord signalNo, PolyWord action)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -328,7 +328,7 @@ POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyW
 }
 
 // Called by the signal handler thread.  Blocks until a signal is available.
-POLYUNSIGNED PolyWaitForSignal(PolyObject *threadId)
+POLYUNSIGNED PolyWaitForSignal(FirstArgument threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

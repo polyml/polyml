@@ -125,7 +125,7 @@
 #include "mpoly.h" // For polyStderr
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
 }
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -426,7 +426,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
 // General interface to timing.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyTimingGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyTimingGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

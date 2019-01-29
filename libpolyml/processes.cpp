@@ -128,22 +128,22 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(PolyObject *threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexBlock(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexUnlock(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWait(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWaitUntil(PolyObject *threadId, PolyWord lockArg, PolyWord timeArg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexBlock(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexUnlock(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWait(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWaitUntil(FirstArgument threadId, PolyWord lockArg, PolyWord timeArg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWake(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadForkThread(PolyObject *threadId, PolyWord function, PolyWord attrs, PolyWord stack);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadForkThread(FirstArgument threadId, PolyWord function, PolyWord attrs, PolyWord stack);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadBroadcastInterrupt(PolyObject *threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadBroadcastInterrupt(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(FirstArgument threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumProcessors();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumPhysicalProcessors();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(FirstArgument threadId, PolyWord newSize);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -352,7 +352,7 @@ static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
 
 // General interface to thread.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyThreadGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -376,7 +376,7 @@ POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadMutexBlock(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyThreadMutexBlock(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -400,7 +400,7 @@ POLYUNSIGNED PolyThreadMutexBlock(PolyObject *threadId, PolyWord arg)
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadMutexUnlock(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyThreadMutexUnlock(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -493,7 +493,7 @@ void Processes::MutexUnlock(TaskData *taskData, Handle hMutex)
     schedLock.Unlock();
 }
 
-POLYUNSIGNED PolyThreadCondVarWait(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyThreadCondVarWait(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -514,7 +514,7 @@ POLYUNSIGNED PolyThreadCondVarWait(PolyObject *threadId, PolyWord arg)
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadCondVarWaitUntil(PolyObject *threadId, PolyWord lockArg, PolyWord timeArg)
+POLYUNSIGNED PolyThreadCondVarWaitUntil(FirstArgument threadId, PolyWord lockArg, PolyWord timeArg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -693,13 +693,13 @@ POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread)
     else return TAGGED(1).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadBroadcastInterrupt(PolyObject * /*threadId*/)
+POLYUNSIGNED PolyThreadBroadcastInterrupt(FirstArgument /*threadId*/)
 {
     processesModule.BroadcastInterrupt();
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadTestInterrupt(PolyObject *threadId)
+POLYUNSIGNED PolyThreadTestInterrupt(FirstArgument threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -739,7 +739,7 @@ POLYUNSIGNED PolyThreadNumPhysicalProcessors(void)
 }
 
 // Set the maximum stack size.
-POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize)
+POLYUNSIGNED PolyThreadMaxStackSize(FirstArgument threadId, PolyWord newSize)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1114,7 +1114,7 @@ Handle exitThread(TaskData *taskData)
 }
 
 // Terminate the current thread.  Never returns.
-POLYUNSIGNED PolyThreadKillSelf(PolyObject *threadId)
+POLYUNSIGNED PolyThreadKillSelf(FirstArgument threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1672,7 +1672,7 @@ bool Processes::ForkFromRTS(TaskData *taskData, Handle proc, Handle arg)
     }
 }
 
-POLYUNSIGNED PolyThreadForkThread(PolyObject *threadId, PolyWord function, PolyWord attrs, PolyWord stack)
+POLYUNSIGNED PolyThreadForkThread(FirstArgument threadId, PolyWord function, PolyWord attrs, PolyWord stack)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
