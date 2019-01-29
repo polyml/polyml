@@ -172,7 +172,7 @@ struct
                 else []
             ) @
             (
-                if abi = X86_32 andalso nArgs >= 3 orelse abi = X64Win andalso nArgs >= 6
+                if (case abi of X86_32 => nArgs >= 3 | _ => nArgs >= 6)
                 then [moveRR{source=esp, output=edi, opSize=nativeWordOpSize}] (* Needed if we have to load from the stack. *)
                 else []
             ) @
