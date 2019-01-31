@@ -264,10 +264,11 @@ public:
 class WaitHandle: public Waiter
 {
 public:
-    WaitHandle(HANDLE h): m_Handle(h) {}
+    WaitHandle(HANDLE h, unsigned maxWait): m_Handle(h), m_maxWait(maxWait) {}
     virtual void Wait(unsigned maxMillisecs);
 private:
     HANDLE m_Handle;
+    unsigned m_maxWait;
 };
 #endif
 

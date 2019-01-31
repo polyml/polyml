@@ -551,8 +551,12 @@ class WinGuiConsoleStream : public WinStream
 {
 public:
     WinGuiConsoleStream()  {}
-    virtual bool isAvailable(TaskData *taskData);
-    virtual void waitUntilAvailable(TaskData *taskData);
+    virtual bool testForInput(TaskData *taskData, unsigned waitMilliSecs);
+
+    virtual bool testForOutput(TaskData *taskData, unsigned waitMilliSecs) {
+        unimplemented(taskData);
+        return false;
+    }
 
     virtual size_t readStream(TaskData *taskData, byte *base, size_t length);
 
@@ -571,11 +575,19 @@ public:
     }
 };
 
-bool WinGuiConsoleStream::isAvailable(TaskData *taskData)
+bool WinGuiConsoleStream::testForInput(TaskData *taskData, unsigned waitMilliSecs)
 {
     if (!isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
-    PLocker locker(&iOInterlock);
-    return nAvailable != nReadPosn;
+    {
+        PLocker locker(&iOInterlock);
+        if (nAvailable != nReadPosn) return true;
+    }
+    if (waitMilliSecs != 0)
+    {
+        WaitHandle waiter(hInputEvent, waitMilliSecs); // Global event
+        processes->ThreadPauseForIO(taskData, &waiter);
+    }
+    return false; // It may actually be ready now.
 }
 
 size_t WinGuiConsoleStream::readStream(TaskData *taskData, byte *base, size_t length)
@@ -605,15 +617,6 @@ size_t WinGuiConsoleStream::readStream(TaskData *taskData, byte *base, size_t le
     if (nAvailable == nReadPosn) ResetEvent(hInputEvent);
 
     return nRes;
-}
-
-void WinGuiConsoleStream::waitUntilAvailable(TaskData *taskData)
-{
-    while (!isAvailable(taskData))
-    {
-        WaitHandle waiter(hInputEvent); // Global event
-        processes->ThreadPauseForIO(taskData, &waiter);
-    }
 }
 
 HANDLE createConsoleWindow(int nCmdShow)

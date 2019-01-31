@@ -272,7 +272,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
                         raise_syscall(mdTaskData, "Function system failed", GetLastError());
                     }
                     // Wait for the process to exit or for the timeout
-                    WaitHandle waiter((HANDLE)pid);
+                    WaitHandle waiter((HANDLE)pid, 1000);
                     processes->ThreadPauseForIO(mdTaskData, &waiter);
 #else
                     int wRes = waitpid(pid, &res, WNOHANG);

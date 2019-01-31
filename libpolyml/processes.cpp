@@ -1169,6 +1169,8 @@ Waiter *Waiter::defaultWaiter = &defWait;
 void WaitHandle::Wait(unsigned maxMillisecs)
 {
     // Wait until we get input or we're woken up.
+    if (maxMillisecs > m_maxWait)
+        maxMillisecs = m_maxWait;
     if (m_Handle == NULL)
         Sleep(maxMillisecs);
     else WaitForSingleObject(m_Handle, maxMillisecs);

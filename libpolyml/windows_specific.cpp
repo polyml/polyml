@@ -238,7 +238,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                     return Make_fixed_precision(taskData, dwResult);
                 }
                 // Block and try again.
-                WaitHandle waiter(hnd->hProcess);
+                WaitHandle waiter(hnd->hProcess, 1000);
                 processes->ThreadPauseForIO(taskData, &waiter);
             }
         }
