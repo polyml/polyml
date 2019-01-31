@@ -402,7 +402,7 @@ void X86TaskData::ScanStackAddress(ScanAddress *process, stackItem &stackItem, S
     // The -1 here is because we may have a zero-sized cell in the last
     // word of a space.
     MemSpace *space = gMem.SpaceForAddress(stackItem.codeAddr-1);
-    if (space == 0) return;
+    if (space == 0) return; // In particular we may have one of the assembly code addresses.
     if (space->spaceType == ST_CODE)
     {
         PolyObject *obj = gMem.FindCodeObject(stackItem.codeAddr);
