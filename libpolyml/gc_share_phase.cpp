@@ -216,6 +216,8 @@ public:
     static void shareWordData(GCTaskId *, void *, void *);
     static void shareRemainingWordData(GCTaskId *, void *, void *);
 
+    virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
+
 protected:
     virtual bool TestForScan(PolyWord *);
     virtual void MarkAsScanning(PolyObject *);
@@ -242,6 +244,16 @@ GetSharing::GetSharing()
 
     largeWordCount = largeByteCount = excludedCount = 0;
     totalVisited = byteAdded = wordAdded = totalSize = 0;
+}
+
+// Override the scan for run-time addresses and don't process code addresses.
+// The "trampoline" functions in 32-in-64 are in the code area and default
+// code turns the code address into a heap address.
+void GetSharing::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
+{
+
+    if (!(*pt)->IsCodeObject())
+        *pt = ScanObjectAddress(*pt);
 }
 
 bool GetSharing::TestForScan(PolyWord *pt)
