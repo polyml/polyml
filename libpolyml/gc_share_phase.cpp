@@ -225,7 +225,7 @@ class RecursiveScanWithStack : public ScanAddress
 {
 public:
     RecursiveScanWithStack() : stack(0) {}
-    ~RecursiveScanWithStack();
+    ~RecursiveScanWithStack() { delete(stack); }
 
 public:
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
@@ -247,13 +247,13 @@ protected:
     virtual void Completed(PolyObject *) {}
 
 protected:
-    // StackOverflow is called if allocating a new stack
-    // segment fails.
-    virtual void StackOverflow(void) = 0;
+    void PushToStack(PolyObject *obj, PolyWord *base);
+    void PopFromStack(PolyObject *&obj, PolyWord *&base);
 
-    virtual void PushToStack(PolyObject *obj, PolyWord *base);
-    virtual void PopFromStack(PolyObject *&obj, PolyWord *&base);
-    virtual bool StackIsEmpty(void);
+    bool StackIsEmpty(void)
+    {
+        return stack == 0 || (stack->sp == 0 && stack->lastStack == 0);
+    }
 
     RScanStack *stack;
 };
@@ -398,16 +398,6 @@ void RecursiveScanWithStack::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED
     }
 }
 
-RecursiveScanWithStack::~RecursiveScanWithStack()
-{
-    delete(stack);
-}
-
-bool RecursiveScanWithStack::StackIsEmpty(void)
-{
-    return stack == 0 || (stack->sp == 0 && stack->lastStack == 0);
-}
-
 void RecursiveScanWithStack::PushToStack(PolyObject *obj, PolyWord *base)
 {
     if (stack == 0 || stack->sp == RSTACK_SEGMENT_SIZE)
@@ -425,7 +415,7 @@ void RecursiveScanWithStack::PushToStack(PolyObject *obj, PolyWord *base)
                 stack = s;
             }
             catch (std::bad_alloc &) {
-                StackOverflow();
+                // Ignore stack overflow
                 return;
             }
         }
@@ -466,7 +456,6 @@ public:
 protected:
     virtual bool TestForScan(PolyWord *);
     virtual void MarkAsScanning(PolyObject *);
-    virtual void StackOverflow(void) { } // Ignore stack overflow
     virtual void Completed(PolyObject *);
 
 private:
