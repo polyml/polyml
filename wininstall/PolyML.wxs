@@ -85,7 +85,10 @@
             <util:PerformanceCounter Type='numberOfItems32'
                 Name='Partial GCs'
                 Help='Number of partial garbage collections.' />
-            <!-- The space values are displayed as percentages.  The numerator is the first
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='Sharing passes'
+                  Help='Number of garbage collection sharing passes.' />
+              <!-- The space values are displayed as percentages.  The numerator is the first
                   counter, the denominator is the second. -->
             <util:PerformanceCounter Type='rawFraction'
                 Name='Last GC%'
@@ -117,6 +120,15 @@
             <util:PerformanceCounter Type='timer100Ns'
                 Name='GC System time'
                 Help='The time the program has spent in the system when garbage collecting.' />
+            <util:PerformanceCounter Type='timer100Ns'
+                Name='NonGC User time'
+                Help='The total time the program has been running in user space excluding garbage collection.' />
+            <util:PerformanceCounter Type='timer100Ns'
+                  Name='NonGC Real time'
+                  Help='The real time the program has been running excluding garbage collection.' />
+            <util:PerformanceCounter Type='timer100Ns'
+                  Name='GC Real time'
+                  Help='The real time the program has spent in the garbage collector.' />
             <util:PerformanceCounter Type='numberOfItems32'
                 Name='User 0'
                 Help='The value of this counter is set by the ML application.' />
