@@ -56,8 +56,6 @@
 #include "memmgr.h"
 #include "processes.h"
 #include "savestate.h"
-#include "statistics.h"
-#include "../polystatistics.h"
 #include "gc.h"
 #include "rtsentry.h"
 
@@ -77,7 +75,7 @@ extern "C" {
 #define SAVE(x) taskData->saveVec.push(x)
 
 static const char *poly_runtime_system_copyright =
-    "Copyright (c) 2002-17 David C.J. Matthews, CUTS and contributors.";
+    "Copyright (c) 2002-19 David C.J. Matthews, CUTS and contributors.";
 
 #ifndef GIT_VERSION
 #define GIT_VERSION             ""
@@ -143,25 +141,6 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 24: // Return the name of the immediate parent stored in a child
         return ShowParent(taskData, args);
-
-    case 27: // Get number of user statistics available
-        return Make_arbitrary_precision(taskData, N_PS_USER);
-
-    case 28: // Set an entry in the user stats table.
-        {
-            unsigned index = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(0));
-            if (index >= N_PS_USER)
-                raise_exception0(taskData, EXC_subscript);
-            POLYSIGNED value = getPolySigned(taskData, DEREFHANDLE(args)->Get(1));
-            globalStats.setUserCounter(index, value);
-            Make_arbitrary_precision(taskData, 0);
-        }
-
-    case 29: // Get local statistics.
-        return globalStats.getLocalStatistics(taskData);
-
-    case 30: // Get remote statistics.  The argument is the process ID to get the statistics.
-        return globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, args->Word()));
 
     case 31: // Store a module
         return StoreModule(taskData, args);

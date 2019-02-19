@@ -1,11 +1,10 @@
 /*
     Title:  polystatics.h - Layout of statistics data in shared memory
-    Copyright (c) 2011 David C.J. Matthews
+    Copyright (c) 2011, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -72,6 +71,13 @@
 #define POLY_STATS_ID_USER5                  23
 #define POLY_STATS_ID_USER6                  24
 #define POLY_STATS_ID_USER7                  25
+
+#define POLY_STATS_ID_NONGC_RTIME            26     // Real time apart from GC
+#define POLY_STATS_ID_GC_RTIME               27     // Real time in GC
+#define POLY_STATS_ID_GC_SHARING             28     // Number of sharing passes
+#define POLY_STATS_ID_CODE_SPACE             29     // Space occupied by code
+#define POLY_STATS_ID_STACK_SPACE            30     // Space occupied by stacks
+
 
 #endif // POLY_STATISTICS_INCLUDED
 

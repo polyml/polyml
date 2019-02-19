@@ -1,7 +1,7 @@
 (*
     Title:      ASN1 support.
     Author:     David Matthews
-    Copyright   David Matthews 2015-16
+    Copyright   David Matthews 2015-16, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -45,6 +45,7 @@ sig
         {tag: tagType, data: Word8VectorSlice.slice, remainder: Word8VectorSlice.slice} option
 
     val decodeInt: Word8VectorSlice.slice -> int
+    and decodeLargeInt: Word8VectorSlice.slice -> LargeInt.int
     and decodeString: Word8VectorSlice.slice -> string
     and decodeBool: Word8VectorSlice.slice -> bool
 
@@ -160,7 +161,7 @@ struct
                     }
             |   NONE => NONE
 
-        fun decodeInt p =
+        fun decodeLargeInt p =
             case getNext p of
                 NONE => 0
             |   SOME(h, tl) =>
@@ -168,10 +169,12 @@ struct
                     fun parseRest(n, p) =
                         case getNext p of
                             NONE => n
-                        |   SOME (hd, tl) => parseRest(n * 256 + Word8.toInt hd, tl)
+                        |   SOME (hd, tl) => parseRest(n * 256 + Word8.toLargeInt hd, tl)
                 in
-                    parseRest(Word8.toIntX h, tl)
+                    parseRest(Word8.toLargeIntX h, tl)
                 end
+
+        val decodeInt = LargeInt.toInt o decodeLargeInt
     end
 
     fun decodeString t = Byte.bytesToString(vector t)

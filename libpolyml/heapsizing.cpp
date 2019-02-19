@@ -755,7 +755,7 @@ void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
             minorGCPageFaults += pageCount - startPF;
             majorGCPageFaults += pageCount - startPF;
             startPF = pageCount;
-            globalStats.copyGCTimes(totalGCUserCPU, totalGCSystemCPU);
+            globalStats.copyGCTimes(totalGCUserCPU, totalGCSystemCPU, totalGCReal);
         }
         break;
     }

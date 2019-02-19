@@ -1,7 +1,7 @@
 /*
     Title:  statics.h - Interface to profiling statistics
 
-    Copyright (c) 2011, 2015 David C.J. Matthews
+    Copyright (c) 2011, 2015, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -39,12 +39,16 @@ enum {
     PSC_THREADS_WAIT_SIGNAL,        // Special case - signal handling thread
     PSC_GC_FULLGC,                  // Number of full garbage collections
     PSC_GC_PARTIALGC,               // Number of partial GCs
+    PSC_GC_SHARING,                 // Number of sharing passes
 
     PSS_TOTAL_HEAP,                 // Total size of the local heap
     PSS_AFTER_LAST_GC,              // Space free after last GC
     PSS_AFTER_LAST_FULLGC,          // Space free after the last full GC
     PSS_ALLOCATION,                 // Size of allocation space
     PSS_ALLOCATION_FREE,            // Space available in allocation area
+
+    PSS_CODE_SPACE,                 // Space for code
+    PSS_STACK_SPACE,                // Space for stack
     N_PS_INTS
 };
 
@@ -53,6 +57,8 @@ enum {
     PST_NONGC_STIME,
     PST_GC_UTIME,
     PST_GC_STIME,
+    PST_NONGC_RTIME,
+    PST_GC_RTIME,
     N_PS_TIMES
 };
 
@@ -86,12 +92,12 @@ public:
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     // Native Windows
-    void copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime);
-    FILETIME gcUserTime, gcSystemTime;
+    void copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime, const FILETIME &gcRtime);
+    FILETIME gcUserTime, gcSystemTime, gcRealTime, startTime;
 #else
     // Unix and Cygwin
-    void copyGCTimes(const struct timeval &gcUtime, const struct timeval &gcStime);
-    struct timeval gcUserTime, gcSystemTime;
+    void copyGCTimes(const struct timeval &gcUtime, const struct timeval &gcStime, const struct timeval &gcRtime);
+    struct timeval gcUserTime, gcSystemTime, gcRealTime, startTime;
 #endif
     
     void updatePeriodicStats(size_t freeSpace, unsigned threadsInML);
@@ -127,5 +133,8 @@ private:
 };
 
 extern Statistics globalStats;
+
+
+extern struct _entrypts statisticsEPT[];
 
 #endif // STATISTICS_INCLUDED

@@ -1,7 +1,7 @@
 (*
     Title:      Poly/ML Statistics parser.
     Author:     David Matthews
-    Copyright   David Matthews 2013, 2015-17
+    Copyright   David Matthews 2013, 2015-17, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -29,13 +29,13 @@ local
     datatype statistic =
         UnknownStat
     |   CounterStat of { identifier: int, name: string, count: int }
-    |   SizeStat of { identifier: int, name: string, size: int }
+    |   SizeStat of { identifier: int, name: string, size: LargeInt.int }
     |   TimeStat of { identifier: int, name: string, time: Time.time }
     |   UserStat of { identifier: int, name: string, count: int }
 
     datatype component =
         CounterValue of int
-    |   ByteCount of int
+    |   ByteCount of LargeInt.int
     |   Time of Time.time
     |   UnknownComponent
 
@@ -95,7 +95,7 @@ local
                 |   SOME {tag = Application(0x6, Primitive), data, remainder} =>
                         parseComponents({identifier=identifier, name=name, value=CounterValue(decodeInt data)}, remainder)
                 |   SOME {tag = Application(0x7, Primitive), data, remainder} =>
-                        parseComponents({identifier=identifier, name=name, value=ByteCount(decodeInt data)}, remainder)
+                        parseComponents({identifier=identifier, name=name, value=ByteCount(decodeLargeInt data)}, remainder)
                 |   SOME {tag = Application(0x8, Constructed), data, remainder} =>
                         let
                             fun parseTime (t, p) =
@@ -171,30 +171,28 @@ local
             timeNonGCSystem = extractTime(15, stats),
             timeGCUser = extractTime(16, stats),
             timeGCSystem = extractTime(17, stats),
-            userCounters = Vector.tabulate(8, fn n => extractUser(n+18, stats))
+            userCounters = Vector.tabulate(8, fn n => extractUser(n+18, stats)),
+            gcSharePasses = extractCounter(28, stats),
+            timeNonGCReal = extractTime(26, stats),
+            timeGCReal = extractTime(27, stats),
+            sizeCode = extractSize(29, stats),
+            sizeStacks = extractSize(30, stats)
         }
     end
-
-    open RunCall
     
-    local
-        val polySpecificGeneralCall = RunCall.rtsCallFull2 "PolySpecificGeneral"
-    in
-        fun polySpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(polySpecificGeneralCall(RunCall.unsafeCast(code, arg)))
-    end
-
+    val localStats = RunCall.rtsCallFull0 "PolyGetLocalStats"
+    and remoteStats = RunCall.rtsCallFull1 "PolyGetRemoteStats"
 in
     structure PolyML =
     struct
         open PolyML
         structure Statistics =
         struct
-            fun getLocalStats() =
-                convStats(polySpecificGeneral (29, ()))
-            and getRemoteStats(pid: int) =
-                convStats(polySpecificGeneral (30, pid))
-            and numUserCounters(): int = polySpecificGeneral (27, ())
-            and setUserCounter(which: int, value: int): unit = polySpecificGeneral (28, (which, value))
+            fun getLocalStats() = convStats(localStats())
+            and getRemoteStats(pid: int) = convStats(remoteStats pid)
+            
+            val numUserCounters: unit -> int = RunCall.rtsCallFast0 "PolyGetUserStatsCount"
+            val setUserCounter: int * int -> unit = RunCall.rtsCallFull2 "PolySetUserStat"
         end
     end
 end;
