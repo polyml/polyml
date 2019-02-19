@@ -207,36 +207,6 @@ void SortVector::AddToVector(PolyObject *obj, POLYUNSIGNED length)
 #define NUM_BYTE_VECTORS    23
 #define NUM_WORD_VECTORS    11
 
-// Recursive scan over a data structure.
-class RecursiveScan : public ScanAddress
-{
-public:
-    virtual PolyObject *ScanObjectAddress(PolyObject *base);
-    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
-    // Have to redefine this for some reason.
-    void ScanAddressesInObject(PolyObject *base)
-    {
-        ScanAddressesInObject(base, base->LengthWord());
-    }
-
-protected:
-    // The derived class must provide a stack.
-    virtual void PushToStack(PolyObject *obj, PolyWord *base) = 0;
-    virtual void PopFromStack(PolyObject *&obj, PolyWord *&base) = 0;
-    virtual bool StackIsEmpty(void) = 0;
-
-    // Test the word at the location to see if it points to
-    // something that may have to be scanned.  We pass in the
-    // pointer here because the called may side-effect it.
-    virtual bool TestForScan(PolyWord *) = 0;
-    // If we are definitely scanning the address we mark it.
-    virtual void MarkAsScanning(PolyObject *) = 0;
-    // Called when the object has been completed.
-    virtual void Completed(PolyObject *) {}
-};
-
-// Recursive scan with a dynamically allocated stack
-
 // The stack is allocated as a series of blocks chained together.
 #define RSTACK_SEGMENT_SIZE 1000
 
@@ -251,11 +221,30 @@ public:
     struct { PolyObject *obj; PolyWord *base; } stack[RSTACK_SEGMENT_SIZE];
 };
 
-class RecursiveScanWithStack : public RecursiveScan
+class RecursiveScanWithStack : public ScanAddress
 {
 public:
     RecursiveScanWithStack() : stack(0) {}
     ~RecursiveScanWithStack();
+
+public:
+    virtual PolyObject *ScanObjectAddress(PolyObject *base);
+    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
+    // Have to redefine this for some reason.
+    void ScanAddressesInObject(PolyObject *base)
+    {
+        ScanAddressesInObject(base, base->LengthWord());
+    }
+
+protected:
+    // Test the word at the location to see if it points to
+    // something that may have to be scanned.  We pass in the
+    // pointer here because the called may side-effect it.
+    virtual bool TestForScan(PolyWord *) = 0;
+    // If we are definitely scanning the address we mark it.
+    virtual void MarkAsScanning(PolyObject *) = 0;
+    // Called when the object has been completed.
+    virtual void Completed(PolyObject *) {}
 
 protected:
     // StackOverflow is called if allocating a new stack
@@ -274,7 +263,7 @@ protected:
 // or it is called for a constant address in which case it will have been
 // called from RecursiveScan::ScanAddressesInObject and that can process
 // any addresses.
-PolyObject *RecursiveScan::ScanObjectAddress(PolyObject *obj)
+PolyObject *RecursiveScanWithStack::ScanObjectAddress(PolyObject *obj)
 {
     PolyWord pWord = obj;
     // Test to see if this needs to be scanned.
@@ -291,7 +280,7 @@ PolyObject *RecursiveScan::ScanObjectAddress(PolyObject *obj)
                             // recursively to process a constant in a code segment.  Just push
                             // it on the stack and let the caller deal with it.
         else if (StackIsEmpty())
-            RecursiveScan::ScanAddressesInObject(obj, obj->LengthWord());
+            RecursiveScanWithStack::ScanAddressesInObject(obj, obj->LengthWord());
         else
             PushToStack(obj, (PolyWord*)obj);
     }
@@ -303,7 +292,7 @@ PolyObject *RecursiveScan::ScanObjectAddress(PolyObject *obj)
 // also called from ScanObjectAddress to process root addresses.
 // It processes all the addresses reachable from the object.
 // This is almost the same as MTGCProcessMarkPointers::ScanAddressesInObject. 
-void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
+void RecursiveScanWithStack::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
 {
     if (OBJ_IS_BYTE_OBJECT(lengthWord))
         return; // Ignore byte cells and don't call Completed on them
