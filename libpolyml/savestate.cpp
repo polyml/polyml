@@ -107,6 +107,7 @@ typedef char TCHAR;
 #include "timing.h"
 #include "rtsentry.h"
 #include "check_objects.h"
+#include "rtsentry.h"
 
 #include "../polyexports.h" // For InitHeaderFromExport
 #include "version.h" // For InitHeaderFromExport
@@ -115,6 +116,18 @@ typedef char TCHAR;
 // Don't tell me about ISO C++ changes.
 #pragma warning(disable:4996)
 #endif
+
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySaveState(PolyObject *threadId, PolyWord fileName, PolyWord depth);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadState(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowHierarchy(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRenameParent(PolyObject *threadId, PolyWord childName, PolyWord parentName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowParent(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyStoreModule(PolyObject *threadId, PolyWord name, PolyWord contents);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadModule(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadHierarchy(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetModuleDirectory(PolyObject *threadId);
+}
 
 // Helper class to close files on exit.
 class AutoClose {
@@ -735,25 +748,37 @@ void SaveRequest::Perform()
     CheckMemory();
 }
 
-Handle SaveState(TaskData *taskData, Handle args)
+// Write a saved state file.
+POLYUNSIGNED PolySaveState(PolyObject *threadId, PolyWord fileName, PolyWord depth)
 {
-    TempString fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0)));
-    // The value of depth is zero for top-level save so we need to add one for hierarchy.
-    unsigned newHierarchy = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(1)) + 1;
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
 
-    if (newHierarchy > hierarchyDepth+1)
-        raise_fail(taskData, "Depth must be no more than the current hierarchy plus one");
+    try {
+        TempString fileNameBuff(Poly_string_to_T_alloc(fileName));
+        // The value of depth is zero for top-level save so we need to add one for hierarchy.
+        unsigned newHierarchy = get_C_unsigned(taskData, depth) + 1;
 
-    // Request a full GC first.  The main reason is to avoid running out of memory as a
-    // result of repeated saves.  Old export spaces are turned into local spaces and
-    // the GC will delete them if they are completely empty
-    FullGC(taskData);
+        if (newHierarchy > hierarchyDepth + 1)
+            raise_fail(taskData, "Depth must be no more than the current hierarchy plus one");
 
-    SaveRequest request(fileNameBuff, newHierarchy);
-    processes->MakeRootRequest(taskData, &request);
-    if (request.errorMessage)
-        raise_syscall(taskData, request.errorMessage, request.errCode);
-    return SAVE(TAGGED(0));
+        // Request a full GC first.  The main reason is to avoid running out of memory as a
+        // result of repeated saves.  Old export spaces are turned into local spaces and
+        // the GC will delete them if they are completely empty
+        FullGC(taskData);
+
+        SaveRequest request(fileNameBuff, newHierarchy);
+        processes->MakeRootRequest(taskData, &request);
+        if (request.errorMessage)
+            raise_syscall(taskData, request.errorMessage, request.errCode);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
 }
 
 /*
@@ -1326,7 +1351,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     return true; // Succeeded
 }
 
-Handle LoadState(TaskData *taskData, bool isHierarchy, Handle hFileList)
+static void LoadState(TaskData *taskData, bool isHierarchy, Handle hFileList)
 // Load a saved state or a hierarchy.  
 // hFileList is a list if this is a hierarchy and a single name if it is not.
 {
@@ -1349,8 +1374,45 @@ Handle LoadState(TaskData *taskData, bool isHierarchy, Handle hFileList)
             raise_syscall(taskData, buff, loader.errNumber);
         }
     }
+}
 
-    return SAVE(TAGGED(0));
+// Load a saved state file and any ancestors.
+POLYUNSIGNED PolyLoadState(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+
+    try {
+        LoadState(taskData, false, pushedArg);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+// Load hierarchy.  This provides a complete list of children and parents.
+POLYUNSIGNED PolyLoadHierarchy(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+         LoadState(taskData, true, pushedArg);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
 }
 
 /*
@@ -1360,7 +1422,7 @@ Handle LoadState(TaskData *taskData, bool isHierarchy, Handle hFileList)
 // These functions do not affect the global state so can be executed by
 // the ML threads directly.
 
-Handle ShowHierarchy(TaskData *taskData)
+static Handle ShowHierarchy(TaskData *taskData)
 // Return the list of files in the hierarchy.
 {
     Handle saved = taskData->saveVec.mark();
@@ -1379,15 +1441,35 @@ Handle ShowHierarchy(TaskData *taskData)
     return list;
 }
 
-Handle RenameParent(TaskData *taskData, Handle args)
+// Show the hierarchy.
+POLYUNSIGNED PolyShowHierarchy(PolyObject *threadId)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = ShowHierarchy(taskData);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+static void RenameParent(TaskData *taskData, PolyWord childName, PolyWord parentName)
 // Change the name of the immediate parent stored in a child
 {
     // The name of the file to modify.
-    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0)));
+    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(childName));
     if (fileNameBuff == NULL)
         raise_syscall(taskData, "Insufficient memory", NOMEMORY);
     // The new parent name to insert.
-    AutoFree<TCHAR*> parentNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(1)));
+    AutoFree<TCHAR*> parentNameBuff(Poly_string_to_T_alloc(parentName));
     if (parentNameBuff == NULL)
         raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
@@ -1436,11 +1518,26 @@ Handle RenameParent(TaskData *taskData, Handle args)
     // Now rewind and write the header with the revised string table.
     fseek(loadFile, 0, SEEK_SET);
     fwrite(&header, sizeof(header), 1, loadFile);
-
-    return SAVE(TAGGED(0));
 }
 
-Handle ShowParent(TaskData *taskData, Handle hFileName)
+POLYUNSIGNED PolyRenameParent(PolyObject *threadId, PolyWord childName, PolyWord parentName)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    try {
+        RenameParent(taskData, childName, parentName);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+static Handle ShowParent(TaskData *taskData, Handle hFileName)
 // Return the name of the immediate parent stored in a child
 {
     AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(hFileName->Word()));
@@ -1502,6 +1599,27 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
         return result;
     }
     else return SAVE(NONE_VALUE);
+}
+
+// Return the name of the immediate parent stored in a child
+POLYUNSIGNED PolyShowParent(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = ShowParent(taskData, pushedArg);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 // Module system
@@ -1671,16 +1789,27 @@ void ModuleExport::exportStore(void)
     fclose(exportFile); exportFile = NULL;
 }
 
-Handle StoreModule(TaskData *taskData, Handle args)
+// Store a module
+POLYUNSIGNED PolyStoreModule(PolyObject *threadId, PolyWord name, PolyWord contents)
 {
-    TempString fileName(args->WordP()->Get(0));
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedContents = taskData->saveVec.push(contents);
 
-    ModuleStorer storer(fileName, SAVE(args->WordP()->Get(1)));
-    processes->MakeRootRequest(taskData, &storer);
-    if (storer.errorMessage)
-        raise_syscall(taskData, storer.errorMessage, storer.errCode);
-    return SAVE(TAGGED(0));
+    try {
+        TempString fileName(name);
+        ModuleStorer storer(fileName, pushedContents);
+        processes->MakeRootRequest(taskData, &storer);
+        if (storer.errorMessage)
+            raise_syscall(taskData, storer.errorMessage, storer.errCode);
+    }
+    catch (...) {} // If an ML exception is raised
 
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
 }
 
 // Load a module.
@@ -1854,7 +1983,7 @@ void ModuleLoader::Perform()
     }
 }
 
-Handle LoadModule(TaskData *taskData, Handle args)
+static Handle LoadModule(TaskData *taskData, Handle args)
 {
     TempString fileName(args->Word());
     ModuleLoader loader(taskData, fileName);
@@ -1877,6 +2006,27 @@ Handle LoadModule(TaskData *taskData, Handle args)
     }
 
     return loader.rootHandle;
+}
+
+// Load a module
+POLYUNSIGNED PolyLoadModule(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = LoadModule(taskData, pushedArg);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 
@@ -1992,3 +2142,71 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
     return (PolyObject *)exports->rootFunction;
 #endif
 }
+
+// Return the system directory for modules.  This is configured differently
+// in Unix and in Windows.
+POLYUNSIGNED PolyGetModuleDirectory(PolyObject *threadId)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(MODULEDIR))
+        result = SAVE(C_string_to_Poly(taskData, MODULEDIR));
+#elif (defined(_WIN32) && ! defined(__CYGWIN__))
+        {
+            // This registry key is configured when Poly/ML is installed using the installer.
+            // It gives the path to the Poly/ML installation directory.  We return the
+            // Modules subdirectory.
+            HKEY hk;
+            if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\PolyML.exe"), 0,
+                KEY_QUERY_VALUE, &hk) == ERROR_SUCCESS)
+            {
+                DWORD valSize;
+                if (RegQueryValueEx(hk, _T("Path"), 0, NULL, NULL, &valSize) == ERROR_SUCCESS)
+                {
+#define MODULEDIR _T("Modules")
+                    TempString buff((TCHAR*)malloc(valSize + (_tcslen(MODULEDIR) + 1) * sizeof(TCHAR)));
+                    DWORD dwType;
+                    if (RegQueryValueEx(hk, _T("Path"), 0, &dwType, (LPBYTE)(LPTSTR)buff, &valSize) == ERROR_SUCCESS)
+                    {
+                        // The registry entry should end with a backslash.
+                        _tcscat(buff, MODULEDIR);
+                        result = SAVE(C_string_to_Poly(taskData, buff));
+                    }
+                }
+                RegCloseKey(hk);
+            }
+            result = SAVE(C_string_to_Poly(taskData, ""));
+        }
+#else
+        result = SAVE(C_string_to_Poly(taskData, ""));
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+struct _entrypts savestateEPT[] =
+{
+    { "PolySaveState",                  (polyRTSFunction)&PolySaveState },
+    { "PolyLoadState",                  (polyRTSFunction)&PolyLoadState },
+    { "PolyShowHierarchy",              (polyRTSFunction)&PolyShowHierarchy },
+    { "PolyRenameParent",               (polyRTSFunction)&PolyRenameParent },
+    { "PolyShowParent",                 (polyRTSFunction)&PolyShowParent },
+    { "PolyStoreModule",                (polyRTSFunction)&PolyStoreModule },
+    { "PolyLoadModule",                 (polyRTSFunction)&PolyLoadModule },
+    { "PolyLoadHierarchy",              (polyRTSFunction)&PolyLoadHierarchy },
+    { "PolyGetModuleDirectory",         (polyRTSFunction)&PolyGetModuleDirectory },
+
+    { NULL, NULL } // End of list.
+};
+
