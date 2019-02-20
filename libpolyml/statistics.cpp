@@ -608,7 +608,7 @@ void Statistics::updatePeriodicStats(size_t freeWords, unsigned threadsInML)
     li.LowPart = rt.dwLowDateTime;
     li.HighPart = rt.dwHighDateTime;
     setTimeValue(PST_NONGC_RTIME, (unsigned long)(li.QuadPart / 10000000), (unsigned long)((li.QuadPart / 10) % 1000000));
-#elif HAVE_GETRUSAGE
+#else
     struct rusage usage;
     struct timeval tv;
     getrusage(RUSAGE_SELF, &usage);
