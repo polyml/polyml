@@ -216,7 +216,7 @@ public:
     static void shareWordData(GCTaskId *, void *, void *);
     static void shareRemainingWordData(GCTaskId *, void *, void *);
 
-    virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
+    virtual PolyObject *ScanObjectAddress(PolyObject *obj);
 
 protected:
     virtual bool TestForScan(PolyWord *);
@@ -246,14 +246,18 @@ GetSharing::GetSharing()
     totalVisited = byteAdded = wordAdded = totalSize = 0;
 }
 
-// Override the scan for run-time addresses and don't process code addresses.
-// The "trampoline" functions in 32-in-64 are in the code area and default
-// code turns the code address into a heap address.
-void GetSharing::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
+// This is called for roots and also for constants in the constant area.
+// If we have a code address we MUSTN't call RecursiveScan::ScanObjectAddress
+// because that turns the address into a PolyWord and doesn't work in 32-in-64.
+// We process the code area explicitly so we can simply skip code addresses.
+PolyObject *GetSharing::ScanObjectAddress(PolyObject *obj)
 {
+    LocalMemSpace *sp = gMem.LocalSpaceForAddress((PolyWord*)obj - 1);
 
-    if (!(*pt)->IsCodeObject())
-        *pt = ScanObjectAddress(*pt);
+    if (sp == 0)
+        return obj;
+
+    return RecursiveScanWithStack::ScanObjectAddress(obj);
 }
 
 bool GetSharing::TestForScan(PolyWord *pt)

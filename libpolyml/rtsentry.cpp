@@ -65,6 +65,8 @@
 #include "objsize.h"
 #include "network.h"
 #include "exporter.h"
+#include "statistics.h"
+#include "savestate.h"
 
 extern struct _entrypts rtsCallEPT[];
 
@@ -88,6 +90,8 @@ static entrypts entryPointTable[] =
     objSizeEPT,
     networkingEPT,
     exporterEPT,
+    statisticsEPT,
+    savestateEPT,
     NULL
 };
 

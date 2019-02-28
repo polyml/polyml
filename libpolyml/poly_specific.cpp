@@ -1,7 +1,7 @@
 /*
     Title:  poly_specific.cpp - Poly/ML specific RTS calls.
 
-    Copyright (c) 2006, 2015-17 David C. J. Matthews
+    Copyright (c) 2006, 2015-17, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -50,14 +50,9 @@
 #include "run_time.h"
 #include "version.h"
 #include "save_vec.h"
-#include "exporter.h"
 #include "version.h"
-#include "sharedata.h"
 #include "memmgr.h"
 #include "processes.h"
-#include "savestate.h"
-#include "statistics.h"
-#include "../polystatistics.h"
 #include "gc.h"
 #include "rtsentry.h"
 
@@ -75,9 +70,6 @@ extern "C" {
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
-
-static const char *poly_runtime_system_copyright =
-    "Copyright (c) 2002-17 David C.J. Matthews, CUTS and contributors.";
 
 #ifndef GIT_VERSION
 #define GIT_VERSION             ""
@@ -107,12 +99,8 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return SAVE(C_string_to_Poly(taskData, version));
         }
 
-    case 11: // Return the RTS copyright string
-        // Is this used??
-        return SAVE(C_string_to_Poly(taskData, poly_runtime_system_copyright));
-
     case 12: // Return the architecture
-        // Is this used??
+        // Used in InitialPolyML.ML for PolyML.architecture
         {
             const char *arch;
             switch (machineDependent->MachineArchitecture())
@@ -128,85 +116,6 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 19: // Return the RTS argument help string.
         return SAVE(C_string_to_Poly(taskData, RTSArgHelp()));
-
-    case 20: // Write a saved state file.
-        return SaveState(taskData, args);
-
-    case 21: // Load a saved state file and any ancestors.
-        return LoadState(taskData, false, args);
-
-    case 22: // Show the hierarchy.
-        return ShowHierarchy(taskData);
-
-    case 23: // Change the name of the immediate parent stored in a child
-        return RenameParent(taskData, args);
-
-    case 24: // Return the name of the immediate parent stored in a child
-        return ShowParent(taskData, args);
-
-    case 27: // Get number of user statistics available
-        return Make_arbitrary_precision(taskData, N_PS_USER);
-
-    case 28: // Set an entry in the user stats table.
-        {
-            unsigned index = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(0));
-            if (index >= N_PS_USER)
-                raise_exception0(taskData, EXC_subscript);
-            POLYSIGNED value = getPolySigned(taskData, DEREFHANDLE(args)->Get(1));
-            globalStats.setUserCounter(index, value);
-            Make_arbitrary_precision(taskData, 0);
-        }
-
-    case 29: // Get local statistics.
-        return globalStats.getLocalStatistics(taskData);
-
-    case 30: // Get remote statistics.  The argument is the process ID to get the statistics.
-        return globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, args->Word()));
-
-    case 31: // Store a module
-        return StoreModule(taskData, args);
-
-    case 32: // Load a module
-        return LoadModule(taskData, args);
-
-    case 33: // Load hierarchy.  This provides a complete list of children and parents.
-        return LoadState(taskData, true, args);
-
-    case 34: // Return the system directory for modules.  This is configured differently
-        // in Unix and in Windows.
-#if (defined(MODULEDIR))
-    return SAVE(C_string_to_Poly(taskData, MODULEDIR));
-#elif (defined(_WIN32) && ! defined(__CYGWIN__))
-        {
-            // This registry key is configured when Poly/ML is installed using the installer.
-            // It gives the path to the Poly/ML installation directory.  We return the
-            // Modules subdirectory.
-            HKEY hk;
-            if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-                    _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\PolyML.exe"), 0,
-                    KEY_QUERY_VALUE, &hk) == ERROR_SUCCESS)
-            {
-                DWORD valSize;
-                if (RegQueryValueEx(hk, _T("Path"), 0, NULL, NULL, &valSize) == ERROR_SUCCESS)
-                {
-#define MODULEDIR _T("Modules")
-                    TempString buff((TCHAR*)malloc(valSize + (_tcslen(MODULEDIR) + 1)*sizeof(TCHAR)));
-                    DWORD dwType;
-                    if (RegQueryValueEx(hk, _T("Path"), 0, &dwType, (LPBYTE)(LPTSTR)buff, &valSize) == ERROR_SUCCESS)
-                    {
-                        RegCloseKey(hk);
-                        // The registry entry should end with a backslash.
-                        _tcscat(buff, MODULEDIR);
-                        return SAVE(C_string_to_Poly(taskData, buff));
-                    }
-                }
-                RegCloseKey(hk);
-            }
-            return SAVE(C_string_to_Poly(taskData, ""));
-        }
-#else
-        return SAVE(C_string_to_Poly(taskData, ""));
-#endif
 
     case 106: // Lock a mutable code segment and return the executable address.
             // Legacy - used by bootstrap code only

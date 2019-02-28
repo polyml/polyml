@@ -68,6 +68,12 @@ bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
     if (!pageMap.Create(space / pageSize))
         return false;
     lastAllocated = space / pageSize; // Beyond the last page in the area
+    // Set the last bit in the area so that we don't use it.
+    // This is effectively a work-around for a problem with the heap.
+    // If we have a zero-sized cell at the end of the memory its address is
+    // going to be zero.  This causes problems with forwarding pointers.
+    // There may be better ways of doing this.
+    pageMap.SetBit(space / pageSize - 1);
     return true;
 }
 

@@ -1,12 +1,11 @@
 /*
     Title:  PolyPerf.cpp
 
-    Copyright (c) 2011 David C.J. Matthews
+    Copyright (c) 2011, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -41,6 +40,7 @@ enum {
     PSC_THREADS_WAIT_SIGNAL,        // Special case - signal handling thread
     PSC_GC_FULLGC,                  // Number of full garbage collections
     PSC_GC_PARTIALGC,               // Number of partial GCs
+    PSC_GC_SHARING,                 // Number of sharing passes
     N_PS_COUNTERS
 };
 
@@ -50,6 +50,8 @@ enum {
     PSS_AFTER_LAST_FULLGC,          // Space free after the last full GC
     PSS_ALLOCATION,                 // Size of allocation space
     PSS_ALLOCATION_FREE,            // Space available in allocation area
+//    PSS_CODE_SPACE,                 // Space for code
+//    PSS_STACK_SPACE,                // Space for stack
     N_PS_SIZES
 };
 
@@ -58,6 +60,8 @@ enum {
     PST_NONGC_STIME,
     PST_GC_UTIME,
     PST_GC_STIME,
+    PST_NONGC_RTIME,
+    PST_GC_RTIME,
     N_PS_TIMES
 };
 
@@ -348,6 +352,8 @@ void ASN1Parse::parseAStatistic(int subTag, unsigned statLen)
                     stats->psCounters[PSC_GC_FULLGC] = cValue; break;
                 case POLY_STATS_ID_GC_PARTIALGC:
                     stats->psCounters[PSC_GC_PARTIALGC] = cValue; break;
+                case POLY_STATS_ID_GC_SHARING:
+                    stats->psCounters[PSC_GC_SHARING] = cValue; break;
                 case POLY_STATS_ID_USER0:
                     stats->psUser[0] = cValue; break;
                 case POLY_STATS_ID_USER1:
@@ -386,6 +392,10 @@ void ASN1Parse::parseAStatistic(int subTag, unsigned statLen)
                     stats->psSizes[PSS_ALLOCATION] = cValue; break;
                 case POLY_STATS_ID_ALLOCATION_FREE:
                     stats->psSizes[PSS_ALLOCATION_FREE] = cValue; break;
+//                case POLY_STATS_ID_CODE_SPACE:
+//                    stats->psSizes[PSS_CODE_SPACE] = cValue; break;
+//                case POLY_STATS_ID_STACK_SPACE:
+//                    stats->psSizes[PSS_STACK_SPACE] = cValue; break;
                 }
             }
             else ptr += elemLen; // Skip it - not expected here
@@ -406,6 +416,10 @@ void ASN1Parse::parseAStatistic(int subTag, unsigned statLen)
                     stats->psTimers[PST_GC_UTIME] = ft; break;
                 case POLY_STATS_ID_GC_STIME:
                     stats->psTimers[PST_GC_STIME] = ft; break;
+                case POLY_STATS_ID_NONGC_RTIME:
+                    stats->psTimers[PST_NONGC_RTIME] = ft; break;
+                case POLY_STATS_ID_GC_RTIME:
+                    stats->psTimers[PST_GC_RTIME] = ft; break;
                 }
             }
             else ptr += elemLen;

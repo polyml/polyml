@@ -859,6 +859,7 @@ PolyObject* MemMgr::AllocCodeSpace(POLYUNSIGNED requiredSize)
             CodeSpace *allocSpace = NewCodeSpace(spaceSize);
             if (allocSpace == 0)
                 return 0; // Try a GC.
+            globalStats.incSize(PSS_CODE_SPACE, allocSpace->spaceSize() * sizeof(PolyWord));
         }
     }
 }
@@ -876,6 +877,7 @@ void MemMgr::RemoveEmptyCodeAreas()
         {
             if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: Deleted code space %p at %p size %zu\n", space, space->bottom, space->spaceSize());
+            globalStats.decSize(PSS_CODE_SPACE, space->spaceSize() * sizeof(PolyWord));
             // We have an empty cell that fills the whole space.
             RemoveTree(space);
             delete(space);
@@ -984,6 +986,7 @@ StackSpace *MemMgr::NewStackSpace(uintptr_t size)
         }
         if (debugOptions & DEBUG_MEMMGR)
             Log("MMGR: New stack space %p allocated at %p size %lu\n", space, space->bottom, space->spaceSize());
+        globalStats.incSize(PSS_STACK_SPACE, space->spaceSize() * sizeof(PolyWord));
         return space;
     }
     catch (std::bad_alloc&) {
@@ -1038,6 +1041,7 @@ bool MemMgr::GrowOrShrinkStack(TaskData *taskData, uintptr_t newSize)
     taskData->CopyStackFrame(space->stack(), space->spaceSize(), (StackObject*)newSpace, newSize);
     if (debugOptions & DEBUG_MEMMGR)
         Log("MMGR: Size of stack %p changed from %lu to %lu at %p\n", space, space->spaceSize(), newSize, newSpace);
+    globalStats.incSize(PSS_STACK_SPACE, (newSize - space->spaceSize()) * sizeof(PolyWord));
     RemoveTree(space); // Remove it BEFORE freeing the space - another thread may allocate it
     PolyWord *oldBottom = space->bottom;
     size_t oldSize = (char*)space->top - (char*)space->bottom;
@@ -1058,6 +1062,7 @@ bool MemMgr::DeleteStackSpace(StackSpace *space)
     {
         if (*i == space)
         {
+            globalStats.decSize(PSS_STACK_SPACE, space->spaceSize() * sizeof(PolyWord));
             RemoveTree(space);
             delete space;
             sSpaces.erase(i);
