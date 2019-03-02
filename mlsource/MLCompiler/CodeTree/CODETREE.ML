@@ -121,7 +121,14 @@ struct
 
         (* If required, print it first.  This is the code that the front-end
            has produced. *)
-        val () = if printCodeTree then compilerOut(pretty pt) else ()
+        val () =
+          if printCodeTree
+          then
+            (
+              compilerOut(PRETTY.PrettyString "Input of genCode");
+              compilerOut(pretty pt)
+            )
+          else ()
 
         (* This ensures that everything is printed just before
            it is code-generated. *) 

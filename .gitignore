@@ -37,8 +37,8 @@ config.h
 config.log
 config.status
 fficonfig.h
-libffi/include/ffi.h
-libffi/include/ffitarget.h
+**/libffi/include/ffi.h
+**/libffi/include/ffitarget.h
 libtool
 local.exp
 .dirstamp

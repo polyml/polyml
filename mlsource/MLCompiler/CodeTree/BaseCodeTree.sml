@@ -229,13 +229,13 @@ struct
         fun prettyBuiltin(opers, arglist) =
                 PrettyBlock (2, false, [],
                     [
+                        PrettyString "bltin.",
                         PrettyString opers,
                         PrettyBreak(1, 2),
                         PrettyBlock(2, true, [],
                             [
                                 printList("", arglist, ","),
-                                PrettyBreak (0, 0),
-                                PrettyString (")")
+                                PrettyBreak (0, 0)
                             ]
                         )
                     ]
@@ -259,6 +259,12 @@ struct
             Eval {function, argList, ...} =>
                 PrettyBlock (2, false, [],
                     [
+                        string "app.",
+                        string (case function of
+                                     Extract _ => "extract."
+                                  | Constnt _ => "const."
+                                  | _ => ""
+                                ),
                         case function of
                             Extract _ => pretty function
                         |   Constnt _ => pretty function
