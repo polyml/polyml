@@ -549,16 +549,18 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return Make_fixed_precision(taskData, 0);
         }
 
-
         // Configuration functions.
     case 1050: // Get version data
         {
+
             OSVERSIONINFO osver;
             ZeroMemory(&osver, sizeof(OSVERSIONINFO));
             osver.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
             // GetVersionEx is deprecated in Windows 8.1
+#pragma warning(disable: 4996)
             if (! GetVersionEx(&osver))
                 raise_syscall(taskData, "GetVersionEx failed", GetLastError());
+#pragma warning(default: 4996)
             Handle major = Make_fixed_precision(taskData, osver.dwMajorVersion);
             Handle minor = Make_fixed_precision(taskData, osver.dwMinorVersion);
             Handle build = Make_fixed_precision(taskData, osver.dwBuildNumber);

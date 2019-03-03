@@ -105,6 +105,8 @@ typedef int socklen_t;
 #endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
+// Temporarily define this to suppress warnings for gethostname and gethostbyaddr
+#define _WINSOCK_DEPRECATED_NO_WARNINGS 1
 #include <winsock2.h>
 #else
 typedef int SOCKET;
