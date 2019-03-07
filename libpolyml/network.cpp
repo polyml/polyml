@@ -201,7 +201,7 @@ struct af_tab_struct {
 #endif
     { "INET",       AF_INET }, /* This one should always be there. */
 #ifdef AF_IMPLINK
-    { "IMPLINK",        AF_IMPLINK },
+    { "IMPLINK",    AF_IMPLINK },
 #endif
 #ifdef AF_PUP
     { "PUP",        AF_PUP },
@@ -225,7 +225,7 @@ struct af_tab_struct {
     { "ECMA",       AF_ECMA },
 #endif
 #ifdef AF_DATAKIT
-    { "DATAKIT",        AF_DATAKIT },
+    { "DATAKIT",    AF_DATAKIT },
 #endif
 #ifdef AF_CCITT
     { "CCITT",      AF_CCITT },
@@ -246,19 +246,19 @@ struct af_tab_struct {
     { "HYLINK",     AF_HYLINK },
 #endif
 #ifdef AF_APPLETALK
-    { "APPLETALK",      AF_APPLETALK },
+    { "APPLETALK",  AF_APPLETALK },
 #endif
 #ifdef AF_NETBIOS
-    { "NETBIOS",        AF_NETBIOS },
+    { "NETBIOS",    AF_NETBIOS },
 #endif
 #ifdef AF_ROUTE
     { "ROUTE",      AF_ROUTE },
 #endif
 #ifdef AF_VOICEVIEW
-    { "VOICEVIEW",      AF_VOICEVIEW },
+    { "VOICEVIEW",  AF_VOICEVIEW },
 #endif
 #ifdef AF_FIREFOX
-    { "FIREFOX",        AF_FIREFOX },
+    { "FIREFOX",    AF_FIREFOX },
 #endif
 #ifdef AF_BAN
     { "BAN",        AF_BAN },
@@ -282,7 +282,7 @@ struct af_tab_struct {
     { "E164",       AF_E164 },
 #endif
 #ifdef AF_INET6
-    { "INET6",      AF_INET6 },
+    { "INET6",      AF_INET6 },  // This one should always be there.
 #endif
 #ifdef AF_NATM
     { "NATM",       AF_NATM },
@@ -291,7 +291,133 @@ struct af_tab_struct {
     { "ATM",        AF_ATM },
 #endif
 #ifdef AF_NETGRAPH
-    { "NETGRAPH",       AF_NETGRAPH },
+    { "NETGRAPH",   AF_NETGRAPH },
+#endif
+#ifdef AF_CLUSTER
+    { "CLUSTER",    AF_CLUSTER },
+#endif
+#ifdef AF_12844
+    { "12844",      AF_12844 },
+#endif
+#ifdef AF_IRDA
+    { "IRDA",       AF_IRDA },
+#endif
+#ifdef AF_NETDES
+    { "NETDES",     AF_NETDES },
+#endif
+#ifdef AF_TCNPROCESS
+    { "TCNPROCESS", AF_TCNPROCESS },
+#endif
+#ifdef AF_TCNMESSAGE
+    { "TCNMESSAGE", AF_TCNMESSAGE },
+#endif
+#ifdef AF_ICLFXBM
+    { "ICLFXBM",    AF_ICLFXBM },
+#endif
+#ifdef AF_BTH
+    { "BTH",        AF_BTH },
+#endif
+#ifdef AF_HYPERV
+    { "HYPERV",     AF_HYPERV },
+#endif
+#ifdef AF_FILE
+    { "FILE",       AF_FILE },
+#endif
+#ifdef AF_AX25
+    { "AX25",       AF_AX25 },
+#endif
+#ifdef AF_NETROM
+    { "NETROM",     AF_NETROM },
+#endif
+#ifdef AF_BRIDGE
+    { "BRIDGE",     AF_BRIDGE },
+#endif
+#ifdef AF_ATMPVC
+    { "ATMPVC",     AF_ATMPVC },
+#endif
+#ifdef AF_X25
+    { "X25",        AF_X25 },
+#endif
+#ifdef AF_ROSE
+    { "ROSE",       AF_ROSE },
+#endif
+#ifdef AF_NETBEUI
+    { "NETBEUI",    AF_NETBEUI },
+#endif
+#ifdef AF_SECURITY
+    { "SECURITY",   AF_SECURITY },
+#endif
+#ifdef AF_KEY
+    { "KEY",        AF_KEY },
+#endif
+#ifdef AF_NETLINK
+    { "NETLINK",    AF_NETLINK },
+#endif
+#ifdef AF_PACKET
+    { "PACKET",     AF_PACKET },
+#endif
+#ifdef AF_ASH
+    { "ASH",        AF_ASH },
+#endif
+#ifdef AF_ECONET
+    { "ECONET",     AF_ECONET },
+#endif
+#ifdef AF_ATMSVC
+    { "ATMSVC",     AF_ATMSVC },
+#endif
+#ifdef AF_RDS
+    { "RDS",        AF_RDS },
+#endif
+#ifdef AF_PPPOX
+    { "PPPOX",      AF_PPPOX },
+#endif
+#ifdef AF_WANPIPE
+    { "WANPIPE",    AF_WANPIPE },
+#endif
+#ifdef AF_LLC
+    { "LLC",        AF_LLC },
+#endif
+#ifdef AF_IB
+    { "IB",         AF_IB },
+#endif
+#ifdef AF_MPLS
+    { "MPLS",       AF_MPLS },
+#endif
+#ifdef AF_CAN
+    { "CAN",        AF_CAN },
+#endif
+#ifdef AF_TIPC
+    { "TIPC",       AF_TIPC },
+#endif
+#ifdef AF_BLUETOOTH
+    { "BLUETOOTH",  AF_BLUETOOTH },
+#endif
+#ifdef AF_IUCV
+    { "IUCV",       AF_IUCV },
+#endif
+#ifdef AF_RXRPC
+    { "RXRPC",      AF_RXRPC },
+#endif
+#ifdef AF_PHONET
+    { "PHONET",     AF_PHONET },
+#endif
+#ifdef AF_IEEE802154
+    { "IEEE802154", AF_IEEE802154 },
+#endif
+#ifdef AF_CAIF
+    { "CAIF",       AF_CAIF },
+#endif
+#ifdef AF_ALG
+    { "ALG",        AF_ALG },
+#endif
+#ifdef AF_NFC
+    { "NFC",        AF_NFC },
+#endif
+#ifdef AF_VSOCK
+    { "VSOCK",      AF_VSOCK },
+#endif
+#ifdef AF_KCM
+    { "KCM",        AF_KCM },
 #endif
 };
 
@@ -305,7 +431,10 @@ struct sk_tab_struct {
     { "DGRAM",      SOCK_DGRAM },
     { "RAW",        SOCK_RAW },
     { "RDM",        SOCK_RDM },
-    { "SEQPACKET",  SOCK_SEQPACKET }
+    { "SEQPACKET",  SOCK_SEQPACKET },
+#ifdef SOCK_DCCP
+    { "DCCP",       SOCK_DCCP },
+#endif
 };
 
 static Handle makeHostEntry(TaskData *taskData, struct hostent *host);
