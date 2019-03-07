@@ -219,6 +219,13 @@ LocalMemSpace *HeapSizeParameters::AddSpaceInMinorGC(uintptr_t space, bool isMut
     // The new segment is either the default size or as large as
     // necessary for the object.
     uintptr_t spaceSize = gMem.DefaultSpaceSize();
+#ifdef POLYML32IN64
+    // When we allocate a space in NewLocalSpace we take one word to ensure
+    // the that the first length word is on an odd-word boundary.
+    // We need to add one here to ensure there is sufficient space to do that.
+    // See AllocHeapSpace
+    space++;
+#endif
     if (space > spaceSize) spaceSize = space;
 
     // We allow for extension if the total heap size after extending it
