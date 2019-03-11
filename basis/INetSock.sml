@@ -214,9 +214,6 @@ in
              |  [] => raise OS.SysErr("No address returned", NONE)
     
         val getHostName: unit -> string = RunCall.rtsCallFull0 "PolyNetworkGetHostName"
-        
-        (* The RTS calls return either zero or the address of the entry. *)
-        datatype result = AResult of entry | NoResult
 
         local
             type addrInfo = int * Socket.AF.addr_family * int * int * sock_addr * string
@@ -233,11 +230,15 @@ in
         end
 
         local
-            val doCall: in_addr -> result
-                 = RunCall.rtsCallFull1 "PolyNetworkGetHostByAddr"
+            (* This does a reverse lookup of the address to return the name. *)
+            val doCall: sock_addr -> string = RunCall.rtsCallFull1 "PolyNetworkGetNameInfo"
         in
             fun getByAddr n =
-                case doCall n of AResult r => SOME r | NoResult => NONE
+            (
+                (* Create an entry out of this.  We could do a forward look-up
+                   of the resulting address but there doesn't seem to be any point. *)
+                SOME(doCall(toAddr(n, 0)), [], inetAF, [n])
+            ) handle OS.SysErr _ => NONE
         end
      end
 

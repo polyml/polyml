@@ -1,7 +1,7 @@
 /*
     Title:      Network functions.
 
-    Copyright (c) 2000-7, 2016, 2018 David C. J. Matthews
+    Copyright (c) 2000-7, 2016, 2018, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -105,8 +105,6 @@ typedef int socklen_t;
 #endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-// Temporarily define this to suppress warnings for gethostbyname and gethostbyaddr
-#define _WINSOCK_DEPRECATED_NO_WARNINGS 1
 #include <winsock2.h>
 #include <ws2tcpip.h> // For getaddrinfo
 #else
@@ -150,7 +148,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByName(PolyObject *threadId, PolyWord protocolName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByNo(PolyObject *threadId, PolyWord protoNo);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetNameInfo(PolyObject *threadId, PolyWord sockAddr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(PolyObject *threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddrInfo(PolyObject *threadId, PolyWord hostName, PolyWord addrFamily);
 }
@@ -1335,42 +1333,6 @@ static Handle mkAddr(TaskData *taskData, void *arg, char *p)
     return Make_arbitrary_precision(taskData, addr);
 }
 
-/* Convert a host entry into a tuple for ML. */
-static Handle makeHostEntry(TaskData *taskData, struct hostent *host)
-{
-    /* We need to do all this in the right order.  We cannot
-       construct the result tuple until all the values are
-       ready.  We have to save each entry on the save stack
-       just in case of a garbage collection. */
-    int i;
-    char **p;
-    Handle aliases, name, addrType, result;
-    Handle addrList = SAVE(ListNull);
-
-    /* Canonical name. */
-    name = SAVE(C_string_to_Poly(taskData, host->h_name));
-
-    /* Aliases. */
-    for (i=0, p = host->h_aliases; *p != NULL; p++, i++);
-    aliases = convert_string_list(taskData, i, host->h_aliases);
-
-    /* Address type. */
-    addrType = Make_arbitrary_precision(taskData, host->h_addrtype);
-
-    /* Addresses. */
-    /* Count them first and then work from the end back. */
-    for (i=0, p = host->h_addr_list; *p != NULL; p++, i++);
-    addrList = makeList(taskData, i, (char*)host->h_addr_list, sizeof(char*), host, mkAddr);
-
-    /* Make the result structure. */
-    result = ALLOC(4);
-    DEREFHANDLE(result)->Set(0, name->Word());
-    DEREFHANDLE(result)->Set(1, aliases->Word());
-    DEREFHANDLE(result)->Set(2, addrType->Word());
-    DEREFHANDLE(result)->Set(3, addrList->Word());
-    return result;
-}
-
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto)
 {
     int i;
@@ -1769,19 +1731,9 @@ POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId)
     Handle result = 0;
 
     try { /* Get the current host name. */
-        size_t size = 4096;
-        TempCString hostName((char *)malloc(size));
-        if (hostName == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-        int err;
-        while ((err = gethostname(hostName, size)) != 0 && GETERROR == ENAMETOOLONG)
-        {
-            if (size > std::numeric_limits<size_t>::max() / 2) raise_fail(taskData, "gethostname needs too large a buffer");
-            size *= 2;
-            char *new_buf = (char *)realloc(hostName, size);
-            if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-            hostName = new_buf;
-        }
-
+        // Since the maximum length of a FQDN is 256 bytes it should fit in the buffer.
+        char hostName[1024];
+        int err = gethostname(hostName, sizeof(hostName));
         if (err != 0)
             raise_syscall(taskData, "gethostname failed", GETERROR);
 
@@ -1795,18 +1747,33 @@ POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr)
+POLYUNSIGNED PolyNetworkGetNameInfo(PolyObject *threadId, PolyWord sockAddr)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
 
-    /* Look up entry by address. */
-    unsigned long addr = htonl(get_C_unsigned(taskData, hostAddr));
-    /* Look up a host name given an address. */
-    struct hostent *host = gethostbyaddr((char*)&addr, sizeof(addr), AF_INET);
-    Handle result = host == NULL ? 0 : makeHostEntry(taskData, host);
+    try {
+        PolyStringObject* psAddr = (PolyStringObject*)sockAddr.AsObjPtr();
+        struct sockaddr* psock = (struct sockaddr*) & psAddr->chars;
+        // Since the maximum length of a FQDN is 256 bytes it should fit in the buffer.
+        char hostName[1024];
+        int gniRes = getnameinfo(psock, (socklen_t)psAddr->length, hostName, sizeof(hostName), NULL, 0, 0);
+        if (gniRes != 0)
+        {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+            raise_syscall(taskData, "getnameinfo failed", GETERROR);
+#else
+            if (gniRes == EAI_SYSTEM)
+                raise_syscall(taskData, "getnameinfo failed", GETERROR);
+            else raise_syscall(taskData, gai_strerror(gniRes), 0);
+#endif
+        }
+        result = SAVE(C_string_to_Poly(taskData, hostName));
+    }
+    catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
@@ -1869,7 +1836,9 @@ POLYUNSIGNED PolyNetworkGetAddrInfo(PolyObject *threadId, PolyWord hostName, Pol
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             raise_syscall(taskData, "getaddrinfo failed", GETERROR);
 #else
-            raise_syscall(taskData, gai_strerror(gaiRes), 0);
+            if (gaiRes == EAI_SYSTEM)
+                raise_syscall(taskData, "getnameinfo failed", GETERROR);
+            else raise_syscall(taskData, gai_strerror(gaiRes), 0);
 #endif
         }
 
@@ -1935,7 +1904,7 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkGetProtByName",               (polyRTSFunction)&PolyNetworkGetProtByName},
     { "PolyNetworkGetProtByNo",                 (polyRTSFunction)&PolyNetworkGetProtByNo},
     { "PolyNetworkGetHostName",                 (polyRTSFunction)&PolyNetworkGetHostName},
-    { "PolyNetworkGetHostByAddr",               (polyRTSFunction)&PolyNetworkGetHostByAddr},
+    { "PolyNetworkGetNameInfo",                 (polyRTSFunction)&PolyNetworkGetNameInfo},
     { "PolyNetworkCloseSocket",                 (polyRTSFunction)&PolyNetworkCloseSocket },
     { "PolyNetworkGetAddrInfo",                 (polyRTSFunction)&PolyNetworkGetAddrInfo },
 
