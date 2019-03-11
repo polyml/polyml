@@ -105,9 +105,10 @@ typedef int socklen_t;
 #endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-// Temporarily define this to suppress warnings for gethostname and gethostbyaddr
+// Temporarily define this to suppress warnings for gethostbyname and gethostbyaddr
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
 #include <winsock2.h>
+#include <ws2tcpip.h> // For getaddrinfo
 #else
 typedef int SOCKET;
 #endif
@@ -149,9 +150,9 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByName(PolyObject *threadId, PolyWord protocolName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByNo(PolyObject *threadId, PolyWord protoNo);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hostName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddrInfo(PolyObject *threadId, PolyWord hostName, PolyWord addrFamily);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -1794,25 +1795,6 @@ POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hName)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-
-    /* Look up a host name. */
-    TempCString hostName(Poly_string_to_C_alloc(hName));
-    struct hostent *host = gethostbyname(hostName);
-    // If this fails the ML function returns NONE
-    Handle result = host == NULL ? 0 : makeHostEntry(taskData, host);
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
-}
-
 POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
@@ -1825,6 +1807,77 @@ POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr)
     /* Look up a host name given an address. */
     struct hostent *host = gethostbyaddr((char*)&addr, sizeof(addr), AF_INET);
     Handle result = host == NULL ? 0 : makeHostEntry(taskData, host);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Copy addrInfo data into ML memory.  We copy this although most of it
+// is currently unused.
+static Handle extractAddrInfo(TaskData *taskData, struct addrinfo *ainfo)
+{
+    if (ainfo == 0)
+        return taskData->saveVec.push(ListNull);
+
+    Handle reset = taskData->saveVec.mark();
+    Handle tail = extractAddrInfo(taskData, ainfo->ai_next);
+    Handle name = 0;
+    // Only the first entry may have a canonical name.
+    if (ainfo->ai_canonname == 0)
+        name = taskData->saveVec.push(C_string_to_Poly(taskData, ""));
+    else name = taskData->saveVec.push(C_string_to_Poly(taskData, ainfo->ai_canonname));
+
+    Handle address = taskData->saveVec.push(C_string_to_Poly(taskData, (char*)ainfo->ai_addr, ainfo->ai_addrlen));
+
+    Handle value = alloc_and_save(taskData, 6);
+    value->WordP()->Set(0, TAGGED(ainfo->ai_flags));
+    value->WordP()->Set(1, TAGGED(ainfo->ai_family));
+    value->WordP()->Set(2, TAGGED(ainfo->ai_socktype));
+    value->WordP()->Set(3, TAGGED(ainfo->ai_protocol));
+    value->WordP()->Set(4, address->Word());
+    value->WordP()->Set(5, name->Word());
+
+    ML_Cons_Cell *next = (ML_Cons_Cell*)alloc(taskData, SIZEOF(ML_Cons_Cell));
+    next->h = value->Word();
+    next->t = tail->Word();
+
+    taskData->saveVec.reset(reset);
+    return taskData->saveVec.push(next);
+}
+
+POLYUNSIGNED PolyNetworkGetAddrInfo(PolyObject *threadId, PolyWord hostName, PolyWord addrFamily)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+    struct addrinfo *resAddr = 0;
+
+    try {
+        TempCString hostName(Poly_string_to_C_alloc(hostName));
+        struct addrinfo hints;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = (int)UNTAGGED(addrFamily); // AF_INET or AF_INET6 or, possibly, AF_UNSPEC.
+        hints.ai_flags = AI_CANONNAME;
+
+        int gaiRes = getaddrinfo(hostName, 0, &hints, &resAddr);
+        if (gaiRes != 0)
+        {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+            raise_syscall(taskData, "getaddrinfo failed", GETERROR);
+#else
+            raise_syscall(taskData, gai_strerror(gaiRes), 0);
+#endif
+        }
+
+        result = extractAddrInfo(taskData, resAddr);
+    }
+    catch (...) { } // Could raise an exception if we run out of heap space
+
+    if (resAddr) freeaddrinfo(resAddr);
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
@@ -1882,9 +1935,9 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkGetProtByName",               (polyRTSFunction)&PolyNetworkGetProtByName},
     { "PolyNetworkGetProtByNo",                 (polyRTSFunction)&PolyNetworkGetProtByNo},
     { "PolyNetworkGetHostName",                 (polyRTSFunction)&PolyNetworkGetHostName},
-    { "PolyNetworkGetHostByName",               (polyRTSFunction)&PolyNetworkGetHostByName},
     { "PolyNetworkGetHostByAddr",               (polyRTSFunction)&PolyNetworkGetHostByAddr},
     { "PolyNetworkCloseSocket",                 (polyRTSFunction)&PolyNetworkCloseSocket },
+    { "PolyNetworkGetAddrInfo",                 (polyRTSFunction)&PolyNetworkGetAddrInfo },
 
     { NULL, NULL} // End of list.
 };

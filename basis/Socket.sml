@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Generic Sockets
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2015-16
+    Copyright   David Matthews 2000, 2005, 2015-16, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,7 +28,7 @@ sig
 
     structure AF :
     sig
-        type addr_family = NetHostDB.addr_family
+        eqtype addr_family (* = NetHostDB.addr_family *) (* This is a mess: NetHostDB depends on Socket. *)
         val list : unit -> (string * addr_family) list
         val toString   : addr_family -> string
         val fromString : string -> addr_family option
@@ -189,7 +189,7 @@ struct
 
     structure AF =
     struct
-        type addr_family = NetHostDB.addr_family
+        type addr_family = int
 
         local
             val doCall: int*unit -> (string * addr_family) list
