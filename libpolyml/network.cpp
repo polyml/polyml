@@ -106,6 +106,7 @@ typedef int socklen_t;
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <winsock2.h>
+#include <ws2tcpip.h> // For getaddrinfo
 #else
 typedef int SOCKET;
 #endif
@@ -147,8 +148,8 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByName(FirstArgument threadId, PolyWord protocolName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByNo(FirstArgument threadId, PolyWord protoNo);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostName(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByName(FirstArgument threadId, PolyWord hostName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByAddr(FirstArgument threadId, PolyWord hostAddr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddrInfo(FirstArgument threadId, PolyWord hostName, PolyWord addrFamily);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetNameInfo(FirstArgument threadId, PolyWord sockAddr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(FirstArgument threadId, PolyWord fdVecTriple, PolyWord maxMillisecs);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSocketError(FirstArgument threadId, PolyWord skt);
@@ -207,7 +208,7 @@ struct af_tab_struct {
 #endif
     { "INET",       AF_INET }, /* This one should always be there. */
 #ifdef AF_IMPLINK
-    { "IMPLINK",        AF_IMPLINK },
+    { "IMPLINK",    AF_IMPLINK },
 #endif
 #ifdef AF_PUP
     { "PUP",        AF_PUP },
@@ -231,7 +232,7 @@ struct af_tab_struct {
     { "ECMA",       AF_ECMA },
 #endif
 #ifdef AF_DATAKIT
-    { "DATAKIT",        AF_DATAKIT },
+    { "DATAKIT",    AF_DATAKIT },
 #endif
 #ifdef AF_CCITT
     { "CCITT",      AF_CCITT },
@@ -252,19 +253,19 @@ struct af_tab_struct {
     { "HYLINK",     AF_HYLINK },
 #endif
 #ifdef AF_APPLETALK
-    { "APPLETALK",      AF_APPLETALK },
+    { "APPLETALK",  AF_APPLETALK },
 #endif
 #ifdef AF_NETBIOS
-    { "NETBIOS",        AF_NETBIOS },
+    { "NETBIOS",    AF_NETBIOS },
 #endif
 #ifdef AF_ROUTE
     { "ROUTE",      AF_ROUTE },
 #endif
 #ifdef AF_VOICEVIEW
-    { "VOICEVIEW",      AF_VOICEVIEW },
+    { "VOICEVIEW",  AF_VOICEVIEW },
 #endif
 #ifdef AF_FIREFOX
-    { "FIREFOX",        AF_FIREFOX },
+    { "FIREFOX",    AF_FIREFOX },
 #endif
 #ifdef AF_BAN
     { "BAN",        AF_BAN },
@@ -288,7 +289,7 @@ struct af_tab_struct {
     { "E164",       AF_E164 },
 #endif
 #ifdef AF_INET6
-    { "INET6",      AF_INET6 },
+    { "INET6",      AF_INET6 },  // This one should always be there.
 #endif
 #ifdef AF_NATM
     { "NATM",       AF_NATM },
@@ -297,7 +298,133 @@ struct af_tab_struct {
     { "ATM",        AF_ATM },
 #endif
 #ifdef AF_NETGRAPH
-    { "NETGRAPH",       AF_NETGRAPH },
+    { "NETGRAPH",   AF_NETGRAPH },
+#endif
+#ifdef AF_CLUSTER
+    { "CLUSTER",    AF_CLUSTER },
+#endif
+#ifdef AF_12844
+    { "12844",      AF_12844 },
+#endif
+#ifdef AF_IRDA
+    { "IRDA",       AF_IRDA },
+#endif
+#ifdef AF_NETDES
+    { "NETDES",     AF_NETDES },
+#endif
+#ifdef AF_TCNPROCESS
+    { "TCNPROCESS", AF_TCNPROCESS },
+#endif
+#ifdef AF_TCNMESSAGE
+    { "TCNMESSAGE", AF_TCNMESSAGE },
+#endif
+#ifdef AF_ICLFXBM
+    { "ICLFXBM",    AF_ICLFXBM },
+#endif
+#ifdef AF_BTH
+    { "BTH",        AF_BTH },
+#endif
+#ifdef AF_HYPERV
+    { "HYPERV",     AF_HYPERV },
+#endif
+#ifdef AF_FILE
+    { "FILE",       AF_FILE },
+#endif
+#ifdef AF_AX25
+    { "AX25",       AF_AX25 },
+#endif
+#ifdef AF_NETROM
+    { "NETROM",     AF_NETROM },
+#endif
+#ifdef AF_BRIDGE
+    { "BRIDGE",     AF_BRIDGE },
+#endif
+#ifdef AF_ATMPVC
+    { "ATMPVC",     AF_ATMPVC },
+#endif
+#ifdef AF_X25
+    { "X25",        AF_X25 },
+#endif
+#ifdef AF_ROSE
+    { "ROSE",       AF_ROSE },
+#endif
+#ifdef AF_NETBEUI
+    { "NETBEUI",    AF_NETBEUI },
+#endif
+#ifdef AF_SECURITY
+    { "SECURITY",   AF_SECURITY },
+#endif
+#ifdef AF_KEY
+    { "KEY",        AF_KEY },
+#endif
+#ifdef AF_NETLINK
+    { "NETLINK",    AF_NETLINK },
+#endif
+#ifdef AF_PACKET
+    { "PACKET",     AF_PACKET },
+#endif
+#ifdef AF_ASH
+    { "ASH",        AF_ASH },
+#endif
+#ifdef AF_ECONET
+    { "ECONET",     AF_ECONET },
+#endif
+#ifdef AF_ATMSVC
+    { "ATMSVC",     AF_ATMSVC },
+#endif
+#ifdef AF_RDS
+    { "RDS",        AF_RDS },
+#endif
+#ifdef AF_PPPOX
+    { "PPPOX",      AF_PPPOX },
+#endif
+#ifdef AF_WANPIPE
+    { "WANPIPE",    AF_WANPIPE },
+#endif
+#ifdef AF_LLC
+    { "LLC",        AF_LLC },
+#endif
+#ifdef AF_IB
+    { "IB",         AF_IB },
+#endif
+#ifdef AF_MPLS
+    { "MPLS",       AF_MPLS },
+#endif
+#ifdef AF_CAN
+    { "CAN",        AF_CAN },
+#endif
+#ifdef AF_TIPC
+    { "TIPC",       AF_TIPC },
+#endif
+#ifdef AF_BLUETOOTH
+    { "BLUETOOTH",  AF_BLUETOOTH },
+#endif
+#ifdef AF_IUCV
+    { "IUCV",       AF_IUCV },
+#endif
+#ifdef AF_RXRPC
+    { "RXRPC",      AF_RXRPC },
+#endif
+#ifdef AF_PHONET
+    { "PHONET",     AF_PHONET },
+#endif
+#ifdef AF_IEEE802154
+    { "IEEE802154", AF_IEEE802154 },
+#endif
+#ifdef AF_CAIF
+    { "CAIF",       AF_CAIF },
+#endif
+#ifdef AF_ALG
+    { "ALG",        AF_ALG },
+#endif
+#ifdef AF_NFC
+    { "NFC",        AF_NFC },
+#endif
+#ifdef AF_VSOCK
+    { "VSOCK",      AF_VSOCK },
+#endif
+#ifdef AF_KCM
+    { "KCM",        AF_KCM },
 #endif
 };
 
@@ -311,7 +438,10 @@ struct sk_tab_struct {
     { "DGRAM",      SOCK_DGRAM },
     { "RAW",        SOCK_RAW },
     { "RDM",        SOCK_RDM },
-    { "SEQPACKET",  SOCK_SEQPACKET }
+    { "SEQPACKET",  SOCK_SEQPACKET },
+#ifdef SOCK_DCCP
+    { "DCCP",       SOCK_DCCP },
+#endif
 };
 
 static Handle makeHostEntry(TaskData *taskData, struct hostent *host);
@@ -856,42 +986,6 @@ static Handle mkAddr(TaskData *taskData, void *arg, char *p)
     for (j = 0; j < host->h_length; j++)
         addr = (addr << 8) | ((*(char**)p)[j] & 255);
     return Make_arbitrary_precision(taskData, addr);
-}
-
-/* Convert a host entry into a tuple for ML. */
-static Handle makeHostEntry(TaskData *taskData, struct hostent *host)
-{
-    /* We need to do all this in the right order.  We cannot
-       construct the result tuple until all the values are
-       ready.  We have to save each entry on the save stack
-       just in case of a garbage collection. */
-    int i;
-    char **p;
-    Handle aliases, name, addrType, result;
-    Handle addrList = SAVE(ListNull);
-
-    /* Canonical name. */
-    name = SAVE(C_string_to_Poly(taskData, host->h_name));
-
-    /* Aliases. */
-    for (i=0, p = host->h_aliases; *p != NULL; p++, i++);
-    aliases = convert_string_list(taskData, i, host->h_aliases);
-
-    /* Address type. */
-    addrType = Make_arbitrary_precision(taskData, host->h_addrtype);
-
-    /* Addresses. */
-    /* Count them first and then work from the end back. */
-    for (i=0, p = host->h_addr_list; *p != NULL; p++, i++);
-    addrList = makeList(taskData, i, (char*)host->h_addr_list, sizeof(char*), host, mkAddr);
-
-    /* Make the result structure. */
-    result = ALLOC(4);
-    DEREFHANDLE(result)->Set(0, name->Word());
-    DEREFHANDLE(result)->Set(1, aliases->Word());
-    DEREFHANDLE(result)->Set(2, addrType->Word());
-    DEREFHANDLE(result)->Set(3, addrList->Word());
-    return result;
 }
 
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto)
@@ -1487,19 +1581,9 @@ POLYUNSIGNED PolyNetworkGetHostName(FirstArgument threadId)
     Handle result = 0;
 
     try { /* Get the current host name. */
-        size_t size = 4096;
-        TempCString hostName((char *)malloc(size));
-        if (hostName == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-        int err;
-        while ((err = gethostname(hostName, size)) != 0 && GETERROR == ENAMETOOLONG)
-        {
-            if (size > std::numeric_limits<size_t>::max() / 2) raise_fail(taskData, "gethostname needs too large a buffer");
-            size *= 2;
-            char *new_buf = (char *)realloc(hostName, size);
-            if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-            hostName = new_buf;
-        }
-
+        // Since the maximum length of a FQDN is 256 bytes it should fit in the buffer.
+        char hostName[1024];
+        int err = gethostname(hostName, sizeof(hostName));
         if (err != 0)
             raise_syscall(taskData, "gethostname failed", GETERROR);
 
@@ -1513,18 +1597,33 @@ POLYUNSIGNED PolyNetworkGetHostName(FirstArgument threadId)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetHostByName(FirstArgument threadId, PolyWord hName)
+POLYUNSIGNED PolyNetworkGetNameInfo(FirstArgument threadId, PolyWord sockAddr)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
 
-    /* Look up a host name. */
-    TempCString hostName(Poly_string_to_C_alloc(hName));
-    struct hostent *host = gethostbyname(hostName);
-    // If this fails the ML function returns NONE
-    Handle result = host == NULL ? 0 : makeHostEntry(taskData, host);
+    try {
+        PolyStringObject* psAddr = (PolyStringObject*)sockAddr.AsObjPtr();
+        struct sockaddr* psock = (struct sockaddr*) & psAddr->chars;
+        // Since the maximum length of a FQDN is 256 bytes it should fit in the buffer.
+        char hostName[1024];
+        int gniRes = getnameinfo(psock, (socklen_t)psAddr->length, hostName, sizeof(hostName), NULL, 0, 0);
+        if (gniRes != 0)
+        {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+            raise_syscall(taskData, "getnameinfo failed", GETERROR);
+#else
+            if (gniRes == EAI_SYSTEM)
+                raise_syscall(taskData, "getnameinfo failed", GETERROR);
+            else raise_syscall(taskData, gai_strerror(gniRes), 0);
+#endif
+        }
+        result = SAVE(C_string_to_Poly(taskData, hostName));
+    }
+    catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
@@ -1532,18 +1631,72 @@ POLYUNSIGNED PolyNetworkGetHostByName(FirstArgument threadId, PolyWord hName)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetHostByAddr(FirstArgument threadId, PolyWord hostAddr)
+// Copy addrInfo data into ML memory.  We copy this although most of it
+// is currently unused.
+static Handle extractAddrInfo(TaskData *taskData, struct addrinfo *ainfo)
+{
+    if (ainfo == 0)
+        return taskData->saveVec.push(ListNull);
+
+    Handle reset = taskData->saveVec.mark();
+    Handle tail = extractAddrInfo(taskData, ainfo->ai_next);
+    Handle name = 0;
+    // Only the first entry may have a canonical name.
+    if (ainfo->ai_canonname == 0)
+        name = taskData->saveVec.push(C_string_to_Poly(taskData, ""));
+    else name = taskData->saveVec.push(C_string_to_Poly(taskData, ainfo->ai_canonname));
+
+    Handle address = taskData->saveVec.push(C_string_to_Poly(taskData, (char*)ainfo->ai_addr, ainfo->ai_addrlen));
+
+    Handle value = alloc_and_save(taskData, 6);
+    value->WordP()->Set(0, TAGGED(ainfo->ai_flags));
+    value->WordP()->Set(1, TAGGED(ainfo->ai_family));
+    value->WordP()->Set(2, TAGGED(ainfo->ai_socktype));
+    value->WordP()->Set(3, TAGGED(ainfo->ai_protocol));
+    value->WordP()->Set(4, address->Word());
+    value->WordP()->Set(5, name->Word());
+
+    ML_Cons_Cell *next = (ML_Cons_Cell*)alloc(taskData, SIZEOF(ML_Cons_Cell));
+    next->h = value->Word();
+    next->t = tail->Word();
+
+    taskData->saveVec.reset(reset);
+    return taskData->saveVec.push(next);
+}
+
+POLYUNSIGNED PolyNetworkGetAddrInfo(FirstArgument threadId, PolyWord hostName, PolyWord addrFamily)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+    struct addrinfo *resAddr = 0;
 
-    /* Look up entry by address. */
-    unsigned long addr = htonl(get_C_unsigned(taskData, hostAddr));
-    /* Look up a host name given an address. */
-    struct hostent *host = gethostbyaddr((char*)&addr, sizeof(addr), AF_INET);
-    Handle result = host == NULL ? 0 : makeHostEntry(taskData, host);
+    try {
+        TempCString hostName(Poly_string_to_C_alloc(hostName));
+        struct addrinfo hints;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = (int)UNTAGGED(addrFamily); // AF_INET or AF_INET6 or, possibly, AF_UNSPEC.
+        hints.ai_flags = AI_CANONNAME;
+
+        int gaiRes = getaddrinfo(hostName, 0, &hints, &resAddr);
+        if (gaiRes != 0)
+        {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+            raise_syscall(taskData, "getaddrinfo failed", GETERROR);
+#else
+            if (gaiRes == EAI_SYSTEM)
+                raise_syscall(taskData, "getnameinfo failed", GETERROR);
+            else raise_syscall(taskData, gai_strerror(gaiRes), 0);
+#endif
+        }
+
+        result = extractAddrInfo(taskData, resAddr);
+    }
+    catch (...) { } // Could raise an exception if we run out of heap space
+
+    if (resAddr) freeaddrinfo(resAddr);
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
@@ -1601,8 +1754,7 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkGetProtByName",               (polyRTSFunction)&PolyNetworkGetProtByName},
     { "PolyNetworkGetProtByNo",                 (polyRTSFunction)&PolyNetworkGetProtByNo},
     { "PolyNetworkGetHostName",                 (polyRTSFunction)&PolyNetworkGetHostName},
-    { "PolyNetworkGetHostByName",               (polyRTSFunction)&PolyNetworkGetHostByName},
-    { "PolyNetworkGetHostByAddr",               (polyRTSFunction)&PolyNetworkGetHostByAddr},
+    { "PolyNetworkGetNameInfo",                 (polyRTSFunction)&PolyNetworkGetNameInfo},
     { "PolyNetworkCloseSocket",                 (polyRTSFunction)&PolyNetworkCloseSocket },
     { "PolyNetworkSelect",                      (polyRTSFunction)&PolyNetworkSelect },
     { "PolyNetworkGetSocketError",              (polyRTSFunction)&PolyNetworkGetSocketError },
@@ -1612,6 +1764,7 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkSendTo",                      (polyRTSFunction)&PolyNetworkSendTo },
     { "PolyNetworkReceive",                     (polyRTSFunction)&PolyNetworkReceive },
     { "PolyNetworkReceiveFrom",                 (polyRTSFunction)&PolyNetworkReceiveFrom },
+    { "PolyNetworkGetAddrInfo",                 (polyRTSFunction)&PolyNetworkGetAddrInfo },
 
     { NULL, NULL} // End of list.
 };

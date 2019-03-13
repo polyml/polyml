@@ -28,7 +28,7 @@ sig
 
     structure AF :
     sig
-        type addr_family = NetHostDB.addr_family
+        eqtype addr_family (* = NetHostDB.addr_family *) (* This is a mess: NetHostDB depends on Socket. *)
         val list : unit -> (string * addr_family) list
         val toString   : addr_family -> string
         val fromString : string -> addr_family option
@@ -186,7 +186,7 @@ struct
 
     structure AF =
     struct
-        type addr_family = NetHostDB.addr_family
+        type addr_family = int
 
         local
             val doCall: int*unit -> (string * addr_family) list
