@@ -1,7 +1,7 @@
 /*
     Title:  statics.cpp - Profiling statistics
 
-    Copyright (c) 2011, 2013, 2015 David C.J. Matthews
+    Copyright (c) 2011, 2013, 2015, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -125,6 +125,16 @@
 #include "processes.h"
 #include "statistics.h"
 #include "../polystatistics.h"
+#include "rtsentry.h"
+#include "arb.h"
+
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetUserStatsCount();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(PolyObject *threadId, PolyWord index, PolyWord value);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(PolyObject *threadId, PolyWord procId);
+//    POLYEXTERNALSYMBOL POLYUNSIGNED PolySpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+}
 
 #define STATS_SPACE 4096 // Enough for all the statistics
 
@@ -150,6 +160,7 @@ Statistics::Statistics(): accessLock("Statistics")
 
     memset(&gcUserTime, 0, sizeof(gcUserTime));
     memset(&gcSystemTime, 0, sizeof(gcSystemTime));
+    memset(&gcRealTime, 0, sizeof(gcRealTime));
 
 #ifdef HAVE_WINDOWS_H
     // File mapping handle
@@ -194,7 +205,10 @@ void Statistics::Init()
         return;
     }
     memSize = STATS_SPACE;
+    // Record an initial time of day to use as the basis of real timing
+    GetSystemTimeAsFileTime(&startTime);
 #else
+    gettimeofday(&startTime, NULL);
 #if HAVE_MMAP
     if (exportStats)
     {
@@ -246,17 +260,22 @@ void Statistics::Init()
     addCounter(PSC_THREADS_WAIT_SIGNAL, POLY_STATS_ID_THREADS_WAIT_SIGNAL, "ThreadsInSignalWait");
     addCounter(PSC_GC_FULLGC, POLY_STATS_ID_GC_FULLGC, "FullGCCount");
     addCounter(PSC_GC_PARTIALGC, POLY_STATS_ID_GC_PARTIALGC, "PartialGCCount");
+    addCounter(PSC_GC_SHARING, POLY_STATS_ID_GC_SHARING, "GCSharingCount");
 
     addSize(PSS_TOTAL_HEAP, POLY_STATS_ID_TOTAL_HEAP, "TotalHeap");
     addSize(PSS_AFTER_LAST_GC, POLY_STATS_ID_AFTER_LAST_GC, "HeapAfterLastGC");
     addSize(PSS_AFTER_LAST_FULLGC, POLY_STATS_ID_AFTER_LAST_FULLGC, "HeapAfterLastFullGC");
     addSize(PSS_ALLOCATION, POLY_STATS_ID_ALLOCATION, "AllocationSpace");
     addSize(PSS_ALLOCATION_FREE, POLY_STATS_ID_ALLOCATION_FREE, "AllocationSpaceFree");
+    addSize(PSS_CODE_SPACE, POLY_STATS_ID_CODE_SPACE, "CodeSpace");
+    addSize(PSS_STACK_SPACE, POLY_STATS_ID_STACK_SPACE, "StackSpace");
 
     addTime(PST_NONGC_UTIME, POLY_STATS_ID_NONGC_UTIME, "NonGCUserTime");
     addTime(PST_NONGC_STIME, POLY_STATS_ID_NONGC_STIME, "NonGCSystemTime");
     addTime(PST_GC_UTIME, POLY_STATS_ID_GC_UTIME, "GCUserTime");
     addTime(PST_GC_STIME, POLY_STATS_ID_GC_STIME, "GCSystemTime");
+    addTime(PST_NONGC_RTIME, POLY_STATS_ID_NONGC_RTIME, "NonGCRealTime");
+    addTime(PST_GC_RTIME, POLY_STATS_ID_GC_RTIME, "GCRealTime");
 
     addUser(0, POLY_STATS_ID_USER0, "UserCounter0");
     addUser(1, POLY_STATS_ID_USER1, "UserCounter1");
@@ -265,7 +284,8 @@ void Statistics::Init()
     addUser(4, POLY_STATS_ID_USER4, "UserCounter4");
     addUser(5, POLY_STATS_ID_USER5, "UserCounter5");
     addUser(6, POLY_STATS_ID_USER6, "UserCounter6");
-    addUser(7, POLY_STATS_ID_USER7, "UserCounter7");}
+    addUser(7, POLY_STATS_ID_USER7, "UserCounter7");
+}
 
 void Statistics::addCounter(int cEnum, unsigned statId, const char *name)
 {
@@ -537,7 +557,7 @@ void Statistics::setTimeValue(int which, unsigned long secs, unsigned long usecs
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 // Native Windows
-void Statistics::copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime)
+void Statistics::copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime, const FILETIME &gcRtime)
 {
     gcUserTime = gcUtime;
     gcSystemTime = gcStime;
@@ -548,15 +568,19 @@ void Statistics::copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime)
     li.LowPart = gcStime.dwLowDateTime;
     li.HighPart = gcStime.dwHighDateTime;
     setTimeValue(PST_GC_STIME, (unsigned long)(li.QuadPart / 10000000), (unsigned long)((li.QuadPart / 10) % 1000000));
+    li.LowPart = gcRtime.dwLowDateTime;
+    li.HighPart = gcRtime.dwHighDateTime;
+    setTimeValue(PST_GC_RTIME, (unsigned long)(li.QuadPart / 10000000), (unsigned long)((li.QuadPart / 10) % 1000000));
 }
 #else
 // Unix
-void Statistics::copyGCTimes(const struct timeval &gcUtime, const struct timeval &gcStime)
+void Statistics::copyGCTimes(const struct timeval &gcUtime, const struct timeval &gcStime, const struct timeval &gcRtime)
 {
     gcUserTime = gcUtime;
     gcSystemTime = gcStime;
     setTimeValue(PST_GC_UTIME, gcUtime.tv_sec, gcUtime.tv_usec);
     setTimeValue(PST_GC_STIME, gcStime.tv_sec, gcStime.tv_usec);
+    setTimeValue(PST_GC_RTIME, gcRtime.tv_sec, gcRtime.tv_usec);
 }
 #endif
 
@@ -567,10 +591,13 @@ void Statistics::updatePeriodicStats(size_t freeWords, unsigned threadsInML)
     setSize(PSS_ALLOCATION_FREE, freeWords*sizeof(PolyWord));
 
 #if (defined(HAVE_WINDOWS_H) && ! defined(__CYGWIN__))
-    FILETIME ct, et, st, ut;
+    FILETIME ct, et, st, ut, rt;
     GetProcessTimes(GetCurrentProcess(), &ct, &et, &st, &ut);
+    GetSystemTimeAsFileTime(&rt);
     subFiletimes(&st, &gcSystemTime);
     subFiletimes(&ut, &gcUserTime);
+    subFiletimes(&rt, &startTime);
+    subFiletimes(&rt, &gcRealTime);
     ULARGE_INTEGER li;
     li.LowPart = ut.dwLowDateTime;
     li.HighPart = ut.dwHighDateTime;
@@ -578,13 +605,21 @@ void Statistics::updatePeriodicStats(size_t freeWords, unsigned threadsInML)
     li.LowPart = st.dwLowDateTime;
     li.HighPart = st.dwHighDateTime;
     setTimeValue(PST_NONGC_STIME, (unsigned long)(li.QuadPart / 10000000), (unsigned long)((li.QuadPart / 10) % 1000000));
-#elif HAVE_GETRUSAGE
+    li.LowPart = rt.dwLowDateTime;
+    li.HighPart = rt.dwHighDateTime;
+    setTimeValue(PST_NONGC_RTIME, (unsigned long)(li.QuadPart / 10000000), (unsigned long)((li.QuadPart / 10) % 1000000));
+#else
     struct rusage usage;
+    struct timeval tv;
     getrusage(RUSAGE_SELF, &usage);
+    gettimeofday(&tv, NULL);
     subTimevals(&usage.ru_stime, &gcSystemTime);
     subTimevals(&usage.ru_utime, &gcUserTime);
+    subTimevals(&tv, &startTime);
+    subTimevals(&tv, &gcRealTime);
     setTimeValue(PST_NONGC_UTIME, usage.ru_utime.tv_sec,  usage.ru_utime.tv_usec);
     setTimeValue(PST_NONGC_STIME, usage.ru_stime.tv_sec,  usage.ru_stime.tv_usec);
+    setTimeValue(PST_NONGC_RTIME, tv.tv_sec, tv.tv_usec);
 #endif
 
     if (statMemory && counterAddrs[PSC_THREADS_IN_ML])
@@ -722,3 +757,79 @@ Handle Statistics::getRemoteStatistics(TaskData *taskData, POLYUNSIGNED pid)
 // Create the global statistics object.
 Statistics globalStats;
 
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetUserStatsCount()
+{
+    return TAGGED(N_PS_USER).AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(PolyObject *threadId, PolyWord indexVal, PolyWord valueVal)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    try {
+        unsigned index = get_C_unsigned(taskData, indexVal);
+        if (index >= N_PS_USER)
+            raise_exception0(taskData, EXC_subscript);
+        POLYSIGNED value = getPolySigned(taskData, valueVal);
+        globalStats.setUserCounter(index, value);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+
+    return TAGGED(0).AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(PolyObject *threadId)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = globalStats.getLocalStatistics(taskData);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(PolyObject *threadId, PolyWord procId)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, procId));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+struct _entrypts statisticsEPT[] =
+{
+    { "PolyGetUserStatsCount",            (polyRTSFunction)&PolyGetUserStatsCount },
+    { "PolySetUserStat",                  (polyRTSFunction)&PolySetUserStat },
+    { "PolyGetLocalStats",                (polyRTSFunction)&PolyGetLocalStats },
+    { "PolyGetRemoteStats",               (polyRTSFunction)&PolyGetRemoteStats },
+
+    { NULL, NULL } // End of list.
+};

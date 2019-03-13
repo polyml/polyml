@@ -216,6 +216,8 @@ public:
     static void shareWordData(GCTaskId *, void *, void *);
     static void shareRemainingWordData(GCTaskId *, void *, void *);
 
+    virtual PolyObject *ScanObjectAddress(PolyObject *obj);
+
 protected:
     virtual bool TestForScan(PolyWord *);
     virtual void MarkAsScanning(PolyObject *);
@@ -242,6 +244,20 @@ GetSharing::GetSharing()
 
     largeWordCount = largeByteCount = excludedCount = 0;
     totalVisited = byteAdded = wordAdded = totalSize = 0;
+}
+
+// This is called for roots and also for constants in the constant area.
+// If we have a code address we MUSTN't call RecursiveScan::ScanObjectAddress
+// because that turns the address into a PolyWord and doesn't work in 32-in-64.
+// We process the code area explicitly so we can simply skip code addresses.
+PolyObject *GetSharing::ScanObjectAddress(PolyObject *obj)
+{
+    LocalMemSpace *sp = gMem.LocalSpaceForAddress((PolyWord*)obj - 1);
+
+    if (sp == 0)
+        return obj;
+
+    return RecursiveScanWithStack::ScanObjectAddress(obj);
 }
 
 bool GetSharing::TestForScan(PolyWord *pt)

@@ -1759,7 +1759,7 @@ struct
         |   codeToICodeUnaryRev({oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
-                val argReg1 = newPReg() and argReg2 = newPReg() and argReg3 = newPReg()
+                val argReg1 = newUReg() and argReg2 = newUReg() and argReg3 = newUReg() (* These are untagged until the tag is put in. *)
                 and ccRef1 = newCCRef() and ccRef2 = newCCRef() and ccRef3 = newCCRef()
                 (* Get the length of a memory cell (heap object).  We need to mask out the
                    top byte containing the flags and to tag the result.  The mask is 56 bits on

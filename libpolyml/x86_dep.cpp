@@ -260,6 +260,8 @@ public:
     void SaveMemRegisters();
     void SetRegisterMask();
 
+    void MakeTrampoline(byte **pointer, byte*entryPt);
+
     PLock interruptLock;
 
     stackItem *get_reg(int n);
@@ -339,6 +341,9 @@ extern "C" {
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
 };
 
+// Pointers to assembly code or trampolines to assembly code.
+static byte *popArgAndClosure, *killSelf, *raiseException, *callbackException, *callbackReturn;
+
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
 {
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
@@ -397,7 +402,7 @@ void X86TaskData::ScanStackAddress(ScanAddress *process, stackItem &stackItem, S
     // The -1 here is because we may have a zero-sized cell in the last
     // word of a space.
     MemSpace *space = gMem.SpaceForAddress(stackItem.codeAddr-1);
-    if (space == 0) return;
+    if (space == 0) return; // In particular we may have one of the assembly code addresses.
     if (space->spaceType == ST_CODE)
     {
         PolyObject *obj = gMem.FindCodeObject(stackItem.codeAddr);
@@ -654,9 +659,54 @@ int X86TaskData::SwitchToPoly()
     } while (1);
 }
 
+void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
+{
+#ifdef POLYML32IN64
+    // In the native address versions we can store the address directly onto the stack.
+    // We can't do that in 32-in-64 because it's likely that the address will be in the
+    // bottom 32-bits and we can't distinguish it from an object ID.  Instead we have to
+    // build a small code segment which jumps to the code.
+    unsigned requiredSize = 8; // 8 words i.e. 32 bytes
+    PolyObject *result = gMem.AllocCodeSpace(requiredSize);
+    byte *p = (byte*)result;
+    *p++ = 0x48; // rex.w
+    *p++ = 0x8b; // Movl
+    *p++ = 0x0d; // rcx, pc relative
+    *p++ = 0x09; // +2 bytes
+    *p++ = 0x00;
+    *p++ = 0x00;
+    *p++ = 0x00;
+    *p++ = 0xff; // jmp
+    *p++ = 0xe1; // rcx
+    *p++ = 0xf4; // hlt - needed to stop scan of constants
+    for (unsigned i = 0; i < 6; i++) *p++ = 0;
+    uintptr_t ep = (uintptr_t)entryPt;
+    for (unsigned i = 0;  i < 8; i++)
+    {
+        *p++ = ep & 0xff;
+        ep >>= 8;
+    }
+    // Clear the remainder.  In particular this sets the number
+    // of address constants to zero.
+    for (unsigned i = 0; i < 8; i++)
+        *p++ = 0;
+    result->SetLengthWord(requiredSize, F_CODE_OBJ);
+    *pointer = (byte*)result;
+#else
+    *pointer = entryPt; // Can go there directly
+#endif
+}
+
 void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
+    // Set the assembly code addresses.
+    if (popArgAndClosure == 0) MakeTrampoline(&popArgAndClosure, (byte*)&X86AsmPopArgAndClosure);
+    if (killSelf == 0) MakeTrampoline(&killSelf, (byte*)&X86AsmKillSelf);
+    if (raiseException == 0) MakeTrampoline(&raiseException, (byte*)&X86AsmRaiseException);
+    if (callbackException == 0) MakeTrampoline(&callbackException, (byte*)&X86AsmCallbackException);
+    if (callbackReturn == 0) MakeTrampoline(&callbackReturn, (byte*)&X86AsmCallbackReturn);
+
     StackSpace *space = this->stack;
     StackObject * newStack = space->stack();
     uintptr_t stack_size     = space->spaceSize() * sizeof(PolyWord) / sizeof(stackItem);
@@ -674,7 +724,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     assemblyInterface.p_fp.tw = 0xffff; // Tag registers - all unused
 #endif
     // Initial entry point - on the stack.
-    stackTop[0].codeAddr = (byte*)&X86AsmPopArgAndClosure;
+    stackTop[0].codeAddr = popArgAndClosure;
 
     // Push the argument and the closure on the stack.  We can't put them into the registers
     // yet because we might get a GC before we actually start the code.
@@ -688,12 +738,12 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     // Set the default handler and return address to point to this code.
 //    PolyWord killJump(PolyWord::FromCodePtr((byte*)&X86AsmKillSelf));
     // Exception handler.
-    stackTop[4].codeAddr = (byte*)&X86AsmKillSelf;
+    stackTop[4].codeAddr = killSelf;
     // Normal return address.  We need a separate entry on the stack from
     // the exception handler because it is possible that the code we are entering
     // may replace this entry with an argument.  The code-generator optimises tail-recursive
     // calls to functions with more args than the called function.
-    stackTop[3].codeAddr = (byte*)&X86AsmKillSelf;
+    stackTop[3].codeAddr = killSelf;
 
 #ifdef POLYML32IN64
     // In 32-in-64 RBX always contains the heap base address.
@@ -1039,10 +1089,10 @@ Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
 
     // Set up an exception handler so we will enter callBackException if there is an exception.
     (--regSP())->stackAddr = assemblyInterface.handlerRegister; // Create a special handler entry
-    (--regSP())->codeAddr = (byte*)&X86AsmCallbackException;
+    (--regSP())->codeAddr = callbackException;
     assemblyInterface.handlerRegister = regSP();
     // Push the call to callBackReturn onto the stack as the return address.
-    (--regSP())->codeAddr = (byte*)&X86AsmCallbackReturn;
+    (--regSP())->codeAddr = callbackReturn;
     // Set up the entry point of the callback.
     PolyObject *functToCall = func->WordP();
     regDX() = (PolyWord)functToCall; // Closure address
@@ -1387,3 +1437,29 @@ void X86TaskData::AtomicReset(Handle mutexp)
 static X86Dependent x86Dependent;
 
 MachineDependent *machineDependent = &x86Dependent;
+
+class X86Module : public RtsModule
+{
+public:
+    virtual void GarbageCollect(ScanAddress * /*process*/);
+};
+
+// Declare this.  It will be automatically added to the table.
+static X86Module x86Module;
+
+void X86Module::GarbageCollect(ScanAddress *process)
+{
+#ifdef POLYML32IN64
+    // These are trampolines in the code area rather than direct calls.
+    if (popArgAndClosure != 0)
+        process->ScanRuntimeAddress((PolyObject**)&popArgAndClosure, ScanAddress::STRENGTH_STRONG);
+    if (killSelf != 0)
+        process->ScanRuntimeAddress((PolyObject**)&killSelf, ScanAddress::STRENGTH_STRONG);
+    if (raiseException != 0)
+        process->ScanRuntimeAddress((PolyObject**)&raiseException, ScanAddress::STRENGTH_STRONG);
+    if (callbackException != 0)
+        process->ScanRuntimeAddress((PolyObject**)&callbackException, ScanAddress::STRENGTH_STRONG);
+    if (callbackReturn != 0)
+        process->ScanRuntimeAddress((PolyObject**)&callbackReturn, ScanAddress::STRENGTH_STRONG);
+#endif
+}

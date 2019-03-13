@@ -1,7 +1,7 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9, 2014, 2015-17
+    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -2092,16 +2092,13 @@ in
         end
 
         (* Saving and loading state. *)
-        local
-            val polySpecificGeneralCall = RunCall.rtsCallFull2 "PolySpecificGeneral"
-            fun polySpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(polySpecificGeneralCall(RunCall.unsafeCast(code, arg)))
-        in
         structure SaveState =
         struct
             local
                 val getOS: int = LibrarySupport.getOSType()
-                fun loadMod (args: string): Universal.universal list = polySpecificGeneral (32, args)
-                and systemDir(): string = polySpecificGeneral (34, ())
+
+                val loadMod: string -> Universal.universal list = RunCall.rtsCallFull1 "PolyLoadModule"
+                and systemDir: unit -> string = RunCall.rtsCallFull0 "PolyGetModuleDirectory"
             in
                 fun loadModuleBasic (fileName: string): Universal.universal list =
                 (* If there is a path separator use the name and don't search further. *)
@@ -2137,17 +2134,28 @@ in
                 end
             end
 
-            fun saveChild(f: string, depth: int): unit = polySpecificGeneral (20, (f, depth))
-            fun saveState f = saveChild (f, 0);
-            fun showHierarchy(): string list = polySpecificGeneral (22, ())
-            fun renameParent{ child: string, newParent: string }: unit = polySpecificGeneral (23, (child, newParent))
-            fun showParent(child: string): string option = polySpecificGeneral (24, child)
+            val saveChild: string * int -> unit = RunCall.rtsCallFull2 "PolySaveState"
 
-            fun loadState (f: string): unit = polySpecificGeneral (21, f)
-            and loadHierarchy (s: string list): unit =
+            fun saveState f = saveChild (f, 0);
+
+            val showHierarchy: unit -> string list = RunCall.rtsCallFull0 "PolyShowHierarchy"
+            
+            local
+                val doRename: string * string -> unit = RunCall.rtsCallFull2 "PolyRenameParent"
+            in
+                fun renameParent{ child: string, newParent: string }: unit = doRename(child, newParent)
+            end
+
+            val showParent: string -> string option = RunCall.rtsCallFull1 "PolyShowParent"
+            and loadState: string -> unit = RunCall.rtsCallFull1 "PolyLoadState"
+            
+            local
+                val loadHier: string list -> unit = RunCall.rtsCallFull1 "PolyLoadHierarchy"
+            in
                 (* Load hierarchy takes a list of file names in order with the parents
                    before the children.  It's easier for the RTS if this is reversed. *)
-                polySpecificGeneral (33, List.rev s)
+                fun loadHierarchy (s: string list): unit = loadHier (List.rev s)
+            end
             
             (* Module loading and storing. *)
             structure Tags =
@@ -2161,9 +2169,12 @@ in
                 val startupTag: (unit -> unit) Universal.tag = Universal.tag()
             end
             
-            val saveModuleBasic: string * Universal.universal list -> unit =
-                fn (_, nil) => raise Fail "Cannot create an empty module"
-                |  args => polySpecificGeneral (31, args)
+            local
+                val saveMod: string * Universal.universal list -> unit = RunCall.rtsCallFull2 "PolyStoreModule"
+            in
+                fun saveModuleBasic(_, []) = raise Fail "Cannot create an empty module"
+                |   saveModuleBasic(name, contents) = saveMod(name, contents)
+            end
 
             fun saveModule(s, {structs, functors, sigs, onStartup}) =
             let
@@ -2205,7 +2216,6 @@ in
                     types = extract Tags.typeTag ulist
                 }
             end
-        end
         end
         
         val loadModule = SaveState.loadModule

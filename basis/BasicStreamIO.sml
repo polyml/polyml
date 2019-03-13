@@ -1,11 +1,10 @@
 (*
     Title:      Standard Basis Library: StreamIO functor
-    Copyright   David C.J. Matthews 2000, 2005
+    Copyright   David C.J. Matthews 2000, 2005, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -76,16 +75,26 @@ struct
             {vec: vector, rest: streamState ref, startPos: pos option }
     |   ToRead of reader (* We have not yet closed or truncated the stream. *)
 
-   
+
+    (* Outstream. *)
     and outstream =
         OutStream of {
             wrtr: writer,
             buffType : IO.buffer_mode ref,
             buf: array,
             bufp: int ref,
-            isTerm: bool ref,
+            streamState: outstreamState ref,
             locker: Thread.Mutex.mutex
             }
+    
+    (* Stream state.
+       OutStreamOpen means that attempts to write should proceed.
+       OutStreamTerminated means the stream has been "terminated" i.e. buffers
+       have been flushed and the writer has been extracted by getWriter.
+       Any attempt to write at this level should fail.
+       OutStreamClosed means that the writer's "close" function has been called.
+       In addition the stream has been terminated.*)
+    and outstreamState = OutStreamOpen | OutStreamTerminated | OutStreamClosed
 
     datatype out_pos = OutPos of outstream * pos
 
@@ -269,8 +278,8 @@ struct
     local
         fun doClose (ref (HaveRead {rest, ...})) = doClose rest
           | doClose (ref Truncated) = ()
-          | doClose (state as ref (ToRead (RD{close, ...}))) =
-              (state := Truncated; close())
+          | doClose (state as ref (ToRead (RD{close, name, ...}))) =
+              (state := Truncated; close() handle exn => raise mapToIo(exn, name, "closeIn"))
     in
         fun closeIn (Uncommitted { state, locker }) = LibraryIOSupport.protect locker doClose state
           | closeIn (Committed { rest, ...}) = closeIn rest
@@ -452,13 +461,7 @@ struct
 
     (* OUTPUT *)
     (* In order to be able to flush and close the streams when we exit
-       we need to keep a list of the output streams.
-       One unfortunate side-effect of this is that the RTS can't
-       garbage-collect output streams since there will always be
-       a reference to a stream until it is explicitly closed.
-       It could be worth using a weak reference here but that
-       requires either a separate thread or some way of registering
-       a function to be called to check the list.  *)
+       we need to keep a list of the output streams. *)
     val ostreamLock = Thread.Mutex.mutex()
     (* Use a no-overwrite ref for the list of streams.  This ensures that
        the ref will not be overwritten if we load a saved state. *)
@@ -473,7 +476,7 @@ struct
             OutStream{wrtr=wrtr,
                       buffType=ref buffMode,
                       buf=Array.array(chunkSize, someElem),
-                      isTerm=ref false,
+                      streamState=ref OutStreamOpen,
                       bufp=ref 0,
                       locker=Thread.Mutex.mutex()}
     in
@@ -516,36 +519,42 @@ struct
 
         (* Terminate a stream either because it has been closed or
            because we have extracted the underlying writer. *)
-        fun terminateStream'(OutStream{isTerm=ref true, ...}) = () (* Nothing to do. *)
-          | terminateStream'(f as OutStream{isTerm, ...}) =
+        fun terminateStream'(f as OutStream{streamState as ref OutStreamOpen, ...}) =
             let
                 (* outstream is not an equality type but we can get the
-                   desired effect by comparing the isTerm references for
+                   desired effect by comparing the streamState references for
                    equality (N.B. NOT their contents). *)
-                fun removeThis(OutStream{isTerm=isTerm', ...}) =
-                    isTerm' <> isTerm
+                fun removeThis(OutStream{streamState=streamState', ...}) =
+                    streamState' <> streamState
                 open Thread.Mutex
             in
-                isTerm := true;
+                streamState := OutStreamTerminated;
                 lock ostreamLock;
                 outputStreamList := List.filter removeThis (!outputStreamList);
                 unlock ostreamLock;
                 flushOut' f
-            end;
+            end
+        |   terminateStream' _ = () (* Nothing to do. *)
       
-        (* Close the stream.  It is safe to repeat this and we may need to close
-           the writer even if the stream is terminated. *)
-        fun closeOut'(f as OutStream{wrtr=WR{close, ...}, ...}) =
+        (* Close the stream.  We must call the writer's close function only once
+           unless the flushing fails.  In that case the stream is left open.  *)
+        fun closeOut'(OutStream{streamState=ref OutStreamClosed, ...}) = ()
+
+        |   closeOut'(f as OutStream{wrtr=WR{close, name, ...}, streamState, ...}) =
             (
-            terminateStream' f;
-            close() (* Close the underlying writer. *)
+                terminateStream' f;
+                streamState := OutStreamClosed;
+                close() handle exn => raise mapToIo(exn, name, "closeOut") (* Close the underlying writer. *)
             )
 
-        (* Flush the stream, terminate it and return the underlying writer. *)
-        fun getWriter'(OutStream{wrtr=WR{name, ...}, isTerm=ref true, ...}) =
-            (* Already terminated. *)
-                raise Io { name = name, function = "getWriter",
-                           cause = ClosedStream }
+        (* Flush the stream, terminate it and return the underlying writer.
+           According to the documentation this raises an exception if the stream
+           is "closed" rather than "terminated" implying that it is possible to extract
+           the writer more than once.  That's in contrast to getReader which is defined
+           to raise an exception if the stream is closed or truncated. *)
+        fun getWriter'(OutStream{wrtr=WR{name, ...}, streamState=ref OutStreamClosed, ...}) =
+            (* Already closed. *)
+                raise Io { name = name, function = "getWriter", cause = ClosedStream }
          |  getWriter'(f as OutStream{buffType, wrtr, ...}) =
             (
                terminateStream' f;
@@ -606,9 +615,7 @@ struct
     
         (* Internal function. Write a vector to the stream using the start and
            length provided. *)
-        fun outputVector _ (OutStream{isTerm=ref true, wrtr=WR{name, ...}, ...}) =
-            raise Io { name = name, function = "output", cause = ClosedStream }
-        |   outputVector (v, start, vecLen) (f as OutStream{buffType, buf, bufp, ...})  =
+        fun outputVector (v, start, vecLen) (f as OutStream{streamState=ref OutStreamOpen, buffType, buf, bufp, ...})  =
         let
             val buffLen = Array.length buf
 
@@ -652,13 +659,15 @@ struct
                         Line buffering is treated as block buffering on binary
                         streams and handled at the higher level for text streams. *)
                     addVecToBuff()
-        end (* outputVec *)
+        end
+
+            (* State was not open *)
+        |   outputVector _ (OutStream{wrtr=WR{name, ...}, ...}) =
+                raise Io { name = name, function = "output", cause = ClosedStream }
     
         (* This could be defined in terms of outputVector but this is
            likely to be much more efficient if we are buffering. *)
-        fun output1' _ (OutStream{isTerm=ref true, wrtr=WR{name, ...}, ...}) =
-            raise Io { name = name, function = "output1", cause = ClosedStream }
-         |  output1' c (f as OutStream{buffType, buf, bufp, ...}) =
+        fun output1' c (f as OutStream{streamState=ref OutStreamOpen, buffType, buf, bufp, ...}) =
             if !buffType = IO.NO_BUF
             then writeVec(f, Vector.fromList[c], 0, 1)
             else (* Line or block buffering. *)
@@ -667,6 +676,10 @@ struct
                 bufp := !bufp + 1;
                 if !bufp = Array.length buf then flushOut' f else ()
             )
+
+            (* State was not open *)
+        |   output1' _ (OutStream{wrtr=WR{name, ...}, ...}) =
+                raise Io { name = name, function = "output1", cause = ClosedStream }
 
         fun getPosOut'(f as OutStream{wrtr=WR{name, getPos=SOME getPos, ...}, ...}) =
             (

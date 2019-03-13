@@ -1,7 +1,7 @@
 /*
     Title:      Diagnostics
 
-    Copyright (c) 2011, 2015, 2018 David C.J. Matthews
+    Copyright (c) 2011, 2015, 2018, 2019 David C.J. Matthews
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -56,6 +56,13 @@
 #include <windows.h>
 #endif
 
+#ifdef HAVE_ASSERT_H 
+#include <assert.h>
+#define ASSERT(x)   assert(x)
+#else
+#define ASSERT(x)
+#endif
+
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "winstartup.h"
 #include "winguiconsole.h"
@@ -74,12 +81,6 @@
 extern FILE *polyStdout;
 
 unsigned debugOptions = 0; // Debugging options requested on command line.
-
-/***********************************************************************
- *
- *  FAILURE FUNCTIONS (moved here from mmap.c)
- *
- ***********************************************************************/
 
 void Exit(const char *msg, ...)
 {
@@ -122,7 +123,9 @@ void Crash(const char *msg, ...)
         sigemptyset(&set);
         sigprocmask(SIG_SETMASK,&set,NULL);
     }
-#endif    
+#endif
+
+    ASSERT(0); // Force a core dump
 
     abort();
     exit(1);

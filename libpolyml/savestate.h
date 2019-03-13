@@ -1,7 +1,7 @@
 /*
     Title:  savestate.h - Save and Load state
 
-    Copyright (c) 2007, 2015 David C.J. Matthews
+    Copyright (c) 2007, 2015, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,32 +21,9 @@
 #ifndef SAVESTATE_H_INCLUDED
 #define SAVESTATE_H_INCLUDED
 
-class SaveVecEntry;
-typedef SaveVecEntry *Handle;
-class TaskData;
-
-// Write a saved state file.
-Handle SaveState(TaskData *taskData, Handle args);
-
-// Load a saved state file and any ancestors.
-Handle LoadState(TaskData *taskData, bool isHierarchy, Handle hFileName);
-
-// Show the hierarchy.
-Handle ShowHierarchy(TaskData *taskData);
-
-// Change the name of the immediate parent stored in a child
-Handle RenameParent(TaskData *taskData, Handle args);
-
-// Return the name of the immediate parent stored in a child
-Handle ShowParent(TaskData *taskData, Handle hFileName);
-
-// Write out a module.
-Handle StoreModule(TaskData *taskData, Handle args);
-
-// Load a module.
-Handle LoadModule(TaskData *taskData, Handle args);
-
 PolyObject *InitHeaderFromExport(struct _exportDescription *exports);
+
+extern struct _entrypts savestateEPT[];
 
 #endif
 
