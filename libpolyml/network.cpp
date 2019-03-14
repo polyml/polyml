@@ -159,6 +159,15 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(FirstArgument threadId, PolyWord args);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(FirstArgument threadId, PolyWord args);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(FirstArgument threadId, PolyWord args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetFamilyFromAddress(PolyWord sockAddress);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP4(FirstArgument threadId, PolyWord sockAddress);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP4Address(FirstArgument threadId, PolyWord ip4Address, PolyWord portNumber);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP4AddressAny(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP6(FirstArgument threadId, PolyWord sockAddress);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP6Address(FirstArgument threadId, PolyWord ip6Address, PolyWord portNumber);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP6AddressAny(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkIP6AddressToString(FirstArgument threadId, PolyWord ip6Address);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkStringToIP6Address(FirstArgument threadId, PolyWord stringRep);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -444,7 +453,6 @@ struct sk_tab_struct {
 #endif
 };
 
-static Handle makeHostEntry(TaskData *taskData, struct hostent *host);
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto);
 static Handle mkAftab(TaskData *taskData, void*, char *p);
 static Handle mkSktab(TaskData *taskData, void*, char *p);
@@ -631,9 +639,6 @@ TryAgain: // Used for various retries.
                             0, mkSktab);
         }
 
-    case 13: /* Return the "any" internet address. */
-        return Make_arbitrary_precision(taskData, INADDR_ANY);
-
     case 14: /* Create a socket */
         {
             int af = get_C_int(taskData, DEREFHANDLE(args)->Get(0));
@@ -790,45 +795,6 @@ TryAgain: // Used for various retries.
             return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
         }
 
-    case 39: /* Return the address family from an address. */
-        {
-            PolyStringObject *psAddr = (PolyStringObject *)args->WordP();
-            struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            return Make_arbitrary_precision(taskData, psock->sa_family);
-        }
-
-    case 40: /* Create a socket address from a port number and
-                internet address. */
-        {
-            struct sockaddr_in sockaddr;
-            memset(&sockaddr, 0, sizeof(sockaddr));
-            sockaddr.sin_family = AF_INET;
-            sockaddr.sin_port = htons(get_C_ushort(taskData, DEREFHANDLE(args)->Get(0)));
-            sockaddr.sin_addr.s_addr =
-                htonl(get_C_unsigned(taskData, DEREFHANDLE(args)->Get(1)));
-            return(SAVE(C_string_to_Poly(taskData, (char*)&sockaddr, sizeof(sockaddr))));
-        }
-
-    case 41: /* Return port number from an internet socket address.
-                Assumes that we've already checked the address family. */
-        {
-            PolyStringObject *psAddr = (PolyStringObject *)args->WordP();
-            struct sockaddr_in *psock =
-                (struct sockaddr_in *)&psAddr->chars;
-            return Make_arbitrary_precision(taskData, ntohs(psock->sin_port));
-        }
-
-    case 42: /* Return internet address from an internet socket address.
-                Assumes that we've already checked the address family. */
-        {
-            PolyStringObject * psAddr = (PolyStringObject *)args->WordP();
-            struct sockaddr_in *psock =
-                (struct sockaddr_in *)&psAddr->chars;
-            return Make_arbitrary_precision(taskData, ntohl(psock->sin_addr.s_addr));
-        }
-
-        /* 43 - Set non-blocking mode.  Now removed. */
-
     case 44: /* Find number of bytes available. */
         {
             SOCKET skt = getStreamSocket(taskData, args->Word());
@@ -973,19 +939,6 @@ TryAgain: // Used for various retries.
             return 0;
         }
     }
-}
-
-static Handle mkAddr(TaskData *taskData, void *arg, char *p)
-{
-    int j;
-    struct hostent *host = (struct hostent *)arg;
-    unsigned long addr = 0;
-    /* Addresses are in network order so this is fairly easy.
-       In practice they will be 4 byte entries so we could
-       just use ntohl. */
-    for (j = 0; j < host->h_length; j++)
-        addr = (addr << 8) | ((*(char**)p)[j] & 255);
-    return Make_arbitrary_precision(taskData, addr);
 }
 
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto)
@@ -1176,7 +1129,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(FirstArgument threadId, PolyWo
     /* Set up the bitmaps for the select call from the arrays. */
 
     try {
-        WaitSelect waitSelect(maxMilliseconds);
+        WaitSelect waitSelect((unsigned int)maxMilliseconds);
         PolyObject *readVec = fdVecTripleHandle->WordP()->Get(0).AsObjPtr();
         PolyObject *writeVec = fdVecTripleHandle->WordP()->Get(1).AsObjPtr();
         PolyObject *excVec = fdVecTripleHandle->WordP()->Get(2).AsObjPtr();
@@ -1744,6 +1697,208 @@ POLYUNSIGNED PolyNetworkCloseSocket(FirstArgument threadId, PolyWord strm)
     else return result->Word().AsUnsigned();
 }
 
+// Return the family 
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetFamilyFromAddress(PolyWord sockAddress)
+{
+    PolyStringObject* psAddr = (PolyStringObject*)sockAddress.AsObjPtr();
+    struct sockaddr* psock = (struct sockaddr*) & psAddr->chars;
+    return TAGGED(psock->sa_family).AsUnsigned();
+}
+
+// Return internet address and port from an internet socket address.
+// Assumes that we've already checked the address family.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP4(FirstArgument threadId, PolyWord sockAddress)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        PolyStringObject* psAddr = (PolyStringObject*)sockAddress.AsObjPtr();
+        struct sockaddr_in* psock = (struct sockaddr_in*) & psAddr->chars;
+        Handle ipAddr = Make_arbitrary_precision(taskData, ntohl(psock->sin_addr.s_addr));
+        result = alloc_and_save(taskData, 2);
+        result->WordP()->Set(0, ipAddr->Word());
+        result->WordP()->Set(1, TAGGED(ntohs(psock->sin_port)));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Create a socket address from a port number and internet address.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP4Address(FirstArgument threadId, PolyWord ip4Address, PolyWord portNumber)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        struct sockaddr_in sockaddr;
+        memset(&sockaddr, 0, sizeof(sockaddr));
+        sockaddr.sin_family = AF_INET;
+        sockaddr.sin_port = htons(get_C_ushort(taskData, portNumber));
+        sockaddr.sin_addr.s_addr = htonl(get_C_unsigned(taskData, ip4Address));
+        result = SAVE(C_string_to_Poly(taskData, (char*)&sockaddr, sizeof(sockaddr)));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP4AddressAny(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = Make_arbitrary_precision(taskData, INADDR_ANY);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP6(FirstArgument threadId, PolyWord sockAddress)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        PolyStringObject* psAddr = (PolyStringObject*)sockAddress.AsObjPtr();
+        if (psAddr->length != sizeof(struct sockaddr_in6))
+            raise_fail(taskData, "Invalid length");
+        struct sockaddr_in6* psock = (struct sockaddr_in6*) & psAddr->chars;
+        Handle ipAddr = SAVE(C_string_to_Poly(taskData, (const char*)&psock->sin6_addr, sizeof(struct in6_addr)));
+        result = alloc_and_save(taskData, 2);
+        result->WordP()->Set(0, ipAddr->Word());
+        result->WordP()->Set(1, TAGGED(ntohs(psock->sin6_port)));
+
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP6Address(FirstArgument threadId, PolyWord ip6Address, PolyWord portNumber)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        struct sockaddr_in6 addr;
+        memset(&addr, 0, sizeof(addr));
+        result = SAVE(C_string_to_Poly(taskData, (const char*)&addr, sizeof(struct in6_addr)));
+        addr.sin6_family = AF_INET6;
+        addr.sin6_port = htons(get_C_ushort(taskData, portNumber));
+        PolyStringObject* addrAsString = (PolyStringObject*)ip6Address.AsObjPtr();
+        if (addrAsString->length != sizeof(addr.sin6_addr))
+            raise_fail(taskData, "Invalid address length");
+        memcpy(&addr.sin6_addr, addrAsString->chars, sizeof(addr.sin6_addr));
+        result = SAVE(C_string_to_Poly(taskData, (char*)&addr, sizeof(addr)));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP6AddressAny(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = SAVE(C_string_to_Poly(taskData, (const char*)&in6addr_any, sizeof(struct in6_addr)));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Convert an IPV6 address to string.  This could be done in ML but the rules
+// for converting zeros to double-colon are complicated.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkIP6AddressToString(FirstArgument threadId, PolyWord ip6Address)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        char buffer[80]; // 40 should actually be enough: 32 hex bytes, 7 colons and a null.
+        PolyStringObject* addrAsString = (PolyStringObject*)ip6Address.AsObjPtr();
+        if (addrAsString->length != sizeof(struct in6_addr))
+            raise_fail(taskData, "Invalid address length");
+        if (inet_ntop(AF_INET6, addrAsString->chars, buffer, sizeof(buffer)) == 0)
+            raise_syscall(taskData, "inet_ntop", GETERROR);
+        result = SAVE(C_string_to_Poly(taskData, buffer));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Convert a string to an IPv6 address.  The parsing has to be done in ML.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkStringToIP6Address(FirstArgument threadId, PolyWord stringRep)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        struct in6_addr address;
+        TempCString stringAddr(Poly_string_to_C_alloc(stringRep));
+        if (inet_pton(AF_INET6, stringAddr, &address) != 1)
+            raise_fail(taskData, "Invalid IPv6 address");
+        result = taskData->saveVec.push(C_string_to_Poly(taskData, (const char *)&address, sizeof(struct in6_addr)));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
 struct _entrypts networkingEPT[] =
 {
     { "PolyNetworkGeneral",                     (polyRTSFunction)&PolyNetworkGeneral},
@@ -1765,6 +1920,15 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkReceive",                     (polyRTSFunction)&PolyNetworkReceive },
     { "PolyNetworkReceiveFrom",                 (polyRTSFunction)&PolyNetworkReceiveFrom },
     { "PolyNetworkGetAddrInfo",                 (polyRTSFunction)&PolyNetworkGetAddrInfo },
+    { "PolyNetworkGetFamilyFromAddress",        (polyRTSFunction)&PolyNetworkGetFamilyFromAddress },
+    { "PolyNetworkGetAddressAndPortFromIP4",    (polyRTSFunction)&PolyNetworkGetAddressAndPortFromIP4 },
+    { "PolyNetworkCreateIP4Address",            (polyRTSFunction)&PolyNetworkCreateIP4Address },
+    { "PolyNetworkReturnIP4AddressAny",         (polyRTSFunction)&PolyNetworkReturnIP4AddressAny },
+    { "PolyNetworkGetAddressAndPortFromIP6",    (polyRTSFunction)&PolyNetworkGetAddressAndPortFromIP6 },
+    { "PolyNetworkCreateIP6Address",            (polyRTSFunction)&PolyNetworkCreateIP6Address },
+    { "PolyNetworkReturnIP6AddressAny",         (polyRTSFunction)&PolyNetworkReturnIP4AddressAny },
+    { "PolyNetworkIP6AddressToString",          (polyRTSFunction)&PolyNetworkIP6AddressToString },
+    { "PolyNetworkStringToIP6Address",          (polyRTSFunction)&PolyNetworkStringToIP6Address },
 
     { NULL, NULL} // End of list.
 };

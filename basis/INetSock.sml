@@ -168,28 +168,14 @@ local
             pr n 3 (* Always generate 4 numbers. *)
         end
 
-        local
-            val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-        in
-            fun toAddr(iaddr: in_addr, port: int) : sock_addr =
-                doCall(40, (port, iaddr))
-        end
+        val toAddr: in_addr * int -> sock_addr = RunCall.rtsCallFull2 "PolyNetworkCreateIP4Address"
+        and fromAddr: sock_addr -> in_addr * int = RunCall.rtsCallFull1 "PolyNetworkGetAddressAndPortFromIP4"
 
         local
-            val doCall1 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-            and doCall2 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+            val getAddrAny: unit -> in_addr = RunCall.rtsCallFull0 "PolyNetworkReturnIP4AddressAny"
+            val iAddrAny: in_addr = getAddrAny()
         in
-            fun fromAddr (s: sock_addr) : in_addr * int =
-                if Socket.familyOfAddr s <> inetAF
-                then raise Match
-                else (doCall1(42, s), doCall2(41, s))
-        end
-
-        local
-            val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-            val iAddrAny: in_addr = doCall(13, ())
-        in
-        fun any (p: int) : sock_addr = toAddr(iAddrAny, p)
+            fun any (p: int) : sock_addr = toAddr(iAddrAny, p)
         end
 
     end

@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Commands to build the library
-    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018
+    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -113,6 +113,7 @@ val () = Bootstrap.use "basis/NetProtDB.sml";
 val () = Bootstrap.use "basis/NetServDB.sml";
 val () = Bootstrap.use "basis/GenericSock.sml";
 val () = Bootstrap.use "basis/INetSock.sml";
+val () = Bootstrap.use "basis/INet6Sock.sml";
 val () = Bootstrap.use "basis/UnixSock.sml";
 val () = Bootstrap.use "basis/PackRealBig.sml"; (* also declares PackRealLittle *)
 val () = Bootstrap.use "basis/PackWord8Big.sml"; (* also declares Pack8Little. ...*)
