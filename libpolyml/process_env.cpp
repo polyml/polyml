@@ -511,14 +511,6 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
 #endif
         }
 
-        // These were supposed to have been moved to poly-specific but don't seem to have been.
-    case 100: /* Return the maximum word segment size. */ // Legacy - used in bootstrap
-            return mdTaskData->saveVec.push(TAGGED(MAX_OBJECT_SIZE));
-    case 101: /* Return the maximum string size (in bytes).
-                 It is the maximum number of bytes in a segment
-                 less one word for the length field. */  // Legacy - used in bootstrap
-            return mdTaskData->saveVec.push(TAGGED((MAX_OBJECT_SIZE)*sizeof(PolyWord) - sizeof(PolyWord)));
-
     case 104: return Make_arbitrary_precision(mdTaskData, POLY_version_number);
  
     case 105: /* Get the name of the function. */

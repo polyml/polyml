@@ -608,11 +608,7 @@ choose the appropriate function depending on need. */
 static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
     size_t length = getPolyUnsigned(taskData, DEREFWORD(args));
-    WinStream *strm;
-    // Legacy: during the bootstrap we will have old format references.
-    if (stream->Word().IsTagged() && stream->Word().UnTagged() == 0)
-        strm = standardInput;
-    else strm = *(WinStream**)(stream->WordP());
+    WinStream *strm = *(WinStream**)(stream->WordP());
     if (strm == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
     // We should check for interrupts even if we're not going to block.
@@ -648,19 +644,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     // is provided for future use.  Windows remembers the mode used
     // when the file was opened to determine whether to translate
     // LF into CRLF.
-    WinStream *strm;
-    // Legacy: During the bootstrap we may have old-format file descriptors
-    // which were assumed to be persistent.
-    if (stream->Word().IsTagged() && stream->Word().UnTagged() == 1)
-    {
-        if (standardOutputValue == 0)
-        {
-            stream = MakeVolatileWord(taskData, standardOutput);
-            standardOutputValue = stream->WordP();
-        }
-        else stream = taskData->saveVec.push(standardOutputValue);
-    }
-    strm = *(WinStream**)(stream->WordP());
+    WinStream *strm = *(WinStream**)(stream->WordP());
     if (strm == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
     // We should check for interrupts even if we're not going to block.
@@ -1203,26 +1187,6 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         processes->TestAnyEvents(taskData);
         stream->waitUntilOutputPossible(taskData);
         return Make_fixed_precision(taskData, 0);
-    }
-
-    /* Functions added for Posix structure. */
-    case 30: /* Return underlying file descriptor. */
-    {
-        // Legacy:  This was previously used LibrarySupport.wrapInFileDescr
-        // to see if a stream was one of the standard streams.
-        if (strm->Word().IsTagged())
-            return strm;
-        else
-        {
-            WinStream *stream = *(WinStream**)(strm->WordP());
-            if (stream == standardInput)
-                return Make_fixed_precision(taskData, 0);
-            else if (stream == standardOutput)
-                return Make_fixed_precision(taskData, 1);
-            else if (stream == standardError)
-                return Make_fixed_precision(taskData, 2);
-            else return Make_fixed_precision(taskData, 3 /* > 2 */);
-        }
     }
 
     /* Directory functions. */

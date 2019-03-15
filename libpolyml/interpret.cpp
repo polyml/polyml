@@ -781,16 +781,6 @@ int IntTaskData::SwitchToPoly()
         case INSTR_const_4: *(--sp) = TAGGED(4); break;
         case INSTR_const_10: *(--sp) = TAGGED(10); break;
 
-            // Move-to-vec is now only used for closures.
-        case INSTR_move_to_vec_0: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(0, u); break; }
-        case INSTR_move_to_vec_1: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(1, u); break; }
-        case INSTR_move_to_vec_2: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(2, u); break; }
-        case INSTR_move_to_vec_3: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(3, u); break; }
-        case INSTR_move_to_vec_4: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(4, u); break; }
-        case INSTR_move_to_vec_5: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(5, u); break; }
-        case INSTR_move_to_vec_6: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(6, u); break; }
-        case INSTR_move_to_vec_7: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(7, u); break; }
-
         case INSTR_reset_r_1: { PolyWord u = *sp; sp += 1; *sp = u; break; }
         case INSTR_reset_r_2: { PolyWord u = *sp; sp += 2; *sp = u; break; }
         case INSTR_reset_r_3: { PolyWord u = *sp; sp += 3; *sp = u; break; }
