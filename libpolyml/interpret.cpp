@@ -528,7 +528,6 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_call_closure: /* Closure call. */
         {
-            PolyObject *closure = (*sp).AsObjPtr();
             POLYCODEPTR newPc = (*sp).AsObjPtr()->Get(0).AsCodePtr();
             sp--;
             *sp = sp[1];      /* Move closure up. */

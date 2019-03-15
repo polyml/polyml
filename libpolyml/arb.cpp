@@ -1142,7 +1142,7 @@ static void quotRem(TaskData *taskData, Handle y, Handle x, Handle &remHandle, H
     byte    x_extend[sizeof(PolyWord)], y_extend[sizeof(PolyWord)];
     POLYUNSIGNED lx, ly;
     (void)convertToLong(x, x_extend, &lx, &sign_x);
-    byte *long_y = convertToLong(y, y_extend, &ly, &sign_y);
+    (void)convertToLong(y, y_extend, &ly, &sign_y);
 
     /* If length of y is zero raise divideerror */
     if (ly == 0) raise_exception0(taskData, EXC_divide);
