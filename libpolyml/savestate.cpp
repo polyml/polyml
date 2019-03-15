@@ -1403,7 +1403,6 @@ POLYUNSIGNED PolyLoadHierarchy(PolyObject *threadId, PolyWord arg)
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
     Handle pushedArg = taskData->saveVec.push(arg);
-    Handle result = 0;
 
     try {
          LoadState(taskData, true, pushedArg);
