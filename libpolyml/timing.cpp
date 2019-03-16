@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development copyright David C.J. Matthews 2011,12,16
+    Further development copyright David C.J. Matthews 2011,12,16,19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -125,7 +125,20 @@
 #include "mpoly.h" // For polyStderr
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingTicksPerMicroSec(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetNow(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingBaseYear(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingYearOffset(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingLocalOffset(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingSummerApplies(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingConvertDateStuct(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetUser(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetSystem(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetGCUser(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetReal(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetChildUser(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetChildSystem(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetGCSystem(FirstArgument threadId);
 }
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -175,270 +188,455 @@ static PLock timeLock("Timing");
 #define XSTR(X) STR(X)
 #define STR(X)  #X
 
-static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
+
+// Get ticks per microsecond.
+POLYUNSIGNED PolyTimingTicksPerMicroSec(FirstArgument threadId)
 {
-    unsigned c = get_C_unsigned(taskData, code->Word());
-    switch (c)
-    {
-    case 0: /* Get ticks per microsecond. */
-        return Make_arbitrary_precision(taskData, TICKS_PER_MICROSECOND);
-    case 1: /* Return time since the time base. */
-        {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            FILETIME ft;
-            GetSystemTimeAsFileTime(&ft);
-            return Make_arb_from_Filetime(taskData, ft);
-#else
-            struct timeval tv;
-            if (gettimeofday(&tv, NULL) != 0)
-                raise_syscall(taskData, "gettimeofday failed", errno);
-            return Make_arb_from_pair_scaled(taskData, tv.tv_sec, tv.tv_usec, 1000000);
-#endif
-        }
-    case 2: /* Return the base year.  This is the year which corresponds to
-               zero in the timing sequence. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        return Make_arbitrary_precision(taskData, 1601);
-#else
-        return Make_arbitrary_precision(taskData, 1970);
-#endif
-
-    case 3: /* In both Windows and Unix the time base is 1st of January
-               in the base year.  This function is provided just in case
-               we are running on a system with a different base.  It
-               returns the number of seconds after 1st January of the
-               base year that corresponds to zero of the time base. */
-        return Make_arbitrary_precision(taskData, 0);
-
-    case 4: /* Return the time offset which applied/will apply at the
-               specified time (in seconds). */
-        {
-            int localoff = 0;
-            time_t theTime;
-            int day = 0;
-#if (defined(HAVE_GMTIME_R) || defined(HAVE_LOCALTIME_R))
-            struct tm result;
-#endif
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            /* Although the offset is in seconds it is since 1601. */
-            FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
-            getFileTimeFromArb(taskData, args, &ftSeconds); /* May raise exception. */
-            ULARGE_INTEGER   liTime;
-            liTime.HighPart = ftSeconds.dwHighDateTime;
-            liTime.LowPart = ftSeconds.dwLowDateTime;
-            theTime = (long)(liTime.QuadPart - SECSSINCE1601);
-#else
-            theTime = get_C_long(taskData, DEREFWORD(args)); /* May raise exception. */
-#endif
-
-            {
-#ifdef HAVE_GMTIME_R
-                struct tm *loctime = gmtime_r(&theTime, &result);
-#else
-                PLocker lock(&timeLock);
-                struct tm *loctime = gmtime(&theTime);
-#endif
-                if (loctime == NULL) raise_exception0(taskData, EXC_size);
-                localoff = (loctime->tm_hour*60 + loctime->tm_min)*60 + loctime->tm_sec;
-                day = loctime->tm_yday;
-            }
-
-            {
-
-#ifdef HAVE_LOCALTIME_R
-                struct tm *loctime = localtime_r(&theTime, &result);
-#else
-                PLocker lock(&timeLock);
-                struct tm *loctime = localtime(&theTime);
-#endif
-                if (loctime == NULL) raise_exception0(taskData, EXC_size);
-                localoff -= (loctime->tm_hour*60 + loctime->tm_min)*60 + loctime->tm_sec;
-                if (loctime->tm_yday != day)
-                {
-                    // Different day - have to correct it.  We can assume that there
-                    // is at most one day to correct.
-                    if (day == loctime->tm_yday+1 || (day == 0 && loctime->tm_yday >= 364))
-                        localoff += 24*60*60;
-                    else localoff -= 24*60*60;
-                }
-            }
-
-            return Make_arbitrary_precision(taskData, localoff);
-        }
-
-    case 5: /* Find out if Summer Time (daylight saving) was/will be in effect. */
-        {
-            time_t theTime;
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
-            getFileTimeFromArb(taskData, args, &ftSeconds); /* May raise exception. */
-            ULARGE_INTEGER   liTime;
-            liTime.HighPart = ftSeconds.dwHighDateTime;
-            liTime.LowPart = ftSeconds.dwLowDateTime;
-            theTime = (long)(liTime.QuadPart - SECSSINCE1601);
-#else
-            theTime = get_C_long(taskData, DEREFWORD(args)); /* May raise exception. */
-#endif
-            int isDst = 0;
-#ifdef HAVE_LOCALTIME_R
-            struct tm result;
-            struct tm *loctime = localtime_r(&theTime, &result);
-            isDst = loctime->tm_isdst;
-#else
-            {
-                PLocker lock(&timeLock);
-                struct tm *loctime = localtime(&theTime);
-                if (loctime == NULL) raise_exception0(taskData, EXC_size);
-                isDst = loctime->tm_isdst;
-            }
-#endif
-            return Make_arbitrary_precision(taskData, isDst);
-        }
-
-    case 6: /* Call strftime.  It would be possible to do much of this in
-               ML except that it requires the current locale. */
-        {
-            struct  tm time;
-            char    *format, buff[2048];
-            Handle  resString;
-            /* Get the format string. */
-            format = Poly_string_to_C_alloc(DEREFHANDLE(args)->Get(0));
-
-            /* Copy the time information. */
-            time.tm_year = get_C_int(taskData, DEREFHANDLE(args)->Get(1)) - 1900;
-            time.tm_mon = get_C_int(taskData, DEREFHANDLE(args)->Get(2));
-            time.tm_mday = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
-            time.tm_hour = get_C_int(taskData, DEREFHANDLE(args)->Get(4));
-            time.tm_min = get_C_int(taskData, DEREFHANDLE(args)->Get(5));
-            time.tm_sec = get_C_int(taskData, DEREFHANDLE(args)->Get(6));
-            time.tm_wday = get_C_int(taskData, DEREFHANDLE(args)->Get(7));
-            time.tm_yday = get_C_int(taskData, DEREFHANDLE(args)->Get(8));
-            time.tm_isdst = get_C_int(taskData, DEREFHANDLE(args)->Get(9));
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            _tzset(); /* Make sure we set the current locale. */
-#else
-            setlocale(LC_TIME, "");
-#endif
-            /* It would be better to dynamically allocate the string rather
-               than use a fixed size but Unix unlike Windows does not distinguish
-               between an error in the input and the buffer being too small. */
-            if (strftime(buff, sizeof(buff), format, &time) <= 0)
-            {
-                /* Error */
-                free(format);
-                raise_exception0(taskData, EXC_size);
-            }
-            resString = taskData->saveVec.push(C_string_to_Poly(taskData, buff));
-            free(format);
-            return resString;
-        }
-
-    case 7: /* Return User CPU time since the start. */
-        {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            FILETIME ut, ct, et, kt;
-            if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
-                raise_syscall(taskData, "GetProcessTimes failed", GetLastError());
-            return Make_arb_from_Filetime(taskData, ut);
-#else
-            struct rusage rusage;
-            if (getrusage(RUSAGE_SELF, &rusage) != 0)
-                raise_syscall(taskData, "getrusage failed", errno);
-            return Make_arb_from_pair_scaled(taskData, rusage.ru_utime.tv_sec,
-                        rusage.ru_utime.tv_usec, 1000000);
-#endif
-        }
-
-    case 8: /* Return System CPU time since the start. */
-        {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            FILETIME ct, et, kt, ut;
-            if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
-                raise_syscall(taskData, "GetProcessTimes failed", GetLastError());
-            return Make_arb_from_Filetime(taskData, kt);
-#else
-            struct rusage rusage;
-            if (getrusage(RUSAGE_SELF, &rusage) != 0)
-                raise_syscall(taskData, "getrusage failed", errno);
-            return Make_arb_from_pair_scaled(taskData, rusage.ru_stime.tv_sec,
-                        rusage.ru_stime.tv_usec, 1000000);
-#endif
-        }
-
-    case 9: /* Return GC time since the start. */
-        return gHeapSizeParameters.getGCUtime(taskData);
-
-    case 10: /* Return real time since the start. */
-        {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            FILETIME ft;
-            GetSystemTimeAsFileTime(&ft);
-            subFiletimes(&ft, &startTime);
-            return Make_arb_from_Filetime(taskData, ft);
-#else
-            struct timeval tv;
-            if (gettimeofday(&tv, NULL) != 0)
-                raise_syscall(taskData, "gettimeofday failed", errno);
-            subTimevals(&tv, &startTime);
-            return Make_arb_from_pair_scaled(taskData, tv.tv_sec, tv.tv_usec, 1000000);
-#endif
-        }
-
-        /* These next two are used only in the Posix structure. */
-    case 11: /* Return User CPU time used by child processes. */
-        {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            return Make_arbitrary_precision(taskData, 0);
-#else
-            struct rusage rusage;
-            if (getrusage(RUSAGE_CHILDREN, &rusage) != 0)
-                raise_syscall(taskData, "getrusage failed", errno);
-            return Make_arb_from_pair_scaled(taskData, rusage.ru_utime.tv_sec,
-                        rusage.ru_utime.tv_usec, 1000000);
-#endif
-        }
-
-    case 12: /* Return System CPU time used by child processes. */
-        {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            return Make_arbitrary_precision(taskData, 0);
-#else
-            struct rusage rusage;
-            if (getrusage(RUSAGE_CHILDREN, &rusage) != 0)
-                raise_syscall(taskData, "getrusage failed", errno);
-            return Make_arb_from_pair_scaled(taskData, rusage.ru_stime.tv_sec,
-                        rusage.ru_stime.tv_usec, 1000000);
-#endif
-        }
-
-    case 13: /* Return GC system time since the start. */
-        return gHeapSizeParameters.getGCStime(taskData);
-
-    default:
-        {
-            char msg[100];
-            sprintf(msg, "Unknown timing function: %d", c);
-            raise_exception_string(taskData, EXC_Fail, msg);
-            return 0;
-        }
-    }
-}
-
-// General interface to timing.  Ideally the various cases will be made into
-// separate functions.
-POLYUNSIGNED PolyTimingGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(code);
+    Handle result = 0;
+
+    try {
+        result = Make_arbitrary_precision(taskData, TICKS_PER_MICROSECOND);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return time since the time base. */
+POLYUNSIGNED PolyTimingGetNow(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        FILETIME ft;
+        GetSystemTimeAsFileTime(&ft);
+        result = Make_arb_from_Filetime(taskData, ft);
+#else
+        struct timeval tv;
+        if (gettimeofday(&tv, NULL) != 0)
+            raise_syscall(taskData, "gettimeofday failed", errno);
+        result = Make_arb_from_pair_scaled(taskData, tv.tv_sec, tv.tv_usec, 1000000);
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return the base year.  This is the year which corresponds to zero in the timing sequence. */
+POLYUNSIGNED PolyTimingBaseYear(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        result = Make_arbitrary_precision(taskData, 1601);
+#else
+        result = Make_arbitrary_precision(taskData, 1970);
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* In both Windows and Unix the time base is 1st of January
+    in the base year.  This function is provided just in case
+    we are running on a system with a different base.  It
+    returns the number of seconds after 1st January of the
+    base year that corresponds to zero of the time base. */
+POLYUNSIGNED PolyTimingYearOffset(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = Make_arbitrary_precision(taskData, 0);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return the time offset which applied/will apply at the specified time (in seconds). */
+POLYUNSIGNED PolyTimingLocalOffset(FirstArgument threadId, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
     Handle pushedArg = taskData->saveVec.push(arg);
     Handle result = 0;
 
     try {
-        result = timing_dispatch_c(taskData, pushedArg, pushedCode);
-    } catch (...) { } // If an ML exception is raised
+        int localoff = 0;
+        time_t theTime;
+        int day = 0;
+#if (defined(HAVE_GMTIME_R) || defined(HAVE_LOCALTIME_R))
+        struct tm result;
+#endif
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        /* Although the offset is in seconds it is since 1601. */
+        FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
+        getFileTimeFromArb(taskData, pushedArg, &ftSeconds); /* May raise exception. */
+        ULARGE_INTEGER   liTime;
+        liTime.HighPart = ftSeconds.dwHighDateTime;
+        liTime.LowPart = ftSeconds.dwLowDateTime;
+        theTime = (long)(liTime.QuadPart - SECSSINCE1601);
+#else
+        theTime = get_C_long(taskData, DEREFWORD(pushedArg)); /* May raise exception. */
+#endif
+
+         {
+#ifdef HAVE_GMTIME_R
+             struct tm* loctime = gmtime_r(&theTime, &result);
+#else
+             PLocker lock(&timeLock);
+             struct tm* loctime = gmtime(&theTime);
+#endif
+             if (loctime == NULL) raise_exception0(taskData, EXC_size);
+             localoff = (loctime->tm_hour * 60 + loctime->tm_min) * 60 + loctime->tm_sec;
+             day = loctime->tm_yday;
+         }
+
+         {
+
+#ifdef HAVE_LOCALTIME_R
+             struct tm* loctime = localtime_r(&theTime, &result);
+#else
+             PLocker lock(&timeLock);
+             struct tm* loctime = localtime(&theTime);
+#endif
+             if (loctime == NULL) raise_exception0(taskData, EXC_size);
+             localoff -= (loctime->tm_hour * 60 + loctime->tm_min) * 60 + loctime->tm_sec;
+             if (loctime->tm_yday != day)
+             {
+                 // Different day - have to correct it.  We can assume that there
+                 // is at most one day to correct.
+                 if (day == loctime->tm_yday + 1 || (day == 0 && loctime->tm_yday >= 364))
+                     localoff += 24 * 60 * 60;
+                 else localoff -= 24 * 60 * 60;
+             }
+         }
+
+        result = Make_arbitrary_precision(taskData, localoff);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Find out if Summer Time (daylight saving) was/will be in effect. */
+POLYUNSIGNED PolyTimingSummerApplies(FirstArgument threadId, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        time_t theTime;
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
+        getFileTimeFromArb(taskData, pushedArg, &ftSeconds); /* May raise exception. */
+        ULARGE_INTEGER   liTime;
+        liTime.HighPart = ftSeconds.dwHighDateTime;
+        liTime.LowPart = ftSeconds.dwLowDateTime;
+        theTime = (long)(liTime.QuadPart - SECSSINCE1601);
+#else
+        theTime = get_C_long(taskData, DEREFWORD(pushedArg)); /* May raise exception. */
+#endif
+        int isDst = 0;
+#ifdef HAVE_LOCALTIME_R
+        struct tm result;
+        struct tm* loctime = localtime_r(&theTime, &result);
+        isDst = loctime->tm_isdst;
+#else
+        {
+            PLocker lock(&timeLock);
+            struct tm* loctime = localtime(&theTime);
+            if (loctime == NULL) raise_exception0(taskData, EXC_size);
+            isDst = loctime->tm_isdst;
+        }
+#endif
+        result = Make_arbitrary_precision(taskData, isDst);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Call strftime.  It would be possible to do much of this in  ML except that it requires the current locale. */
+POLYUNSIGNED PolyTimingConvertDateStuct(FirstArgument threadId, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        struct  tm time;
+        char* format, buff[2048];
+        Handle  resString;
+        /* Get the format string. */
+        format = Poly_string_to_C_alloc(DEREFHANDLE(pushedArg)->Get(0));
+
+        /* Copy the time information. */
+        time.tm_year = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(1)) - 1900;
+        time.tm_mon = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(2));
+        time.tm_mday = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(3));
+        time.tm_hour = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(4));
+        time.tm_min = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(5));
+        time.tm_sec = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(6));
+        time.tm_wday = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(7));
+        time.tm_yday = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(8));
+        time.tm_isdst = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(9));
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        _tzset(); /* Make sure we set the current locale. */
+#else
+        setlocale(LC_TIME, "");
+#endif
+        /* It would be better to dynamically allocate the string rather
+           than use a fixed size but Unix unlike Windows does not distinguish
+           between an error in the input and the buffer being too small. */
+        if (strftime(buff, sizeof(buff), format, &time) <= 0)
+        {
+            /* Error */
+            free(format);
+            raise_exception0(taskData, EXC_size);
+        }
+        resString = taskData->saveVec.push(C_string_to_Poly(taskData, buff));
+        free(format);
+        result = resString;
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return User CPU time since the start. */
+POLYUNSIGNED PolyTimingGetUser(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        FILETIME ut, ct, et, kt;
+        if (!GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
+            raise_syscall(taskData, "GetProcessTimes failed", GetLastError());
+        result = Make_arb_from_Filetime(taskData, ut);
+#else
+        struct rusage rusage;
+        if (getrusage(RUSAGE_SELF, &rusage) != 0)
+            raise_syscall(taskData, "getrusage failed", errno);
+        result = Make_arb_from_pair_scaled(taskData, rusage.ru_utime.tv_sec,
+            rusage.ru_utime.tv_usec, 1000000);
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return System CPU time since the start. */
+POLYUNSIGNED PolyTimingGetSystem(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        FILETIME ct, et, kt, ut;
+        if (!GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
+            raise_syscall(taskData, "GetProcessTimes failed", GetLastError());
+        result = Make_arb_from_Filetime(taskData, kt);
+#else
+        struct rusage rusage;
+        if (getrusage(RUSAGE_SELF, &rusage) != 0)
+            raise_syscall(taskData, "getrusage failed", errno);
+        result = Make_arb_from_pair_scaled(taskData, rusage.ru_stime.tv_sec,
+            rusage.ru_stime.tv_usec, 1000000);
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return GC time since the start. */
+POLYUNSIGNED PolyTimingGetGCUser(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = gHeapSizeParameters.getGCUtime(taskData);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return real time since the start. */
+POLYUNSIGNED PolyTimingGetReal(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        FILETIME ft;
+        GetSystemTimeAsFileTime(&ft);
+        subFiletimes(&ft, &startTime);
+        result = Make_arb_from_Filetime(taskData, ft);
+#else
+        struct timeval tv;
+        if (gettimeofday(&tv, NULL) != 0)
+            raise_syscall(taskData, "gettimeofday failed", errno);
+        subTimevals(&tv, &startTime);
+        result = Make_arb_from_pair_scaled(taskData, tv.tv_sec, tv.tv_usec, 1000000);
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return User CPU time used by child processes.  (Posix only) */
+POLYUNSIGNED PolyTimingGetChildUser(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        result = Make_arbitrary_precision(taskData, 0);
+#else
+        struct rusage rusage;
+        if (getrusage(RUSAGE_CHILDREN, &rusage) != 0)
+            raise_syscall(taskData, "getrusage failed", errno);
+        result = Make_arb_from_pair_scaled(taskData, rusage.ru_utime.tv_sec,
+            rusage.ru_utime.tv_usec, 1000000);
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return System CPU time used by child processes. (Posix only) */
+POLYUNSIGNED PolyTimingGetChildSystem(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        result = Make_arbitrary_precision(taskData, 0);
+#else
+        struct rusage rusage;
+        if (getrusage(RUSAGE_CHILDREN, &rusage) != 0)
+            raise_syscall(taskData, "getrusage failed", errno);
+        result = Make_arb_from_pair_scaled(taskData, rusage.ru_stime.tv_sec,
+            rusage.ru_stime.tv_usec, 1000000);
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return GC system time since the start. */
+POLYUNSIGNED PolyTimingGetGCSystem(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = gHeapSizeParameters.getGCStime(taskData);
+    }
+    catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
@@ -541,7 +739,20 @@ void TimeValTime::sub(const TimeValTime &f)
 
 struct _entrypts timingEPT[] =
 {
-    { "PolyTimingGeneral",              (polyRTSFunction)&PolyTimingGeneral},
+    { "PolyTimingTicksPerMicroSec",     (polyRTSFunction)&PolyTimingTicksPerMicroSec},
+    { "PolyTimingGetNow",               (polyRTSFunction)&PolyTimingGetNow},
+    { "PolyTimingBaseYear",             (polyRTSFunction)&PolyTimingBaseYear},
+    { "PolyTimingYearOffset",           (polyRTSFunction)&PolyTimingYearOffset},
+    { "PolyTimingLocalOffset",          (polyRTSFunction)&PolyTimingLocalOffset},
+    { "PolyTimingSummerApplies",        (polyRTSFunction)&PolyTimingSummerApplies},
+    { "PolyTimingConvertDateStuct",     (polyRTSFunction)&PolyTimingConvertDateStuct},
+    { "PolyTimingGetUser",              (polyRTSFunction)&PolyTimingGetUser},
+    { "PolyTimingGetSystem",            (polyRTSFunction)&PolyTimingGetSystem},
+    { "PolyTimingGetGCUser",            (polyRTSFunction)&PolyTimingGetGCUser},
+    { "PolyTimingGetReal",              (polyRTSFunction)&PolyTimingGetReal},
+    { "PolyTimingGetChildUser",         (polyRTSFunction)&PolyTimingGetChildUser},
+    { "PolyTimingGetChildSystem",       (polyRTSFunction)&PolyTimingGetChildSystem},
+    { "PolyTimingGetGCSystem",          (polyRTSFunction)&PolyTimingGetGCSystem},
 
     { NULL, NULL} // End of list.
 };

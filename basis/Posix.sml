@@ -593,11 +593,9 @@ struct
     local
         val processEnvGeneralCall = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
         and osSpecificGeneralCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
-        and timingGeneralCall = RunCall.rtsCallFull2 "PolyTimingGeneral"
     in
         fun processEnvGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(processEnvGeneralCall(RunCall.unsafeCast(code, arg)))
         and osSpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(osSpecificGeneralCall(RunCall.unsafeCast(code, arg)))
-        and timingGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(timingGeneralCall(RunCall.unsafeCast(code, arg)))
     end
 
     fun getConst i : SysWord.word = osSpecificGeneral (4, i)
@@ -968,19 +966,17 @@ struct
 
         val time = Time.now
 
-        fun times() =
-        let
-            (* Apart from the child times all these could be obtained
-               by calling the Timer functions. *)
-            val doCall: int*unit -> Time.time = timingGeneral
-            fun getUserTime() = doCall(7, ())
-            and getSysTime() = doCall(8, ())
-            and getRealTime() = doCall(10, ())
-            and getChildUserTime() = doCall(11, ())
-            and getChildSysTime() = doCall(12, ())
+        local
+            (* Apart from the child times all these could be obtained by calling the Timer functions. *)
+            val getUserTime: unit -> Time.time = PolyML.rtsCallFull0 "PolyTimingGetUser"
+            and getSysTime: unit -> Time.time = PolyML.rtsCallFull0 "PolyTimingGetSystem"
+            and getRealTime: unit -> Time.time = PolyML.rtsCallFull0 "PolyTimingGetReal"
+            and getChildUserTime: unit -> Time.time = PolyML.rtsCallFull0 "PolyTimingGetChildUser"
+            and getChildSysTime: unit -> Time.time = PolyML.rtsCallFull0 "PolyTimingGetChildSystem"
         in
-            { elapsed=getRealTime(), utime=getUserTime(), stime=getSysTime(),
-              cutime=getChildUserTime(), cstime=getChildSysTime()}
+            fun times() =
+                { elapsed=getRealTime(), utime=getUserTime(), stime=getSysTime(),
+                  cutime=getChildUserTime(), cstime=getChildSysTime()}
         end
 
         local
