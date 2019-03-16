@@ -128,7 +128,6 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(FirstArgument threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexBlock(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexUnlock(FirstArgument threadId, PolyWord arg);
@@ -162,7 +161,6 @@ extern "C" {
 
 struct _entrypts processesEPT[] =
 {
-    { "PolyThreadGeneral",              (polyRTSFunction)&PolyThreadGeneral},
     { "PolyThreadKillSelf",             (polyRTSFunction)&PolyThreadKillSelf},
     { "PolyThreadMutexBlock",           (polyRTSFunction)&PolyThreadMutexBlock},
     { "PolyThreadMutexUnlock",          (polyRTSFunction)&PolyThreadMutexUnlock},
@@ -348,32 +346,6 @@ enum _mainThreadPhase mainThreadPhase = MTP_USER_CODE;
 static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
 {
     return UNTAGGED_UNSIGNED(taskData->threadObject->flags);
-}
-
-// General interface to thread.  Ideally the various cases will be made into
-// separate functions.
-POLYUNSIGNED PolyThreadGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(code);
-    Handle pushedArg = taskData->saveVec.push(arg);
-    Handle result = 0;
-
-    try {
-        result = processesModule.ThreadDispatch(taskData, pushedArg, pushedCode);
-    }
-    catch (KillException &) {
-        processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
-    }
-    catch (...) { } // If an ML exception is raised
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
 }
 
 POLYUNSIGNED PolyThreadMutexBlock(FirstArgument threadId, PolyWord arg)
