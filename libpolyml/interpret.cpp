@@ -1329,7 +1329,9 @@ int IntTaskData::SwitchToPoly()
             Handle reset = this->saveVec.mark();
             Handle pushedArg1 = this->saveVec.push(*sp++);
             Handle pushedArg2 = this->saveVec.push(*sp);
+            SaveInterpreterState(pc, sp); // mult_longc allocates memory and may GC even if it doesn't overflow.
             Handle result = mult_longc(this, pushedArg2, pushedArg1);
+            LoadInterpreterState(pc, sp);
             PolyWord res = result->Word();
             this->saveVec.reset(reset);
             if (! res.IsTagged()) 
