@@ -106,15 +106,28 @@ struct
         if isFinite x then x
         else if isNan x then raise General.Div else raise General.Overflow
 
+    (* On certain platforms e.g. mips, toLarge does not preserve
+       the sign on nans.  We deal with the non-finite cases here. *)
+
     (* Use the Real versions for the moment. *)
     fun toManExp r =
+        if not (isFinite r) orelse r == zero
+            (* Nan, infinities and +/-0 all return r in the mantissa.
+               We include 0 to preserve its sign. *)
+        then {man=r, exp=0}
+        else
         let
             val {man, exp} = Real.toManExp(toLarge r)
         in
             {man = fromRealRound man, exp = exp }
         end
 
-    and fromManExp {man, exp} = fromRealRound(Real.fromManExp{man=toLarge man, exp=exp})
+    and fromManExp {man, exp} =
+        if not (isFinite man) orelse man == zero
+        (* Nan, infinities and +/-0 in the mantissa all return
+           their argument. *)
+        then man
+        else fromRealRound(Real.fromManExp{man=toLarge man, exp=exp})
     
     fun compare (r1, r2) =
         if r1 == r2 then General.EQUAL
@@ -204,8 +217,20 @@ struct
 
     val fromString = StringCvt.scanString scan
 
-    val toDecimal = Real.toDecimal o toLarge
-    
+    (* toDecimal: It's particularly important to handle the nan case
+       here because toLarge loses the sign bit on some architectures. *)
+    fun toDecimal r =
+    let
+        val sign = signBit r
+        val kind = class r
+    in
+        case kind of
+            ZERO => { class = ZERO, sign = sign, digits=[], exp = 0 }
+          | INF  => { class = INF, sign = sign, digits=[], exp = 0 }
+          | NAN => { class = NAN, sign = sign, digits=[], exp = 0 }
+          | _ => (* NORMAL/SUBNORMAL *) Real.toDecimal(toLarge r)
+    end
+        
     (* Convert from decimal.  This is defined to use TO_NEAREST.
        We need to handle NaNs specially because fromRealRound loses
        the sign on a NaN. *)

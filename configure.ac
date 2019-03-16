@@ -581,7 +581,7 @@ AM_CONDITIONAL([MACOSLDOPTS], [test "$poly_need_macosopt" = yes ])
 
 # If we're building only the static version of libpolyml
 # then polyc and polyml.pc have to include the dependent libraries.
-dependentlibs = ""
+dependentlibs=""
 if test "${enable_shared}" != yes; then
     dependentlibs=${LIBS}
 fi

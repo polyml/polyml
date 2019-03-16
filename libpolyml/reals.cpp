@@ -933,28 +933,6 @@ static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
         return real_result(mdTaskData, DBL_MIN*DBL_EPSILON);
 #endif
 
-    case 17: /* Legacy: Get sign bit.  Now implemented in ML. */
-        return mdTaskData->saveVec.push(copysign(1.0, real_arg(args)) < 0.0 ? TAGGED(1) : TAGGED(0));
-    case 18: /* Legacy: Copy sign. */
-        return real_result(mdTaskData, copysign(real_arg1(args), real_arg2(args)));
-    case 23: /* Legacy: Compute ldexp */
-        {
-            int exp = get_C_int(mdTaskData, DEREFHANDLE(args)->Get(1));
-            return real_result(mdTaskData, ldexp(real_arg1(args), exp));
-        }
-    case 24: /* Legacy: Get mantissa. */
-        {
-            int exp;
-            return real_result(mdTaskData, frexp(real_arg(args), &exp));
-        }
-    case 25: /* Legacy: Get exponent. */
-        {
-            int exp;
-            (void)frexp(real_arg(args), &exp);
-            return mdTaskData->saveVec.push(TAGGED(exp));
-        }
-    case 26: /* Legacy: nextafter */ return real_result(mdTaskData, nextafter(real_arg1(args), real_arg2(args)));
-
         // Constants for float (Real32.real)
     case 30: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(FLT_RADIX));
     case 31: /* Value of precision */ return mdTaskData->saveVec.push(TAGGED(FLT_MANT_DIG));

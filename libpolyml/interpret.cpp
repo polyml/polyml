@@ -528,7 +528,6 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_call_closure: /* Closure call. */
         {
-            PolyObject *closure = (*sp).AsObjPtr();
             POLYCODEPTR newPc = (*sp).AsObjPtr()->Get(0).AsCodePtr();
             sp--;
             *sp = sp[1];      /* Move closure up. */
@@ -781,16 +780,6 @@ int IntTaskData::SwitchToPoly()
         case INSTR_const_3: *(--sp) = TAGGED(3); break;
         case INSTR_const_4: *(--sp) = TAGGED(4); break;
         case INSTR_const_10: *(--sp) = TAGGED(10); break;
-
-            // Move-to-vec is now only used for closures.
-        case INSTR_move_to_vec_0: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(0, u); break; }
-        case INSTR_move_to_vec_1: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(1, u); break; }
-        case INSTR_move_to_vec_2: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(2, u); break; }
-        case INSTR_move_to_vec_3: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(3, u); break; }
-        case INSTR_move_to_vec_4: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(4, u); break; }
-        case INSTR_move_to_vec_5: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(5, u); break; }
-        case INSTR_move_to_vec_6: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(6, u); break; }
-        case INSTR_move_to_vec_7: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(7, u); break; }
 
         case INSTR_reset_r_1: { PolyWord u = *sp; sp += 1; *sp = u; break; }
         case INSTR_reset_r_2: { PolyWord u = *sp; sp += 2; *sp = u; break; }
@@ -1329,7 +1318,9 @@ int IntTaskData::SwitchToPoly()
             Handle reset = this->saveVec.mark();
             Handle pushedArg1 = this->saveVec.push(*sp++);
             Handle pushedArg2 = this->saveVec.push(*sp);
+            SaveInterpreterState(pc, sp); // mult_longc allocates memory and may GC even if it doesn't overflow.
             Handle result = mult_longc(this, pushedArg2, pushedArg1);
+            LoadInterpreterState(pc, sp);
             PolyWord res = result->Word();
             this->saveVec.reset(reset);
             if (! res.IsTagged()) 
