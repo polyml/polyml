@@ -117,58 +117,6 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 19: // Return the RTS argument help string.
         return SAVE(C_string_to_Poly(taskData, RTSArgHelp()));
 
-    case 106: // Lock a mutable code segment and return the executable address.
-            // Legacy - used by bootstrap code only
-        {
-            ASSERT(0); // Should no longer be used
-            PolyObject *codeObj = args->WordP();
-            if (! codeObj->IsCodeObject() || ! codeObj->IsMutable())
-                raise_fail(taskData, "Not mutable code area");
-            POLYUNSIGNED segLength = codeObj->Length();
-            codeObj->SetLengthWord(segLength, F_CODE_OBJ);
-            machineDependent->FlushInstructionCache(codeObj, segLength * sizeof(PolyWord));
-            // In the future it may be necessary to return a different address here.
-            // N.B.  The code area should only have execute permission in the native
-            // code version, not the interpreted version.
-            return args; // Return the original address.
-        }
-
-    case 107: // Copy a byte segment into the code area and make it mutable code
-              // Legacy - used by bootstrap code only
-        {
-            ASSERT(0); // Should no longer be used
-            if (! args->WordP()->IsByteObject())
-                raise_fail(taskData, "Not byte data area");
-            while (true)
-            {
-                PolyObject *initCell = args->WordP();
-                POLYUNSIGNED requiredSize = initCell->Length();
-                PolyObject *result = gMem.AllocCodeSpace(requiredSize);
-                if (result != 0)
-                {
-                    memcpy(result, initCell, requiredSize * sizeof(PolyWord));
-                    return taskData->saveVec.push(result);
-                }
-                // Could not allocate - must GC.
-                if (! QuickGC(taskData, args->WordP()->Length()))
-                    raise_fail(taskData, "Insufficient memory");
-            }
-        }
-
-    case 108:
-        ASSERT(0); // Should no longer be used
-        // Return the ABI.  For 64-bit we need to know if this is Windows.
-        // Legacy - used by bootstrap code only
-#if (SIZEOF_VOIDP == 8)
-#if(defined(_WIN32) || defined(__CYGWIN__))
-        return taskData->saveVec.push(TAGGED(2));
-#else
-        return taskData->saveVec.push(TAGGED(1));
-#endif
-#else
-        return taskData->saveVec.push(TAGGED(0));
-#endif
-
     default:
         {
             char msg[100];

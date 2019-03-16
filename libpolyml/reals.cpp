@@ -907,14 +907,11 @@ POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord 
 
 // This used to be used for all the functions.  It now only contains calls
 // used when the Real structure is defined to get the values of constants.
-// It also still has some legacy functions.
 static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(mdTaskData, code->Word());
     switch (c)
     {
-    case 3: /* Legacy: atan2 */ return real_result(mdTaskData, atan2(real_arg1(args), real_arg2(args)));
-    case 4: /* Legacy: pow */ return powerOf(mdTaskData, args);
         /* Floating point representation queries. */
 #ifdef _DBL_RADIX
     case 11: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(_DBL_RADIX));
