@@ -1135,8 +1135,9 @@ struct
                 exit n
             )
 
-            (* Add an exit function at the end. *)
-            val atExit = ThreadLib.protect locker (fn f => exitFns := !exitFns @ [f])
+            (* Add an exit function to the list.  Functions are executed in reverse
+               order of registration. *)
+            val atExit = ThreadLib.protect locker (fn f => exitFns := f :: !exitFns)
         end
 
         (* Terminate without running the atExit list or flushing the
