@@ -301,7 +301,7 @@ POLYUNSIGNED PolyTimingLocalOffset(FirstArgument threadId, PolyWord arg)
         time_t theTime;
         int day = 0;
 #if (defined(HAVE_GMTIME_R) || defined(HAVE_LOCALTIME_R))
-        struct tm result;
+        struct tm resultTime;
 #endif
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         /* Although the offset is in seconds it is since 1601. */
@@ -317,7 +317,7 @@ POLYUNSIGNED PolyTimingLocalOffset(FirstArgument threadId, PolyWord arg)
 
          {
 #ifdef HAVE_GMTIME_R
-             struct tm* loctime = gmtime_r(&theTime, &result);
+             struct tm* loctime = gmtime_r(&theTime, &resultTime);
 #else
              PLocker lock(&timeLock);
              struct tm* loctime = gmtime(&theTime);
@@ -330,7 +330,7 @@ POLYUNSIGNED PolyTimingLocalOffset(FirstArgument threadId, PolyWord arg)
          {
 
 #ifdef HAVE_LOCALTIME_R
-             struct tm* loctime = localtime_r(&theTime, &result);
+             struct tm* loctime = localtime_r(&theTime, &resultTime);
 #else
              PLocker lock(&timeLock);
              struct tm* loctime = localtime(&theTime);
@@ -381,8 +381,8 @@ POLYUNSIGNED PolyTimingSummerApplies(FirstArgument threadId, PolyWord arg)
 #endif
         int isDst = 0;
 #ifdef HAVE_LOCALTIME_R
-        struct tm result;
-        struct tm* loctime = localtime_r(&theTime, &result);
+        struct tm resultTime;
+        struct tm* loctime = localtime_r(&theTime, &resultTime);
         isDst = loctime->tm_isdst;
 #else
         {

@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C.J. Matthews 2011, 2016-18
+    Further work copyright David C.J. Matthews 2011, 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -693,12 +693,6 @@ static double real_arg2(Handle x)
         r_arg_x.words[i] = DEREFHANDLE(x)->Get(1).AsObjPtr()->Get(i).AsUnsigned();
     }
     return r_arg_x.dble;
-}
-
-static Handle powerOf(TaskData *mdTaskData, Handle args)
-{
-    double x = real_arg1(args), y = real_arg2(args);
-    return real_result(mdTaskData, PolyRealPow(x, y));
 }
 
 #if defined(__SOFTFP__)

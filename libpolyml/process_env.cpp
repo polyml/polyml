@@ -677,68 +677,6 @@ POLYUNSIGNED PolyProcessEnvSystem(FirstArgument threadId, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
-/* Register function to run at exit. */
-POLYUNSIGNED PolyProcessEnvAtExit(FirstArgument threadId, PolyWord arg)
-{
-    TaskData* taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedArg = taskData->saveVec.push(arg);
-    Handle result = 0;
-
-    try {
-        PLocker locker(&atExitLock);
-        if (!exiting)
-        {
-            PolyObject* cell = alloc(taskData, 2);
-            cell->Set(0, at_exit_list);
-            cell->Set(1, pushedArg->Word());
-            at_exit_list = cell;
-        }
-    }
-    catch (KillException&) {
-        processes->ThreadExit(taskData); // May test for kill
-    }
-    catch (...) {} // If an ML exception is raised
-
-    taskData->saveVec.reset(reset); // Ensure the save vec is reset
-    taskData->PostRTSCall();
-    return TAGGED(0).AsUnsigned();
-}
-
-/* Return the next function in the atExit list and set the "exiting" flag to true. */
-POLYUNSIGNED PolyProcessEnvGetExitFn(FirstArgument threadId)
-{
-    TaskData* taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle result = 0;
-
-    try {
-        PLocker locker(&atExitLock);
-        Handle res;
-        exiting = true; /* Ignore further calls to atExit. */
-        if (at_exit_list == TAGGED(0))
-            raise_syscall(taskData, "List is empty", 0);
-        PolyObject * cell = at_exit_list.AsObjPtr();
-        res = SAVE(cell->Get(1));
-        at_exit_list = cell->Get(0);
-        result = res;
-
-    }
-    catch (KillException&) {
-        processes->ThreadExit(taskData); // May test for kill
-    }
-    catch (...) {} // If an ML exception is raised
-
-    taskData->saveVec.reset(reset); // Ensure the save vec is reset
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
-}
-
 struct _entrypts processEnvEPT[] =
 {
     { "PolyFinish",                     (polyRTSFunction)&PolyFinish},

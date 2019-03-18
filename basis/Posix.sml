@@ -966,11 +966,11 @@ struct
 
         local
             (* Apart from the child times all these could be obtained by calling the Timer functions. *)
-            val getUserTime: unit -> Time.time = PolyML.rtsCallFull0 "PolyTimingGetUser"
-            and getSysTime: unit -> Time.time = PolyML.rtsCallFull0 "PolyTimingGetSystem"
-            and getRealTime: unit -> Time.time = PolyML.rtsCallFull0 "PolyTimingGetReal"
-            and getChildUserTime: unit -> Time.time = PolyML.rtsCallFull0 "PolyTimingGetChildUser"
-            and getChildSysTime: unit -> Time.time = PolyML.rtsCallFull0 "PolyTimingGetChildSystem"
+            val getUserTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetUser"
+            and getSysTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetSystem"
+            and getRealTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetReal"
+            and getChildUserTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetChildUser"
+            and getChildSysTime: unit -> Time.time = RunCall.rtsCallFull0 "PolyTimingGetChildSystem"
         in
             fun times() =
                 { elapsed=getRealTime(), utime=getUserTime(), stime=getSysTime(),

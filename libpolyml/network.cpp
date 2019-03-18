@@ -100,6 +100,10 @@
 #include <sys/select.h>
 #endif
 
+#ifdef HAVE_ARPA_INET_H
+#include <arpa/inet.h>
+#endif
+
 #ifndef HAVE_SOCKLEN_T
 typedef int socklen_t;
 #endif
@@ -1617,7 +1621,7 @@ static Handle extractAddrInfo(TaskData *taskData, struct addrinfo *ainfo)
     return taskData->saveVec.push(next);
 }
 
-POLYUNSIGNED PolyNetworkGetAddrInfo(FirstArgument threadId, PolyWord hostName, PolyWord addrFamily)
+POLYUNSIGNED PolyNetworkGetAddrInfo(FirstArgument threadId, PolyWord hName, PolyWord addrFamily)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1627,7 +1631,7 @@ POLYUNSIGNED PolyNetworkGetAddrInfo(FirstArgument threadId, PolyWord hostName, P
     struct addrinfo *resAddr = 0;
 
     try {
-        TempCString hostName(Poly_string_to_C_alloc(hostName));
+        TempCString hostName(Poly_string_to_C_alloc(hName));
         struct addrinfo hints;
         memset(&hints, 0, sizeof(hints));
         hints.ai_family = (int)UNTAGGED(addrFamily); // AF_INET or AF_INET6 or, possibly, AF_UNSPEC.
