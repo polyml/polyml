@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: CommandLine Structure and Signature
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2016
+    Copyright   David Matthews 1999, 2016, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -26,15 +26,6 @@ end
      
 structure CommandLine : COMMAND_LINE =
 struct
-    local
-        val doCall: int * unit -> string = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-    in
-        fun name() = doCall(0, ())
-    end
-    
-    local
-        val doCall: int * unit -> string list = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-    in
-        fun arguments() = doCall(1, ())
-    end
+    val name: unit -> string = RunCall.rtsCallFull1 "PolyCommandLineName"
+    and arguments: unit -> string list = RunCall.rtsCallFull1 "PolyCommandLineArgs"
 end;

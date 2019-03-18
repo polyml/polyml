@@ -591,11 +591,9 @@ structure Posix :>
     =
 struct
     local
-        val processEnvGeneralCall = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        and osSpecificGeneralCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+        val osSpecificGeneralCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
-        fun processEnvGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(processEnvGeneralCall(RunCall.unsafeCast(code, arg)))
-        and osSpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(osSpecificGeneralCall(RunCall.unsafeCast(code, arg)))
+        fun osSpecificGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(osSpecificGeneralCall(RunCall.unsafeCast(code, arg)))
     end
 
     fun getConst i : SysWord.word = osSpecificGeneral (4, i)
@@ -929,7 +927,7 @@ struct
 
         val getenv = OS.Process.getEnv
 
-        fun environ() = processEnvGeneral(21, ())
+        val environ = RunCall.rtsCallFull0 "PolyGetEnvironment"
 
         local
             val doCall = osSpecificGeneral

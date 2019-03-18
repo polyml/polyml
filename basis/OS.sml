@@ -1106,49 +1106,37 @@ struct
 
         type status = int
 
-        local
-            val doCall: int*unit -> int
-                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        in
-            val success = doCall(15, ())
-            and failure = doCall(16, ())
-        end
+        val success = RunCall.rtsCallFull0 "PolyProcessEnvSuccessValue" ()
+        and failure = RunCall.rtsCallFull0 "PolyProcessEnvFailureValue" ()
 
         fun isSuccess i = i = success
 
-        local
-            val doCall: int*string -> status
-                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        in
-            (* Run a process and wait for the result. *)
-            fun system s = doCall(17, s)
-        end
+        (* Run a process and wait for the result. *)
+        val system: string -> status = RunCall.rtsCallFull1 "PolyProcessEnvSystem"
         
         local
-            val doCall: int*(unit->unit) -> unit
-                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        in
-            (* Register a function to be run at exit. *)
-            fun atExit f = doCall(18, f)
-        end
-
-        local
+            val locker = Thread.Mutex.mutex()
+            val exitFns: (unit -> unit) list ref = ref []
             (* exit - supply result code and close down all threads. *)
-            val doExit: int -> unit = RunCall.rtsCallFull1 "PolyFinish"
-            val doCall: int*unit -> (unit->unit) =
-                RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
+            val reallyExit: int -> unit = RunCall.rtsCallFull1 "PolyFinish"
+            (* The definition says that if any of the exit functions call
+               "exit" then they do not return but subsequent atExit functions
+               are executed.  A call to exit takes a single function off the
+               atExit list so any exit calls within an atExit "take over"
+               the exit process. *)
+            fun nextExit n  =
+                case !exitFns of
+                    [] => (fn () => reallyExit n)
+                |   (hd :: tl) => (exitFns := tl; hd)
         in
             fun exit (n: int) =
-            let
-                (* Get a function from the atExit list.  If that list
-                   is empty it will raise an exception and we've finished. *)
-                val exitFun =
-                    doCall(19, ()) handle _ => (doExit n; fn () => ())
-            in
-                (* Run the function and then repeat. *)
-                exitFun() handle _ => (); (* Ignore exceptions in the function. *)
-                exit(n)
-            end
+            (
+                ThreadLib.protect locker nextExit n () handle _ => ();
+                exit n
+            )
+
+            (* Add an exit function at the end. *)
+            val atExit = ThreadLib.protect locker (fn f => exitFns := !exitFns @ [f])
         end
 
         (* Terminate without running the atExit list or flushing the
@@ -1160,13 +1148,11 @@ struct
         end
 
         local
-            val doCall: int*string -> string
-                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
+            val doCall: string -> string = RunCall.rtsCallFull1 "PolyGetEnv"
         in
             (* Get an environment string.  The underlying call raises an
                exception if the string isn't there. *)
-            fun getEnv s =
-                SOME(doCall(14, s)) handle RunCall.SysErr _ => NONE
+            fun getEnv s = SOME(doCall s) handle RunCall.SysErr _ => NONE
         end
 
         (* poll is implemented so that an empty list simply waits for
