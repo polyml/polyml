@@ -594,7 +594,7 @@ Handle neg_longc(TaskData *taskData, Handle x)
     Handle long_y = alloc_and_save(taskData, WORDS(bytes), F_MUTABLE_BIT|F_BYTE_OBJ);
     byte *v = DEREFBYTEHANDLE(long_y);
     if (IS_INT(DEREFWORD(x)))
-        memcpy(v, (byte*)x_extend, bytes);
+        memcpy(v, &x_extend, bytes);
     else memcpy(v, DEREFBYTEHANDLE(x), bytes);
 #ifndef USE_GMP
     // Make sure the last word is zero.  We may have unused bytes there.
