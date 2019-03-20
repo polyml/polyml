@@ -104,6 +104,10 @@
 #include <arpa/inet.h>
 #endif
 
+#ifdef HAVE_LIMITS_H
+#include <limits.h>
+#endif
+
 #ifndef HAVE_SOCKLEN_T
 typedef int socklen_t;
 #endif
@@ -117,11 +121,6 @@ typedef int SOCKET;
 
 #ifdef HAVE_WINDOWS_H
 #include <windows.h>
-#endif
-
-#include <limits>
-#ifdef max
-#undef max
 #endif
 
 #include <new>
@@ -1539,10 +1538,16 @@ POLYUNSIGNED PolyNetworkGetHostName(FirstArgument threadId)
 
     try { /* Get the current host name. */
         // Since the maximum length of a FQDN is 256 bytes it should fit in the buffer.
+#ifdef HOST_NAME_MAX
+        char hostName[HOST_NAME_MAX+1];
+#else
         char hostName[1024];
+#endif
         int err = gethostname(hostName, sizeof(hostName));
         if (err != 0)
             raise_syscall(taskData, "gethostname failed", GETERROR);
+        // Add a null at the end just in case.  See gethostname man page.
+        hostName[sizeof(hostName) - 1] = 0;
 
         result = SAVE(C_string_to_Poly(taskData, hostName));
     }
