@@ -113,6 +113,7 @@ extern "C" {
 
 static Handle add_longc(TaskData *taskData, Handle,Handle);
 static Handle sub_longc(TaskData *taskData, Handle,Handle);
+static Handle mult_longc(TaskData* taskData, Handle, Handle);
 static Handle or_longc(TaskData *taskData, Handle,Handle);
 static Handle and_longc(TaskData *taskData, Handle,Handle);
 static Handle xor_longc(TaskData *taskData, Handle,Handle);

@@ -1311,24 +1311,15 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_fixedMult:
         {
-            // We need to detect overflow.  There doesn't seem to be any convenient way to do
-            // this so we use the arbitrary precision package and check whether the result is short.
-            // Clang and GCC 5.0 have __builtin_mul_overflow which will do this but GCC 5.0 is not
-            // currently (July 2016) in Debian stable.
-            Handle reset = this->saveVec.mark();
-            Handle pushedArg1 = this->saveVec.push(*sp++);
-            Handle pushedArg2 = this->saveVec.push(*sp);
-            SaveInterpreterState(pc, sp); // mult_longc allocates memory and may GC even if it doesn't overflow.
-            Handle result = mult_longc(this, pushedArg2, pushedArg1);
-            LoadInterpreterState(pc, sp);
-            PolyWord res = result->Word();
-            this->saveVec.reset(reset);
-            if (! res.IsTagged()) 
+            POLYSIGNED x = UNTAGGED(*sp++);
+            POLYSIGNED y = (*sp).AsSigned() - 1; // Just remove the tag
+            POLYSIGNED t = x * y;
+            if (x != 0 && t / x != y)
             {
                 *(--sp) = (PolyWord)overflowPacket;
                 goto RAISE_EXCEPTION;
             }
-            *sp = res;
+            *sp = PolyWord::FromSigned(t+1); // Add back the tag
             break;
         }
 
