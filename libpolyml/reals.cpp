@@ -675,32 +675,6 @@ POLYUNSIGNED PolyRealBoxedFromString(PolyObject *threadId, PolyWord str)
     else return result->Word().AsUnsigned();
 }
 
-static double real_arg1(Handle x)
-{
-    union db r_arg_x;
-    for(unsigned i = 0; i < DBLE; i++)
-    {
-        r_arg_x.words[i] = DEREFHANDLE(x)->Get(0).AsObjPtr()->Get(i).AsUnsigned();
-    }
-    return r_arg_x.dble;
-}
-
-static double real_arg2(Handle x)
-{
-    union db r_arg_x;
-    for(unsigned i = 0; i < DBLE; i++)
-    {
-        r_arg_x.words[i] = DEREFHANDLE(x)->Get(1).AsObjPtr()->Get(i).AsUnsigned();
-    }
-    return r_arg_x.dble;
-}
-
-static Handle powerOf(TaskData *mdTaskData, Handle args)
-{
-    double x = real_arg1(args), y = real_arg2(args);
-    return real_result(mdTaskData, PolyRealPow(x, y));
-}
-
 #if defined(__SOFTFP__)
 // soft-float lacks proper rounding mode support
 // While some systems will support fegetround/fesetround, it will have no
