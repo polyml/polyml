@@ -1,9 +1,17 @@
 (* IPv6 test - Test078 converted to IPv6 *)
 val x = INet6Sock.TCP.socket(): Socket.passive INet6Sock.stream_sock
 and y = INet6Sock.TCP.socket(): Socket.active INet6Sock.stream_sock;
-val SOME me = Net6HostDB.getByName "localhost";
+
+(* IPv6 may not be configured but it's not clear where the error will occur. *)
+val me = case Net6HostDB.getByName "localhost" of SOME me => me | NONE => raise NotApplicable;
+
 val localhost = Net6HostDB.addr me;
-Socket.bind(x, INet6Sock.toAddr(localhost, 0));
+
+Socket.bind(x, INet6Sock.toAddr(localhost, 0))
+    handle exn as OS.SysErr(_, SOME e) =>
+      (case OS.syserror "EADDRNOTAVAIL" of
+        SOME f => if e = f then raise NotApplicable else raise exn | NONE => raise exn);
+
 Socket.listen(x, 5);
 let
 val (_, port) = INet6Sock.fromAddr(Socket.Ctl.getSockName x)
