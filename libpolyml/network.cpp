@@ -1074,8 +1074,6 @@ POLYUNSIGNED PolyNetworkGetAddrList(FirstArgument threadId)
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(TAGGED(11));
-    Handle pushedArg = taskData->saveVec.push(TAGGED(0));
     Handle result = 0;
 
     try {
@@ -1488,7 +1486,6 @@ POLYUNSIGNED PolyNetworkListen(FirstArgument threadId, PolyWord skt, PolyWord ba
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    Handle result = 0;
 
     try {
          SOCKET sock = getStreamSocket(taskData, skt);
@@ -1548,7 +1545,8 @@ POLYUNSIGNED PolyNetworkCreateSocketPair(FirstArgument threadId, PolyWord family
         int type = st.UnTagged();
         int proto = prot.UnTagged();
         SOCKET skt[2];
-        int skPRes = 0
+        int skPRes = 0;
+
         do {
             skPRes = socketpair(af, type, proto, skt);
         } while (skPRes != 0 && GETERROR == CALLINTERRUPTED);
@@ -1622,7 +1620,6 @@ POLYUNSIGNED PolyNetworkUnixSockAddrToPath(FirstArgument threadId, PolyWord arg)
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    Handle pushedArg = taskData->saveVec.push(arg);
     Handle result = 0;
 
     try {
