@@ -154,8 +154,10 @@ in
         type dgram_sock = Socket.dgram sock
 
         local
-            val doCall1 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-            val doCall2 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+            val doSetOpt: int * OS.IO.iodesc * int -> unit =
+                RunCall.rtsCallFull3 "PolyNetworkSetOption"
+            val doGetOpt: int * OS.IO.iodesc -> int =
+                RunCall.rtsCallFull2 "PolyNetworkGetOption"
         in
             structure UDP =
             struct
@@ -168,11 +170,10 @@ in
                 fun socket () = GenericSock.socket(inetAF, Socket.SOCK.stream)
                 fun socket' p = GenericSock.socket'(inetAF, Socket.SOCK.stream, p)
 
-                fun getNODELAY(s: 'mode stream_sock): bool =
-                    doCall1(16, RunCall.unsafeCast s)
+                fun getNODELAY(LibraryIOSupport.SOCK s: 'mode stream_sock): bool = doGetOpt(16, s) <> 0
 
-                fun setNODELAY (s: 'mode stream_sock, b: bool): unit =
-                    doCall2(15, (RunCall.unsafeCast  s, b))
+                fun setNODELAY (LibraryIOSupport.SOCK s: 'mode stream_sock, b: bool): unit =
+                    doSetOpt(15, s, if b then 1 else 0)
             end
         end 
 

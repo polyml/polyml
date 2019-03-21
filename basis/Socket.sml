@@ -167,7 +167,8 @@ sig
                           * in_flags -> (int * 'af sock_addr) option
 end;
 
-structure Socket :> SOCKET =
+structure Socket :> SOCKET
+    where type ('af,'sock_type) sock = ('af,'sock_type) LibraryIOSupport.sock (* So we can use it elsewhere *) =
 struct
     (* We don't really need an implementation for these.  *)
     datatype sock = datatype LibraryIOSupport.sock
@@ -177,23 +178,11 @@ struct
     and passive = PASSIVE
     and active = ACTIVE
 
-    local
-        val netCall: int * word -> word = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-    in
-        fun doNetCall(i: int, arg:'a):'b =
-            RunCall.unsafeCast(netCall(i, RunCall.unsafeCast arg))
-    end
-
     structure AF =
     struct
         type addr_family = int
 
-        local
-            val doCall: int*unit -> (string * addr_family) list
-                 = doNetCall
-        in
-            fun list () = doCall(11, ())
-        end
+        val list: unit -> (string * addr_family) list = RunCall.rtsCallFull0 "PolyNetworkGetAddrList"
 
         fun toString (af: addr_family) =
         let
@@ -220,12 +209,7 @@ struct
     struct
         datatype sock_type = SOCKTYPE of int
 
-        local
-            val doCall: int*unit -> (string * sock_type) list
-                 = doNetCall
-        in
-            fun list () = doCall(12, ())
-        end
+        val list:unit -> (string * sock_type) list = RunCall.rtsCallFull0 "PolyNetworkGetSockTypeList"
 
         fun toString (sk: sock_type) =
         let
@@ -267,12 +251,11 @@ struct
        references. *)
     fun sameAddr (SOCKADDR a, SOCKADDR b) = a = b
 
-    (* Many of these calls involve type variables.  We have to use a cast to
-       get the types right. *)
     local
-        val doCall = doNetCall
+        (* Because this involves a type variable we need an extra function. *)
+        val doCall = RunCall.rtsCallFast1 "PolyNetworkGetFamilyFromAddress"
     in
-        fun familyOfAddr (sa: 'af sock_addr) = doCall(39, RunCall.unsafeCast sa)
+        fun familyOfAddr (SOCKADDR sa) = doCall sa
     end
     
     
@@ -287,67 +270,80 @@ struct
     structure Ctl =
     struct
         local
-            val doCall1 = doNetCall
-            val doCall2 = doNetCall
+            val doGetOpt: int * OS.IO.iodesc -> int = RunCall.rtsCallFull2 "PolyNetworkGetOption"
+            val doSetOpt: int * OS.IO.iodesc * int -> unit = RunCall.rtsCallFull3 "PolyNetworkSetOption"
         in
-            fun getOpt (i:int) (SOCK s) = doCall1(i, s)
-            fun setOpt (i: int) (SOCK s, b: bool) = doCall2(i, (s, b))
+            fun getOpt (i:int) (SOCK s) : int = doGetOpt(i, s)
+            fun setOpt (i: int) (SOCK s, v: int) = doSetOpt(i, s, v)
+            fun bv true = 1 | bv false = 0
         end
-
-        fun getDEBUG s = getOpt 18 s
-        and setDEBUG s = setOpt 17 s
-        and getREUSEADDR s = getOpt 20 s
-        and setREUSEADDR s = setOpt 19 s
-        and getKEEPALIVE s = getOpt 22 s
-        and setKEEPALIVE s = setOpt 21 s
-        and getDONTROUTE s = getOpt 24 s
-        and setDONTROUTE s = setOpt 23 s
-        and getBROADCAST s = getOpt 26 s
-        and setBROADCAST s = setOpt 25 s
-        and getOOBINLINE s = getOpt 28 s
-        and setOOBINLINE s = setOpt 27 s
+        
+        fun getDEBUG s = getOpt 18 s <> 0
+        and setDEBUG(s, b) = setOpt 17 (s, bv b)
+        and getREUSEADDR s = getOpt 20 s <> 0
+        and setREUSEADDR(s, b) = setOpt 19 (s, bv b)
+        and getKEEPALIVE s = getOpt 22 s <> 0
+        and setKEEPALIVE(s, b) = setOpt 21 (s, bv b)
+        and getDONTROUTE s = getOpt 24 s <> 0
+        and setDONTROUTE(s, b) = setOpt 23 (s, bv b)
+        and getBROADCAST s = getOpt 26 s <> 0
+        and setBROADCAST(s, b) = setOpt 25 (s, bv b)
+        and getOOBINLINE s = getOpt 28 s <> 0
+        and setOOBINLINE(s, b) = setOpt 27 (s, bv b)
         and getERROR s = getAndClearError s <> 0w0
-        and getATMARK s = getOpt 45 s
+        and setSNDBUF(s, i: int) = setOpt 29 (s, i)
+        and getSNDBUF s = getOpt 30 s
+        and setRCVBUF(s, i: int) = setOpt 31 (s, i)
+        and getRCVBUF s = getOpt 32 s
+        and getTYPE s = SOCK.SOCKTYPE(getOpt 33 s)
 
         local
-            val doCall1 = doNetCall
-            val doCall2 = doNetCall
+            val doGetOpt: OS.IO.iodesc -> bool = RunCall.rtsCallFull1 "PolyNetworkGetAtMark"
         in
-            fun getSNDBUF (SOCK s) = doCall1(30, s)
-            fun setSNDBUF (SOCK s, i: int) = doCall2(29, (s, i))
-            fun getRCVBUF (SOCK s) = doCall1(32, s)
-            fun setRCVBUF (SOCK s, i: int) = doCall2(31, (s, i))
-            fun getTYPE (SOCK s) = SOCK.SOCKTYPE(doCall1(33, s))
-                    
-            fun getNREAD (SOCK s) = doCall1(44, s)
+            fun getATMARK (SOCK s) = doGetOpt s
+        end
+        
+        local
+            val doGetNRead: OS.IO.iodesc -> int = RunCall.rtsCallFull1 "PolyNetworkBytesAvailable"
+        in
+            fun getNREAD (SOCK s) = doGetNRead s
+        end
 
+        local
+            val doSetLinger: OS.IO.iodesc * LargeInt.int -> unit = RunCall.rtsCallFull2 "PolyNetworkSetLinger"
+            val doGetLinger: OS.IO.iodesc -> LargeInt.int = RunCall.rtsCallFull1 "PolyNetworkGetLinger"
+        in
             fun getLINGER (SOCK s): Time.time option =
             let
-                val lTime = doCall1(36, s)
+                val lTime = doGetLinger s (* Returns LargeInt.int *)
             in
-                if lTime < 0 then NONE else SOME(Time.fromSeconds(LargeInt.fromInt lTime))
+                if lTime < 0 then NONE else SOME(Time.fromSeconds lTime)
             end
 
             fun setLINGER (SOCK s, NONE) =
                 (
-                    doCall2(35, (s, ~1))
+                    doSetLinger(s, ~1)
                 )
             |   setLINGER (SOCK s, SOME t) =
                 let
-                    val lTime = LargeInt.toInt(Time.toSeconds t)
+                    val lTime = Time.toSeconds t
                 in
                     if lTime < 0
                     then raise OS.SysErr("Invalid time", NONE)
-                    else doCall2(35, (s, lTime))
+                    else doSetLinger(s, lTime)
                 end
         end
 
         local
-            val doCall = doNetCall
+            val getPeer: OS.IO.iodesc -> Word8Vector.vector = RunCall.rtsCallFull1 "PolyNetworkGetPeerName"
         in
-            fun getPeerName (SOCK s): 'af sock_addr = RunCall.unsafeCast(doCall(37, s))
+            fun getPeerName (SOCK s): 'af sock_addr = SOCKADDR(getPeer s)
+        end
 
-            fun getSockName (SOCK s): 'af sock_addr = RunCall.unsafeCast(doCall(38, s))
+        local
+            val getSock: OS.IO.iodesc -> Word8Vector.vector = RunCall.rtsCallFull1 "PolyNetworkGetSockName"
+        in
+            fun getSockName (SOCK s): 'af sock_addr = SOCKADDR(getSock s)
         end
         end (* Ctl *)
 
@@ -428,9 +424,9 @@ struct
             )
 
     local
-        val doCall = doNetCall
+        val doBindCall: OS.IO.iodesc * Word8Vector.vector -> unit = RunCall.rtsCallFull2 "PolyNetworkBind"
     in
-        fun bind (SOCK s, a) = doCall (47, RunCall.unsafeCast (s, a))
+        fun bind (SOCK s, SOCKADDR a) = doBindCall(s, a)
     end
 
     local
@@ -457,8 +453,11 @@ struct
                 
     end
 
-    fun listen (SOCK s, b) =
-        doNetCall (49, (s, b))
+    local
+        val doListen: OS.IO.iodesc * int -> unit = RunCall.rtsCallFull2 "PolyNetworkListen"
+    in
+        fun listen (SOCK s, b) = doListen(s, b)
+    end
 
     (* On Windows sockets and streams are different. *)
     local
@@ -470,7 +469,7 @@ struct
     datatype shutdown_mode = NO_RECVS | NO_SENDS | NO_RECVS_OR_SENDS
 
     local
-        val doCall = doNetCall
+        val doCall: OS.IO.iodesc * int -> unit = RunCall.rtsCallFull2 "PolyNetworkShutdown"
     in
         fun shutdown (SOCK s, mode) =
         let
@@ -480,7 +479,7 @@ struct
                  |  NO_SENDS => 2
                  |  NO_RECVS_OR_SENDS => 3
         in
-            doCall (50, (s, m))
+            doCall(s, m)
         end
     end
 

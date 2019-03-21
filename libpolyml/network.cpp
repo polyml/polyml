@@ -143,7 +143,23 @@ typedef int SOCKET;
 #include "timing.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddrList(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSockTypeList(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateSocket(FirstArgument threadId, PolyWord af, PolyWord st, PolyWord prot);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSetOption(FirstArgument threadId, PolyWord code, PolyWord sock, PolyWord opt);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetOption(FirstArgument threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSetLinger(FirstArgument threadId, PolyWord sock, PolyWord linger);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetLinger(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetPeerName(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSockName(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkBytesAvailable(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAtMark(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkBind(FirstArgument threadId, PolyWord sock, PolyWord addr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkListen(FirstArgument threadId, PolyWord sock, PolyWord back);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkShutdown(FirstArgument threadId, PolyWord skt, PolyWord smode);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateSocketPair(FirstArgument threadId, PolyWord af, PolyWord st, PolyWord prot);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkUnixPathToSockAddr(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkUnixSockAddrToPath(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByName(FirstArgument threadId, PolyWord servName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(FirstArgument threadId, PolyWord servName, PolyWord protName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPort(FirstArgument threadId, PolyWord portNo);
@@ -459,9 +475,8 @@ struct sk_tab_struct {
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto);
 static Handle mkAftab(TaskData *taskData, void*, char *p);
 static Handle mkSktab(TaskData *taskData, void*, char *p);
-static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt);
+static Handle setSocketOption(TaskData *taskData, Handle sockHandle, Handle optHandle, int level, int opt);
 static Handle getSocketOption(TaskData *taskData, Handle args, int level, int opt);
-static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #define GETERROR     (WSAGetLastError())
@@ -616,334 +631,6 @@ static Handle wrapStreamSocket(TaskData *taskData, SOCKET skt)
 }
 #endif
 
-static Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
-{
-    unsigned c = get_C_unsigned(taskData, code->Word());
-    Handle hSave = taskData->saveVec.mark();
-TryAgain: // Used for various retries.
-          // N.B.  If we call ThreadPause etc we may GC.  We MUST reload any handles so for
-          // safety we always come back here.
-    switch (c)
-    {
-
-    case 11:
-        {
-            /* Return a list of known address families. */
-            return makeList(taskData, sizeof(af_table)/sizeof(af_table[0]),
-                            (char*)af_table, sizeof(af_table[0]),
-                            0, mkAftab);
-        }
-
-    case 12:
-        {
-            /* Return a list of known socket types. */
-            return makeList(taskData, sizeof(sk_table)/sizeof(sk_table[0]),
-                            (char*)sk_table, sizeof(sk_table[0]),
-                            0, mkSktab);
-        }
-
-    case 14: /* Create a socket */
-        {
-            int af = get_C_int(taskData, DEREFHANDLE(args)->Get(0));
-            int type = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
-            int proto = get_C_int(taskData, DEREFHANDLE(args)->Get(2));
-            SOCKET skt = socket(af, type, proto);
-            if (skt == INVALID_SOCKET)
-            {
-                switch (GETERROR)
-                {
-                case CALLINTERRUPTED:
-                    taskData->saveVec.reset(hSave);
-                    goto TryAgain;
-                default: raise_syscall(taskData, "socket failed", GETERROR);
-                }
-            }
-            /* Set the socket to non-blocking mode. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            unsigned long onOff = 1;
-            if (ioctlsocket(skt, FIONBIO, &onOff) != 0)
-#else
-            int onOff = 1;
-            if (ioctl(skt, FIONBIO, &onOff) < 0)
-#endif
-            {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-                closesocket(skt);
-#else
-                close(skt);
-#endif
-                raise_syscall(taskData, "ioctl failed", GETERROR);
-            }
-            return wrapStreamSocket(taskData, skt);
-        }
-
-    case 15: /* Set TCP No-delay option. */
-        return setSocketOption(taskData, args, IPPROTO_TCP, TCP_NODELAY);
-
-    case 16: /* Get TCP No-delay option. */
-        return getSocketOption(taskData, args, IPPROTO_TCP, TCP_NODELAY);
-
-    case 17: /* Set Debug option. */
-        return setSocketOption(taskData, args, SOL_SOCKET, SO_DEBUG);
-
-    case 18: /* Get Debug option. */
-        return getSocketOption(taskData, args, SOL_SOCKET, SO_DEBUG);
-
-    case 19: /* Set REUSEADDR option. */
-        return setSocketOption(taskData, args, SOL_SOCKET, SO_REUSEADDR);
-
-    case 20: /* Get REUSEADDR option. */
-        return getSocketOption(taskData, args, SOL_SOCKET, SO_REUSEADDR);
-
-    case 21: /* Set KEEPALIVE option. */
-        return setSocketOption(taskData, args, SOL_SOCKET, SO_KEEPALIVE);
-
-    case 22: /* Get KEEPALIVE option. */
-        return getSocketOption(taskData, args, SOL_SOCKET, SO_KEEPALIVE);
-
-    case 23: /* Set DONTROUTE option. */
-        return setSocketOption(taskData, args, SOL_SOCKET, SO_DONTROUTE);
-
-    case 24: /* Get DONTROUTE option. */
-        return getSocketOption(taskData, args, SOL_SOCKET, SO_DONTROUTE);
-
-    case 25: /* Set BROADCAST option. */
-        return setSocketOption(taskData, args, SOL_SOCKET, SO_BROADCAST);
-
-    case 26: /* Get BROADCAST option. */
-        return getSocketOption(taskData, args, SOL_SOCKET, SO_BROADCAST);
-
-    case 27: /* Set OOBINLINE option. */
-        return setSocketOption(taskData, args, SOL_SOCKET, SO_OOBINLINE);
-
-    case 28: /* Get OOBINLINE option. */
-        return getSocketOption(taskData, args, SOL_SOCKET, SO_OOBINLINE);
-
-    case 29: /* Set SNDBUF size. */
-        return setSocketOption(taskData, args, SOL_SOCKET, SO_SNDBUF);
-
-    case 30: /* Get SNDBUF size. */
-        return getSocketInt(taskData, args, SOL_SOCKET, SO_SNDBUF);
-
-    case 31: /* Set RCVBUF size. */
-        return setSocketOption(taskData, args, SOL_SOCKET, SO_RCVBUF);
-
-    case 32: /* Get RCVBUF size. */
-        return getSocketInt(taskData, args, SOL_SOCKET, SO_RCVBUF);
-
-    case 33: /* Get socket type e.g. SOCK_STREAM. */
-        return getSocketInt(taskData, args, SOL_SOCKET, SO_TYPE);
-
-    case 34: /* Get error status and clear it. */
-        return getSocketOption(taskData, args, SOL_SOCKET, SO_ERROR);
-
-    case 35: /* Set Linger time. */
-        {
-            struct linger linger;
-            SOCKET skt = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
-            int lTime = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
-            /* We pass in a negative value to turn the option off,
-               zero or positive to turn it on. */
-            if (lTime < 0)
-            {
-                linger.l_onoff = 0;
-                linger.l_linger = 0;
-            }
-            else
-            {
-                linger.l_onoff = 1;
-                linger.l_linger = lTime;
-            }
-            if (setsockopt(skt, SOL_SOCKET, SO_LINGER,
-                (char*)&linger, sizeof(linger)) != 0)
-                raise_syscall(taskData, "setsockopt failed", GETERROR);
-            return Make_arbitrary_precision(taskData, 0);
-        }
-
-    case 36: /* Get Linger time. */
-        {
-            struct linger linger;
-            SOCKET skt = getStreamSocket(taskData, args->Word());
-            socklen_t size = sizeof(linger);
-            int lTime = 0;
-            if (getsockopt(skt, SOL_SOCKET, SO_LINGER,
-                (char*)&linger, &size) != 0)
-                raise_syscall(taskData, "getsockopt failed", GETERROR);
-            /* If the option is off return a negative. */
-            if (linger.l_onoff == 0) lTime = -1;
-            else lTime = linger.l_linger;
-            return Make_arbitrary_precision(taskData, lTime);
-        }
-
-    case 37: /* Get peer name. */
-        {
-            SOCKET skt = getStreamSocket(taskData, args->Word());
-            struct sockaddr_storage sockA;
-            socklen_t size = sizeof(sockA);
-            if (getpeername(skt, (struct sockaddr*)&sockA, &size) != 0)
-                raise_syscall(taskData, "getpeername failed", GETERROR);
-            if (size > sizeof(sockA)) size = sizeof(sockA);
-            /* Addresses are treated as strings. */
-            return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
-        }
-
-    case 38: /* Get socket name. */
-        {
-            SOCKET skt = getStreamSocket(taskData, args->Word());
-            struct sockaddr_storage sockA;
-            socklen_t   size = sizeof(sockA);
-            if (getsockname(skt, (struct sockaddr*)&sockA, &size) != 0)
-                raise_syscall(taskData, "getsockname failed", GETERROR);
-            if (size > sizeof(sockA)) size = sizeof(sockA);
-            return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
-        }
-
-    case 44: /* Find number of bytes available. */
-        {
-            SOCKET skt = getStreamSocket(taskData, args->Word());
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            unsigned long readable;
-            if (ioctlsocket(skt, FIONREAD, &readable) != 0)
-                raise_syscall(taskData, "ioctlsocket failed", GETERROR);
-#else
-            int readable;
-            if (ioctl(skt, FIONREAD, &readable) < 0)
-                raise_syscall(taskData, "ioctl failed", GETERROR);
-#endif
-            return Make_arbitrary_precision(taskData, readable);
-        }
-
-    case 45: /* Find out if we are at the mark. */
-        {
-            SOCKET skt = getStreamSocket(taskData, args->Word());
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-            unsigned long atMark;
-            if (ioctlsocket(skt, SIOCATMARK, &atMark) != 0)
-                raise_syscall(taskData, "ioctlsocket failed", GETERROR);
-#else
-            int atMark;
-            if (ioctl(skt, SIOCATMARK, &atMark) < 0)
-                raise_syscall(taskData, "ioctl failed", GETERROR);
-#endif
-            return Make_arbitrary_precision(taskData, atMark == 0 ? 0 : 1);
-        }
-
-    case 47: /* Bind an address to a socket. */
-        {
-            SOCKET skt = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
-            PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
-            struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            if (bind(skt, psock, (int)psAddr->length) != 0)
-                raise_syscall(taskData, "bind failed", GETERROR);
-            return Make_arbitrary_precision(taskData, 0);
-        }
-
-    case 49: /* Put socket into listening mode. */
-        {
-            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
-            int backlog = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
-            if (listen(sock, backlog) != 0)
-                raise_syscall(taskData, "listen failed", GETERROR);
-            return Make_arbitrary_precision(taskData, 0);
-        }
-
-    case 50: /* Shutdown the socket. */
-        {
-            SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
-            int mode = 0;
-            switch (get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)))
-            {
-            case 1: mode = SHUT_RD; break;
-            case 2: mode = SHUT_WR; break;
-            case 3: mode = SHUT_RDWR;
-            }
-            if (shutdown(sock, mode) != 0)
-                raise_syscall(taskData, "shutdown failed", GETERROR);
-            return Make_arbitrary_precision(taskData, 0);
-        }
-
-    case 55: /* Create a socket pair. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        /* Not implemented. */
-        raise_syscall(taskData, "socketpair not implemented", WSAEAFNOSUPPORT);
-#else
-        {
-            Handle pair;
-            
-            int af = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
-            int type = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            int proto = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
-            int onOff = 1;
-            SOCKET skt[2];
-            if (socketpair(af, type, proto, skt) != 0)
-            {
-                switch (GETERROR)
-                {
-                case CALLINTERRUPTED:
-                    taskData->saveVec.reset(hSave);
-                    goto TryAgain;
-                default: raise_syscall(taskData, "socketpair failed", GETERROR);
-                }
-            }
-            /* Set the sockets to non-blocking mode. */
-            if (ioctl(skt[0], FIONBIO, &onOff) < 0 ||
-                ioctl(skt[1], FIONBIO, &onOff) < 0)
-            {
-                close(skt[0]);
-                close(skt[1]);
-                raise_syscall(taskData, "ioctl failed", GETERROR);
-            }
-            Handle str_token1 = wrapStreamSocket(taskData, skt[0]);
-            Handle str_token2 = wrapStreamSocket(taskData, skt[1]);
-            /* Return the two streams as a pair. */
-            pair = ALLOC(2);
-            DEREFHANDLE(pair)->Set(0, DEREFWORD(str_token1));
-            DEREFHANDLE(pair)->Set(1, DEREFWORD(str_token2));
-            return pair;
-        }
-#endif
-
-    case 56: /* Create a Unix socket address from a string. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        /* Not implemented. */
-        raise_syscall(taskData, "Unix addresses not implemented", WSAEAFNOSUPPORT);
-#else
-        {
-            struct sockaddr_un addr;
-            memset(&addr, 0, sizeof(addr));
-            addr.sun_family = AF_UNIX;
-#ifdef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
-            addr.sun_len = sizeof(addr); // Used in FreeBSD only.
-#endif
-            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), addr.sun_path, sizeof(addr.sun_path));
-            if (length > (int)sizeof(addr.sun_path))
-                raise_syscall(taskData, "Address too long", ENAMETOOLONG);
-            return SAVE(C_string_to_Poly(taskData, (char*)&addr, sizeof(addr)));
-        }
-#endif
-
-    case 57: /* Get the file name from a Unix socket address. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        /* Not implemented. */
-        raise_syscall(taskData, "Unix addresses not implemented", WSAEAFNOSUPPORT);
-#else
-        {
-            PolyStringObject * psAddr = (PolyStringObject *)args->WordP();
-            struct sockaddr_un *psock = (struct sockaddr_un *)&psAddr->chars;
-            return SAVE(C_string_to_Poly(taskData, psock->sun_path));
-        }
-#endif
-
-    default:
-        {
-            char msg[100];
-            sprintf(msg, "Unknown net function: %d", c);
-            raise_exception_string(taskData, EXC_Fail, msg);
-            return 0;
-        }
-    }
-}
-
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto)
 {
     int i;
@@ -958,7 +645,7 @@ static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto)
     aliases = convert_string_list(taskData, i, proto->p_aliases);
 
     /* Protocol number. */
-    protocol = Make_arbitrary_precision(taskData, proto->p_proto);
+    protocol = Make_fixed_precision(taskData, proto->p_proto);
 
     /* Make the result structure. */
     result = ALLOC(3);
@@ -982,7 +669,7 @@ static Handle makeServEntry(TaskData *taskData, struct servent *serv)
     aliases = convert_string_list(taskData, i, serv->s_aliases);
 
     /* Port number. */
-    port = Make_arbitrary_precision(taskData, ntohs(serv->s_port));
+    port = Make_fixed_precision(taskData, ntohs(serv->s_port));
 
     /* Protocol name. */
     protocol = SAVE(C_string_to_Poly(taskData, serv->s_proto));
@@ -1002,7 +689,7 @@ static Handle mkAftab(TaskData *taskData, void *arg, char *p)
     Handle result, name, num;
     /* Construct a pair of the string and the number. */
     name = SAVE(C_string_to_Poly(taskData, af->af_name));
-    num = Make_arbitrary_precision(taskData, af->af_num);
+    num = Make_fixed_precision(taskData, af->af_num);
     result = ALLOC(2);
     DEREFHANDLE(result)->Set(0, name->Word());
     DEREFHANDLE(result)->Set(1, num->Word());
@@ -1015,7 +702,7 @@ static Handle mkSktab(TaskData *taskData, void *arg, char *p)
     Handle result, name, num;
     /* Construct a pair of the string and the number. */
     name = SAVE(C_string_to_Poly(taskData, sk->sk_name));
-    num = Make_arbitrary_precision(taskData, sk->sk_num);
+    num = Make_fixed_precision(taskData, sk->sk_num);
     result = ALLOC(2);
     DEREFHANDLE(result)->Set(0, name->Word());
     DEREFHANDLE(result)->Set(1, num->Word());
@@ -1023,38 +710,28 @@ static Handle mkSktab(TaskData *taskData, void *arg, char *p)
 }
 
 /* This sets an option and can also be used to set an integer. */
-static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt)
+static Handle setSocketOption(TaskData *taskData, Handle sockHandle, Handle optHandle, int level, int opt)
 {
-    SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
-    int onOff = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
+    SOCKET sock = getStreamSocket(taskData, sockHandle->Word());
+    int onOff = get_C_int(taskData, optHandle->Word());
     if (setsockopt(sock, level, opt,
         (char*)&onOff, sizeof(int)) != 0)
         raise_syscall(taskData, "setsockopt failed", GETERROR);
-    return Make_arbitrary_precision(taskData, 0);
+    return Make_fixed_precision(taskData, 0);
 }
 
-/* Get a socket option as a boolean */
+// Get a socket option as an integer.
 static Handle getSocketOption(TaskData *taskData, Handle args, int level, int opt)
-{
-    SOCKET sock = getStreamSocket(taskData, args->Word());
-    int onOff = 0;
-    socklen_t size = sizeof(int);
-    if (getsockopt(sock, level, opt, (char*)&onOff, &size) != 0)
-        raise_syscall(taskData, "getsockopt failed", GETERROR);
-    return Make_arbitrary_precision(taskData, onOff == 0 ? 0 : 1);
-}
-
-/* Get a socket option as an integer */
-static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt)
 {
     SOCKET sock = getStreamSocket(taskData, args->Word());
     int optVal = 0;
     socklen_t size = sizeof(int);
     if (getsockopt(sock, level, opt, (char*)&optVal, &size) != 0)
         raise_syscall(taskData, "getsockopt failed", GETERROR);
-    return Make_arbitrary_precision(taskData, optVal);
+    return Make_fixed_precision(taskData, optVal);
 }
 
+// Get and clear the error state for the socket.  Returns a SysWord.word value.
 POLYUNSIGNED PolyNetworkGetSocketError(FirstArgument threadId, PolyWord skt)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
@@ -1375,7 +1052,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(FirstArgument threadId, P
             raise_syscall(taskData, "recvfrom failed", GETERROR);
 
         if (recvd > (int)length) recvd = length;
-        Handle lengthHandle = Make_arbitrary_precision(taskData, recvd);
+        Handle lengthHandle = Make_fixed_precision(taskData, recvd);
         if (addrLen > sizeof(resultAddr)) addrLen = sizeof(resultAddr);
         Handle addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
         result = ALLOC(2);
@@ -1390,25 +1067,575 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(FirstArgument threadId, P
     else return result->Word().AsUnsigned();
 }
 
-// General interface to networking.  Ideally the various cases will be made into
-// separate functions.
-POLYUNSIGNED PolyNetworkGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
+/* Return a list of known address families. */
+POLYUNSIGNED PolyNetworkGetAddrList(FirstArgument threadId)
 {
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedCode = taskData->saveVec.push(TAGGED(11));
+    Handle pushedArg = taskData->saveVec.push(TAGGED(0));
+    Handle result = 0;
+
+    try {
+        result = makeList(taskData, sizeof(af_table) / sizeof(af_table[0]),
+            (char*)af_table, sizeof(af_table[0]), 0, mkAftab);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return a list of known socket types. */
+POLYUNSIGNED PolyNetworkGetSockTypeList(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = makeList(taskData, sizeof(sk_table) / sizeof(sk_table[0]),
+            (char*)sk_table, sizeof(sk_table[0]),
+            0, mkSktab);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Create a socket */
+POLYUNSIGNED PolyNetworkCreateSocket(FirstArgument threadId, PolyWord family, PolyWord st, PolyWord prot)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+    int af = (int)family.UnTagged();
+    int type = (int)st.UnTagged();
+    int proto = (int)prot.UnTagged();
+
+    try {
+        SOCKET skt = 0;
+        do {
+            skt = socket(af, type, proto);
+        } while (skt == INVALID_SOCKET && GETERROR == CALLINTERRUPTED);
+
+        if (skt == INVALID_SOCKET)
+            raise_syscall(taskData, "socket failed", GETERROR);
+
+        /* Set the socket to non-blocking mode. */
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        unsigned long onOff = 1;
+        if (ioctlsocket(skt, FIONBIO, &onOff) != 0)
+#else
+        int onOff = 1;
+        if (ioctl(skt, FIONBIO, &onOff) < 0)
+#endif
+        {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+            closesocket(skt);
+#else
+            close(skt);
+#endif
+            raise_syscall(taskData, "ioctl failed", GETERROR);
+        }
+        result = wrapStreamSocket(taskData, skt);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkSetOption(FirstArgument threadId, PolyWord code, PolyWord sock, PolyWord opt)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedSock = taskData->saveVec.push(sock);
+    Handle pushedOpt = taskData->saveVec.push(opt);
+
+    try {
+        switch (UNTAGGED(code))
+        {
+        case 15: /* Set TCP No-delay option. */
+            setSocketOption(taskData, pushedSock, pushedOpt, IPPROTO_TCP, TCP_NODELAY);
+            break;
+
+        case 17: /* Set Debug option. */
+            setSocketOption(taskData, pushedSock, pushedOpt, SOL_SOCKET, SO_DEBUG);
+            break;
+
+        case 19: /* Set REUSEADDR option. */
+            setSocketOption(taskData, pushedSock, pushedOpt, SOL_SOCKET, SO_REUSEADDR);
+            break;
+
+        case 21: /* Set KEEPALIVE option. */
+            setSocketOption(taskData, pushedSock, pushedOpt, SOL_SOCKET, SO_KEEPALIVE);
+            break;
+
+        case 23: /* Set DONTROUTE option. */
+            setSocketOption(taskData, pushedSock, pushedOpt, SOL_SOCKET, SO_DONTROUTE);
+            break;
+
+        case 25: /* Set BROADCAST option. */
+            setSocketOption(taskData, pushedSock, pushedOpt, SOL_SOCKET, SO_BROADCAST);
+            break;
+
+        case 27: /* Set OOBINLINE option. */
+            setSocketOption(taskData, pushedSock, pushedOpt, SOL_SOCKET, SO_OOBINLINE);
+            break;
+
+        case 29: /* Set SNDBUF size. */
+            setSocketOption(taskData, pushedSock, pushedOpt, SOL_SOCKET, SO_SNDBUF);
+            break;
+
+        case 31: /* Set RCVBUF size. */
+            setSocketOption(taskData, pushedSock, pushedOpt, SOL_SOCKET, SO_RCVBUF);
+            break;
+        }
+    }
+    catch (KillException&) {
+        processes->ThreadExit(taskData); // May test for kill
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetOption(FirstArgument threadId, PolyWord code, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
     Handle pushedArg = taskData->saveVec.push(arg);
     Handle result = 0;
 
     try {
-        result = Net_dispatch_c(taskData, pushedArg, pushedCode);
+        switch (UNTAGGED(code))
+        {
+        case 16: /* Get TCP No-delay option. */
+            result = getSocketOption(taskData, pushedArg, IPPROTO_TCP, TCP_NODELAY);
+            break;
+
+        case 18: /* Get Debug option. */
+            result = getSocketOption(taskData, pushedArg, SOL_SOCKET, SO_DEBUG);
+            break;
+
+        case 20: /* Get REUSEADDR option. */
+            result = getSocketOption(taskData, pushedArg, SOL_SOCKET, SO_REUSEADDR);
+            break;
+
+        case 22: /* Get KEEPALIVE option. */
+            result = getSocketOption(taskData, pushedArg, SOL_SOCKET, SO_KEEPALIVE);
+            break;
+
+        case 24: /* Get DONTROUTE option. */
+            result = getSocketOption(taskData, pushedArg, SOL_SOCKET, SO_DONTROUTE);
+            break;
+
+        case 26: /* Get BROADCAST option. */
+            result = getSocketOption(taskData, pushedArg, SOL_SOCKET, SO_BROADCAST);
+            break;
+
+        case 28: /* Get OOBINLINE option. */
+            result = getSocketOption(taskData, pushedArg, SOL_SOCKET, SO_OOBINLINE);
+            break;
+
+        case 30: /* Get SNDBUF size. */
+            result = getSocketOption(taskData, pushedArg, SOL_SOCKET, SO_SNDBUF);
+            break;
+
+        case 32: /* Get RCVBUF size. */
+            result = getSocketOption(taskData, pushedArg, SOL_SOCKET, SO_RCVBUF);
+            break;
+
+        case 33: /* Get socket type e.g. SOCK_STREAM. */
+            result = getSocketOption(taskData, pushedArg, SOL_SOCKET, SO_TYPE);
+            break;
+        }
     }
-    catch (KillException &) {
+    catch (KillException&) {
         processes->ThreadExit(taskData); // May test for kill
     }
-    catch (...) { } // If an ML exception is raised
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Set Linger time. */
+POLYUNSIGNED PolyNetworkSetLinger(FirstArgument threadId, PolyWord sock, PolyWord lingerTime)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    try {
+        SOCKET skt = getStreamSocket(taskData, sock);
+        int lTime = get_C_int(taskData, lingerTime);
+        struct linger linger;
+        /* We pass in a negative value to turn the option off,
+           zero or positive to turn it on. */
+        if (lTime < 0)
+        {
+            linger.l_onoff = 0;
+            linger.l_linger = 0;
+        }
+        else
+        {
+            linger.l_onoff = 1;
+            linger.l_linger = lTime;
+        }
+        if (setsockopt(skt, SOL_SOCKET, SO_LINGER,
+            (char*)& linger, sizeof(linger)) != 0)
+            raise_syscall(taskData, "setsockopt failed", GETERROR);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+/* Get Linger time. */
+POLYUNSIGNED PolyNetworkGetLinger(FirstArgument threadId, PolyWord sock)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        SOCKET skt = getStreamSocket(taskData, sock);
+        socklen_t size = sizeof(linger);
+        int lTime = 0;
+        struct linger linger;
+        if (getsockopt(skt, SOL_SOCKET, SO_LINGER, (char*)& linger, &size) != 0)
+            raise_syscall(taskData, "getsockopt failed", GETERROR);
+        /* If the option is off return a negative. */
+        if (linger.l_onoff == 0) lTime = -1;
+        else lTime = linger.l_linger;
+        result = Make_arbitrary_precision(taskData, lTime); // Returns LargeInt.int
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Get peer name. */
+POLYUNSIGNED PolyNetworkGetPeerName(FirstArgument threadId, PolyWord sock)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        SOCKET skt = getStreamSocket(taskData, sock);
+        struct sockaddr_storage sockA;
+        socklen_t size = sizeof(sockA);
+        if (getpeername(skt, (struct sockaddr*) & sockA, &size) != 0)
+            raise_syscall(taskData, "getpeername failed", GETERROR);
+        if (size > sizeof(sockA)) size = sizeof(sockA);
+        /* Addresses are treated as strings. */
+        result = (SAVE(C_string_to_Poly(taskData, (char*)& sockA, size)));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Get socket name. */
+POLYUNSIGNED PolyNetworkGetSockName(FirstArgument threadId, PolyWord sock)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        SOCKET skt = getStreamSocket(taskData, sock);
+        struct sockaddr_storage sockA;
+        socklen_t   size = sizeof(sockA);
+        if (getsockname(skt, (struct sockaddr*) & sockA, &size) != 0)
+            raise_syscall(taskData, "getsockname failed", GETERROR);
+        if (size > sizeof(sockA)) size = sizeof(sockA);
+        result = (SAVE(C_string_to_Poly(taskData, (char*)& sockA, size)));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Find number of bytes available. */
+POLYUNSIGNED PolyNetworkBytesAvailable(FirstArgument threadId, PolyWord sock)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        SOCKET skt = getStreamSocket(taskData, sock);
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        unsigned long readable;
+        if (ioctlsocket(skt, FIONREAD, &readable) != 0)
+            raise_syscall(taskData, "ioctlsocket failed", GETERROR);
+#else
+        int readable;
+        if (ioctl(skt, FIONREAD, &readable) < 0)
+            raise_syscall(taskData, "ioctl failed", GETERROR);
+#endif
+        result = Make_fixed_precision(taskData, readable);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Find out if we are at the mark. */
+POLYUNSIGNED PolyNetworkGetAtMark(FirstArgument threadId, PolyWord sock)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        SOCKET skt = getStreamSocket(taskData, sock);
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        unsigned long atMark;
+        if (ioctlsocket(skt, SIOCATMARK, &atMark) != 0)
+            raise_syscall(taskData, "ioctlsocket failed", GETERROR);
+#else
+        int atMark;
+        if (ioctl(skt, SIOCATMARK, &atMark) < 0)
+            raise_syscall(taskData, "ioctl failed", GETERROR);
+#endif
+        result = Make_fixed_precision(taskData, atMark == 0 ? 0 : 1);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Bind an address to a socket. */
+POLYUNSIGNED PolyNetworkBind(FirstArgument threadId, PolyWord sock, PolyWord addr)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    try {
+        SOCKET skt = getStreamSocket(taskData, sock);
+        PolyStringObject* psAddr = (PolyStringObject*)addr.AsObjPtr();
+        struct sockaddr* psock = (struct sockaddr*) & psAddr->chars;
+        if (bind(skt, psock, (int)psAddr->length) != 0)
+            raise_syscall(taskData, "bind failed", GETERROR);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+/* Put socket into listening mode. */
+POLYUNSIGNED PolyNetworkListen(FirstArgument threadId, PolyWord skt, PolyWord back)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+         SOCKET sock = getStreamSocket(taskData, skt);
+         int backlog = get_C_int(taskData, back);
+         if (listen(sock, backlog) != 0)
+             raise_syscall(taskData, "listen failed", GETERROR);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+/* Shutdown the socket. */
+POLYUNSIGNED PolyNetworkShutdown(FirstArgument threadId, PolyWord skt, PolyWord smode)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    try {
+        SOCKET sock = getStreamSocket(taskData, skt);
+        int mode = 0;
+        switch (get_C_ulong(taskData, smode))
+        {
+        case 1: mode = SHUT_RD; break;
+        case 2: mode = SHUT_WR; break;
+        case 3: mode = SHUT_RDWR;
+        }
+        if (shutdown(sock, mode) != 0)
+            raise_syscall(taskData, "shutdown failed", GETERROR);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+/* Create a socket pair. */
+POLYUNSIGNED PolyNetworkCreateSocketPair(FirstArgument threadId, PolyWord family, PolyWord st, PolyWord prot)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        /* Not implemented. */
+       raise_syscall(taskData, "socketpair not implemented", WSAEAFNOSUPPORT);
+#else
+        int af = family.UnTagged();
+        int type = st.UnTagged();
+        int proto = prot.UnTagged();
+        SOCKET skt[2];
+        int skPRes = 0
+        do {
+            skPRes = socketpair(af, type, proto, skt);
+        } while (skPRes != 0 && GETERROR == CALLINTERRUPTED);
+
+        int onOff = 1;
+        /* Set the sockets to non-blocking mode. */
+        if (ioctl(skt[0], FIONBIO, &onOff) < 0 ||
+            ioctl(skt[1], FIONBIO, &onOff) < 0)
+        {
+            close(skt[0]);
+            close(skt[1]);
+            raise_syscall(taskData, "ioctl failed", GETERROR);
+        }
+        Handle str_token1 = wrapStreamSocket(taskData, skt[0]);
+        Handle str_token2 = wrapStreamSocket(taskData, skt[1]);
+        /* Return the two streams as a pair. */
+        result = ALLOC(2);
+        DEREFHANDLE(result)->Set(0, DEREFWORD(str_token1));
+        DEREFHANDLE(result)->Set(1, DEREFWORD(str_token2));
+#endif
+    }
+    catch (KillException&) {
+        processes->ThreadExit(taskData); // May test for kill
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Create a Unix socket address from a string. */
+POLYUNSIGNED PolyNetworkUnixPathToSockAddr(FirstArgument threadId, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        /* Not implemented. */
+        raise_syscall(taskData, "Unix addresses not implemented", WSAEAFNOSUPPORT);
+#else
+        struct sockaddr_un addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sun_family = AF_UNIX;
+#ifdef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
+        addr.sun_len = sizeof(addr); // Used in FreeBSD only.
+#endif
+        POLYUNSIGNED length = Poly_string_to_C(arg, addr.sun_path, sizeof(addr.sun_path));
+        if (length > (int)sizeof(addr.sun_path))
+            raise_syscall(taskData, "Address too long", ENAMETOOLONG);
+        result = SAVE(C_string_to_Poly(taskData, (char*)& addr, sizeof(addr)));
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Get the file name from a Unix socket address. */
+POLYUNSIGNED PolyNetworkUnixSockAddrToPath(FirstArgument threadId, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        /* Not implemented. */
+        raise_syscall(taskData, "Unix addresses not implemented", WSAEAFNOSUPPORT);
+#else
+        PolyStringObject* psAddr = (PolyStringObject*)arg.AsObjPtr();
+        struct sockaddr_un* psock = (struct sockaddr_un*) & psAddr->chars;
+        result = SAVE(C_string_to_Poly(taskData, psock->sun_path));
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
@@ -1727,7 +1954,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP4(FirstArgumen
     try {
         PolyStringObject* psAddr = (PolyStringObject*)sockAddress.AsObjPtr();
         struct sockaddr_in* psock = (struct sockaddr_in*) & psAddr->chars;
-        Handle ipAddr = Make_arbitrary_precision(taskData, ntohl(psock->sin_addr.s_addr));
+        Handle ipAddr = Make_arbitrary_precision(taskData, ntohl(psock->sin_addr.s_addr)); // IPv4 addr is LargeInt.int
         result = alloc_and_save(taskData, 2);
         result->WordP()->Set(0, ipAddr->Word());
         result->WordP()->Set(1, TAGGED(ntohs(psock->sin_port)));
@@ -1765,6 +1992,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP4Address(FirstArgument thread
     else return result->Word().AsUnsigned();
 }
 
+// Return the value of INADDR_ANY.
 POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP4AddressAny(FirstArgument threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
@@ -1774,7 +2002,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP4AddressAny(FirstArgument thr
     Handle result = 0;
 
     try {
-        result = Make_arbitrary_precision(taskData, INADDR_ANY);
+        result = Make_arbitrary_precision(taskData, INADDR_ANY); // IPv4 addr is LargeInt.int
     }
     catch (...) {} // If an ML exception is raised
 
@@ -1908,9 +2136,26 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkStringToIP6Address(FirstArgument thre
     if (result == 0) return TAGGED(0).AsUnsigned();
     else return result->Word().AsUnsigned();
 }
+
 struct _entrypts networkingEPT[] =
 {
-    { "PolyNetworkGeneral",                     (polyRTSFunction)&PolyNetworkGeneral},
+    { "PolyNetworkGetAddrList",                 (polyRTSFunction)&PolyNetworkGetAddrList},
+    { "PolyNetworkGetSockTypeList",             (polyRTSFunction)&PolyNetworkGetSockTypeList},
+    { "PolyNetworkCreateSocket",                (polyRTSFunction)&PolyNetworkCreateSocket},
+    { "PolyNetworkSetOption",                   (polyRTSFunction)&PolyNetworkSetOption},
+    { "PolyNetworkGetOption",                   (polyRTSFunction)&PolyNetworkGetOption},
+    { "PolyNetworkSetLinger",                   (polyRTSFunction)&PolyNetworkSetLinger},
+    { "PolyNetworkGetLinger",                   (polyRTSFunction)&PolyNetworkGetLinger},
+    { "PolyNetworkGetPeerName",                 (polyRTSFunction)&PolyNetworkGetPeerName},
+    { "PolyNetworkGetSockName",                 (polyRTSFunction)&PolyNetworkGetSockName},
+    { "PolyNetworkBytesAvailable",              (polyRTSFunction)&PolyNetworkBytesAvailable},
+    { "PolyNetworkGetAtMark",                   (polyRTSFunction)&PolyNetworkGetAtMark},
+    { "PolyNetworkBind",                        (polyRTSFunction)&PolyNetworkBind},
+    { "PolyNetworkListen",                      (polyRTSFunction)&PolyNetworkListen},
+    { "PolyNetworkShutdown",                    (polyRTSFunction)&PolyNetworkShutdown},
+    { "PolyNetworkCreateSocketPair",            (polyRTSFunction)&PolyNetworkCreateSocketPair},
+    { "PolyNetworkUnixPathToSockAddr",          (polyRTSFunction)&PolyNetworkUnixPathToSockAddr},
+    { "PolyNetworkUnixSockAddrToPath",          (polyRTSFunction)&PolyNetworkUnixSockAddrToPath},
     { "PolyNetworkGetServByName",               (polyRTSFunction)&PolyNetworkGetServByName},
     { "PolyNetworkGetServByNameAndProtocol",    (polyRTSFunction)&PolyNetworkGetServByNameAndProtocol},
     { "PolyNetworkGetServByPort",               (polyRTSFunction)&PolyNetworkGetServByPort},
