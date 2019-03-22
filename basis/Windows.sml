@@ -452,15 +452,6 @@ struct
         end
     end (* DDE *)
 
-    (* No (longer?) in Basis library
-    local
-        val winCall = RunCall.run_call2 POLY_SYS_os_specific
-    in
-        fun fileTimeToLocalFileTime t = winCall(1030, t)
-        fun localFileTimeToFileTime t = winCall(1031, t)
-    end
-    *)
-
     local
         val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in

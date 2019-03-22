@@ -403,27 +403,6 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return deleteRegistryValue(taskData, args, hKey);
         }
 
-
-    case 1030: // Convert UTC time values to local time. -- No longer used??
-        {
-            FILETIME ftUTC, ftLocal;
-            /* Get the file time. */
-            getFileTimeFromArb(taskData, args, &ftUTC);
-            if (! FileTimeToLocalFileTime(&ftUTC, &ftLocal))
-                raise_syscall(taskData, "FileTimeToLocalFileTime failed", GetLastError());
-            return Make_arb_from_Filetime(taskData, ftLocal);
-        }
-
-    case 1031: // Convert local time values to UTC. -- No longer used??
-        {
-            FILETIME ftUTC, ftLocal;
-            /* Get the file time. */
-            getFileTimeFromArb(taskData, args, &ftLocal);
-            if (! LocalFileTimeToFileTime(&ftLocal, &ftUTC))
-                raise_syscall(taskData, "LocalFileTimeToFileTime failed", GetLastError());
-            return Make_arb_from_Filetime(taskData, ftUTC);
-        }
-
     case 1032: // Get volume information.
         {
             TCHAR rootName[MAX_PATH], volName[MAX_PATH], sysName[MAX_PATH];
