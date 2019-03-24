@@ -372,18 +372,10 @@ struct
     and winCall13 sym argConv resConv = buildCall13withAbi(winAbi, sym, argConv, resConv)
     and winCall14 sym argConv resConv = buildCall14withAbi(winAbi, sym, argConv, resConv)
 
-    (* Previously we had a specific call to do this.  The error state is
-       no longer set by the new FFI. *)
-(*
-    fun GetLastError(): OS.syserror =
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1100, ())
-*)
     local
-        val getLastError = winCall0 (kernel "GetLastError") () cDWORD
+        open Foreign.Error
     in
-        fun GetLastError(): OS.syserror =
-            (* Windows error codes are negative values in OS.syserror. *)
-            RunCall.unsafeCast (~ (getLastError()))
+        val GetLastError: unit -> OS.syserror = fromWord o getLastError
     end
 
     (* The string argument of the SysErr exception is supposed to match the result of OS.errMsg. *)
