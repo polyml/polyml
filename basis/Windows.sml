@@ -229,13 +229,6 @@ struct
         CharVector.tabulate(Word.toInt length, loadChar)
     end
 
-    local
-    (* Get constants - these can be defined here. *)
-        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
-    in
-        fun getConst i = SysWord.fromInt(winCall (1006, i))
-    end
-
     structure Key =
     struct
         type flags = SysWord.word
@@ -559,17 +552,13 @@ struct
     
     structure DDE =
     struct
-        type info = int (* Actually abstract. *)
+        type info = SysWord.word (* Actually a volatile word containing the conversation handle. *)
+
+        val startDialog: string * string -> info = RunCall.rtsCallFull2 "PolyWindowsDDEStartDialogue"
+        and stopDialog: info -> unit = RunCall.rtsCallFull1 "PolyWindowsDDEClose"
 
         local
-            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
-        in
-            fun startDialog (service, topic) =
-                winCall(1038, (service, topic))
-        end
-
-        local
-            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+            val winCall: info * string -> bool = RunCall.rtsCallFull2 "PolyWindowsDDEExecute"
         in
             (* The timeout and retry count apply only in the case of
                a busy result.  The Windows call takes a timeout parameter
@@ -578,7 +567,7 @@ struct
             fun executeString (info, cmd, retry, delay) =
             let
                 fun try n =
-                    if winCall(1039, (info, cmd))
+                    if winCall(info, cmd)
                     then () (* Succeeded. *)
                     else if n = 0
                     then raise OS.SysErr("DDE Server busy", NONE)
@@ -592,11 +581,6 @@ struct
             end
         end
 
-        local
-            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
-        in
-            fun stopDialog (info) = winCall(1040, info)
-        end
     end (* DDE *)
 
     local
@@ -705,11 +689,11 @@ struct
     (* Run a process and return a proces object which will
        allow us to extract the input and output streams. *)
     local
-        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+        val winCall = RunCall.rtsCallFull2 "PolyWindowsExecute"
     in
         fun execute(command, arg): ('a,'b) proc =
         let
-            val run: pid = winCall (1000, (command, arg))
+            val run: pid = winCall (command, arg)
         in
             WinProc{ pid=run, result=ref NONE, closeActions=ref [], lock=Thread.Mutex.mutex() }
         end
@@ -725,12 +709,13 @@ struct
     end
 
     local
-        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+        val winCall: pid * bool * bool -> OS.IO.iodesc =
+            RunCall.rtsCallFull3 "PolyWindowsOpenProcessHandle"
 
         fun textInstreamOf'(WinProc{pid, closeActions, ...}) =
         let
             (* Get the underlying file descriptor. *)
-            val n = winCall (1001, RunCall.unsafeCast pid)
+            val n = winCall(pid, true, true)
             val textPrimRd =
                 LibraryIOSupport.wrapInFileDescr
                     {fd=n, name="TextPipeInput", initBlkMode=true}
@@ -743,7 +728,7 @@ struct
         
         fun textOutstreamOf'(WinProc{pid, closeActions, ...}) =
         let
-            val n = winCall (1002, RunCall.unsafeCast pid)
+            val n = winCall (pid, false, true)
             val buffSize = sys_get_buffsize n
             val textPrimWr =
                 LibraryIOSupport.wrapOutFileDescr{fd=n, name="TextPipeOutput",
@@ -759,7 +744,7 @@ struct
         fun binInstreamOf'(WinProc{pid, closeActions, ...}) =
         let
             (* Get the underlying file descriptor. *)
-            val n = winCall (1003, RunCall.unsafeCast pid)
+            val n = winCall (pid, true, false)
             val binPrimRd =
                 LibraryIOSupport.wrapBinInFileDescr
                     {fd=n, name="BinPipeInput", initBlkMode=true}
@@ -773,7 +758,7 @@ struct
         
         fun binOutstreamOf'(WinProc{pid, closeActions, ...}) =
         let
-            val n = winCall (1004, RunCall.unsafeCast pid)
+            val n = winCall (pid, false, false)
             val buffSize = sys_get_buffsize n
             val binPrimWr =
                 LibraryIOSupport.wrapBinOutFileDescr{fd=n, name="BinPipeOutput",
@@ -795,7 +780,7 @@ struct
     (* reap - wait until the process finishes and get the result.
        Note: this is defined to be able to return the result repeatedly. *)
     local
-        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+        val winCall: pid -> OS.Process.status = RunCall.rtsCallFull1 "PolyWindowsGetProcessResult"
 
         fun reap'(WinProc{result=ref(SOME r), ...}) = r
 
@@ -803,7 +788,7 @@ struct
             let
                 val _ = List.app(fn f => f()) (!closeActions)
                 val _ = closeActions := []
-                val res: OS.Process.status = winCall (1005, RunCall.unsafeCast pid)
+                val res: OS.Process.status = winCall pid
                 val _ = result := SOME res
             in
                 res
@@ -813,7 +798,7 @@ struct
     end
 
     local
-        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+        val winCall: string * string -> pid = RunCall.rtsCallFull2 "PolyWindowsSimpleExecute"
     in
         (* Run a process and wait for the result.  Rather than do the
            whole thing as a single RTS call we first start the process
@@ -827,7 +812,7 @@ struct
            the whole of ML will be blocked until the process completes. *)
         fun simpleExecute (command, arg) =
         let
-            val run: pid = winCall(1037, (command, arg))
+            val run: pid = winCall(command, arg)
             val process = WinProc{ pid=run, result=ref NONE, closeActions=ref [], lock=Thread.Mutex.mutex() }
         in
             reap process
@@ -839,33 +824,33 @@ struct
     struct
         type status = SysWord.word
         
-        val accessViolation        = getConst 10
-        val arrayBoundsExceeded    = getConst 11
-        val breakpoint             = getConst 12
-        val controlCExit           = getConst 13
-        val datatypeMisalignment   = getConst 14
-        val floatDenormalOperand   = getConst 15
-        val floatDivideByZero      = getConst 16
-        val floatInexactResult     = getConst 17
-        val floatInvalidOperation  = getConst 18
-        val floatOverflow          = getConst 19
-        val floatStackCheck        = getConst 20
-        val floatUnderflow         = getConst 21
-        val guardPageViolation     = getConst 22
-        val integerDivideByZero    = getConst 23
-        val integerOverflow        = getConst 24
-        val illegalInstruction     = getConst 25
-        val invalidDisposition     = getConst 26
-        val invalidHandle          = getConst 27
-        val inPageError            = getConst 28
+        val accessViolation        = 0wxC0000005
+        val arrayBoundsExceeded    = 0wxC000008C
+        val breakpoint             = 0wx80000003
+        val controlCExit           = 0wxC000013A
+        val datatypeMisalignment   = 0wx80000002
+        val floatDenormalOperand   = 0wxC000008D
+        val floatDivideByZero      = 0wxC000008E
+        val floatInexactResult     = 0wxC000008F
+        val floatInvalidOperation  = 0wxC0000090
+        val floatOverflow          = 0wxC0000091
+        val floatStackCheck        = 0wxC0000092
+        val floatUnderflow         = 0wxC0000093
+        val guardPageViolation     = 0wx80000001
+        val integerDivideByZero    = 0wxC0000094
+        val integerOverflow        = 0wxC0000095
+        val illegalInstruction     = 0wxC000001D
+        val invalidDisposition     = 0wxC0000026
+        val invalidHandle          = 0wxC0000008
+        val inPageError            = 0wxC0000006
         (* This was given as nocontinuableException *)
-        val noncontinuableException= getConst 29
-        val pending                = getConst 30
-        val privilegedInstruction  = getConst 31
-        val singleStep             = getConst 32
-        val stackOverflow          = getConst 33
-        val timeout                = getConst 34
-        val userAPC                = getConst 35
+        val noncontinuableException= 0wxC0000025
+        val pending                = 0wx103
+        val privilegedInstruction  = 0wxC0000096
+        val singleStep             = 0wx80000004
+        val stackOverflow          = 0wxC00000FD
+        val timeout                = 0wx102
+        val userAPC                = 0wxC0
     end
 
     (* The status is implemented as an integer. *)
@@ -966,10 +951,11 @@ struct
             and getUserName = getName(getUsrName, UNLEN+1)
         end
 
-        val platformWin32s = getConst 36
-        val platformWin32Windows = getConst 37
-        val platformWin32NT = getConst 38
-        val platformWin32CE = getConst 39
+        (* All of these are long since dead *)
+        val platformWin32s          = 0w0
+        val platformWin32Windows    = 0w1
+        val platformWin32NT         = 0w2
+        val platformWin32CE         = 0w3
     end
 end;
 

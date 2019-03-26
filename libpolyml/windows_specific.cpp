@@ -82,273 +82,45 @@
 #define SIZEOF(x) (sizeof(x)/sizeof(word))
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsExecute(FirstArgument threadId, PolyWord command, PolyWord argument);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsOpenProcessHandle(FirstArgument threadId, PolyWord arg, PolyWord isRead, PolyWord isText);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsGetProcessResult(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsSimpleExecute(FirstArgument threadId, PolyWord command, PolyWord argument);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsDDEStartDialogue(FirstArgument threadId, PolyWord service, PolyWord topic);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsDDEExecute(FirstArgument threadId, PolyWord info, PolyWord commd);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsDDEClose(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsGetCodePage();
 }
-
-typedef enum
-{
-    HE_UNUSED,
-    HE_PROCESS
-} HANDENTRYTYPE;
 
 typedef struct {
     HANDLE hProcess, hInput, hOutput;
 } PROCESSDATA;
 
-static Handle execute(TaskData *taskData, Handle pname);
-static Handle simpleExecute(TaskData *taskData, Handle args);
-static Handle openProcessHandle(TaskData *taskData, Handle args, bool fIsRead, bool fIsText);
-
-// Vector of constants returned by call1006
-static POLYUNSIGNED winConstVec[] =
+// Start DDE dialogue.
+POLYUNSIGNED PolyWindowsDDEStartDialogue(FirstArgument threadId, PolyWord service, PolyWord topic)
 {
-    KEY_ALL_ACCESS, // 0
-    KEY_CREATE_LINK,
-    KEY_CREATE_SUB_KEY,
-    KEY_ENUMERATE_SUB_KEYS,
-    KEY_EXECUTE,
-    KEY_NOTIFY,
-    KEY_QUERY_VALUE,
-    KEY_READ,
-    KEY_SET_VALUE,
-    KEY_WRITE, // 9
-
-    STATUS_ACCESS_VIOLATION, // 10
-    STATUS_ARRAY_BOUNDS_EXCEEDED,
-    STATUS_BREAKPOINT,
-    STATUS_CONTROL_C_EXIT,
-    STATUS_DATATYPE_MISALIGNMENT,
-    STATUS_FLOAT_DENORMAL_OPERAND,
-    STATUS_FLOAT_DIVIDE_BY_ZERO,
-    STATUS_FLOAT_INEXACT_RESULT,
-    STATUS_FLOAT_INVALID_OPERATION,
-    STATUS_FLOAT_OVERFLOW,
-    STATUS_FLOAT_STACK_CHECK,
-    STATUS_FLOAT_UNDERFLOW,
-    STATUS_GUARD_PAGE_VIOLATION,
-    STATUS_INTEGER_DIVIDE_BY_ZERO,
-    STATUS_INTEGER_OVERFLOW,
-    STATUS_ILLEGAL_INSTRUCTION,
-    STATUS_INVALID_DISPOSITION,
-#ifdef STATUS_INVALID_HANDLE
-    STATUS_INVALID_HANDLE,
-#else
-    0, // Not defined in Win CE
-#endif
-    STATUS_IN_PAGE_ERROR,
-    STATUS_NONCONTINUABLE_EXCEPTION,
-    STATUS_PENDING,
-    STATUS_PRIVILEGED_INSTRUCTION,
-    STATUS_SINGLE_STEP,
-    STATUS_STACK_OVERFLOW,
-    STATUS_TIMEOUT,
-    STATUS_USER_APC, // 35
-
-    VER_PLATFORM_WIN32s, // 36
-    VER_PLATFORM_WIN32_WINDOWS,
-    VER_PLATFORM_WIN32_NT, // 38
-    // VER_PLATFORM_WIN32_CE is only defined in the Windows CE headers 
-#ifdef VER_PLATFORM_WIN32_CE
-    VER_PLATFORM_WIN32_CE, // 39
-#else
-    3, // 39
-#endif
-};
-
-HKEY hkPredefinedKeyTab[] =
-{
-    HKEY_CLASSES_ROOT,
-    HKEY_CURRENT_USER,
-    HKEY_LOCAL_MACHINE,
-    HKEY_USERS,
-#ifdef HKEY_PERFORMANCE_DATA
-    HKEY_PERFORMANCE_DATA,
-#else
-    0, // Not defined in Win CE
-#endif
-#ifdef HKEY_CURRENT_CONFIG
-    HKEY_CURRENT_CONFIG,
-#else
-    0,
-#endif
-#ifdef HKEY_DYN_DATA
-    HKEY_DYN_DATA
-#else
-    0
-#endif
-};
-
-
-Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
-{
-    unsigned c = get_C_unsigned(taskData, DEREFWORD(code));
-    switch (c)
-    {
-    case 0: /* Return our OS type.  Not in any structure. */
-        return Make_fixed_precision(taskData, 1); /* 1 for Windows. */
-
-        /* Windows-specific functions. */
-    case 1000: /* execute */
-        return execute(taskData, args);
-
-    case 1001: /* Get input stream as text. */
-        return openProcessHandle(taskData, args, true, true);
-
-    case 1002: /* Get output stream as text. */
-        return openProcessHandle(taskData, args, false, true);
-
-    case 1003: /* Get input stream as binary. */
-        return openProcessHandle(taskData, args, true, false);
-
-    case 1004: /* Get output stream as binary. */
-        return openProcessHandle(taskData, args, false, false);
-
-    case 1005: /* Get result of process. */
-        {
-            PROCESSDATA *hnd = *(PROCESSDATA**)(args->WordP());
-            *(PROCESSDATA**)(args->WordP()) = 0; // Mark as inaccessible.
-            if (hnd == 0)
-                raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
-            // Close the streams. Either of them may have been
-            // passed to the stream package.
-            if (hnd->hInput != INVALID_HANDLE_VALUE)
-                CloseHandle(hnd->hInput);
-            hnd->hInput = INVALID_HANDLE_VALUE;
-            if (hnd->hOutput != INVALID_HANDLE_VALUE)
-                CloseHandle(hnd->hOutput);
-            hnd->hOutput = INVALID_HANDLE_VALUE;
-
-            // See if it's finished.
-            while (true) {
-                DWORD dwResult;
-                if (GetExitCodeProcess(hnd->hProcess, &dwResult) == 0)
-                    raise_syscall(taskData, "GetExitCodeProcess failed", GetLastError());
-                if (dwResult != STILL_ACTIVE) {
-                    // Finished - return the result.
-                    // Remove the process object.  The result is cached in ML.
-                    free(hnd);
-                    return Make_fixed_precision(taskData, dwResult);
-                }
-                // Block and try again.
-                WaitHandle waiter(hnd->hProcess, 1000);
-                processes->ThreadPauseForIO(taskData, &waiter);
-            }
-        }
-
-    case 1006: /* Return a constant. */
-        {
-            unsigned i = get_C_unsigned(taskData, DEREFWORD(args));
-            if (i >= sizeof(winConstVec)/sizeof(winConstVec[0]))
-                raise_syscall(taskData, "Invalid index", 0);
-            return Make_arbitrary_precision(taskData, winConstVec[i]);
-        }
-
-    case 1037: // Simple execute.
-        return simpleExecute(taskData, args);
-
-        // DDE
-    case 1038: // Start DDE dialogue.
-        {
-            TCHAR *serviceName = Poly_string_to_T_alloc(args->WordP()->Get(0));
-            TCHAR *topicName = Poly_string_to_T_alloc(args->WordP()->Get(1));
-            /* Send a request to the main thread to do the work. */
-            HCONV hcDDEConv = StartDDEConversation(serviceName, topicName);
-            free(serviceName); free(topicName);
-            if (hcDDEConv == 0) raise_syscall(taskData, "DdeConnect failed", 0);
-            // Create an entry to return the conversation.
-            return MakeVolatileWord(taskData, hcDDEConv);
-        }
-
-    case 1039: // Send DDE execute request.
-        {
-            HCONV hcDDEConv = *(HCONV*)(args->WordP()->Get(0).AsObjPtr());
-            if (hcDDEConv == 0) raise_syscall(taskData, "DDE Conversation is closed", 0);
-            char *command = Poly_string_to_C_alloc(args->WordP()->Get(1));
-            /* Send a request to the main thread to do the work. */
-            LRESULT res = ExecuteDDE(command, hcDDEConv);
-            free(command);
-            if (res == -1) raise_syscall(taskData, "DdeClientTransaction failed", 0);
-            else return Make_arbitrary_precision(taskData, res);
-        }
-
-    case 1040: // Close a DDE conversation.
-        {
-            HCONV hcDDEConv = *(HCONV*)(args->WordP()->Get(0).AsObjPtr());
-            if (hcDDEConv != 0)
-            {
-                CloseDDEConversation(hcDDEConv);
-                *(void**)(args->WordP()->Get(0).AsObjPtr()) = 0;
-            }
-            return Make_fixed_precision(taskData, 0);
-        }
-
-    case 1101: // Wait for a message. - Used in Windows GUI library
-        {
-            HWND hwnd = *(HWND*)(DEREFWORDHANDLE(args)->Get(0).AsCodePtr());
-            UINT wMsgFilterMin = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
-            UINT wMsgFilterMax = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
-            while (1)
-            {
-                MSG msg;
-                processes->ThreadReleaseMLMemory(taskData);
-                // N.B.  PeekMessage may directly call the window proc resulting in a
-                // callback to ML.  For this to work a callback must not overwrite "args".
-                BOOL result = PeekMessage(&msg, hwnd, wMsgFilterMin, wMsgFilterMax, PM_NOREMOVE);
-                processes->ThreadUseMLMemory(taskData);
-                if (result) return Make_fixed_precision(taskData, 0);
-                // Pause until a message arrives.
-                processes->ThreadPause(taskData);
-            }
-        }
-
-    // case 1102: // Return the address of the window callback function.
-
-    case 1103: // Return the application instance. - Used in Windows GUI library
-        {
-            Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
-            *(HINSTANCE*)(result->Word().AsCodePtr()) = hApplicationInstance;
-            return result;
-        }
-
-    case 1104: // Return the main window handle - Used in Windows GUI library
-        {
-            Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
-            *(HWND*)(result->Word().AsCodePtr()) = hMainWindow;
-            return result;
-        }
-
-//    case 1105: // Set the callback function
-
-    default:
-        {
-            char msg[100];
-            sprintf(msg, "Unknown windows-specific function: %d", c);
-            raise_exception_string(taskData, EXC_Fail, msg);
-            return 0;
-        }
-    }
-}
-
-// General interface to Windows OS-specific.  Ideally the various cases will be made into
-// separate functions.
-POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(code);
-    Handle pushedArg = taskData->saveVec.push(arg);
     Handle result = 0;
 
     try {
-        result = OS_spec_dispatch_c(taskData, pushedArg, pushedCode);
+        TCHAR* serviceName = Poly_string_to_T_alloc(service);
+        TCHAR* topicName = Poly_string_to_T_alloc(topic);
+        /* Send a request to the main thread to do the work. */
+        HCONV hcDDEConv = StartDDEConversation(serviceName, topicName);
+        free(serviceName); free(topicName);
+        if (hcDDEConv == 0) raise_syscall(taskData, "DdeConnect failed", 0);
+        // Create an entry to return the conversation.
+        result = MakeVolatileWord(taskData, hcDDEConv);
+
     }
-    catch (KillException &) {
+    catch (KillException&) {
         processes->ThreadExit(taskData); // Call 1005 may test for kill
     }
-    catch (...) { } // If an ML exception is raised
+    catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
     taskData->PostRTSCall();
@@ -356,10 +128,71 @@ POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWo
     else return result->Word().AsUnsigned();
 }
 
+// Send DDE execute request.
+POLYUNSIGNED PolyWindowsDDEExecute(FirstArgument threadId, PolyWord info, PolyWord commd)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    LRESULT res = 0;
+
+    try {
+        HCONV hcDDEConv = *(HCONV*)(info.AsObjPtr());
+        if (hcDDEConv == 0) raise_syscall(taskData, "DDE Conversation is closed", 0);
+        char* command = Poly_string_to_C_alloc(commd);
+        // Send a request to the main thread to do the work.
+        // The result is -1 if an error, 0 if busy, 1 if success
+        res = ExecuteDDE(command, hcDDEConv);
+        free(command);
+        if (res == -1) raise_syscall(taskData, "DdeClientTransaction failed", 0);
+
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    return TAGGED(res == 1 ? 1 : 0).AsUnsigned();
+}
+
+POLYUNSIGNED PolyWindowsDDEClose(FirstArgument threadId, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    try {
+        HCONV hcDDEConv = *(HCONV*)(arg.AsObjPtr());
+        if (hcDDEConv != 0)
+        {
+            CloseDDEConversation(hcDDEConv);
+            *(void**)(arg.AsObjPtr()) = 0;
+        }
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
 POLYUNSIGNED PolyGetOSType()
 {
     return TAGGED(1).AsUnsigned(); // Return 1 for Windows
 }
+
+// Return the current code page set by the --codepage argument.
+// This allows Unicode conversions to use same conversions as everything else.
+POLYUNSIGNED PolyWindowsGetCodePage()
+{
+#if defined(UNICODE)
+    return TAGGED(codePage).AsUnsigned();
+#else
+    return TAGGED(CP_ACP).AsUnsigned();
+#endif
+}
+
 
 /*
 The Windows version of this is more complicated than the Unix version because
@@ -371,7 +204,7 @@ are non-inheritable (i.e. not duplicated in the child).
 DCJM: December 1999.
 This now uses overlapped IO for the streams.
 */
-static Handle execute(TaskData *taskData, Handle args)
+static Handle execute(TaskData *taskData, PolyWord command, PolyWord argument)
 {
     LPCSTR lpszError = "";
     HANDLE hWriteToChild = INVALID_HANDLE_VALUE,
@@ -382,8 +215,8 @@ static Handle execute(TaskData *taskData, Handle args)
     PROCESS_INFORMATION processInfo;
     PROCESSDATA *pProcData = 0;
 
-    LPTSTR commandName = Poly_string_to_T_alloc(args->WordP()->Get(0));
-    LPTSTR arguments = Poly_string_to_T_alloc(args->WordP()->Get(1));
+    LPTSTR commandName = Poly_string_to_T_alloc(command);
+    LPTSTR arguments = Poly_string_to_T_alloc(argument);
 
     TCHAR toChildPipeName[MAX_PATH], fromChildPipeName[MAX_PATH];
     newPipeName(toChildPipeName);
@@ -484,12 +317,35 @@ error:
     }
 }
 
-static Handle simpleExecute(TaskData *taskData, Handle args)
+// Execute a command.
+POLYUNSIGNED PolyWindowsExecute(FirstArgument threadId, PolyWord command, PolyWord argument)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = execute(taskData, command, argument);
+    }
+    catch (KillException&) {
+        processes->ThreadExit(taskData); // Call 1005 may test for kill
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+static Handle simpleExecute(TaskData *taskData, PolyWord command, PolyWord argument)
 {
     HANDLE hNull = INVALID_HANDLE_VALUE;
     PROCESS_INFORMATION processInfo;
-    TCHAR *commandName = Poly_string_to_T_alloc(args->WordP()->Get(0));
-    TCHAR *arguments = Poly_string_to_T_alloc(args->WordP()->Get(1));
+    TCHAR *commandName = Poly_string_to_T_alloc(command);
+    TCHAR *arguments = Poly_string_to_T_alloc(argument);
 
     STARTUPINFO startupInfo;
     // Open a handle to NUL for input and output.
@@ -544,39 +400,139 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
     return(MakeVolatileWord(taskData, pProcData));
 }
 
-/* Return a stream, either text or binary, connected to an open process. */
-static Handle openProcessHandle(TaskData *taskData, Handle args, bool fIsRead, bool fIsText)
+POLYUNSIGNED PolyWindowsSimpleExecute(FirstArgument threadId, PolyWord command, PolyWord argument)
 {
-    PROCESSDATA *hnd = *(PROCESSDATA**)(args->WordP());
-    if (hnd == 0)
-        raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
-    // We allow multiple streams on the handles.  Since they are duplicated by openHandle that's safe.
-    // A consequence is that closing the stream does not close the pipe as far as the child is
-    // concerned.  That only happens when we close the final handle in reap.
-    try
-    {
-        WinInOutStream *stream = new WinInOutStream;
-        bool result;
-        if (fIsRead) result = stream->openHandle(hnd->hInput, OPENREAD, fIsText);
-        else result = stream->openHandle(hnd->hOutput, OPENWRITE, fIsText);
-        if (!result)
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = simpleExecute(taskData, command, argument);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Return a stream, either text or binary, connected to an open process. */
+POLYUNSIGNED PolyWindowsOpenProcessHandle(FirstArgument threadId, PolyWord arg, PolyWord isRead, PolyWord isText)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(TAGGED(1001));
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        PROCESSDATA* hnd = *(PROCESSDATA * *)(arg.AsObjPtr());
+        if (hnd == 0)
+            raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
+        // We allow multiple streams on the handles.  Since they are duplicated by openHandle that's safe.
+        // A consequence is that closing the stream does not close the pipe as far as the child is
+        // concerned.  That only happens when we close the final handle in reap.
+        try
         {
-            delete(stream);
-            raise_syscall(taskData, "openHandle failed", GetLastError());
+            WinInOutStream* stream = new WinInOutStream;
+            bool fResult;
+            if (isRead.UnTagged()) fResult = stream->openHandle(hnd->hInput, OPENREAD, isText.UnTagged());
+            else fResult = stream->openHandle(hnd->hOutput, OPENWRITE, isText.UnTagged());
+            if (!fResult)
+            {
+                delete(stream);
+                raise_syscall(taskData, "openHandle failed", GetLastError());
+            }
+
+            result = MakeVolatileWord(taskData, stream);
+        }
+        catch (std::bad_alloc&)
+        {
+            raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
         }
 
-        return MakeVolatileWord(taskData, stream);
     }
-    catch (std::bad_alloc&)
-    {
-        raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
+    catch (KillException&) {
+        processes->ThreadExit(taskData); // Call 1005 may test for kill
     }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+/* Get result of process. */
+POLYUNSIGNED PolyWindowsGetProcessResult(FirstArgument threadId, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(TAGGED(1005));
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        PROCESSDATA* hnd = *(PROCESSDATA * *)(arg.AsObjPtr());
+        *(PROCESSDATA * *)(arg.AsObjPtr()) = 0; // Mark as inaccessible.
+        if (hnd == 0)
+            raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
+        // Close the streams. Either of them may have been
+        // passed to the stream package.
+        if (hnd->hInput != INVALID_HANDLE_VALUE)
+            CloseHandle(hnd->hInput);
+        hnd->hInput = INVALID_HANDLE_VALUE;
+        if (hnd->hOutput != INVALID_HANDLE_VALUE)
+            CloseHandle(hnd->hOutput);
+        hnd->hOutput = INVALID_HANDLE_VALUE;
+
+        // See if it's finished.
+        while (true) {
+            DWORD dwResult;
+            if (GetExitCodeProcess(hnd->hProcess, &dwResult) == 0)
+                raise_syscall(taskData, "GetExitCodeProcess failed", GetLastError());
+            if (dwResult != STILL_ACTIVE) {
+                // Finished - return the result.
+                // Remove the process object.  The result is cached in ML.
+                free(hnd);
+                result = Make_fixed_precision(taskData, dwResult);
+                break;
+            }
+            // Block and try again.
+            WaitHandle waiter(hnd->hProcess, 1000);
+            processes->ThreadPauseForIO(taskData, &waiter);
+        }
+
+    }
+    catch (KillException&) {
+        processes->ThreadExit(taskData); // May test for kill
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 struct _entrypts osSpecificEPT[] =
 {
     { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
-    { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
+    { "PolyWindowsExecute",             (polyRTSFunction)& PolyWindowsExecute},
+    { "PolyWindowsOpenProcessHandle",   (polyRTSFunction)& PolyWindowsOpenProcessHandle},
+    { "PolyWindowsGetProcessResult",    (polyRTSFunction)& PolyWindowsGetProcessResult},
+    { "PolyWindowsSimpleExecute",       (polyRTSFunction)& PolyWindowsSimpleExecute},
+    { "PolyWindowsDDEStartDialogue",    (polyRTSFunction)& PolyWindowsDDEStartDialogue},
+    { "PolyWindowsDDEExecute",          (polyRTSFunction)& PolyWindowsDDEExecute},
+    { "PolyWindowsDDEClose",            (polyRTSFunction)& PolyWindowsDDEClose},
+    { "PolyWindowsGetCodePage",         (polyRTSFunction)& PolyWindowsGetCodePage},
 
     { NULL, NULL} // End of list.
 };
