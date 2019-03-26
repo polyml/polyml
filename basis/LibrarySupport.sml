@@ -68,6 +68,8 @@ sig
     val syserrorToWord: syserror -> LargeWord.word
     val syserrorFromWord : LargeWord.word -> syserror
     exception SysErr of (string * syserror option)
+    val onEntryList: (unit->unit) list ref (* This is picked up by InitialPolyML *)
+    val addOnEntry: (unit->unit) -> unit
 end
 =
 struct
@@ -207,5 +209,9 @@ struct
     and syserrorFromWord i = i
     
     exception SysErr = RunCall.SysErr
+    
+    (* The onEntry list.  PolyML.onEntry adds a mutex here. *)
+    val onEntryList: (unit->unit) list ref = ref[]
+    fun addOnEntry f = onEntryList := f :: !onEntryList
 end;
 

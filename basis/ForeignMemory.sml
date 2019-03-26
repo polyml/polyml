@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: memory operations
     Author:     David Matthews
-    Copyright   David Matthews 2015, 2017
+    Copyright   David Matthews 2015, 2017, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -149,7 +149,7 @@ struct
            address.  That allows us to merge adjacent free blocks. *)
         val freeList: {address: SysWord.word, size: word} list ref = LibrarySupport.noOverwriteRef nil
         (* Clear it once on entry. *)
-        val () = PolyML.onEntry (fn _ => freeList := nil)
+        val () = LibrarySupport.addOnEntry (fn _ => freeList := nil)
 
         (* Assume that if we align to the maximum of these we're all right. *)
         val maxAlign = Word.max(#align saDouble, Word.max(#align saPointer, #align saSint64))

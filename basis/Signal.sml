@@ -1,7 +1,7 @@
 (*
     Title:      Signal structure and signature.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2008
+    Copyright   David Matthews 2000, 2008, 2019
 
 
     This library is free software; you can redistribute it and/or
@@ -86,6 +86,6 @@ struct
     in
         (* Run this thread now and also start one each time we start up. *)
         val _ = forkThread()
-        val _ = PolyML.onEntry forkThread
+        val _ = LibrarySupport.addOnEntry forkThread
     end
 end;
