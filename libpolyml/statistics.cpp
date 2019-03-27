@@ -178,6 +178,12 @@ Statistics::Statistics(): accessLock("Statistics")
 
 void Statistics::Init()
 {
+#if (defined(HAVE_WINDOWS_H) && ! defined(__CYGWIN__))
+    // Record an initial time of day to use as the basis of real timing
+    GetSystemTimeAsFileTime(&startTime);
+#else
+    gettimeofday(&startTime, NULL);
+#endif
 #ifdef HAVE_WINDOWS_H
     // Get the process ID to use in the shared memory name
     DWORD pid = ::GetCurrentProcessId();
@@ -205,10 +211,7 @@ void Statistics::Init()
         return;
     }
     memSize = STATS_SPACE;
-    // Record an initial time of day to use as the basis of real timing
-    GetSystemTimeAsFileTime(&startTime);
 #else
-    gettimeofday(&startTime, NULL);
 #if HAVE_MMAP
     if (exportStats)
     {
