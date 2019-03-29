@@ -324,11 +324,21 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
         case 0: // Absolute constant - size PolyWord
         {
             POLYUNSIGNED c = cWord.AsUnsigned();
+#ifdef WORDS_BIGENDIAN
+            // This is used to store constants in the constant area
+            // on the interpreted version. 
+            for (unsigned i = sizeof(PolyWord); i > 0; i--)
+            {
+                pointer[i-1] = (byte)(c & 255);
+                c >>= 8;
+            }
+#else
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
             {
                 pointer[i] = (byte)(c & 255);
                 c >>= 8;
             }
+#endif
             break;
         }
         case 1: // Relative constant - X86 - size 4 bytes
