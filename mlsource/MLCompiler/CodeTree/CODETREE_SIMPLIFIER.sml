@@ -1108,12 +1108,12 @@ struct
         |   (WordLogical logop, arg1, arg2 as Constnt(v2, _)) =>
             (* Return the zero if we are anding with zero otherwise the original arg *)
             if isShort v2 andalso toShort v2 = 0w0
-            then (case logop of LogicalAnd => arg2 | _ => arg1, decArgs, EnvSpecNone)
+            then (case logop of LogicalAnd => CodeZero | _ => arg1, decArgs, EnvSpecNone)
             else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
 
         |   (WordLogical logop, Constnt(v1, _), arg2) =>
             if isShort v1 andalso toShort v1 = 0w0
-            then (case logop of LogicalAnd => arg2 | _ => arg2, decArgs, EnvSpecNone)
+            then (case logop of LogicalAnd => CodeZero | _ => arg2, decArgs, EnvSpecNone)
             else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
         
             (* TODO: Constant folding of shifts. *)
