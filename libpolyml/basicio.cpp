@@ -200,7 +200,7 @@ int getStreamFileDescriptorWithoutCheck(PolyWord strm)
     // the standard streams which are tagged integers.
     if (strm.IsTagged())
         return strm.UnTagged();
-    return *(int*)(strm.AsObjPtr()) -1;
+    return *(intptr_t*)(strm.AsObjPtr()) -1;
 }
 
 // Most of the time we want to raise an exception if the file descriptor
@@ -254,7 +254,7 @@ static Handle close_file(TaskData *taskData, Handle stream)
     if (descr > 2)
     {
         close(descr);
-        *(int*)(stream->WordP()) = 0; // Mark as closed
+        *(intptr_t*)(stream->WordP()) = 0; // Mark as closed
     }
 
     return Make_fixed_precision(taskData, 0);
@@ -798,9 +798,6 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 6: /* Open file for binary output. */
         return open_file(taskData, args, O_WRONLY | O_CREAT | O_TRUNC, 0666, 0);
     case 7: /* Close file */
-        // Legacy: During the bootstrap we will have old format references.
-        if (strm->Word().IsTagged())
-            return Make_fixed_precision(taskData, 0);
         return close_file(taskData, strm);
     case 8: /* Read text into an array. */
         return readArray(taskData, strm, args, true);
