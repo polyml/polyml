@@ -196,7 +196,7 @@ Handle wrapFileDescriptor(TaskData *taskData, int fd)
 // Return a file descriptor or -1 if it is invalid.
 int getStreamFileDescriptorWithoutCheck(PolyWord strm)
 {
-    return *(int*)(strm.AsObjPtr()) -1;
+    return *(intptr_t*)(strm.AsObjPtr()) -1;
 }
 
 // Most of the time we want to raise an exception if the file descriptor
@@ -250,7 +250,7 @@ static Handle close_file(TaskData *taskData, Handle stream)
     if (descr > 2)
     {
         close(descr);
-        *(int*)(stream->WordP()) = 0; // Mark as closed
+        *(intptr_t*)(stream->WordP()) = 0; // Mark as closed
     }
 
     return Make_fixed_precision(taskData, 0);
