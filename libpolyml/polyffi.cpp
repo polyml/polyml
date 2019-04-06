@@ -103,7 +103,6 @@ static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
 // Unfortunately the ABI entries are enums rather than #defines so we
 // can't test individual entries.
 #ifdef X86_WIN32
-    {"sysv", FFI_SYSV},
     {"stdcall", FFI_STDCALL},
     {"thiscall", FFI_THISCALL},
     {"fastcall", FFI_FASTCALL},
@@ -111,7 +110,6 @@ static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
 #elif defined(X86_WIN64)
     {"win64", FFI_WIN64},
 #elif defined(X86_ANY)
-    {"sysv", FFI_SYSV},
     {"unix64", FFI_UNIX64},
 #endif
     { "default", FFI_DEFAULT_ABI}
