@@ -136,9 +136,10 @@ if test x$sys_symbol_underscore = xyes; then
 fi
 
 # Solaris needs -lsocket, -lnsl and -lrt
+# Linux needs -lpthread for sem_wait
 AC_SEARCH_LIBS([gethostbyname], [nsl])
 AC_SEARCH_LIBS([getsockopt], [socket])
-AC_SEARCH_LIBS([sem_wait], [rt])
+AC_SEARCH_LIBS([sem_wait], [rt] [pthread])
 
 # Check for X and Motif headers and libraries
 AC_PATH_X
