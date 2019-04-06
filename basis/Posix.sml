@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Posix structure and signature.
-    Copyright   David Matthews 2000, 2016-17
+    Copyright   David Matthews 2000, 2016-17, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1043,9 +1043,13 @@ struct
         and rename = OS.FileSys.rename
         and readlink = OS.FileSys.readLink
 
-        val stdin  : file_desc = RunCall.unsafeCast 0
-        and stdout : file_desc = RunCall.unsafeCast 1
-        and stderr : file_desc = RunCall.unsafeCast 2
+        local
+            val persistentFD: int -> file_desc = RunCall.rtsCallFull1 "PolyPosixCreatePersistentFD"
+        in
+            val stdin  : file_desc = persistentFD 0
+            and stdout : file_desc = persistentFD 1
+            and stderr : file_desc = persistentFD 2
+        end
 
         structure S =
         struct
