@@ -162,6 +162,7 @@ DCJM May 2000.
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(PolyObject *threadId, PolyWord fd);
 }
 
 static bool isAvailable(TaskData *taskData, int ioDesc)
@@ -188,6 +189,7 @@ static bool isAvailable(TaskData *taskData, int ioDesc)
 // Volatiles are set to zero on entry to indicate a closed descriptor.
 // Zero is a valid descriptor but -1 is not so we add 1 when storing and
 // subtract 1 when loading.
+// N.B.  There are also persistent descriptors created with PolyPosixCreatePersistentFD
 Handle wrapFileDescriptor(TaskData *taskData, int fd)
 {
     return MakeVolatileWord(taskData, fd+1);
@@ -1117,10 +1119,33 @@ POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord st
     else return result->Word().AsUnsigned();
 }
 
+// Create a persistent file descriptor value for Posix.FileSys.stdin etc.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(PolyObject *threadId, PolyWord fd)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = alloc_and_save(taskData,
+            WORDS(SIZEOF_VOIDP), F_BYTE_OBJ | F_MUTABLE_BIT | F_NO_OVERWRITE);
+        *(POLYSIGNED*)(result->Word().AsCodePtr()) = fd.UnTagged() + 1;
+    }
+    catch (...) { } // If an ML exception is raised - could have run out of memory
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+
+}
 struct _entrypts basicIOEPT[] =
 {
     { "PolyChDir",                      (polyRTSFunction)&PolyChDir},
     { "PolyBasicIOGeneral",             (polyRTSFunction)&PolyBasicIOGeneral},
+    { "PolyPosixCreatePersistentFD",    (polyRTSFunction)&PolyPosixCreatePersistentFD},
 
     { NULL, NULL} // End of list.
 };
