@@ -1,7 +1,7 @@
 /*
     Title:  New Foreign Function Interface
 
-    Copyright (c) 2015, 2018  David C.J. Matthews
+    Copyright (c) 2015, 2018, 2019  David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -111,7 +111,6 @@ static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
 #elif defined(X86_WIN64)
     {"win64", FFI_WIN64},
 #elif defined(X86_ANY)
-    {"sysv", FFI_SYSV},
     {"unix64", FFI_UNIX64},
 #endif
     { "default", FFI_DEFAULT_ABI}
