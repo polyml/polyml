@@ -31,7 +31,11 @@ AC_CANONICAL_HOST
 # Set the OS flag.  This should not really be required but is still used in
 # a few places for OS-specific quirks that can't be handled by more specific tests.
 # Check also for mingw in which case we want to build native Windows.
-poly_native_windows=no
+
+# If the compiler defines _WIN32 we're building for native Windows otherwise we're
+# building for something else.
+AC_CHECK_DECL([_WIN32], [poly_native_windows=yes], [poly_native_windows=no])
+
 # If we are building on cygwin or mingw we need to give the -no-defined flag to
 # build a DLL.  We also have to use Windows calling conventions rather than
 # SysV on 64-bit.
@@ -45,28 +49,18 @@ case "${host_os}" in
     sunos* | solaris*)
         AC_SUBST([OSFLAG], [-DSOLARIS])
         ;;
-    *mingw*)
-        AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
-        AC_CHECK_TOOL(WINDRES, windres)
-        poly_native_windows=yes
+    *mingw* | *cygwin*)
         poly_no_undefined=yes
         poly_use_windowscc=yes
-        CFLAGS="$CFLAGS -mthreads"
-        CXXFLAGS="$CXXFLAGS -mthreads"
-        ;;
-    *cygwin*)
-        poly_no_undefined=yes
-        poly_use_windowscc=yes
-        if test "$ac_cv_c_compiler_gnu" = "yes"; then
-            if $CC -dumpmachine | grep -q mingw; then
-                AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
-                poly_native_windows=yes
-                CFLAGS="$CFLAGS -mthreads"
-                CXXFLAGS="$CXXFLAGS -mthreads"
-            fi
-        fi
         ;;
 esac
+
+if test "x${poly_native_windows}" = "xyes"; then
+    CFLAGS="$CFLAGS -mthreads"
+    CXXFLAGS="$CXXFLAGS -mthreads"
+    AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
+    AC_CHECK_TOOL(WINDRES, windres)
+fi
 
 # Enable/Disable the GUI in Windows.  Should this only be present if
 # building on mingw?
@@ -399,17 +393,6 @@ AC_CHECK_MEMBERS([struct mcontext.ss, struct __darwin_mcontext.ss, struct __darw
 AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
    [#include <sys/un.h>])
 
-# Build 32-bit in 64-bits.  For the moment this is independent of the architecture.
-AC_ARG_ENABLE([compact32bit],
-        [AS_HELP_STRING([--enable-compact32bit],
-            [use 32-bit values rather than native 64-bits.])])
-
-if test "x$enable_compact32bit" = "xyes"; then
-   if test X"$ac_cv_sizeof_voidp" != X8; then
-      AC_MSG_ERROR([--enable-compact32bit is only available on 64-bit architectures])
-   fi
-fi
-
 # This option enables the native code generator.  More precisely it allows
 # the byte code interpreter to be built on X86.
 
@@ -434,13 +417,8 @@ case "${host_cpu}" in
       x86_64* | amd64*)
             if test X"$ac_cv_sizeof_voidp" = X8; then
                 AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64-bit)])
-                if test "x$enable_compact32bit" = "xyes"; then
-                    AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
-                    polyarch=x86_32in64
-                else
-                    polyarch=x86_64
-                fi
-           else
+                polyarch=x86_64
+            else
                 AC_DEFINE([HOSTARCHITECTURE_X32], [1], [Define if the host is an X86 (32-bit ABI, 64-bit processor)])
                 polyarch=interpret
             fi
@@ -547,6 +525,20 @@ if test "x$polyarch" != "xinterpret" ; then
         [AC_MSG_RESULT([yes])] [AC_DEFINE([HAVE_GNU_STACK], [1],
             [Define to 1 if you have .note.GNU-stack support in the assembler.])],
         [AC_MSG_RESULT([no])])
+fi
+
+# Build 32-bit in 64-bits.  This is only allowed when building on native 64-bit X86.
+AC_ARG_ENABLE([compact32bit],
+        [AS_HELP_STRING([--enable-compact32bit],
+            [use 32-bit values rather than native 64-bits.])])
+
+if test "x$enable_compact32bit" = "xyes"; then
+    if test X"$polyarch" = "Xx86_64" ; then
+        AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
+        polyarch=x86_32in64
+    else
+        AC_MSG_ERROR([--enable-compact32bit is only available on X86/64])
+   fi
 fi
 
 # Put this test at the end where it's less likely to be missed.
