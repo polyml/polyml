@@ -645,6 +645,8 @@ gitinstalled
 dependentlibs
 MACOSLDOPTS_FALSE
 MACOSLDOPTS_TRUE
+WINDOWSGUI_FALSE
+WINDOWSGUI_TRUE
 NO_UNDEFINED_FALSE
 NO_UNDEFINED_TRUE
 NATIVE_WINDOWS_FALSE
@@ -669,6 +671,8 @@ EXPELF_FALSE
 EXPELF_TRUE
 EXPPECOFF_FALSE
 EXPPECOFF_TRUE
+XMKMF
+WINDRES
 INTERNAL_LIBFFI_FALSE
 INTERNAL_LIBFFI_TRUE
 FFI_LIBS
@@ -678,7 +682,6 @@ PKG_CONFIG_LIBDIR
 PKG_CONFIG_PATH
 PKG_CONFIG
 ALLOCA
-XMKMF
 sys_symbol_underscore
 am__fastdepCCAS_FALSE
 am__fastdepCCAS_TRUE
@@ -716,9 +719,6 @@ LIBTOOL
 OBJDUMP
 DLLTOOL
 AS
-WINDOWSGUI_FALSE
-WINDOWSGUI_TRUE
-WINDRES
 OSFLAG
 EGREP
 GREP
@@ -820,7 +820,6 @@ enable_option_checking
 enable_silent_rules
 enable_debug
 enable_dependency_tracking
-enable_windows_gui
 enable_shared
 enable_static
 with_pic
@@ -831,10 +830,10 @@ with_sysroot
 enable_libtool_lock
 enable_maintainer_mode
 enable_largefile
-with_x
 with_gmp
 with_system_libffi
-with_threads
+enable_windows_gui
+with_x
 enable_native_codegeneration
 enable_compact32bit
 with_moduledir
@@ -856,12 +855,12 @@ CCC
 CXXCPP
 CCAS
 CCASFLAGS
-XMKMF
 PKG_CONFIG
 PKG_CONFIG_PATH
 PKG_CONFIG_LIBDIR
 FFI_CFLAGS
-FFI_LIBS'
+FFI_LIBS
+XMKMF'
 ac_subdirs_all='libpolyml/libffi'
 
 # Initialize some variables set by options.
@@ -1502,8 +1501,6 @@ Optional Features:
                           do not reject slow dependency extractors
   --disable-dependency-tracking
                           speeds up one-time build
-  --enable-windows-gui    create a GUI in Windows. If this is disabled use a
-                          Windows console. [default=yes]
   --enable-shared[=PKGS]  build shared libraries [default=yes]
   --enable-static[=PKGS]  build static libraries [default=yes]
   --enable-fast-install[=PKGS]
@@ -1513,6 +1510,8 @@ Optional Features:
                           enable make rules and dependencies not useful (and
                           sometimes confusing) to the casual installer
   --disable-largefile     omit support for large files
+  --enable-windows-gui    create a GUI in Windows. If this is disabled use a
+                          Windows console. [default=yes]
   --disable-native-codegeneration
                           disable the native code generator and use the slow
                           byte code interpreter instead.
@@ -1530,14 +1529,12 @@ Optional Packages:
   --with-gnu-ld           assume the C compiler uses GNU ld [default=no]
   --with-sysroot[=DIR]    Search for dependent libraries within DIR (or the
                           compiler's sysroot if not specified).
-  --with-x                use the X Window System
   --with-gmp              use the GMP library for arbitrary precision
                           arithmetic [default=check]
   --with-system-libffi    use the version of libffi installed on your system
                           rather than the version supplied with poly
                           [default=no]
-  --with-threads          use the pthread library for multi-threading
-                          [default=check]
+  --with-x                use the X Window System
   --with-moduledir=DIR    directory for Poly/ML modules
 
 Some influential environment variables:
@@ -1556,7 +1553,6 @@ Some influential environment variables:
   CXXCPP      C++ preprocessor
   CCAS        assembler compiler command (defaults to CC)
   CCASFLAGS   assembler compiler flags (defaults to CFLAGS)
-  XMKMF       Path to xmkmf, Makefile generator for X Window System
   PKG_CONFIG  path to pkg-config utility
   PKG_CONFIG_PATH
               directories to add to pkg-config's search path
@@ -1564,6 +1560,7 @@ Some influential environment variables:
               path overriding pkg-config's built-in search path
   FFI_CFLAGS  C compiler flags for FFI, overriding pkg-config
   FFI_LIBS    linker flags for FFI, overriding pkg-config
+  XMKMF       Path to xmkmf, Makefile generator for X Window System
 
 Use these variables to override the choices made by `configure' or to help
 it to find libraries and programs with nonstandard names/locations.
@@ -3644,9 +3641,6 @@ IFS=$ac_save_IFS
 case $host_os in *\ *) host_os=`echo "$host_os" | sed 's/ /-/g'`;; esac
 
 
-# Set the OS flag.  This should not really be required but is still used in
-# a few places for OS-specific quirks that can't be handled by more specific tests.
-# Check also for mingw in which case we want to build native Windows.
 
 # If the compiler defines _WIN32 we're building for native Windows otherwise we're
 # building for something else.
@@ -5115,127 +5109,6 @@ case "${host_os}" in
         poly_use_windowscc=yes
         ;;
 esac
-
-if test "x${poly_native_windows}" = "xyes"; then
-    CFLAGS="$CFLAGS -mthreads"
-    CXXFLAGS="$CXXFLAGS -mthreads"
-    OSFLAG="-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"
-
-    if test -n "$ac_tool_prefix"; then
-  # Extract the first word of "${ac_tool_prefix}windres", so it can be a program name with args.
-set dummy ${ac_tool_prefix}windres; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_prog_WINDRES+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -n "$WINDRES"; then
-  ac_cv_prog_WINDRES="$WINDRES" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_prog_WINDRES="${ac_tool_prefix}windres"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-fi
-fi
-WINDRES=$ac_cv_prog_WINDRES
-if test -n "$WINDRES"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $WINDRES" >&5
-$as_echo "$WINDRES" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-
-fi
-if test -z "$ac_cv_prog_WINDRES"; then
-  ac_ct_WINDRES=$WINDRES
-  # Extract the first word of "windres", so it can be a program name with args.
-set dummy windres; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_prog_ac_ct_WINDRES+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -n "$ac_ct_WINDRES"; then
-  ac_cv_prog_ac_ct_WINDRES="$ac_ct_WINDRES" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_prog_ac_ct_WINDRES="windres"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-fi
-fi
-ac_ct_WINDRES=$ac_cv_prog_ac_ct_WINDRES
-if test -n "$ac_ct_WINDRES"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_WINDRES" >&5
-$as_echo "$ac_ct_WINDRES" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-  if test "x$ac_ct_WINDRES" = x; then
-    WINDRES=""
-  else
-    case $cross_compiling:$ac_tool_warned in
-yes:)
-{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
-$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
-ac_tool_warned=yes ;;
-esac
-    WINDRES=$ac_ct_WINDRES
-  fi
-else
-  WINDRES="$ac_cv_prog_WINDRES"
-fi
-
-fi
-
-# Enable/Disable the GUI in Windows.  Should this only be present if
-# building on mingw?
-# Check whether --enable-windows-gui was given.
-if test "${enable_windows_gui+set}" = set; then :
-  enableval=$enable_windows_gui; case "${enableval}" in
-           yes) enablegui=true ;;
-           no)  enablegui=false ;;
-           *) as_fn_error $? "bad value ${enableval} for --enable-windows-gui" "$LINENO" 5 ;;
-        esac
-else
-  enablegui=true
-fi
-
- if test x$enablegui = xtrue; then
-  WINDOWSGUI_TRUE=
-  WINDOWSGUI_FALSE='#'
-else
-  WINDOWSGUI_TRUE='#'
-  WINDOWSGUI_FALSE=
-fi
-
 
 # libpolyml can be a DLL but libpolymain can't.
 # Enable shared libraries by default.  It complicates installation a bit if the
@@ -18366,89 +18239,6 @@ if test "$ac_res" != no; then :
 fi
 
 
-# The next two are only used with mingw.  We mustn't include ws2_32 in Cygwin64 because
-# the "select" function gets used instead of Cygwin's own.
-if test "x$poly_native_windows" = xyes; then
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lws2_32" >&5
-$as_echo_n "checking for main in -lws2_32... " >&6; }
-if ${ac_cv_lib_ws2_32_main+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lws2_32  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-
-int
-main ()
-{
-return main ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_ws2_32_main=yes
-else
-  ac_cv_lib_ws2_32_main=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ws2_32_main" >&5
-$as_echo "$ac_cv_lib_ws2_32_main" >&6; }
-if test "x$ac_cv_lib_ws2_32_main" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBWS2_32 1
-_ACEOF
-
-  LIBS="-lws2_32 $LIBS"
-
-fi
-
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lgdi32" >&5
-$as_echo_n "checking for main in -lgdi32... " >&6; }
-if ${ac_cv_lib_gdi32_main+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lgdi32  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-
-int
-main ()
-{
-return main ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_gdi32_main=yes
-else
-  ac_cv_lib_gdi32_main=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gdi32_main" >&5
-$as_echo "$ac_cv_lib_gdi32_main" >&6; }
-if test "x$ac_cv_lib_gdi32_main" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBGDI32 1
-_ACEOF
-
-  LIBS="-lgdi32 $LIBS"
-
-fi
-
-fi
-
 ## External names on Win64.  They have no leading underscores as per
 ## the X64 ABI published by MS.  Earlier versions of GCC (anything
 ## prior to 4.5.0) were faulty.
@@ -18504,587 +18294,6 @@ if test x$sys_symbol_underscore = xyes; then
 $as_echo "#define SYMBOLS_REQUIRE_UNDERSCORE 1" >>confdefs.h
 
 fi
-
-# Solaris needs -lsocket, -lnsl and -lrt
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing gethostbyname" >&5
-$as_echo_n "checking for library containing gethostbyname... " >&6; }
-if ${ac_cv_search_gethostbyname+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_func_search_save_LIBS=$LIBS
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char gethostbyname ();
-int
-main ()
-{
-return gethostbyname ();
-  ;
-  return 0;
-}
-_ACEOF
-for ac_lib in '' nsl; do
-  if test -z "$ac_lib"; then
-    ac_res="none required"
-  else
-    ac_res=-l$ac_lib
-    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
-  fi
-  if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_gethostbyname=$ac_res
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext
-  if ${ac_cv_search_gethostbyname+:} false; then :
-  break
-fi
-done
-if ${ac_cv_search_gethostbyname+:} false; then :
-
-else
-  ac_cv_search_gethostbyname=no
-fi
-rm conftest.$ac_ext
-LIBS=$ac_func_search_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_gethostbyname" >&5
-$as_echo "$ac_cv_search_gethostbyname" >&6; }
-ac_res=$ac_cv_search_gethostbyname
-if test "$ac_res" != no; then :
-  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
-
-fi
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing getsockopt" >&5
-$as_echo_n "checking for library containing getsockopt... " >&6; }
-if ${ac_cv_search_getsockopt+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_func_search_save_LIBS=$LIBS
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char getsockopt ();
-int
-main ()
-{
-return getsockopt ();
-  ;
-  return 0;
-}
-_ACEOF
-for ac_lib in '' socket; do
-  if test -z "$ac_lib"; then
-    ac_res="none required"
-  else
-    ac_res=-l$ac_lib
-    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
-  fi
-  if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_getsockopt=$ac_res
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext
-  if ${ac_cv_search_getsockopt+:} false; then :
-  break
-fi
-done
-if ${ac_cv_search_getsockopt+:} false; then :
-
-else
-  ac_cv_search_getsockopt=no
-fi
-rm conftest.$ac_ext
-LIBS=$ac_func_search_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_getsockopt" >&5
-$as_echo "$ac_cv_search_getsockopt" >&6; }
-ac_res=$ac_cv_search_getsockopt
-if test "$ac_res" != no; then :
-  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
-
-fi
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing sem_wait" >&5
-$as_echo_n "checking for library containing sem_wait... " >&6; }
-if ${ac_cv_search_sem_wait+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_func_search_save_LIBS=$LIBS
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char sem_wait ();
-int
-main ()
-{
-return sem_wait ();
-  ;
-  return 0;
-}
-_ACEOF
-for ac_lib in '' rt; do
-  if test -z "$ac_lib"; then
-    ac_res="none required"
-  else
-    ac_res=-l$ac_lib
-    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
-  fi
-  if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_sem_wait=$ac_res
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext
-  if ${ac_cv_search_sem_wait+:} false; then :
-  break
-fi
-done
-if ${ac_cv_search_sem_wait+:} false; then :
-
-else
-  ac_cv_search_sem_wait=no
-fi
-rm conftest.$ac_ext
-LIBS=$ac_func_search_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_sem_wait" >&5
-$as_echo "$ac_cv_search_sem_wait" >&6; }
-ac_res=$ac_cv_search_sem_wait
-if test "$ac_res" != no; then :
-  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
-
-fi
-
-
-# Check for X and Motif headers and libraries
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for X" >&5
-$as_echo_n "checking for X... " >&6; }
-
-
-# Check whether --with-x was given.
-if test "${with_x+set}" = set; then :
-  withval=$with_x;
-fi
-
-# $have_x is `yes', `no', `disabled', or empty when we do not yet know.
-if test "x$with_x" = xno; then
-  # The user explicitly disabled X.
-  have_x=disabled
-else
-  case $x_includes,$x_libraries in #(
-    *\'*) as_fn_error $? "cannot use X directory names containing '" "$LINENO" 5;; #(
-    *,NONE | NONE,*) if ${ac_cv_have_x+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  # One or both of the vars are not set, and there is no cached value.
-ac_x_includes=no ac_x_libraries=no
-rm -f -r conftest.dir
-if mkdir conftest.dir; then
-  cd conftest.dir
-  cat >Imakefile <<'_ACEOF'
-incroot:
-	@echo incroot='${INCROOT}'
-usrlibdir:
-	@echo usrlibdir='${USRLIBDIR}'
-libdir:
-	@echo libdir='${LIBDIR}'
-_ACEOF
-  if (export CC; ${XMKMF-xmkmf}) >/dev/null 2>/dev/null && test -f Makefile; then
-    # GNU make sometimes prints "make[1]: Entering ...", which would confuse us.
-    for ac_var in incroot usrlibdir libdir; do
-      eval "ac_im_$ac_var=\`\${MAKE-make} $ac_var 2>/dev/null | sed -n 's/^$ac_var=//p'\`"
-    done
-    # Open Windows xmkmf reportedly sets LIBDIR instead of USRLIBDIR.
-    for ac_extension in a so sl dylib la dll; do
-      if test ! -f "$ac_im_usrlibdir/libX11.$ac_extension" &&
-	 test -f "$ac_im_libdir/libX11.$ac_extension"; then
-	ac_im_usrlibdir=$ac_im_libdir; break
-      fi
-    done
-    # Screen out bogus values from the imake configuration.  They are
-    # bogus both because they are the default anyway, and because
-    # using them would break gcc on systems where it needs fixed includes.
-    case $ac_im_incroot in
-	/usr/include) ac_x_includes= ;;
-	*) test -f "$ac_im_incroot/X11/Xos.h" && ac_x_includes=$ac_im_incroot;;
-    esac
-    case $ac_im_usrlibdir in
-	/usr/lib | /usr/lib64 | /lib | /lib64) ;;
-	*) test -d "$ac_im_usrlibdir" && ac_x_libraries=$ac_im_usrlibdir ;;
-    esac
-  fi
-  cd ..
-  rm -f -r conftest.dir
-fi
-
-# Standard set of common directories for X headers.
-# Check X11 before X11Rn because it is often a symlink to the current release.
-ac_x_header_dirs='
-/usr/X11/include
-/usr/X11R7/include
-/usr/X11R6/include
-/usr/X11R5/include
-/usr/X11R4/include
-
-/usr/include/X11
-/usr/include/X11R7
-/usr/include/X11R6
-/usr/include/X11R5
-/usr/include/X11R4
-
-/usr/local/X11/include
-/usr/local/X11R7/include
-/usr/local/X11R6/include
-/usr/local/X11R5/include
-/usr/local/X11R4/include
-
-/usr/local/include/X11
-/usr/local/include/X11R7
-/usr/local/include/X11R6
-/usr/local/include/X11R5
-/usr/local/include/X11R4
-
-/usr/X386/include
-/usr/x386/include
-/usr/XFree86/include/X11
-
-/usr/include
-/usr/local/include
-/usr/unsupported/include
-/usr/athena/include
-/usr/local/x11r5/include
-/usr/lpp/Xamples/include
-
-/usr/openwin/include
-/usr/openwin/share/include'
-
-if test "$ac_x_includes" = no; then
-  # Guess where to find include files, by looking for Xlib.h.
-  # First, try using that file with no special directory specified.
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-#include <X11/Xlib.h>
-_ACEOF
-if ac_fn_c_try_cpp "$LINENO"; then :
-  # We can compile using X headers with no special include directory.
-ac_x_includes=
-else
-  for ac_dir in $ac_x_header_dirs; do
-  if test -r "$ac_dir/X11/Xlib.h"; then
-    ac_x_includes=$ac_dir
-    break
-  fi
-done
-fi
-rm -f conftest.err conftest.i conftest.$ac_ext
-fi # $ac_x_includes = no
-
-if test "$ac_x_libraries" = no; then
-  # Check for the libraries.
-  # See if we find them without any special options.
-  # Don't add to $LIBS permanently.
-  ac_save_LIBS=$LIBS
-  LIBS="-lX11 $LIBS"
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-#include <X11/Xlib.h>
-int
-main ()
-{
-XrmInitialize ()
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  LIBS=$ac_save_LIBS
-# We can link X programs with no special library path.
-ac_x_libraries=
-else
-  LIBS=$ac_save_LIBS
-for ac_dir in `$as_echo "$ac_x_includes $ac_x_header_dirs" | sed s/include/lib/g`
-do
-  # Don't even attempt the hair of trying to link an X program!
-  for ac_extension in a so sl dylib la dll; do
-    if test -r "$ac_dir/libX11.$ac_extension"; then
-      ac_x_libraries=$ac_dir
-      break 2
-    fi
-  done
-done
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-fi # $ac_x_libraries = no
-
-case $ac_x_includes,$ac_x_libraries in #(
-  no,* | *,no | *\'*)
-    # Didn't find X, or a directory has "'" in its name.
-    ac_cv_have_x="have_x=no";; #(
-  *)
-    # Record where we found X for the cache.
-    ac_cv_have_x="have_x=yes\
-	ac_x_includes='$ac_x_includes'\
-	ac_x_libraries='$ac_x_libraries'"
-esac
-fi
-;; #(
-    *) have_x=yes;;
-  esac
-  eval "$ac_cv_have_x"
-fi # $with_x != no
-
-if test "$have_x" != yes; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $have_x" >&5
-$as_echo "$have_x" >&6; }
-  no_x=yes
-else
-  # If each of the values was on the command line, it overrides each guess.
-  test "x$x_includes" = xNONE && x_includes=$ac_x_includes
-  test "x$x_libraries" = xNONE && x_libraries=$ac_x_libraries
-  # Update the cache value to reflect the command line values.
-  ac_cv_have_x="have_x=yes\
-	ac_x_includes='$x_includes'\
-	ac_x_libraries='$x_libraries'"
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: libraries $x_libraries, headers $x_includes" >&5
-$as_echo "libraries $x_libraries, headers $x_includes" >&6; }
-fi
-
-
-if test "x${with_x}" = "xyes"; then
-
-
-$as_echo "#define WITH_XWINDOWS 1" >>confdefs.h
-
-
-    if test "$x_includes" != "" ; then
-    if test  "$x_includes" != "NONE" ; then
-        CFLAGS="$CFLAGS -I$x_includes"
-        CXXFLAGS="$CXXFLAGS -I$x_includes"
-        CPPFLAGS="$CPPFLAGS -I$x_includes"
-    fi
-    fi
-    if test "$x_libraries" != "" ; then
-    if test "$x_libraries" != "NONE" ; then
-        LIBS="-L$x_libraries $LIBS"
-    fi
-    fi
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XCreateGC in -lX11" >&5
-$as_echo_n "checking for XCreateGC in -lX11... " >&6; }
-if ${ac_cv_lib_X11_XCreateGC+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lX11  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char XCreateGC ();
-int
-main ()
-{
-return XCreateGC ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_X11_XCreateGC=yes
-else
-  ac_cv_lib_X11_XCreateGC=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_X11_XCreateGC" >&5
-$as_echo "$ac_cv_lib_X11_XCreateGC" >&6; }
-if test "x$ac_cv_lib_X11_XCreateGC" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBX11 1
-_ACEOF
-
-  LIBS="-lX11 $LIBS"
-
-fi
-
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XtMalloc in -lXt" >&5
-$as_echo_n "checking for XtMalloc in -lXt... " >&6; }
-if ${ac_cv_lib_Xt_XtMalloc+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lXt  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char XtMalloc ();
-int
-main ()
-{
-return XtMalloc ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_Xt_XtMalloc=yes
-else
-  ac_cv_lib_Xt_XtMalloc=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_Xt_XtMalloc" >&5
-$as_echo "$ac_cv_lib_Xt_XtMalloc" >&6; }
-if test "x$ac_cv_lib_Xt_XtMalloc" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBXT 1
-_ACEOF
-
-  LIBS="-lXt $LIBS"
-
-fi
-
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XextAddDisplay in -lXext" >&5
-$as_echo_n "checking for XextAddDisplay in -lXext... " >&6; }
-if ${ac_cv_lib_Xext_XextAddDisplay+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lXext  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char XextAddDisplay ();
-int
-main ()
-{
-return XextAddDisplay ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_Xext_XextAddDisplay=yes
-else
-  ac_cv_lib_Xext_XextAddDisplay=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_Xext_XextAddDisplay" >&5
-$as_echo "$ac_cv_lib_Xext_XextAddDisplay" >&6; }
-if test "x$ac_cv_lib_Xext_XextAddDisplay" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBXEXT 1
-_ACEOF
-
-  LIBS="-lXext $LIBS"
-
-fi
-
-
-    if test "$xm_includes" != "" ; then
-    if test "$xm_includes" != "NONE" ; then
-        CFLAGS="$CFLAGS -I$xm_includes"
-        CXXFLAGS="$CXXFLAGS -I$xm_includes"
-        CPPFLAGS="$CPPFLAGS -I$xm_includes"
-    fi
-    fi
-    if test "$xm_libraries" != "" ; then
-    if test "$xm_libraries" != "NONE" ; then
-        LIBS="-L$xm_libraries $LIBS"
-    fi
-    fi
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XmGetDestination in -lXm" >&5
-$as_echo_n "checking for XmGetDestination in -lXm... " >&6; }
-if ${ac_cv_lib_Xm_XmGetDestination+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lXm  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char XmGetDestination ();
-int
-main ()
-{
-return XmGetDestination ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_Xm_XmGetDestination=yes
-else
-  ac_cv_lib_Xm_XmGetDestination=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_Xm_XmGetDestination" >&5
-$as_echo "$ac_cv_lib_Xm_XmGetDestination" >&6; }
-if test "x$ac_cv_lib_Xm_XmGetDestination" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBXM 1
-_ACEOF
-
-  LIBS="-lXm $LIBS"
-
-fi
-
-
-fi
-
-# TODO: May need AC_PATH_XTRA for Solaris
 
 # Check for headers
 
@@ -20184,21 +19393,204 @@ else
 fi
 
 
+# Special configuration for Windows or Unix.
+poly_windows_enablegui=false
 
-# Check for pthreads.  Mainly, this allows a single-threaded build on OSes such as Mac OS X
-# that don't have proper multi-threaded profiling.
-
-# Check whether --with-threads was given.
-if test "${with_threads+set}" = set; then :
-  withval=$with_threads;
+if test "x$poly_native_windows" = xyes; then
+    # The next two are only used with mingw.  We mustn't include ws2_32 in Cygwin64 because
+    # the "select" function gets used instead of Cygwin's own.
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lws2_32" >&5
+$as_echo_n "checking for main in -lws2_32... " >&6; }
+if ${ac_cv_lib_ws2_32_main+:} false; then :
+  $as_echo_n "(cached) " >&6
 else
-  with_threads=check
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lws2_32  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+
+int
+main ()
+{
+return main ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_ws2_32_main=yes
+else
+  ac_cv_lib_ws2_32_main=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ws2_32_main" >&5
+$as_echo "$ac_cv_lib_ws2_32_main" >&6; }
+if test "x$ac_cv_lib_ws2_32_main" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBWS2_32 1
+_ACEOF
+
+  LIBS="-lws2_32 $LIBS"
+
+fi
+
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lgdi32" >&5
+$as_echo_n "checking for main in -lgdi32... " >&6; }
+if ${ac_cv_lib_gdi32_main+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lgdi32  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+
+int
+main ()
+{
+return main ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_gdi32_main=yes
+else
+  ac_cv_lib_gdi32_main=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gdi32_main" >&5
+$as_echo "$ac_cv_lib_gdi32_main" >&6; }
+if test "x$ac_cv_lib_gdi32_main" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBGDI32 1
+_ACEOF
+
+  LIBS="-lgdi32 $LIBS"
+
 fi
 
 
-# If we want pthreads check that the library and headers are installed.
-# On Android pthread_create is in the standard library
-if test "x$with_threads" != "xno"; then
+    CFLAGS="$CFLAGS -mthreads"
+    CXXFLAGS="$CXXFLAGS -mthreads"
+    OSFLAG="-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"
+
+    if test -n "$ac_tool_prefix"; then
+  # Extract the first word of "${ac_tool_prefix}windres", so it can be a program name with args.
+set dummy ${ac_tool_prefix}windres; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_prog_WINDRES+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  if test -n "$WINDRES"; then
+  ac_cv_prog_WINDRES="$WINDRES" # Let the user override the test.
+else
+as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_prog_WINDRES="${ac_tool_prefix}windres"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+fi
+fi
+WINDRES=$ac_cv_prog_WINDRES
+if test -n "$WINDRES"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $WINDRES" >&5
+$as_echo "$WINDRES" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+
+fi
+if test -z "$ac_cv_prog_WINDRES"; then
+  ac_ct_WINDRES=$WINDRES
+  # Extract the first word of "windres", so it can be a program name with args.
+set dummy windres; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_prog_ac_ct_WINDRES+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  if test -n "$ac_ct_WINDRES"; then
+  ac_cv_prog_ac_ct_WINDRES="$ac_ct_WINDRES" # Let the user override the test.
+else
+as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_prog_ac_ct_WINDRES="windres"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+fi
+fi
+ac_ct_WINDRES=$ac_cv_prog_ac_ct_WINDRES
+if test -n "$ac_ct_WINDRES"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_WINDRES" >&5
+$as_echo "$ac_ct_WINDRES" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+  if test "x$ac_ct_WINDRES" = x; then
+    WINDRES=""
+  else
+    case $cross_compiling:$ac_tool_warned in
+yes:)
+{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
+$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
+ac_tool_warned=yes ;;
+esac
+    WINDRES=$ac_ct_WINDRES
+  fi
+else
+  WINDRES="$ac_cv_prog_WINDRES"
+fi
+
+
+    # Enable/Disable the GUI in Windows.
+    # Check whether --enable-windows-gui was given.
+if test "${enable_windows_gui+set}" = set; then :
+  enableval=$enable_windows_gui; case "${enableval}" in
+            yes) poly_windows_enablegui=true ;;
+            no)  poly_windows_enablegui=false ;;
+            *) as_fn_error $? "bad value ${enableval} for --enable-windows-gui" "$LINENO" 5 ;;
+        esac
+else
+  poly_windows_enablegui=true
+fi
+
+
+else
+    # Unix or similar e.g. Cygwin.  We need pthreads.
+    # On Android pthread_create is in the standard library
     { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing pthread_create" >&5
 $as_echo_n "checking for library containing pthread_create... " >&6; }
 if ${ac_cv_search_pthread_create+:} false; then :
@@ -20261,29 +19653,609 @@ if test "x$ac_cv_header_pthread_h" = xyes; then :
 $as_echo "#define HAVE_PTHREAD_H 1" >>confdefs.h
 
 else
-  if test "x$with_threads" != "xcheck"; then
+
                   { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
 $as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error $? "--with-threads was given, but pthread.h header file is not installed
+as_fn_error $? "pthread.h header file is not installed
 See \`config.log' for more details" "$LINENO" 5; }
-              fi
 
 fi
 
 
 
 else
-  if test "x$with_threads" != "xcheck"; then
+
             { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
 $as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error $? "--with-threads was given, but pthread library is not installed
+as_fn_error $? "pthread library is not installed
 See \`config.log' for more details" "$LINENO" 5; }
-         fi
 
 fi
 
+
+    # Solaris needs -lsocket, -lnsl and -lrt
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing gethostbyname" >&5
+$as_echo_n "checking for library containing gethostbyname... " >&6; }
+if ${ac_cv_search_gethostbyname+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_func_search_save_LIBS=$LIBS
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char gethostbyname ();
+int
+main ()
+{
+return gethostbyname ();
+  ;
+  return 0;
+}
+_ACEOF
+for ac_lib in '' nsl; do
+  if test -z "$ac_lib"; then
+    ac_res="none required"
+  else
+    ac_res=-l$ac_lib
+    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+  fi
+  if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_search_gethostbyname=$ac_res
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext
+  if ${ac_cv_search_gethostbyname+:} false; then :
+  break
+fi
+done
+if ${ac_cv_search_gethostbyname+:} false; then :
+
+else
+  ac_cv_search_gethostbyname=no
+fi
+rm conftest.$ac_ext
+LIBS=$ac_func_search_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_gethostbyname" >&5
+$as_echo "$ac_cv_search_gethostbyname" >&6; }
+ac_res=$ac_cv_search_gethostbyname
+if test "$ac_res" != no; then :
+  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+
 fi
 
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing getsockopt" >&5
+$as_echo_n "checking for library containing getsockopt... " >&6; }
+if ${ac_cv_search_getsockopt+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_func_search_save_LIBS=$LIBS
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char getsockopt ();
+int
+main ()
+{
+return getsockopt ();
+  ;
+  return 0;
+}
+_ACEOF
+for ac_lib in '' socket; do
+  if test -z "$ac_lib"; then
+    ac_res="none required"
+  else
+    ac_res=-l$ac_lib
+    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+  fi
+  if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_search_getsockopt=$ac_res
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext
+  if ${ac_cv_search_getsockopt+:} false; then :
+  break
+fi
+done
+if ${ac_cv_search_getsockopt+:} false; then :
+
+else
+  ac_cv_search_getsockopt=no
+fi
+rm conftest.$ac_ext
+LIBS=$ac_func_search_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_getsockopt" >&5
+$as_echo "$ac_cv_search_getsockopt" >&6; }
+ac_res=$ac_cv_search_getsockopt
+if test "$ac_res" != no; then :
+  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+
+fi
+
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing sem_wait" >&5
+$as_echo_n "checking for library containing sem_wait... " >&6; }
+if ${ac_cv_search_sem_wait+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_func_search_save_LIBS=$LIBS
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char sem_wait ();
+int
+main ()
+{
+return sem_wait ();
+  ;
+  return 0;
+}
+_ACEOF
+for ac_lib in '' rt; do
+  if test -z "$ac_lib"; then
+    ac_res="none required"
+  else
+    ac_res=-l$ac_lib
+    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+  fi
+  if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_search_sem_wait=$ac_res
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext
+  if ${ac_cv_search_sem_wait+:} false; then :
+  break
+fi
+done
+if ${ac_cv_search_sem_wait+:} false; then :
+
+else
+  ac_cv_search_sem_wait=no
+fi
+rm conftest.$ac_ext
+LIBS=$ac_func_search_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_sem_wait" >&5
+$as_echo "$ac_cv_search_sem_wait" >&6; }
+ac_res=$ac_cv_search_sem_wait
+if test "$ac_res" != no; then :
+  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+
+fi
+
+
+    # Check for X and Motif headers and libraries
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for X" >&5
+$as_echo_n "checking for X... " >&6; }
+
+
+# Check whether --with-x was given.
+if test "${with_x+set}" = set; then :
+  withval=$with_x;
+fi
+
+# $have_x is `yes', `no', `disabled', or empty when we do not yet know.
+if test "x$with_x" = xno; then
+  # The user explicitly disabled X.
+  have_x=disabled
+else
+  case $x_includes,$x_libraries in #(
+    *\'*) as_fn_error $? "cannot use X directory names containing '" "$LINENO" 5;; #(
+    *,NONE | NONE,*) if ${ac_cv_have_x+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  # One or both of the vars are not set, and there is no cached value.
+ac_x_includes=no ac_x_libraries=no
+rm -f -r conftest.dir
+if mkdir conftest.dir; then
+  cd conftest.dir
+  cat >Imakefile <<'_ACEOF'
+incroot:
+	@echo incroot='${INCROOT}'
+usrlibdir:
+	@echo usrlibdir='${USRLIBDIR}'
+libdir:
+	@echo libdir='${LIBDIR}'
+_ACEOF
+  if (export CC; ${XMKMF-xmkmf}) >/dev/null 2>/dev/null && test -f Makefile; then
+    # GNU make sometimes prints "make[1]: Entering ...", which would confuse us.
+    for ac_var in incroot usrlibdir libdir; do
+      eval "ac_im_$ac_var=\`\${MAKE-make} $ac_var 2>/dev/null | sed -n 's/^$ac_var=//p'\`"
+    done
+    # Open Windows xmkmf reportedly sets LIBDIR instead of USRLIBDIR.
+    for ac_extension in a so sl dylib la dll; do
+      if test ! -f "$ac_im_usrlibdir/libX11.$ac_extension" &&
+	 test -f "$ac_im_libdir/libX11.$ac_extension"; then
+	ac_im_usrlibdir=$ac_im_libdir; break
+      fi
+    done
+    # Screen out bogus values from the imake configuration.  They are
+    # bogus both because they are the default anyway, and because
+    # using them would break gcc on systems where it needs fixed includes.
+    case $ac_im_incroot in
+	/usr/include) ac_x_includes= ;;
+	*) test -f "$ac_im_incroot/X11/Xos.h" && ac_x_includes=$ac_im_incroot;;
+    esac
+    case $ac_im_usrlibdir in
+	/usr/lib | /usr/lib64 | /lib | /lib64) ;;
+	*) test -d "$ac_im_usrlibdir" && ac_x_libraries=$ac_im_usrlibdir ;;
+    esac
+  fi
+  cd ..
+  rm -f -r conftest.dir
+fi
+
+# Standard set of common directories for X headers.
+# Check X11 before X11Rn because it is often a symlink to the current release.
+ac_x_header_dirs='
+/usr/X11/include
+/usr/X11R7/include
+/usr/X11R6/include
+/usr/X11R5/include
+/usr/X11R4/include
+
+/usr/include/X11
+/usr/include/X11R7
+/usr/include/X11R6
+/usr/include/X11R5
+/usr/include/X11R4
+
+/usr/local/X11/include
+/usr/local/X11R7/include
+/usr/local/X11R6/include
+/usr/local/X11R5/include
+/usr/local/X11R4/include
+
+/usr/local/include/X11
+/usr/local/include/X11R7
+/usr/local/include/X11R6
+/usr/local/include/X11R5
+/usr/local/include/X11R4
+
+/usr/X386/include
+/usr/x386/include
+/usr/XFree86/include/X11
+
+/usr/include
+/usr/local/include
+/usr/unsupported/include
+/usr/athena/include
+/usr/local/x11r5/include
+/usr/lpp/Xamples/include
+
+/usr/openwin/include
+/usr/openwin/share/include'
+
+if test "$ac_x_includes" = no; then
+  # Guess where to find include files, by looking for Xlib.h.
+  # First, try using that file with no special directory specified.
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#include <X11/Xlib.h>
+_ACEOF
+if ac_fn_c_try_cpp "$LINENO"; then :
+  # We can compile using X headers with no special include directory.
+ac_x_includes=
+else
+  for ac_dir in $ac_x_header_dirs; do
+  if test -r "$ac_dir/X11/Xlib.h"; then
+    ac_x_includes=$ac_dir
+    break
+  fi
+done
+fi
+rm -f conftest.err conftest.i conftest.$ac_ext
+fi # $ac_x_includes = no
+
+if test "$ac_x_libraries" = no; then
+  # Check for the libraries.
+  # See if we find them without any special options.
+  # Don't add to $LIBS permanently.
+  ac_save_LIBS=$LIBS
+  LIBS="-lX11 $LIBS"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#include <X11/Xlib.h>
+int
+main ()
+{
+XrmInitialize ()
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  LIBS=$ac_save_LIBS
+# We can link X programs with no special library path.
+ac_x_libraries=
+else
+  LIBS=$ac_save_LIBS
+for ac_dir in `$as_echo "$ac_x_includes $ac_x_header_dirs" | sed s/include/lib/g`
+do
+  # Don't even attempt the hair of trying to link an X program!
+  for ac_extension in a so sl dylib la dll; do
+    if test -r "$ac_dir/libX11.$ac_extension"; then
+      ac_x_libraries=$ac_dir
+      break 2
+    fi
+  done
+done
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+fi # $ac_x_libraries = no
+
+case $ac_x_includes,$ac_x_libraries in #(
+  no,* | *,no | *\'*)
+    # Didn't find X, or a directory has "'" in its name.
+    ac_cv_have_x="have_x=no";; #(
+  *)
+    # Record where we found X for the cache.
+    ac_cv_have_x="have_x=yes\
+	ac_x_includes='$ac_x_includes'\
+	ac_x_libraries='$ac_x_libraries'"
+esac
+fi
+;; #(
+    *) have_x=yes;;
+  esac
+  eval "$ac_cv_have_x"
+fi # $with_x != no
+
+if test "$have_x" != yes; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $have_x" >&5
+$as_echo "$have_x" >&6; }
+  no_x=yes
+else
+  # If each of the values was on the command line, it overrides each guess.
+  test "x$x_includes" = xNONE && x_includes=$ac_x_includes
+  test "x$x_libraries" = xNONE && x_libraries=$ac_x_libraries
+  # Update the cache value to reflect the command line values.
+  ac_cv_have_x="have_x=yes\
+	ac_x_includes='$x_includes'\
+	ac_x_libraries='$x_libraries'"
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: libraries $x_libraries, headers $x_includes" >&5
+$as_echo "libraries $x_libraries, headers $x_includes" >&6; }
+fi
+
+
+    if test "x${with_x}" = "xyes"; then
+
+
+$as_echo "#define WITH_XWINDOWS 1" >>confdefs.h
+
+
+        if test "$x_includes" != "" ; then
+        if test  "$x_includes" != "NONE" ; then
+            CFLAGS="$CFLAGS -I$x_includes"
+            CXXFLAGS="$CXXFLAGS -I$x_includes"
+            CPPFLAGS="$CPPFLAGS -I$x_includes"
+        fi
+        fi
+        if test "$x_libraries" != "" ; then
+        if test "$x_libraries" != "NONE" ; then
+            LIBS="-L$x_libraries $LIBS"
+        fi
+        fi
+        { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XCreateGC in -lX11" >&5
+$as_echo_n "checking for XCreateGC in -lX11... " >&6; }
+if ${ac_cv_lib_X11_XCreateGC+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lX11  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char XCreateGC ();
+int
+main ()
+{
+return XCreateGC ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_X11_XCreateGC=yes
+else
+  ac_cv_lib_X11_XCreateGC=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_X11_XCreateGC" >&5
+$as_echo "$ac_cv_lib_X11_XCreateGC" >&6; }
+if test "x$ac_cv_lib_X11_XCreateGC" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBX11 1
+_ACEOF
+
+  LIBS="-lX11 $LIBS"
+
+fi
+
+        { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XtMalloc in -lXt" >&5
+$as_echo_n "checking for XtMalloc in -lXt... " >&6; }
+if ${ac_cv_lib_Xt_XtMalloc+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lXt  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char XtMalloc ();
+int
+main ()
+{
+return XtMalloc ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_Xt_XtMalloc=yes
+else
+  ac_cv_lib_Xt_XtMalloc=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_Xt_XtMalloc" >&5
+$as_echo "$ac_cv_lib_Xt_XtMalloc" >&6; }
+if test "x$ac_cv_lib_Xt_XtMalloc" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBXT 1
+_ACEOF
+
+  LIBS="-lXt $LIBS"
+
+fi
+
+        { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XextAddDisplay in -lXext" >&5
+$as_echo_n "checking for XextAddDisplay in -lXext... " >&6; }
+if ${ac_cv_lib_Xext_XextAddDisplay+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lXext  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char XextAddDisplay ();
+int
+main ()
+{
+return XextAddDisplay ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_Xext_XextAddDisplay=yes
+else
+  ac_cv_lib_Xext_XextAddDisplay=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_Xext_XextAddDisplay" >&5
+$as_echo "$ac_cv_lib_Xext_XextAddDisplay" >&6; }
+if test "x$ac_cv_lib_Xext_XextAddDisplay" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBXEXT 1
+_ACEOF
+
+  LIBS="-lXext $LIBS"
+
+fi
+
+
+        if test "$xm_includes" != "" ; then
+        if test "$xm_includes" != "NONE" ; then
+            CFLAGS="$CFLAGS -I$xm_includes"
+            CXXFLAGS="$CXXFLAGS -I$xm_includes"
+            CPPFLAGS="$CPPFLAGS -I$xm_includes"
+        fi
+        fi
+        if test "$xm_libraries" != "" ; then
+        if test "$xm_libraries" != "NONE" ; then
+            LIBS="-L$xm_libraries $LIBS"
+        fi
+        fi
+        { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XmGetDestination in -lXm" >&5
+$as_echo_n "checking for XmGetDestination in -lXm... " >&6; }
+if ${ac_cv_lib_Xm_XmGetDestination+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lXm  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char XmGetDestination ();
+int
+main ()
+{
+return XmGetDestination ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_Xm_XmGetDestination=yes
+else
+  ac_cv_lib_Xm_XmGetDestination=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_Xm_XmGetDestination" >&5
+$as_echo "$ac_cv_lib_Xm_XmGetDestination" >&6; }
+if test "x$ac_cv_lib_Xm_XmGetDestination" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBXM 1
+_ACEOF
+
+  LIBS="-lXm $LIBS"
+
+fi
+
+
+    fi
+
+    # TODO: May need AC_PATH_XTRA for Solaris
+
+fi
+# End of Windows/Unix configuration.
 
 # Find out which type of object code exporter to use.
 # If we have winnt use PECOFF.  This really only applies to cygwin here.
@@ -22053,7 +22025,7 @@ fi
 done
 
 
-# Where are the registers?
+# Where are the registers when we get a signal?  Used in time profiling.
 #Linux:
 ac_fn_c_check_member "$LINENO" "mcontext_t" "gregs" "ac_cv_member_mcontext_t_gregs" "#include \"ucontext.h\"
 "
@@ -22195,7 +22167,8 @@ fi
 
 
 # Check which CPU we're building for.  Can we use a native pre-built compiler
-# or do we need to fall back to the interpreter?
+# or do we need to fall back to the interpreter?  Most of these settings are to tweak
+# the ELF exporter.
 
 case "${host_cpu}" in
       i[3456]86*)
@@ -22476,6 +22449,14 @@ else
   NO_UNDEFINED_FALSE=
 fi
 
+ if test x$poly_windows_enablegui = xtrue; then
+  WINDOWSGUI_TRUE=
+  WINDOWSGUI_FALSE='#'
+else
+  WINDOWSGUI_TRUE='#'
+  WINDOWSGUI_FALSE=
+fi
+
 
  if test "$poly_need_macosopt" = yes ; then
   MACOSLDOPTS_TRUE=
@@ -22735,10 +22716,6 @@ if test -z "${am__fastdepCC_TRUE}" && test -z "${am__fastdepCC_FALSE}"; then
   as_fn_error $? "conditional \"am__fastdepCC\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
-if test -z "${WINDOWSGUI_TRUE}" && test -z "${WINDOWSGUI_FALSE}"; then
-  as_fn_error $? "conditional \"WINDOWSGUI\" was never defined.
-Usually this means the macro was only invoked conditionally." "$LINENO" 5
-fi
 if test -z "${MAINTAINER_MODE_TRUE}" && test -z "${MAINTAINER_MODE_FALSE}"; then
   as_fn_error $? "conditional \"MAINTAINER_MODE\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
@@ -22802,6 +22779,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${NO_UNDEFINED_TRUE}" && test -z "${NO_UNDEFINED_FALSE}"; then
   as_fn_error $? "conditional \"NO_UNDEFINED\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WINDOWSGUI_TRUE}" && test -z "${WINDOWSGUI_FALSE}"; then
+  as_fn_error $? "conditional \"WINDOWSGUI\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${MACOSLDOPTS_TRUE}" && test -z "${MACOSLDOPTS_FALSE}"; then
