@@ -1,7 +1,7 @@
 /*
     Title:      Task farm for Multi-Threaded Garbage Collector
 
-    Copyright (c) 2010-12 David C. J. Matthews
+    Copyright (c) 2010-12, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -77,10 +77,10 @@ private:
 
     void ThreadFunction(void);
 
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if (!defined(_WIN32))
     static void *WorkerThreadFunction(void *parameter);
     pthread_t *threadHandles;
-#elif defined(HAVE_WINDOWS_H)
+#else
     static DWORD WINAPI WorkerThreadFunction(void *parameter);
     HANDLE *threadHandles;
 #endif

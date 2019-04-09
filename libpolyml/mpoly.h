@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further development copyright David C.J. Matthews 2001-12, 2015
+    Further development copyright David C.J. Matthews 2001-12, 2015, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -47,7 +47,7 @@ extern char *RTSArgHelp(void);
 
 extern time_t exportTimeStamp;
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 extern int polymain(int argc, TCHAR **argv, exportDescription *exports);
 #endif
 

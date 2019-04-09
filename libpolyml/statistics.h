@@ -90,7 +90,7 @@ public:
 
     void setUserCounter(unsigned which, POLYSIGNED value);
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     // Native Windows
     void copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime, const FILETIME &gcRtime);
     FILETIME gcUserTime, gcSystemTime, gcRealTime, startTime;

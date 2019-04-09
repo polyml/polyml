@@ -260,7 +260,7 @@ public:
     static Waiter *defaultWaiter;
 };
 
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
 class WaitHandle: public Waiter
 {
 public:
@@ -269,9 +269,9 @@ public:
 private:
     HANDLE m_Handle;
 };
-#endif
 
-#if (! defined(_WIN32) || defined(__CYGWIN__))
+#else
+
 // Unix: Wait until a file descriptor is available for input
 class WaitInputFD: public Waiter
 {

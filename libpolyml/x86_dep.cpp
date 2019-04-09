@@ -284,7 +284,7 @@ public:
     stackItem &reg14() { return assemblyInterface.p_r14; }
 #endif
 
-#if (defined(_WIN32) && !defined(__CYGWIN__))
+#if (defined(_WIN32))
     DWORD savedErrno;
 #else
     int savedErrno;
@@ -564,7 +564,7 @@ int X86TaskData::SwitchToPoly()
         // for the original call.
         uintptr_t savedCStack = this->assemblyInterface.saveCStack;
         // Restore the saved error state.
-#if (defined(_WIN32) && !defined(__CYGWIN__))
+#if (defined(_WIN32))
         SetLastError(savedErrno);
 #else
         errno = savedErrno;
@@ -575,7 +575,7 @@ int X86TaskData::SwitchToPoly()
         this->assemblyInterface.saveCStack = savedCStack;
         // Save the error codes.  We may have made an RTS/FFI call that
         // has set these and we don't want to do anything to change them.
-#if (defined(_WIN32) && !defined(__CYGWIN__))
+#if (defined(_WIN32))
         savedErrno = GetLastError();
 #else
         savedErrno = errno;

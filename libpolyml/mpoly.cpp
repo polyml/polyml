@@ -52,7 +52,7 @@
 #define ASSERT(x) 0
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <tchar.h>
 #else
 #define _T(x) x
@@ -82,7 +82,7 @@
 #include "noreturn.h"
 #include "savestate.h"
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include "winstartup.h"
 #include "winguiconsole.h"
 
@@ -126,7 +126,7 @@ static struct __argtab {
     { _T("--gcthreads"),    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
     { _T("--debug"),        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
     { _T("--logfile"),      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE },
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #ifdef UNICODE
     { _T("--codepage"),     "Code-page to use for file-names etc in Windows",       OPT_CODEPAGE },
 #endif
@@ -324,7 +324,7 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
                     case OPT_DEBUGFILE:
                         SetLogFile(p);
                         break;
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
                     case OPT_DDESERVICE:
                         // Set the name for the DDE service.  This allows the caller to specify the
                         // service name to be used to send Interrupt "signals".
@@ -386,7 +386,7 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
     // Set the heap size if it has been provided otherwise use the default.
     gHeapSizeParameters.SetHeapParameters(minsize, maxsize, initsize, gcpercent);
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     SetupDDEHandler(lpszServiceName); // Windows: Start the DDE handler now we processed any service name.
 #endif
 
@@ -428,7 +428,7 @@ void finish (int n)
     // Make sure we don't get any interrupts once the destructors are
     // applied to globals or statics.
     Uninitialise();
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     ExitThread(n);
 #else
     exit (n);
@@ -463,7 +463,7 @@ void Usage(const char *message, ...)
     }
     fflush(polyStdout);
     
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     if (useConsole)
     {
         MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);

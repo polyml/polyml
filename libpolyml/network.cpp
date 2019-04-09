@@ -1,7 +1,7 @@
 /*
     Title:      Network functions.
 
-    Copyright (c) 2000-7, 2016, 2018 David C. J. Matthews
+    Copyright (c) 2000-7, 2016, 2018, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -104,7 +104,7 @@
 typedef int socklen_t;
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 // Temporarily define this to suppress warnings for gethostname and gethostbyaddr
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
 #include <winsock2.h>
@@ -158,7 +158,7 @@ extern "C" {
 #define ALLOC(n) alloc_and_save(taskData, n)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 static int winsock_init = 0; /* Check that it has been initialised. */
 
 #else
@@ -317,7 +317,7 @@ static Handle getSocketOption(TaskData *taskData, Handle args, int level, int op
 static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt);
 static Handle selectCall(TaskData *taskData, Handle args, int blockType);
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #define GETERROR     (WSAGetLastError())
 #define TOOMANYFILES    WSAEMFILE
 #define NOMEMORY        WSA_NOT_ENOUGH_MEMORY
@@ -404,7 +404,7 @@ public:
     WaitNetSend(SOCKET sock) { SetWrite(sock); }
 };
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 class WinSocket : public WinStreamBase
 {
 public:
@@ -534,7 +534,7 @@ TryAgain: // Used for various retries.
                 }
             }
             /* Set the socket to non-blocking mode. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             unsigned long onOff = 1;
             if (ioctlsocket(skt, FIONBIO, &onOff) != 0)
 #else
@@ -542,7 +542,7 @@ TryAgain: // Used for various retries.
             if (ioctl(skt, FIONBIO, &onOff) < 0)
 #endif
             {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
                 closesocket(skt);
 #else
                 close(skt);
@@ -713,7 +713,7 @@ TryAgain: // Used for various retries.
     case 44: /* Find number of bytes available. */
         {
             SOCKET skt = getStreamSocket(taskData, args->Word());
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             unsigned long readable;
             if (ioctlsocket(skt, FIONREAD, &readable) != 0)
                 raise_syscall(taskData, "ioctlsocket failed", GETERROR);
@@ -728,7 +728,7 @@ TryAgain: // Used for various retries.
     case 45: /* Find out if we are at the mark. */
         {
             SOCKET skt = getStreamSocket(taskData, args->Word());
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             unsigned long atMark;
             if (ioctlsocket(skt, SIOCATMARK, &atMark) != 0)
                 raise_syscall(taskData, "ioctlsocket failed", GETERROR);
@@ -884,7 +884,7 @@ TryAgain: // Used for various retries.
             PolyWord pBase = DEREFHANDLE(args)->Get(1);
             char    ch, *base;
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
-#if(defined(_WIN32) && ! defined(_CYGWIN))
+#if(defined(_WIN32))
             int length = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
 #else
             ssize_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
@@ -907,7 +907,7 @@ TryAgain: // Used for various retries.
             while (1)
             {
                 int err;
-#if(defined(_WIN32) && ! defined(_CYGWIN))
+#if(defined(_WIN32))
                 int sent;
 #else
                 ssize_t sent;
@@ -943,7 +943,7 @@ TryAgain: // Used for various retries.
             PolyWord pBase = DEREFHANDLE(args)->Get(2);
             char    ch, *base;
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
-#if(defined(_WIN32) && ! defined(_CYGWIN))
+#if(defined(_WIN32))
             int length = get_C_int(taskData, DEREFHANDLE(args)->Get(4));
 #else
             size_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(4));
@@ -966,7 +966,7 @@ TryAgain: // Used for various retries.
             while (1)
             {
                 int err;
-#if(defined(_WIN32) && ! defined(_CYGWIN))
+#if(defined(_WIN32))
                 int sent;
 #else
                 ssize_t sent;
@@ -1001,7 +1001,7 @@ TryAgain: // Used for various retries.
             SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
-#if(defined(_WIN32) && ! defined(_CYGWIN))
+#if(defined(_WIN32))
             int length = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
 #else
             size_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
@@ -1014,7 +1014,7 @@ TryAgain: // Used for various retries.
 
             while (1) {
                 int err;
-#if(defined(_WIN32) && ! defined(_CYGWIN))
+#if(defined(_WIN32))
                 int recvd;
 #else
                 ssize_t recvd;
@@ -1052,7 +1052,7 @@ TryAgain: // Used for various retries.
             SOCKET sock = getStreamSocket(taskData, DEREFHANDLE(args)->Get(0));
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
-#if(defined(_WIN32) && ! defined(_CYGWIN))
+#if(defined(_WIN32))
             int length = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
 #else
             size_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
@@ -1068,7 +1068,7 @@ TryAgain: // Used for various retries.
 
             while (1) {
                 int err;
-#if(defined(_WIN32) && ! defined(_CYGWIN))
+#if(defined(_WIN32))
                 int recvd;
 #else
                 ssize_t recvd;
@@ -1101,7 +1101,7 @@ TryAgain: // Used for various retries.
         }
 
     case 55: /* Create a socket pair. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         /* Not implemented. */
         raise_syscall(taskData, "socketpair not implemented", WSAEAFNOSUPPORT);
 #else
@@ -1142,7 +1142,7 @@ TryAgain: // Used for various retries.
 #endif
 
     case 56: /* Create a Unix socket address from a string. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         /* Not implemented. */
         raise_syscall(taskData, "Unix addresses not implemented", WSAEAFNOSUPPORT);
 #else
@@ -1161,7 +1161,7 @@ TryAgain: // Used for various retries.
 #endif
 
     case 57: /* Get the file name from a Unix socket address. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         /* Not implemented. */
         raise_syscall(taskData, "Unix addresses not implemented", WSAEAFNOSUPPORT);
 #else
@@ -1407,7 +1407,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
         case 0: /* Check the timeout. */
         {
             /* The time argument is an absolute time. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             FILETIME ftTime, ftNow;
             /* Get the file time. */
             getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(3)), &ftTime);
@@ -1714,7 +1714,7 @@ POLYUNSIGNED PolyNetworkCloseSocket(PolyObject *threadId, PolyWord strm)
 
     try {
         // This is defined to raise an exception if the socket has already been closed
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         WinSocket *winskt = *(WinSocket**)(pushedStream->WordP());
         if (winskt != 0)
         {
@@ -1772,7 +1772,7 @@ static Networking networkingModule;
 
 void Networking::Init(void)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #define WINSOCK_MAJOR_VERSION   2
 #define WINSOCK_MINOR_VERSION   2
     WSADATA wsaData;
@@ -1790,7 +1790,7 @@ void Networking::Init(void)
 
 void Networking::Stop(void)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     if (winsock_init) WSACleanup();
     winsock_init = 0;
 #endif

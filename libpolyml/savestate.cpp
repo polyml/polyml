@@ -70,7 +70,7 @@
 #define ASSERT(x)
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <tchar.h>
 #define ERRORNUMBER _doserrno
 #define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
@@ -2155,7 +2155,7 @@ POLYUNSIGNED PolyGetModuleDirectory(PolyObject *threadId)
     try {
 #if (defined(MODULEDIR))
         result = SAVE(C_string_to_Poly(taskData, MODULEDIR));
-#elif (defined(_WIN32) && ! defined(__CYGWIN__))
+#elif (defined(_WIN32))
         {
             // This registry key is configured when Poly/ML is installed using the installer.
             // It gives the path to the Poly/ML installation directory.  We return the

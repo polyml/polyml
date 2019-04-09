@@ -82,7 +82,7 @@
 #include <windows.h>
 #endif
 
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#if (!defined(_WIN32))
 #define HAVE_PTHREAD 1
 #include <pthread.h>
 #endif
@@ -92,7 +92,7 @@
 #include <sys/sysctl.h>
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <tchar.h>
 #endif
 
@@ -315,7 +315,7 @@ public:
     int exitResult;
     bool exitRequest;
 
-#ifdef HAVE_WINDOWS_H
+#ifdef HAVE_WINDOWS_H /* Windows including Cygwin */
     // Used in profiling
     HANDLE hStopEvent; /* Signalled to stop all threads. */
     HANDLE profilingHd;
@@ -582,7 +582,7 @@ void Processes::WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hWakeTim
 {
     // Convert the time into the correct format for WaitUntil before acquiring
     // schedLock.  div_longc could do a GC which requires schedLock.
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     // On Windows it is the number of 100ns units since the epoch
     FILETIME tWake;
     getFileTimeFromArb(taskData, hWakeTime, &tWake);
@@ -1146,7 +1146,7 @@ void Waiter::Wait(unsigned maxMillisecs)
     // Since this is used only when we can't monitor the source directly
     // we set this to 10ms so that we're not waiting too long.
     if (maxMillisecs > 10) maxMillisecs = 10;
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     Sleep(maxMillisecs);
 #else
     // Unix
@@ -1164,7 +1164,7 @@ void Waiter::Wait(unsigned maxMillisecs)
 static Waiter defWait;
 Waiter *Waiter::defaultWaiter = &defWait;
 
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
 // Wait for the specified handle to be signalled.
 void WaitHandle::Wait(unsigned maxMillisecs)
 {
@@ -1173,9 +1173,9 @@ void WaitHandle::Wait(unsigned maxMillisecs)
         Sleep(maxMillisecs);
     else WaitForSingleObject(m_Handle, maxMillisecs);
 }
-#endif
 
-#if (!defined(_WIN32) || defined(__CYGWIN__))
+#else
+
 // Unix and Cygwin: Wait for a file descriptor on input.
 void WaitInputFD::Wait(unsigned maxMillisecs)
 {
@@ -2128,7 +2128,7 @@ void TaskData::GarbageCollect(ScanAddress *process)
 // Return the number of processors.
 extern unsigned NumberOfProcessors(void)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         SYSTEM_INFO info;
         memset(&info, 0, sizeof(info));
         GetSystemInfo(&info);

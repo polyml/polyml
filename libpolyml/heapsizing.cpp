@@ -633,7 +633,7 @@ bool HeapSizeParameters::RunMajorGCImmediately()
 
 static bool GetLastStats(TIMEDATA &userTime, TIMEDATA &systemTime, TIMEDATA &realTime, long &pageCount)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     FILETIME kt, ut;
     FILETIME ct, et; // Unused
     FILETIME rt;
@@ -786,7 +786,7 @@ void HeapSizeParameters::RecordSharingData(POLYUNSIGNED recovery)
 
 Handle HeapSizeParameters::getGCUtime(TaskData *taskData) const
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     return Make_arb_from_Filetime(taskData, totalGCUserCPU);
 #else
     return Make_arb_from_pair_scaled(taskData, ((struct timeval)totalGCUserCPU).tv_sec, ((struct timeval)totalGCUserCPU).tv_usec, 1000000);
@@ -795,7 +795,7 @@ Handle HeapSizeParameters::getGCUtime(TaskData *taskData) const
 
 Handle HeapSizeParameters::getGCStime(TaskData *taskData) const
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     return Make_arb_from_Filetime(taskData, totalGCSystemCPU);
 #else
     return Make_arb_from_pair_scaled(taskData, ((struct timeval)totalGCSystemCPU).tv_sec, ((struct timeval)totalGCSystemCPU).tv_usec, 1000000);
@@ -804,7 +804,7 @@ Handle HeapSizeParameters::getGCStime(TaskData *taskData) const
 
 void HeapSizeParameters::Init()
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     // Record an initial time of day to use as the basis of real timing
     FILETIME s;
     GetSystemTimeAsFileTime(&s);
@@ -816,7 +816,7 @@ void HeapSizeParameters::Init()
     startRTime = startTime; // Start of this non-gc phase
 
     resetMajorTimingData();
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     startPF = GetPaging(0);
 #else
     startPF = GetPaging(0);
@@ -829,7 +829,7 @@ void HeapSizeParameters::Final()
     if (debugOptions & (DEBUG_GC|DEBUG_HEAPSIZE))
     {
         TIMEDATA userTime, systemTime, realTime;
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         FILETIME kt, ut;
         FILETIME ct, et; // Unused
         FILETIME rt;
@@ -920,7 +920,7 @@ void HeapSizing::Stop()
 static size_t GetPhysicalMemorySize(void)
 {
     size_t maxMem = (size_t)0-1; // Maximum unsigned value.
-#if defined(HAVE_WINDOWS_H)
+#if defined(HAVE_WINDOWS_H) // Windows including Cygwin
     {
         MEMORYSTATUSEX memStatEx;
         memset(&memStatEx, 0, sizeof(memStatEx));

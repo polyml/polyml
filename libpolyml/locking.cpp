@@ -1,7 +1,7 @@
 /*
     Title:      Mutex and Condition Variable library.
 
-    Copyright (c) 2007, 2012, 2015 David C. J. Matthews
+    Copyright (c) 2007, 2012, 2015, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -26,10 +26,10 @@
 #error "No configuration file"
 #endif
 
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
-#define HAVE_PTHREAD 1
+#if (!defined(_WIN32))
+// Configure requires pthread unless this is native Windows.
 #include <pthread.h>
-#elif (defined(HAVE_WINDOWS_H))
+#else
 #include <windows.h>
 #endif
 
@@ -45,7 +45,7 @@
 #include <time.h>
 #endif
 
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if (defined(HAVE_SEMAPHORE_H) && !defined(_WIN32))
 // Don't include semaphore.h on Mingw.  It's provided but doesn't compile.
 #include <semaphore.h>
 #endif
@@ -78,25 +78,24 @@
 
 PLock::PLock(const char *n): lockName(n), lockCount(0)
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_mutex_init(&lock, 0);
-#elif defined(HAVE_WINDOWS_H)
+#else
     InitializeCriticalSection(&lock);
 #endif
 }
 
 PLock::~PLock()
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_mutex_destroy(&lock);
-#elif defined(HAVE_WINDOWS_H)
+#else
     DeleteCriticalSection(&lock);
 #endif
 }
 
 void PLock::Lock(void)
 {
-#if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
     if (debugOptions & DEBUG_CONTENTION)
     {
         // Report a heavily contended lock.
@@ -112,52 +111,48 @@ void PLock::Lock(void)
         }
         // Drop through to a normal lock
     }
-#endif
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_mutex_lock(&lock);
-#elif defined(HAVE_WINDOWS_H)
+#else
     EnterCriticalSection(&lock);
 #endif
-    // If we don't support threads this does nothing.
 }
 
 void PLock::Unlock(void)
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_mutex_unlock(&lock);
-#elif defined(HAVE_WINDOWS_H)
+#else
     LeaveCriticalSection(&lock);
 #endif
 }
 
 bool PLock::Trylock(void)
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     // Since we use normal mutexes this returns EBUSY if the
     // current thread owns the mutex.
     return pthread_mutex_trylock(&lock) != EBUSY;
-#elif defined(HAVE_WINDOWS_H)
+#else
     // This is not implemented properly in Windows.  There is
     // TryEnterCriticalSection in Win NT and later but that
     // returns TRUE if the current thread owns the mutex.
    return TryEnterCriticalSection(&lock) == TRUE;
-#else
-   return true; // Single-threaded.
 #endif
 }
 
 PCondVar::PCondVar()
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_cond_init(&cond, NULL);
-#elif defined(HAVE_WINDOWS_H)
+#else
     InitializeConditionVariable(&cond);
 #endif
 }
 
 PCondVar::~PCondVar()
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_cond_destroy(&cond);
 #endif
 }
@@ -165,15 +160,15 @@ PCondVar::~PCondVar()
 // Wait indefinitely.  Drops the lock and reaquires it.
 void PCondVar::Wait(PLock *pLock)
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_cond_wait(&cond, &pLock->lock);
-#elif defined(HAVE_WINDOWS_H)
+#else
     SleepConditionVariableCS(&cond, &pLock->lock, INFINITE);
 #endif
 }
 
 // Wait until a specified absolute time.  Drops the lock and reaquires it.
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 // Windows with Windows-style times
 void PCondVar::WaitUntil(PLock *pLock, const FILETIME *time)
 {
@@ -193,17 +188,7 @@ void PCondVar::WaitUntil(PLock *pLock, const FILETIME *time)
 // Unix-style times
 void PCondVar::WaitUntil(PLock *pLock, const timespec *time)
 {
-#ifdef HAVE_PTHREAD
     pthread_cond_timedwait(&cond, &pLock->lock, time);
-#elif defined(HAVE_WINDOWS_H)
-    // This must be Cygwin but compiled with --without-threads
-    struct timeval tv;
-    if (gettimeofday(&tv, NULL) != 0)
-        return;
-    if (tv.tv_sec > time->tv_sec || (tv.tv_sec == time->tv_sec && tv.tv_usec >= time->tv_nsec/1000))
-        return; // Already past the time
-    WaitFor(pLock, (time->tv_sec - tv.tv_sec) * 1000 + time->tv_nsec/1000000 - tv.tv_usec/1000);
-#endif
 }
 #endif
 
@@ -212,7 +197,7 @@ void PCondVar::WaitUntil(PLock *pLock, const timespec *time)
 // Returns false if the timeout expired or there was an error.
 bool PCondVar::WaitFor(PLock *pLock, unsigned milliseconds)
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     struct timespec waitTime;
     struct timeval tv;
     if (gettimeofday(&tv, NULL) != 0)
@@ -225,20 +210,18 @@ bool PCondVar::WaitFor(PLock *pLock, unsigned milliseconds)
         waitTime.tv_sec += 1;
     }
     return pthread_cond_timedwait(&cond, &pLock->lock, &waitTime) == 0;
-#elif defined(HAVE_WINDOWS_H)
+#else
     // SleepConditionVariableCS returns zero on error or timeout.
     return SleepConditionVariableCS(&cond, &pLock->lock, milliseconds) != 0;
-#else
-    return true; // Single-threaded.  Return immediately.
 #endif
 }
 
 // Wake up all the waiting threads. 
 void PCondVar::Signal(void)
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_cond_broadcast(&cond);
-#elif defined(HAVE_WINDOWS_H)
+#else
     WakeAllConditionVariable(&cond);
 #endif
 }
@@ -250,27 +233,27 @@ void PCondVar::Signal(void)
 // The semaphore is initialised with a count of zero.
 PSemaphore::PSemaphore()
 {
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if (!defined(_WIN32))
     sema = 0;
     isLocal = true;
-#elif defined(HAVE_WINDOWS_H)
+#else
     sema = NULL;
 #endif
 }
 
 PSemaphore::~PSemaphore()
 {
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if (!defined(_WIN32))
     if (sema && isLocal) sem_destroy(sema);
     else if (sema && !isLocal) sem_close(sema);
-#elif defined(HAVE_WINDOWS_H)
+#else
     if (sema != NULL) CloseHandle(sema);
 #endif
 }
 
 bool PSemaphore::Init(unsigned init, unsigned max)
 {
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if (!defined(_WIN32))
     isLocal = true;
     if (sem_init(&localSema, 0, init) == 0) {
         sema = &localSema;
@@ -294,7 +277,7 @@ bool PSemaphore::Init(unsigned init, unsigned max)
     sem_unlink(semname);
     return true;
 #endif
-#elif defined(HAVE_WINDOWS_H)
+#else
     sema = CreateSemaphore(NULL, init, max, NULL);
     return sema != NULL;
 #endif
@@ -302,7 +285,7 @@ bool PSemaphore::Init(unsigned init, unsigned max)
 
 bool PSemaphore::Wait(void)
 {
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if (!defined(_WIN32))
     // Wait until the semaphore is signalled.  A Unix signal may interrupt
     // it so we need to retry in that case.
     while (sem_wait(sema) == -1)
@@ -311,16 +294,16 @@ bool PSemaphore::Wait(void)
             return false;
     }
     return true;
-#elif defined(HAVE_WINDOWS_H)
+#else
     return WaitForSingleObject(sema, INFINITE) == WAIT_OBJECT_0;
 #endif
 }
 
 void PSemaphore::Signal(void)
 {
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if (!defined(_WIN32))
     sem_post(sema);
-#elif defined(HAVE_WINDOWS_H)
+#else
     ReleaseSemaphore(sema, 1, NULL);
 #endif
 }

@@ -75,7 +75,7 @@
 #include "processes.h"
 #include "polystring.h"
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <windows.h>
 #include "winstartup.h" /* For hApplicationInstance. */
 #endif
@@ -200,7 +200,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
     case 2: // Load library
         {
             TempString libName(args->Word());
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             HINSTANCE lib = LoadLibrary(libName);
             if (lib == NULL)
             {
@@ -228,7 +228,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
 
     case 3: // Load address of executable.
         {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             HINSTANCE lib = hApplicationInstance;
 #else
             void *lib = dlopen(NULL, RTLD_LAZY);
@@ -244,7 +244,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
         }
     case 4: // Unload library - Is this actually going to be used?
         {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             HMODULE hMod = *(HMODULE*)(args->WordP());
             if (! FreeLibrary(hMod))
                 raise_syscall(taskData, "FreeLibrary failed", GetLastError());
@@ -263,7 +263,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
     case 5: // Load the address of a symbol from a library.
         {
             TempCString symName(args->WordP()->Get(1));
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             HMODULE hMod = *(HMODULE*)(args->WordP()->Get(0).AsAddress());
             void *sym = (void*)GetProcAddress(hMod, symName);
             if (sym == NULL)
@@ -606,7 +606,7 @@ POLYUNSIGNED PolySizeDouble()
 // Get either errno or GetLastError
 POLYUNSIGNED PolyFFIGetError(PolyWord addr)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     addr.AsObjPtr()->Set(0, PolyWord::FromUnsigned(GetLastError()));
 #else
     addr.AsObjPtr()->Set(0, PolyWord::FromUnsigned((POLYUNSIGNED)errno));
@@ -617,7 +617,7 @@ POLYUNSIGNED PolyFFIGetError(PolyWord addr)
 // The argument is a SysWord.word value i.e. the address of a byte cell.
 POLYUNSIGNED PolyFFISetError(PolyWord err)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     SetLastError((DWORD)(err.AsObjPtr()->Get(0).AsUnsigned()));
 #else
     errno = err.AsObjPtr()->Get(0).AsSigned();

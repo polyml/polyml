@@ -50,7 +50,7 @@
 #include <stdlib.h>
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <tchar.h>
 #else
 #define _T(x) x
@@ -83,7 +83,7 @@
 #include "machoexport.h"
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
 #define ERRORNUMBER _doserrno
 #else
@@ -703,7 +703,7 @@ Handle exportNative(TaskData *taskData, Handle args)
 {
 #ifdef HAVE_PECOFF
     // Windows including Cygwin
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     const TCHAR *extension = _T(".obj"); // Windows
 #else
     const char *extension = ".o"; // Cygwin
@@ -749,7 +749,7 @@ POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord fileName, PolyWord root)
     try {
 #ifdef HAVE_PECOFF
         // Windows including Cygwin
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         const TCHAR *extension = _T(".obj"); // Windows
 #else
         const char *extension = ".o"; // Cygwin

@@ -128,7 +128,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
 }
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 /* Windows file times are 64-bit numbers representing times in
    tenths of a microsecond. */
 #define TICKS_PER_MICROSECOND 10
@@ -158,7 +158,7 @@ extern "C" {
     operating system provides it.
 */
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 static FILETIME startTime;
 #define StrToLL _strtoi64
 #else
@@ -184,7 +184,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return Make_arbitrary_precision(taskData, TICKS_PER_MICROSECOND);
     case 1: /* Return time since the time base. */
         {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             FILETIME ft;
             GetSystemTimeAsFileTime(&ft);
             return Make_arb_from_Filetime(taskData, ft);
@@ -197,7 +197,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
     case 2: /* Return the base year.  This is the year which corresponds to
                zero in the timing sequence. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         return Make_arbitrary_precision(taskData, 1601);
 #else
         return Make_arbitrary_precision(taskData, 1970);
@@ -219,7 +219,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #if (defined(HAVE_GMTIME_R) || defined(HAVE_LOCALTIME_R))
             struct tm result;
 #endif
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             /* Although the offset is in seconds it is since 1601. */
             FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
             getFileTimeFromArb(taskData, args, &ftSeconds); /* May raise exception. */
@@ -269,7 +269,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 5: /* Find out if Summer Time (daylight saving) was/will be in effect. */
         {
             time_t theTime;
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
             getFileTimeFromArb(taskData, args, &ftSeconds); /* May raise exception. */
             ULARGE_INTEGER   liTime;
@@ -314,7 +314,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             time.tm_wday = get_C_int(taskData, DEREFHANDLE(args)->Get(7));
             time.tm_yday = get_C_int(taskData, DEREFHANDLE(args)->Get(8));
             time.tm_isdst = get_C_int(taskData, DEREFHANDLE(args)->Get(9));
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             _tzset(); /* Make sure we set the current locale. */
 #else
             setlocale(LC_TIME, "");
@@ -335,7 +335,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 7: /* Return User CPU time since the start. */
         {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             FILETIME ut, ct, et, kt;
             if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
                 raise_syscall(taskData, "GetProcessTimes failed", GetLastError());
@@ -351,7 +351,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 8: /* Return System CPU time since the start. */
         {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             FILETIME ct, et, kt, ut;
             if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
                 raise_syscall(taskData, "GetProcessTimes failed", GetLastError());
@@ -370,7 +370,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 10: /* Return real time since the start. */
         {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             FILETIME ft;
             GetSystemTimeAsFileTime(&ft);
             subFiletimes(&ft, &startTime);
@@ -387,7 +387,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         /* These next two are used only in the Posix structure. */
     case 11: /* Return User CPU time used by child processes. */
         {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             return Make_arbitrary_precision(taskData, 0);
 #else
             struct rusage rusage;
@@ -400,7 +400,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 12: /* Return System CPU time used by child processes. */
         {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             return Make_arbitrary_precision(taskData, 0);
 #else
             struct rusage rusage;
@@ -446,7 +446,7 @@ POLYUNSIGNED PolyTimingGeneral(PolyObject *threadId, PolyWord code, PolyWord arg
     else return result->Word().AsUnsigned();
 }
 
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
 void addFiletimes(FILETIME *result, const FILETIME *x)
 {
     ULARGE_INTEGER liA, liB;
@@ -557,7 +557,7 @@ static Timing timingModule;
 
 void Timing::Init(void)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     // Record an initial time of day to use as the basis of real timing
     GetSystemTimeAsFileTime(&startTime);
 #else

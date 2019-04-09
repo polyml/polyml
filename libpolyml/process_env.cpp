@@ -65,7 +65,7 @@
 #endif
 
 // Include this next before errors.h since in WinCE at least the winsock errors are defined there.
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <winsock2.h>
 #include <tchar.h>
 #define NOMEMORY        ERROR_NOT_ENOUGH_MEMORY
@@ -111,7 +111,7 @@ extern "C" {
 #define SAVE(x) mdTaskData->saveVec.push(x)
 #define ALLOC(n) alloc_and_save(mdTaskData, n)
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #define ISPATHSEPARATOR(c)  ((c) == '\\' || (c) == '/')
 #define DEFAULTSEPARATOR    "\\"
 #else
@@ -203,7 +203,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
             TempString buff(args->Word());
             if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", NOMEMORY);
             int res = -1;
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             // Windows.
             TCHAR *argv[4];
             argv[0] = _tgetenv(_T("COMSPEC")); // Default CLI.
@@ -256,7 +256,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
                 try
                 {
                 // Test to see if the child has returned.
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
                     switch (WaitForSingleObject((HANDLE)pid, 0))
                     {
                     case WAIT_OBJECT_0:
@@ -294,7 +294,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
                     // Either IOException or KillException.
                     // We're abandoning the wait.  This will leave
                     // a zombie in Unix.
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
                     CloseHandle((HANDLE)pid);
 #endif
                     throw;
@@ -363,7 +363,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
         }
 
     case 9: /* Are names case-sensitive? */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         /* Windows - no. */
         return Make_fixed_precision(mdTaskData, 0);
 #else
@@ -391,7 +391,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
                (e.g. A:b\c) which means the file b\c relative to the
                currently selected directory on the volume A.
             */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             TempString buff(path);
             if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", NOMEMORY);
             size_t length = _tcslen(buff);
@@ -484,7 +484,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
                         return Make_fixed_precision(mdTaskData, 0);
                 }
             }
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
             // We need to look for certain invalid characters but only after
             // we've converted it to Unicode if necessary.
             TempString name(volName);

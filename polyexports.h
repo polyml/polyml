@@ -1,7 +1,7 @@
 /*
     Title:  polyexports.h 
 
-    Copyright (c) 2006, 2011, 2015 David C.J. Matthews
+    Copyright (c) 2006, 2011, 2015, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -81,7 +81,7 @@ extern exportDescription poly_exports;
 extern "C" {
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <windows.h>
 
 # ifdef LIBPOLYML_BUILD
