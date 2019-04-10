@@ -151,7 +151,6 @@ public:
     ThreadObject *threadObject;  // Pointer to the thread object.
     int         lastError;      // Last error from foreign code.
     void        *signalStack;  // Stack to handle interrupts (Unix only)
-    PolyWord    foreignStack;   // Stack of saved data used in call_sym_and_convert
     bool        inML;          // True when this is in ML, false in the RTS
 
     // Get a TaskData pointer given the ML taskId.

@@ -812,7 +812,7 @@ void TaskData::FillUnusedSpace(void)
 
 
 TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
-        stack(0), threadObject(0), signalStack(0), foreignStack(TAGGED(0)),
+        stack(0), threadObject(0), signalStack(0),
         inML(false), requests(kRequestNone), blockMutex(0), inMLHeap(false),
         runningProfileTimer(false)
 {
@@ -2122,7 +2122,6 @@ void TaskData::GarbageCollect(ScanAddress *process)
         if (allocSize < MIN_HEAP_SIZE)
             allocSize = MIN_HEAP_SIZE;
     }
-    process->ScanRuntimeWord(&foreignStack);
 }
 
 // Return the number of processors.
