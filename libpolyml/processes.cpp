@@ -1909,7 +1909,10 @@ void Processes::StartProfiling(void)
     ResetEvent(hStopEvent);
     profilingHd = CreateThread(NULL, 0, ProfilingTimer, NULL, 0, &threadId);
     if (profilingHd == NULL)
+    {
         fputs("Creating ProfilingTimer thread failed.\n", polyStdout);
+        return;
+    }
     /* Give this a higher than normal priority so it pre-empts the main
        thread.  Without this it will tend only to be run when the main
        thread blocks for some reason. */
@@ -1936,8 +1939,11 @@ void Processes::StopProfiling(void)
 #ifdef HAVE_WINDOWS_H
     if (hStopEvent) SetEvent(hStopEvent);
     // Wait for the thread to stop
-    if (profilingHd) WaitForSingleObject(profilingHd, 10000);
-    CloseHandle(profilingHd);
+    if (profilingHd)
+    {
+        WaitForSingleObject(profilingHd, 10000);
+        CloseHandle(profilingHd);
+    }
     profilingHd = NULL;
 #endif
 }

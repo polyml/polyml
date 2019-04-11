@@ -891,13 +891,14 @@ unsigned long ExportStringTable::makeEntry(const char *str)
         stringAvailable = stringAvailable+stringAvailable/2;
         if (stringAvailable < stringSize + len + 1)
             stringAvailable = stringSize + len + 1 + 500;
-        strings = (char*)realloc(strings, stringAvailable);
-        if (strings == 0)
+        char* newStrings = (char*)realloc(strings, stringAvailable);
+        if (newStrings == 0)
         {
             if (debugOptions & DEBUG_SAVING)
                 Log("SAVE: Unable to realloc string table, size: %lu.\n", stringAvailable);
             throw MemoryException();
         }
+        else strings = newStrings;
      }
     strcpy(strings + stringSize, str);
     stringSize += len + 1;
