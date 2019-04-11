@@ -47,7 +47,11 @@ public:
     GCTaskFarm();
     ~GCTaskFarm();
 
+    // Initialise and create the worker threads
     bool Initialise(unsigned threadCount, unsigned queueSize);
+    // Set single threaded mode. This is only used in a child process after
+    // Posix fork in case there is a GC before the exec.
+    void SetSingleThreaded() { threadCount = 0; queueSize = 0; }
 
     bool AddWork(gctask task, void *arg1, void *arg2);
     void AddWorkOrRunNow(gctask task, void *arg1, void *arg2);
