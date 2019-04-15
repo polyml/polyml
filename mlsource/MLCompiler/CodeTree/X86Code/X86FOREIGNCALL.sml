@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-18 David C.J. Matthews
+    Copyright (c) 2016-19 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -456,5 +456,27 @@ struct
        This is used only to convert arbitrary precision values to floats. *)
     fun rtsCallFastGeneraltoFloat (functionName, debugSwitches) =
         rtsCallFastGeneral (functionName, [FastArgFixed], FastArgFloat, debugSwitches)
+
+
+    (* Build a foreign call function.  The arguments are the abi, the list of argument types and the result type.
+       The result is the code of the ML function that takes three arguments: the C function to call, the arguments
+       as a vector of C values and the address of the memory for the result. *)
+    fun foreignCall(abi: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
+    let
+    in
+        raise Fail "TODO: foreignCall"
+    end
+
+    (* Build a callback function.  The arguments are the abi, the list of argument types and the result type.
+       The result is an ML function that takes an ML function, f, as its argument, registers it as a callback and
+       returns the C function as its result.  When the C function is called the arguments are copied into
+       temporary memory and the vector passed to f along with the address of the memory for the result.
+       "f" stores the result in it when it returns and the result is then passed back as the result of the
+       callback. *)
+    fun buildCallBack(abi: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
+    let
+    in
+        raise Fail "TODO: foreignCall"
+    end
 
 end;

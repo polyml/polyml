@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-18
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -287,7 +287,7 @@ struct
         in
             val largeWordType =
                 makeTypeConstructor("word", [],
-                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
+                    makeFreeId(0, idCode, true, basisDescription "LargeWord.word"), declInBasis)
             val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
         end
 
@@ -537,6 +537,31 @@ struct
                     ("Thread",      EXC_thread,         String),
                     ("SysErr",      EXC_syserr,         String ** Option LargeWord)
                 ]
+        end
+        
+        local
+            val arg0 = mkLoadArgument 0
+            
+            local
+                val callForeignCall = mkEval(mkConst (toMachineWord CODETREE.Foreign.foreignCall), [arg0])
+                val innerBody = mkEval(mkLoadClosure 0, [mkInd(0, arg0), mkInd(1, arg0), mkInd(2, arg0)])
+                val outerBody =
+                    mkEnv([mkDec(0, callForeignCall)], mkInlproc(innerBody, 1, "foreignCall(1)(1)", [mkLoadLocal 0], 0))
+            in
+                val foreignCallEntry = mkInlproc(outerBody, 1, "foreignCall(1)", [], 1)
+            end
+            
+            val buildCallBackEntry = mkConst (toMachineWord CODETREE.Foreign.buildCallBack)
+            
+            val abiType = Int
+            and ffiType = LargeWord
+            val foreignCallType =
+                mkProductType[abiType, List ffiType, ffiType] ->> mkProductType[LargeWord, LargeWord, LargeWord] ->> Unit
+            val buildCallBackType =
+                mkProductType[abiType, List ffiType, ffiType] ->> (mkProductType[LargeWord, LargeWord] ->> Unit) ->> LargeWord
+        in
+            val () = enterRunCall ("foreignCall", foreignCallEntry, foreignCallType)
+            val () = enterRunCall ("buildCallBack", buildCallBackEntry, buildCallBackType)
         end
 
         (* Standard Basis structures for basic types.  These contain the definitions of the basic
