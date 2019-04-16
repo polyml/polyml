@@ -247,6 +247,15 @@ struct
             and codeExtArgumentAsXMMReg = codeExtArgument getAllocatedXMMReg
         end
 
+        fun codeCallKind Recursive = NonAddressConstArg 0 (* Jump to the start *)
+        |   codeCallKind (ConstantCode v) = AddressConstArg v
+        |   codeCallKind FullCall =
+            (
+                case targetArch of
+                    ObjectId32Bit => MemoryArg{base=ebx, index=Index4 edx, offset=0}
+                |   _ => MemoryArg{base=edx, index=NoIndex, offset=0}
+            )
+
         (* Move unless the registers are the same. *)
         fun moveIfNecessary({src, dst, kind}, code) =
             if src = dst then code
@@ -833,7 +842,7 @@ struct
                     else ResetStack{numWords=stackAdjust, preserveCC=false} :: loadArgs
                 end
             in
-                JumpToFunction callKind ::
+                JumpAddress(codeCallKind callKind) ::
                     codeTailCall(extStackArgs @ extRegArgs, stackAdjust+currStackSize, code)
             end
 
@@ -910,7 +919,7 @@ struct
                 val loadConstArgs = List.foldl getConstArgs loadRegArgs regArgs
                 
                 (* Push the registers before the call and pop them afterwards. *)
-                fun makeSaves([], code) = CallFunction callKind :: code
+                fun makeSaves([], code) = CallAddress(codeCallKind callKind) :: code
                 |   makeSaves(PReg reg::regs, code) =
                     let
                         val areg = getAllocatedGenReg reg
@@ -1021,9 +1030,8 @@ struct
                    multiply by four to get the correct size. Subtract off the
                    shifted tag. *)
                 val jumpSize = ref JumpSize8
-                (* We use JumpToFunction even though we're not actually going to a new function. *)
             in
-                JumpTable{cases=caseLabels, jumpSize=jumpSize} :: JumpLabel startJumpTable :: JumpToFunction(DirectReg wReg) ::
+                JumpTable{cases=caseLabels, jumpSize=jumpSize} :: JumpLabel startJumpTable :: JumpAddress(RegisterArg wReg) ::
                     IndexedJumpCalc{ addrReg=wReg, indexReg=rReg, jumpSize=jumpSize } ::
                     LoadLabelAddress{label=startJumpTable, output=wReg} :: code
             end

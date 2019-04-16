@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -90,7 +90,7 @@ struct
         |   ObjectId32Bit   => (Move32Bit, Move64Bit)
 
     datatype boxKind = BoxLargeWord | BoxSSE2Double | BoxSSE2Float | BoxX87Double | BoxX87Float
-    
+
     (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
     datatype opSize = datatype opSize
     
@@ -98,6 +98,11 @@ struct
     and      sse2BinaryOps = SSE2BAddDouble | SSE2BSubDouble | SSE2BMulDouble |
                 SSE2BDivDouble | SSE2BXor | SSE2BAnd | SSE2BAddSingle |
                 SSE2BSubSingle | SSE2BMulSingle | SSE2BDivSingle
+
+    datatype callKinds =
+        Recursive
+    |   ConstantCode of machineWord
+    |   FullCall
 
     datatype x86ICode =
         (* Move a value into a register. *)
@@ -452,8 +457,7 @@ struct
                 case callKind of
                     Recursive => stream "recursive "
                 |   ConstantCode m => (stream(stringOfWord m); stream " ")
-                |   FullCall => ()
-                |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
+                |   FullCall => ();
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs;
                 List.app(fn arg => (stream "p="; printArg(arg, stream); stream " ")) stackArgs;
                 stream "=> "; printReg(dest, stream); stream "="; stream(regRepr realDest);
@@ -466,8 +470,7 @@ struct
                 case callKind of
                     Recursive => stream "recursive "
                 |   ConstantCode m => (stream(stringOfWord m); stream " ")
-                |   FullCall => ()
-                |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
+                |   FullCall => ();
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs;
                 List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream); stream " ")) stackArgs;
                 stream "adjust="; stream(Int.toString stackAdjust);
