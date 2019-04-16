@@ -460,13 +460,103 @@ struct
         rtsCallFastGeneral (functionName, [FastArgFixed], FastArgFloat, debugSwitches)
 
 
+    datatype ffiABI =
+        FFI_SYSV        (* Unix 32 bit and Windows GCC 32-bit *)
+    |   FFI_STDCALL     (* Windows 32-bit system ABI.  Callee clears the stack. *)
+    |   FFI_MS_CDECL    (* VS 32-bit.  Same as SYSV except when returning a struct. *)
+    |   FFI_WIN64       (* Windows 64 bit *)
+    |   FFI_UNIX64      (* Unix 64 bit. libffi also implements this on X86/32. *)
+    (* We don't include various other 32-bit Windows ABIs. *)
+
+    local
+        (* Get the current ABI list.  N.B.  Foreign.LibFFI.abiList is the ABIs on the platform we built
+           the compiler on, not necessarily the one we're running on. *)
+        val ffiGeneral = RunCall.rtsCallFull2 "PolyFFIGeneral"
+    in
+        fun getFFIAbi abi =
+        let
+            val abis: (string * Foreign.LibFFI.abi) list = ffiGeneral (50, ())
+        in
+            case List.find (fn ("default", _) => false | (_, a) => a = abi) abis of
+                SOME ("sysv", _)        => FFI_SYSV
+            |   SOME ("stdcall", _)     => FFI_STDCALL
+            |   SOME ("ms_cdecl", _)    => FFI_MS_CDECL
+            |   SOME ("win64", _)       => FFI_WIN64
+            |   SOME ("unix64", _)      => FFI_UNIX64
+            |   _   => raise Foreign.Foreign "Unknown or unsupported ABI"
+        end
+    end
+    
+    fun alignUp(s, align) = Word.andb(s + align-0w1, ~ align)
+    fun alignUpInt(s, align) = Word.toInt(alignUp(Word.fromInt s, align))
+    
+
     (* Build a foreign call function.  The arguments are the abi, the list of argument types and the result type.
        The result is the code of the ML function that takes three arguments: the C function to call, the arguments
        as a vector of C values and the address of the memory for the result. *)
-    fun foreignCall(abi: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
+    fun foreignCall(abivalue: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
     let
+        val abi = getFFIAbi abivalue
+        local
+            val argSpace = 0
+        in
+            val stackSpace =
+                alignUpInt(argSpace, 0w16) + (case abi of FFI_WIN64 => 32 | _ => 0) (* Add extra 32 bytes for Win 64*)
+        end
+        (* Register to hold the entry point. *)
+        val entryPtrReg = case abi of FFI_WIN64 => r11 | FFI_UNIX64 => r11 | _ => ecx
+        val code =
+            [
+                (* The entry point is in a SysWord.word value in RAX. *)
+                loadHeapMemory(entryPtrReg, eax, 0, nativeWordOpSize)(* Load its value. *)
+            ] @
+            (
+                (* Save heap ptr.  This is in r15 in X86/64.  Needed in case we have a callback. *)
+                if targetArch <> Native32Bit
+                then
+                [
+                    storeMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize), (* Save heap ptr *)
+                    PushToStack(RegisterArg r8) (* Push the third argument. *)
+                ]
+                else []
+            ) @
+            [
+                (* Save the stack pointer. *)
+                storeMemory(esp, ebp, memRegStackPtr, nativeWordOpSize), (* Save ML stack and switch to C stack. *)
+                loadMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize)  (* Load the saved C stack pointer. *)
+            ] @
+            (
+                (* Set the stack pointer past the data on the stack.  *)
+                if stackSpace = 0
+                then []
+                else [ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}]
+            ) @
+            [
+                CallFunction(DirectReg entryPtrReg), (* Call the function.  We don't need to clean up the stack. *)
+                loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)
+            ] @
+            [
+                (* Store the result in the result area.  The third argument is a LargeWord value that contains
+                   the address of a piece of C memory where the result is to be stored. *)
+                if targetArch = Native32Bit
+                then loadMemory(ecx, esp, 4, nativeWordOpSize)
+                else PopR ecx,
+                loadHeapMemory(ecx, ecx, 0, nativeWordOpSize),
+                (* TODO: This is a temporary solution.  The actual return sequence depends on the
+                   result type. *)
+                storeMemory(eax, ecx, 0, nativeWordOpSize),
+                ReturnFromFunction (if targetArch = Native32Bit then 1 else 0)
+            ]
+        val functionName = "foreignCall"
+        val debugSwitches =
+            [Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
+               Universal.tagInject DEBUG.assemblyCodeTag true]
+        val profileObject = createProfileObject functionName
+        val newCode = codeCreate (functionName, profileObject, debugSwitches)
+        val closure = makeConstantClosure()
+        val () = X86OPTIMISE.generateCode{code=newCode, labelCount=1(*One label.*), ops=code, resultClosure=closure}
     in
-        raise Fail "TODO: foreignCall"
+        closureAsAddress closure
     end
 
     (* Build a callback function.  The arguments are the abi, the list of argument types and the result type.
@@ -475,8 +565,9 @@ struct
        temporary memory and the vector passed to f along with the address of the memory for the result.
        "f" stores the result in it when it returns and the result is then passed back as the result of the
        callback. *)
-    fun buildCallBack(abi: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
+    fun buildCallBack(abivalue: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
     let
+        val abi = getFFIAbi abivalue
     in
         raise Fail "TODO: foreignCall"
     end
