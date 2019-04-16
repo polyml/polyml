@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-18
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-19
     
     Based on original code:    
     Copyright (c) 2000
@@ -151,9 +151,6 @@ struct
     and memRegHeapOverflowCall    = 10 * Word.toInt nativeWordSize
     and memRegStackOverflowCall   = 11 * Word.toInt nativeWordSize
     and memRegStackOverflowCallEx = 12 * Word.toInt nativeWordSize
-    
-    (* This can probably be much smaller now. *)
-    and memRegSize                = if hostIsX64 then 144 else 56 (* Size of area on the stack. *)
 
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
