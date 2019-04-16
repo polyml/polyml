@@ -48,6 +48,8 @@ struct
     open X86CODE
     open Address
     open CODE_ARRAY
+    
+    val memRegSize = 0
    
     val (polyWordOpSize, nativeWordOpSize) =
         case targetArch of

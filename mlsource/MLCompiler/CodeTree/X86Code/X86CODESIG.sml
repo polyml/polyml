@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016-18
+    Copyright David C. J. Matthews 2010, 2012, 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -205,7 +205,6 @@ sig
     and memRegCStackPtr: int
     and memRegThreadSelf: int
     and memRegStackPtr: int
-    and memRegSize: int
 
     (* Debugging controls and streams for optimiser. *)
     val lowLevelOptimise: code -> bool

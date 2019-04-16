@@ -1,7 +1,7 @@
 /*
    Title:  Assembly code routines for the poly system.
    Author:    David Matthews
-   Copyright (c) David C. J. Matthews 2000-2018
+   Copyright (c) David C. J. Matthews 2000-2019
  
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -68,7 +68,7 @@ GLOBAL EXTNAME(id); \
 EXTNAME(id):
 
 /* Extra entries on the C stack */
-#define Fr_Size                 144         /* Must be multiple of 16 to get alignment correct */
+#define Fr_Size                 64         /* Must be multiple of 16 to get alignment correct */
 
 /* This is the argument vector passed in to X86AsmSwitchToPoly
    It is used to initialise the frame.  A few values are updated
@@ -143,7 +143,6 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
 #else
     movq    %rdi,%rbp                       # Argument is in %rdi
 #endif
-    movq    %rsp,Arg_SaveCStack(%rbp)
     pushq   %rbx
     pushq   %r12
     pushq   %r13
@@ -156,6 +155,7 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
 #else
     subq    $(Fr_Size-40),%rsp
 #endif
+    movq    %rsp,Arg_SaveCStack(%rbp)
 
     movq    Arg_LocalMpointer(%rbp),%r15
     movq    Arg_StackPtr(%rbp),%rsp               # Set the new stack ptr
@@ -218,11 +218,11 @@ SaveFullState:
     movq    %r15,Arg_LocalMpointer(%rbp)        # Save back heap pointer
     movq    Arg_SaveCStack(%rbp),%rsp           # Restore C stack pointer
 #ifdef _WIN32
-    subq    $56,%rsp
+    addq    $(Fr_Size-56),%rsp
     popq    %rsi
     popq    %rdi
 #else
-    subq    $40,%rsp
+    addq    $(Fr_Size-40),%rsp
 #endif
     popq    %r15                                # Restore callee-save registers
     popq    %r14
