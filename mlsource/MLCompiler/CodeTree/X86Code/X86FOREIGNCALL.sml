@@ -226,7 +226,7 @@ struct
                 |   _ => raise InternalError "rtsCall: Abi/argument count not implemented"
             ) @
             [
-                CallFunction(DirectReg entryPtrReg), (* Call the function *)
+                CallAddress(RegisterArg entryPtrReg), (* Call the function *)
                 loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)
             ] @
             (
@@ -405,7 +405,7 @@ struct
                 |   _ => raise InternalError "rtsCall: Abi/argument count not implemented"
             ) @
             [
-                CallFunction(DirectReg entryPtrReg), (* Call the function *)
+                CallAddress(RegisterArg entryPtrReg), (* Call the function *)
                 moveRR{source=saveMLStackPtrReg, output=esp, opSize=nativeWordOpSize}, (* Restore the ML stack pointer *)
                 (* Since this is an ML function we need to remove any ML stack arguments. *)
                 ReturnFromFunction mlArgsOnStack

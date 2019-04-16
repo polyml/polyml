@@ -76,7 +76,6 @@ sig
         Recursive
     |   ConstantCode of machineWord
     |   FullCall
-    |   DirectReg of genReg
 
     datatype preg = PReg of int (* A pseudo-register - an abstract register. *)
     
