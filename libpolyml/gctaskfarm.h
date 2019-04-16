@@ -1,7 +1,7 @@
 /*
     Title:      Task farm for Multi-Threaded Garbage Collector
 
-    Copyright (c) 2010-12 David C. J. Matthews
+    Copyright (c) 2010-12, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -47,7 +47,11 @@ public:
     GCTaskFarm();
     ~GCTaskFarm();
 
+    // Initialise and create the worker threads
     bool Initialise(unsigned threadCount, unsigned queueSize);
+    // Set single threaded mode. This is only used in a child process after
+    // Posix fork in case there is a GC before the exec.
+    void SetSingleThreaded() { threadCount = 0; queueSize = 0; }
 
     bool AddWork(gctask task, void *arg1, void *arg2);
     void AddWorkOrRunNow(gctask task, void *arg1, void *arg2);
@@ -77,10 +81,10 @@ private:
 
     void ThreadFunction(void);
 
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if (!defined(_WIN32))
     static void *WorkerThreadFunction(void *parameter);
     pthread_t *threadHandles;
-#elif defined(HAVE_WINDOWS_H)
+#else
     static DWORD WINAPI WorkerThreadFunction(void *parameter);
     HANDLE *threadHandles;
 #endif

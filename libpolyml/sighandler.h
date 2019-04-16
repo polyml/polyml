@@ -1,7 +1,7 @@
 /*
     Title:  sighandler.h
 
-    Copyright (c) 2000-7, 2016 David C.J. Matthews
+    Copyright (c) 2000-7, 2016, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,7 @@ class TaskData;
 
 extern void markSignalInuse(int sig);
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 extern void RequestConsoleInterrupt(void);
 #else
 

@@ -50,7 +50,7 @@
 #include <stdlib.h>
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <tchar.h>
 #else
 #define _T(x) x
@@ -83,7 +83,7 @@
 #include "machoexport.h"
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
 #define ERRORNUMBER _doserrno
 #else
@@ -703,7 +703,7 @@ Handle exportNative(TaskData *taskData, Handle args)
 {
 #ifdef HAVE_PECOFF
     // Windows including Cygwin
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     const TCHAR *extension = _T(".obj"); // Windows
 #else
     const char *extension = ".o"; // Cygwin
@@ -749,7 +749,7 @@ POLYUNSIGNED PolyExport(FirstArgument threadId, PolyWord fileName, PolyWord root
     try {
 #ifdef HAVE_PECOFF
         // Windows including Cygwin
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         const TCHAR *extension = _T(".obj"); // Windows
 #else
         const char *extension = ".o"; // Cygwin
@@ -891,13 +891,14 @@ unsigned long ExportStringTable::makeEntry(const char *str)
         stringAvailable = stringAvailable+stringAvailable/2;
         if (stringAvailable < stringSize + len + 1)
             stringAvailable = stringSize + len + 1 + 500;
-        strings = (char*)realloc(strings, stringAvailable);
-        if (strings == 0)
+        char* newStrings = (char*)realloc(strings, stringAvailable);
+        if (newStrings == 0)
         {
             if (debugOptions & DEBUG_SAVING)
                 Log("SAVE: Unable to realloc string table, size: %lu.\n", stringAvailable);
             throw MemoryException();
         }
+        else strings = newStrings;
      }
     strcpy(strings + stringSize, str);
     stringSize += len + 1;

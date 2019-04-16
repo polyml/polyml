@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-18
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-19
     
     Based on original code:    
     Copyright (c) 2000
@@ -151,9 +151,6 @@ struct
     and memRegHeapOverflowCall    = 10 * Word.toInt nativeWordSize
     and memRegStackOverflowCall   = 11 * Word.toInt nativeWordSize
     and memRegStackOverflowCallEx = 12 * Word.toInt nativeWordSize
-    
-    (* This can probably be much smaller now. *)
-    and memRegSize                = if hostIsX64 then 144 else 56 (* Size of area on the stack. *)
 
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
@@ -267,8 +264,6 @@ struct
     and xmm4 = SSE2Reg 0w4
     and xmm5 = SSE2Reg 0w5
     and xmm6 = SSE2Reg 0w6
-
-    val regClosure  = edx (* Addr. of closure for fn. call goes here. *)
 
     fun getReg (GeneralReg r) = r
     fun mkReg  n      = GeneralReg n  (* reg.up   *)
@@ -1072,12 +1067,6 @@ struct
 
     type handlerLab = addrs ref
 
-    datatype callKinds =
-        Recursive           (* The function calls itself. *)
-    |   ConstantCode of machineWord (* A function that doesn't need a closure *)
-    |   FullCall            (* Full closure call *)
-    |   DirectReg of genReg  (* Currently used within ForeignCall to call the RTS *)
-
     fun floatingPtOp{escape, md, nnn, rm} =
         opCodeBytes(FPESC escape, NONE) @ [(md <<- 0w6) orb8 (nnn <<- 0w3) orb8 rm]
 
@@ -1141,8 +1130,8 @@ struct
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
     |   AllocStoreVariable of { size: genReg, output: genReg, saveRegs: genReg list }
     |   StoreInitialised
-    |   CallFunction of callKinds
-    |   JumpToFunction of callKinds
+    |   CallAddress of genReg regOrMemoryArg
+    |   JumpAddress of genReg regOrMemoryArg
     |   ReturnFromFunction of int
     |   RaiseException of { workReg: genReg }
     |   UncondBranch of label
@@ -1210,11 +1199,6 @@ struct
         |   printRegOrMemoryArg _ (MemoryArg{ base, offset, index }) = printBaseOffset(base, index, offset)
         |   printRegOrMemoryArg _ (NonAddressConstArg c) = stream(LargeInt.toString c)
         |   printRegOrMemoryArg _ (AddressConstArg c) = stream(Address.stringOfWord c)
-        
-        fun printCallKind Recursive = stream "Recursive"
-        |   printCallKind (ConstantCode w) = (stream "code="; stream(stringOfWord w))
-        |   printCallKind FullCall = stream "via ClosureReg"
-        |   printCallKind (DirectReg reg) = printGReg reg
         
         fun printOpSize OpSize32 = "32"
         |   printOpSize OpSize64 = "64"
@@ -1312,9 +1296,8 @@ struct
         
         |   StoreInitialised => stream "StoreInitialised"
 
-        |   CallFunction callKind => (stream "CallFunction "; printCallKind callKind)
-
-        |   JumpToFunction callKind => (stream "JumpToFunction "; printCallKind callKind)
+        |   CallAddress source => (stream "CallAddress "; printRegOrMemoryArg printGReg source)
+        |   JumpAddress source => (stream "JumpAddress "; printRegOrMemoryArg printGReg source)
 
         |   ReturnFromFunction argsToRemove =>
                 (stream "ReturnFromFunction "; stream(Int.toString argsToRemove))
@@ -1912,18 +1895,10 @@ struct
 
         |   cgOp StoreInitialised = raise InternalError "cgOp: StoreInitialised"
 
-        |   cgOp(CallFunction Recursive) = (* Call to the start of the code.  Offset is patched in later. *)
+        |   cgOp(CallAddress(NonAddressConstArg _)) = (* Call to the start of the code.  Offset is patched in later. *)
                 opCodeBytes (CALL_32, NONE) @ int32Signed 0
-     
-        |   cgOp(CallFunction FullCall) =
-                (* Indirect call to the address held in the first word of the closure. *)
-            (
-                case targetArch of
-                    ObjectId32Bit => opAddressPlus2(Group5, 0, ebx, Index4 regClosure, 0w2 (* call *))
-                |   _ => opAddressPlus2(Group5, 0, regClosure, NoIndex, 0w2 (* call *))
-            )
 
-        |   cgOp(CallFunction(ConstantCode _)) =
+        |   cgOp(CallAddress(AddressConstArg _)) =
             if targetArch = Native64Bit
             then
             let
@@ -1938,20 +1913,16 @@ struct
                be the last instruction. *)
             else opCodeBytes (CALL_32, NONE) @ int32Signed ~5
             
-        |   cgOp(CallFunction(DirectReg reg)) = opRegPlus2(Group5, reg, 0w2 (* call *))
+        |   cgOp(CallAddress(RegisterArg reg)) = opRegPlus2(Group5, reg, 0w2 (* call *))
+     
+        |   cgOp(CallAddress(MemoryArg{base, offset, index})) =
+                opAddressPlus2(Group5, LargeInt.fromInt offset, base, index, 0w2 (* call *))
 
-        |   cgOp(JumpToFunction Recursive) =
+        |   cgOp(JumpAddress(NonAddressConstArg _)) =
                 (* Jump to the start of the current function.  Offset is patched in later. *)
                 opCodeBytes (JMP_32, NONE) @ int32Signed 0
-           
-        |   cgOp(JumpToFunction FullCall) =
-            (
-                case targetArch of
-                    ObjectId32Bit => opAddressPlus2(Group5, 0, ebx, Index4 regClosure, 0w4 (* jmp *))
-                |   _ => opAddressPlus2(Group5, 0, regClosure, NoIndex, 0w4 (* jmp *))
-            )
 
-        |   cgOp(JumpToFunction (ConstantCode _)) =
+        |   cgOp(JumpAddress (AddressConstArg _)) =
             if targetArch = Native64Bit
             then
             let
@@ -1962,9 +1933,12 @@ struct
             end
             else opCodeBytes (JMP_32, NONE) @ int32Signed ~5 (* As with Call. *)
             
-        |   cgOp(JumpToFunction (DirectReg reg)) =
+        |   cgOp(JumpAddress (RegisterArg reg)) =
             (* Used as part of indexed case - not for entering a function. *)
                 opRegPlus2(Group5, reg, 0w4 (* jmp *))
+
+        |   cgOp(JumpAddress(MemoryArg{base, offset, index})) =
+                opAddressPlus2(Group5, LargeInt.fromInt offset, base, index, 0w4 (* jmp *))
     
         |   cgOp(ReturnFromFunction args) =
             if args = 0
@@ -2486,7 +2460,7 @@ struct
                 (* On x86/32 it might be shorter to use DEC addrReg; ADD addrReg, indexReg. *)
                 Word8Vector.fromList(opAddress(if hostIsX64 then LEAL64 else LEAL32, ~1, addrReg, Index1 indexReg, addrReg)) :: list
 
-        |   fixupAddress(CallFunction Recursive, brCode, ic, list) =
+        |   fixupAddress(CallAddress(NonAddressConstArg _), brCode, ic, list) =
             let
                 val brLen = Word8Vector.length brCode
             in
@@ -2497,7 +2471,7 @@ struct
                 ] :: list
             end
 
-        |   fixupAddress(JumpToFunction Recursive, brCode, ic, list) =
+        |   fixupAddress(JumpAddress(NonAddressConstArg _), brCode, ic, list) =
             let
                 val brLen = Word8Vector.length brCode
             in
@@ -2608,12 +2582,12 @@ struct
                 then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, constnt) :: addr, na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress constnt) :: inl, addr, na)
 
-        |   getConstant(CallFunction(ConstantCode w), bytes, ic, (inl, addr, na)) =
+        |   getConstant(CallAddress(AddressConstArg w), bytes, ic, (inl, addr, na)) =
                 if targetArch = Native64Bit
                 then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, w) :: addr, na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineRelativeAddress w) :: inl, addr, na)
 
-        |   getConstant(JumpToFunction(ConstantCode w), bytes, ic, (inl, addr, na)) =
+        |   getConstant(JumpAddress(AddressConstArg w), bytes, ic, (inl, addr, na)) =
                 if targetArch = Native64Bit
                 then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, w) :: addr, na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineRelativeAddress w) :: inl, addr, na)
@@ -3935,7 +3909,6 @@ struct
         and  regSet         = RegSet.regSet
         and  label          = label
         and  branchOps      = branchOps
-        and  callKinds      = callKinds
         and  arithOp        = arithOp
         and  shiftType      = shiftType
         and  repOps         = repOps

@@ -141,7 +141,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetGCSystem(FirstArgument threadId);
 }
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 /* Windows file times are 64-bit numbers representing times in
    tenths of a microsecond. */
 #define TICKS_PER_MICROSECOND 10
@@ -171,7 +171,7 @@ extern "C" {
     operating system provides it.
 */
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 static FILETIME startTime;
 #define StrToLL _strtoi64
 #else
@@ -219,7 +219,7 @@ POLYUNSIGNED PolyTimingGetNow(FirstArgument threadId)
     Handle result = 0;
 
     try {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         FILETIME ft;
         GetSystemTimeAsFileTime(&ft);
         result = Make_arb_from_Filetime(taskData, ft);
@@ -248,8 +248,9 @@ POLYUNSIGNED PolyTimingBaseYear(FirstArgument threadId)
     Handle result = 0;
 
     try {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         result = Make_arbitrary_precision(taskData, 1601);
+
 #else
         result = Make_arbitrary_precision(taskData, 1970);
 #endif
@@ -303,7 +304,7 @@ POLYUNSIGNED PolyTimingLocalOffset(FirstArgument threadId, PolyWord arg)
 #if (defined(HAVE_GMTIME_R) || defined(HAVE_LOCALTIME_R))
         struct tm resultTime;
 #endif
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         /* Although the offset is in seconds it is since 1601. */
         FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
         getFileTimeFromArb(taskData, pushedArg, &ftSeconds); /* May raise exception. */
@@ -369,7 +370,7 @@ POLYUNSIGNED PolyTimingSummerApplies(FirstArgument threadId, PolyWord arg)
 
     try {
         time_t theTime;
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
         getFileTimeFromArb(taskData, pushedArg, &ftSeconds); /* May raise exception. */
         ULARGE_INTEGER   liTime;
@@ -429,7 +430,7 @@ POLYUNSIGNED PolyTimingConvertDateStuct(FirstArgument threadId, PolyWord arg)
         time.tm_wday = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(7));
         time.tm_yday = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(8));
         time.tm_isdst = get_C_int(taskData, DEREFHANDLE(pushedArg)->Get(9));
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         _tzset(); /* Make sure we set the current locale. */
 #else
         setlocale(LC_TIME, "");
@@ -465,7 +466,7 @@ POLYUNSIGNED PolyTimingGetUser(FirstArgument threadId)
     Handle result = 0;
 
     try {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         FILETIME ut, ct, et, kt;
         if (!GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
             raise_syscall(taskData, "GetProcessTimes failed", GetLastError());
@@ -496,7 +497,7 @@ POLYUNSIGNED PolyTimingGetSystem(FirstArgument threadId)
     Handle result = 0;
 
     try {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         FILETIME ct, et, kt, ut;
         if (!GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
             raise_syscall(taskData, "GetProcessTimes failed", GetLastError());
@@ -547,7 +548,7 @@ POLYUNSIGNED PolyTimingGetReal(FirstArgument threadId)
     Handle result = 0;
 
     try {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         FILETIME ft;
         GetSystemTimeAsFileTime(&ft);
         subFiletimes(&ft, &startTime);
@@ -578,7 +579,7 @@ POLYUNSIGNED PolyTimingGetChildUser(FirstArgument threadId)
     Handle result = 0;
 
     try {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         result = Make_arbitrary_precision(taskData, 0);
 #else
         struct rusage rusage;
@@ -606,7 +607,7 @@ POLYUNSIGNED PolyTimingGetChildSystem(FirstArgument threadId)
     Handle result = 0;
 
     try {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         result = Make_arbitrary_precision(taskData, 0);
 #else
         struct rusage rusage;
@@ -644,7 +645,7 @@ POLYUNSIGNED PolyTimingGetGCSystem(FirstArgument threadId)
     else return result->Word().AsUnsigned();
 }
 
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
 void addFiletimes(FILETIME *result, const FILETIME *x)
 {
     ULARGE_INTEGER liA, liB;
@@ -768,7 +769,7 @@ static Timing timingModule;
 
 void Timing::Init(void)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     // Record an initial time of day to use as the basis of real timing
     GetSystemTimeAsFileTime(&startTime);
 #else

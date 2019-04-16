@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016-18
+    Copyright David C. J. Matthews 2010, 2012, 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -98,12 +98,6 @@ sig
 
     val invertTest: branchOps -> branchOps
 
-    datatype callKinds =
-        Recursive
-    |   ConstantCode of machineWord
-    |   FullCall
-    |   DirectReg of genReg
-
     datatype label = Label of { labelNo: int }
 
     datatype indexType =
@@ -143,8 +137,8 @@ sig
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
     |   AllocStoreVariable of { size: genReg, output: genReg, saveRegs: genReg list }
     |   StoreInitialised
-    |   CallFunction of callKinds
-    |   JumpToFunction of callKinds
+    |   CallAddress of genReg regOrMemoryArg
+    |   JumpAddress of genReg regOrMemoryArg
     |   ReturnFromFunction of int
     |   RaiseException of { workReg: genReg }
     |   UncondBranch of label
@@ -205,7 +199,6 @@ sig
     and memRegCStackPtr: int
     and memRegThreadSelf: int
     and memRegStackPtr: int
-    and memRegSize: int
 
     (* Debugging controls and streams for optimiser. *)
     val lowLevelOptimise: code -> bool
@@ -222,7 +215,6 @@ sig
         and  regSet         = RegSet.regSet
         and  label          = label
         and  branchOps      = branchOps
-        and  callKinds      = callKinds
         and  arithOp        = arithOp
         and  shiftType      = shiftType
         and  repOps         = repOps

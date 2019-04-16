@@ -1,6 +1,6 @@
 /*
     Title:      Error Messages.
-    Copyright (c) 2012, 2017 David C. J. Matthews
+    Copyright (c) 2012, 2017, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,7 @@
 #error "No configuration file"
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <winsock2.h>
 #endif
 
@@ -48,7 +48,7 @@ static struct {
     const char*   errorString;
 } errortable[] =
 {
-#if(!defined(_WIN32) || defined(__CYGWIN__))
+#if (!defined(_WIN32))
 #ifdef EPERM
     { EPERM,    "EPERM" },
 #endif

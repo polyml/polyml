@@ -1,7 +1,7 @@
 /*
     Title:      Mutex and Condition Variable library.
 
-    Copyright (c) 2007, 2012 David C. J. Matthews
+    Copyright (c) 2007, 2012, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -34,13 +34,13 @@
 #include <windows.h>
 #endif
 
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if (defined(HAVE_SEMAPHORE_H) && !defined(_WIN32))
 // Don't include semaphore.h on Mingw.  It's provided but doesn't compile.
 #include <semaphore.h>
 #endif
 
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
-// Don't include pthread if this is native Windows and not Cygwin
+#if (!defined(_WIN32))
+// Don't include pthread if this is native Windows.
 #include <pthread.h>
 #endif
 
@@ -54,9 +54,9 @@ public:
     bool Trylock(void); // Try to lock the mutex - returns true if succeeded
 
 private:
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if (!defined(_WIN32))
     pthread_mutex_t lock;
-#elif defined(HAVE_WINDOWS_H)
+#else
     CRITICAL_SECTION lock;
 #endif
     // Debugging info.
@@ -86,7 +86,7 @@ public:
     void Wait(PLock *pLock); // Wait indefinitely.  Drops the lock and reaquires it.
     // Wait for a signal or until the time.  The argument is an absolute time
     // represented as a struct timespec in Unix and a FILETIME in Windows.
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     void WaitUntil(PLock *pLock, const FILETIME *timeArg);
 #else
     void WaitUntil(PLock *pLock, const timespec *timeArg);
@@ -96,9 +96,9 @@ public:
     // N.B.  Signal MUST be called only with the lock held.
     void Signal(void); // Wake up the waiting thread.
 private:
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if (!defined(_WIN32))
     pthread_cond_t cond;
-#elif defined(HAVE_WINDOWS_H)
+#else
     CONDITION_VARIABLE cond;
 #endif
 };
@@ -112,10 +112,10 @@ public:
     bool Wait(void);
     void Signal(void);
 private:
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if (!defined(_WIN32))
     sem_t localSema, *sema;
     bool isLocal;
-#elif defined(HAVE_WINDOWS_H)
+#else
     HANDLE sema;
 #endif
 };

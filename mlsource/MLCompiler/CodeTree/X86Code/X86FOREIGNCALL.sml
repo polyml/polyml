@@ -62,6 +62,8 @@ struct
                rax, ebx, r8, r9, r10 for the first five arguments in X86/64 and
                rax, rsi, r8, r9 and r10 for the first five arguments in X86/64-32 bit.
     *)
+    
+    val memRegSize = 0
 
     val (polyWordOpSize, nativeWordOpSize) =
         case targetArch of
@@ -307,7 +309,7 @@ struct
             (*  For Windows/64 add in a 32 byte save area ater we've pushed any arguments. *)
             (case abi of X64Win => [ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg 32, opSize=nativeWordOpSize}] | _ => []) @
             [
-                CallFunction(DirectReg entryPtrReg), (* Call the function *)
+                CallAddress(RegisterArg entryPtrReg), (* Call the function *)
                 loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)
             ] @
             (

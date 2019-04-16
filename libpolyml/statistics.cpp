@@ -105,7 +105,7 @@
 #define ASSERT(x)
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <tchar.h>
 #else
 #define _T(x) x
@@ -178,6 +178,12 @@ Statistics::Statistics(): accessLock("Statistics")
 
 void Statistics::Init()
 {
+#if (defined(_WIN32))
+    // Record an initial time of day to use as the basis of real timing
+    GetSystemTimeAsFileTime(&startTime);
+#else
+    gettimeofday(&startTime, NULL);
+#endif
 #ifdef HAVE_WINDOWS_H
     // Get the process ID to use in the shared memory name
     DWORD pid = ::GetCurrentProcessId();
@@ -205,10 +211,7 @@ void Statistics::Init()
         return;
     }
     memSize = STATS_SPACE;
-    // Record an initial time of day to use as the basis of real timing
-    GetSystemTimeAsFileTime(&startTime);
 #else
-    gettimeofday(&startTime, NULL);
 #if HAVE_MMAP
     if (exportStats)
     {
@@ -555,7 +558,7 @@ void Statistics::setTimeValue(int which, unsigned long secs, unsigned long usecs
     }
 }
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 // Native Windows
 void Statistics::copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime, const FILETIME &gcRtime)
 {
@@ -590,7 +593,7 @@ void Statistics::updatePeriodicStats(size_t freeWords, unsigned threadsInML)
 {
     setSize(PSS_ALLOCATION_FREE, freeWords*sizeof(PolyWord));
 
-#if (defined(HAVE_WINDOWS_H) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     FILETIME ct, et, st, ut, rt;
     GetProcessTimes(GetCurrentProcess(), &ct, &et, &st, &ut);
     GetSystemTimeAsFileTime(&rt);

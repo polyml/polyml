@@ -151,7 +151,6 @@ public:
     ThreadObject *threadObject;  // Pointer to the thread object.
     int         lastError;      // Last error from foreign code.
     void        *signalStack;  // Stack to handle interrupts (Unix only)
-    PolyWord    foreignStack;   // Stack of saved data used in call_sym_and_convert
     bool        inML;          // True when this is in ML, false in the RTS
 
     // Get a TaskData pointer given the ML taskId.
@@ -260,7 +259,7 @@ public:
     static Waiter *defaultWaiter;
 };
 
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
 class WaitHandle: public Waiter
 {
 public:
@@ -270,9 +269,9 @@ private:
     HANDLE m_Handle;
     unsigned m_maxWait;
 };
-#endif
 
-#if (! defined(_WIN32) || defined(__CYGWIN__))
+#else
+
 // Unix: Wait until a file descriptor is available for input
 class WaitInputFD: public Waiter
 {

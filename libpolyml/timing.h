@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2011-12, 16.
+    Further development Copyright David C.J. Matthews 2011-12, 16, 19.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -50,10 +50,8 @@ class TaskData;
 /* time functions etc */
 
 // Define classes for operations on time values in Windows and Posix.
-// N.B. In Cygwin we use both classes because in some cases we need
-// Windows-style timing and in other places we use Unix-style.
 
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
 class FileTimeTime {
 public:
     FileTimeTime() { t.dwLowDateTime = t.dwHighDateTime = 0; }
@@ -84,7 +82,7 @@ protected:
 #endif
 
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__)) /* Native windows */
+#ifdef _WIN32 /* Native windows */
 #define TIMEDATA FileTimeTime
 #else /* Unix and Cygwin. */
 #define TIMEDATA TimeValTime

@@ -1,7 +1,7 @@
 ;
 ;  Title:  Assembly code routines for the poly system.
 ;  Author:    David Matthews
-;  Copyright (c) David C. J. Matthews 2000-2018
+;  Copyright (c) David C. J. Matthews 2000-2019
 ;
 ;  This library is free software; you can redistribute it and/or
 ;  modify it under the terms of the GNU Lesser General Public
@@ -38,7 +38,7 @@
 ;  r15:  Memory allocation pointer
 
 ; Extra entries on the C stack
-Fr_Size             EQU     144         ; Must be multiple of 16 to get alignment correct
+Fr_Size             EQU     64         ; Must be multiple of 16 to get alignment correct
 
 ; This is the argument vector passed in to X86AsmSwitchToPoly
 ; It is used to initialise the frame.  A few values are updated
@@ -124,7 +124,6 @@ ENDM
 ; this one.
 X86AsmSwitchToPoly  PROC FRAME
     push    rbp                             ; Standard entry sequence
-    mov     [ArgVector.SaveCStack+rcx],rsp  ; Save this here instead of setting rbp itself
     push    rbx                             ; Save callee-save registers
     push    r12
     push    r13
@@ -135,6 +134,7 @@ X86AsmSwitchToPoly  PROC FRAME
     .endprolog
     mov     rbp,rcx                         ; Move argument into rbp - this is definitely non-standard
     sub     rsp,(Fr_size-56)
+    mov     [ArgVector.SaveCStack+rcx],rsp  ; Save the C stack pointer
     mov     r15,[ArgVector.LocalMpointer+rbp]
     mov     rsp,[ArgVector.StackPtr+rbp]
     movsd   xmm0,[ArgVector.SaveXMM0+rbp]
@@ -192,7 +192,7 @@ SaveFullState:
     mov     [ArgVector.StackPtr+rbp],rsp
     mov     [ArgVector.LocalMpointer+rbp],r15       ; Save back heap pointer
     mov     rsp,[ArgVector.SaveCStack+rbp]          ; Restore C stack pointer
-    sub     rsp,56
+    add     rsp,(Fr_size-56)
     pop     rsi
     pop     rdi
     pop     r15                            ; Restore callee-save registers

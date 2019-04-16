@@ -411,7 +411,12 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             pid_t pid = fork();
             if (pid < 0) raise_syscall(taskData, "fork failed", errno);
-            if (pid == 0) processes->SetSingleThreaded();
+            if (pid == 0)
+            {
+                // In the child process the only thread is this one.
+                processes->SetSingleThreaded();
+                GCSetSingleThreadAfterFork();
+            }
             return Make_fixed_precision(taskData, pid);
         }
 

@@ -112,7 +112,8 @@
 typedef int socklen_t;
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+
+#if (defined(_WIN32))
 #include <winsock2.h>
 #include <ws2tcpip.h> // For getaddrinfo
 #else
@@ -193,7 +194,7 @@ extern "C" {
 #define ALLOC(n) alloc_and_save(taskData, n)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 static int winsock_init = 0; /* Check that it has been initialised. */
 
 #else
@@ -478,7 +479,7 @@ static Handle mkSktab(TaskData *taskData, void*, char *p);
 static Handle setSocketOption(TaskData *taskData, Handle sockHandle, Handle optHandle, int level, int opt);
 static Handle getSocketOption(TaskData *taskData, Handle args, int level, int opt);
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #define GETERROR     (WSAGetLastError())
 #define TOOMANYFILES    WSAEMFILE
 #define NOMEMORY        WSA_NOT_ENOUGH_MEMORY
@@ -547,7 +548,7 @@ void WaitSelect::Wait(unsigned maxMillisecs)
     if (selectResult < 0) errorResult = GETERROR;
 }
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 class WinSocket : public WinStreamBase
 {
 public:
@@ -1901,7 +1902,7 @@ POLYUNSIGNED PolyNetworkCloseSocket(FirstArgument threadId, PolyWord strm)
 
     try {
         // This is defined to raise an exception if the socket has already been closed
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         WinSocket *winskt = *(WinSocket**)(pushedStream->WordP());
         if (winskt != 0)
         {
@@ -2196,7 +2197,7 @@ static Networking networkingModule;
 
 void Networking::Init(void)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #define WINSOCK_MAJOR_VERSION   2
 #define WINSOCK_MINOR_VERSION   2
     WSADATA wsaData;
@@ -2214,7 +2215,7 @@ void Networking::Init(void)
 
 void Networking::Stop(void)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     if (winsock_init) WSACleanup();
     winsock_init = 0;
 #endif

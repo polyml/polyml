@@ -1043,9 +1043,13 @@ struct
         and rename = OS.FileSys.rename
         and readlink = OS.FileSys.readLink
 
-        val stdin  : file_desc = RunCall.unsafeCast 0
-        and stdout : file_desc = RunCall.unsafeCast 1
-        and stderr : file_desc = RunCall.unsafeCast 2
+        local
+            val persistentFD: int -> file_desc = RunCall.rtsCallFull1 "PolyPosixCreatePersistentFD"
+        in
+            val stdin  : file_desc = persistentFD 0
+            and stdout : file_desc = persistentFD 1
+            and stderr : file_desc = persistentFD 2
+        end
 
         structure S =
         struct

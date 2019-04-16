@@ -1,7 +1,7 @@
 /*
    Title:  Assembly code routines for the poly system.
    Author:    David Matthews
-   Copyright (c) David C. J. Matthews 2000-2016
+   Copyright (c) David C. J. Matthews 2000-2019
  
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -58,7 +58,7 @@
 GLOBAL EXTNAME(id); \
 EXTNAME(id):
 
-#define Fr_Size                     56
+#define Fr_Size                     16
 
 /* This is the argument vector passed in to X86AsmSwitchToPoly
    It is used to initialise the frame.  A few values are updated
@@ -118,11 +118,11 @@ EXTNAME(id):
 INLINE_ROUTINE(X86AsmSwitchToPoly)
     pushl   %ebp                            # Standard entry sequence
     movl    8(%esp),%ebp                    # Address of argument vector
-    movl    %esp,Arg_SaveCStack(%ebp)
     pushl   %ebx
     pushl   %edi
     pushl   %esi                            # Push callee-save registers
     subl    $(Fr_Size-12),%esp              # Allocate frame
+    movl    %esp,Arg_SaveCStack(%ebp)
     movl    Arg_StackPtr(%ebp),%esp
     movl    Arg_ExceptionPacket(%ebp),%eax
     cmpl    $1,%eax                             # Did we raise an exception?
@@ -151,7 +151,7 @@ SaveFullState:
     fldcw   Arg_SaveFP(%ebp)                # ...load because we need the same rounding mode in the RTS
     movl    %esp,Arg_StackPtr(%ebp)         # Save ML stack pointer
     movl    Arg_SaveCStack(%ebp),%esp       # Restore C stack pointer
-    subl    $12,%esp                        # Sp is just before the registers
+    addl    $(Fr_Size-12),%esp
     popl    %esi
     popl    %edi
     popl    %ebx

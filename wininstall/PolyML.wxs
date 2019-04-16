@@ -1,20 +1,20 @@
 <?xml version='1.0' encoding='windows-1252'?>
 <!-- 32/64-bit version -->
 <?if $(var.Platform) = x64 ?>
-  <?define ProductName = "Poly/ML 5.8 (64 bit)" ?>
-  <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
-  <?define UpgradeCode = "7A6C52B0-B7C1-4879-8702-131A21F690FE" ?>
+<?define ProductName = "Poly/ML 5.8 (64 bit)" ?>
+<?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
+<?define UpgradeCode = "7A6C52B0-B7C1-4879-8702-131A21F690FE" ?>
 <?else ?>
-  <?define ProductName = "Poly/ML 5.8" ?>
-  <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
-  <?define UpgradeCode = "D7A17500-0FF5-4FC3-BC36-DD799D57071A" ?>
+<?define ProductName = "Poly/ML 5.8" ?>
+<?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
+<?define UpgradeCode = "D7A17500-0FF5-4FC3-BC36-DD799D57071A" ?>
 <?endif ?>
 
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'
-      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension"> 
+      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <Product Name="$(var.ProductName)" Id='*' UpgradeCode='$(var.UpgradeCode)'
         Language='2057' Codepage='1252' Version='5.8' Manufacturer='Poly/ML'>
-    
+
     <Package Id='*' Keywords='Installer' Description="Poly/ML 5.8 Installer"
             InstallerVersion='200' Languages='2057' Compressed='yes' SummaryCodepage='1252' />
     <Condition Message="Poly/ML is only supported on Windows Vista or later.">
@@ -28,158 +28,155 @@
 
     <Property Id='DiskPrompt' Value="Poly/ML 5.8 Installation [1]" />
 
-    <Directory Id='TARGETDIR' Name='SourceDir'> 
-      <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'> 
-        <Directory Id='POLYMLDIR' Name='Poly ML'>
+    <Directory Id='TARGETDIR' Name='SourceDir'>
+      <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'>
+        <Directory Id='INSTALLDIR' Name='Poly ML'>
           <!-- Poly/ML -->
-          <Component Id='PolyLib.dll' Guid='*'> 
+          <Component Id='PolyLib.dll' Guid='*'>
             <File Id='PolyLibDLL' Name='$(var.PolyLib.TargetFileName)' DiskId='1' Source='$(var.PolyLib.TargetPath)' />
           </Component>
-            
-          <Component Id='PolyML.exe' Guid='*'> 
-            <File Id='PolyML.exe' Name='$(var.PolyML.TargetFileName)' DiskId='1' Source='$(var.PolyML.TargetPath)' KeyPath="yes"> 
-              <Shortcut Id="startmenuPolyML" Directory="ProgramMenuDir" Name="PolyML" 
-                        Advertise="yes" WorkingDirectory='POLYMLDIR' Icon="polyicon.exe" />
-              <Shortcut Id="desktopPolyML" Directory="DesktopFolder" Name="PolyML"
-                        Advertise="yes" WorkingDirectory='POLYMLDIR' Icon="polyicon.exe" />
-            </File>
+
+          <Component Id='PolyML.exe' Guid='*'>
+            <File Id='PolyML.exe' Name='$(var.PolyML.TargetFileName)' DiskId='1' Source='$(var.PolyML.TargetPath)' KeyPath="yes"/>
 
             <!-- Path registry key so MLShell can find PolyML.exe -->
             <RegistryKey Root='HKLM' Key='SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\PolyML.exe'>
-                <RegistryValue Id='DefaultValue' Type='string' Value='[#PolyML.exe]' Action='write' />
-                <RegistryValue Id='Path' Name='Path' Type='string' Value='[$PolyML.exe]' Action='write' />
+              <RegistryValue Id='DefaultValue' Type='string' Value='[#PolyML.exe]' Action='write' />
+              <RegistryValue Id='Path' Name='Path' Type='string' Value='[$PolyML.exe]' Action='write' />
             </RegistryKey>
           </Component>
 
           <!-- Poly/ML Performance monitor -->
-          <Component Id='PolyPerf.dll' Guid='*'>              
+          <Component Id='PolyPerf.dll' Guid='*'>
             <File Id='PolyPerf.dll' Name='PolyPerf.dll' DiskId='1' Source='$(var.PolyPerf.TargetPath)' />
 
             <!-- Registry entries for Poly/ML in the services key -->
             <!-- This is used in place of the old form which required an ini file and header -->
             <util:PerformanceCategory Id='PerfCat' Name='PolyML' MultiInstance='yes'
                 Help='Poly/ML run-time statistics'
-                Open='OpenPolyPerfMon' Close='ClosePolyPerfMon' Collect='CollectPolyPerfMon' 
+                Open='OpenPolyPerfMon' Close='ClosePolyPerfMon' Collect='CollectPolyPerfMon'
                 DefaultLanguage='english' Library='[#PolyPerf.dll]'>
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='Threads total'
-                Help='Total number of ML threads.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='Threads ML'
-                Help='Number of threads currently running ML code.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='Threads IO'
-                Help='Number of threads currently waiting for IO.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='Threads Mutex'
-                Help='Number of threads waiting for a mutex.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='Threads CondVar'
-                Help='Number of threads waiting for a condition variable.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='Threads Signal'
-                Help='Number of threads waiting for a signal.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='Full GCs'
-                Help='Number of full garbage collections.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='Partial GCs'
-                Help='Number of partial garbage collections.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='Threads total'
+                  Help='Total number of ML threads.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='Threads ML'
+                  Help='Number of threads currently running ML code.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='Threads IO'
+                  Help='Number of threads currently waiting for IO.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='Threads Mutex'
+                  Help='Number of threads waiting for a mutex.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='Threads CondVar'
+                  Help='Number of threads waiting for a condition variable.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='Threads Signal'
+                  Help='Number of threads waiting for a signal.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='Full GCs'
+                  Help='Number of full garbage collections.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='Partial GCs'
+                  Help='Number of partial garbage collections.' />
               <util:PerformanceCounter Type='numberOfItems32'
                   Name='Sharing passes'
                   Help='Number of garbage collection sharing passes.' />
               <!-- The space values are displayed as percentages.  The numerator is the first
                   counter, the denominator is the second. -->
-            <util:PerformanceCounter Type='rawFraction'
-                Name='Last GC%'
-                Help='The proportion of the total heap free after the last full or partial GC.' />
-            <util:PerformanceCounter Type='rawBase'
-                Name='Last GC base'
-                Help='Base counter - not displayed.' />
-            <util:PerformanceCounter Type='rawFraction'
-                Name='Last Full GC%'
-                Help='The proportion of the total heap free after the last full GC.  Measures the amount of live data.' />
-            <util:PerformanceCounter Type='rawBase'
-                Name='Last Full GC base'
-                Help='Base counter - not displayed.' />
-            <util:PerformanceCounter Type='rawFraction'
-                Name='Alloc Free%'
-                Help='The proportion of the allocation area currently free.  When this space is empty Poly/ML will start a garbage collection.' />
-            <util:PerformanceCounter Type='rawBase'
-                Name='Unreserved base'
-                Help='Base counter - not displayed.' />
-            <util:PerformanceCounter Type='timer100Ns'
-                Name='NonGC User time'
-                Help='The total time the program has been running in user space excluding garbage collection.' />
-            <util:PerformanceCounter Type='timer100Ns'
-                Name='NonGC System time'
-                Help='The total time the program has been running in the system excluding garbage collection.' />
-            <util:PerformanceCounter Type='timer100Ns'
-                Name='GC User time'
-                Help='The time the program has spent in user space when garbage collecting.' />
-            <util:PerformanceCounter Type='timer100Ns'
-                Name='GC System time'
-                Help='The time the program has spent in the system when garbage collecting.' />
-            <util:PerformanceCounter Type='timer100Ns'
-                Name='NonGC User time'
-                Help='The total time the program has been running in user space excluding garbage collection.' />
-            <util:PerformanceCounter Type='timer100Ns'
-                  Name='NonGC Real time'
-                  Help='The real time the program has been running excluding garbage collection.' />
-            <util:PerformanceCounter Type='timer100Ns'
-                  Name='GC Real time'
-                  Help='The real time the program has spent in the garbage collector.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='User 0'
-                Help='The value of this counter is set by the ML application.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='User 1'
-                Help='The value of this counter is set by the ML application.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='User 2'
-                Help='The value of this counter is set by the ML application.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='User 3'
-                Help='The value of this counter is set by the ML application.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='User 4'
-                Help='The value of this counter is set by the ML application.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='User 5'
-                Help='The value of this counter is set by the ML application.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='User 6'
-                Help='The value of this counter is set by the ML application.' />
-            <util:PerformanceCounter Type='numberOfItems32'
-                Name='User 7'
-                Help='The value of this counter is set by the ML application.' />
+              <util:PerformanceCounter Type='rawFraction'
+                  Name='Last GC%'
+                  Help='The proportion of the total heap free after the last full or partial GC.' />
+              <util:PerformanceCounter Type='rawBase'
+                  Name='Last GC base'
+                  Help='Base counter - not displayed.' />
+              <util:PerformanceCounter Type='rawFraction'
+                  Name='Last Full GC%'
+                  Help='The proportion of the total heap free after the last full GC.  Measures the amount of live data.' />
+              <util:PerformanceCounter Type='rawBase'
+                  Name='Last Full GC base'
+                  Help='Base counter - not displayed.' />
+              <util:PerformanceCounter Type='rawFraction'
+                  Name='Alloc Free%'
+                  Help='The proportion of the allocation area currently free.  When this space is empty Poly/ML will start a garbage collection.' />
+              <util:PerformanceCounter Type='rawBase'
+                  Name='Unreserved base'
+                  Help='Base counter - not displayed.' />
+              <util:PerformanceCounter Type='timer100Ns'
+                  Name='NonGC User time'
+                  Help='The total time the program has been running in user space excluding garbage collection.' />
+              <util:PerformanceCounter Type='timer100Ns'
+                  Name='NonGC System time'
+                  Help='The total time the program has been running in the system excluding garbage collection.' />
+              <util:PerformanceCounter Type='timer100Ns'
+                  Name='GC User time'
+                  Help='The time the program has spent in user space when garbage collecting.' />
+              <util:PerformanceCounter Type='timer100Ns'
+                  Name='GC System time'
+                  Help='The time the program has spent in the system when garbage collecting.' />
+              <util:PerformanceCounter Type='timer100Ns'
+                  Name='NonGC User time'
+                  Help='The total time the program has been running in user space excluding garbage collection.' />
+              <util:PerformanceCounter Type='timer100Ns'
+                    Name='NonGC Real time'
+                    Help='The real time the program has been running excluding garbage collection.' />
+              <util:PerformanceCounter Type='timer100Ns'
+                    Name='GC Real time'
+                    Help='The real time the program has spent in the garbage collector.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='User 0'
+                  Help='The value of this counter is set by the ML application.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='User 1'
+                  Help='The value of this counter is set by the ML application.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='User 2'
+                  Help='The value of this counter is set by the ML application.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='User 3'
+                  Help='The value of this counter is set by the ML application.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='User 4'
+                  Help='The value of this counter is set by the ML application.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='User 5'
+                  Help='The value of this counter is set by the ML application.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='User 6'
+                  Help='The value of this counter is set by the ML application.' />
+              <util:PerformanceCounter Type='numberOfItems32'
+                  Name='User 7'
+                  Help='The value of this counter is set by the ML application.' />
             </util:PerformanceCategory>
           </Component>
         </Directory>
       </Directory>
 
-      <Directory Id="ProgramMenuFolder" Name="Programs"> 
-        <Directory Id="ProgramMenuDir" Name='Poly ML' > 
-          <Component Id='IDProgramGroup' Guid='*'> 
+      <Directory Id="ProgramMenuFolder" Name="Programs">
+        <Directory Id="ProgramMenuDir" Name='Poly ML' >
+          <Component Id='IDProgramGroup' Guid='*'>
             <RemoveFolder Id='IDProgramGroup' On='uninstall'/>
             <RegistryValue Root='HKCU' Key='SOFTWARE\PolyML\PolyML'  Type='string' Value='Poly ML'  KeyPath='yes' />
+            <Shortcut Id="PolyMLShortcut1" Name="Poly ML" Description="Poly/ML"
+                      Target="[INSTALLDIR]PolyML.exe" WorkingDirectory="INSTALLDIR"/>
           </Component>
         </Directory>
       </Directory>
       <Directory Id="DesktopFolder" Name="Desktop"/>
     </Directory>
 
-    <Feature Id='Complete' Title='Poly ML' Level='1' Description="Poly/ML" Display='expand' AllowAdvertise="no"> 
-      <Feature Id='PolyML' Title='Poly ML' Description='The Poly/ML Program' Level='1'> 
+    <Feature Id='Complete' Title='Poly ML' Level='1' Description="Poly/ML" Display='expand' AllowAdvertise="no">
+      <Feature Id='PolyML' Title='Poly ML' Description='The Poly/ML Program' Level='1'>
         <ComponentRef Id='PolyLib.dll' />
         <ComponentRef Id='PolyML.exe' />
       </Feature>
-      <Feature Id='PolyPerf' Title='PerfMon plug-in' Description='Perfomance monitor plug-in for Poly/ML' Level='1'> 
+      <Feature Id='PolyPerf' Title='PerfMon plug-in' Description='Perfomance monitor plug-in for Poly/ML' Level='1'>
         <ComponentRef Id='PolyPerf.dll' />
         <!-- If we are installing the 32-bit version on a 64-bit system we can't install the performance
               monitor plug-in.  This works by setting the level to zero (invisible) if we are on 64-bit OS. -->
         <?if $(var.Platform) = x86 ?>
-          <Condition Level='0'><![CDATA[Msix64]]></Condition>
+        <Condition Level='0'><![CDATA[Msix64]]></Condition>
         <?endif?>
       </Feature>
       <ComponentRef Id='IDProgramGroup' />
@@ -190,6 +187,6 @@
     <Icon Id="polyicon.exe" SourceFile="$(var.polyicon.TargetPath)" />
     <Property Id="ARPPRODUCTICON" Value="polyicon.exe" />
     <Property Id="ARPHELPLINK" Value="http://www.polyml.org"/>
-      <Property Id="ALLUSERS" Value="2"/>
+    <Property Id="ALLUSERS" Value="2"/>
   </Product>
 </Wix>

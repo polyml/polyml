@@ -66,7 +66,7 @@
 #endif
 
 // Include this next before errors.h since in WinCE at least the winsock errors are defined there.
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <winsock2.h>
 #include <tchar.h>
 #define NOMEMORY        ERROR_NOT_ENOUGH_MEMORY
@@ -119,7 +119,7 @@ extern "C" {
 #define SAVE(x) taskData->saveVec.push(x)
 #define ALLOC(n) alloc_and_save(taskData, n)
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #define ISPATHSEPARATOR(c)  ((c) == '\\' || (c) == '/')
 #define DEFAULTSEPARATOR    "\\"
 #else

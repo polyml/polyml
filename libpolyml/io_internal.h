@@ -1,7 +1,7 @@
 /*
     Title:      Data structures shared between basioio.c and network.c.
 
-    Copyright (c) 2000, 2016, 2018 David C. J. Matthews
+    Copyright (c) 2000, 2016, 2018-19 David C. J. Matthews
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
 
@@ -41,7 +41,7 @@
 #define FILEKIND_ERROR  (-1)
 
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 
 #include <WinSock2.h>
 #include "locking.h" // For PLock

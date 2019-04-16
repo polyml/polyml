@@ -28,10 +28,11 @@ else
 fi
 
 AC_CANONICAL_HOST
-# Set the OS flag.  This should not really be required but is still used in
-# a few places for OS-specific quirks that can't be handled by more specific tests.
-# Check also for mingw in which case we want to build native Windows.
-poly_native_windows=no
+
+# If the compiler defines _WIN32 we're building for native Windows otherwise we're
+# building for something else.
+AC_CHECK_DECL([_WIN32], [poly_native_windows=yes], [poly_native_windows=no])
+
 # If we are building on cygwin or mingw we need to give the -no-defined flag to
 # build a DLL.  We also have to use Windows calling conventions rather than
 # SysV on 64-bit.
@@ -45,41 +46,11 @@ case "${host_os}" in
     sunos* | solaris*)
         AC_SUBST([OSFLAG], [-DSOLARIS])
         ;;
-    *mingw*)
-        AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
-        AC_CHECK_TOOL(WINDRES, windres)
-        poly_native_windows=yes
+    *mingw* | *cygwin*)
         poly_no_undefined=yes
         poly_use_windowscc=yes
-        CFLAGS="$CFLAGS -mthreads"
-        CXXFLAGS="$CXXFLAGS -mthreads"
-        ;;
-    *cygwin*)
-        poly_no_undefined=yes
-        poly_use_windowscc=yes
-        if test "$ac_cv_c_compiler_gnu" = "yes"; then
-            if $CC -dumpmachine | grep -q mingw; then
-                AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
-                poly_native_windows=yes
-                CFLAGS="$CFLAGS -mthreads"
-                CXXFLAGS="$CXXFLAGS -mthreads"
-            fi
-        fi
         ;;
 esac
-
-# Enable/Disable the GUI in Windows.  Should this only be present if
-# building on mingw?
-AC_ARG_ENABLE([windows-gui],
-        [AS_HELP_STRING([--enable-windows-gui],
-            [create a GUI in Windows. If this is disabled use a Windows console. @<:@default=yes@:>@])],
-        [case "${enableval}" in
-           yes) enablegui=true ;;
-           no)  enablegui=false ;;
-           *) AC_MSG_ERROR([bad value ${enableval} for --enable-windows-gui]) ;;
-        esac],
-        [enablegui=true])
-AM_CONDITIONAL([WINDOWSGUI], [test x$enablegui = xtrue])
 
 # libpolyml can be a DLL but libpolymain can't.
 # Enable shared libraries by default.  It complicates installation a bit if the
@@ -120,13 +91,6 @@ AC_CHECK_LIB(stdc++, main)
 AC_SEARCH_LIBS([dlopen], [dl dld])
 AC_SEARCH_LIBS([floor], [m])
 
-# The next two are only used with mingw.  We mustn't include ws2_32 in Cygwin64 because
-# the "select" function gets used instead of Cygwin's own.
-if test "x$poly_native_windows" = xyes; then
-    AC_CHECK_LIB(ws2_32, main)
-    AC_CHECK_LIB(gdi32, main)
-fi
-
 ## External names on Win64.  They have no leading underscores as per
 ## the X64 ABI published by MS.  Earlier versions of GCC (anything
 ## prior to 4.5.0) were faulty.
@@ -134,52 +98,6 @@ LT_SYS_SYMBOL_USCORE
 if test x$sys_symbol_underscore = xyes; then
     AC_DEFINE(SYMBOLS_REQUIRE_UNDERSCORE, [1], [Defined if external symbols are prefixed by underscores])
 fi
-
-# Solaris needs -lsocket, -lnsl and -lrt
-AC_SEARCH_LIBS([gethostbyname], [nsl])
-AC_SEARCH_LIBS([getsockopt], [socket])
-AC_SEARCH_LIBS([sem_wait], [rt])
-
-# Check for X and Motif headers and libraries
-AC_PATH_X
-
-if test "x${with_x}" = "xyes"; then
-
-    AC_DEFINE([WITH_XWINDOWS], [1], [Define if the X-Windows interface should be built])
-
-    if test "$x_includes" != "" ; then
-    if test  "$x_includes" != "NONE" ; then
-        CFLAGS="$CFLAGS -I$x_includes"
-        CXXFLAGS="$CXXFLAGS -I$x_includes"
-        CPPFLAGS="$CPPFLAGS -I$x_includes"
-    fi
-    fi
-    if test "$x_libraries" != "" ; then
-    if test "$x_libraries" != "NONE" ; then
-        LIBS="-L$x_libraries $LIBS"
-    fi
-    fi
-    AC_CHECK_LIB(X11, XCreateGC)
-    AC_CHECK_LIB(Xt, XtMalloc)
-    AC_CHECK_LIB(Xext, XextAddDisplay)
-
-    if test "$xm_includes" != "" ; then
-    if test "$xm_includes" != "NONE" ; then
-        CFLAGS="$CFLAGS -I$xm_includes"
-        CXXFLAGS="$CXXFLAGS -I$xm_includes"
-        CPPFLAGS="$CPPFLAGS -I$xm_includes"
-    fi
-    fi
-    if test "$xm_libraries" != "" ; then
-    if test "$xm_libraries" != "NONE" ; then
-        LIBS="-L$xm_libraries $LIBS"
-    fi
-    fi
-    AC_CHECK_LIB(Xm, XmGetDestination)
-
-fi
-
-# TODO: May need AC_PATH_XTRA for Solaris
 
 # Check for headers
 
@@ -267,37 +185,96 @@ fi
 
 AM_CONDITIONAL([INTERNAL_LIBFFI], [test "x$with_system_libffi" != "xyes"])
 
+# Special configuration for Windows or Unix.
+poly_windows_enablegui=false
 
-# Check for pthreads.  Mainly, this allows a single-threaded build on OSes such as Mac OS X
-# that don't have proper multi-threaded profiling.
-AC_ARG_WITH([threads],
-            [AS_HELP_STRING([--with-threads],
-              [use the pthread library for multi-threading @<:@default=check@:>@])],
-            [],
-            [with_threads=check])
+if test "x$poly_native_windows" = xyes; then
+    # The next two are only used with mingw.  We mustn't include ws2_32 in Cygwin64 because
+    # the "select" function gets used instead of Cygwin's own.
+    AC_CHECK_LIB(ws2_32, main)
+    AC_CHECK_LIB(gdi32, main)
 
-# If we want pthreads check that the library and headers are installed.
-# On Android pthread_create is in the standard library
-if test "x$with_threads" != "xno"; then
+    CFLAGS="$CFLAGS -mthreads"
+    CXXFLAGS="$CXXFLAGS -mthreads"
+    AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
+    AC_CHECK_TOOL(WINDRES, windres)
+
+    # Enable/Disable the GUI in Windows.
+    AC_ARG_ENABLE([windows-gui],
+        [AS_HELP_STRING([--enable-windows-gui],
+            [create a GUI in Windows. If this is disabled use a Windows console. @<:@default=yes@:>@])],
+        [case "${enableval}" in
+            yes) poly_windows_enablegui=true ;;
+            no)  poly_windows_enablegui=false ;;
+            *) AC_MSG_ERROR([bad value ${enableval} for --enable-windows-gui]) ;;
+        esac],
+        [poly_windows_enablegui=true])
+
+else
+    # Unix or similar e.g. Cygwin.  We need pthreads.
+    # On Android pthread_create is in the standard library
     AC_SEARCH_LIBS([pthread_create], [pthread],
         [AC_DEFINE([HAVE_LIBPTHREAD], [1],
               [Define to 1 if you have the `pthread' library (-lpthread).])
          AC_CHECK_HEADER([pthread.h],
              [AC_DEFINE([HAVE_PTHREAD_H], [1],
                   [Define to 1 if you have the <pthread.h> header file.])],
-             [if test "x$with_threads" != "xcheck"; then
-                  AC_MSG_FAILURE(
-                      [--with-threads was given, but pthread.h header file is not installed])
-              fi
+             [
+                  AC_MSG_FAILURE([pthread.h header file is not installed])
              ])
         ],
-        [if test "x$with_threads" != "xcheck"; then
-            AC_MSG_FAILURE(
-                [--with-threads was given, but pthread library is not installed])
-         fi
+        [
+            AC_MSG_FAILURE([pthread library is not installed])
         ])
-fi
 
+    # Solaris needs -lsocket, -lnsl and -lrt
+    AC_SEARCH_LIBS([gethostbyname], [nsl])
+    AC_SEARCH_LIBS([getsockopt], [socket])
+    AC_SEARCH_LIBS([sem_wait], [rt])
+
+    # Check for X and Motif headers and libraries
+    AC_PATH_X
+
+    if test "x${with_x}" = "xyes"; then
+
+        AC_DEFINE([WITH_XWINDOWS], [1], [Define if the X-Windows interface should be built])
+
+        if test "$x_includes" != "" ; then
+        if test  "$x_includes" != "NONE" ; then
+            CFLAGS="$CFLAGS -I$x_includes"
+            CXXFLAGS="$CXXFLAGS -I$x_includes"
+            CPPFLAGS="$CPPFLAGS -I$x_includes"
+        fi
+        fi
+        if test "$x_libraries" != "" ; then
+        if test "$x_libraries" != "NONE" ; then
+            LIBS="-L$x_libraries $LIBS"
+        fi
+        fi
+        AC_CHECK_LIB(X11, XCreateGC)
+        AC_CHECK_LIB(Xt, XtMalloc)
+        AC_CHECK_LIB(Xext, XextAddDisplay)
+
+        if test "$xm_includes" != "" ; then
+        if test "$xm_includes" != "NONE" ; then
+            CFLAGS="$CFLAGS -I$xm_includes"
+            CXXFLAGS="$CXXFLAGS -I$xm_includes"
+            CPPFLAGS="$CPPFLAGS -I$xm_includes"
+        fi
+        fi
+        if test "$xm_libraries" != "" ; then
+        if test "$xm_libraries" != "NONE" ; then
+            LIBS="-L$xm_libraries $LIBS"
+        fi
+        fi
+        AC_CHECK_LIB(Xm, XmGetDestination)
+
+    fi
+
+    # TODO: May need AC_PATH_XTRA for Solaris
+
+fi
+# End of Windows/Unix configuration.
 
 # Find out which type of object code exporter to use.
 # If we have winnt use PECOFF.  This really only applies to cygwin here.
@@ -385,7 +362,7 @@ AC_CHECK_FUNCS([sysctl sysctlbyname])
 AC_CHECK_FUNCS([localtime_r gmtime_r])
 AC_CHECK_FUNCS([ctermid tcdrain])
 
-# Where are the registers?
+# Where are the registers when we get a signal?  Used in time profiling.
 #Linux:
 AC_CHECK_MEMBERS([mcontext_t.gregs, mcontext_t.regs, mcontext_t.mc_esp],,,[#include "ucontext.h"])
 #Mac OS X:
@@ -398,17 +375,6 @@ AC_CHECK_MEMBERS([struct mcontext.ss, struct __darwin_mcontext.ss, struct __darw
 # FreeBSD includes a sun_len member in struct sockaddr_un
 AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
    [#include <sys/un.h>])
-
-# Build 32-bit in 64-bits.  For the moment this is independent of the architecture.
-AC_ARG_ENABLE([compact32bit],
-        [AS_HELP_STRING([--enable-compact32bit],
-            [use 32-bit values rather than native 64-bits.])])
-
-if test "x$enable_compact32bit" = "xyes"; then
-   if test X"$ac_cv_sizeof_voidp" != X8; then
-      AC_MSG_ERROR([--enable-compact32bit is only available on 64-bit architectures])
-   fi
-fi
 
 # This option enables the native code generator.  More precisely it allows
 # the byte code interpreter to be built on X86.
@@ -424,7 +390,8 @@ AC_ARG_ENABLE([native-codegeneration],
         [with_portable=check])
 
 # Check which CPU we're building for.  Can we use a native pre-built compiler
-# or do we need to fall back to the interpreter?
+# or do we need to fall back to the interpreter?  Most of these settings are to tweak
+# the ELF exporter.
 
 case "${host_cpu}" in
       i[[3456]]86*)
@@ -434,13 +401,8 @@ case "${host_cpu}" in
       x86_64* | amd64*)
             if test X"$ac_cv_sizeof_voidp" = X8; then
                 AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64-bit)])
-                if test "x$enable_compact32bit" = "xyes"; then
-                    AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
-                    polyarch=x86_32in64
-                else
-                    polyarch=x86_64
-                fi
-           else
+                polyarch=x86_64
+            else
                 AC_DEFINE([HOSTARCHITECTURE_X32], [1], [Define if the host is an X86 (32-bit ABI, 64-bit processor)])
                 polyarch=interpret
             fi
@@ -549,6 +511,20 @@ if test "x$polyarch" != "xinterpret" ; then
         [AC_MSG_RESULT([no])])
 fi
 
+# Build 32-bit in 64-bits.  This is only allowed when building on native 64-bit X86.
+AC_ARG_ENABLE([compact32bit],
+        [AS_HELP_STRING([--enable-compact32bit],
+            [use 32-bit values rather than native 64-bits.])])
+
+if test "x$enable_compact32bit" = "xyes"; then
+    if test X"$polyarch" = "Xx86_64" ; then
+        AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
+        polyarch=x86_32in64
+    else
+        AC_MSG_ERROR([--enable-compact32bit is only available on X86/64])
+   fi
+fi
+
 # Put this test at the end where it's less likely to be missed.
 # If we're compiling on Cygwin (and mingw?) and /usr/bin/file is not present
 # the link step will produce some strange warning messages of the form:
@@ -579,6 +555,7 @@ AM_CONDITIONAL([WINDOWSCALLCONV], [test "$poly_use_windowscc" = yes])
 # This is true if we are building for native Windows rather than Cygwin
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
+AM_CONDITIONAL([WINDOWSGUI], [test x$poly_windows_enablegui = xtrue])
 
 AM_CONDITIONAL([MACOSLDOPTS], [test "$poly_need_macosopt" = yes ])
 

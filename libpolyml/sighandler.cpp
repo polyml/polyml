@@ -2,7 +2,7 @@
     Title:      Signal handling
     Author:     David C.J. Matthews
 
-    Copyright (c) 2000-8, 2016 David C.J. Matthews
+    Copyright (c) 2000-8, 2016, 2019 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -65,19 +65,12 @@
 #include <stdlib.h> // For malloc
 #endif
 
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if (defined(HAVE_SEMAPHORE_H) && !defined(_WIN32))
 // Don't include semaphore.h on Mingw.  It's provided but doesn't compile.
 #include <semaphore.h>
 #endif
 
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
-// If we have the pthread library and header and we have semaphores we can use the pthread
-// signalling mechanism.  But if this is a native Windows build we don't use semaphores or
-// pthread even if they're provided.
-#define USE_PTHREAD_SIGNALS 1
-#endif
-
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #define INVALIDSIGNAL ERROR_INVALID_PARAMETER
 #else
 #define INVALIDSIGNAL EINVAL
@@ -135,7 +128,7 @@ unsigned receivedSignalCount = 0; // Incremented each time we get a signal
 // not the "handler" field.
 static PLock sigLock;
 
-#ifdef USE_PTHREAD_SIGNALS
+#if (!defined(_WIN32))
 static PSemaphore *waitSema;
 static int lastSignals[NSIG];
 static bool terminate = false;
@@ -159,7 +152,7 @@ static void signalArrived(int sig)
 void markSignalInuse(int sig)
 {
     sigData[sig].nonMaskable = true;
-#ifdef USE_PTHREAD_SIGNALS
+#if (!defined(_WIN32))
     // Enable this signal.
     sigset_t sigset;
     sigemptyset(&sigset);
@@ -187,7 +180,7 @@ void RequestConsoleInterrupt(void)
 }
 #endif
 
-#ifdef USE_PTHREAD_SIGNALS
+#if (!defined(_WIN32))
 // Request the main thread to change the blocking state of a signal.
 class SignalRequest: public MainThreadRequest
 {
@@ -311,7 +304,7 @@ POLYUNSIGNED PolySetSignalHandler(FirstArgument threadId, PolyWord signalNo, Pol
             // we affect is SIGINT and that is handled by RequestConsoleInterrupt.
             if (! sigData[sign].nonMaskable)
             {
-#ifdef USE_PTHREAD_SIGNALS
+#if (!defined(_WIN32))
                 SignalRequest request(sign, action);
                 processes->MakeRootRequest(taskData, &request);
 #endif
@@ -386,7 +379,7 @@ void initThreadSignals(TaskData *taskData)
     ASSERT(sigaltstack_result == 0);
 #endif
 #endif /* not the PC */
-#ifdef USE_PTHREAD_SIGNALS
+#if (!defined(_WIN32))
     // Block all signals except those marked as in use by the RTS so
     // that they will only be picked up by the signal detection thread.
     // Since the signal mask is inherited we really don't need to do
@@ -404,7 +397,7 @@ void initThreadSignals(TaskData *taskData)
 
 
 /* General purpose function to set up a signal handler. */
-#if (!defined(_WIN32) || defined(__CYGWIN__))
+#if (!defined(_WIN32))
 
 bool setSignalHandler(int sig, signal_handler_type func)
 {
@@ -485,7 +478,7 @@ public:
     virtual void Stop(void);
     virtual void GarbageCollect(ScanAddress * /*process*/);
 
-#ifdef USE_PTHREAD_SIGNALS
+#if (!defined(_WIN32))
     SigHandler() { threadRunning = false; }
     pthread_t detectionThreadId;
     bool      threadRunning;
@@ -495,7 +488,7 @@ public:
 // Declare this.  It will be automatically added to the table.
 static SigHandler sighandlerModule;
 
-#ifdef USE_PTHREAD_SIGNALS
+#if (!defined(_WIN32))
 // This thread is really only to convert between POSIX semaphores and
 // pthread condition variables.  It waits for a semphore to be released by the
 // signal handler running on the main thread and then wakes up the ML handler
@@ -544,7 +537,7 @@ void SigHandler::Init(void)
 #ifdef SIGILL
     sigData[SIGILL].nonMaskable = true;
 #endif
-#ifdef USE_PTHREAD_SIGNALS
+#if (!defined(_WIN32))
     static PSemaphore waitSemaphore;
     // Initialise the "wait" semaphore so that it blocks immediately.
     if (! waitSemaphore.Init(0, NSIG)) return;
@@ -569,7 +562,7 @@ void SigHandler::Init(void)
 // final clean-up.  Failing to do this causes a hang in Mac OS X.
 void SigHandler::Stop(void)
 {
-#ifdef USE_PTHREAD_SIGNALS
+#if (!defined(_WIN32))
     terminate = true;
     waitSema->Signal();
     pthread_join(detectionThreadId, NULL);

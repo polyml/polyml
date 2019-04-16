@@ -63,12 +63,12 @@
 #define ASSERT(x)
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include "winstartup.h"
 #include "winguiconsole.h"
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <tchar.h>
 #endif
 
@@ -91,7 +91,7 @@ void Exit(const char *msg, ...)
     va_end(vl);
     fprintf(polyStdout, "\n");
     fflush(polyStdout);
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     if (useConsole)
     {
         MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
@@ -112,7 +112,7 @@ void Crash(const char *msg, ...)
     fprintf(polyStdout, "\n");
     fflush(polyStdout);
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     if (useConsole)
     {
         MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
@@ -140,7 +140,7 @@ void ExitWithError(const char *msg, int err)
 
     fputs("\n", polyStdout);
     fflush(polyStdout);
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     if (useConsole)
     {
         MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
@@ -149,7 +149,7 @@ void ExitWithError(const char *msg, int err)
     exit(1);
 }
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 // Default is to log with OutputDebugString
 static FILE *logStream = NULL;
 #else
@@ -178,7 +178,7 @@ void Log(const char *msg, ...)
     va_list vl;
     va_start(vl, msg);
     if (logStream) vfprintf(logStream, msg, vl);
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     char buff[1024];
     if (_vsnprintf(buff, sizeof(buff), msg, vl) > 0)
         ::OutputDebugStringA(buff);

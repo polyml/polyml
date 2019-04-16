@@ -2,7 +2,7 @@
     Title:  Globals for the system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright David C. J. Matthews 2017-18
+    Copyright David C. J. Matthews 2017-19
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
@@ -66,7 +66,7 @@
 
 #define POLY_TAGSHIFT    1
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #  include <windows.h>
 #endif
 
@@ -106,7 +106,7 @@ typedef uintptr_t       POLYUNSIGNED;
 
 // We can use the C99 %zu in most cases except MingW since it uses
 // the old msvcrt and that only supports C89.
-#if (defined(_WIN32) && ! defined(__CYGWIN__) && (! defined(_MSC_VER) || _MSC_VER < 1800))
+#if (defined(_WIN32) && (! defined(_MSC_VER) || _MSC_VER < 1800))
 #  if (SIZEOF_VOIDP == 8)
 #    define PRI_SIZET PRIu64
 #  else

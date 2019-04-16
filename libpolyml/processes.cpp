@@ -82,8 +82,7 @@
 #include <windows.h>
 #endif
 
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
-#define HAVE_PTHREAD 1
+#if (!defined(_WIN32))
 #include <pthread.h>
 #endif
 
@@ -92,7 +91,7 @@
 #include <sys/sysctl.h>
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
 #include <tchar.h>
 #endif
 
@@ -289,9 +288,9 @@ public:
        It must also be held before deleting a TaskData object
        or using it in a thread other than the "owner"  */
     PLock schedLock;
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_key_t tlsId;
-#elif defined(HAVE_WINDOWS_H)
+#else
     DWORD tlsId;
 #endif
 
@@ -313,7 +312,7 @@ public:
     int exitResult;
     bool exitRequest;
 
-#ifdef HAVE_WINDOWS_H
+#ifdef HAVE_WINDOWS_H /* Windows including Cygwin */
     // Used in profiling
     HANDLE hStopEvent; /* Signalled to stop all threads. */
     HANDLE profilingHd;
@@ -554,7 +553,7 @@ void Processes::WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hWakeTim
 {
     // Convert the time into the correct format for WaitUntil before acquiring
     // schedLock.  div_longc could do a GC which requires schedLock.
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     // On Windows it is the number of 100ns units since the epoch
     FILETIME tWake;
     getFileTimeFromArb(taskData, hWakeTime, &tWake);
@@ -784,7 +783,7 @@ void TaskData::FillUnusedSpace(void)
 
 
 TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
-        stack(0), threadObject(0), signalStack(0), foreignStack(TAGGED(0)),
+        stack(0), threadObject(0), signalStack(0),
         inML(false), requests(kRequestNone), blockMutex(0), inMLHeap(false),
         runningProfileTimer(false)
 {
@@ -845,7 +844,7 @@ void Processes::ThreadExit(TaskData *taskData)
     if (debugOptions & DEBUG_THREADS)
         Log("THREAD: Thread %p exiting\n", taskData);
 
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     // Block any profile interrupt from now on.  We're deleting the ML stack for this thread.
     sigset_t block_sigs;
     sigemptyset(&block_sigs);
@@ -863,9 +862,9 @@ void Processes::ThreadExit(TaskData *taskData)
     taskData->threadExited = true;
     initialThreadWait.Signal(); // Tell it we've finished.
     schedLock.Unlock();
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_exit(0);
-#elif defined(HAVE_WINDOWS_H)
+#else
     ExitThread(0);
 #endif
 }
@@ -1118,7 +1117,7 @@ void Waiter::Wait(unsigned maxMillisecs)
     // Since this is used only when we can't monitor the source directly
     // we set this to 10ms so that we're not waiting too long.
     if (maxMillisecs > 10) maxMillisecs = 10;
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
     Sleep(maxMillisecs);
 #else
     // Unix
@@ -1136,7 +1135,7 @@ void Waiter::Wait(unsigned maxMillisecs)
 static Waiter defWait;
 Waiter *Waiter::defaultWaiter = &defWait;
 
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
 // Wait for the specified handle to be signalled.
 void WaitHandle::Wait(unsigned maxMillisecs)
 {
@@ -1147,9 +1146,9 @@ void WaitHandle::Wait(unsigned maxMillisecs)
         Sleep(maxMillisecs);
     else WaitForSingleObject(m_Handle, maxMillisecs);
 }
-#endif
 
-#if (!defined(_WIN32) || defined(__CYGWIN__))
+#else
+
 // Unix and Cygwin: Wait for a file descriptor on input.
 void WaitInputFD::Wait(unsigned maxMillisecs)
 {
@@ -1170,13 +1169,10 @@ void WaitInputFD::Wait(unsigned maxMillisecs)
 // in a few cases this isn't available.
 TaskData *Processes::GetTaskDataForThread(void)
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     return (TaskData *)pthread_getspecific(tlsId);
-#elif defined(HAVE_WINDOWS_H)
-    return (TaskData *)TlsGetValue(tlsId);
 #else
-    // If there's no threading.
-    return taskArray[0];
+    return (TaskData *)TlsGetValue(tlsId);
 #endif
 }
 
@@ -1248,10 +1244,10 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
             taskData->threadObject->debuggerSlots[i] = TAGGED(0);
     }
 
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     initThreadSignals(taskData);
     pthread_setspecific(tlsId, taskData);
-#elif defined(HAVE_WINDOWS_H)
+#else
     TlsSetValue(tlsId, taskData);
 #endif
     globalStats.incCount(PSC_THREADS);
@@ -1262,7 +1258,7 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
 // This function is run when a new thread has been forked.  The
 // parameter is the taskData value for the new thread.  This function
 // is also called directly for the main thread.
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
 static void *NewThreadFunction(void *parameter)
 {
     TaskData *taskData = (TaskData *)parameter;
@@ -1286,7 +1282,7 @@ static void *NewThreadFunction(void *parameter)
 
     return 0;
 }
-#elif defined(HAVE_WINDOWS_H)
+#else
 static DWORD WINAPI NewThreadFunction(void *parameter)
 {
     TaskData *taskData = (TaskData *)parameter;
@@ -1301,21 +1297,6 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
         processesModule.ThreadExit(taskData);
     }
     return 0;
-}
-#else
-static void NewThreadFunction(void *parameter)
-{
-    TaskData *taskData = (TaskData *)parameter;
-    initThreadSignals(taskData);
-    taskData->saveVec.init(); // Removal initial data
-    globalStats.incCount(PSC_THREADS);
-    processes->ThreadUseMLMemory(taskData);
-    try {
-        (void)taskData->EnterPolyCode();
-    }
-    catch (KillException &) {
-        processesModule.ThreadExit(taskData);
-    }
 }
 #endif
 
@@ -1381,10 +1362,10 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 
         schedLock.Lock();
         int errorCode = 0;
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
         if (pthread_create(&taskData->threadId, NULL, NewThreadFunction, taskData) != 0)
             errorCode = errno;
-#elif defined(HAVE_WINDOWS_H)
+#else
         taskData->threadHandle =
             CreateThread(NULL, 0, NewThreadFunction, taskData, 0, NULL);
         if (taskData->threadHandle == NULL) errorCode = GetLastError();
@@ -1429,9 +1410,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                 else if (p->threadExited) // Has the thread terminated?
                 {
                     // Wait for it to actually stop then delete the task data.
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
                     pthread_join(p->threadId, NULL);
-#elif defined(HAVE_WINDOWS_H)
+#else
                     WaitForSingleObject(p->threadHandle, INFINITE);
 #endif
                     // The thread ref is no longer valid.
@@ -1601,9 +1582,9 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
         // Now actually fork the thread.
         bool success = false;
         schedLock.Lock();
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
         success = pthread_create(&newTaskData->threadId, NULL, NewThreadFunction, newTaskData) == 0;
-#elif defined(HAVE_WINDOWS_H)
+#else
         newTaskData->threadHandle =
             CreateThread(NULL, 0, NewThreadFunction, newTaskData, 0, NULL);
         success = newTaskData->threadHandle != NULL;
@@ -1902,7 +1883,10 @@ void Processes::StartProfiling(void)
     ResetEvent(hStopEvent);
     profilingHd = CreateThread(NULL, 0, ProfilingTimer, NULL, 0, &threadId);
     if (profilingHd == NULL)
+    {
         fputs("Creating ProfilingTimer thread failed.\n", polyStdout);
+        return;
+    }
     /* Give this a higher than normal priority so it pre-empts the main
        thread.  Without this it will tend only to be run when the main
        thread blocks for some reason. */
@@ -1929,8 +1913,11 @@ void Processes::StopProfiling(void)
 #ifdef HAVE_WINDOWS_H
     if (hStopEvent) SetEvent(hStopEvent);
     // Wait for the thread to stop
-    if (profilingHd) WaitForSingleObject(profilingHd, 10000);
-    CloseHandle(profilingHd);
+    if (profilingHd)
+    {
+        WaitForSingleObject(profilingHd, 10000);
+        CloseHandle(profilingHd);
+    }
     profilingHd = NULL;
 #endif
 }
@@ -1975,7 +1962,7 @@ void Processes::SignalArrived(void)
         sigTask->threadLock.Signal();
 }
 
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
 // This is called when the thread exits in foreign code and
 // ThreadExit has not been called.
 static void threaddata_destructor(void *p)
@@ -1989,12 +1976,10 @@ static void threaddata_destructor(void *p)
 
 void Processes::Init(void)
 {
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_key_create(&tlsId, threaddata_destructor);
-#elif defined(HAVE_WINDOWS_H)
-    tlsId = TlsAlloc();
 #else
-    singleThreaded = true;
+    tlsId = TlsAlloc();
 #endif
 
 #if defined(HAVE_WINDOWS_H) /* Windows including Cygwin. */
@@ -2025,9 +2010,9 @@ void Processes::StartProfilingTimer(void)
 
 void Processes::Stop(void)
 {     
-#ifdef HAVE_PTHREAD
+#if (!defined(_WIN32))
     pthread_key_delete(tlsId);
-#elif defined(HAVE_WINDOWS_H)
+#else
     TlsFree(tlsId);
 #endif
 
@@ -2096,13 +2081,12 @@ void TaskData::GarbageCollect(ScanAddress *process)
         if (allocSize < MIN_HEAP_SIZE)
             allocSize = MIN_HEAP_SIZE;
     }
-    process->ScanRuntimeWord(&foreignStack);
 }
 
 // Return the number of processors.
 extern unsigned NumberOfProcessors(void)
 {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#if (defined(_WIN32))
         SYSTEM_INFO info;
         memset(&info, 0, sizeof(info));
         GetSystemInfo(&info);

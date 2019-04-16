@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Unix structure and signature.
     Author:     David Matthews
-    Copyright   David Matthews 2000,2008
+    Copyright   David Matthews 2000,2008, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -109,10 +109,8 @@ struct
                set the required ends up as stdin and stdout. *)
             IO.close(#outfd toChild);
             IO.close(#infd fromChild);
-            IO.dup2{old= #infd toChild,
-                      new=FileSys.wordToFD 0w0};
-            IO.dup2{old= #outfd fromChild,
-                      new= FileSys.wordToFD 0w1};
+            IO.dup2{old= #infd toChild, new=Posix.FileSys.stdin};
+            IO.dup2{old= #outfd fromChild, new=Posix.FileSys.stdout};
             IO.close(#infd toChild);
             IO.close(#outfd fromChild);
             (* Run the command. *)

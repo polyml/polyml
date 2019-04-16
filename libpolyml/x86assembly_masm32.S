@@ -1,7 +1,7 @@
 ;
 ;  Title:  Assembly code routines for the poly system.
 ;  Author:    David Matthews
-;  Copyright (c) David C. J. Matthews 2000-2016
+;  Copyright (c) David C. J. Matthews 2000-2019
 ;
 ;  This library is free software; you can redistribute it and/or
 ;  modify it under the terms of the GNU Lesser General Public
@@ -32,7 +32,7 @@
 .486
     .model  flat,c
 
-Fr_Size             EQU     56
+Fr_Size             EQU     16		; Make this a multiple of 16 
 
 ; This is the argument vector passed in to X86AsmSwitchToPoly
 ; It is used to initialise the frame.  A few values are updated
@@ -91,12 +91,12 @@ PUBLIC  X86AsmSwitchToPoly
 X86AsmSwitchToPoly:
     push    ebp                             ; Standard entry sequence
     mov     ebp,[8+esp]                     ; Address of argument vector
-    mov     [ArgVector.SaveCStack+ebp],esp
     push    ebx                             ; Push callee-save registers
     push    edi
     push    esi
     sub     esp,(Fr_size-12)                ; Allocate frame
-    mov     esp,[ArgVector.StackPtr+ebp]
+    mov     [ArgVector.SaveCStack+ebp],esp
+	mov     esp,[ArgVector.StackPtr+ebp]
     mov     eax,[ArgVector.ExceptionPacket+ebp]
     cmp     eax,1                                           ; Did we raise an exception?
     jnz     raisex
@@ -123,7 +123,7 @@ SaveFullState:
     FLDCW   [ArgVector.SaveFP+ebp]          ; ...load because we need the same rounding mode in the RTS
     mov     [ArgVector.StackPtr+ebp],esp    ; Save ML stack pointer
     mov     esp,[ArgVector.SaveCStack+ebp]  ; Restore C stack pointer
-    sub     esp,12                          ; Sp is just before the registers
+    add     esp,(Fr_size-12)
     pop     esi                             ; Restore saved registers
     pop     edi
     pop     ebx

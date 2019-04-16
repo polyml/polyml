@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector
 
-    Copyright (c) 2010-12 David C. J. Matthews
+    Copyright (c) 2010-12, 2019 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -343,6 +343,14 @@ void CreateHeap()
             Crash("Unable to initialise the GC task farm");
     }
     // Set up the stacks for the mark phase.
+    initialiseMarkerTables();
+}
+
+// Set single threaded mode. This is only used in a child process after
+// Posix fork in case there is a GC before the exec.
+void GCSetSingleThreadAfterFork()
+{
+    gpTaskFarm->SetSingleThreaded();
     initialiseMarkerTables();
 }
 
