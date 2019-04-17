@@ -488,8 +488,6 @@ struct
     end
     
     fun alignUp(s, align) = Word.andb(s + align-0w1, ~ align)
-    fun alignUpInt(s, align) = Word.toInt(alignUp(Word.fromInt s, align))
-    
 
     (* Build a foreign call function.  The arguments are the abi, the list of argument types and the result type.
        The result is the code of the ML function that takes three arguments: the C function to call, the arguments
@@ -497,24 +495,110 @@ struct
     fun foreignCall(abivalue: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
     let
         val abi = getFFIAbi abivalue
+        
+        (* 32-bit arguments.  These all go to the stack so we can simply push them.  The arguments go on the
+           stack in reverse order. *)
+        fun loadArgs32([], stackOffset, _, code) = (code, stackOffset)
+
+        |   loadArgs32(arg::args, stackOffset, argOffset, code) =
+            let
+                val {size, align, typeCode, ...} = Foreign.LibFFI.extractFFItype arg
+                val newArgOffset = alignUp(argOffset, align)
+            in
+                if typeCode = Foreign.LibFFI.ffiTypeCodeUInt8
+                then (* Unsigned char. *)
+                    loadArgs32(args, stackOffset+4, newArgOffset+size,
+                        Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}, destination=RegisterArg edx, moveSize=Move8 }
+                            :: PushToStack(RegisterArg edx) :: code)
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
+                then  (* Signed char. *)
+                    loadArgs32(args, stackOffset+4, newArgOffset+size,
+                        Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}, destination=RegisterArg edx, moveSize=Move8X }
+                            :: PushToStack(RegisterArg edx) :: code)
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt16
+                then  (* Unsigned 16-bits. *)
+                    loadArgs32(args, stackOffset+4, newArgOffset+size,
+                        Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}, destination=RegisterArg edx, moveSize=Move16 }
+                            :: PushToStack(RegisterArg edx) :: code)
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt16
+                then  (* Signed 16-bits. *)
+                    loadArgs32(args, stackOffset+4, newArgOffset+size,
+                        Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}, destination=RegisterArg edx, moveSize=Move16X }
+                            :: PushToStack(RegisterArg edx) :: code)
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt32 orelse typeCode = Foreign.LibFFI.ffiTypeCodeSInt32
+                        orelse typeCode = Foreign.LibFFI.ffiTypeCodePointer orelse typeCode = Foreign.LibFFI.ffiTypeCodeFloat
+                        orelse typeCode = Foreign.LibFFI.ffiTypeCodeInt
+                then  (* 32-bits. *)
+                    loadArgs32(args, stackOffset+4, newArgOffset+size,
+                        PushToStack(MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}) :: code)
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
+                then  (* Double: push the two words.  High-order word first, then low-order. *)
+                    loadArgs32(args, stackOffset+8, newArgOffset+size,
+                        PushToStack(MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset+4, index=NoIndex}) ::
+                            PushToStack(MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}) :: code)
+                else (* Void or struct *) raise Foreign.Foreign "Unimplemented argument passing"
+            end
+        
+        val (stackSpace, argCode) =
+            case abi of
+                FFI_WIN64 => (32 (* Add extra 32 bytes for Win 64 *), [])
+            |   FFI_UNIX64 => (0, [])
+            |   _ => (* 32-bit APIs *)
+                let
+                    val (argCode, argStack) = loadArgs32(args, 0, 0w0, [])
+                    (* GCC likes to keep the stack aligned onto a 16-byte boundary. *)
+                    val align = argStack mod 16
+                in
+                    (if align = 0 then 0 else 16-align, argCode)
+                end
+
         local
-            val argSpace = 0
+            val {typeCode, ...} = Foreign.LibFFI.extractFFItype result
+            val resultMemory = {base=ecx, offset=0, index=NoIndex}
         in
-            val stackSpace =
-                alignUpInt(argSpace, 0w16) + (case abi of FFI_WIN64 => 32 | _ => 0) (* Add extra 32 bytes for Win 64*)
+            val isResult = typeCode <> Foreign.LibFFI.ffiTypeCodeVoid
+            (* Code to set the result.  LibFFI always stores at least a 32-bit value in
+               32-bit mode and a 64-bit value in 64-bit mode.  That's not necessary for
+               our higher levels and actually complicates them. *)
+            val getResult =
+                if typeCode = Foreign.LibFFI.ffiTypeCodeVoid
+                then []
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8 orelse typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
+                then (* Single byte *) [Move{source=RegisterArg eax, destination=MemoryArg resultMemory, moveSize=Move8}]
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt16 orelse typeCode = Foreign.LibFFI.ffiTypeCodeSInt16
+                then (* 16-bits *) [Move{source=RegisterArg eax, destination=MemoryArg resultMemory, moveSize=Move16}]
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt32 orelse typeCode = Foreign.LibFFI.ffiTypeCodeSInt32
+                        orelse typeCode = Foreign.LibFFI.ffiTypeCodeInt orelse
+                        (typeCode = Foreign.LibFFI.ffiTypeCodePointer andalso abi <> FFI_WIN64 andalso abi <> FFI_UNIX64)
+                then [Move{source=RegisterArg eax, destination=MemoryArg resultMemory, moveSize=Move32}]
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt64 orelse typeCode = Foreign.LibFFI.ffiTypeCodeSInt64
+                        orelse typeCode = Foreign.LibFFI.ffiTypeCodePointer
+                then [Move{source=RegisterArg eax, destination=MemoryArg resultMemory, moveSize=Move64}]
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeFloat
+                then
+                (
+                    if abi = FFI_WIN64 orelse abi = FFI_UNIX64
+                    then (* Result is in xxm0 *)
+                        [XMMStoreToMemory{toStore=xmm0, address=resultMemory, precision=SinglePrecision}]
+                    else (* Result is in FP0 *) [FPStoreToMemory{address=resultMemory, precision=SinglePrecision, andPop=true }]
+                )
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
+                then
+                (
+                    if abi = FFI_WIN64 orelse abi = FFI_UNIX64
+                    then (* Result is in xxm0 *)
+                        [XMMStoreToMemory{toStore=xmm0, address=resultMemory, precision=DoublePrecision}]
+                    else (* Result is in FP0 *) [FPStoreToMemory{address=resultMemory, precision=DoublePrecision, andPop=true }]
+                )
+                else raise Foreign.Foreign "Unknown or unimplemented result type"
         end
-        (* Register to hold the entry point. *)
-        val entryPtrReg = case abi of FFI_WIN64 => r11 | FFI_UNIX64 => r11 | _ => ecx
+
         val code =
-            [
-                (* The entry point is in a SysWord.word value in RAX. *)
-                loadHeapMemory(entryPtrReg, eax, 0, nativeWordOpSize)(* Load its value. *)
-            ] @
             (
-                (* Save heap ptr.  This is in r15 in X86/64.  Needed in case we have a callback. *)
                 if targetArch <> Native32Bit
                 then
                 [
+                    (* Save heap ptr.  Needed in case we have a callback. *)
                     storeMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize), (* Save heap ptr *)
                     PushToStack(RegisterArg r8) (* Push the third argument. *)
                 ]
@@ -531,20 +615,38 @@ struct
                 then []
                 else [ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}]
             ) @
+            (
+                (* The second argument is a SysWord containing the address of a malloced area of memory
+                   with the actual arguments in it. *)
+                if null args orelse not isResult
+                then []
+                else [loadHeapMemory(mlArg2Reg, mlArg2Reg, 0, nativeWordOpSize)]
+            ) @ argCode @
             [
-                CallFunction(DirectReg entryPtrReg), (* Call the function.  We don't need to clean up the stack. *)
+                let
+                    (* The entry point is in a SysWord.word value in RAX. *)
+                    val entryPoint =
+                        case targetArch of
+                            ObjectId32Bit => MemoryArg{base=ebx, offset=0, index=Index4 eax}
+                        |   _ => MemoryArg{base=eax, offset=0, index=NoIndex}
+                in
+                    (* Call the function.  We're discarding the value in rsp so no need to remove args. *)
+                    CallAddress entryPoint
+                end,
                 loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)
             ] @
+            (
+                if isResult
+                then
+                    (* Store the result in the result area.  The third argument is a LargeWord value that contains
+                       the address of a piece of C memory where the result is to be stored. *)
+                    (if targetArch = Native32Bit
+                    then loadMemory(ecx, esp, 4, nativeWordOpSize)
+                    else PopR ecx) ::
+                    loadHeapMemory(ecx, ecx, 0, nativeWordOpSize) :: getResult
+                else []
+            ) @
             [
-                (* Store the result in the result area.  The third argument is a LargeWord value that contains
-                   the address of a piece of C memory where the result is to be stored. *)
-                if targetArch = Native32Bit
-                then loadMemory(ecx, esp, 4, nativeWordOpSize)
-                else PopR ecx,
-                loadHeapMemory(ecx, ecx, 0, nativeWordOpSize),
-                (* TODO: This is a temporary solution.  The actual return sequence depends on the
-                   result type. *)
-                storeMemory(eax, ecx, 0, nativeWordOpSize),
                 ReturnFromFunction (if targetArch = Native32Bit then 1 else 0)
             ]
         val functionName = "foreignCall"

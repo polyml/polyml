@@ -111,7 +111,7 @@ sig
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
     
-    datatype moveSize = Move64 | Move32 | Move8 | Move16 | Move32X
+    datatype moveSize = Move64 | Move32 | Move8 | Move16 | Move32X | Move8X | Move16X
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype trapEntries =
