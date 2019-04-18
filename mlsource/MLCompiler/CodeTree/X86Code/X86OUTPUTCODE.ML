@@ -226,14 +226,16 @@ struct
 
     (* These are the real registers we have.  The AMD extension encodes the
        additional registers through the REX prefix. *)
-    val eax = GeneralReg (0w0, false)
-    val ecx = GeneralReg (0w1, false)
-    val edx = GeneralReg (0w2, false)
-    val ebx = GeneralReg (0w3, false)
-    val esp = GeneralReg (0w4, false)
-    val ebp = GeneralReg (0w5, false)
-    val esi = GeneralReg (0w6, false)
-    val edi = GeneralReg (0w7, false)
+    val rax = GeneralReg (0w0, false)
+    val rcx = GeneralReg (0w1, false)
+    val rdx = GeneralReg (0w2, false)
+    val rbx = GeneralReg (0w3, false)
+    val rsp = GeneralReg (0w4, false)
+    val rbp = GeneralReg (0w5, false)
+    val rsi = GeneralReg (0w6, false)
+    val rdi = GeneralReg (0w7, false)
+    val eax = rax and ecx = rcx and edx = rdx and ebx = rbx
+    and esp = rsp and ebp = rbp and esi = rsi and edi = rdi
     val r8  = GeneralReg (0w0, true)
     val r9  = GeneralReg (0w1, true)
     val r10 = GeneralReg (0w2, true)
@@ -264,6 +266,7 @@ struct
     and xmm4 = SSE2Reg 0w4
     and xmm5 = SSE2Reg 0w5
     and xmm6 = SSE2Reg 0w6
+    and xmm7 = SSE2Reg 0w7
 
     fun getReg (GeneralReg r) = r
     fun mkReg  n      = GeneralReg n  (* reg.up   *)

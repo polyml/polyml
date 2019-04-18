@@ -38,12 +38,14 @@ sig
 
     val eax: genReg and ebx: genReg and ecx: genReg and edx: genReg
     and edi: genReg and esi: genReg and esp: genReg and ebp: genReg
+    and rax: genReg and rbx: genReg and rcx: genReg and rdx: genReg
+    and rdi: genReg and rsi: genReg and rsp: genReg and rbp: genReg
     and r8:  genReg and r9:  genReg and r10: genReg and r11: genReg
     and r12: genReg and r13: genReg and r14: genReg and r15: genReg
     and fp0: fpReg and fp1: fpReg and fp2: fpReg and fp3: fpReg
     and fp4: fpReg and fp5: fpReg and fp6: fpReg and fp7: fpReg
     and xmm0:xmmReg and xmm1:xmmReg and xmm2:xmmReg and xmm3:xmmReg
-    and xmm4:xmmReg and xmm5:xmmReg and xmm6:xmmReg
+    and xmm4:xmmReg and xmm5:xmmReg and xmm6:xmmReg and xmm7:xmmReg
     (* For vector indexing we provide a numbering for the registers. *)
     val regs:   int
     val regN:   int -> reg
