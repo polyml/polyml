@@ -504,33 +504,33 @@ struct
             let
                 val {size, align, typeCode, ...} = Foreign.LibFFI.extractFFItype arg
                 val newArgOffset = alignUp(argOffset, align)
+                val baseAddr = {base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}
             in
                 if typeCode = Foreign.LibFFI.ffiTypeCodeUInt8
                 then (* Unsigned char. *)
                     loadArgs32(args, stackOffset+4, newArgOffset+size,
-                        Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}, destination=RegisterArg edx, moveSize=Move8 }
+                        Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move8 }
                             :: PushToStack(RegisterArg edx) :: code)
                 else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
                 then  (* Signed char. *)
                     loadArgs32(args, stackOffset+4, newArgOffset+size,
-                        Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}, destination=RegisterArg edx, moveSize=Move8X }
+                        Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move8X }
                             :: PushToStack(RegisterArg edx) :: code)
                 else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt16
                 then  (* Unsigned 16-bits. *)
                     loadArgs32(args, stackOffset+4, newArgOffset+size,
-                        Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}, destination=RegisterArg edx, moveSize=Move16 }
+                        Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move16 }
                             :: PushToStack(RegisterArg edx) :: code)
                 else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt16
                 then  (* Signed 16-bits. *)
                     loadArgs32(args, stackOffset+4, newArgOffset+size,
-                        Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}, destination=RegisterArg edx, moveSize=Move16X }
+                        Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move16X }
                             :: PushToStack(RegisterArg edx) :: code)
                 else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt32 orelse typeCode = Foreign.LibFFI.ffiTypeCodeSInt32
                         orelse typeCode = Foreign.LibFFI.ffiTypeCodePointer orelse typeCode = Foreign.LibFFI.ffiTypeCodeFloat
                         orelse typeCode = Foreign.LibFFI.ffiTypeCodeInt
                 then  (* 32-bits. *)
-                    loadArgs32(args, stackOffset+4, newArgOffset+size,
-                        PushToStack(MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}) :: code)
+                    loadArgs32(args, stackOffset+4, newArgOffset+size, PushToStack(MemoryArg baseAddr) :: code)
                 else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
                 then  (* Double: push the two words.  High-order word first, then low-order. *)
                     loadArgs32(args, stackOffset+8, newArgOffset+size,
@@ -538,10 +538,138 @@ struct
                             PushToStack(MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}) :: code)
                 else (* Void or struct *) raise Foreign.Foreign "Unimplemented argument passing"
             end
-        
+
+        val win64ArgRegs = [ (ecx, xmm0), (edx, xmm1), (r8, xmm2), (r9, xmm3) ]
+
+        fun loadWin64Args([], stackOffset, _, _, code) = (code, stackOffset)
+
+        |   loadWin64Args(arg::args, stackOffset, argOffset, regs, code) =
+            let
+                val {size, align, typeCode, ...} = Foreign.LibFFI.extractFFItype arg
+                val newArgOffset = alignUp(argOffset, align)
+                val baseAddr = {base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}
+            in
+                if typeCode = Foreign.LibFFI.ffiTypeCodeUInt8
+                then (* Unsigned char. *)
+                (
+                    case regs of
+                        (areg, _) :: regs' => 
+                        loadWin64Args(args, stackOffset, newArgOffset+size, regs',
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg areg, moveSize=Move8 } :: code)
+                    |   [] =>
+                        loadWin64Args(args, stackOffset+8, newArgOffset+size, [],
+                            Move{source=MemoryArg baseAddr,
+                                   destination=RegisterArg ecx, moveSize=Move8 } :: PushToStack(RegisterArg ecx) :: code)
+                )
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
+                then (* Signed char. *)
+                (
+                    case regs of
+                        (areg, _) :: regs' => 
+                        loadWin64Args(args, stackOffset, newArgOffset+size, regs',
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg areg, moveSize=Move8X } :: code)
+                    |   [] =>
+                        loadWin64Args(args, stackOffset+8, newArgOffset+size, [],
+                            Move{source=MemoryArg baseAddr,
+                                   destination=RegisterArg ecx, moveSize=Move8X } :: PushToStack(RegisterArg ecx) :: code)
+                )
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt16
+                then (* Unsigned 16-bits. *)
+                (
+                    case regs of
+                        (areg, _) :: regs' => 
+                        loadWin64Args(args, stackOffset, newArgOffset+size, regs',
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg areg, moveSize=Move16 } :: code)
+                    |   [] =>
+                        loadWin64Args(args, stackOffset+8, newArgOffset+size, [],
+                            Move{source=MemoryArg baseAddr,
+                                   destination=RegisterArg ecx, moveSize=Move16 } :: PushToStack(RegisterArg ecx) :: code)
+                )
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt16
+                then (* Signed 16-bits. *)
+                (
+                    case regs of
+                        (areg, _) :: regs' => 
+                        loadWin64Args(args, stackOffset, newArgOffset+size, regs',
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg areg, moveSize=Move16X } :: code)
+                    |   [] =>
+                        loadWin64Args(args, stackOffset+8, newArgOffset+size, [],
+                            Move{source=MemoryArg baseAddr,
+                                   destination=RegisterArg ecx, moveSize=Move16X } :: PushToStack(RegisterArg ecx) :: code)
+                )
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt32
+                then (* Unsigned 32-bits. *)
+                (
+                    case regs of
+                        (areg, _) :: regs' => 
+                        loadWin64Args(args, stackOffset, newArgOffset+size, regs',
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg areg, moveSize=Move32 } :: code)
+                    |   [] =>
+                        loadWin64Args(args, stackOffset+8, newArgOffset+size, [],
+                            Move{source=MemoryArg baseAddr,
+                                   destination=RegisterArg ecx, moveSize=Move32 } :: PushToStack(RegisterArg ecx) :: code)
+                )
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt32 orelse typeCode = Foreign.LibFFI.ffiTypeCodeInt
+                then (* Signed 32-bits. *)
+                (
+                    case regs of
+                        (areg, _) :: regs' => 
+                        loadWin64Args(args, stackOffset, newArgOffset+size, regs',
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg areg, moveSize=Move32X } :: code)
+                    |   [] =>
+                        loadWin64Args(args, stackOffset+8, newArgOffset+size, [],
+                            Move{source=MemoryArg baseAddr,
+                                   destination=RegisterArg ecx, moveSize=Move32X } :: PushToStack(RegisterArg ecx) :: code)
+                )
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt64 orelse typeCode = Foreign.LibFFI.ffiTypeCodeSInt64
+                        orelse typeCode = Foreign.LibFFI.ffiTypeCodePointer 
+                then (* 64-bits. *)
+                (
+                    case regs of
+                        (areg, _) :: regs' => 
+                        loadWin64Args(args, stackOffset, newArgOffset+size, regs',
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg areg, moveSize=Move64 } :: code)
+                    |   [] =>
+                        loadWin64Args(args, stackOffset+8, newArgOffset+size, [],
+                            PushToStack(MemoryArg baseAddr) :: code)
+                )
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeFloat
+                then
+                (
+                    case regs of
+                        (_, fpReg) :: regs' => 
+                        loadWin64Args(args, stackOffset, newArgOffset+size, regs',
+                            XMMArith{opc=SSE2MoveFloat, source=MemoryArg baseAddr, output=fpReg } :: code)
+                    |   [] =>
+                        loadWin64Args(args, stackOffset+8, newArgOffset+size, [],
+                            Move{source=MemoryArg baseAddr,
+                                   destination=RegisterArg ecx, moveSize=Move32 } :: PushToStack(RegisterArg ecx) :: code)
+                )
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
+                then
+                (
+                    case regs of
+                        (_, fpReg) :: regs' => 
+                        loadWin64Args(args, stackOffset, newArgOffset+size, regs',
+                            XMMArith{opc=SSE2MoveDouble, source=MemoryArg baseAddr, output=fpReg } :: code)
+                    |   [] =>
+                        loadWin64Args(args, stackOffset+8, newArgOffset+size, [],
+                            Move{source=MemoryArg baseAddr,
+                                   destination=RegisterArg ecx, moveSize=Move64 } :: PushToStack(RegisterArg ecx) :: code)
+                )
+                
+                else raise Foreign.Foreign "Unimplemented argument passing"
+            end
+
         val (stackSpace, argCode) =
             case abi of
-                FFI_WIN64 => (32 (* Add extra 32 bytes for Win 64 *), [])
+                FFI_WIN64 =>
+                let
+                    val (argCode, argStack) = loadWin64Args(args, 0, 0w0, win64ArgRegs, [])
+                    val align = argStack mod 16
+                in
+                    (if align = 0 then 0 else (16-align) + argStack + 32 (* Add extra 32 bytes for Win 64 *), argCode)
+                end
             |   FFI_UNIX64 => (0, [])
             |   _ => (* 32-bit APIs *)
                 let
