@@ -786,31 +786,19 @@ struct
                 else raise Foreign.Foreign "Unimplemented argument passing"
             end
 
-        val (stackSpace, argCode) =
-            case abi of
-                FFI_WIN64 =>
-                let
-                    val (argCode, argStack) = loadWin64Args(args, 0, 0w0, win64ArgRegs, [])
-                    val align = argStack mod 16
-                in
-                    (if align = 0 then 0 else (16-align) + argStack + 32 (* Add extra 32 bytes for Win 64 *), argCode)
-                end
-            |   FFI_UNIX64 =>
-                let
-                    val (argCode, argStack) = loadSysV64Args(args, 0, 0w0, sysVGenRegs, sysVFPRegs, [])
-                    val align = argStack mod 16
-                in
-                    (if align = 0 then 0 else (16-align) + argStack, argCode)
-                end
-            |   _ => (* 32-bit APIs *)
-                let
-                    val (argCode, argStack) = loadArgs32(args, 0, 0w0, [])
-                    (* GCC likes to keep the stack aligned onto a 16-byte boundary. *)
-                    val align = argStack mod 16
-                in
-                    (if align = 0 then 0 else 16-align, argCode)
-                end
-
+        local
+            val (argCode, argStack) =
+                case abi of
+                    FFI_WIN64 => loadWin64Args(args, 0, 0w0, win64ArgRegs, [])
+                |   FFI_UNIX64 => loadSysV64Args(args, 0, 0w0, sysVGenRegs, sysVFPRegs, [])
+                |   _ => (* 32-bit APIs *) loadArgs32(args, 0, 0w0, [])
+            val align = argStack mod 16
+        in
+            val argCode = argCode
+            (* Always align the stack.  It's not always necessary on 32-bits but GCC prefers it. *)
+            val preArgAlign = if align = 0 then 0 else 16-align
+        end
+                
         local
             val {typeCode, ...} = Foreign.LibFFI.extractFFItype result
             val resultMemory = {base=ecx, offset=0, index=NoIndex}
@@ -855,12 +843,13 @@ struct
         val code =
             (
                 if targetArch <> Native32Bit
-                then
-                [
-                    (* Save heap ptr.  Needed in case we have a callback. *)
-                    storeMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize), (* Save heap ptr *)
-                    PushToStack(RegisterArg r8) (* Push the third argument. *)
-                ]
+                then (* Save heap ptr.  Needed in case we have a callback. *)
+                    [storeMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize)]
+                else []
+            ) @
+            (
+                if targetArch <> Native32Bit andalso isResult
+                then [PushToStack(RegisterArg r8)] (* Push the third argument - location for result. *)
                 else []
             ) @
             [
@@ -869,18 +858,23 @@ struct
                 loadMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize)  (* Load the saved C stack pointer. *)
             ] @
             (
-                (* Set the stack pointer past the data on the stack.  *)
-                if stackSpace = 0
+                if preArgAlign = 0
                 then []
-                else [ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}]
+                else [ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt preArgAlign), opSize=nativeWordOpSize}]
             ) @
             (
                 (* The second argument is a SysWord containing the address of a malloced area of memory
                    with the actual arguments in it. *)
-                if null args orelse not isResult
+                if null args
                 then []
                 else [loadHeapMemory(mlArg2Reg, mlArg2Reg, 0, nativeWordOpSize)]
             ) @ argCode @
+            (
+                (* Reserve a 32-byte area if we're using Windows on X64. *)
+                if abi = FFI_WIN64
+                then [ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt 32), opSize=nativeWordOpSize}]
+                else []
+            ) @
             [
                 let
                     (* The entry point is in a SysWord.word value in RAX. *)
@@ -910,8 +904,8 @@ struct
             ]
         val functionName = "foreignCall"
         val debugSwitches =
-            [Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
-               Universal.tagInject DEBUG.assemblyCodeTag true]
+            [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
+               Universal.tagInject DEBUG.assemblyCodeTag true*)]
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
         val closure = makeConstantClosure()
