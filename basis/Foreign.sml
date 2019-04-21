@@ -194,8 +194,8 @@ sig
         
         val cStruct: ctype list -> ctype
 
-        val callwithAbi: LibFFI.abi -> ctype list -> ctype -> symbol -> Memory.voidStar list * Memory.voidStar -> unit
-        val call: ctype list -> ctype -> symbol -> Memory.voidStar list * Memory.voidStar -> unit
+        val callwithAbi: LibFFI.abi -> ctype list -> ctype -> symbol -> Memory.voidStar * Memory.voidStar -> unit
+        val call: ctype list -> ctype -> symbol -> Memory.voidStar * Memory.voidStar -> unit
         
         val cFunctionWithAbi:
             LibFFI.abi -> ctype list -> ctype -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
@@ -674,13 +674,7 @@ struct
         }
          
         local
-            open LibFFI Memory
-
-            val getffArg =
-                if ffiMinArgSize = 0w4 then Word32.toLargeWord o get32
-                else if ffiMinArgSize = 0w8 then get64
-                else raise Foreign ("Unable to load ffi_arg size=" ^ Word.toString ffiMinArgSize)
-            
+            open LibFFI Memory            
         in
             val cTypeVoid = 
                 { size= #size saVoid, align= #align saVoid, ffiType = memoise getFFItypeVoid () }
@@ -737,60 +731,18 @@ struct
                 {align=align, size=size, ffiType=memoise ffiType ()}
             end
 
-            fun callwithAbi (abi: abi) (argTypes: ctype list) (resType: ctype): symbol -> voidStar list * voidStar -> unit =
+            fun callwithAbi (abi: abi) (argTypes: ctype list) (resType: ctype): symbol -> voidStar * voidStar -> unit =
             let
-                (* Preparation when we create the function. *)
-                fun buildCif () = createCIF (abi, #ffiType resType (), map (fn {ffiType, ...} => ffiType ()) argTypes)
-                val cif: unit->cif = memoise buildCif ()
-                val nArgs = List.length argTypes
-                val resSize = #size resType
-                
-                (* If the result size is smaller than ffiMinArgSize we have to
-                   first store the result in a value of size ffiMinArgSize then copy
-                   the result.  This is a restriction of libffi. *)
-                fun smallSpace (fnAddr: unit->voidStar) (args, resMem) =
-                let
-                    val _ = List.length args = nArgs orelse raise Foreign "Incorrect number of arguments"
-                    val resultSize = alignUp(ffiMinArgSize, #align saPointer)
-                    val argResVec = malloc(resultSize + #size saPointer * Word.fromInt nArgs)
-                    val argLocn = argResVec ++ resultSize
-                    val _ = List.foldl(fn (arg, n) => (setAddress(argLocn, n, arg); n+0w1)) 0w0 args
-                in
-                    let
-                        val () = callFunction { cif=cif(), function=fnAddr(), result = argResVec, arguments = argLocn}
-                        val result: SysWord.word = getffArg(argResVec, 0w0)
-                    in
-                        (* Copy to the final location.  Currently "void" has size 1 so if
-                           the function has a void result we still copy one byte. *)
-                        if #size resType = 0w1
-                        then set8(resMem, 0w0, Word8.fromLargeWord result)
-                        else if #size resType = 0w2
-                        then set16(resMem, 0w0, Word.fromLargeWord result)
-                        else if #size resType = 0w4
-                        then set32(resMem, 0w0, Word32.fromLargeWord result)
-                        else raise Foreign "Unable to set result: wrong size";
-                        free argResVec
-                    end handle exn => (free argResVec; raise exn)
-                end
-                
-                (* If we have enough space. *)
-                fun largeSpace (fnAddr: unit->voidStar) (args, resMem) =
-                let
-                    val _ = List.length args = nArgs orelse raise Foreign "Incorrect number of arguments"
-                    val argVec =
-                        if nArgs = 0 then null else malloc(#size saPointer * Word.fromInt nArgs)
-                    val _ = List.foldl(fn (arg, n) => (setAddress(argVec, n, arg); n+0w1)) 0w0 args
-                in
-                    let
-                        val () = callFunction { cif=cif(), function=fnAddr(), result = resMem, arguments = argVec}
-                    in
-                        free argVec
-                    end handle exn => (free argVec; raise exn)
-                end
+                fun getType ctype = Memory.voidStar2Sysword(#ffiType ctype ())
+                (* Compile the intermediate function. *)
+                val functionCaller: LargeWord.word * LargeWord.word * LargeWord.word -> unit =
+                    RunCall.foreignCall(Word.toInt abi, List.map getType argTypes, getType resType)
+
+                (* The result function. *)
+                fun callFunction (fnAddr: unit->voidStar) (args, resMem) =
+                    functionCaller(voidStar2Sysword(fnAddr()), voidStar2Sysword args, voidStar2Sysword resMem)
             in
-                if resSize < ffiMinArgSize
-                then smallSpace
-                else largeSpace
+                callFunction
             end
 
             fun call x = callwithAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
@@ -2492,7 +2444,7 @@ struct
                 val rMem = malloc(#size resType)
             in
                 let
-                    val () = callF([], rMem)
+                    val () = callF(Memory.null, rMem)
                     val result = resLoad rMem
                 in
                     free rMem;
@@ -2508,9 +2460,7 @@ struct
             { ctype = resType, load= resLoad, ...}: 'b conversion): 'a ->'b =
         let
             val callF = callwithAbi abi [argType] resType fnAddr
-            (* Allocate space for argument(s) and result.
-               We can't use cStruct here because we only store the
-               argument before the call and load the result after. *)
+            (* Allocate space for argument and result. *)
             val argOffset = alignUp(#size resType, #align argType)
             val argSpace = argOffset + #size argType
         in
@@ -2522,7 +2472,7 @@ struct
                 fun freeAll () = (freea(); free rMem)
             in
                 let
-                    val () = callF([argAddr], rMem)
+                    val () = callF(argAddr, rMem)
                     val result = resLoad rMem
                 in
                     argUpdate (argAddr, x);
@@ -2535,29 +2485,26 @@ struct
         fun buildCall1(symbol, argTypes, resType) = buildCall1withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall2withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion),
-             { ctype = resType, load= resLoad, ...}: 'c conversion): 'a * 'b -> 'c =
+            (arg1Conv: 'a conversion, arg2Conv: 'b conversion), resConv: 'c conversion): 'a * 'b -> 'c =
         let
-            val callF = callwithAbi abi [arg1Type, arg2Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val argSpace = arg2Offset + #size arg2Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi [#ctype arg1Conv, #ctype arg2Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} = cStruct2(arg1Conv, arg2Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                fun freeAll() = (freea(); freeb(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () = callF([arg1Addr, arg2Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -2567,33 +2514,26 @@ struct
         fun buildCall2(symbol, argTypes, resType) = buildCall2withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall3withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion),
-             { ctype = resType, load= resLoad, ...}: 'd conversion): 'a * 'b *'c -> 'd =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion), resConv: 'd conversion): 'a * 'b *'c -> 'd =
         let
-            val callF = callwithAbi abi [arg1Type, arg2Type, arg3Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val argSpace = arg3Offset + #size arg3Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} = cStruct3(arg1Conv, arg2Conv, arg3Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                fun freeAll() = (freea(); freeb(); freec(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () = callF([arg1Addr, arg2Addr, arg3Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -2603,38 +2543,29 @@ struct
         fun buildCall3(symbol, argTypes, resType) = buildCall3withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall4withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion),
-             { ctype = resType, load= resLoad, ...}: 'e conversion): 'a * 'b *'c * 'd -> 'e =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion),
+                resConv: 'e conversion): 'a * 'b *'c * 'd -> 'e =
         let
-            val callF = callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val argSpace = arg4Offset + #size arg4Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct4(arg1Conv, arg2Conv, arg3Conv, arg4Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                fun freeAll() = (freea(); freeb(); freec(); freed(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -2644,44 +2575,29 @@ struct
         fun buildCall4(symbol, argTypes, resType) = buildCall4withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall5withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion),
-             { ctype = resType, load= resLoad, ...}: 'f conversion): 'a * 'b *'c * 'd * 'e -> 'f =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion,
+             arg5Conv:  'e conversion), resConv: 'f conversion): 'a * 'b *'c * 'd * 'e -> 'f =
         let
-            val callF =
-                callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-            val argSpace = arg5Offset + #size arg5Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct5(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d, e) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val arg5Addr = rMem ++ arg5Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                val freee = arg5Store (arg5Addr, e)
-                fun freeAll() =
-                    (freea(); freeb(); freec(); freed(); freee(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -2691,48 +2607,29 @@ struct
         fun buildCall5(symbol, argTypes, resType) = buildCall5withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall6withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
-             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion),
-             { ctype = resType, load= resLoad, ...}: 'g conversion): 'a * 'b *'c * 'd * 'e * 'f -> 'g =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion,
+             arg5Conv:  'e conversion, arg6Conv:  'f conversion), resConv: 'g conversion): 'a * 'b *'c * 'd * 'e * 'f -> 'g =
         let
-            val callF =
-                callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-            val argSpace = arg6Offset + #size arg6Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct6(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d, e, f) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val arg5Addr = rMem ++ arg5Offset
-                val arg6Addr = rMem ++ arg6Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                val freee = arg5Store (arg5Addr, e)
-                val freef = arg6Store (arg6Addr, f)
-                fun freeAll() =
-                    (freea(); freeb(); freec(); freed(); freee(); freef(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr , arg6Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -2742,54 +2639,31 @@ struct
         fun buildCall6(symbol, argTypes, resType) = buildCall6withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall7withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
-             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,
-             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion),
-             { ctype = resType, load= resLoad, ...}: 'h conversion):
-                'a * 'b *'c * 'd * 'e * 'f * 'g -> 'h =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion,
+             arg5Conv:  'e conversion, arg6Conv:  'f conversion, arg7Conv:  'g conversion),
+            resConv: 'h conversion): 'a * 'b *'c * 'd * 'e * 'f * 'g -> 'h =
         let
-            val callF =
-                callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-            val argSpace = arg7Offset + #size arg7Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv,
+                 #ctype arg7Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct7(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv, arg7Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d, e, f, g) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val arg5Addr = rMem ++ arg5Offset
-                val arg6Addr = rMem ++ arg6Offset
-                val arg7Addr = rMem ++ arg7Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                val freee = arg5Store (arg5Addr, e)
-                val freef = arg6Store (arg6Addr, f)
-                val freeg = arg7Store (arg7Addr, g)
-                fun freeAll() =
-                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
-                    arg7Update (arg7Addr, g);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -2799,60 +2673,31 @@ struct
         fun buildCall7(symbol, argTypes, resType) = buildCall7withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall8withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
-             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,
-             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,
-             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion),
-             { ctype = resType, load= resLoad, ...}: 'i conversion):
-                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h -> 'i =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion,
+             arg5Conv:  'e conversion, arg6Conv:  'f conversion, arg7Conv:  'g conversion, arg8Conv:  'h conversion),
+            resConv: 'i conversion): 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h -> 'i =
         let
-            val callF =
-                callwithAbi abi
-                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type, arg8Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-            val argSpace = arg8Offset + #size arg8Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv,
+                 #ctype arg7Conv, #ctype arg8Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct8(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv, arg7Conv, arg8Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d, e, f, g, h) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val arg5Addr = rMem ++ arg5Offset
-                val arg6Addr = rMem ++ arg6Offset
-                val arg7Addr = rMem ++ arg7Offset
-                val arg8Addr = rMem ++ arg8Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                val freee = arg5Store (arg5Addr, e)
-                val freef = arg6Store (arg6Addr, f)
-                val freeg = arg7Store (arg7Addr, g)
-                val freeh = arg8Store (arg8Addr, h)
-                fun freeAll() =
-                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
-                     freeh(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr, arg8Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
-                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -2862,66 +2707,32 @@ struct
         fun buildCall8(symbol, argTypes, resType) = buildCall8withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall9withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
-             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,
-             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,
-             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,
-             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion),
-             { ctype = resType, load= resLoad, ...}: 'j conversion):
-                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion,
+             arg5Conv:  'e conversion, arg6Conv:  'f conversion, arg7Conv:  'g conversion, arg8Conv:  'h conversion,
+             arg9Conv:  'i conversion),
+            resConv: 'j conversion): 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j =
         let
-            val callF =
-                callwithAbi abi
-                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type, arg8Type, arg9Type]
-                        resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-            val argSpace = arg9Offset + #size arg9Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv,
+                 #ctype arg7Conv, #ctype arg8Conv, #ctype arg9Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct9(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv, arg7Conv, arg8Conv, arg9Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d, e, f, g, h, i) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val arg5Addr = rMem ++ arg5Offset
-                val arg6Addr = rMem ++ arg6Offset
-                val arg7Addr = rMem ++ arg7Offset
-                val arg8Addr = rMem ++ arg8Offset
-                val arg9Addr = rMem ++ arg9Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                val freee = arg5Store (arg5Addr, e)
-                val freef = arg6Store (arg6Addr, f)
-                val freeg = arg7Store (arg7Addr, g)
-                val freeh = arg8Store (arg8Addr, h)
-                val freei = arg9Store (arg9Addr, i)
-                fun freeAll() =
-                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
-                     freeh(); freei(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () =
-                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr, arg8Addr, arg9Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
-                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -2931,72 +2742,33 @@ struct
         fun buildCall9(symbol, argTypes, resType) = buildCall9withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall10withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,
-             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion),
-             { ctype = resType, load= resLoad, ...}: 'k conversion):
-                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion,
+             arg5Conv:  'e conversion, arg6Conv:  'f conversion, arg7Conv:  'g conversion, arg8Conv:  'h conversion,
+             arg9Conv:  'i conversion, arg10Conv: 'j conversion),
+            resConv: 'k conversion): 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k =
         let
-            val callF =
-                callwithAbi abi
-                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
-                     arg8Type, arg9Type, arg10Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-            val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
-            val argSpace = arg10Offset + #size arg10Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv,
+                 #ctype arg7Conv, #ctype arg8Conv, #ctype arg9Conv, #ctype arg10Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct10(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv, arg7Conv, arg8Conv,
+                          arg9Conv, arg10Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d, e, f, g, h, i, j) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val arg5Addr = rMem ++ arg5Offset
-                val arg6Addr = rMem ++ arg6Offset
-                val arg7Addr = rMem ++ arg7Offset
-                val arg8Addr = rMem ++ arg8Offset
-                val arg9Addr = rMem ++ arg9Offset
-                val arg10Addr = rMem ++ arg10Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                val freee = arg5Store (arg5Addr, e)
-                val freef = arg6Store (arg6Addr, f)
-                val freeg = arg7Store (arg7Addr, g)
-                val freeh = arg8Store (arg8Addr, h)
-                val freei = arg9Store (arg9Addr, i)
-                val freej = arg10Store (arg10Addr, j)
-                fun freeAll() =
-                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
-                     freeh(); freei(); freej(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () =
-                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr,
-                               arg8Addr, arg9Addr, arg10Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
-                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
-                    arg10Update (arg10Addr, j);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -3006,76 +2778,33 @@ struct
         fun buildCall10(symbol, argTypes, resType) = buildCall10withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall11withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,
-             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion),     
-             { ctype = resType, load= resLoad, ...}: 'l conversion):
-                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion,
+             arg5Conv:  'e conversion, arg6Conv:  'f conversion, arg7Conv:  'g conversion, arg8Conv:  'h conversion,
+             arg9Conv:  'i conversion, arg10Conv: 'j conversion, arg11Conv: 'k conversion),
+            resConv: 'l conversion): 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l =
         let
-            val callF =
-                callwithAbi abi
-                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
-                     arg8Type, arg9Type, arg10Type, arg11Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-            val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
-            val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
-            val argSpace = arg11Offset + #size arg11Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv,
+                 #ctype arg7Conv, #ctype arg8Conv, #ctype arg9Conv, #ctype arg10Conv, #ctype arg11Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct11(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv, arg7Conv, arg8Conv,
+                          arg9Conv, arg10Conv, arg11Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d, e, f, g, h, i, j, k) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val arg5Addr = rMem ++ arg5Offset
-                val arg6Addr = rMem ++ arg6Offset
-                val arg7Addr = rMem ++ arg7Offset
-                val arg8Addr = rMem ++ arg8Offset
-                val arg9Addr = rMem ++ arg9Offset
-                val arg10Addr = rMem ++ arg10Offset
-                val arg11Addr = rMem ++ arg11Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                val freee = arg5Store (arg5Addr, e)
-                val freef = arg6Store (arg6Addr, f)
-                val freeg = arg7Store (arg7Addr, g)
-                val freeh = arg8Store (arg8Addr, h)
-                val freei = arg9Store (arg9Addr, i)
-                val freej = arg10Store (arg10Addr, j)
-                val freek = arg11Store (arg11Addr, k)
-                fun freeAll() =
-                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
-                     freeh(); freei(); freej(); freek(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () =
-                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr,
-                               arg8Addr, arg9Addr, arg10Addr, arg11Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
-                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
-                    arg10Update (arg10Addr, j); arg11Update (arg11Addr, k);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -3085,80 +2814,33 @@ struct
         fun buildCall11(symbol, argTypes, resType) = buildCall11withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall12withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,
-             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion,
-             { ctype = arg12Type, store = arg12Store, updateML = arg12Update, ...}: 'l conversion),            
-             { ctype = resType, load= resLoad, ...}: 'm conversion):
-                    'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion,
+             arg5Conv:  'e conversion, arg6Conv:  'f conversion, arg7Conv:  'g conversion, arg8Conv:  'h conversion,
+             arg9Conv:  'i conversion, arg10Conv: 'j conversion, arg11Conv: 'k conversion, arg12Conv: 'l conversion),
+            resConv: 'm conversion): 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm =
         let
-            val callF =
-                callwithAbi abi
-                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
-                     arg8Type, arg9Type, arg10Type, arg11Type, arg12Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-            val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
-            val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
-            val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
-            val argSpace = arg12Offset + #size arg12Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv,
+                 #ctype arg7Conv, #ctype arg8Conv, #ctype arg9Conv, #ctype arg10Conv, #ctype arg11Conv, #ctype arg12Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct12(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv, arg7Conv, arg8Conv,
+                          arg9Conv, arg10Conv, arg11Conv, arg12Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d, e, f, g, h, i, j, k, l) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val arg5Addr = rMem ++ arg5Offset
-                val arg6Addr = rMem ++ arg6Offset
-                val arg7Addr = rMem ++ arg7Offset
-                val arg8Addr = rMem ++ arg8Offset
-                val arg9Addr = rMem ++ arg9Offset
-                val arg10Addr = rMem ++ arg10Offset
-                val arg11Addr = rMem ++ arg11Offset
-                val arg12Addr = rMem ++ arg12Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                val freee = arg5Store (arg5Addr, e)
-                val freef = arg6Store (arg6Addr, f)
-                val freeg = arg7Store (arg7Addr, g)
-                val freeh = arg8Store (arg8Addr, h)
-                val freei = arg9Store (arg9Addr, i)
-                val freej = arg10Store (arg10Addr, j)
-                val freek = arg11Store (arg11Addr, k)
-                val freel = arg12Store (arg12Addr, l)
-                fun freeAll() =
-                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
-                     freeh(); freei(); freej(); freek(); freel(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () =
-                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr,
-                               arg8Addr, arg9Addr, arg10Addr, arg11Addr, arg12Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
-                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
-                    arg10Update (arg10Addr, j); arg11Update (arg11Addr, k); arg12Update (arg12Addr, l);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -3168,85 +2850,35 @@ struct
         fun buildCall12(symbol, argTypes, resType) = buildCall12withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall13withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,             
-             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion,             
-             { ctype = arg12Type, store = arg12Store, updateML = arg12Update, ...}: 'l conversion,             
-             { ctype = arg13Type, store = arg13Store, updateML = arg13Update, ...}: 'm conversion),             
-             { ctype = resType, load= resLoad, ...}: 'n conversion):
-                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion,
+             arg5Conv:  'e conversion, arg6Conv:  'f conversion, arg7Conv:  'g conversion, arg8Conv:  'h conversion,
+             arg9Conv:  'i conversion, arg10Conv: 'j conversion, arg11Conv: 'k conversion, arg12Conv: 'l conversion,
+             arg13Conv: 'm conversion),
+            resConv: 'n conversion): 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n =
         let
-            val callF =
-                callwithAbi abi
-                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
-                     arg8Type, arg9Type, arg10Type, arg11Type, arg12Type, arg13Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-            val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
-            val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
-            val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
-            val arg13Offset = alignUp(arg12Offset + #size arg12Type, #align arg13Type)
-            val argSpace = arg13Offset + #size arg13Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv,
+                 #ctype arg7Conv, #ctype arg8Conv, #ctype arg9Conv, #ctype arg10Conv, #ctype arg11Conv, #ctype arg12Conv,
+                 #ctype arg13Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct13(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv, arg7Conv, arg8Conv,
+                          arg9Conv, arg10Conv, arg11Conv, arg12Conv, arg13Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d, e, f, g, h, i, j, k, l, m) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val arg5Addr = rMem ++ arg5Offset
-                val arg6Addr = rMem ++ arg6Offset
-                val arg7Addr = rMem ++ arg7Offset
-                val arg8Addr = rMem ++ arg8Offset
-                val arg9Addr = rMem ++ arg9Offset
-                val arg10Addr = rMem ++ arg10Offset
-                val arg11Addr = rMem ++ arg11Offset
-                val arg12Addr = rMem ++ arg12Offset
-                val arg13Addr = rMem ++ arg13Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                val freee = arg5Store (arg5Addr, e)
-                val freef = arg6Store (arg6Addr, f)
-                val freeg = arg7Store (arg7Addr, g)
-                val freeh = arg8Store (arg8Addr, h)
-                val freei = arg9Store (arg9Addr, i)
-                val freej = arg10Store (arg10Addr, j)
-                val freek = arg11Store (arg11Addr, k)
-                val freel = arg12Store (arg12Addr, l)
-                val freem = arg13Store (arg13Addr, m)
-                fun freeAll() =
-                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
-                     freeh(); freei(); freej(); freek(); freel(); freem(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () =
-                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr,
-                               arg8Addr, arg9Addr, arg10Addr, arg11Addr, arg12Addr, arg13Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
-                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
-                    arg10Update (arg10Addr, j); arg11Update (arg11Addr, k); arg12Update (arg12Addr, l);
-                    arg13Update (arg13Addr, m);
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
@@ -3256,90 +2888,35 @@ struct
         fun buildCall13(symbol, argTypes, resType) = buildCall13withAbi (abiDefault, symbol, argTypes, resType)
 
         fun buildCall14withAbi (abi: abi, fnAddr,
-            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
-             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,
-             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,
-             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,
-             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,
-             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,
-             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion,
-             { ctype = arg12Type, store = arg12Store, updateML = arg12Update, ...}: 'l conversion,
-             { ctype = arg13Type, store = arg13Store, updateML = arg13Update, ...}: 'm conversion,
-             { ctype = arg14Type, store = arg14Store, updateML = arg14Update, ...}: 'n conversion),
-             { ctype = resType, load= resLoad, ...}: 'o conversion):
-                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o =
+            (arg1Conv:  'a conversion, arg2Conv:  'b conversion, arg3Conv:  'c conversion, arg4Conv:  'd conversion,
+             arg5Conv:  'e conversion, arg6Conv:  'f conversion, arg7Conv:  'g conversion, arg8Conv:  'h conversion,
+             arg9Conv:  'i conversion, arg10Conv: 'j conversion, arg11Conv: 'k conversion, arg12Conv: 'l conversion,
+             arg13Conv: 'm conversion, arg14Conv: 'n conversion),
+            resConv: 'o conversion): 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o =
         let
-            val callF =
-                callwithAbi abi
-                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
-                     arg8Type, arg9Type, arg10Type, arg11Type, arg12Type, arg13Type,
-                     arg14Type] resType fnAddr
-            val arg1Offset = alignUp(#size resType, #align arg1Type)
-            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-            val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
-            val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
-            val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
-            val arg13Offset = alignUp(arg12Offset + #size arg12Type, #align arg13Type)
-            val arg14Offset = alignUp(arg13Offset + #size arg13Type, #align arg14Type)
-            val argSpace = arg14Offset + #size arg14Type
+            val { ctype = resType, load = resLoad, ...} = resConv
+            val callF = callwithAbi abi
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv,
+                 #ctype arg7Conv, #ctype arg8Conv, #ctype arg9Conv, #ctype arg10Conv, #ctype arg11Conv, #ctype arg12Conv,
+                 #ctype arg13Conv, #ctype arg14Conv] resType fnAddr
+            val { store=storeArgs, ctype={size=argSize, ...}, updateML=updateArgs, ...} =
+                cStruct14(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv, arg7Conv, arg8Conv,
+                          arg9Conv, arg10Conv, arg11Conv, arg12Conv, arg13Conv, arg14Conv)
+            val resultOffset = alignUp(argSize, #align resType)
+            val argResSpace = resultOffset + #size resType
         in
-            fn (a, b, c, d, e, f, g, h, i, j, k, l, m, n) =>
+            fn mlArgs =>
             let
-                val rMem = malloc argSpace
-                val arg1Addr = rMem ++ arg1Offset
-                val arg2Addr = rMem ++ arg2Offset
-                val arg3Addr = rMem ++ arg3Offset
-                val arg4Addr = rMem ++ arg4Offset
-                val arg5Addr = rMem ++ arg5Offset
-                val arg6Addr = rMem ++ arg6Offset
-                val arg7Addr = rMem ++ arg7Offset
-                val arg8Addr = rMem ++ arg8Offset
-                val arg9Addr = rMem ++ arg9Offset
-                val arg10Addr = rMem ++ arg10Offset
-                val arg11Addr = rMem ++ arg11Offset
-                val arg12Addr = rMem ++ arg12Offset
-                val arg13Addr = rMem ++ arg13Offset
-                val arg14Addr = rMem ++ arg14Offset
-                val freea = arg1Store (arg1Addr, a)
-                val freeb = arg2Store (arg2Addr, b)
-                val freec = arg3Store (arg3Addr, c)
-                val freed = arg4Store (arg4Addr, d)
-                val freee = arg5Store (arg5Addr, e)
-                val freef = arg6Store (arg6Addr, f)
-                val freeg = arg7Store (arg7Addr, g)
-                val freeh = arg8Store (arg8Addr, h)
-                val freei = arg9Store (arg9Addr, i)
-                val freej = arg10Store (arg10Addr, j)
-                val freek = arg11Store (arg11Addr, k)
-                val freel = arg12Store (arg12Addr, l)
-                val freem = arg13Store (arg13Addr, m)
-                val freen = arg14Store (arg14Addr, n)
-                fun freeAll() =
-                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
-                     freeh(); freei(); freej(); freek(); freel(); freem(); freen(); free rMem)
+                val rMem = malloc argResSpace
+                val freeArgs = storeArgs(rMem, mlArgs)
+                fun freeAll() = (freeArgs(); free rMem)
+                val resultAddr = rMem++resultOffset
             in
                 let
-                    val () =
-                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr,
-                               arg8Addr, arg9Addr, arg10Addr, arg11Addr, arg12Addr, arg13Addr, arg14Addr], rMem)
-                    val result = resLoad rMem
+                    val () = callF(rMem, resultAddr)
+                    val result = resLoad resultAddr
                 in
-                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
-                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
-                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
-                    arg10Update (arg10Addr, j); arg11Update (arg11Addr, k); arg12Update (arg12Addr, l);
-                    arg13Update (arg13Addr, m); arg14Update (arg14Addr, n); 
+                    updateArgs(rMem, mlArgs);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
