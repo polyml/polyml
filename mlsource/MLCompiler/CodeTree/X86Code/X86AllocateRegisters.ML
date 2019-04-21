@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -45,7 +45,8 @@ struct
     
     val floatingPtRegisters =
         case fpMode of
-            FPModeSSE2 => List.map XMMReg [xmm6, xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
+            (* XMM0-5 are the only volatile SSE2 registers in Windows X64. *)
+            FPModeSSE2 => List.map XMMReg [xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
             (* We can't include fp7 because we need one spare. *)
             (* For the moment we only have FP0 here.  There are problems with using the
                others because we need to ensure the stack is empty if we call any
