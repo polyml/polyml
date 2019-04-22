@@ -928,8 +928,8 @@ struct
             |   CVTTSS2SI64 => true
             |   MOVSXD      => true
             |   CMOV64 _    => true
-            |   MOVSXB    => true
-            |   MOVSXW    => true
+            |   MOVSXB    => hostIsX64
+            |   MOVSXW    => hostIsX64
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
