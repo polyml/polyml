@@ -889,6 +889,11 @@ struct
                 loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)
             ] @
             (
+                (* Reload the heap pointer.  If we've called back to ML this could well have changed. *)
+                if targetArch <> Native32Bit then [loadMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize) ]
+                else []
+            ) @
+            (
                 if isResult
                 then
                     (* Store the result in the result area.  The third argument is a LargeWord value that contains
