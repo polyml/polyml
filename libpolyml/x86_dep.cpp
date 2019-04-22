@@ -1366,6 +1366,8 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 {
                 case 0xb6: /* movzl */
                 case 0xb7: // movzw
+                case 0xbe: // movsx
+                case 0xbf: // movsx
                 case 0xc1: /* xaddl */
                 case 0xae: // ldmxcsr/stmxcsr
                 case 0xaf: // imul
