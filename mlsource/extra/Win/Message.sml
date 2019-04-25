@@ -233,7 +233,7 @@ struct
             val {load=loadStruct, store=storeStruct, ctype={size=sizeStr, ...}, ...} = breakConversion NCCALCSIZE_PARAMS
             val {load=loadRect, store=storeRect, ctype={size=sizeRect, ...}, ...} = breakConversion cRect
         in
-            fun decompileNCCalcSize{wp=0w0, lp} =
+            fun decompileNCCalcSize{wp=0w1, lp} =
                 let
                     val (newrect,oldrect,oldclientarea,winpos) = loadStruct (toAddr lp)
                     val (wh,front,x,y,cx,cy,style) = winpos 
@@ -3382,8 +3382,8 @@ WM_IME_KEYUP                    0x0291
             let
                 val (hWnd, msgId, wParam, lParam, t, pt) = loadMsg v
                 val msg = decompileMessage(msgId, wParam, lParam)
-                val () =
-                    case msg of WM_USER _ => TextIO.print(Int.toString msgId ^ "\n") | _ => ()
+                (*val () =
+                    case msg of WM_USER _ => TextIO.print(Int.toString msgId ^ "\n") | _ => ()*)
             in
                 {
                     msg = msg,
@@ -3741,26 +3741,29 @@ WM_IME_KEYUP                    0x0291
 
         (* Wait for messages and dispatch them.  It only returns when a QUIT message
            has been received. *)
-        fun RunApplication() =
-        let
+        local
             val peekMsg = winCall5(user "PeekMessageA") (cPointer, cHWND, cUint, cUint, cUint) cBool
             val transMsg = winCall1(user "TranslateMessage") (cPointer) cBool
             val dispMsg = winCall1(user "DispatchMessageA") (cPointer) cInt
-            val msg = malloc msgSize
-            val res = peekMsg(msg, hNull, 0, 0, 1)
         in
-            if not res
-            then (* There's no message at the moment.  Wait for one. *)
-                (free msg; WaitMessage(); RunApplication())
-            else case loadMessage msg of
-                { msg = WM_QUIT{exitcode}, ...} => (free msg; exitcode)
-            |   _ =>
-                (
-                    if isDialogueMsg msg then ()
-                    else ( transMsg msg; dispMsg msg; () );
-                    free msg;
-                    RunApplication()
-                )
+            fun RunApplication() =
+            let
+                val msg = malloc msgSize
+                val res = peekMsg(msg, hNull, 0, 0, 1)
+            in
+                if not res
+                then (* There's no message at the moment.  Wait for one. *)
+                    (free msg; WaitMessage(); RunApplication())
+                else case loadMessage msg of
+                    { msg = WM_QUIT{exitcode}, ...} => (free msg; exitcode)
+                |   _ =>
+                    (
+                        if isDialogueMsg msg then ()
+                        else ( transMsg msg; dispMsg msg; () );
+                        free msg;
+                        RunApplication()
+                    )
+            end
         end
 
         local
