@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1654,7 +1654,7 @@ struct
                 val regResult = getAllocatedGenReg dReg
                 val opArg = codeExtArgumentAsGenReg source
             in
-                Move{moveSize=Move32X, source=opArg, destination=RegisterArg regResult } :: code
+                Move{moveSize=Move32X64, source=opArg, destination=RegisterArg regResult } :: code
             end
 
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 

@@ -651,8 +651,10 @@ struct
     |   REP (* Rep prefix *)
     |   MOVZB (* Needs escape code. *)
     |   MOVZW (* Needs escape code. *)
-    |   MOVSXB (* Needs escape code. *)
-    |   MOVSXW (* Needs escape code. *)
+    |   MOVSXB32 (* Needs escape code. *)
+    |   MOVSXW32 (* Needs escape code. *)
+    |   MOVSXB64 (* Needs escape code. *)
+    |   MOVSXW64 (* Needs escape code. *)
     |   IMUL32 (* Needs escape code. *)
     |   IMUL64 (* Needs escape code. *)
     |   SSE2StoreSingle (* movss with memory destination - needs escape sequence. *)
@@ -738,8 +740,10 @@ struct
     |   opToInt REP             = 0wxf3
     |   opToInt MOVZB           = 0wxb6 (* Needs escape code. *)
     |   opToInt MOVZW           = 0wxb7 (* Needs escape code. *)
-    |   opToInt MOVSXB          = 0wxbe (* Needs escape code. *)
-    |   opToInt MOVSXW          = 0wxbf (* Needs escape code. *)
+    |   opToInt MOVSXB32        = 0wxbe (* Needs escape code. *)
+    |   opToInt MOVSXW32        = 0wxbf (* Needs escape code. *)
+    |   opToInt MOVSXB64        = 0wxbe (* Needs escape code. *)
+    |   opToInt MOVSXW64        = 0wxbf (* Needs escape code. *)
     |   opToInt IMUL32          = 0wxaf (* Needs escape code. *)
     |   opToInt IMUL64          = 0wxaf (* Needs escape code. *)
     |   opToInt SSE2StoreSingle = 0wx11 (* Needs F3 0F escape. *)
@@ -855,8 +859,10 @@ struct
     (* A few instructions require an escape.  Escapes come after the REX. *)
     fun escapePrefix MOVZB                      = [0wx0f]
     |   escapePrefix MOVZW                      = [0wx0f]
-    |   escapePrefix MOVSXB                     = [0wx0f]
-    |   escapePrefix MOVSXW                     = [0wx0f]
+    |   escapePrefix MOVSXB32                   = [0wx0f]
+    |   escapePrefix MOVSXW32                   = [0wx0f]
+    |   escapePrefix MOVSXB64                   = [0wx0f]
+    |   escapePrefix MOVSXW64                   = [0wx0f]
     |   escapePrefix LOCK_XADD32                = [0wx0f]
     |   escapePrefix LOCK_XADD64                = [0wx0f]
     |   escapePrefix IMUL32                     = [0wx0f]
@@ -928,8 +934,8 @@ struct
             |   CVTTSS2SI64 => true
             |   MOVSXD      => true
             |   CMOV64 _    => true
-            |   MOVSXB    => hostIsX64
-            |   MOVSXW    => hostIsX64
+            |   MOVSXB64   => true
+            |   MOVSXW64   => true
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
@@ -1120,7 +1126,8 @@ struct
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
 
-    datatype moveSize = Move64 | Move32 | Move8 | Move16 | Move32X | Move8X | Move16X
+    datatype moveSize =
+        Move64 | Move32 | Move8 | Move16 | Move32X64 | Move8X32 | Move8X64 | Move16X32 | Move16X64
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype operation =
@@ -1222,9 +1229,11 @@ struct
                 |   Move32  => stream "Move32 "
                 |   Move8   => stream "Move8 "
                 |   Move16  => stream "Move16 "
-                |   Move32X => stream "Move32X "
-                |   Move8X  => stream "Move8X "
-                |   Move16X => stream "Move16X ";
+                |   Move32X64 => stream "Move32X64 "
+                |   Move8X32  => stream "Move8X32 "
+                |   Move8X64  => stream "Move8X64 "
+                |   Move16X32 => stream "Move16X32 "
+                |   Move16X64 => stream "Move16X64 ";
                 printRegOrMemoryArg printGReg destination; stream " <= "; printRegOrMemoryArg printGReg source
             )
 
@@ -1613,27 +1622,33 @@ struct
                 opCodeBytes(MOVZB, rexByte) @ [modrm(Register, rrC, rbC)]
             end
 
-        |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move8X }) =
+        |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move8X32 }) =
+                opAddress(MOVSXB32, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move8X64 }) =
                 (* But we will need a Rex.W here. *)
-                opAddress(MOVSXB, LargeInt.fromInt offset, base, index, output)
+                opAddress(MOVSXB64, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(Move{moveSize=Move16, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
                 (* No need for Rex.W *)
                 opAddress(MOVZW, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(Move{moveSize=Move16X, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
-                (* But we do need Rex.W here *)
-                opAddress(MOVSXW, LargeInt.fromInt offset, base, index, output)
+        |   cgOp(Move{moveSize=Move16X32, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
+                opAddress(MOVSXW32, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(Move{moveSize=Move32X, source=RegisterArg source, destination=RegisterArg output }) =
+        |   cgOp(Move{moveSize=Move16X64, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
+                (* But we do need Rex.W here *)
+                opAddress(MOVSXW64, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(Move{moveSize=Move32X64, source=RegisterArg source, destination=RegisterArg output }) =
                 (* We should have a REX.W bit here. *)
                 opReg(MOVSXD, output, source)
 
-        |   cgOp(Move{moveSize=Move32X, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
+        |   cgOp(Move{moveSize=Move32X64, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
                 (* We should have a REX.W bit here. *)
                 opAddress(MOVSXD, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(Move{moveSize=Move32X, ...}) = raise InternalError "cgOp: LoadNonWord Size32Bit"
+        |   cgOp(Move{moveSize=Move32X64, ...}) = raise InternalError "cgOp: LoadNonWord Size32Bit"
 
         |   cgOp(LoadAddress{ offset, base, index, output, opSize }) =
                 (* This provides a mixture of addition and multiplication in a single
