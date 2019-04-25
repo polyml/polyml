@@ -33,6 +33,7 @@
 #ifdef HAVE_WINDOWS_H
 #include <winsock2.h> // Include first to avoid conflicts
 #include <windows.h>
+#include <Richedit.h>
 #endif
 
 #ifdef HAVE_TCHAR_H
@@ -363,7 +364,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     { 
         case WM_CREATE:
             {
-                hEditWnd = CreateWindow(_T("EDIT"), NULL,
+                LoadLibrary(TEXT("Riched20.dll"));
+                hEditWnd = CreateWindow(RICHEDIT_CLASS, TEXT(""),
                     WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
                     ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL, 
                     0, 0, 0, 0,
@@ -438,7 +440,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     CheckForScreenSpace(lstrlen(lpszText));
                     MoveToEnd();
                     // Add it to the screen.
-                    SendMessage(hEditWnd, EM_REPLACESEL, FALSE, (LPARAM)lpszText);
+ //                   SendMessage(hEditWnd, EM_REPLACESEL, FALSE, (LPARAM)lpszText);
                     // Add to the type-ahead.
                     PLocker locker(&iOInterlock);
                     // Check there's enough space.  This may be an
