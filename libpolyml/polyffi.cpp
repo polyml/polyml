@@ -26,8 +26,6 @@
 #error "No configuration file"
 #endif
 
-#if (defined(_WIN32) || (defined(HAVE_DLOPEN)))
-
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
 #endif
@@ -85,8 +83,6 @@
 #include "reals.h"
 #include "rts_module.h"
 #include "rtsentry.h"
-
-static Handle poly_ffi (TaskData *taskData, Handle args, Handle code);
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
@@ -180,7 +176,7 @@ static Handle toSysWord(TaskData *taskData, void *p)
     return Make_sysword(taskData, (uintptr_t)p);
 }
 
-Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
+static Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, code->Word());
     switch (c)
@@ -393,12 +389,8 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             void *f = *(void**)args->WordP()->Get(1).AsAddress();
             void *res = *(void**)args->WordP()->Get(2).AsAddress();
             void **arg = *(void***)args->WordP()->Get(3).AsAddress();
-            // We release the ML memory across the call so a GC can occur
-            // even if this thread is blocked in the C code.
-            processes->ThreadReleaseMLMemory(taskData);
             ffi_call(cif, FFI_FN(f), res, arg);
             // Do we need to save the value of errno/GetLastError here?
-            processes->ThreadUseMLMemory(taskData);
             return taskData->saveVec.push(TAGGED(0));
         }
 
@@ -487,7 +479,7 @@ static Handle mkAbitab(TaskData *taskData, void *arg, char *p)
 }
 
 // This is the C function that will get control when any callback is made.  The "data"
-// argument is the index of the entry in the callback table..
+// argument is the index of the entry in the callback table.
 static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 {
     uintptr_t cbIndex = (uintptr_t)data;
@@ -508,7 +500,7 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
             ::Exit("Unable to create thread data - insufficient memory");
         }
     }
-    else processes->ThreadUseMLMemory(taskData);
+    taskData->PreRTSCall();
     // We may get multiple calls to call-backs and we mustn't risk
     // overflowing the save-vec.
     Handle mark = taskData->saveVec.mark();
@@ -534,11 +526,9 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     pairHandle->WordP()->Set(1, resHandle->Word());
 
     taskData->EnterCallbackFunction(mlEntryHandle, pairHandle);
+    taskData->PostRTSCall();
 
     taskData->saveVec.reset(mark);
-
-    // Release ML memory now we're going back to C.
-    processes->ThreadReleaseMLMemory(taskData);
 }
 
 
@@ -557,18 +547,6 @@ void PolyFFI::GarbageCollect(ScanAddress *process)
     for (unsigned i = 0; i < callBackEntries; i++)
         process->ScanRuntimeWord(&callbackTable[i].mlFunction);
 }
-
-#else
-// The foreign function interface isn't available.
-#include "polyffi.h"
-#include "run_time.h"
-#include "sys.h"
-
-Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
-{
-    raise_exception_string(taskData, EXC_foreign, "The foreign function interface is not available on this platform");
-}
-#endif
 
 // General interface to IO.  Ideally the various cases will be made into
 // separate functions.
