@@ -98,6 +98,14 @@ sumTree aTree;
 val returnR2 = buildCall2 (getSymbol mylib "ReturnR2", (cInt, cInt), cStruct2(cInt, cInt));
 returnR2(5,6);
 
+val returnR4 = buildCall2 (getSymbol mylib "ReturnR4", (cInt, cInt), cStruct4(cInt, cInt, cFloat, cFloat));
+returnR4(5,6);
+
+
+val returnR6 =
+    buildCall2 (getSymbol mylib "ReturnR6", (cInt, cInt), cStruct6(cInt, cInt, cInt, cInt, cInt, cInt));
+returnR6(5,6);
+
 (* Example of passing and returning strings. *)
 val dupNString = buildCall2 (getSymbol mylib "DupNString", (cInt, cString), cString);
 

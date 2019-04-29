@@ -57,6 +57,38 @@ struct r2 ReturnR2(int n, int m)
     return ret;
 }
 
+// The SysV ABI for X64 Unix puts these in RAX/XMM0.
+struct r4 {
+    int a, b;
+    float c, d;
+};
+
+struct r4 ReturnR4(int n, int m)
+{
+    struct r4 ret;
+    ret.a = n + 1;
+    ret.b = m + 1;
+    ret.c = n + 2;
+    ret.d = m + 2;
+    return ret;
+}
+
+struct r6 {
+    int a, b, c, d, e, f;
+};
+
+struct r6 ReturnR6(int n, int m)
+{
+    struct r6 ret;
+    ret.a = n + 1;
+    ret.b = m + 1;
+    ret.c = n + 2;
+    ret.d = m + 2;
+    ret.e = n + 3;
+    ret.f = m + 3;
+    return ret;
+}
+
 /* Added.  Callback function. */
 
 typedef int(*INT_INT_CALLBACK) (int a, int b);
