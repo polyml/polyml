@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Text IO
-    Copyright   David C.J. Matthews 2000, 2005, 2016, 2018
+    Copyright   David C.J. Matthews 2000, 2005, 2016, 2018, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -320,7 +320,7 @@ structure TextIO :> TEXT_IO = struct
             end
         in
             (* Set up an onEntry handler so that this is always installed. *)
-            val () = PolyML.onEntry onStartUp
+            val () = LibrarySupport.addOnEntry onStartUp
         end
     end
 

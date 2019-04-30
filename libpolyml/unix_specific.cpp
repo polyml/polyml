@@ -133,8 +133,9 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixSleep(FirstArgument threadId, PolyWord maxTime, PolyWord sigCount);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -392,7 +393,6 @@ static void restoreSignals(void)
 
 Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    unsigned lastSigCount = receivedSignalCount; // Have we received a signal?
     int c = get_C_long(taskData, code->Word());
     switch (c)
     {
@@ -593,52 +593,6 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return result;
         }
 
-    case 21: /* Pause until signal. */
-            /* This never returns.  When a signal is handled it will
-               be interrupted. */
-       while (true)
-       {
-            processes->ThreadPause(taskData);
-            if (lastSigCount != receivedSignalCount)
-                raise_syscall(taskData, "Call interrupted by signal", EINTR);
-       }
-
-    case 22: /* Sleep until given time or until a signal.  Note: this is called
-            with an absolute time as an argument and returns a relative time as
-            result.  This RTS call is tried repeatedly until either the time has
-            expired or a signal has occurred. */
-        while (true)
-        {
-            struct timeval tv;
-            /* We have a value in microseconds.  We need to split
-               it into seconds and microseconds. */
-            Handle hSave = taskData->saveVec.mark();
-            Handle hTime = args;
-            Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-            unsigned long secs = get_C_ulong(taskData, div_longc(taskData, hMillion, hTime)->Word());
-            unsigned long usecs = get_C_ulong(taskData, rem_longc(taskData, hMillion, hTime)->Word());
-            taskData->saveVec.reset(hSave);
-            /* Has the time expired? */
-            if (gettimeofday(&tv, NULL) != 0)
-                raise_syscall(taskData, "gettimeofday failed", errno);
-            /* If the timeout time is earlier than the current time
-               we must return, otherwise we block.  This can be interrupted
-               by a signal. */
-            if ((unsigned long)tv.tv_sec < secs ||
-                ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec < usecs))
-            {
-                processes->ThreadPause(taskData);
-                if (lastSigCount != receivedSignalCount)
-                    raise_syscall(taskData, "Call interrupted by signal", EINTR);
-                // And loop
-            }
-            else
-            {
-                processes->TestAnyEvents(taskData); // Check for interrupts anyway
-                return Make_fixed_precision(taskData, 0);
-            }
-        }
-    
     case 23: /* Set uid. */
         {
             uid_t uid = get_C_long(taskData, args->Word());
@@ -1180,7 +1134,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
 // General interface to Unix OS-specific.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1203,6 +1157,55 @@ POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord
 POLYUNSIGNED PolyGetOSType()
 {
     return TAGGED(0).AsUnsigned(); // Return 0 for Unix
+}
+
+// Wait for the shorter of the times.
+// TODO: This should really wait for some event from the signal thread.
+class WaitUpto : public Waiter
+{
+public:
+    WaitUpto(unsigned mSecs) : maxTime(mSecs), result(0), errcode(0) {}
+    virtual void Wait(unsigned maxMillisecs)
+    {
+        useconds_t usec;
+        if (maxTime < maxMillisecs)
+            usec = maxTime * 1000;
+        else usec = maxMillisecs * 1000;
+        result = usleep(usec);
+        if (result != 0) errcode = errno;
+    }
+    unsigned maxTime;
+    int result;
+    int errcode;
+};
+
+// This waits for a period of up to a second.  The actual time calculations are
+// done in ML.  Takes the signal count as an argument and returns the last signal
+// count.  This ensures that it does not miss any signals that arrive while in ML.
+POLYUNSIGNED PolyPosixSleep(FirstArgument threadId, PolyWord maxMillisecs, PolyWord sigCount)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    POLYUNSIGNED maxMilliseconds = maxMillisecs.UnTaggedUnsigned();
+
+    try {
+        if (UNTAGGED_UNSIGNED(sigCount) == receivedSignalCount)
+        {
+            WaitUpto waiter(maxMilliseconds);
+            processes->ThreadPauseForIO(taskData, &waiter);
+            if (waiter.result != 0)
+            {
+                if (waiter.errcode != EINTR)
+                    raise_syscall(taskData, "sleep failed", waiter.errcode);
+            }
+        }
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    return TAGGED(receivedSignalCount).AsUnsigned();
 }
 
 Handle waitForProcess(TaskData *taskData, Handle args)
@@ -2006,7 +2009,8 @@ struct _entrypts osSpecificEPT[] =
 {
     { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
     { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
-
+    { "PolyPosixSleep",                 (polyRTSFunction)&PolyPosixSleep},
+    
     { NULL, NULL} // End of list.
 };
 

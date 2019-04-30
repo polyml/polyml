@@ -569,6 +569,11 @@ int X86TaskData::SwitchToPoly()
 #else
         errno = savedErrno;
 #endif
+        if (assemblyInterface.exceptionPacket.argValue != TAGGED(0).AsUnsigned())
+        {
+            (--assemblyInterface.stackPtr)->codeAddr = (byte*)X86AsmRaiseException;
+            regAX() = (PolyWord)assemblyInterface.exceptionPacket; /* put exception data into eax */
+        }
         // Enter the ML code.
         X86AsmSwitchToPoly(&this->assemblyInterface);
 
@@ -1060,12 +1065,10 @@ void X86TaskData::HeapOverflowTrap(byte *pcPtr)
 }
 
 void X86TaskData::SetException(poly_exn *exc)
-// Set up the stack to raise an exception.
+// The RTS wants to raise an exception packet.  Normally this is as the
+// result of an RTS call in which case the caller will check this.  It can
+// also happen in a trap.
 {
-    // Do we need to set the PC value any longer?  It may be necessary if
-    // we have taken a trap because another thread has sent a broadcast interrupt.
-    (--assemblyInterface.stackPtr)->codeAddr = raiseException;
-    regAX() = (PolyWord)exc; /* put exception data into eax */
     assemblyInterface.exceptionPacket = (PolyWord)exc; // Set for direct calls.
 }
 

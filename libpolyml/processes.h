@@ -158,8 +158,8 @@ public:
     // It is can be called safely to get the thread's own TaskData object without
     // a lock but any call to get the TaskData for another thread must take the
     // schedLock first in case the thread is exiting.
-    static TaskData *FindTaskForId(PolyObject *taskId) {
-        return *(TaskData**)(((ThreadObject*)taskId)->threadRef.AsObjPtr());
+    static TaskData *FindTaskForId(PolyWord taskId) {
+        return *(TaskData**)(((ThreadObject*)taskId.AsObjPtr())->threadRef.AsObjPtr());
     }
 
 private:
@@ -263,10 +263,11 @@ public:
 class WaitHandle: public Waiter
 {
 public:
-    WaitHandle(HANDLE h): m_Handle(h) {}
+    WaitHandle(HANDLE h, unsigned maxWait): m_Handle(h), m_maxWait(maxWait) {}
     virtual void Wait(unsigned maxMillisecs);
 private:
     HANDLE m_Handle;
+    unsigned m_maxWait;
 };
 
 #else

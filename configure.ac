@@ -109,7 +109,7 @@ AC_CHECK_HEADERS([stdio.h time.h fcntl.h float.h limits.h locale.h malloc.h netd
 AC_CHECK_HEADERS([stdlib.h string.h sys/file.h sys/ioctl.h sys/param.h sys/socket.h sys/systeminfo.h])
 AC_CHECK_HEADERS([sys/time.h unistd.h values.h dlfcn.h signal.h ucontext.h])
 AC_CHECK_HEADERS([assert.h ctype.h direct.h errno.h excpt.h fenv.h fpu_control.h grp.h])
-AC_CHECK_HEADERS([ieeefp.h io.h math.h memory.h netinet/tcp.h poll.h pwd.h siginfo.h])
+AC_CHECK_HEADERS([ieeefp.h io.h math.h memory.h netinet/tcp.h arpa/inet.h poll.h pwd.h siginfo.h])
 AC_CHECK_HEADERS([stdarg.h sys/errno.h sys/filio.h sys/mman.h sys/resource.h])
 AC_CHECK_HEADERS([sys/signal.h sys/sockio.h sys/stat.h termios.h sys/termios.h sys/times.h])
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])

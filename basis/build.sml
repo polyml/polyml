@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Commands to build the library
-    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018
+    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -90,10 +90,12 @@ val () = Bootstrap.use "basis/Date.sml";
 val () = Bootstrap.use "basis/Thread.sml"; (* Non-standard. *)
 val () = Bootstrap.use "basis/Timer.sml";
 val () = Bootstrap.use "basis/CommandLine.sml";
-val () = Bootstrap.use "basis/OS.sml";
-val () = Bootstrap.use "basis/ExnPrinter.sml"; (* Relies on OS. *)
-val () = Bootstrap.use "basis/InitialPolyML.ML"; (* Relies on OS. *)
+val () = Bootstrap.use "basis/ExnPrinter.sml";
+val () = Bootstrap.use "basis/ForeignConstants.sml";
+val () = Bootstrap.use "basis/ForeignMemory.sml";
+val () = Bootstrap.useWithParms [Bootstrap.Universal.tagInject Bootstrap.maxInlineSizeTag 1000] "basis/Foreign.sml";
 val () = Bootstrap.use "basis/IO.sml";
+val () = Bootstrap.use "basis/OS.sml";
 val () = Bootstrap.use "basis/PRIM_IO.sml";
 val () = Bootstrap.use "basis/PrimIO.sml";
 (*val () = Bootstrap.use "basis/TextPrimIO.sml";
@@ -105,12 +107,12 @@ val () = Bootstrap.use "basis/IMPERATIVE_IO.sml";
 val () = Bootstrap.use "basis/ImperativeIO.sml";
 val () = Bootstrap.use "basis/TextIO.sml";
 val () = Bootstrap.use "basis/BinIO.sml";
-val () = Bootstrap.use "basis/NetHostDB.sml";
+val () = Bootstrap.use "basis/Socket.sml";
 val () = Bootstrap.use "basis/NetProtDB.sml";
 val () = Bootstrap.use "basis/NetServDB.sml";
-val () = Bootstrap.use "basis/Socket.sml";
 val () = Bootstrap.use "basis/GenericSock.sml";
 val () = Bootstrap.use "basis/INetSock.sml";
+val () = Bootstrap.use "basis/INet6Sock.sml";
 val () = Bootstrap.use "basis/UnixSock.sml";
 val () = Bootstrap.use "basis/PackRealBig.sml"; (* also declares PackRealLittle *)
 val () = Bootstrap.use "basis/PackWord8Big.sml"; (* also declares Pack8Little. ...*)
@@ -140,9 +142,7 @@ val () = Bootstrap.use "basis/UniversalArray.ML";
 val () = Bootstrap.use "basis/PrettyPrinter.sml"; (* Add PrettyPrinter to PolyML structure. *)
 val () = Bootstrap.use "basis/ASN1.sml";
 val () = Bootstrap.use "basis/Statistics.ML"; (* Add Statistics to PolyML structure. *)
-val () = Bootstrap.use "basis/ForeignConstants.sml";
-val () = Bootstrap.use "basis/ForeignMemory.sml";
-val () = Bootstrap.useWithParms [Bootstrap.Universal.tagInject Bootstrap.maxInlineSizeTag 1000] "basis/Foreign.sml";
+val () = Bootstrap.use "basis/InitialPolyML.ML"; (* Relies on OS. *)
 val () = Bootstrap.use "basis/FinalPolyML.sml";
 val () = Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
 

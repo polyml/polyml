@@ -85,13 +85,13 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetError(PolyWord addr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(PolyWord err);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtData(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtData(FirstArgument threadId, PolyWord arg);
 }
 
 static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
@@ -550,7 +550,7 @@ void PolyFFI::GarbageCollect(ScanAddress *process)
 
 // General interface to IO.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyFFIGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -607,7 +607,7 @@ POLYUNSIGNED PolyFFISetError(PolyWord err)
 // an address followed by the name of the external symbol.  Because the
 // address comes at the beginning it can be used in the same way as the
 // SysWord value returned by the get-symbol call from a library.
-POLYUNSIGNED PolyFFICreateExtFn(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyFFICreateExtFn(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -629,7 +629,7 @@ POLYUNSIGNED PolyFFICreateExtFn(PolyObject *threadId, PolyWord arg)
 
 // Create an external reference to data.  On a small number of platforms
 // different forms of relocation are needed for data and for functions.
-POLYUNSIGNED PolyFFICreateExtData(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyFFICreateExtData(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

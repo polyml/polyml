@@ -43,15 +43,18 @@ struct
         val GetLastError = Base.GetLastError
 
         local
-            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+            val getModHandle =
+                winCall1 (kernel "GetModuleHandleA") (cOptionPtr cString) cHINSTANCE
+            (* The current hInstance is also returned as Foreign.System.loadExecutable. *)
         in
-            fun ApplicationInstance() = winCall (1103, ())
+            fun ApplicationInstance() = getModHandle NONE
         end
 
         local
-            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+            val FindWindow =
+                winCall2 (user "FindWindowA") (STRINGOPT, STRINGOPT) cHWND
         in
-            fun MainWindow() = winCall (1104, ())
+            fun MainWindow() = FindWindow(SOME "PolyMLWindowClass", SOME "Poly/ML")
         end
 
     end

@@ -737,7 +737,7 @@ struct
 
         fun doOnEntry () = OS.Process.atExit closeAll
     in
-        val () = PolyML.onEntry doOnEntry;
+        val () = LibrarySupport.addOnEntry doOnEntry;
         val () = doOnEntry() (* Set it up for this session as well. *)
     end
 

@@ -1,7 +1,7 @@
 (*
     Signature for built-in functions
 
-    Copyright David C. J. Matthews 2016, 2018
+    Copyright David C. J. Matthews 2016, 2018-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -93,9 +93,16 @@ sig
     |   LargeWordShift of shiftOperations
     |   RealComparison of testConditions * precision
     |   RealArith of arithmeticOperations * precision
+    
+    and nullaryOps =
+        (* Get the current thread id *)
+        GetCurrentThreadId
+        (* Check whether the last RTS call set the exception status and raise it if it had. *)
+   |    CheckRTSException
         
     val unaryRepr: unaryOps -> string
     and binaryRepr: binaryOps -> string
     and testRepr: testConditions -> string
     and arithRepr: arithmeticOperations -> string
+    and nullaryRepr: nullaryOps -> string
 end;

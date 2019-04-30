@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15-17 David C.J. Matthews
+    Copyright (c) 2012,13,15-19 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -395,9 +395,11 @@ struct
     and mkBinary (oper, arg1, arg2) =
         Binary { oper = oper, arg1 = arg1, arg2 = arg2 }
 
-    val getCurrentThreadId = GetThreadId
-    and getCurrentThreadIdFn =
-        mkInlproc(GetThreadId, 1 (* Ignores argument *), "GetThreadId()", [], 0)
+    val getCurrentThreadId = Nullary{oper=BuiltIns.GetCurrentThreadId}
+    val getCurrentThreadIdFn =
+        mkInlproc(getCurrentThreadId, 1 (* Ignores argument *), "GetThreadId()", [], 0)
+    
+    val checkRTSException = Nullary{oper=BuiltIns.CheckRTSException}
 
     fun mkAllocateWordMemory (numWords, flags, initial) =
         AllocateWordMemory { numWords = numWords, flags = flags, initial = initial }

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-18 David C.J. Matthews
+    Copyright (c) 2012, 2016-19 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -46,6 +46,7 @@ sig
         }
 
         (* Built-in functions. *)
+    |   BICNullary of {oper: BuiltIns.nullaryOps}
     |   BICUnary of {oper: BuiltIns.unaryOps, arg1: backendIC}
     |   BICBinary of {oper: BuiltIns.binaryOps, arg1: backendIC, arg2: backendIC}
     
@@ -92,8 +93,6 @@ sig
     
     |   BICBlockOperation of
             { kind: blockOpKind, sourceLeft: bicAddress, destRight: bicAddress, length: backendIC }
-
-    |   BICGetThreadId
     
     |   BICAllocateWordMemory of {numWords: backendIC, flags: backendIC, initial: backendIC}
 
@@ -180,6 +179,7 @@ sig
         and  blockOpKind = blockOpKind
         and  unaryOps = BuiltIns.unaryOps
         and  binaryOps = BuiltIns.binaryOps
+        and  nullaryOps = BuiltIns.nullaryOps
         and  testConditions = BuiltIns.testConditions
         and  arithmeticOperations = BuiltIns.arithmeticOperations
     end

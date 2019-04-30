@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,16,18 David C.J. Matthews
+    Copyright (c) 2012,13,16,18-19 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -94,8 +94,6 @@ struct
                function are constants.  This then gets converted to
                (exp1; true) and we can eliminate exp1 if it is simply
                a comparison. *)
-        |   codeProps GetThreadId = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
-
         |   codeProps (Unary{oper, arg1}) =
             let
                 open BuiltIns
@@ -151,6 +149,9 @@ struct
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end
+
+        |   codeProps (Nullary{oper=BuiltIns.GetCurrentThreadId}) = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+        |   codeProps (Nullary{oper=BuiltIns.CheckRTSException}) = PROPWORD_NOUPDATE
 
         |   codeProps (Arbitrary{shortCond, arg1, arg2, longCall, ...}) =
                 (* Arbitrary precision operations are applicative but the longCall is

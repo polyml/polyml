@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: OS Structures and Signatures
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2015-16
+    Copyright   David Matthews 2000, 2005, 2015-16, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -148,7 +148,7 @@ signature OS_IO =
 
 signature OS =
   sig
-    eqtype  syserror
+    eqtype syserror
     exception SysErr of (string * syserror Option.option)
     val errorMsg : syserror -> string
     val errorName : syserror -> string
@@ -161,13 +161,13 @@ signature OS =
   end (* OS *);
 
 
-structure OS:> OS =
+structure OS:> OS where type syserror = LibrarySupport.syserror (* Don't make it abstract a second time *) =
 struct
-    type syserror = SysWord.word (* Implemented as a SysWord.word value. *)
+    type syserror = LibrarySupport.syserror (* Implemented as a SysWord.word value. *)
 
     (* The calls themselves raise the SysCall exception.
        That has to be turned into a SysError exception. *)
-    exception SysErr = RunCall.SysErr
+    exception SysErr = LibrarySupport.SysErr
 
     (* Convert a numeric system error to a string.
        Note: unlike Posix.Error.errorName and Posix.Error.sysError
@@ -186,7 +186,7 @@ struct
         let
             val n = doCall s
         in
-            if n = 0w0 then NONE else SOME n
+            if LibrarySupport.syserrorToWord n = 0w0 then NONE else SOME n
         end
     end
 
@@ -983,16 +983,8 @@ struct
             fun sys_poll_test(i: iodesc) = doIo(22, i, 0)
         end
 
-        local
-            val doIo: int*int*
-                (iodesc Vector.vector * word Vector.vector * Time.time) ->
-                        word Vector.vector
-                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
-        in
-            fun sys_poll_block(iov, wv) = doIo(23, 0, (iov, wv, Time.zeroTime))
-            fun sys_poll_poll(iov, wv) = doIo(25, 0, (iov, wv, Time.zeroTime))
-            and sys_poll_wait (iov, wv, t) = doIo(24, 0, (iov, wv, t))
-        end
+        val sysPoll:iodesc Vector.vector * word Vector.vector * int -> word Vector.vector =
+            RunCall.rtsCallFull3 "PolyPollIODescriptors"
 
 
         fun pollDesc (i: iodesc): poll_desc option =
@@ -1018,8 +1010,7 @@ struct
             and pollPri = addBit priBit
         end
 
-        fun poll (l : poll_desc list, t: Time.time Option.option) :
-            poll_info list =
+        fun poll (l : poll_desc list, t: Time.time Option.option) : poll_info list =
         let
             (* The original poll descriptor list may contain multiple occurrences of
                the same IO descriptor with the same or different flags.  On Cygwin, at
@@ -1062,28 +1053,27 @@ struct
                 val bitVector: word Vector.vector = Vector.fromList bits
                 and ioVector: iodesc Vector.vector = Vector.fromList ioDescs
             end
-            (* Do the actual polling.  Returns a vector with bits
-               set for the results. *)
-            val resV: word Vector.vector =
-                case t of
-                    NONE => sys_poll_block(ioVector, bitVector)
-                |   SOME tt =>
-                    let
-                        open Time
-                    in
-                        if tt = Time.zeroTime
-                        then sys_poll_poll(ioVector, bitVector)
-                        else if tt < Time.zeroTime
-                        (* Must check for negative times since these can be
-                           interpreted as infinity. *)
-                        then raise SysErr("Invalid time", NONE)
-                        (* For non-zero times we convert this to a number of
-                           milliseconds since the current time.  We have to
-                           pass in an absolute time rather than a relative
-                           time because the RTS may retry this call if the
-                           polled events haven't happened. *)
-                        else sys_poll_wait(ioVector, bitVector, tt + Time.now())
-                    end
+            (* Do the actual polling.  Returns a vector with bits set for the results. *)
+            val finishTime = case t of NONE => NONE | SOME t => SOME(t + Time.now())
+            
+            val pollMillSeconds = 1000 (* 1 second *)
+            fun doPoll() =
+            let
+                val timeToGo =
+                    case finishTime of
+                        NONE => pollMillSeconds
+                    |   SOME finish => LargeInt.toInt(LargeInt.min(LargeInt.max(0, Time.toMilliseconds(finish-Time.now())), LargeInt.fromInt pollMillSeconds))
+                
+                (* Poll the descriptors.  Returns after the timeout whether or not they are ready. *)
+                val resV = sysPoll(ioVector, bitVector, timeToGo)
+            in
+                if timeToGo < pollMillSeconds orelse Vector.exists(fn w => w <> 0w0) resV
+                then resV
+                else doPoll()
+            end
+            
+            val resV : word Vector.vector = doPoll()
+
             (* Process the original list to see which items are present, retaining the
                original order. *)
             fun testResults(request as (bits, iod), tl) =
@@ -1116,49 +1106,38 @@ struct
 
         type status = int
 
-        local
-            val doCall: int*unit -> int
-                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        in
-            val success = doCall(15, ())
-            and failure = doCall(16, ())
-        end
+        val success = RunCall.rtsCallFull0 "PolyProcessEnvSuccessValue" ()
+        and failure = RunCall.rtsCallFull0 "PolyProcessEnvFailureValue" ()
 
         fun isSuccess i = i = success
 
-        local
-            val doCall: int*string -> status
-                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        in
-            (* Run a process and wait for the result. *)
-            fun system s = doCall(17, s)
-        end
+        (* Run a process and wait for the result. *)
+        val system: string -> status = RunCall.rtsCallFull1 "PolyProcessEnvSystem"
         
         local
-            val doCall: int*(unit->unit) -> unit
-                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        in
-            (* Register a function to be run at exit. *)
-            fun atExit f = doCall(18, f)
-        end
-
-        local
+            val locker = Thread.Mutex.mutex()
+            val exitFns: (unit -> unit) list ref = ref []
             (* exit - supply result code and close down all threads. *)
-            val doExit: int -> unit = RunCall.rtsCallFull1 "PolyFinish"
-            val doCall: int*unit -> (unit->unit) =
-                RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
+            val reallyExit: int -> unit = RunCall.rtsCallFull1 "PolyFinish"
+            (* The definition says that if any of the exit functions call
+               "exit" then they do not return but subsequent atExit functions
+               are executed.  A call to exit takes a single function off the
+               atExit list so any exit calls within an atExit "take over"
+               the exit process. *)
+            fun nextExit n  =
+                case !exitFns of
+                    [] => (fn () => reallyExit n)
+                |   (hd :: tl) => (exitFns := tl; hd)
         in
             fun exit (n: int) =
-            let
-                (* Get a function from the atExit list.  If that list
-                   is empty it will raise an exception and we've finished. *)
-                val exitFun =
-                    doCall(19, ()) handle _ => (doExit n; fn () => ())
-            in
-                (* Run the function and then repeat. *)
-                exitFun() handle _ => (); (* Ignore exceptions in the function. *)
-                exit(n)
-            end
+            (
+                ThreadLib.protect locker nextExit n () handle _ => ();
+                exit n
+            )
+
+            (* Add an exit function to the list.  Functions are executed in reverse
+               order of registration. *)
+            val atExit = ThreadLib.protect locker (fn f => exitFns := f :: !exitFns)
         end
 
         (* Terminate without running the atExit list or flushing the
@@ -1170,13 +1149,11 @@ struct
         end
 
         local
-            val doCall: int*string -> string
-                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
+            val doCall: string -> string = RunCall.rtsCallFull1 "PolyGetEnv"
         in
             (* Get an environment string.  The underlying call raises an
                exception if the string isn't there. *)
-            fun getEnv s =
-                SOME(doCall(14, s)) handle RunCall.SysErr _ => NONE
+            fun getEnv s = SOME(doCall s) handle RunCall.SysErr _ => NONE
         end
 
         (* poll is implemented so that an empty list simply waits for

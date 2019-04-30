@@ -148,7 +148,7 @@ sig
     
     structure Error:
     sig
-        type syserror = OS.syserror
+        type syserror = LibrarySupport.syserror
         val getLastError: unit -> SysWord.word
         val setLastError: SysWord.word -> unit
         val fromWord: SysWord.word -> syserror
@@ -511,7 +511,7 @@ struct
     
     structure Error =
     struct
-        type syserror = OS.syserror
+        type syserror = LibrarySupport.syserror
         fun toWord (s: syserror): SysWord.word = RunCall.unsafeCast s
         and fromWord (w: SysWord.word) : syserror = RunCall.unsafeCast w
         local
