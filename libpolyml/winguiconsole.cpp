@@ -33,7 +33,6 @@
 #ifdef HAVE_WINDOWS_H
 #include <winsock2.h> // Include first to avoid conflicts
 #include <windows.h>
-#include <Richedit.h>
 #endif
 
 #ifdef HAVE_TCHAR_H
@@ -83,7 +82,7 @@ HWND hMainWindow = NULL; // Main window - exported.
 extern HINSTANCE hApplicationInstance;     // Application instance (exported)
 static HANDLE  hReadFromML; // Handles to pipe from ML thread
 static WNDPROC  wpOrigEditProc; // Saved window proc.
-static BOOL fAtEnd;         // True if we are at the end of the window
+static bool fAtEnd;         // True if we are at the end of the window
 static HWND hEditWnd;       // Edit sub-window
 static CHAR *pchInputBuffer; // Buffer to text read.
 static int  nBuffLen;       // Length of input buffer.
@@ -210,7 +209,7 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
         case VK_RIGHT: // at the end.
         case VK_UP:
         case VK_DOWN:
-            fAtEnd = FALSE;
+            fAtEnd = false;
         default:
             return CallWindowProc(wpOrigEditProc, hwnd, uMsg,  wParam, lParam);
         }
@@ -320,7 +319,7 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
     case WM_RBUTTONUP:
     case EM_SETSEL:
         // Need to record that we may no longer be at the end of the text.
-        fAtEnd = FALSE;
+        fAtEnd = false;
         // Drop through to default.
 
     default:
@@ -364,8 +363,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     { 
         case WM_CREATE:
             {
-                LoadLibrary(TEXT("Riched20.dll"));
-                hEditWnd = CreateWindow(RICHEDIT_CLASS, TEXT(""),
+                hEditWnd = CreateWindow(_T("EDIT"), NULL,
                     WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
                     ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL, 
                     0, 0, 0, 0,
@@ -385,7 +383,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                // Set our new window proc.
                 SetWindowLong(hEditWnd, GWL_WNDPROC, (LONG)EditSubclassProc);
 #endif
-                fAtEnd = TRUE;
+                fAtEnd = true;
 
                 // Get a 10 point Courier fount.
                 HDC hDC = GetDC(hEditWnd);
@@ -440,7 +438,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     CheckForScreenSpace(lstrlen(lpszText));
                     MoveToEnd();
                     // Add it to the screen.
- //                   SendMessage(hEditWnd, EM_REPLACESEL, FALSE, (LPARAM)lpszText);
+                    SendMessage(hEditWnd, EM_REPLACESEL, FALSE, (LPARAM)lpszText);
                     // Add to the type-ahead.
                     PLocker locker(&iOInterlock);
                     // Check there's enough space.  This may be an
