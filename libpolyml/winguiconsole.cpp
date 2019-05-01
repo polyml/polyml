@@ -111,36 +111,36 @@ static void MoveToEnd(void)
         // Make sure any text we add goes at the end.
         LRESULT dwEnd = SendMessage(hEditWnd, WM_GETTEXTLENGTH, 0, 0);
         SendMessage(hEditWnd, EM_SETSEL, dwEnd, dwEnd);
-        fAtEnd = TRUE;
+        fAtEnd = true;
     }
 }
 
 // Remove lines at the beginning until we have enough space.
-// If nChars is bigger than the limit we'll delete everything and
-// return.  Returns the space removed.
-static DWORD CheckForScreenSpace(LRESULT nChars)
+static void CheckForScreenSpace(size_t nChars)
 {
     DWORD dwRemoved = 0;
     // TODO: We could avoid these calls by remembering this information.
-    LRESULT limit = SendMessage(hEditWnd, EM_GETLIMITTEXT, 0, 0);
-    LRESULT size = SendMessage(hEditWnd, WM_GETTEXTLENGTH, 0, 0);
-    while (nChars+size >= limit)
+    size_t limit = SendMessage(hEditWnd, EM_GETLIMITTEXT, 0, 0);
+    size_t size = SendMessage(hEditWnd, WM_GETTEXTLENGTH, 0, 0);
+    if (nChars > limit)
     {
-        int i;
-        if (size == 0) return dwRemoved;
-        for (i = 0; i < size; i++)
-        {
-            if (SendMessage(hEditWnd, EM_LINEFROMCHAR, i, 0) != 0)
-                break;
-        }
-        SendMessage(hEditWnd, EM_SETSEL, 0, i);
-        SendMessage(hEditWnd, WM_CLEAR, 0, 0);
-        fAtEnd = FALSE;
-        MoveToEnd();
-        size -= i;
-        dwRemoved += i;
+        SetWindowText(hEditWnd, _T(""));
+        SendMessage(hEditWnd, EM_SETSEL, 1, 1); // Clear selection.
     }
-    return dwRemoved;
+    else if (nChars + size >= limit)
+    {
+        // We need to remove sufficient lines to make enough space.  Find the index of
+        // the line that will create enough space and then delete to the start of the
+        // next line.
+        LRESULT lineNo = SendMessage(hEditWnd, EM_LINEFROMCHAR, nChars + size - limit, 0);
+        LRESULT firstCh = SendMessage(hEditWnd, EM_LINEINDEX, lineNo + 1, 0);
+        // Select the text we're going to remove
+        SendMessage(hEditWnd, EM_SETSEL, 0, firstCh);
+        // Use EM_REPLACESEL rather than WM_CLEAR since we don't want to undo.
+        SendMessage(hEditWnd, EM_REPLACESEL, FALSE, (LPARAM)_T(""));
+        fAtEnd = false; // Move the display to the end
+        MoveToEnd();
+    }
 }
 
 // Expand the buffer if necessary to allow room for
@@ -156,7 +156,9 @@ static void CheckForBufferSpace(int nChars)
         int nOldLen = nBuffLen;
         // Need more space.
         nBuffLen = nBuffLen + nChars + nBuffLen/2;
-        pchInputBuffer = (char*)realloc(pchInputBuffer, nBuffLen);
+        char *newBuffer = (char*)realloc(pchInputBuffer, nBuffLen);
+        if (newBuffer == 0) return; // Not sure what to do here.
+        pchInputBuffer = newBuffer;
         // Have to copy any data that has wrapped round to the
         // new area.
         if (nNextPosn < nReadPosn)
@@ -171,8 +173,7 @@ static void CheckForBufferSpace(int nChars)
             {
                 // Some of the space before will fit but not all.
                 memcpy(pchInputBuffer+nOldLen, pchInputBuffer, nExtra);
-                memmove(pchInputBuffer, pchInputBuffer+nExtra,
-                        nNextPosn-nExtra);
+                memmove(pchInputBuffer, pchInputBuffer+nExtra, nNextPosn-nExtra);
             }
             // Adjust these pointers modulo the old and new lengths.
             if (nAvailable < nNextPosn) nAvailable += nOldLen;
@@ -181,10 +182,7 @@ static void CheckForBufferSpace(int nChars)
             if (nNextPosn >= nBuffLen) nNextPosn -= nBuffLen;
         }
     }
-    ASSERT(nBuffLen >= 0 && nAvailable >= 0 && nNextPosn >= 0 &&
-           nReadPosn >= 0 &&
-           nAvailable < nBuffLen && nReadPosn < nBuffLen &&
-           nReadPosn < nBuffLen);
+    ASSERT(nBuffLen >= 0 && nAvailable >= 0 && nNextPosn >= 0 && nAvailable < nBuffLen && nReadPosn < nBuffLen);
     if (nNextPosn > nReadPosn)
         ASSERT(nAvailable >= nReadPosn && nAvailable <= nNextPosn);
     else ASSERT((nNextPosn != nReadPosn &&
@@ -428,13 +426,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             case ID_EDIT_PASTE:
                 if (IsClipboardFormatAvailable(CF_TEXTFORMAT))
                 {
-                    // We need to check that we have enough space
-                    // BEFORE we try pasting.
-                    HANDLE hClip;
-                    LPCTSTR lpszText;
+                    // We need to check that we have enough space BEFORE we try pasting.
                     OpenClipboard(hEditWnd);
-                    hClip = GetClipboardData(CF_TEXTFORMAT);
-                    lpszText = (LPCTSTR)GlobalLock(hClip);
+                    HANDLE hClip = GetClipboardData(CF_TEXTFORMAT);
+                    if (hClip == NULL) return 0;
+                    LPCTSTR lpszText = (LPCTSTR)GlobalLock(hClip);
+                    if (lpszText == NULL) return 0;
                     CheckForScreenSpace(lstrlen(lpszText));
                     MoveToEnd();
                     // Add it to the screen.
@@ -498,24 +495,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             // Request from the input thread to add some text.
             {
                 // Remember the old selection and the original length.
-                LRESULT lrStart, lrEnd;
-                SendMessage(hEditWnd, EM_GETSEL,
-                            (WPARAM)&lrStart, (LPARAM)&lrEnd);
+                DWORD lrStart, lrEnd;
+                SendMessage(hEditWnd, EM_GETSEL, (WPARAM)&lrStart, (LPARAM)&lrEnd);
                 LRESULT lrLength = SendMessage(hEditWnd, WM_GETTEXTLENGTH, 0, 0);
-                LRESULT lrRemoved = CheckForScreenSpace(lrLength);
+                CheckForScreenSpace(lstrlen((TCHAR*)lParam));
                 MoveToEnd();
                 SendMessage(hEditWnd, EM_REPLACESEL, 0, lParam);
-                // If the old selection was at the end (i.e. the pointer
-                // was at the end) we don't reinstate the old selection.
-                if (lrStart != lrLength && lrEnd > lrRemoved)
-                {
-                    if (lrStart > lrRemoved) lrStart -= lrRemoved; else lrStart = 0;
-                    fAtEnd = FALSE;
-                    SendMessage(hEditWnd, EM_SETSEL, lrStart, lrEnd-lrRemoved);
-                }
                 return 0;
             }
-
 
         default:
             return DefWindowProc(hwnd, uMsg, wParam, lParam);
