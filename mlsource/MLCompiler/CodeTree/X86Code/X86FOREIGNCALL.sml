@@ -824,6 +824,7 @@ struct
         let
             val argWorkReg = r10 (* Not used for any arguments. *)
             val resultAreaPtr = r12 (* Saved value of r8 - This is callee save. *)
+            val argPtrReg = r11 (* Pointer to argument area - Can't use mlArg2Reg since that's RSI on 32-in-64. *)
 
             fun loadSysV64Args([], stackOffset, _, _, _, code, preCode) = (code, stackOffset, preCode)
 
@@ -852,13 +853,13 @@ struct
                             else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
                             then Move8X64 else Move8
                     in
-                        [Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt offset, index=NoIndex}, destination=RegisterArg reg, moveSize=moveOp}]
+                        [Move{source=MemoryArg{base=argPtrReg, offset=Word.toInt offset, index=NoIndex}, destination=RegisterArg reg, moveSize=moveOp}]
                     end @
                     (
                         if size = 0w6 orelse size = 0w7
                         then
                         [
-                            Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt offset + 4, index=NoIndex},
+                            Move{source=MemoryArg{base=argPtrReg, offset=Word.toInt offset + 4, index=NoIndex},
                                 destination=RegisterArg argWorkReg, moveSize=Move16},
                             ShiftConstant{ shiftType=SHL, output=argWorkReg, shift=0w32, opSize=OpSize64 },
                             ArithToGenReg{ opc=OR, output=reg, source=RegisterArg argWorkReg, opSize=OpSize64 }
@@ -869,7 +870,7 @@ struct
                         if size = 0w3 orelse size = 0w5 orelse size = 0w7
                         then
                         [
-                            Move{source=MemoryArg{base=mlArg2Reg, offset=Word.toInt offset + Word.toInt(size-0w1), index=NoIndex},
+                            Move{source=MemoryArg{base=argPtrReg, offset=Word.toInt offset + Word.toInt(size-0w1), index=NoIndex},
                                 destination=RegisterArg argWorkReg, moveSize=Move8},
                             ShiftConstant{ shiftType=SHL, output=argWorkReg, shift=Word8.fromLargeWord(Word.toLargeWord((size-0w1)*0w8)), opSize=OpSize64 },
                             ArithToGenReg{ opc=OR, output=reg, source=RegisterArg argWorkReg, opSize=OpSize64 }
@@ -878,8 +879,8 @@ struct
                     )
 
                     val newArgOffset = alignUp(argOffset, align)
-                    val word1Addr = {base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}
-                    val word2Addr = {base=mlArg2Reg, offset=Word.toInt newArgOffset + 8, index=NoIndex}
+                    val word1Addr = {base=argPtrReg, offset=Word.toInt newArgOffset, index=NoIndex}
+                    val word2Addr = {base=argPtrReg, offset=Word.toInt newArgOffset + 8, index=NoIndex}
                 in
                     case (classifyArg arg, size > 0w8, gRegs, fpRegs) of
                         (* 8 bytes or smaller - single general reg.  This is the usual case. *)
@@ -929,7 +930,7 @@ struct
                         in
                             loadSysV64Args(args, stackOffset+space, newArgOffset+size, gRegs', fpRegs', code,
                                 ArithToGenReg{opc=SUB, output=rsp, source=NonAddressConstArg(LargeInt.fromInt space), opSize=nativeWordOpSize} ::
-                                    moveMemory{source=(mlArg2Reg, Word.toInt newArgOffset), destination=(rsp, 0), length=Word.toInt size} @ preCode)
+                                    moveMemory{source=(argPtrReg, Word.toInt newArgOffset), destination=(rsp, 0), length=Word.toInt size} @ preCode)
                         end
                 end
 
@@ -1043,7 +1044,7 @@ struct
                    with the actual arguments in it. *)
                 if null args
                 then []
-                else [loadHeapMemory(mlArg2Reg, mlArg2Reg, 0, nativeWordOpSize)]
+                else [loadHeapMemory(argPtrReg, mlArg2Reg, 0, nativeWordOpSize)]
             ) @ preArgCode @ argCode @
             [
                 let
