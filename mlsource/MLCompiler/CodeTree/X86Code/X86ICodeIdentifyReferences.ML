@@ -29,11 +29,6 @@ struct
         active: int, refs: int, pushState: bool, prop: regProperty
     }
 
-    and conflictState =
-    {
-        conflicts: int list, realConflicts: reg list
-    }
-
     (* CC states before and after.  The instruction may use the CC or ignore it. The only
        instructions to use the CC is X87FPGetCondition.  Conditional branches
        are handled at the block level.
