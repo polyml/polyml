@@ -942,14 +942,14 @@ struct
                     val moveOp =
                         if size = 0w8 then Move64 else if size >= 0w4 then Move32 else if size >= 0w2 then Move16 else Move8
                 in
-                    [Move{source=RegisterArg reg, destination=MemoryArg {base=ecx, offset=offset, index=NoIndex}, moveSize=moveOp}]
+                    [Move{source=RegisterArg reg, destination=MemoryArg {base=resultAreaPtr, offset=offset, index=NoIndex}, moveSize=moveOp}]
                 end @
                 (
                     if size = 0w6 orelse size = 0w7
                     then
                     [
                         ShiftConstant{ shiftType=SHR, output=reg, shift=0w32, opSize=OpSize64 },
-                        Move{source=RegisterArg reg, destination=MemoryArg {base=ecx, offset=offset+4, index=NoIndex}, moveSize=Move16}
+                        Move{source=RegisterArg reg, destination=MemoryArg {base=resultAreaPtr, offset=offset+4, index=NoIndex}, moveSize=Move16}
                     ]
                     else []
                 ) @
@@ -958,7 +958,7 @@ struct
                     then
                     [
                         ShiftConstant{ shiftType=SHR, output=reg, shift=Word8.fromLargeWord(Word.toLargeWord((size-0w1)*0w8)), opSize=OpSize64 },
-                        Move{source=RegisterArg reg, destination=MemoryArg {base=ecx, offset=offset+Word.toInt(size-0w1), index=NoIndex}, moveSize=Move8}
+                        Move{source=RegisterArg reg, destination=MemoryArg {base=resultAreaPtr, offset=offset+Word.toInt(size-0w1), index=NoIndex}, moveSize=Move8}
                     ]
                     else []
                 )
@@ -974,7 +974,7 @@ struct
 
                         (* 8 bytes or smaller - returned in XMM0 - Normal case for real results. *)
                     |   (ArgInRegs{firstInSSE=true, ...}, false) =>
-                            ([XMMStoreToMemory{toStore=xmm0, address={base=rcx, offset=0, index=NoIndex},
+                            ([XMMStoreToMemory{toStore=xmm0, address={base=resultAreaPtr, offset=0, index=NoIndex},
                                   precision=if size = 0w4 then SinglePrecision else DoublePrecision}], false)
 
                         (* 9-16 bytes - returned in RAX/RDX. *)
@@ -983,19 +983,19 @@ struct
 
                         (* 9-16 bytes - first in RAX, second in XMM0. *)
                     |   (ArgInRegs{firstInSSE=false, secondInSSE=true}, true) =>
-                            (XMMStoreToMemory{toStore=xmm0, address={base=rcx, offset=8, index=NoIndex},
+                            (XMMStoreToMemory{toStore=xmm0, address={base=resultAreaPtr, offset=8, index=NoIndex},
                                     precision=if size = 0w12 then SinglePrecision else DoublePrecision} ::
                                 storeResult(rax, 0, 0w8), false)
 
                         (* 9-16 bytes - first in XMM0, second in RAX. *)
                     |   (ArgInRegs{firstInSSE=true, secondInSSE=false}, true) =>
-                            (XMMStoreToMemory{toStore=xmm0, address={base=rcx, offset=0, index=NoIndex}, precision=DoublePrecision} ::
+                            (XMMStoreToMemory{toStore=xmm0, address={base=resultAreaPtr, offset=0, index=NoIndex}, precision=DoublePrecision} ::
                                 storeResult(rax, 8, size-0w8), false)
 
                         (* 9-16 bytes - both values in SSE regs.*)
                     |   (ArgInRegs{firstInSSE=true, secondInSSE=true}, true) =>
-                            ([XMMStoreToMemory{toStore=xmm0, address={base=rcx, offset=0, index=NoIndex}, precision=DoublePrecision},
-                              XMMStoreToMemory{toStore=xmm1, address={base=rcx, offset=8, index=NoIndex},
+                            ([XMMStoreToMemory{toStore=xmm0, address={base=resultAreaPtr, offset=0, index=NoIndex}, precision=DoublePrecision},
+                              XMMStoreToMemory{toStore=xmm1, address={base=resultAreaPtr, offset=8, index=NoIndex},
                                     precision=if size = 0w12 then SinglePrecision else DoublePrecision}], false)
 
                     |   _ => ([], true) (* Have to pass the address of the area in memory *)
@@ -1074,8 +1074,8 @@ struct
             |   _ => call32Bits(abi, args, result)
         val functionName = "foreignCall"
         val debugSwitches =
-            [Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
-               Universal.tagInject DEBUG.assemblyCodeTag true]
+            [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
+               Universal.tagInject DEBUG.assemblyCodeTag true*)]
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
         val closure = makeConstantClosure()
