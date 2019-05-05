@@ -415,6 +415,8 @@ struct
     
     fun alignUp(s, align) = Word.andb(s + align-0w1, ~ align)
     fun intAlignUp(s, align) = Word.toInt(alignUp(Word.fromInt s, align))
+    
+    val getThreadDataCall = makeEntryPoint "PolyX86GetThreadData"
 
     (* Build a foreign call function.  The arguments are the abi, the list of argument types and the result type.
        The result is the code of the ML function that takes three arguments: the C function to call, the arguments
@@ -551,6 +553,164 @@ struct
                 loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)
             ] @ getResult @ (* Store the result in the destination. *) [ ReturnFromFunction 1 ]
         end
+    
+    fun closure32Bits(abi, args, result, f) =
+    let
+        (* Arguments are copied from the stack into a struct that is then passed to the
+           ML function. *)
+        fun copyArgs([], nArgs, argOffset, code, continue) = continue(nArgs, argOffset, code)
+
+        |   copyArgs(arg::args, nArgs, argOffset, code, continue) =
+            let
+                val {size, align, typeCode, elements} = Foreign.LibFFI.extractFFItype arg
+                val newArgOffset = alignUp(argOffset, align)
+                val sourceAddr = {base=ebx, offset=nArgs*4, index=NoIndex}
+                val destAddr = {base=esp, offset=Word.toInt newArgOffset, index=NoIndex}
+            in
+                if typeCode = Foreign.LibFFI.ffiTypeCodeStruct
+                then (* structs passed as values are recursively unpacked. *)
+                    copyArgs(elements, nArgs, newArgOffset (* Struct is aligned. *), code,
+                        fn (na, ao, c) => copyArgs(args, na, ao, c, continue))
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeVoid
+                then raise Foreign.Foreign "Void cannot be used for a function argument"
+                else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
+                then  (* Double: copy the two words.  High-order word first, then low-order. *)
+                    copyArgs(args, nArgs+2, argOffset+size,
+                        Move{source=MemoryArg sourceAddr, destination=RegisterArg eax, moveSize=Move32} ::
+                        Move{source=RegisterArg eax, destination=MemoryArg destAddr, moveSize=Move32} ::
+                        Move{source=MemoryArg {base=ebx, offset=nArgs*4+4, index=NoIndex}, destination=RegisterArg eax, moveSize=Move32} ::
+                        Move{source=RegisterArg eax, destination=MemoryArg{base=esp, offset=Word.toInt newArgOffset + 4, index=NoIndex}, moveSize=Move32} ::
+                            code, continue)
+                else (* Everything else is a single word on the stack. *)
+                let
+                    val moveOp =
+                        case size of
+                            0w1 => Move8
+                        |   0w2 => Move16
+                        |   0w4 => Move32
+                        |   _ => raise Foreign.Foreign "copyArgs: Invalid size"
+                in
+                    copyArgs(args, nArgs+1, argOffset+size,
+                        Move{source=MemoryArg sourceAddr, destination=RegisterArg eax, moveSize=Move32} ::
+                            Move{source=RegisterArg eax, destination=MemoryArg destAddr, moveSize=moveOp} :: code, continue)
+                end
+            end
+
+        val {typeCode, size, align, ...} = Foreign.LibFFI.extractFFItype result
+
+        (* Struct results are normally passed by reference. *)
+        val resultStructByRef =
+            typeCode = Foreign.LibFFI.ffiTypeCodeStruct andalso
+                (abi = FFI_SYSV orelse (size <> 0w1 andalso size <> 0w2 andalso size <> 0w4 andalso size <> 0w8))
+
+        val (argCount, argumentSpace, copyArgsFromStack) =
+            copyArgs(args, if resultStructByRef then 1 else 0, 0w0, [], fn result => result)
+
+        val resultOffset = alignUp(argumentSpace, align) (* Offset of result area *)
+
+        val (loadResults, resultSize) =
+            if typeCode = Foreign.LibFFI.ffiTypeCodeVoid orelse resultStructByRef
+            then ([], 0w0)
+            else
+            let
+                val resultMem = {base=esp, offset=Word.toInt resultOffset, index=NoIndex}
+                val resultCode =
+                    if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
+                    then [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move8X32 }]
+                    else if size = 0w1
+                    then [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move8 }]
+                    else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt16
+                    then [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move16X32 }]
+                    else if size = 0w2
+                    then [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move16 }]
+                    else if typeCode = Foreign.LibFFI.ffiTypeCodeFloat
+                    then [FPLoadFromMemory{ address=resultMem, precision=SinglePrecision }]
+                    else if size = 0w4
+                    then [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move32 }]
+                    else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
+                    then [FPLoadFromMemory{ address=resultMem, precision=DoublePrecision }]
+                    else if size = 0w8 (* MSC only.  Struct returned in eax/edx. *)
+                    then
+                    [
+                        Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move32 },
+                        Move{source=MemoryArg {base=esp, offset=Word.toInt resultOffset + 4, index=NoIndex},
+                            destination=RegisterArg edx, moveSize=Move32 }
+                    ]
+                    else raise Foreign.Foreign "Unrecognised result type"
+            in
+                (resultCode, size)
+            end
+
+        val stackSpace = Word.toInt(resultOffset + resultSize)
+        
+        local
+            val align = stackSpace mod 16
+        in
+            (* Stack space.  In order to align the stack correctly for GCC we need the value in memRegCStackPtr
+               to be a multiple of 16 bytes + 8.  esp would have been on a 16 byte boundary before the return address
+               was pushed so after pushing the return address and four registers we need a further 4 bytes
+               to get the alignment back again.  The effect of this is that the argument and result area is
+               on an 8-byte boundary. *)
+            val stackToAllocate = stackSpace + (if align = 0 then 0 else 16-align) + 4
+        end
+        
+        val lengthWord = IntInf.orb(1, IntInf.<<(Word8.toLargeInt 0wx1, 0w24))
+    in
+        [
+            (* Push callee-save registers. *)
+            PushToStack(RegisterArg ebp), PushToStack(RegisterArg ebx), PushToStack(RegisterArg edi), PushToStack(RegisterArg esi),
+            (* Set ebx to point to the original args. *)
+            LoadAddress{ output=ebx, offset=20, base=SOME esp, index=NoIndex, opSize=nativeWordOpSize},
+            (* Allocate stack space. *)
+            ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=nativeWordOpSize}
+        ] @ copyArgsFromStack @
+        [
+            (* Get the value for ebp. *)
+            Move{source=AddressConstArg getThreadDataCall, destination=RegisterArg ecx, moveSize=opSizeToMove polyWordOpSize},
+            CallAddress(MemoryArg{base=ecx, offset=0, index=NoIndex}), (* Get the address - N.B. Heap addr in 32-in-64. *)
+            moveRR{source=eax, output=ebp, opSize=nativeWordOpSize},
+            (* Save the address of the argument and result area. *)
+            moveRR{source=esp, output=ecx, opSize=nativeWordOpSize},
+            (* Switch to the ML stack. *)
+            storeMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize),
+            loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize),
+            (* Set up the ML arguments.  These are SysWord values so we need to allocate
+               memory for them.  That in turn raises the possibility of a GC. *)
+            AllocStore{ size=1, output=eax, saveRegs=[] },
+            Move{source=NonAddressConstArg lengthWord, destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex},
+                      moveSize=opSizeToMove polyWordOpSize},
+            Move{source=RegisterArg ecx, destination=MemoryArg {offset=0, base=eax, index=NoIndex}, moveSize=opSizeToMove nativeWordOpSize},
+            StoreInitialised
+        ] @
+        (
+            (* If we're returning a struct the address for the result will have been passed in the
+               first argument.  We use that as the result area.  Otherwise point to the result
+               area on the stack.  *)
+            if resultStructByRef
+            then Move{source=MemoryArg {offset=0, base=ebx, index=NoIndex}, destination=RegisterArg ecx, moveSize=opSizeToMove nativeWordOpSize}
+            else ArithToGenReg{opc=ADD, output=ecx, source=NonAddressConstArg(Word.toLargeInt resultOffset), opSize=nativeWordOpSize}
+        ) ::
+        [
+            AllocStore{ size=1, output=ebx, saveRegs=[eax] },
+            Move{source=NonAddressConstArg lengthWord, destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=ebx, index=NoIndex},
+                      moveSize=opSizeToMove polyWordOpSize},
+            Move{source=RegisterArg ecx, destination=MemoryArg {offset=0, base=ebx, index=NoIndex}, moveSize=opSizeToMove nativeWordOpSize},
+            StoreInitialised,
+            (* Call the ML function using the full closure call. *)
+            Move{source=AddressConstArg(Address.toMachineWord f), destination=RegisterArg edx, moveSize=opSizeToMove polyWordOpSize},
+            CallAddress(MemoryArg{offset=0, base=edx, index=NoIndex}),
+            (* Save the ML stack pointer because we may have grown the stack.  Switch to the C stack. *)
+            storeMemory(esp, ebp, memRegStackPtr, nativeWordOpSize),
+            loadMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize)
+        ] @ loadResults @
+        [
+            (* Remove the stack space. *)
+            ArithToGenReg{opc=ADD, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=nativeWordOpSize},
+            PopR esi, PopR edi, PopR ebx, PopR ebp, (* Restore callee-save registers. *)
+            (* Callee removes arguments in StdCall. *)
+            ReturnFromFunction (if abi = FFI_STDCALL then argCount else 0)
+        ]
+    end
 
     (* Windows on X64. *)
     fun callWindows64Bits(args, result) =
@@ -759,6 +919,7 @@ struct
             ] @ (* Store the result in the destination. *) getResult @ [ReturnFromFunction 0 ]
         end (* callWindows64Bits *)
 
+    fun closureWindows64Bits(args, result, f) = raise Fail "TODO: closureWindows64Bits"
 
     local
         (* The rules for passing structs in SysV on X86/64 are complicated but most of the special
@@ -1062,17 +1223,19 @@ struct
                 loadMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize)
             ] @ (* Store the result in the destination. *) getResult @ [ ReturnFromFunction 0 ]
         end (* callUnix64Bits *)
+        
+        fun closureUnix64Bits(args, result, f) = raise Fail "TODO: closureUnix64Bits"
     end
 
     fun foreignCall(abivalue: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
     let
-        val abi = getFFIAbi abivalue
-
         val code =
-            case abi of
-                FFI_UNIX64 => callUnix64Bits(args, result)
-            |   FFI_WIN64 => callWindows64Bits(args, result)
-            |   _ => call32Bits(abi, args, result)
+            case (getABI(), getFFIAbi abivalue) of
+                (X64Unix, FFI_UNIX64) => callUnix64Bits(args, result)
+            |   (X64Win, FFI_WIN64) => callWindows64Bits(args, result)
+            |   (X86_32, abi) => call32Bits(abi, args, result)
+            |   _ => raise Foreign.Foreign "Unsupported ABI"
+
         val functionName = "foreignCall"
         val debugSwitches =
             [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
@@ -1093,9 +1256,31 @@ struct
        callback. *)
     fun buildCallBack(abivalue: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
     let
-        val abi = getFFIAbi abivalue
+        (* For the moment we do everything inside the result function.  The intention is to generate
+           the main closure function outside this and have this function load "f" into a register
+           and jump to the main function. *)
+        fun resultFunction f =
+        let
+            val code =
+                case (getABI(), getFFIAbi abivalue) of
+                    (X64Unix, FFI_UNIX64) => closureUnix64Bits(args, result, f)
+                |   (X64Win, FFI_WIN64) => closureWindows64Bits(args, result, f)
+                |   (X86_32, abi) => closure32Bits(abi, args, result, f)
+                |   _ => raise Foreign.Foreign "Unsupported ABI"
+
+            val functionName = "foreignCall"
+            val debugSwitches =
+                [Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
+                   Universal.tagInject DEBUG.assemblyCodeTag true]
+            val profileObject = createProfileObject functionName
+            val newCode = codeCreate (functionName, profileObject, debugSwitches)
+            val closure = makeConstantClosure()
+            val () = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
+        in
+            closureAsAddress closure
+        end
     in
-        raise Fail "TODO: foreignCall"
+        Address.toMachineWord resultFunction
     end
 
 end;

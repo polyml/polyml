@@ -64,6 +64,7 @@
 #include "poly_specific.h"
 #include "objsize.h"
 #include "network.h"
+#include "machine_dep.h"
 #include "exporter.h"
 #include "statistics.h"
 #include "savestate.h"
@@ -92,6 +93,7 @@ static entrypts entryPointTable[] =
     exporterEPT,
     statisticsEPT,
     savestateEPT,
+    machineSpecificEPT,
     NULL
 };
 

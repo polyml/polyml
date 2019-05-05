@@ -69,6 +69,7 @@
 #include "save_vec.h"
 #include "memmgr.h"
 #include "scanaddrs.h"
+#include "rtsentry.h"
 
 #if (SIZEOF_VOIDP == 8)
 #define IS64BITS 1
@@ -2329,3 +2330,9 @@ bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 static Interpreter interpreterObject;
 
 MachineDependent *machineDependent = &interpreterObject;
+
+// No machine-specific calls in the interpreter.
+struct _entrypts machineSpecificEPT[] =
+{
+    { NULL, NULL} // End of list.
+};

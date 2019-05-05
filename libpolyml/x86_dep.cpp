@@ -1465,3 +1465,38 @@ void X86Module::GarbageCollect(ScanAddress *process)
         process->ScanRuntimeAddress((PolyObject**)&callbackReturn, ScanAddress::STRENGTH_STRONG);
 #endif
 }
+
+
+extern "C" {
+    POLYEXTERNALSYMBOL void *PolyX86GetThreadData();
+}
+
+// Return the address of assembly data for the current thread.  This is normally in
+// RBP except if we are in a callback.
+void *PolyX86GetThreadData()
+{
+    // We should get the task data for the thread that is running this code.
+    // If this thread has been created by the foreign code we will have to
+    // create a new one here.
+    TaskData* taskData = processes->GetTaskDataForThread();
+    if (taskData == 0)
+    {
+        try {
+            taskData = processes->CreateNewTaskData(0, 0, 0, TAGGED(0));
+        }
+        catch (std::bad_alloc&) {
+            ::Exit("Unable to create thread data - insufficient memory");
+        }
+        catch (MemoryException&) {
+            ::Exit("Unable to create thread data - insufficient memory");
+        }
+    }
+    return &((X86TaskData*)taskData)->assemblyInterface;
+}
+
+struct _entrypts machineSpecificEPT[] =
+{
+    { "PolyX86GetThreadData",           (polyRTSFunction)& PolyX86GetThreadData },
+
+    { NULL, NULL} // End of list.
+};
