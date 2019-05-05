@@ -107,7 +107,11 @@ static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
 #elif defined(X86_WIN64)
     {"win64", FFI_WIN64},
 #elif defined(X86_ANY)
+#if (defined(__i386__) || defined(__i386))
+    {"sysv", FFI_SYSV},
+#else
     {"unix64", FFI_UNIX64},
+#endif
 #endif
     { "default", FFI_DEFAULT_ABI}
 };
