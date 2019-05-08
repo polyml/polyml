@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: main part
     Author:     David Matthews
-    Copyright   David Matthews 2015-16, 2018
+    Copyright   David Matthews 2015-16, 2018-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -133,17 +133,6 @@ sig
             ffiType -> { size: word, align: word, typeCode: word, elements: ffiType list }
         val createFFItype:
             { size: word, align: word, typeCode: word, elements: ffiType list } -> ffiType
-
-        eqtype cif
-        val cif2voidStar: cif -> Memory.voidStar
-        val voidStar2cif: Memory.voidStar -> cif
-        val createCIF: abi * ffiType * ffiType list -> cif
-        val callFunction:
-            { cif: cif, function: Memory.voidStar, result: Memory.voidStar, arguments: Memory.voidStar } -> unit
-
-        val createCallback:
-            (Memory.voidStar * Memory.voidStar -> unit) * cif -> Memory.voidStar
-        val freeCallback: Memory.voidStar -> unit
     end
     
     structure Error:
@@ -609,27 +598,6 @@ struct
         (* Construct a new FFItype in allocated memory. *)
         fun createFFItype { size: word, align: word, typeCode: word, elements: ffiType list }: ffiType =
             ffiGeneral (54, (size, align, typeCode, elements))
-
-        type cif = Memory.voidStar
-        val cif2voidStar = id
-        and voidStar2cif = id
-
-        (* Construct and prepare a CIF in allocated memory. *)
-        fun createCIF (abi: abi, resultType: ffiType, argTypes: ffiType list): cif =
-            ffiGeneral (55, (abi, resultType, argTypes))
-
-        (* Call a function. We have to pass some space for the result *)
-        fun callFunction
-            { cif: cif, function: Memory.voidStar, result: Memory.voidStar, arguments: Memory.voidStar }: unit =
-            ffiGeneral (56, (cif, function, result, arguments))
-
-        (* Create a callback.  Returns the C function. *)
-        fun createCallback(f: Memory.voidStar * Memory.voidStar -> unit, cif: cif): Memory.voidStar =
-            ffiGeneral (57, (f, cif))
-        
-        (* Free a callback.  This takes the C function address returned by createCallback *)
-        fun freeCallback(cb: Memory.voidStar): unit =
-            ffiGeneral (58, cb)
     end
 
     type library = unit -> Memory.voidStar
@@ -730,35 +698,39 @@ struct
             in
                 {align=align, size=size, ffiType=memoise ffiType ()}
             end
-
-            fun callwithAbi (abi: abi) (argTypes: ctype list) (resType: ctype): symbol -> voidStar * voidStar -> unit =
-            let
-                fun getType ctype = Memory.voidStar2Sysword(#ffiType ctype ())
-                (* Compile the intermediate function. *)
-                val functionCaller: LargeWord.word * LargeWord.word * LargeWord.word -> unit =
-                    RunCall.foreignCall(Word.toInt abi, List.map getType argTypes, getType resType)
-
-                (* The result function. *)
-                fun callFunction (fnAddr: unit->voidStar) (args, resMem) =
-                    functionCaller(voidStar2Sysword(fnAddr()), voidStar2Sysword args, voidStar2Sysword resMem)
-            in
-                callFunction
-            end
-
-            fun call x = callwithAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
-
-            (* Build a call-back function.  Returns a function to take the actual ML function,
-               create a callback and then return the address. *)
-            fun cFunctionWithAbi (abi: abi) (argTypes: ctype list) (resType: ctype):
-                    (voidStar * voidStar -> unit) -> voidStar =
-            let
-                fun buildCif () = createCIF (abi, #ffiType resType (), map (fn {ffiType, ...} => ffiType ()) argTypes)
-                val cif: unit->cif = memoise buildCif ()
-            in
-                fn cbFun => createCallback(cbFun, cif())
-            end
             
-            fun cFunction x = cFunctionWithAbi abiDefault x
+            local
+                fun getType ctype = Memory.voidStar2Sysword(#ffiType ctype ())
+            in
+                fun callwithAbi (abi: abi) (argTypes: ctype list) (resType: ctype): symbol -> voidStar * voidStar -> unit =
+                let
+                    (* Compile the intermediate function. *)
+                    val functionCaller: LargeWord.word * LargeWord.word * LargeWord.word -> unit =
+                        RunCall.foreignCall(Word.toInt abi, List.map getType argTypes, getType resType)
+
+                    (* The result function. *)
+                    fun callFunction (fnAddr: unit->voidStar) (args, resMem) =
+                        functionCaller(voidStar2Sysword(fnAddr()), voidStar2Sysword args, voidStar2Sysword resMem)
+                in
+                    callFunction
+                end
+
+                fun call x = callwithAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
+
+                (* Build a call-back function.  Returns a function to take the actual ML function,
+                   create a callback and then return the address. *)
+                fun cFunctionWithAbi (abi: abi) (argTypes: ctype list) (resType: ctype)
+                        (cbFun: voidStar * voidStar -> unit): voidStar =
+                let
+                    fun callBack(args, resMem) = cbFun(sysWord2VoidStar args, sysWord2VoidStar resMem)
+                    val cCallBack =
+                        RunCall.buildCallBack(Word.toInt abi, List.map getType argTypes, getType resType) callBack
+                in
+                    sysWord2VoidStar cCallBack
+                end
+
+                fun cFunction x = cFunctionWithAbi abiDefault x
+            end
         end
 
     end

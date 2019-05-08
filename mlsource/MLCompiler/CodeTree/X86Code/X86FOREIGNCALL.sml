@@ -160,7 +160,7 @@ struct
         val nArgs = List.length argFormats
         
         local
-            (* Compute stack space.  The actual number of args passed is nArgs+1. *)
+            (* Compute stack space.  The actual number of args passed is nArgs. *)
             val argSpace =
                 case abi of
                     X64Unix => Int.max(0, nArgs-6)*8
