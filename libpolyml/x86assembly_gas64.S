@@ -112,8 +112,6 @@ EXTNAME(id):
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
-#define RETURN_CALLBACK_RETURN      6
-#define RETURN_CALLBACK_EXCEPTION   7
 #define RETURN_RAISE_OVERFLOW       8
 #define RETURN_KILL_SELF            9
 
@@ -131,10 +129,11 @@ EXTNAME(id):
         pushq %rcx; \
         movb  $index,Arg_ReturnReason(%rbp); \
         popq  %rcx; \
-        jmp   SaveFullState;
+        jmp   CallTrapHandler;
 
 
-/* Load the registers from the ML stack and jump to the code. */
+/* Enter ML code.  This is now only ever used to start a new thread.
+   It is probably unnecessary to save the callee-save regs or load the ML regs. */
 INLINE_ROUTINE(X86AsmSwitchToPoly)
     pushq   %rbp                            # Standard entry sequence
 /* If we're compiling with Mingw we're using Windows calling conventions. */
@@ -191,9 +190,9 @@ raisexLocal:
     movq    Arg_HandlerRegister(%rbp),%rcx    # Get next handler into %rcx
     jmp     *(%rcx)
 
-/* Code to save the state and switch to C
-   This saves the full register state. */
-SaveFullState:
+/* Save all the registers and enter the trap handler.
+   It is probably unnecessary to save the FP state now. */
+CallTrapHandler:
     movq    %rax,Arg_SaveRAX(%rbp)
     movq    %rbx,Arg_SaveRBX(%rbp)
     movq    %rcx,Arg_SaveRCX(%rbp)
@@ -218,18 +217,41 @@ SaveFullState:
     movq    %r15,Arg_LocalMpointer(%rbp)        # Save back heap pointer
     movq    Arg_SaveCStack(%rbp),%rsp           # Restore C stack pointer
 #ifdef _WIN32
-    addq    $(Fr_Size-56),%rsp
-    popq    %rsi
-    popq    %rdi
+    subq    $32,%rsp                            # Windows save area
+    movq    Arg_ThreadId(%rbp),%rcx
 #else
-    addq    $(Fr_Size-40),%rsp
+    movq    Arg_ThreadId(%rbp),%rdi
 #endif
-    popq    %r15                                # Restore callee-save registers
-    popq    %r14
-    popq    %r13
-    popq    %r12
-    popq    %rbx
-    popq    %rbp
+    call    X86TrapHandler@plt
+#ifdef _WIN32
+    addq    $32,%rsp
+#endif
+    movq    Arg_LocalMpointer(%rbp),%r15
+    movq    Arg_StackPtr(%rbp),%rsp               # Set the new stack ptr
+    movsd   Arg_SaveXMM0(%rbp),%xmm0              # Load the registers
+    movsd   Arg_SaveXMM1(%rbp),%xmm1
+    movsd   Arg_SaveXMM2(%rbp),%xmm2
+    movsd   Arg_SaveXMM3(%rbp),%xmm3
+    movsd   Arg_SaveXMM4(%rbp),%xmm4
+    movsd   Arg_SaveXMM5(%rbp),%xmm5
+    movsd   Arg_SaveXMM6(%rbp),%xmm6
+    movq    Arg_SaveRBX(%rbp),%rbx
+    movq    Arg_SaveRCX(%rbp),%rcx
+    movq    Arg_SaveRDX(%rbp),%rdx
+    movq    Arg_SaveRSI(%rbp),%rsi
+    movq    Arg_SaveRDI(%rbp),%rdi
+    movq    Arg_SaveR8(%rbp),%r8
+    movq    Arg_SaveR9(%rbp),%r9
+    movq    Arg_SaveR10(%rbp),%r10
+    movq    Arg_SaveR11(%rbp),%r11
+    movq    Arg_SaveR12(%rbp),%r12
+    movq    Arg_SaveR13(%rbp),%r13
+    movq    Arg_SaveR14(%rbp),%r14
+    movq    Arg_ExceptionPacket(%rbp),%rax
+    cmpq    $1,%rax                             # Did we raise an exception?
+    jnz     raisexLocal
+    movq    Arg_SaveRAX(%rbp),%rax
+    cld                                     # Clear this just in case
     ret
 
 /* Used when entering new code.  The argument and closure are on the stack
@@ -243,21 +265,11 @@ INLINE_ROUTINE(X86AsmPopArgAndClosure)
     jmp     *(%rdx)
 #endif
 
-# This is used if the RTS sets up an exception.  It's probably no longer relevant.
-INLINE_ROUTINE(X86AsmRaiseException)
-    movq    Arg_HandlerRegister(%rbp),%rcx    # Get next handler into %rcx
-    jmp     *(%rcx)
 # Additional assembly code routines
 
 # RTS call to kill the current thread. 
 INLINE_ROUTINE(X86AsmKillSelf)
     CALL_EXTRA(RETURN_KILL_SELF)
-
-INLINE_ROUTINE(X86AsmCallbackReturn)
-    CALL_EXTRA(RETURN_CALLBACK_RETURN)
-
-INLINE_ROUTINE(X86AsmCallbackException)
-    CALL_EXTRA(RETURN_CALLBACK_EXCEPTION)
 
 INLINE_ROUTINE(X86AsmCallExtraRETURN_HEAP_OVERFLOW)
     CALL_EXTRA(RETURN_HEAP_OVERFLOW)
