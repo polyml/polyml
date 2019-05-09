@@ -523,6 +523,9 @@ struct
         in
             (* Always align the stack.  It's not always necessary on 32-bits but GCC prefers it. *)
             val preArgAlign = if align = 0 then 0 else 16-align
+            (* Adjustment to be made when the function returns.  Stdcall resets the stack in the callee. *)
+            val postCallStackReset =
+                preArgAlign + (if abi = FFI_STDCALL then 0 else argStack)
         end
 
         in
@@ -547,9 +550,16 @@ struct
                 then []
                 else [loadHeapMemory(mlArg2Reg, mlArg2Reg, 0, nativeWordOpSize)]
             ) @ argCode @
+            CallAddress(MemoryArg{base=eax, offset=0, index=NoIndex}) ::
+            (* Restore the C stack.  This is really only necessary if we've called a callback
+               since that will store its esp value.  *)
+            (
+                if postCallStackReset = 0
+                then []
+                else [ArithToGenReg{opc=ADD, output=esp, source=NonAddressConstArg(LargeInt.fromInt postCallStackReset), opSize=nativeWordOpSize}]
+            ) @
             [
-                (* Call the function.  We're discarding the value in rsp so no need to remove args. *)
-                CallAddress(MemoryArg{base=eax, offset=0, index=NoIndex}),
+                storeMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize),
                 loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)
             ] @ getResult @ (* Store the result in the destination. *) [ ReturnFromFunction 1 ]
         end
@@ -1268,10 +1278,10 @@ struct
                 |   (X86_32, abi) => closure32Bits(abi, args, result, f)
                 |   _ => raise Foreign.Foreign "Unsupported ABI"
 
-            val functionName = "foreignCall"
+            val functionName = "foreignCallBack"
             val debugSwitches =
-                [Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
-                   Universal.tagInject DEBUG.assemblyCodeTag true]
+                [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
+                   Universal.tagInject DEBUG.assemblyCodeTag true*)]
             val profileObject = createProfileObject functionName
             val newCode = codeCreate (functionName, profileObject, debugSwitches)
             val closure = makeConstantClosure()
