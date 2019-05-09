@@ -99,26 +99,6 @@ X86AsmSwitchToPoly:
     cld                                     ; Clear this just in case
     ret
 
-; Code to save the state and switch to C
-; This saves the full register state.
-SaveFullState:
-    mov     [ArgVector.SaveRAX+ebp],eax
-    mov     [ArgVector.SaveRBX+ebp],ebx
-    mov     [ArgVector.SaveRCX+ebp],ecx
-    mov     [ArgVector.SaveRDX+ebp],edx
-    mov     [ArgVector.SaveRSI+ebp],esi
-    mov     [ArgVector.SaveRDI+ebp],edi
-    FNSAVE  [ArgVector.SaveFP+ebp]          ; Save FP state.  Also resets the state so...
-    FLDCW   [ArgVector.SaveFP+ebp]          ; ...load because we need the same rounding mode in the RTS
-    mov     [ArgVector.StackPtr+ebp],esp    ; Save ML stack pointer
-    mov     esp,[ArgVector.SaveCStack+ebp]  ; Restore C stack pointer
-    add     esp,(Fr_size-12)
-    pop     esi                             ; Restore saved registers
-    pop     edi
-    pop     ebx
-    pop     ebp
-    ret
-
 ; Save all the registers and enter the trap handler.
 ; It is probably unnecessary to save the FP state now.
 X86TrapHandler PROTO C
