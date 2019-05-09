@@ -85,8 +85,6 @@ EXTNAME(id):
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
-#define RETURN_CALLBACK_RETURN      6
-#define RETURN_CALLBACK_EXCEPTION   7
 #define RETURN_KILL_SELF            9
 
 # Mark the stack as non-executable when supported
@@ -103,18 +101,10 @@ EXTNAME(id):
         pushl %ecx; \
         movb  $index,Arg_ReturnReason(%ebp); \
         popl  %ecx; \
-        jmp   SaveFullState;
+        jmp   CallTrapHandler;
 
-/* Load the registers from the ML stack and jump to the code.
-  This is used to start ML code.
-  The argument is the address of the MemRegisters struct and goes into %rbp.
-  This is the general code for switching control to ML.  There are a number of cases to consider:
-  1.  Initial entry to root function or a new thread.  Needs to load EDX at least.
-  2.  Normal return from an RTS call.  Could just do a simple return.
-  3.  Exception raised in RTS call.
-  4.  Callback from C to an ML function.  In effect this is a coroutine. Similar to 1.
-  5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
-      either because the stack can't be grown or because Interrupt has been raised. */
+/*  Enter ML code.  This is now only ever used to start a new thread.
+    It is probably unnecessary to save the callee-save regs or load the ML regs. */
 INLINE_ROUTINE(X86AsmSwitchToPoly)
     pushl   %ebp                            # Standard entry sequence
     movl    8(%esp),%ebp                    # Address of argument vector
@@ -123,6 +113,35 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     pushl   %esi                            # Push callee-save registers
     subl    $(Fr_Size-12),%esp              # Allocate frame
     movl    %esp,Arg_SaveCStack(%ebp)
+    movl    Arg_StackPtr(%ebp),%esp
+    FRSTOR  Arg_SaveFP(%ebp)
+    movl    Arg_SaveRAX(%ebp),%eax              # Load the registers
+    movl    Arg_SaveRBX(%ebp),%ebx              # Load the registers
+    movl    Arg_SaveRCX(%ebp),%ecx
+    movl    Arg_SaveRDX(%ebp),%edx
+    movl    Arg_SaveRSI(%ebp),%esi
+    movl    Arg_SaveRDI(%ebp),%edi
+    cld                                     # Clear this just in case
+    ret
+
+
+/* Save all the registers and enter the trap handler.
+   It is probably unnecessary to save the FP state now. */
+CallTrapHandler:
+    movl    %eax,Arg_SaveRAX(%ebp)
+    movl    %ebx,Arg_SaveRBX(%ebp)
+    movl    %ecx,Arg_SaveRCX(%ebp)
+    movl    %edx,Arg_SaveRDX(%ebp)
+    movl    %esi,Arg_SaveRSI(%ebp)
+    movl    %edi,Arg_SaveRDI(%ebp)
+    fnsave  Arg_SaveFP(%ebp)                # Save FP state.  Also resets the state so...
+    fldcw   Arg_SaveFP(%ebp)                # ...load because we need the same rounding mode in the RTS
+    movl    %esp,Arg_StackPtr(%ebp)         # Save ML stack pointer
+    movl    Arg_SaveCStack(%ebp),%esp       # Restore C stack pointer
+    subl    $12,%esp                        # Align stack ptr - GCC prefers this
+    pushl   Arg_ThreadId(%ebp)
+    call    X86TrapHandler
+    addl    $16,%esp
     movl    Arg_StackPtr(%ebp),%esp
     movl    Arg_ExceptionPacket(%ebp),%eax
     cmpl    $1,%eax                             # Did we raise an exception?
@@ -137,26 +156,9 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     cld                                     # Clear this just in case
     ret
 
-
-/* Code to save the state and switch to C
-   This saves the full register state. */
-SaveFullState:
-    movl    %eax,Arg_SaveRAX(%ebp)
-    movl    %ebx,Arg_SaveRBX(%ebp)
-    movl    %ecx,Arg_SaveRCX(%ebp)
-    movl    %edx,Arg_SaveRDX(%ebp)
-    movl    %esi,Arg_SaveRSI(%ebp)
-    movl    %edi,Arg_SaveRDI(%ebp)
-    fnsave  Arg_SaveFP(%ebp)                # Save FP state.  Also resets the state so...
-    fldcw   Arg_SaveFP(%ebp)                # ...load because we need the same rounding mode in the RTS
-    movl    %esp,Arg_StackPtr(%ebp)         # Save ML stack pointer
-    movl    Arg_SaveCStack(%ebp),%esp       # Restore C stack pointer
-    addl    $(Fr_Size-12),%esp
-    popl    %esi
-    popl    %edi
-    popl    %ebx
-    popl    %ebp
-    ret
+raisexlocal:
+    movl    Arg_HandlerRegister(%ebp),%ecx    # Get next handler into %rcx
+    jmp     *(%ecx)
 
 INLINE_ROUTINE(X86AsmCallExtraRETURN_HEAP_OVERFLOW)
     CALL_EXTRA(RETURN_HEAP_OVERFLOW)
@@ -174,22 +176,11 @@ INLINE_ROUTINE(X86AsmPopArgAndClosure)
     popl    %eax
     jmp     *(%edx)
 
-INLINE_ROUTINE(X86AsmRaiseException)
-raisexlocal:
-    movl    Arg_HandlerRegister(%ebp),%ecx    # Get next handler into %rcx
-    jmp     *(%ecx)
-
 # Additional assembly code routines
 
 # RTS call to kill the current thread. 
 INLINE_ROUTINE(X86AsmKillSelf)
     CALL_EXTRA(RETURN_KILL_SELF)
-
-INLINE_ROUTINE(X86AsmCallbackReturn)
-    CALL_EXTRA(RETURN_CALLBACK_RETURN)
-
-INLINE_ROUTINE(X86AsmCallbackException)
-    CALL_EXTRA(RETURN_CALLBACK_EXCEPTION)
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)
