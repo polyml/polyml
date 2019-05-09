@@ -122,7 +122,7 @@ public:
 
     virtual void GarbageCollect(ScanAddress *process);
     void ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack);
-    virtual Handle EnterPolyCode(); // Start running ML
+    virtual void EnterPolyCode(); // Start running ML
 
     // Switch to Poly and return with the io function to call.
     int SwitchToPoly();
@@ -133,9 +133,6 @@ public:
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context);
 
     virtual void InitStackFrame(TaskData *newTask, Handle proc, Handle arg);
-
-    // These aren't implemented in the interpreted version.
-    virtual Handle EnterCallbackFunction(Handle func, Handle args) { ASSERT(0); return 0; }
 
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
@@ -2231,7 +2228,7 @@ void IntTaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length, S
     ASSERT(newp == ((PolyWord*)new_stack) + new_length);
 }
 
-Handle IntTaskData::EnterPolyCode()
+void IntTaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
     Handle hOriginal = this->saveVec.mark(); // Set this up for the IO calls.

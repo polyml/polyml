@@ -1274,7 +1274,7 @@ static void *NewThreadFunction(void *parameter)
     globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
-        (void)taskData->EnterPolyCode(); // Will normally (always?) call ExitThread.
+        taskData->EnterPolyCode(); // Will normally (always?) call ExitThread.
     }
     catch (KillException &) {
         processesModule.ThreadExit(taskData);
@@ -1291,7 +1291,7 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
     globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
-        (void)taskData->EnterPolyCode();
+        taskData->EnterPolyCode();
     }
     catch (KillException &) {
         processesModule.ThreadExit(taskData);

@@ -174,7 +174,6 @@ static PLock callbackTableLock; // Mutex to protect table.
 
 
 static Handle mkAbitab(TaskData *taskData, void*, char *p);
-static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data);
 
 static Handle toSysWord(TaskData *taskData, void *p)
 {
@@ -401,41 +400,7 @@ static Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
 
     case 57: // Create a callback.
         {
-#ifdef INTERPRETED
-            raise_exception_string(taskData, EXC_foreign, "Callbacks are not implemented in the byte code interpreter");
-#endif
-            Handle mlFunction = taskData->saveVec.push(args->WordP()->Get(0));
-            ffi_cif *cif = *(ffi_cif **)args->WordP()->Get(1).AsAddress();
-
-            void *resultFunction;
-            // Allocate the memory.  resultFunction is set to the executable address in or related to
-            // the memory.
-            ffi_closure *closure = (ffi_closure *)ffi_closure_alloc(sizeof(ffi_closure), &resultFunction);
-            if (closure == 0)
-                raise_exception_string(taskData, EXC_foreign, "Callbacks not implemented or insufficient memory");
-
-            PLocker pLocker(&callbackTableLock);
-            // Find a free entry in the table if there is one.
-            unsigned entryNo = 0;
-            while (entryNo < callBackEntries && callbackTable[entryNo].closureSpace != 0) entryNo++;
-            if (entryNo == callBackEntries)
-            {
-                // Need to grow the table.
-                struct _cbStructEntry *newTable =
-                    (struct _cbStructEntry*)realloc(callbackTable, (callBackEntries+1)*sizeof(struct _cbStructEntry));
-                if (newTable == 0)
-                    raise_exception_string(taskData, EXC_foreign, "Unable to allocate memory for callback table");
-                callbackTable = newTable;
-                callBackEntries++;
-            }
-
-            callbackTable[entryNo].mlFunction = mlFunction->Word();
-            callbackTable[entryNo].closureSpace = closure;
-            callbackTable[entryNo].resultFunction = resultFunction;
-
-            if (ffi_prep_closure_loc(closure, cif, callbackEntryPt, (void*)((uintptr_t)entryNo), resultFunction) != FFI_OK)
-                raise_exception_string(taskData, EXC_foreign,"libffi error: ffi_prep_closure_loc failed");
-            return toSysWord(taskData, resultFunction);
+            raise_exception_string(taskData, EXC_foreign, "This is no longer used");
         }
 
     case 58: // Free an existing callback.
@@ -482,60 +447,6 @@ static Handle mkAbitab(TaskData *taskData, void *arg, char *p)
     result->WordP()->Set(1, code->Word());
     return result;
 }
-
-// This is the C function that will get control when any callback is made.  The "data"
-// argument is the index of the entry in the callback table.
-static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
-{
-    uintptr_t cbIndex = (uintptr_t)data;
-    ASSERT(cbIndex < callBackEntries);
-    // We should get the task data for the thread that is running this code.
-    // If this thread has been created by the foreign code we will have to
-    // create a new one here.
-    TaskData *taskData = processes->GetTaskDataForThread();
-    if (taskData == 0)
-    {
-        try {
-            taskData = processes->CreateNewTaskData(0, 0, 0, TAGGED(0));
-        }
-        catch (std::bad_alloc &) {
-            ::Exit("Unable to create thread data - insufficient memory");
-        }
-        catch (MemoryException &) {
-            ::Exit("Unable to create thread data - insufficient memory");
-        }
-    }
-    taskData->PreRTSCall();
-    // We may get multiple calls to call-backs and we mustn't risk
-    // overflowing the save-vec.
-    Handle mark = taskData->saveVec.mark();
-
-    // In the future we might want to call C functions without some of the
-    // overhead that comes with an RTS call which may allocate in ML
-    // memory.  If we do that we also have to ensure that callbacks
-    // don't allocate, so this code would have to change.
-    Handle mlEntryHandle;
-    {
-        // Get the ML function.  Lock to avoid another thread moving
-        // callbackTable under our feet.
-        PLocker pLocker(&callbackTableLock);
-        struct _cbStructEntry *cbEntry = &callbackTable[cbIndex];
-        mlEntryHandle = taskData->saveVec.push(cbEntry->mlFunction);
-    }
-
-    // Create a pair of the arg vector and the result pointer.
-    Handle argHandle = toSysWord(taskData, args);
-    Handle resHandle = toSysWord(taskData, ret); // Result must go in here.
-    Handle pairHandle = alloc_and_save(taskData, 2);
-    pairHandle->WordP()->Set(0, argHandle->Word());
-    pairHandle->WordP()->Set(1, resHandle->Word());
-
-    taskData->EnterCallbackFunction(mlEntryHandle, pairHandle);
-    taskData->PostRTSCall();
-
-    taskData->saveVec.reset(mark);
-}
-
 
 class PolyFFI: public RtsModule
 {

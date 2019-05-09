@@ -110,7 +110,7 @@ public:
     void FillUnusedSpace(void);
     virtual void GarbageCollect(ScanAddress *process);
 
-    virtual Handle EnterPolyCode() = 0; // Start running ML
+    virtual void EnterPolyCode() = 0; // Start running ML
 
     virtual void InterruptCode() = 0;
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context) = 0;
@@ -118,9 +118,6 @@ public:
     // allocation that needs to be made must be made in the parent.
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg) = 0;
     virtual void SetException(poly_exn *exc) = 0;
-    // If a foreign function calls back to ML we need to set up the call to the
-    // ML callback function.
-    virtual Handle EnterCallbackFunction(Handle func, Handle args) = 0;
 
     // The scheduler needs versions of atomic increment and atomic reset that
     // work in exactly the same way as the code-generated versions (if any).
