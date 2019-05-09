@@ -574,6 +574,9 @@ void X86TaskData::HandleTrap()
         catch (IOException&) {
             // If this resulted in an ML exception it will also raise a C++ exception.
         }
+        catch (KillException&) {
+            processes->ThreadExit(this);
+        }
         break;
     }
 
