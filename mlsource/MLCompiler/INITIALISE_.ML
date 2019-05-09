@@ -587,6 +587,7 @@ struct
         
         local
             val arg0 = mkLoadArgument 0
+            val arg1 = mkLoadArgument 1
             
             local
                 val callForeignCall = mkEval(mkConst (toMachineWord CODETREE.Foreign.foreignCall), [arg0])
@@ -596,8 +597,21 @@ struct
             in
                 val foreignCallEntry = mkInlproc(outerBody, 1, "foreignCall(1)", [], 1)
             end
-            
-            val buildCallBackEntry = mkConst (toMachineWord CODETREE.Foreign.buildCallBack)
+
+            local
+                (* Build a callback.  First apply the compiler to the abi/argtype/restype values.
+                   Then apply the result to a function to generate the final C callback code.
+                   The C callback code calls the function with two arguments.  Here we have to
+                   pass it a function that expects a tuple and unwrap it. *)
+                val innerMost =
+                    mkInlproc(mkEval(mkLoadClosure 0, [mkTuple[arg0, arg1]]), 2, "buildCallBack(1)(1)2", [mkLoadArgument 0], 0)
+                val resultFn =
+                    mkInlproc(mkEval(mkLoadClosure 0, [innerMost]), 1, "buildCallBack(1)(1)", [mkLoadLocal 0], 0)
+                val firstBuild = mkEval(mkConst (toMachineWord CODETREE.Foreign.buildCallBack), [arg0])
+                val outerBody = mkEnv([mkDec(0, firstBuild)], resultFn)
+            in
+                val buildCallBackEntry = mkInlproc(outerBody, 1, "buildCallBack(1)", [], 1)
+            end
             
             val abiType = Int
             and ffiType = LargeWord

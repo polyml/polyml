@@ -701,6 +701,7 @@ struct
             
             local
                 fun getType ctype = Memory.voidStar2Sysword(#ffiType ctype ())
+                val callbackException: unit -> unit = RunCall.rtsCallFast0 "PolyFFICallbackException"
             in
                 fun callwithAbi (abi: abi) (argTypes: ctype list) (resType: ctype): symbol -> voidStar * voidStar -> unit =
                 let
@@ -722,7 +723,9 @@ struct
                 fun cFunctionWithAbi (abi: abi) (argTypes: ctype list) (resType: ctype)
                         (cbFun: voidStar * voidStar -> unit): voidStar =
                 let
-                    fun callBack(args, resMem) = cbFun(sysWord2VoidStar args, sysWord2VoidStar resMem)
+                    fun callBack(args, resMem) =
+                        cbFun(sysWord2VoidStar args, sysWord2VoidStar resMem)
+                            handle _ => callbackException()
                     val cCallBack =
                         RunCall.buildCallBack(Word.toInt abi, List.map getType argTypes, getType resType) callBack
                 in
@@ -2899,15 +2902,13 @@ struct
 
     end
 
-    (* A closure is a memoised address.  *)
-    type 'a closure = unit -> Memory.voidStar
+    (* A closure is simply an address.  *)
+    type 'a closure = Memory.voidStar
 
     local
         open Memory LowLevel
         fun load _ = raise Foreign "Cannot return a closure"
-        (* "dememoise" the value when we store it.  This means that the closure is actually
-           created when the value is first stored and then it is cached. *)
-        and store(v, cl: ('a->'b) closure) = (Memory.setAddress(v, 0w0, cl()); fn () => ())
+        and store(v, cl: ('a->'b) closure) = (Memory.setAddress(v, 0w0, cl); fn () => ())
     in
         val cFunction: ('a->'b) closure conversion =
             makeConversion { load=load, store=store, ctype = LowLevel.cTypePointer }
@@ -2926,7 +2927,7 @@ struct
 
             val makeCallback = cFunctionWithAbi abi [] (#ctype resConv)
         in
-            Memory.memoise (fn () => makeCallback(callback f)) ()
+            makeCallback(callback f)
         end
 
         fun buildClosure0(f, argConv, resConv) = buildClosure0withAbi(f, abiDefault, argConv, resConv)
@@ -2935,17 +2936,16 @@ struct
         let
             fun callback (f: 'a -> 'b) (args: voidStar, res: voidStar): unit =
             let
-                val arg1Addr = getAddress(args, 0w0)
-                val arg1 = #load argConv arg1Addr
+                val arg1 = #load argConv args
                 val result = f arg1
-                val () = #updateC argConv (arg1Addr, arg1)
+                val () = #updateC argConv (args, arg1)
             in
                 ignore(#store resConv (res, result))
             end
 
             val makeCallback = cFunctionWithAbi abi [#ctype argConv] (#ctype resConv)
         in
-            Memory.memoise (fn () => makeCallback(callback f)) ()
+            makeCallback(callback f)
         end
    
         fun buildClosure1(f, argConv, resConv) = buildClosure1withAbi(f, abiDefault, argConv, resConv)
@@ -2954,17 +2954,13 @@ struct
             (f: 'a * 'b -> 'c, abi: abi, (arg1Conv: 'a conversion, arg2Conv: 'b conversion), resConv: 'c conversion) :
                 ('a * 'b -> 'c) closure =
         let
+            val { load=loadArgs, updateC=updateArgs, ...} = cStruct2(arg1Conv, arg2Conv)
+
             fun callback (f: 'a *'b -> 'c) (args: voidStar, res: voidStar): unit =
             let
-                val arg1Addr = getAddress(args, 0w0)
-                and arg2Addr = getAddress(args, 0w1)
-                val arg1 = #load arg1Conv arg1Addr
-                and arg2 = #load arg2Conv arg2Addr
-
-                val result = f (arg1, arg2)
-
-                val () = #updateC arg1Conv(arg1Addr, arg1)
-                and () = #updateC arg2Conv(arg2Addr, arg2)
+                val mlArgs = loadArgs args
+                val result = f mlArgs
+                val () = updateArgs(args, mlArgs)
             in
                 ignore(#store resConv (res, result))
             end
@@ -2974,7 +2970,7 @@ struct
 
             val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            Memory.memoise (fn () => makeCallback(callback f)) ()
+            makeCallback(callback f)
         end
 
         fun buildClosure2(f, argConv, resConv) = buildClosure2withAbi(f, abiDefault, argConv, resConv)
@@ -2982,20 +2978,13 @@ struct
         fun buildClosure3withAbi
             (f, abi, (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion), resConv: 'd conversion) =
         let
+            val { load=loadArgs, updateC=updateArgs, ...} = cStruct3(arg1Conv, arg2Conv, arg3Conv)
+
             fun callback (f: 'a *'b * 'c -> 'd) (args: voidStar, res: voidStar): unit =
             let
-                val arg1Addr = getAddress(args, 0w0)
-                and arg2Addr = getAddress(args, 0w1)
-                and arg3Addr = getAddress(args, 0w2)
-                val arg1 = #load arg1Conv arg1Addr
-                and arg2 = #load arg2Conv arg2Addr
-                and arg3 = #load arg3Conv arg3Addr
-
-                val result = f (arg1, arg2, arg3)
-
-                val () = #updateC arg1Conv(arg1Addr, arg1)
-                and () = #updateC arg2Conv(arg2Addr, arg2)
-                and () = #updateC arg3Conv(arg3Addr, arg3)
+                val mlArgs = loadArgs args
+                val result = f mlArgs
+                val () = updateArgs(args, mlArgs)
             in
                 ignore(#store resConv (res, result))
             end
@@ -3006,7 +2995,7 @@ struct
 
             val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            Memory.memoise (fn () => makeCallback(callback f)) ()
+            makeCallback(callback f)
         end
 
         fun buildClosure3(f, argConv, resConv) = buildClosure3withAbi(f, abiDefault, argConv, resConv)
@@ -3016,23 +3005,13 @@ struct
                 (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion, arg4Conv: 'd conversion),
              resConv: 'e conversion) =
         let
+            val { load=loadArgs, updateC=updateArgs, ...} = cStruct4(arg1Conv, arg2Conv, arg3Conv, arg4Conv)
+
             fun callback (f: 'a *'b * 'c * 'd -> 'e) (args: voidStar, res: voidStar): unit =
             let
-                val arg1Addr = getAddress(args, 0w0)
-                and arg2Addr = getAddress(args, 0w1)
-                and arg3Addr = getAddress(args, 0w2)
-                and arg4Addr = getAddress(args, 0w3)
-                val arg1 = #load arg1Conv arg1Addr
-                and arg2 = #load arg2Conv arg2Addr
-                and arg3 = #load arg3Conv arg3Addr
-                and arg4 = #load arg4Conv arg4Addr
-
-                val result = f (arg1, arg2, arg3, arg4)
-
-                val () = #updateC arg1Conv(arg1Addr, arg1)
-                and () = #updateC arg2Conv(arg2Addr, arg2)
-                and () = #updateC arg3Conv(arg3Addr, arg3)
-                and () = #updateC arg4Conv(arg4Addr, arg4)
+                val mlArgs = loadArgs args
+                val result = f mlArgs
+                val () = updateArgs(args, mlArgs)
             in
                 ignore(#store resConv (res, result))
             end
@@ -3043,7 +3022,7 @@ struct
 
             val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            Memory.memoise (fn () => makeCallback(callback f)) ()
+            makeCallback(callback f)
         end
 
         fun buildClosure4(f, argConv, resConv) = buildClosure4withAbi(f, abiDefault, argConv, resConv)
@@ -3054,26 +3033,14 @@ struct
                  arg4Conv: 'd conversion, arg5Conv: 'e conversion),
              resConv: 'f conversion) =
         let
+            val { load=loadArgs, updateC=updateArgs, ...} =
+                cStruct5(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv)
+
             fun callback (f: 'a *'b * 'c * 'd * 'e -> 'f) (args: voidStar, res: voidStar): unit =
             let
-                val arg1Addr = getAddress(args, 0w0)
-                and arg2Addr = getAddress(args, 0w1)
-                and arg3Addr = getAddress(args, 0w2)
-                and arg4Addr = getAddress(args, 0w3)
-                and arg5Addr = getAddress(args, 0w4)
-                val arg1 = #load arg1Conv arg1Addr
-                and arg2 = #load arg2Conv arg2Addr
-                and arg3 = #load arg3Conv arg3Addr
-                and arg4 = #load arg4Conv arg4Addr
-                and arg5 = #load arg5Conv arg5Addr
-
-                val result = f (arg1, arg2, arg3, arg4, arg5)
-
-                val () = #updateC arg1Conv(arg1Addr, arg1)
-                and () = #updateC arg2Conv(arg2Addr, arg2)
-                and () = #updateC arg3Conv(arg3Addr, arg3)
-                and () = #updateC arg4Conv(arg4Addr, arg4)
-                and () = #updateC arg5Conv(arg5Addr, arg5)
+                val mlArgs = loadArgs args
+                val result = f mlArgs
+                val () = updateArgs(args, mlArgs)
             in
                 ignore(#store resConv (res, result))
             end
@@ -3085,7 +3052,7 @@ struct
 
             val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            Memory.memoise (fn () => makeCallback(callback f)) ()
+            makeCallback(callback f)
         end
 
         fun buildClosure5(f, argConv, resConv) = buildClosure5withAbi(f, abiDefault, argConv, resConv)
@@ -3096,29 +3063,14 @@ struct
                  arg4Conv: 'd conversion, arg5Conv: 'e conversion, arg6Conv: 'f conversion),
              resConv: 'g conversion) =
         let
+            val { load=loadArgs, updateC=updateArgs, ...} =
+                cStruct6(arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv)
+
             fun callback (f: 'a *'b * 'c * 'd * 'e * 'f -> 'g) (args: voidStar, res: voidStar): unit =
             let
-                val arg1Addr = getAddress(args, 0w0)
-                and arg2Addr = getAddress(args, 0w1)
-                and arg3Addr = getAddress(args, 0w2)
-                and arg4Addr = getAddress(args, 0w3)
-                and arg5Addr = getAddress(args, 0w4)
-                and arg6Addr = getAddress(args, 0w5)
-                val arg1 = #load arg1Conv arg1Addr
-                and arg2 = #load arg2Conv arg2Addr
-                and arg3 = #load arg3Conv arg3Addr
-                and arg4 = #load arg4Conv arg4Addr
-                and arg5 = #load arg5Conv arg5Addr
-                and arg6 = #load arg6Conv arg6Addr
-
-                val result = f (arg1, arg2, arg3, arg4, arg5, arg6)
-
-                val () = #updateC arg1Conv(arg1Addr, arg1)
-                and () = #updateC arg2Conv(arg2Addr, arg2)
-                and () = #updateC arg3Conv(arg3Addr, arg3)
-                and () = #updateC arg4Conv(arg4Addr, arg4)
-                and () = #updateC arg5Conv(arg5Addr, arg5)
-                and () = #updateC arg6Conv(arg6Addr, arg6)
+                val mlArgs = loadArgs args
+                val result = f mlArgs
+                val () = updateArgs(args, mlArgs)
             in
                 ignore(#store resConv (res, result))
             end
@@ -3130,7 +3082,7 @@ struct
 
             val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            Memory.memoise (fn () => makeCallback(callback f)) ()
+            makeCallback(callback f)
         end
 
         fun buildClosure6(f, argConv, resConv) = buildClosure6withAbi(f, abiDefault, argConv, resConv)

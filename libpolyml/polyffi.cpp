@@ -92,6 +92,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(PolyWord err);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtData(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL void PolyFFICallbackException();
 }
 
 static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
@@ -653,6 +654,14 @@ POLYUNSIGNED PolyFFICreateExtData(FirstArgument threadId, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
+
+// Called if a callback raises an exception.  There's nothing we
+// can do because we don't have anything to pass back to C.
+void PolyFFICallbackException()
+{
+    Crash("An ML function called from foreign code raised an exception.  Unable to continue.");
+}
+
 struct _entrypts polyFFIEPT[] =
 {
     { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
@@ -662,6 +671,7 @@ struct _entrypts polyFFIEPT[] =
     { "PolyFFISetError",                (polyRTSFunction)&PolyFFISetError},
     { "PolyFFICreateExtFn",             (polyRTSFunction)&PolyFFICreateExtFn},
     { "PolyFFICreateExtData",           (polyRTSFunction)&PolyFFICreateExtData },
+    { "PolyFFICallbackException",       (polyRTSFunction)&PolyFFICallbackException },
 
     { NULL, NULL} // End of list.
 };
