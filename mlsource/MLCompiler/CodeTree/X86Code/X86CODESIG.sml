@@ -202,6 +202,7 @@ sig
     and memRegCStackPtr: int
     and memRegThreadSelf: int
     and memRegStackPtr: int
+    and memRegSavedRbx: int
 
     (* Debugging controls and streams for optimiser. *)
     val lowLevelOptimise: code -> bool

@@ -151,6 +151,7 @@ struct
     and memRegHeapOverflowCall    = 10 * Word.toInt nativeWordSize
     and memRegStackOverflowCall   = 11 * Word.toInt nativeWordSize
     and memRegStackOverflowCallEx = 12 * Word.toInt nativeWordSize
+    and memRegSavedRbx            = 14 * Word.toInt nativeWordSize (* Heap base in 32-in-64. *)
 
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
@@ -1399,7 +1400,7 @@ struct
         |   IndexedJumpCalc { addrReg, indexReg, jumpSize=ref jumpSize } =>
             (
                 stream "IndexedJumpCalc "; printGReg addrReg; stream " += "; printGReg indexReg;
-                print (case jumpSize of JumpSize2 => " * 2" | JumpSize8 => " * 8 ")
+                stream (case jumpSize of JumpSize2 => " * 2" | JumpSize8 => " * 8 ")
             )
         |   MoveXMMRegToGenReg { source, output } =>
             (
