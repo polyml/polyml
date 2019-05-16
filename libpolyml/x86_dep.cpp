@@ -1249,8 +1249,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
         case 0x68: /* PUSH_32 */
             pt ++;
-#if (!defined(HOSTARCHITECTURE_X86_64) || defined(POLYML32IN64))
-            // Currently the only inline constant in 32-in-64.
+#if (!defined(HOSTARCHITECTURE_X86_64))
             process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
 #endif
             pt += 4;
