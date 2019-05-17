@@ -356,6 +356,18 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
             }
             break;
         }
+        case 2: // Absolute constant - size uintptr_t
+            // This is the same as case 0 except in 32-in-64 when
+            // it is an absolute address rather than an object pointer.
+        {
+            uintptr_t c = (uintptr_t)(cWord.AsObjPtr());
+            for (unsigned i = 0; i < sizeof(uintptr_t); i++)
+            {
+                pointer[i] = (byte)(c & 255);
+                c >>= 8;
+            }
+            break;
+        }
     }
     return TAGGED(0).AsUnsigned();
 }

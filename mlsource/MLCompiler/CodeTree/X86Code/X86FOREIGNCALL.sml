@@ -1096,10 +1096,8 @@ struct
         [
             (* Get the value for rbp. *)
             (* This is a problem for 32-in-64.  The value of getThreadDataCall is an object ID but rbx may well no
-               longer hold the heap base address. *)
-            if targetArch = ObjectId32Bit
-            then raise Fail "TODO: Callbacks for 32-in-64"
-            else Move{source=AddressConstArg getThreadDataCall, destination=RegisterArg rcx, moveSize=opSizeToMove polyWordOpSize},
+               longer hold the heap base address.  We use a special inline constant to hold the full 64-bit address. *)
+            LoadAbsolute{value=getThreadDataCall, destination=rcx},
             CallAddress(MemoryArg{base=rcx, offset=0, index=NoIndex}),
             moveRR{source=rax, output=rbp, opSize=nativeWordOpSize},
             (* Save the address of the argument and result area. *)
@@ -1598,10 +1596,8 @@ struct
         ]
           @ copyArgsFromRegsAndStack @
         [
-            (* Get the value for rbp. *)
-            if targetArch = ObjectId32Bit
-            then raise Fail "TODO: Callbacks for 32-in-64"
-            else Move{source=AddressConstArg getThreadDataCall, destination=RegisterArg rcx, moveSize=opSizeToMove polyWordOpSize},
+            (* Get the value for rbp.  This has to be an absolute address in 32-in-64. *)
+            LoadAbsolute{value=getThreadDataCall, destination=rcx},
             CallAddress(MemoryArg{base=rcx, offset=0, index=NoIndex}),
             moveRR{source=rax, output=rbp, opSize=nativeWordOpSize},
             (* Save the address of the argument and result area. *)

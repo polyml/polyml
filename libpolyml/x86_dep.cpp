@@ -1237,13 +1237,10 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             else
 #endif /* HOSTARCHITECTURE_X86_64 */
             {
-                // This is no longer generated in 64-bit mode but needs to
-                // be retained in native 64-bit for backwards compatibility.
-#ifndef POLYML32IN64
-                // 32 bits in 32-bit mode, 64-bits in 64-bit mode.
+                // This is used in native 32-bit for constants and in
+                // 32-in-64 for the special case of an absolute address.
                 process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
-#endif
-                pt += sizeof(PolyWord);
+                pt += sizeof(uintptr_t);
             }
             break;
 

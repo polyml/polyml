@@ -1192,6 +1192,7 @@ struct
     |   FPStoreInt of memoryAddress
     |   XMMStoreInt of { source: xmmReg regOrMemoryArg, output: genReg, precision: fpSize, isTruncate: bool }
     |   CondMove of { test: branchOps, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
+    |   LoadAbsolute of { destination: genReg, value: machineWord }
 
     and jumpSize = JumpSize2 | JumpSize8
 
@@ -1446,6 +1447,8 @@ struct
                 stream "CondMove"; stream(branchOpRepr test); stream(printOpSize opSize);
                 printGReg output; stream " <= "; printRegOrMemoryArg printGReg source 
             )
+        |   LoadAbsolute { destination, value } =>
+                ( stream "LoadAbsolute "; printGReg destination; stream " <= "; stream(Address.stringOfWord value) )
         ;
  
         stream "\n"
@@ -1592,6 +1595,29 @@ struct
                     in
                         opCodeBytes(MOVL_32_R rc, NONE) @ int32Signed(tag 0)
                     end
+            )
+
+        |   cgOp(LoadAbsolute{ destination, ... }) =
+            (
+                (* Immediate address constant.  This is currently only used the special case of loading
+                   the address of PolyX86GetThreadData in a callback when we don't have rbx in 32-in-64. *)
+                case targetArch of
+                    Native32Bit =>
+                    let
+                        val (rc, _) = getReg destination
+                    in
+                        opCodeBytes(MOVL_32_R rc, NONE) @ int32Signed(tag 0)
+                    end
+                
+                |   Native64Bit => opConstantOperand(MOVL_A_R64, destination)
+                
+                |   ObjectId32Bit =>
+                    let
+                        val (rc, rx) = getReg destination
+                    in
+                        opCodeBytes(MOVL_64_R rc, SOME{w=true, r=false, b=rx, x=false}) @ largeWordToBytes(LargeWord.fromLargeInt(tag 0), 8)
+                    end
+                    
             )
 
         |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move32 }) =
@@ -2596,6 +2622,13 @@ struct
             then (* Address constants go in the constant area. *)
                 (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, source) :: addr, na)
             else ((ic + Word.fromInt(Word8Vector.length bytes) - wordSize, InlineAbsoluteAddress source) :: inl, addr, na)
+
+        |   getConstant(LoadAbsolute{value, ...}, bytes, ic, (inl, addr, na)) =
+            if targetArch = Native64Bit
+            then (* Address constants go in the constant area. *)
+                (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, value) :: addr, na)
+                (* This is the only case of an inline constant in 32-in-64 *)
+            else ((ic + Word.fromInt(Word8Vector.length bytes) - nativeWordSize, InlineAbsoluteAddress value) :: inl, addr, na)
 
         |   getConstant(ArithToGenReg{ source=NonAddressConstArg source, ... }, bytes, ic, (inl, addr, na)) =
                 if is32bit source
@@ -3917,7 +3950,7 @@ struct
                     setBytes(b >> 0w8, addr+0w1, count-0w1)
                 )
 
-            (*  Inline constants - native 32-bit only, *)
+            (*  Inline constants - native 32-bit only plus one special case in 32-in-64 *)
             fun putInlConst (addrs, SelfAddress) =
                     (* Self address goes inline. *)
                     codeVecPutConstant (codeSeg, addrs, toMachineWord(codeVecAddr codeSeg), ConstAbsolute)

@@ -202,17 +202,16 @@ PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocatio
 {
     switch (code)
     {
-    case PROCESS_RELOC_DIRECT: // 32 or 64 bit address of target
+    case PROCESS_RELOC_DIRECT: // Absolute address 
         {
-            POLYUNSIGNED valu;
-            unsigned i;
+            uintptr_t valu;
             byte *pt = addressOfConstant;
-            if (pt[3] & 0x80) valu = 0-1; else valu = 0;
-            for (i = sizeof(PolyWord); i > 0; i--)
+            if (pt[sizeof(uintptr_t)-1] & 0x80) valu = 0-1; else valu = 0;
+            for (unsigned i = sizeof(uintptr_t); i > 0; i--)
                 valu = (valu << 8) | pt[i-1];
-            if (valu == 0 || PolyWord::FromUnsigned(valu).IsTagged())
+            if (valu == 0 || PolyWord::FromUnsigned((POLYUNSIGNED)valu).IsTagged())
                 return 0;
-            else return PolyWord::FromUnsigned(valu).AsObjPtr(base);
+            else return (PolyObject*)valu;
         }
     case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
@@ -236,10 +235,10 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
 {
     switch (code)
     {
-    case PROCESS_RELOC_DIRECT: // 32 or 64 bit address of target
+    case PROCESS_RELOC_DIRECT: // Absolute address
         {
-            POLYUNSIGNED valu = ((PolyWord)p).AsUnsigned();
-            for (unsigned i = 0; i < sizeof(PolyWord); i++)
+            uintptr_t valu = (uintptr_t)p;
+            for (unsigned i = 0; i < sizeof(uintptr_t); i++)
             {
                 addressOfConstant[i] = (byte)(valu & 255); 
                 valu >>= 8;
