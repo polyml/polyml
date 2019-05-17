@@ -1473,7 +1473,7 @@ struct
                             then Move16
                             else Move8
                     in
-                        [Move{source=RegisterArg reg, destination=MemoryArg{base=r10, offset=Word.toInt offset, index=NoIndex}, moveSize=moveOp}]
+                        [Move{source=RegisterArg reg, destination=MemoryArg{base=rsp, offset=Word.toInt offset, index=NoIndex}, moveSize=moveOp}]
                     end @
                     (
                         if size = 0w6 orelse size = 0w7
@@ -1487,8 +1487,8 @@ struct
                     )
 
                     val newArgOffset = alignUp(argOffset, align)
-                    val word1Addr = {base=r10, offset=Word.toInt newArgOffset, index=NoIndex}
-                    val word2Addr = {base=r10, offset=Word.toInt newArgOffset + 8, index=NoIndex}
+                    val word1Addr = {base=rsp, offset=Word.toInt newArgOffset, index=NoIndex}
+                    val word2Addr = {base=rsp, offset=Word.toInt newArgOffset + 8, index=NoIndex}
                 in
                     case (classifyArg arg, size > 0w8, gRegs, fpRegs) of
                         (* 8 bytes or smaller - single general reg.  This is the usual case. *)
@@ -1689,14 +1689,14 @@ struct
 
             val functionName = "foreignCallBack"
             val debugSwitches =
-                [Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
-                   Universal.tagInject DEBUG.assemblyCodeTag true]
+                [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
+                   Universal.tagInject DEBUG.assemblyCodeTag true*)]
             val profileObject = createProfileObject functionName
             val newCode = codeCreate (functionName, profileObject, debugSwitches)
             val closure = makeConstantClosure()
             val () = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
             val res = closureAsAddress closure
-            val _ = print("Address is " ^ (LargeWord.toString(RunCall.unsafeCast res)) ^ "\n")
+            (*val _ = print("Address is " ^ (LargeWord.toString(RunCall.unsafeCast res)) ^ "\n")*)
         in
             res
         end
