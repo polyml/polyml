@@ -113,7 +113,6 @@ EXTNAME(id):
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
 #define RETURN_RAISE_OVERFLOW       8
-#define RETURN_KILL_SELF            9
 
 # Mark the stack as non-executable when supported
 #ifdef HAVE_GNU_STACK
@@ -178,12 +177,13 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movq    Arg_SaveR12(%rbp),%r12
     movq    Arg_SaveR13(%rbp),%r13
     movq    Arg_SaveR14(%rbp),%r14
-    movq    Arg_ExceptionPacket(%rbp),%rax
-    cmpq    $1,%rax                             # Did we raise an exception?
-    jnz     raisexLocal
     movq    Arg_SaveRAX(%rbp),%rax
     cld                                     # Clear this just in case
-    ret
+#ifdef POLYML32IN64
+    jmp     *(%rbx,%rdx,4)
+#else
+    jmp     *(%rdx)
+#endif
 
 /* This is exactly the same as raisex but seems to be needed to work round a PIC problem. */
 raisexLocal:
@@ -254,22 +254,7 @@ CallTrapHandler:
     cld                                     # Clear this just in case
     ret
 
-/* Used when entering new code.  The argument and closure are on the stack
-   in case there is a GC before we enter the code. */
-INLINE_ROUTINE(X86AsmPopArgAndClosure)
-    popq    %rdx
-    popq    %rax
-#ifdef POLYML32IN64
-    jmp     *(%rbx,%rdx,4)
-#else
-    jmp     *(%rdx)
-#endif
-
 # Additional assembly code routines
-
-# RTS call to kill the current thread. 
-INLINE_ROUTINE(X86AsmKillSelf)
-    CALL_EXTRA(RETURN_KILL_SELF)
 
 INLINE_ROUTINE(X86AsmCallExtraRETURN_HEAP_OVERFLOW)
     CALL_EXTRA(RETURN_HEAP_OVERFLOW)

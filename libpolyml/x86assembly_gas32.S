@@ -85,7 +85,6 @@ EXTNAME(id):
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
-#define RETURN_KILL_SELF            9
 
 # Mark the stack as non-executable when supported
 #ifdef HAVE_GNU_STACK
@@ -122,7 +121,7 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movl    Arg_SaveRSI(%ebp),%esi
     movl    Arg_SaveRDI(%ebp),%edi
     cld                                     # Clear this just in case
-    ret
+    jmp     *(%edx)
 
 
 /* Save all the registers and enter the trap handler.
@@ -169,18 +168,7 @@ INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
 INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
     CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
 
-/* Used when entering new code.  The argument and closure are on the stack
-   in case there is a GC before we enter the code. */
-INLINE_ROUTINE(X86AsmPopArgAndClosure)
-    popl    %edx
-    popl    %eax
-    jmp     *(%edx)
-
 # Additional assembly code routines
-
-# RTS call to kill the current thread. 
-INLINE_ROUTINE(X86AsmKillSelf)
-    CALL_EXTRA(RETURN_KILL_SELF)
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)

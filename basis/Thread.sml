@@ -1,7 +1,7 @@
 (*
     Title:      Thread package for ML.
     Author:     David C. J. Matthews
-    Copyright (c) 2007-2014, 2018
+    Copyright (c) 2007-2014, 2018-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -317,6 +317,10 @@ struct
                 else ()
         end
 
+        val exit: unit -> unit = RunCall.rtsCallFull0 "PolyThreadKillSelf"
+        and isActive: thread -> bool = RunCall.rtsCallFast1 "PolyThreadIsActive"
+        and broadcastInterrupt: unit -> unit = RunCall.rtsCallFull0 "PolyThreadBroadcastInterrupt"
+
         local
             fun getAttrWord (me: thread) : Word.word =
                 RunCall.loadWord(me, threadIdFlags)
@@ -387,15 +391,13 @@ struct
                     val (attrWord, mask) = attrsToWord attrs
                     val attrValue = Word.orb(attrWord, Word.andb(Word.notb mask, defaultAttrs))
                     val stack = newStackSize(attrs, 0 (* Default is unlimited *))
+                    (* Run the function and exit whether it returns normally or raises an exception. *)
+                    fun threadFunction () = (f() handle _ => ()) before exit()
                 in
-                    threadForkFunction(f, attrValue, stack)
+                    threadForkFunction(threadFunction, attrValue, stack)
                 end
             end
         end
-
-        val exit: unit -> unit = RunCall.rtsCallFull0 "PolyThreadKillSelf"
-        and isActive: thread -> bool = RunCall.rtsCallFast1 "PolyThreadIsActive"
-        and broadcastInterrupt: unit -> unit = RunCall.rtsCallFull0 "PolyThreadBroadcastInterrupt"
 
         local
             (* Send an interrupt to a thread.  If it returns false

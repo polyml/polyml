@@ -97,7 +97,7 @@ X86AsmSwitchToPoly:
     mov     esi,[ArgVector.SaveRSI+ebp]
     mov     edi,[ArgVector.SaveRDI+ebp]
     cld                                     ; Clear this just in case
-    ret
+    jmp     dword ptr [edx]
 
 ; Save all the registers and enter the trap handler.
 ; It is probably unnecessary to save the FP state now.
@@ -136,14 +136,6 @@ raisexcept:
     mov     ecx,[ArgVector.HandlerRegister+ebp]
     jmp     dword ptr [ecx]
 
-; Used when entering new code.  The argument and closure are on the stack
-; in case there is a GC before we enter the code.
-PUBLIC X86AsmPopArgAndClosure
-X86AsmPopArgAndClosure:
-    pop     edx
-    pop     eax
-    jmp     dword ptr [edx]
-
 ; Define standard call macro.
 ; Defined as an Masm macro because there are multiple instructions.
 
@@ -153,19 +145,6 @@ CALL_EXTRA  MACRO   index
     pop     ecx
     jmp     CallTrapHandler
 ENDM
-
-; Terminate the current thread
-PUBLIC  X86AsmKillSelf
-X86AsmKillSelf:
-    CALL_EXTRA RETURN_KILL_SELF
-
-PUBLIC  X86AsmCallbackReturn
-X86AsmCallbackReturn:
-    CALL_EXTRA RETURN_CALLBACK_RETURN
-
-PUBLIC  X86AsmCallbackException
-X86AsmCallbackException:
-    CALL_EXTRA RETURN_CALLBACK_EXCEPTION
 
 ; This implements atomic addition in the same way as atomic_increment
 ; N.B. It is called from the RTS so uses C linkage conventions.

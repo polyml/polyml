@@ -216,7 +216,6 @@ public:
     X86TaskData();
     unsigned allocReg; // The register to take the allocated space.
     POLYUNSIGNED allocWords; // The words to allocate.
-    Handle callBackResult;
     AssemblyArgs assemblyInterface;
     int saveRegisterMask; // Registers that need to be updated by a GC.
 
@@ -312,20 +311,15 @@ public:
 
 // Values for the returnReason byte
 enum RETURN_REASON {
-    RETURN_IO_CALL_NOW_UNUSED = 0,
     RETURN_HEAP_OVERFLOW = 1,
     RETURN_STACK_OVERFLOW = 2,
     RETURN_STACK_OVERFLOWEX = 3,
-    RETURN_KILL_SELF = 9
 };
 
 extern "C" {
 
     // These are declared in the assembly code segment.
     void X86AsmSwitchToPoly(void *);
-
-    extern int X86AsmKillSelf(void);
-    extern int X86AsmPopArgAndClosure(void);
     extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
@@ -335,9 +329,6 @@ extern "C" {
 
     void X86TrapHandler(PolyWord threadId);
 };
-
-// Pointers to assembly code or trampolines to assembly code.
-static byte* popArgAndClosure, * killSelf;
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
 {
@@ -578,9 +569,6 @@ void X86TaskData::HandleTrap()
         break;
     }
 
-    case RETURN_KILL_SELF:
-        exitThread(this);
-
     default:
         Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
     }
@@ -628,18 +616,14 @@ void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
 void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
-    // Set the assembly code addresses.
-    if (popArgAndClosure == 0) MakeTrampoline(&popArgAndClosure, (byte*)&X86AsmPopArgAndClosure);
-    if (killSelf == 0) MakeTrampoline(&killSelf, (byte*)&X86AsmKillSelf);
-
     StackSpace *space = this->stack;
     StackObject * newStack = space->stack();
     uintptr_t stack_size     = space->spaceSize() * sizeof(PolyWord) / sizeof(stackItem);
-    uintptr_t topStack = stack_size-6;
+    uintptr_t topStack = stack_size;
     stackItem *stackTop = (stackItem*)newStack + topStack;
     assemblyInterface.stackPtr = stackTop;
     assemblyInterface.stackLimit = (stackItem*)space->bottom + OVERFLOW_STACK_SIZE;
-    assemblyInterface.handlerRegister = (stackItem*)newStack+topStack+4;
+    assemblyInterface.handlerRegister = stackTop;
 
     // Floating point save area.
     memset(&assemblyInterface.p_fp, 0, sizeof(struct fpSaveArea));
@@ -648,27 +632,11 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     assemblyInterface.p_fp.cw = 0x027f ; // Control word
     assemblyInterface.p_fp.tw = 0xffff; // Tag registers - all unused
 #endif
-    // Initial entry point - on the stack.
-    stackTop[0].codeAddr = popArgAndClosure;
-
-    // Push the argument and the closure on the stack.  We can't put them into the registers
-    // yet because we might get a GC before we actually start the code.
-    stackTop[1] = proc->Word(); // Closure
-    stackTop[2] = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
-    /* We initialise the end of the stack with a sequence that will jump to
-       kill_self whether the process ends with a normal return or by raising an
-       exception.  A bit of this was added to fix a bug when stacks were objects
-       on the heap and could be scanned by the GC. */
-    stackTop[5] = TAGGED(0); // Probably no longer needed
-    // Set the default handler and return address to point to this code.
-//    PolyWord killJump(PolyWord::FromCodePtr((byte*)&X86AsmKillSelf));
-    // Exception handler.
-    stackTop[4].codeAddr = killSelf;
-    // Normal return address.  We need a separate entry on the stack from
-    // the exception handler because it is possible that the code we are entering
-    // may replace this entry with an argument.  The code-generator optimises tail-recursive
-    // calls to functions with more args than the called function.
-    stackTop[3].codeAddr = killSelf;
+    // Store the argument and the closure.
+    assemblyInterface.p_rdx = proc->Word(); // Closure
+    assemblyInterface.p_rax = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
+    // Have to set the register mask in case we get a GC before the thread starts.
+    saveRegisterMask = (1 << 2) | 1; // Rdx and rax
 
 #ifdef POLYML32IN64
     // In 32-in-64 RBX always contains the heap base address.
@@ -861,8 +829,6 @@ void X86TaskData::SetMemRegisters()
     // will be generated.
     if (profileMode == kProfileStoreAllocation)
         this->assemblyInterface.localMbottom = this->assemblyInterface.localMpointer;
-
-    this->assemblyInterface.returnReason = RETURN_IO_CALL_NOW_UNUSED;
 
     this->assemblyInterface.threadId = this->threadObject;
 }
@@ -1329,27 +1295,6 @@ void X86TaskData::AtomicReset(Handle mutexp)
 static X86Dependent x86Dependent;
 
 MachineDependent *machineDependent = &x86Dependent;
-
-class X86Module : public RtsModule
-{
-public:
-    virtual void GarbageCollect(ScanAddress * /*process*/);
-};
-
-// Declare this.  It will be automatically added to the table.
-static X86Module x86Module;
-
-void X86Module::GarbageCollect(ScanAddress *process)
-{
-#ifdef POLYML32IN64
-    // These are trampolines in the code area rather than direct calls.
-    if (popArgAndClosure != 0)
-        process->ScanRuntimeAddress((PolyObject**)&popArgAndClosure, ScanAddress::STRENGTH_STRONG);
-    if (killSelf != 0)
-        process->ScanRuntimeAddress((PolyObject**)&killSelf, ScanAddress::STRENGTH_STRONG);
-#endif
-}
-
 
 extern "C" {
     POLYEXTERNALSYMBOL void *PolyX86GetThreadData();

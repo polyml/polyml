@@ -143,7 +143,11 @@ X86AsmSwitchToPoly  PROC FRAME
     mov     r14,[ArgVector.SaveR14+rbp]
     mov     rax,[ArgVector.SaveRAX+rbp]
     cld                                     ; Clear this just in case
-    ret
+#ifdef  POLYML32IN64
+    jmp     qword ptr [rbx+rdx*4]
+#else
+    jmp     qword ptr [rdx]
+#endif
 
 ; Everything up to here is considered as part of the X86AsmSwitchToPoly proc
 X86AsmSwitchToPoly ENDP
@@ -212,22 +216,6 @@ raisexcept:
     mov     rcx,[ArgVector.HandlerRegister+rbp]
     jmp     qword ptr [rcx]
 
-;# Used when entering new code.  The argument and closure are on the stack
-;# in case there is a GC before we enter the code.
-PUBLIC X86AsmPopArgAndClosure
-X86AsmPopArgAndClosure:
-    pop     rdx
-    pop     rax
-#ifdef  POLYML32IN64
-    jmp     qword ptr [rbx+rdx*4]
-#else
-    jmp     qword ptr [rdx]
-#endif
-
-; RTS call to kill the current thread. 
-PUBLIC  X86AsmKillSelf
-X86AsmKillSelf:
-    CALL_EXTRA RETURN_KILL_SELF
 
 ; This implements atomic addition in the same way as atomic_increment
 PUBLIC  X86AsmAtomicIncrement
