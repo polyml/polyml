@@ -1668,7 +1668,9 @@ struct
        returns the C function as its result.  When the C function is called the arguments are copied into
        temporary memory and the vector passed to f along with the address of the memory for the result.
        "f" stores the result in it when it returns and the result is then passed back as the result of the
-       callback. *)
+       callback.
+       N.B.  This returns a closure cell which contains the address of the code.  It can be used as a
+       SysWord.word value except that while it exists the code will not be GCed.  *)
     fun buildCallBack(abivalue: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
     let
         (* For the moment we do everything inside the result function.  The intention is to generate
