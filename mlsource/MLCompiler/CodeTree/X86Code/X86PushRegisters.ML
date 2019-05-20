@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1329,6 +1329,13 @@ struct
                             val (destVal, destCode) = mapDestReg dest
                         in
                             destCode @ SignExtend32To64{source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=TouchArgument{source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                        in
+                            TouchArgument{source=sourceVal} :: sourceCode @ code
                         end
 
                     (* Find the common cache state. *)

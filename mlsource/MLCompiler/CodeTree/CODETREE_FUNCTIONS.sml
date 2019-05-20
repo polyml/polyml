@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,16,18 David C.J. Matthews
+    Copyright (c) 2012,13,16,18,19 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -123,6 +123,7 @@ struct
                     |   DoubleToFloat _ => applicative
                         (* May raise the overflow exception *)
                     |   RealToInt _ => PROPWORD_NOUPDATE orb PROPWORD_NODEREF
+                    |   TouchAddress => PROPWORD_NORAISE (* Treat as updating a notional reference count. *)
             in
                 operProps andb codeProps arg1
             end

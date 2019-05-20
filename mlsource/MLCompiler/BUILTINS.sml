@@ -1,7 +1,7 @@
 (*
     Signature for built-in functions
 
-    Copyright David C. J. Matthews 2016, 2018
+    Copyright David C. J. Matthews 2016, 2018-9
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -64,6 +64,7 @@ sig
     |   FloatToDouble (* Convert a single precision floating point value to double precision. *)
     |   DoubleToFloat of IEEEReal.rounding_mode option (* Convert a double precision floating point value to single precision. *)
     |   RealToInt of precision * IEEEReal.rounding_mode (* Convert a double or float to a fixed precision int. *)
+    |   TouchAddress (* Ensures that the cell is reachable. *)
 
     and precision = PrecSingle | PrecDouble (* Single or double precision floating pt. *)
 

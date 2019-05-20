@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -649,6 +649,7 @@ struct
             |   instructionUses(X87RealToInt{source, ...}) = used source
             |   instructionUses(SSE2RealToInt{source, ...}) = argUses source
             |   instructionUses(SignExtend32To64{source, dest}) = if isUsed dest then argUses source else ()
+            |   instructionUses(TouchArgument{source}) = used source
 
             (* Depth-first scan. *)
             val visited = Array.array(numBlocks, false)
@@ -1656,6 +1657,8 @@ struct
             in
                 Move{moveSize=Move32X, source=opArg, destination=RegisterArg regResult } :: code
             end
+        
+        |   codeExtended _ ({instr=TouchArgument _, ...}, code) = code (* Don't need to do anything. *)
 
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 
         

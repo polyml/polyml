@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-18
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -379,6 +379,8 @@ struct
                     mkLoadOperationFn LoadStoreUntaggedUnsigned, String ** Word ->> Word)
             val () = enterRunCall ("storeUntagged",
                     mkStoreOperationFn LoadStoreUntaggedUnsigned, mkProductType[String, Word, Word] ->> Unit)
+            val () = enterRunCall ("touch",
+                        makePolymorphic([a], mkUnaryFn TouchAddress), a ->> Unit)
         end
 
         local

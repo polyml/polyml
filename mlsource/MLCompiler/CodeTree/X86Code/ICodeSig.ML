@@ -1,7 +1,7 @@
 (*
     Signature for the high-level X86 code
 
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -351,6 +351,9 @@ sig
            because that assumes that if we have the result in a register we can
            simply reuse the register. *)
     |   SignExtend32To64 of { source: argument, dest: preg }
+
+        (* Touch an entry.  Actually doesn't do anything except make sure it is referenced. *)
+    |   TouchArgument of { source: preg }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
