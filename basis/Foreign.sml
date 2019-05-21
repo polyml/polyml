@@ -2902,13 +2902,20 @@ struct
 
     end
 
-    (* A closure is simply an address.  *)
+    (* A closure is now a "closure cell" (in 32-in-64) or a single word cell containing
+       the address of a code (in native address versions).  It can be used exactly like
+       a SysWord.word except that the code can be garbage-collected if the cell is no
+       longer reachable.  *)
     type 'a closure = Memory.voidStar
 
     local
         open Memory LowLevel
         fun load _ = raise Foreign "Cannot return a closure"
-        and store(v, cl: ('a->'b) closure) = (Memory.setAddress(v, 0w0, cl); fn () => ())
+        (* Store the address of the code.  Touch the closure after the function returns
+           to ensure it cannot be GCed earlier.  That would only happen if this resulted
+           in a callback to a different function during the execution. *)
+        and store(v, cl: ('a->'b) closure) =
+            (Memory.setAddress(v, 0w0, cl); fn () => RunCall.touch cl)
     in
         val cFunction: ('a->'b) closure conversion =
             makeConversion { load=load, store=store, ctype = LowLevel.cTypePointer }
