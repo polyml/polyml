@@ -1,7 +1,7 @@
 (*
     Title:      Weak references
     Author:     David Matthews
-    Copyright   David Matthews 2008, 2015-16, 2019
+    Copyright   David Matthews 2008, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -57,5 +57,5 @@ struct
        reference becoming set to NONE.  It's primarily there for long-term
        security in the event that the compiler is sufficiently clever to
        work out that something is no longer referenced. *)
-    val touch: 'a ref -> unit = RunCall.touch
+    fun touch v = v := !v
 end;

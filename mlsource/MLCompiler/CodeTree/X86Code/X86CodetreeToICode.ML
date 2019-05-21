@@ -2095,6 +2095,16 @@ struct
             in
                 (revApp(doConvert @ checkAndTag, tailCode), RegisterArgument target, false)
             end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.TouchAddress, arg1}, context, _, destination, tailCode) =
+            let
+                (* Put the value in a register.  This is not entirely necessary but ensures that if the value is
+                   a constant the constant will be included in the code. *)
+                val (argCode, aReg) = codeToPRegRev(arg1, context, tailCode)
+            in
+                moveIfNotAllowedRev(destination, BlockSimple(TouchArgument{source=aReg}) :: argCode,
+                        (* Unit result *) IntegerConstant(tag 0))
+            end
  
         and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =
             let

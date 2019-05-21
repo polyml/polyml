@@ -649,6 +649,7 @@ struct
             |   instructionUses(X87RealToInt{source, ...}) = used source
             |   instructionUses(SSE2RealToInt{source, ...}) = argUses source
             |   instructionUses(SignExtend32To64{source, dest}) = if isUsed dest then argUses source else ()
+            |   instructionUses(TouchArgument{source}) = used source
 
             (* Depth-first scan. *)
             val visited = Array.array(numBlocks, false)
@@ -1651,6 +1652,8 @@ struct
             in
                 Move{moveSize=Move32X64, source=opArg, destination=RegisterArg regResult } :: code
             end
+        
+        |   codeExtended _ ({instr=TouchArgument _, ...}, code) = code (* Don't need to do anything. *)
 
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 
         

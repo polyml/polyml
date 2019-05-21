@@ -68,6 +68,7 @@ struct
         |   FloatToDouble
         |   DoubleToFloat of IEEEReal.rounding_mode option
         |   RealToInt of precision * IEEEReal.rounding_mode
+        |   TouchAddress
 
         and precision = PrecSingle | PrecDouble
 
@@ -107,6 +108,7 @@ struct
         |   unaryRepr (DoubleToFloat NONE) = "DoubleToFloat"
         |   unaryRepr (DoubleToFloat (SOME mode)) = "DoubleToFloat" ^ rndModeRepr mode
         |   unaryRepr (RealToInt (prec, mode)) = "RealToInt" ^ precRepr prec ^ rndModeRepr mode
+        |   unaryRepr TouchAddress = "TouchAddress"
 
         and binaryRepr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")

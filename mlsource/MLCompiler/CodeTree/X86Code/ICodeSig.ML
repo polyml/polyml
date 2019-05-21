@@ -353,6 +353,9 @@ sig
            simply reuse the register. *)
     |   SignExtend32To64 of { source: argument, dest: preg }
 
+        (* Touch an entry.  Actually doesn't do anything except make sure it is referenced. *)
+    |   TouchArgument of { source: preg }
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)

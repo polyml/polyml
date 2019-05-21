@@ -379,6 +379,8 @@ struct
                     mkLoadOperationFn LoadStoreUntaggedUnsigned, String ** Word ->> Word)
             val () = enterRunCall ("storeUntagged",
                     mkStoreOperationFn LoadStoreUntaggedUnsigned, mkProductType[String, Word, Word] ->> Unit)
+            val () = enterRunCall ("touch",
+                        makePolymorphic([a], mkUnaryFn TouchAddress), a ->> Unit)
         end
 
         local

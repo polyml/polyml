@@ -121,6 +121,7 @@ struct
                     |   DoubleToFloat _ => applicative
                         (* May raise the overflow exception *)
                     |   RealToInt _ => PROPWORD_NOUPDATE orb PROPWORD_NODEREF
+                    |   TouchAddress => PROPWORD_NORAISE (* Treat as updating a notional reference count. *)
             in
                 operProps andb codeProps arg1
             end

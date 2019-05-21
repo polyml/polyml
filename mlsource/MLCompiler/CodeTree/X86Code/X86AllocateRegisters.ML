@@ -788,7 +788,10 @@ struct
                 allocateRegister(destReg, NONE, generalRegisters);
                 allocateArgGeneral source
             )
-    
+
+        |   registerAllocate({instr=TouchArgument{source=PReg srcReg}, ...}) =
+                allocateRegister(srcReg, NONE, generalRegisters)
+
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)
 

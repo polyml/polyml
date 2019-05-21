@@ -328,6 +328,9 @@ struct
            simply reuse the register. *)
     |   SignExtend32To64 of { source: argument, dest: preg }
 
+        (* Touch an entry.  Actually doesn't do anything except make sure it is referenced. *)
+    |   TouchArgument of { source: preg }
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -847,10 +850,13 @@ struct
                 if isDouble then stream "D\t" else stream "S\t";
                 printArg(source, stream); stream " => "; printReg(dest, stream)
             )
- 
+
         |   printICode(SignExtend32To64{source, dest}, stream) =
             (stream "\tSignExtend32To64\t"; printArg(source, stream); stream " => "; printReg(dest, stream))
-       
+ 
+        |   printICode(TouchArgument{source}, stream) =
+            (stream "\tTouchArgument\t"; printReg(source, stream))
+
         and printCondition(JO,  stream)  = stream "Overflow"
         |   printCondition(JNO, stream)  = stream "NoOverflow"
         |   printCondition(JE,  stream)  = stream "Equal"
