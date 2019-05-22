@@ -93,6 +93,12 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtData(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL void PolyFFICallbackException();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIMalloc(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIFree(PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFILoadLibrary(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFILoadExecutable(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIUnloadLibrary(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetSymbolAddress(FirstArgument threadId, PolyWord moduleAddress, PolyWord symbolName);
 }
 
 static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
@@ -162,16 +168,6 @@ static ffi_type *ffiTypeTable[] =
     &ffi_type_ulong,
     &ffi_type_slong
 };
-
-// Callback entry table
-static struct _cbStructEntry {
-    PolyWord    mlFunction;         // The ML function to call
-    void        *closureSpace;      // Space allocated for the closure
-    void        *resultFunction;    // Executable address for the function.  Needed to free.
-} *callbackTable;
-static unsigned callBackEntries = 0;
-static PLock callbackTableLock; // Mutex to protect table.
-
 
 static Handle mkAbitab(TaskData *taskData, void*, char *p);
 
@@ -405,24 +401,7 @@ static Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
 
     case 58: // Free an existing callback.
         {
-            // The address returned from call 57 above is the executable address that can
-            // be passed as a callback function.  The writable memory address returned
-            // as the result of ffi_closure_alloc may or may not be the same.  To be safe
-            // we need to search the table.
-            void *resFun = *(void**)args->Word().AsAddress();
-            PLocker pLocker(&callbackTableLock);
-            for (unsigned i = 0; i < callBackEntries; i++)
-            {
-                if (callbackTable[i].resultFunction == resFun)
-                {
-                    ffi_closure_free(callbackTable[i].closureSpace);
-                    callbackTable[i].closureSpace = 0;
-                    callbackTable[i].resultFunction = 0;
-                    callbackTable[i].mlFunction = TAGGED(0); // Release the ML function
-                    return taskData->saveVec.push(TAGGED(0));
-                }
-            }
-            raise_exception_string(taskData, EXC_foreign, "Invalid callback entry");
+            raise_exception_string(taskData, EXC_foreign, "This is no longer used");
         }
 
     default:
@@ -448,22 +427,6 @@ static Handle mkAbitab(TaskData *taskData, void *arg, char *p)
     return result;
 }
 
-class PolyFFI: public RtsModule
-{
-public:
-    virtual void GarbageCollect(ScanAddress *process);
-};
-
-// Declare this.  It will be automatically added to the table.
-static PolyFFI polyFFIModule;
-
-// We need to scan the callback table.
-void PolyFFI::GarbageCollect(ScanAddress *process)
-{
-    for (unsigned i = 0; i < callBackEntries; i++)
-        process->ScanRuntimeWord(&callbackTable[i].mlFunction);
-}
-
 // General interface to IO.  Ideally the various cases will be made into
 // separate functions.
 POLYUNSIGNED PolyFFIGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
@@ -486,15 +449,191 @@ POLYUNSIGNED PolyFFIGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
+// Malloc memory - Needs to allocate the SysWord.word value on the heap.
+POLYUNSIGNED PolyFFIMalloc(FirstArgument threadId, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        POLYUNSIGNED size = getPolyUnsigned(taskData, arg);
+        result = toSysWord(taskData, malloc(size));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyFFIFree(PolyWord arg)
+{
+    void* mem = *(void**)(arg.AsObjPtr());
+    free(mem);
+    return TAGGED(0).AsUnsigned();
+}
+
+POLYUNSIGNED PolyFFILoadLibrary(FirstArgument threadId, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        TempString libName(arg);
+#if (defined(_WIN32))
+        HINSTANCE lib = LoadLibrary(libName);
+        if (lib == NULL)
+        {
+            char buf[256];
+#if (defined(UNICODE))
+            _snprintf(buf, sizeof(buf), "Loading <%S> failed. Error %lu", (LPCTSTR)libName, GetLastError());
+#else
+            _snprintf(buf, sizeof(buf), "Loading <%s> failed. Error %lu", (const char*)libName, GetLastError());
+#endif
+            buf[sizeof(buf) - 1] = 0; // Terminate just in case
+            raise_exception_string(taskData, EXC_foreign, buf);
+        }
+#else
+        void* lib = dlopen(libName, RTLD_LAZY);
+        if (lib == NULL)
+        {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "Loading <%s> failed: %s", (const char*)libName, dlerror());
+            buf[sizeof(buf) - 1] = 0; // Terminate just in case
+            raise_exception_string(taskData, EXC_foreign, buf);
+        }
+#endif
+        result = toSysWord(taskData, lib);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Get the address of the executable as a library.
+POLYUNSIGNED PolyFFILoadExecutable(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+#if (defined(_WIN32))
+        HINSTANCE lib = hApplicationInstance;
+#else
+        void* lib = dlopen(NULL, RTLD_LAZY);
+        if (lib == NULL)
+        {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "Loading address of executable failed: %s", dlerror());
+            buf[sizeof(buf) - 1] = 0; // Terminate just in case
+            raise_exception_string(taskData, EXC_foreign, buf);
+        }
+#endif
+        result = toSysWord(taskData, lib);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Unload library - Is this actually going to be used?
+POLYUNSIGNED PolyFFIUnloadLibrary(FirstArgument threadId, PolyWord arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    try {
+#if (defined(_WIN32))
+        HMODULE hMod = *(HMODULE*)(arg.AsObjPtr());
+        if (!FreeLibrary(hMod))
+            raise_syscall(taskData, "FreeLibrary failed", GetLastError());
+#else
+        void* lib = *(void**)(args.AsObjPtr());
+        if (dlclose(lib) != 0)
+        {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "dlclose failed: %s", dlerror());
+            buf[sizeof(buf) - 1] = 0; // Terminate just in case
+            raise_exception_string(taskData, EXC_foreign, buf);
+        }
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+// Load the address of a symbol from a library.
+POLYUNSIGNED PolyFFIGetSymbolAddress(FirstArgument threadId, PolyWord moduleAddress, PolyWord symbolName)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        TempCString symName(symbolName);
+#if (defined(_WIN32))
+        HMODULE hMod = *(HMODULE*)(moduleAddress.AsObjPtr());
+        void* sym = (void*)GetProcAddress(hMod, symName);
+        if (sym == NULL)
+        {
+            char buf[256];
+            _snprintf(buf, sizeof(buf), "Loading symbol <%s> failed. Error %lu", (LPCSTR)symName, GetLastError());
+            buf[sizeof(buf) - 1] = 0; // Terminate just in case
+            raise_exception_string(taskData, EXC_foreign, buf);
+        }
+#else
+        void* lib = *(void**)(moduleAddress.AsObjPtr());
+        void* sym = dlsym(lib, symName);
+        if (sym == NULL)
+        {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "load_sym <%s> : %s", (const char*)symName, dlerror());
+            buf[sizeof(buf) - 1] = 0; // Terminate just in case
+            raise_exception_string(taskData, EXC_foreign, buf);
+        }
+#endif
+        result = toSysWord(taskData, sym);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 // These functions are needed in the compiler
 POLYUNSIGNED PolySizeFloat()
 {
-    return TAGGED((POLYSIGNED)ffi_type_float.size).AsUnsigned();
+    return TAGGED((POLYSIGNED)sizeof(float)).AsUnsigned();
 }
 
 POLYUNSIGNED PolySizeDouble()
 {
-    return TAGGED((POLYSIGNED)ffi_type_double.size).AsUnsigned();
+    return TAGGED((POLYSIGNED)sizeof(double)).AsUnsigned();
 }
 
 // Get either errno or GetLastError
@@ -583,6 +722,12 @@ struct _entrypts polyFFIEPT[] =
     { "PolyFFICreateExtFn",             (polyRTSFunction)&PolyFFICreateExtFn},
     { "PolyFFICreateExtData",           (polyRTSFunction)&PolyFFICreateExtData },
     { "PolyFFICallbackException",       (polyRTSFunction)&PolyFFICallbackException },
+    { "PolyFFIMalloc",                  (polyRTSFunction)&PolyFFIMalloc },
+    { "PolyFFIFree",                    (polyRTSFunction)&PolyFFIFree },
+    { "PolyFFILoadLibrary",             (polyRTSFunction)&PolyFFILoadLibrary },
+    { "PolyFFILoadExecutable",          (polyRTSFunction)&PolyFFILoadExecutable },
+    { "PolyFFIUnloadLibrary",           (polyRTSFunction)&PolyFFIUnloadLibrary },
+    { "PolyFFIGetSymbolAddress",        (polyRTSFunction)&PolyFFIGetSymbolAddress },
 
     { NULL, NULL} // End of list.
 };
