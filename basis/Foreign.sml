@@ -46,6 +46,10 @@ sig
         val malloc: word -> voidStar
         (* free - free allocated memory. *)
         val free: voidStar -> unit
+        
+        (* alloca: allocate temporary memory on the C-stack and call the function.
+           The memory is deallocated when the function returns or raises and exception. *)
+        val alloca: word * (voidStar -> 'a) -> 'a
 
         val get8:  voidStar * Word.word -> Word8.word
         val get16: voidStar * Word.word -> Word.word

@@ -122,6 +122,7 @@ struct
                         (* May raise the overflow exception *)
                     |   RealToInt _ => PROPWORD_NOUPDATE orb PROPWORD_NODEREF
                     |   TouchAddress => PROPWORD_NORAISE (* Treat as updating a notional reference count. *)
+                    |   AllocCStack => PROPWORD_NORAISE
             in
                 operProps andb codeProps arg1
             end
@@ -146,7 +147,7 @@ struct
                     |   RealComparison _ => applicative
                         (* Real arithmetic operations depend on the current rounding setting. *)
                     |   RealArith _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
-
+                    |   FreeCStack => PROPWORD_NORAISE orb PROPWORD_NODEREF
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end

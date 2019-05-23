@@ -72,6 +72,7 @@ sig
 
     val memRegThreadSelf: int (* Copied from X86CodeSig *)
     and memRegExceptionPacket: int
+    and memRegCStackPtr: int
 
     datatype callKinds =
         Recursive
@@ -139,8 +140,11 @@ sig
     |   StoreArgument of
             { source: argument, base: preg, offset: int, index: memoryIndex, kind: moveKind, isMutable: bool }
 
-        (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
-    |   LoadMemReg of { offset: int, dest: preg }
+        (* Load an entry from the "memory registers".  Used for ThreadSelf and AllocCStack. *)
+    |   LoadMemReg of { offset: int, dest: preg, kind: moveKind }
+
+        (* Store a value into an entry in the "memory registers".  Used AllocCStack/FreeCStack. *)
+    |   StoreMemReg of { offset: int, source: preg, kind: moveKind }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  The last entry is the return address.  If the function

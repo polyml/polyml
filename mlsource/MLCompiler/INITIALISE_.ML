@@ -381,6 +381,12 @@ struct
                     mkStoreOperationFn LoadStoreUntaggedUnsigned, mkProductType[String, Word, Word] ->> Unit)
             val () = enterRunCall ("touch",
                         makePolymorphic([a], mkUnaryFn TouchAddress), a ->> Unit)
+            val () = enterRunCall ("allocCStack", mkUnaryFn AllocCStack, Word ->> LargeWord)
+            (* Free is a binary operation that takes both the allocated address and the size.
+               The allocated address is used by the interpreter where this is actually
+               implemented as malloc/free and the size is used by the compiled code where
+               this is implemented using the C-stack. *)
+            val () = enterRunCall ("freeCStack", mkBinaryFn FreeCStack, LargeWord ** Word ->> Unit)
         end
 
         local

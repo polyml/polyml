@@ -69,6 +69,7 @@ struct
         |   DoubleToFloat of IEEEReal.rounding_mode option
         |   RealToInt of precision * IEEEReal.rounding_mode
         |   TouchAddress
+        |   AllocCStack
 
         and precision = PrecSingle | PrecDouble
 
@@ -85,6 +86,7 @@ struct
         |   LargeWordShift of shiftOperations
         |   RealComparison of testConditions * precision
         |   RealArith of arithmeticOperations * precision
+        |   FreeCStack
 
         and nullaryOps =
             GetCurrentThreadId
@@ -109,6 +111,7 @@ struct
         |   unaryRepr (DoubleToFloat (SOME mode)) = "DoubleToFloat" ^ rndModeRepr mode
         |   unaryRepr (RealToInt (prec, mode)) = "RealToInt" ^ precRepr prec ^ rndModeRepr mode
         |   unaryRepr TouchAddress = "TouchAddress"
+        |   unaryRepr AllocCStack = "AllocCStack"
 
         and binaryRepr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
@@ -123,6 +126,7 @@ struct
         |   binaryRepr (LargeWordShift shiftOp) =  (shiftRepr shiftOp) ^ "LargeWord"
         |   binaryRepr (RealComparison (test, prec)) = "Test" ^ testRepr test ^ precRepr prec
         |   binaryRepr (RealArith (arithOp, prec)) = arithRepr arithOp ^ precRepr prec
+        |   binaryRepr FreeCStack = "FreeCStack"
         
         and nullaryRepr GetCurrentThreadId = "GetCurrentThreadId"
         |   nullaryRepr CheckRTSException = "CheckRTSException"

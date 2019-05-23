@@ -593,6 +593,7 @@ struct
             fun instructionUses(LoadArgument { source, dest, ...}) = if isUsed dest then argUses source else ()
             |   instructionUses(StoreArgument{ source, base, index, ...}) = (argUses source; used base; indexUses index)
             |   instructionUses(LoadMemReg _) = ()
+            |   instructionUses(StoreMemReg {source, ...}) = used source
             |   instructionUses(BeginFunction _) = ()
             |   instructionUses(FunctionCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app argUses stackArgs)
             |   instructionUses(TailRecursiveCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app(argUses o #src) stackArgs)
@@ -763,10 +764,15 @@ struct
                             source=codeExtArgument source, base=baseReg, offset=offset, index=indexVal, kind=kind} :: code
             end
 
-        |   codeExtended _ ({instr=LoadMemReg { offset, dest=PReg pr}, ...}, code) =
-            (* Load from the "memory registers" pointed at by ebp. *)
-            (* Currently only used to load the thread Id which is a Poly word. *)
-                llLoadArgument({source=MemoryArg{base=ebp, offset=offset, index=NoIndex}, dest=getAllocatedReg pr, kind=movePolyWord}, code)
+        |   codeExtended _ ({instr=LoadMemReg { offset, dest=PReg pr, kind}, ...}, code) =
+            (* Load from the "memory registers" pointed at by rbp. *)
+                llLoadArgument({source=MemoryArg{base=rbp, offset=offset, index=NoIndex}, dest=getAllocatedReg pr, kind=kind}, code)
+
+        |   codeExtended _ ({instr=StoreMemReg { offset, source=PReg pr, kind}, ...}, code) =
+                (* Store into the "memory register". *)
+                llStoreArgument{
+                    source=RegisterArg(getAllocatedReg pr), base=rbp, offset=offset, index=NoIndex, kind=kind} ::
+                        code
 
         |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let

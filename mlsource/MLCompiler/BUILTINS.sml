@@ -65,6 +65,7 @@ sig
     |   DoubleToFloat of IEEEReal.rounding_mode option (* Convert a double precision floating point value to single precision. *)
     |   RealToInt of precision * IEEEReal.rounding_mode (* Convert a double or float to a fixed precision int. *)
     |   TouchAddress (* Ensures that the cell is reachable. *)
+    |   AllocCStack (* Allocate space on the C stack. *)
 
     and precision = PrecSingle | PrecDouble (* Single or double precision floating pt. *)
 
@@ -94,6 +95,7 @@ sig
     |   LargeWordShift of shiftOperations
     |   RealComparison of testConditions * precision
     |   RealArith of arithmeticOperations * precision
+    |   FreeCStack  (* Free  space on the C stack. *)
     
     and nullaryOps =
         (* Get the current thread id *)

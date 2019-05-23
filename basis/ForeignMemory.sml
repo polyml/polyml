@@ -44,6 +44,10 @@ structure ForeignMemory :>
         (* free - free allocated memory. *)
         val free: voidStar -> unit
 
+        (* alloca: allocate temporary memory on the C-stack and call the function.
+           The memory is deallocated when the function returns or raises and exception. *)
+        val alloca: word * (voidStar -> 'a) -> 'a
+
         val get8:  voidStar * Word.word -> Word8.word
         val get16: voidStar * Word.word -> Word.word
         val get32: voidStar * Word.word -> Word32.word
@@ -222,9 +226,20 @@ struct
                     address ++ overhead
                 end
         end
-   in
+    in
         val malloc: word -> voidStar = ThreadLib.protect lock allocMem
         fun free v = if v = null then () else ThreadLib.protect lock freeMem v
-   end
+
+        (* Allocate space on the C stack.  This is faster than using malloc/free. *)
+        fun alloca(length, f) =
+        let
+            (* This must be at least 16 byte aligned. *)
+            val aligned = alignUp(length, Word.max(maxAlign, 0w16))
+            val space = RunCall.allocCStack aligned
+        in
+            f space before RunCall.freeCStack(space, aligned)
+                handle exn => (RunCall.freeCStack(space, aligned); raise exn)
+        end
+    end
 end;
 

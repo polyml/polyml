@@ -439,8 +439,10 @@ struct
                         allocateArgIndex index
                     end
             )
-        
+
         |   registerAllocate{instr=LoadMemReg { dest=PReg pr, ...}, ...} = allocateGeneralReg pr
+
+        |   registerAllocate{instr=StoreMemReg { source=PReg pr, ...}, ...} = allocateGeneralReg pr
 
         |   registerAllocate{instr=BeginFunction _, ...} = ()
             (* Any registers that are referenced will have been allocated real registers. *)
