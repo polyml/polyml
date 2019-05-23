@@ -762,20 +762,21 @@ struct
         open LibFFI Memory LowLevel
         fun checkRangeShort(i, min, max) = if i < min orelse i > max then raise Overflow else i
         fun checkRangeLong(i: LargeInt.int, min, max) = if i < min orelse i > max then raise Overflow else i
-        fun noFree _ = () (* None of these allocate extra memory or need to update. *)
+        (* Previously there was a "noFree" function and that was used for the fn _ => () cases.
+           For some reason it wasn't optimised away so explicit fn values are used now. *)
     in
         val cVoid: unit conversion =
-            makeConversion{ load=fn _ => (), store=fn _ => noFree, ctype = cTypeVoid }
+            makeConversion{ load=fn _ => (), store=fn _ => fn _ => (), ctype = cTypeVoid }
 
         (* cPointer should only be used to base other conversions on. *)
         val cPointer: voidStar conversion =
-            makeConversion { load=fn a => getAddress(a, 0w0), store=fn(a, v) => (setAddress(a, 0w0, v); noFree),
+            makeConversion { load=fn a => getAddress(a, 0w0), store=fn(a, v) => (setAddress(a, 0w0, v); fn _ => ()),
                              ctype = cTypePointer }
 
         local
             fun load(m: voidStar): int = Word8.toIntX(get8(m, 0w0))
             fun store(m: voidStar, i: int) =
-                (set8(m, 0w0, Word8.fromInt(checkRangeShort(i, ~128, 127))); noFree)
+                (set8(m, 0w0, Word8.fromInt(checkRangeShort(i, ~128, 127))); fn _ => ())
         in
             val cInt8: int conversion =
                 makeConversion { load=load, store=store, ctype = cTypeInt8 }
@@ -785,7 +786,7 @@ struct
             (* Char is signed in C but unsigned in ML. *)
             fun load(m: voidStar): char = Char.chr(Word8.toInt(get8(m, 0w0)))
             fun store(m: voidStar, i: char) =
-                (set8(m, 0w0, Word8.fromInt(Char.ord i)); noFree)
+                (set8(m, 0w0, Word8.fromInt(Char.ord i)); fn _ => ())
         in
             val cChar: char conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeChar }
@@ -794,7 +795,7 @@ struct
         local
             (* Uchar - convert as Word8.word. *)
             fun load(m: voidStar): Word8.word = get8(m, 0w0)
-            fun store(m: voidStar, i: Word8.word) = (set8(m, 0w0, i); noFree)
+            fun store(m: voidStar, i: Word8.word) = (set8(m, 0w0, i); fn _ => ())
         in
             val cUchar: Word8.word conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeUchar }
@@ -803,7 +804,7 @@ struct
         local
             fun load(m: voidStar): int = Word8.toInt(get8(m, 0w0))
             fun store(m: voidStar, i: int) =
-                (set8(m, 0w0, Word8.fromInt(checkRangeShort(i, 0, 255))); noFree)
+                (set8(m, 0w0, Word8.fromInt(checkRangeShort(i, 0, 255))); fn _ => ())
         in
             val cUint8: int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeUint8 }
@@ -823,7 +824,7 @@ struct
                 else r
             end
             fun store(m: voidStar, i: int) =
-                (set16(m, 0w0, Word.fromInt(checkRangeShort(i, ~32768, 32767))); noFree)
+                (set16(m, 0w0, Word.fromInt(checkRangeShort(i, ~32768, 32767))); fn _ => ())
         in
             val cInt16: int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeInt16 }
@@ -832,7 +833,7 @@ struct
         local
             fun load(m: voidStar): int = Word.toInt(get16(m, 0w0))
             fun store(m: voidStar, i: int) =
-                (set16(m, 0w0, Word.fromInt(checkRangeShort(i, 0, 65535))); noFree)
+                (set16(m, 0w0, Word.fromInt(checkRangeShort(i, 0, 65535))); fn _ => ())
         in
             val cUint16: int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeUint16 }
@@ -852,7 +853,7 @@ struct
                     fn i => checkRangeShort(i, min32, max32)
                 end
             fun store(m: voidStar, i: int) =
-                (set32(m, 0w0, Word32.fromInt(checkRange i)); noFree)
+                (set32(m, 0w0, Word32.fromInt(checkRange i)); fn _ => ())
         in
             val cInt32: int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeInt32 }
@@ -861,7 +862,7 @@ struct
         local
             fun load(m: voidStar): LargeInt.int = Word32.toLargeIntX(get32(m, 0w0))
             fun store(m: voidStar, i: LargeInt.int) =
-                (set32(m, 0w0, Word32.fromLargeInt(checkRangeLong(i, ~2147483648, 2147483647))); noFree)
+                (set32(m, 0w0, Word32.fromLargeInt(checkRangeLong(i, ~2147483648, 2147483647))); fn _ => ())
         in
             val cInt32Large: LargeInt.int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeInt32 }
@@ -881,7 +882,7 @@ struct
                     fn i => checkRangeShort(i, 0, max32Unsigned)
                 end
             fun store(m: voidStar, i: int) =
-                (set32(m, 0w0, Word32.fromInt(checkRange i)); noFree)
+                (set32(m, 0w0, Word32.fromInt(checkRange i)); fn _ => ())
         in
             val cUint32: int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeUint32 }
@@ -890,7 +891,7 @@ struct
         local
             fun load(m: voidStar): LargeInt.int = Word32.toLargeInt(get32(m, 0w0))
             fun store(m: voidStar, i: LargeInt.int) =
-                (set32(m, 0w0, Word32.fromLargeInt(checkRangeLong(i, 0, 4294967295))); noFree)
+                (set32(m, 0w0, Word32.fromLargeInt(checkRangeLong(i, 0, 4294967295))); fn _ => ())
         in
             val cUint32Large: LargeInt.int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeUint32 }
@@ -926,15 +927,15 @@ struct
                     if bigEndian
                     then (set32(m, 0w0, hi); set32(m, 0w1, lo))
                     else (set32(m, 0w0, lo); set32(m, 0w1, hi));
-                    noFree
+                    fn _ => ()
                 end
-                else (set64(m, 0w0, SysWord.fromLargeInt(checkRangeLong(i, min, max))); noFree)
+                else (set64(m, 0w0, SysWord.fromLargeInt(checkRangeLong(i, min, max))); fn _ => ())
           
             fun storeShort(m: voidStar, i: int) =
                 if sysWordSize = 0w4 orelse not (isSome Int.maxInt)
                 then (* 32-bit or arbitrary precision. *) storeLarge(m, LargeInt.fromInt i)
                 else (* Fixed precision 64-bit - no need for a range check. *)
-                    (set64(m, 0w0, SysWord.fromInt i); noFree)
+                    (set64(m, 0w0, SysWord.fromInt i); fn _ => ())
         in
             val cInt64: int conversion =
                 makeConversion{ load=loadShort, store=storeShort, ctype = cTypeInt64 }
@@ -972,16 +973,16 @@ struct
                     if bigEndian
                     then (set32(m, 0w0, hi); set32(m, 0w1, lo))
                     else (set32(m, 0w0, lo); set32(m, 0w1, hi));
-                    noFree
+                    fn _ => ()
                 end
-                else (set64(m, 0w0, SysWord.fromLargeInt(checkRangeLong(i, 0, max))); noFree)
+                else (set64(m, 0w0, SysWord.fromLargeInt(checkRangeLong(i, 0, max))); fn _ => ())
           
             fun storeShort(m: voidStar, i: int) =
                 if sysWordSize = 0w4 orelse not (isSome Int.maxInt)
                 then (* 32-bit or arbitrary precision. *) storeLarge(m, LargeInt.fromInt i)
                 else if i < 0 (* Fixed precision 64-bit - just check it's not negative. *)
                 then raise Overflow
-                else (set64(m, 0w0, SysWord.fromInt i); noFree)
+                else (set64(m, 0w0, SysWord.fromInt i); fn _ => ())
         in
             val cUint64: int conversion =
                 makeConversion{ load=loadShort, store=storeShort, ctype = cTypeUint64 }
@@ -991,7 +992,7 @@ struct
 
         local
             fun load(m: voidStar): real = getFloat(m, 0w0)
-            fun store(m: voidStar, v: real) = (setFloat(m, 0w0, v); noFree)
+            fun store(m: voidStar, v: real) = (setFloat(m, 0w0, v); fn _ => ())
         in
             val cFloat: real conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeFloat }
@@ -999,7 +1000,7 @@ struct
 
         local
             fun load(m: voidStar): real = getDouble(m, 0w0)
-            fun store(m: voidStar, v: real) = (setDouble(m, 0w0, v); noFree)
+            fun store(m: voidStar, v: real) = (setDouble(m, 0w0, v); fn _ => ())
         in
             val cDouble: real conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeDouble }
@@ -1149,6 +1150,9 @@ struct
  
     val op ++ = Memory.++
 
+    (* structs.  These are also used when preparing arguments for function calls.
+       The usual case is to apply these to existing conversions.  We want the sizes and alignments
+       to be compile-time constants and that means avoiding folds that will be compiled into loops. *)
     fun cStruct2(a: 'a conversion, b: 'b conversion): ('a*'b)conversion =
     let
         val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ... }} = a
@@ -1179,9 +1183,9 @@ struct
 
     fun cStruct3(a: 'a conversion, b: 'b conversion, c: 'c conversion): ('a*'b*'c)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {align=alignc, ...} } = c
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
        
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1196,16 +1200,22 @@ struct
         and updateML(s, (a, b, c)) = (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c))
         and updateC(x, (a, b, c)) =
             (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c))
+        val align = Word.max(aligna, Word.max(alignb, alignc))
+        val size = offsetc + sizec
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct, elements = [typea(), typeb(), typec()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct4(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion): ('a*'b*'c*'d)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {align=alignd, ...} } = d
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
  
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1223,18 +1233,24 @@ struct
             (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d))
         and updateC(x, (a, b, c, d)) =
             (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, alignd)))
+        val size = offsetd + sized
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct, elements = [typea(), typeb(), typec(), typed()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct5(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
                  e: 'e conversion): ('a*'b*'c*'d*'e)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {align=aligne, ...} } = e
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1256,19 +1272,25 @@ struct
         and updateC(x, (a, b, c, d, e)) =
             (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
              updateCe(x ++ offsete, e))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, aligne))))
+        val size = offsete + sizee
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct, elements = [typea(), typeb(), typec(), typed(), typee()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct6(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
                  e: 'e conversion, f: 'f conversion): ('a*'b*'c*'d*'e*'f)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {align=alignf, ...} } = f
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1292,20 +1314,26 @@ struct
         and updateC(x, (a, b, c, d, e, f)) =
             (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
              updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, alignf)))))
+        val size = offsetf + sizef
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct, elements = [typea(), typeb(), typec(), typed(), typee(), typef()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct7(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
-                 e: 'e conversion, f: 'f conversion, g: 'g conversion): ('a*'b*'c*'d*'e*'f*'g)conversion =
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion): ('a*'b*'c*'d*'e*'f*'g)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {align=aligng, ...} } = g
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1325,28 +1353,36 @@ struct
         in
             fn () => ( freea(); freeb(); freec(); freed(); freee(); freef(); freeg() )
         end
-        and updateML(s, (a, b, c, d, e, f, g)) =
-            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
-             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f); updateMLg(s ++ offsetg, g))
+        and updateML(x, (a, b, c, d, e, f, g)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g))
         and updateC(x, (a, b, c, d, e, f, g)) =
             (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
              updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        aligng))))))
+        val size = offsetg + sizeg
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct8(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
-                 e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion):
-                    ('a*'b*'c*'d*'e*'f*'g*'h)conversion =
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {align=alignh, ...} } = h
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1358,41 +1394,54 @@ struct
 
         fun load s =
             (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
-             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg), loadh(s ++ offseth))
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth))
         and store (x, (a, b, c, d, e, f, g, h)) =
         let
             val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
             and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
             and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h)
         in
-            fn () => ( freea(); freeb(); freec(); freed(); freee(); freef(); freeg(); freeh() )
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh()
+                )
         end
-        and updateML(s, (a, b, c, d, e, f, g, h)) =
-            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
-             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f); updateMLg(s ++ offsetg, g);
-             updateMLh(s ++ offseth, h))
+        and updateML(x, (a, b, c, d, e, f, g, h)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h))
         and updateC(x, (a, b, c, d, e, f, g, h)) =
             (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
              updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
              updateCh(x ++ offseth, h))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, alignh)))))))
+        val size = offseth + sizeh
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct9(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
-                 e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
-                 i: 'i conversion): ('a*'b*'c*'d*'e*'f*'g*'h*'i)conversion =
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {align=aligni, ...} } = i
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1413,19 +1462,30 @@ struct
             and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
             and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
         in
-            fn () => ( freea(); freeb(); freec(); freed(); freee(); freef(); freeg(); freeh(); freei() )
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei()
+                )
         end
-        and updateML(s, (a, b, c, d, e, f, g, h, i)) =
-            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
-             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f); updateMLg(s ++ offsetg, g);
-             updateMLh(s ++ offseth, h); updateMLi(s ++ offseti, i))
+        and updateML(x, (a, b, c, d, e, f, g, h, i)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i))
         and updateC(x, (a, b, c, d, e, f, g, h, i)) =
             (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
              updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
              updateCh(x ++ offseth, h); updateCi(x ++ offseti, i))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, aligni))))))))
+        val size = offseti + sizei
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct10(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
@@ -1433,16 +1493,16 @@ struct
                   i: 'i conversion, j: 'j conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {align=alignj, ...} } = j
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1479,9 +1539,16 @@ struct
             (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
              updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
              updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, alignj)))))))))
+        val size = offsetj + sizej
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct11(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
@@ -1489,17 +1556,17 @@ struct
                   i: 'i conversion, j: 'j conversion, k: 'k conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {align=alignk, ...} } = k
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = {size=sizek, align=alignk, ffiType=typek, ...} } = k
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1540,10 +1607,17 @@ struct
              updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
              updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
              updateCk(x ++ offsetk, k))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, Word.max(alignj, alignk))))))))))
+        val size = offsetk + sizek
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej(),
+                            typek()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
-                                  ctypek]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
     
     fun cStruct12(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
@@ -1551,18 +1625,18 @@ struct
                   i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {align=alignl, ...} } = l
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = {size=sizek, align=alignk, ffiType=typek, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = {size=sizel, align=alignl, ffiType=typel, ...} } = l
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1604,10 +1678,17 @@ struct
              updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
              updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
              updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, Word.max(alignj, Word.max(alignk, alignl)))))))))))
+        val size = offsetl + sizel
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej(),
+                            typek(), typel()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
-                                  ctypek, ctypel]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
     
     fun cStruct13(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
@@ -1616,19 +1697,19 @@ struct
                   m: 'm conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {align=alignm, ...} } = m
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = {size=sizek, align=alignk, ffiType=typek, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = {size=sizel, align=alignl, ffiType=typel, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = {size=sizem, align=alignm, ffiType=typem, ...} } = m
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1672,10 +1753,18 @@ struct
              updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
              updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
              updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, Word.max(alignj, Word.max(alignk, Word.max(alignl,
+                        alignm))))))))))))
+        val size = offsetm + sizem
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej(),
+                            typek(), typel(), typem()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
-                                  ctypek, ctypel, ctypem]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
     
     nonfix o
@@ -1686,20 +1775,20 @@ struct
                   m: 'm conversion, n: 'n conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {align=alignn, ...} } = n
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = {size=sizek, align=alignk, ffiType=typek, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = {size=sizel, align=alignl, ffiType=typel, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = {size=sizem, align=alignm, ffiType=typem, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = {size=sizen, align=alignn, ffiType=typen, ...} } = n
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1748,10 +1837,18 @@ struct
              updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
              updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
              updateCn(x ++ offsetn, n))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, Word.max(alignj, Word.max(alignk, Word.max(alignl,
+                        Word.max(alignm, alignn)))))))))))))
+        val size = offsetn + sizen
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej(),
+                            typek(), typel(), typem(), typen()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
-                                  ctypek, ctypel, ctypem, ctypen]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct15(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
@@ -1760,21 +1857,21 @@ struct
                   m: 'm conversion, n: 'n conversion, o: 'o conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {align=aligno, ...} } = o
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = {size=sizek, align=alignk, ffiType=typek, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = {size=sizel, align=alignl, ffiType=typel, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = {size=sizem, align=alignm, ffiType=typem, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = {size=sizen, align=alignn, ffiType=typen, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = {size=sizeo, align=aligno, ffiType=typeo, ...} } = o
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1824,10 +1921,18 @@ struct
              updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
              updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
              updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, Word.max(alignj, Word.max(alignk, Word.max(alignl,
+                        Word.max(alignm, Word.max(alignn, aligno))))))))))))))
+        val size = offseto + sizeo
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej(),
+                            typek(), typel(), typem(), typen(), typeo()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
-                                  ctypek, ctypel, ctypem, ctypen, ctypeo]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct16(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
@@ -1836,22 +1941,22 @@ struct
                   m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
-        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {align=alignp, ...} } = p
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = {size=sizek, align=alignk, ffiType=typek, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = {size=sizel, align=alignl, ffiType=typel, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = {size=sizem, align=alignm, ffiType=typem, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = {size=sizen, align=alignn, ffiType=typen, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = {size=sizeo, align=aligno, ffiType=typeo, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = {size=sizep, align=alignp, ffiType=typep, ...} } = p
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1886,9 +1991,9 @@ struct
         in
             fn () =>
                 (
-                    freea(); freeb(); freec(); freed(); freee(); freef();
-                    freeg(); freeh(); freei(); freej(); freek(); freel();
-                    freem(); freen(); freeo(); freep()
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej(); freek(); freel(); freem();
+                    freen(); freeo(); freep()
                 )
         end
         and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)) =
@@ -1903,10 +2008,18 @@ struct
              updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
              updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
              updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, Word.max(alignj, Word.max(alignk, Word.max(alignl,
+                        Word.max(alignm, Word.max(alignn, Word.max(aligno, alignp)))))))))))))))
+        val size = offsetp + sizep
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej(),
+                            typek(), typel(), typem(), typen(), typeo(), typep()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
-                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct17(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
@@ -1916,23 +2029,23 @@ struct
                   q: 'q conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
-        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
-        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {align=alignq, ...} } = q
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = {size=sizek, align=alignk, ffiType=typek, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = {size=sizel, align=alignl, ffiType=typel, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = {size=sizem, align=alignm, ffiType=typem, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = {size=sizen, align=alignn, ffiType=typen, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = {size=sizeo, align=aligno, ffiType=typeo, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = {size=sizep, align=alignp, ffiType=typep, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = {size=sizeq, align=alignq, ffiType=typeq, ...} } = q
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1988,10 +2101,18 @@ struct
              updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
              updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
              updateCq(x ++ offsetq, q))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, Word.max(alignj, Word.max(alignk, Word.max(alignl,
+                        Word.max(alignm, Word.max(alignn, Word.max(aligno, Word.max(alignp, alignq))))))))))))))))
+        val size = offsetq + sizeq
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej(),
+                            typek(), typel(), typem(), typen(), typeo(), typep(), typeq()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
-                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct18(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
@@ -2001,24 +2122,24 @@ struct
                   q: 'q conversion, r: 'r conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
-        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
-        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
-        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = ctyper as {align=alignr, ...} } = r
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = {size=sizek, align=alignk, ffiType=typek, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = {size=sizel, align=alignl, ffiType=typel, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = {size=sizem, align=alignm, ffiType=typem, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = {size=sizen, align=alignn, ffiType=typen, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = {size=sizeo, align=aligno, ffiType=typeo, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = {size=sizep, align=alignp, ffiType=typep, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = {size=sizeq, align=alignq, ffiType=typeq, ...} } = q
+        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = {size=sizer, align=alignr, ffiType=typer, ...} } = r
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -2075,10 +2196,18 @@ struct
              updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
              updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
              updateCq(x ++ offsetq, q); updateCr(x ++ offsetr, r))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, Word.max(alignj, Word.max(alignk, Word.max(alignl,
+                        Word.max(alignm, Word.max(alignn, Word.max(aligno, Word.max(alignp, Word.max(alignq, alignr)))))))))))))))))
+        val size = offsetr + sizer
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej(),
+                            typek(), typel(), typem(), typen(), typeo(), typep(), typeq(), typer()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
-                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct19(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
@@ -2088,25 +2217,25 @@ struct
                   q: 'q conversion, r: 'r conversion, s: 's conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
-        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
-        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
-        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = ctyper as {size=sizer, align=alignr, ...} } = r
-        and {load=loads, store=stores, updateML=updateMLs, updateC=updateCs, ctype = ctypes as {align=aligns, ...} } = s
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = {size=sizek, align=alignk, ffiType=typek, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = {size=sizel, align=alignl, ffiType=typel, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = {size=sizem, align=alignm, ffiType=typem, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = {size=sizen, align=alignn, ffiType=typen, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = {size=sizeo, align=aligno, ffiType=typeo, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = {size=sizep, align=alignp, ffiType=typep, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = {size=sizeq, align=alignq, ffiType=typeq, ...} } = q
+        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = {size=sizer, align=alignr, ffiType=typer, ...} } = r
+        and {load=loads, store=stores, updateML=updateMLs, updateC=updateCs, ctype = {size=sizes, align=aligns, ffiType=types, ...} } = s
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -2165,10 +2294,19 @@ struct
              updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
              updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
              updateCq(x ++ offsetq, q); updateCr(x ++ offsetr, r); updateCs(x ++ offsets, s))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, Word.max(alignj, Word.max(alignk, Word.max(alignl,
+                        Word.max(alignm, Word.max(alignn, Word.max(aligno, Word.max(alignp, Word.max(alignq, Word.max(alignr,
+                        aligns))))))))))))))))))
+        val size = offsets + sizes
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej(),
+                            typek(), typel(), typem(), typen(), typeo(), typep(), typeq(), typer(), types()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
-                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper, ctypes]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     fun cStruct20(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
@@ -2178,26 +2316,26 @@ struct
                   q: 'q conversion, r: 'r conversion, s: 's conversion, t: 't conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s*'t)conversion =
     let
-        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
-        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
-        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
-        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = ctyper as {size=sizer, align=alignr, ...} } = r
-        and {load=loads, store=stores, updateML=updateMLs, updateC=updateCs, ctype = ctypes as {size=sizes, align=aligns, ...} } = s
-        and {load=loadt, store=storet, updateML=updateMLt, updateC=updateCt, ctype = ctypet as {align=alignt, ...} } = t
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = {size=sizea, align=aligna, ffiType=typea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = {size=sizeb, align=alignb, ffiType=typeb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = {size=sizec, align=alignc, ffiType=typec, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = {size=sized, align=alignd, ffiType=typed, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = {size=sizee, align=aligne, ffiType=typee, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = {size=sizef, align=alignf, ffiType=typef, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = {size=sizeg, align=aligng, ffiType=typeg, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = {size=sizeh, align=alignh, ffiType=typeh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = {size=sizei, align=aligni, ffiType=typei, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = {size=sizej, align=alignj, ffiType=typej, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = {size=sizek, align=alignk, ffiType=typek, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = {size=sizel, align=alignl, ffiType=typel, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = {size=sizem, align=alignm, ffiType=typem, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = {size=sizen, align=alignn, ffiType=typen, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = {size=sizeo, align=aligno, ffiType=typeo, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = {size=sizep, align=alignp, ffiType=typep, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = {size=sizeq, align=alignq, ffiType=typeq, ...} } = q
+        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = {size=sizer, align=alignr, ffiType=typer, ...} } = r
+        and {load=loads, store=stores, updateML=updateMLs, updateC=updateCs, ctype = {size=sizes, align=aligns, ffiType=types, ...} } = s
+        and {load=loadt, store=storet, updateML=updateMLt, updateC=updateCt, ctype = {size=sizet, align=alignt, ffiType=typet, ...} } = t
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -2257,10 +2395,19 @@ struct
              updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
              updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
              updateCq(x ++ offsetq, q); updateCr(x ++ offsetr, r); updateCs(x ++ offsets, s); updateCt(x ++ offsett, t))
+        val align = Word.max(aligna, Word.max(alignb, Word.max(alignc, Word.max(alignd, Word.max(aligne, Word.max(alignf,
+                        Word.max(aligng, Word.max(alignh, Word.max(aligni, Word.max(alignj, Word.max(alignk, Word.max(alignl,
+                        Word.max(alignm, Word.max(alignn, Word.max(aligno, Word.max(alignp, Word.max(alignq, Word.max(alignr,
+                        Word.max(aligns, alignt)))))))))))))))))))
+        val size = offsett + sizet
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = size, align = align, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = [typea(), typeb(), typec(), typed(), typee(), typef(), typeg(), typeh(), typei(), typej(),
+                            typek(), typel(), typem(), typen(), typeo(), typep(), typeq(), typer(), types(), typet()] }
+        val ctype = {align=align, size=size, ffiType=Memory.memoise ffiType ()}
     in
-        {load=load, store=store, updateML=updateML, updateC=updateC,
-         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
-                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper, ctypes, ctypet]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = ctype}
     end
 
     (* Conversion for call-by-reference. *)
