@@ -111,6 +111,8 @@ struct
     [
         loadAddress{source=source, destination=rsi},
         loadAddress{source=destination, destination=rdi},
+        (* N.B. When moving a struct in a Win64 callback the source could be rcx so only move this
+           after copying the source to rsi. *)
         Move{source=NonAddressConstArg(LargeInt.fromInt length), destination=RegisterArg rcx,
              moveSize=opSizeToMove nativeWordOpSize},
         RepeatOperation MOVS8
@@ -976,25 +978,26 @@ struct
                 typeCode = Foreign.LibFFI.ffiTypeCodeStruct andalso
                     size <> 0w1 andalso size <> 0w2 andalso size <> 0w4 andalso size <> 0w8
 
-            fun copyWin64Args([], _, argOffset, _, code) = (argOffset, code)
+            (* Store the register arguments and copy everything else into the argument structure on the stack.
+               The code is ordered so that the early arguments are stored first. *)
+            fun copyWin64Args([], _, _, _) = []
 
-            |   copyWin64Args(arg::args, nStackArgs, argOffset, regs, code) =
+            |   copyWin64Args(arg::args, nStackArgs, argOffset, regs) =
                 let
                     val {size, align, typeCode, ...} = Foreign.LibFFI.extractFFItype arg
                     val newArgOffset = alignUp(argOffset, align)
-                    val sourceAddr = {base=r10, offset=nStackArgs*8, index=NoIndex}
                     val destAddr = {base=rsp, offset=Word.toInt newArgOffset, index=NoIndex}
                 
                     (* Integer arguments. *)
                     fun moveIntArg moveOp =
                         case regs of
-                            (areg, _) :: regs' => 
-                                copyWin64Args(args, nStackArgs, newArgOffset+size, regs',
-                                    Move{source=RegisterArg areg, destination=MemoryArg destAddr, moveSize=moveOp } :: code)
+                            (areg, _) :: regs' =>
+                                Move{source=RegisterArg areg, destination=MemoryArg destAddr, moveSize=moveOp } ::
+                                    copyWin64Args(args, nStackArgs, newArgOffset+size, regs')
                         |   [] =>
-                                copyWin64Args(args, nStackArgs+1, newArgOffset+size, [],
-                                    Move{source=MemoryArg sourceAddr, destination=RegisterArg rax, moveSize=Move64} ::
-                                    Move{source=RegisterArg rax, destination=MemoryArg destAddr, moveSize=moveOp} :: code)
+                                Move{source=MemoryArg {base=r10, offset=nStackArgs*8, index=NoIndex}, destination=RegisterArg rax, moveSize=Move64} ::
+                                    Move{source=RegisterArg rax, destination=MemoryArg destAddr, moveSize=moveOp} :: 
+                                    copyWin64Args(args, nStackArgs+1, newArgOffset+size, [])
                 in
                     (* Structs of 1, 2, 4 and 8 bytes are passed as the corresponding int. *)
                     case size of
@@ -1006,9 +1009,9 @@ struct
                         then
                         (
                             case regs of
-                                (_, fpReg) :: regs' => 
-                                copyWin64Args(args, nStackArgs, newArgOffset+size, regs',
-                                    XMMStoreToMemory{ toStore=fpReg, address=destAddr, precision=SinglePrecision} :: code)
+                                (_, fpReg) :: regs' =>
+                                    XMMStoreToMemory{ toStore=fpReg, address=destAddr, precision=SinglePrecision} :: 
+                                        copyWin64Args(args, nStackArgs, newArgOffset+size, regs')
                             |   [] => moveIntArg Move32
                         )
                         else (* 32-bits *) moveIntArg Move32
@@ -1018,9 +1021,9 @@ struct
                         then
                         (
                             case regs of
-                                (_, fpReg) :: regs' => 
-                                copyWin64Args(args, nStackArgs, newArgOffset+size, regs',
-                                    XMMStoreToMemory{ toStore=fpReg, address=destAddr, precision=DoublePrecision} :: code)
+                                (_, fpReg) :: regs' =>
+                                    XMMStoreToMemory{ toStore=fpReg, address=destAddr, precision=DoublePrecision} :: 
+                                        copyWin64Args(args, nStackArgs, newArgOffset+size, regs')
                             |   [] => moveIntArg Move64
                         )
                         else (* 64-bits. *) moveIntArg Move64
@@ -1028,16 +1031,35 @@ struct
                     |   _ =>
                         if typeCode <> Foreign.LibFFI.ffiTypeCodeStruct
                         then raise Foreign.Foreign "Unrecognised type for function argument"
-                        else raise Foreign.Foreign "TODO: Struct arg for callback"
+                        else (* Structures of other size are passed by reference.  We need to copy the source
+                               structure into our stack area.  Since rsi and rdi aren't used as args and
+                               rcx is only used for the first argument we can copy the argument now. *)
+                        (
+                            case regs of
+                                (arg, _) :: regs' =>
+                                    moveMemory{source=(arg, 0), destination=(rsp, Word.toInt newArgOffset), length=Word.toInt size} @
+                                    copyWin64Args(args, nStackArgs, newArgOffset+size, regs')
+                            |   [] =>
+                                    moveMemory{source=(r10, nStackArgs*8), destination=(rsp, Word.toInt newArgOffset), length=Word.toInt size} @
+                                    copyWin64Args(args, nStackArgs+1, newArgOffset+size, [])
+                        )
+                            
                 end
 
-            val (argumentSpace, copyArgsFromRegsAndStack) =
+            val copyArgsFromRegsAndStack =
                 if resultStructByRef
-                then copyWin64Args(args, 0, 0w0, tl win64ArgRegs,
-                        (* If we're returning a struct by reference we copy the address into r9 and pass that
-                           as the result address. *)
-                        [Move{source=RegisterArg rcx, destination=RegisterArg r9, moveSize=Move64}])
-                else copyWin64Args(args, 0, 0w0, win64ArgRegs, [])
+                then (* If we're returning a struct by reference we copy the address into r9 and pass that
+                        as the result address. *)
+                    Move{source=RegisterArg rcx, destination=RegisterArg r9, moveSize=Move64} ::
+                        copyWin64Args(args, 0, 0w0, tl win64ArgRegs)
+                else copyWin64Args(args, 0, 0w0, win64ArgRegs)
+
+            local
+                fun getNextSize (arg, argOffset) =
+                let val {size, align, ...} = Foreign.LibFFI.extractFFItype arg in alignUp(argOffset, align) + size end
+            in
+                val argumentSpace = List.foldl getNextSize 0w0 args
+            end
 
             val resultOffset = alignUp(argumentSpace, align) (* Offset of result area *)
         
@@ -1212,6 +1234,34 @@ struct
         val sysVGenRegs = [rdi, rsi, rdx, rcx, r8, r9]
         and sysVFPRegs = [xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7]
 
+        (* Store a register into upto 8 bytes.  Most values will involve a single store but odd-sized
+           structs can require shifts and multiple stores.  N.B.  May modify the source register. *)
+        fun storeUpTo8(reg, base, offset, size) =
+        let
+            val moveOp =
+                if size = 0w8 then Move64 else if size >= 0w4 then Move32 else if size >= 0w2 then Move16 else Move8
+        in
+            [Move{source=RegisterArg reg, destination=MemoryArg {base=base, offset=offset, index=NoIndex}, moveSize=moveOp}]
+        end @
+        (
+            if size = 0w6 orelse size = 0w7
+            then
+            [
+                ShiftConstant{ shiftType=SHR, output=reg, shift=0w32, opSize=OpSize64 },
+                Move{source=RegisterArg reg, destination=MemoryArg {base=base, offset=offset+4, index=NoIndex}, moveSize=Move16}
+            ]
+            else []
+        ) @
+        (
+            if size = 0w3 orelse size = 0w5 orelse size = 0w7
+            then
+            [
+                ShiftConstant{ shiftType=SHR, output=reg, shift=Word8.fromLargeWord(Word.toLargeWord((size-0w1)*0w8)), opSize=OpSize64 },
+                Move{source=RegisterArg reg, destination=MemoryArg {base=base, offset=offset+Word.toInt(size-0w1), index=NoIndex}, moveSize=Move8}
+            ]
+            else []
+        )
+
     in
         fun callUnix64Bits(args, result) =
         let
@@ -1331,31 +1381,7 @@ struct
             local
                 (* Store a result register into the result area.  In almost all cases
                    this is very simple: the only complication is with structs of odd sizes. *)
-                fun storeResult(reg, offset, size) =
-                let
-                    val moveOp =
-                        if size = 0w8 then Move64 else if size >= 0w4 then Move32 else if size >= 0w2 then Move16 else Move8
-                in
-                    [Move{source=RegisterArg reg, destination=MemoryArg {base=resultAreaPtr, offset=offset, index=NoIndex}, moveSize=moveOp}]
-                end @
-                (
-                    if size = 0w6 orelse size = 0w7
-                    then
-                    [
-                        ShiftConstant{ shiftType=SHR, output=reg, shift=0w32, opSize=OpSize64 },
-                        Move{source=RegisterArg reg, destination=MemoryArg {base=resultAreaPtr, offset=offset+4, index=NoIndex}, moveSize=Move16}
-                    ]
-                    else []
-                ) @
-                (
-                    if size = 0w3 orelse size = 0w5 orelse size = 0w7
-                    then
-                    [
-                        ShiftConstant{ shiftType=SHR, output=reg, shift=Word8.fromLargeWord(Word.toLargeWord((size-0w1)*0w8)), opSize=OpSize64 },
-                        Move{source=RegisterArg reg, destination=MemoryArg {base=resultAreaPtr, offset=offset+Word.toInt(size-0w1), index=NoIndex}, moveSize=Move8}
-                    ]
-                    else []
-                )
+                fun storeResult(reg, offset, size) = storeUpTo8(reg, resultAreaPtr, offset, size)
                     
                 val {size, typeCode, ...} = Foreign.LibFFI.extractFFItype result
             in
@@ -1462,34 +1488,7 @@ struct
             |   moveSysV64Args(arg::args, nStackArgs, argOffset, gRegs, fpRegs, code) =
                 let
                     val {size, align, ...} = Foreign.LibFFI.extractFFItype arg
-
-                    (* Load a value into a register.  Normally the size will be 1, 2, 4 or 8 bytes and
-                       this will just involve a simple load.  Structs, though, can be of any size up
-                       to 8 bytes. *)
-                    fun storeRegister(reg, offset, size) =
-                    let
-                        val moveOp =
-                            if size = 0w8
-                            then Move64
-                            else if size >= 0w4
-                            then Move32
-                            else if size >= 0w2
-                            then Move16
-                            else Move8
-                    in
-                        [Move{source=RegisterArg reg, destination=MemoryArg{base=rsp, offset=Word.toInt offset, index=NoIndex}, moveSize=moveOp}]
-                    end @
-                    (
-                        if size = 0w6 orelse size = 0w7
-                        then raise Fail "TODO"
-                        else []
-                    ) @
-                    (
-                        if size = 0w3 orelse size = 0w5 orelse size = 0w7
-                        then raise Fail "TODO"
-                        else []
-                    )
-
+                    fun storeRegister(reg, offset, size) = storeUpTo8(reg, rsp, offset, size)
                     val newArgOffset = alignUp(argOffset, align)
                     val word1Addr = {base=rsp, offset=Word.toInt newArgOffset, index=NoIndex}
                     val word2Addr = {base=rsp, offset=Word.toInt newArgOffset + 8, index=NoIndex}
@@ -1498,7 +1497,7 @@ struct
                         (* 8 bytes or smaller - single general reg.  This is the usual case. *)
                         (ArgInRegs{firstInSSE=false, ...}, false, gReg :: gRegs', fpRegs') =>
                             moveSysV64Args(args, nStackArgs, newArgOffset+size, gRegs', fpRegs',
-                                storeRegister(gReg, newArgOffset, size) @ code)
+                                storeRegister(gReg, Word.toInt newArgOffset, size) @ code)
 
                         (* 8 bytes or smaller - single SSE reg.  Usual case for real arguments. *)
                     |   (ArgInRegs{firstInSSE=true, ...}, false, gRegs', fpReg :: fpRegs') =>
@@ -1509,7 +1508,7 @@ struct
                     |   (ArgInRegs{firstInSSE=false, secondInSSE=false}, true, gReg1 :: gReg2 :: gRegs', fpRegs') =>
                             moveSysV64Args(args, nStackArgs, newArgOffset+size, gRegs', fpRegs',
                                 Move{source=MemoryArg word1Addr, destination=RegisterArg gReg1, moveSize=Move64} ::
-                                storeRegister(gReg2, newArgOffset+0w8, size-0w8) @ code)
+                                storeRegister(gReg2, Word.toInt newArgOffset+8, size-0w8) @ code)
 
                         (* 9-16 bytes - first in general, second in SSE. *)
                     |   (ArgInRegs{firstInSSE=false, secondInSSE=true}, true, gReg :: gRegs', fpReg :: fpRegs') =>
@@ -1521,7 +1520,7 @@ struct
                     |   (ArgInRegs{firstInSSE=true, secondInSSE=false}, true, gReg :: gRegs', fpReg :: fpRegs') =>
                             moveSysV64Args(args, nStackArgs, newArgOffset+size, gRegs', fpRegs',
                                 XMMStoreToMemory{precision=DoublePrecision, address=word1Addr, toStore=fpReg } ::
-                                    storeRegister(gReg, newArgOffset+0w8, size-0w8) @ code)
+                                    storeRegister(gReg, Word.toInt newArgOffset+8, size-0w8) @ code)
 
                     |   (* 9-16 bytes - both values in SSE regs. *)
                         (ArgInRegs{firstInSSE=true, secondInSSE=true}, true, gRegs', fpReg1 :: fpReg2 :: fpRegs') =>
