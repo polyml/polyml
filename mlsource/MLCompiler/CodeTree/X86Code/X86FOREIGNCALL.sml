@@ -599,7 +599,7 @@ struct
             ] @ getResult @ (* Store the result in the destination. *) [ ReturnFromFunction 1 ]
         end
     
-    fun closure32Bits(abi, args, result, f) =
+    fun closure32Bits(abi, args, result) =
     let
         (* Arguments are copied from the stack into a struct that is then passed to the
            ML function. *)
@@ -703,47 +703,50 @@ struct
             (* Push callee-save registers. *)
             PushToStack(RegisterArg ebp), PushToStack(RegisterArg ebx), PushToStack(RegisterArg edi), PushToStack(RegisterArg esi),
             (* Set ebx to point to the original args. *)
-            LoadAddress{ output=ebx, offset=20, base=SOME esp, index=NoIndex, opSize=nativeWordOpSize},
+            LoadAddress{ output=ebx, offset=20, base=SOME esp, index=NoIndex, opSize=OpSize32},
             (* Allocate stack space. *)
-            ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=nativeWordOpSize}
+            ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=OpSize32},
+            (* Move the function address in eax into esi since that's a callee-save register. *)
+            Move{source=RegisterArg eax, destination=RegisterArg esi, moveSize=Move32}
         ] @ copyArgsFromStack @
         [
             (* Get the value for ebp. *)
-            Move{source=AddressConstArg getThreadDataCall, destination=RegisterArg ecx, moveSize=opSizeToMove polyWordOpSize},
+            Move{source=AddressConstArg getThreadDataCall, destination=RegisterArg ecx, moveSize=Move32},
             CallAddress(MemoryArg{base=ecx, offset=0, index=NoIndex}), (* Get the address - N.B. Heap addr in 32-in-64. *)
-            moveRR{source=eax, output=ebp, opSize=nativeWordOpSize},
+            moveRR{source=eax, output=ebp, opSize=OpSize32},
             (* Save the address of the argument and result area. *)
-            moveRR{source=esp, output=ecx, opSize=nativeWordOpSize},
+            moveRR{source=esp, output=ecx, opSize=OpSize32},
             (* Switch to the ML stack. *)
-            storeMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize),
-            loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize)
+            storeMemory(esp, ebp, memRegCStackPtr, OpSize32),
+            loadMemory(esp, ebp, memRegStackPtr, OpSize32),
+            (* Move esi into the closure register edx *)
+            Move{source=RegisterArg esi, destination=RegisterArg edx, moveSize=Move32}
         ] @ boxRegAsSysWord(ecx, eax, []) @
         (
             (* If we're returning a struct the address for the result will have been passed in the
                first argument.  We use that as the result area.  Otherwise point to the result
                area on the stack.  *)
             if resultStructByRef
-            then Move{source=MemoryArg {offset=0, base=ebx, index=NoIndex}, destination=RegisterArg ecx, moveSize=opSizeToMove nativeWordOpSize}
-            else ArithToGenReg{opc=ADD, output=ecx, source=NonAddressConstArg(Word.toLargeInt resultOffset), opSize=nativeWordOpSize}
+            then Move{source=MemoryArg {offset=0, base=ebx, index=NoIndex}, destination=RegisterArg ecx, moveSize=Move32}
+            else ArithToGenReg{opc=ADD, output=ecx, source=NonAddressConstArg(Word.toLargeInt resultOffset), opSize=OpSize32}
         ) :: boxRegAsSysWord(ecx, ebx, [eax]) @
         [
             (* Call the ML function using the full closure call. *)
-            Move{source=AddressConstArg(Address.toMachineWord f), destination=RegisterArg edx, moveSize=opSizeToMove polyWordOpSize},
             CallAddress(MemoryArg{offset=0, base=edx, index=NoIndex}),
             (* Save the ML stack pointer because we may have grown the stack.  Switch to the C stack. *)
-            storeMemory(esp, ebp, memRegStackPtr, nativeWordOpSize),
-            loadMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize)
+            storeMemory(esp, ebp, memRegStackPtr, OpSize32),
+            loadMemory(esp, ebp, memRegCStackPtr, OpSize32)
         ] @ loadResults @
         [
             (* Remove the stack space. *)
-            ArithToGenReg{opc=ADD, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=nativeWordOpSize},
+            ArithToGenReg{opc=ADD, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=OpSize32},
             PopR esi, PopR edi, PopR ebx, PopR ebp (* Restore callee-save registers. *)
         ] @
         (
             (* If we've passed in the address of the area for the result structure
                we're supposed to pass that back in eax. *)
             if resultStructByRef
-            then [loadMemory(eax, esp, 4, nativeWordOpSize)]
+            then [loadMemory(eax, esp, 4, OpSize32)]
             else []
         ) @
         [
@@ -964,7 +967,7 @@ struct
                 ] @ (* Store the result in the destination. *) getResult @ [ReturnFromFunction 0 ]
             end (* callWindows64Bits *)
 
-        fun closureWindows64Bits(args, result, f) =
+        fun closureWindows64Bits(args, result) =
         let
             val {typeCode, size, align, ...} = Foreign.LibFFI.extractFFItype result
 
@@ -1090,7 +1093,9 @@ struct
             (* Set r10 to point to the original stack args if any.  This is beyond the pushed regs and also the 32-byte area. *)
             LoadAddress{ output=r10, offset=if resultStructByRef then 112 else 104, base=SOME rsp, index=NoIndex, opSize=nativeWordOpSize},
             (* Allocate stack space. *)
-            ArithToGenReg{opc=SUB, output=rsp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=nativeWordOpSize}
+            ArithToGenReg{opc=SUB, output=rsp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=nativeWordOpSize},
+            (* Move the function we're calling, in rax, into r13, a callee-save register *)
+            moveRR{source=rax, output=r13, opSize=polyWordOpSize}
         ]
           @ copyArgsFromRegsAndStack @
         [
@@ -1106,7 +1111,9 @@ struct
             storeMemory(rsp, rbp, memRegCStackPtr, nativeWordOpSize),
             loadMemory(rsp, rbp, memRegStackPtr, nativeWordOpSize),
             (* Load the ML heap pointer. *)
-            loadMemory(r15, rbp, memRegLocalMPointer, nativeWordOpSize)
+            loadMemory(r15, rbp, memRegLocalMPointer, nativeWordOpSize),
+            (* Now move the function closure into the closure register ready for the call. *)
+            moveRR{source=r13, output=rdx, opSize=polyWordOpSize}
         ] @
         (* Reload the heap base address in 32-in-64. *)
         ( if targetArch = ObjectId32Bit then [loadMemory(rbx, rbp, memRegSavedRbx, nativeWordOpSize)] else [] )
@@ -1121,7 +1128,6 @@ struct
         ) :: boxRegAsSysWord(rcx, mlArg2Reg, [rax]) @
         [
             (* Call the ML function using the full closure call. *)
-            Move{source=AddressConstArg(Address.toMachineWord f), destination=RegisterArg rdx, moveSize=opSizeToMove polyWordOpSize},
             CallAddress(
                 if targetArch = ObjectId32Bit
                 then MemoryArg{base=rbx, index=Index4 rdx, offset=0}
@@ -1447,7 +1453,7 @@ struct
             ] @ (* Store the result in the destination. *) getResult @ [ ReturnFromFunction 0 ]
         end (* callUnix64Bits *)
         
-        fun closureUnix64Bits(args, result, f) =
+        fun closureUnix64Bits(args, result) =
         let
             val resultStructByRef = false
 
@@ -1592,7 +1598,9 @@ struct
             (* Set r10 to point to the original stack args if any. *)
             LoadAddress{ output=r10, offset=56, base=SOME rsp, index=NoIndex, opSize=nativeWordOpSize},
             (* Allocate stack space. *)
-            ArithToGenReg{opc=SUB, output=rsp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=nativeWordOpSize}
+            ArithToGenReg{opc=SUB, output=rsp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=nativeWordOpSize},
+            (* Move the function we're calling, in rax, into r13, a callee-save register *)
+            moveRR{source=rax, output=r13, opSize=polyWordOpSize}
         ]
           @ copyArgsFromRegsAndStack @
         [
@@ -1606,7 +1614,9 @@ struct
             storeMemory(rsp, rbp, memRegCStackPtr, nativeWordOpSize),
             loadMemory(rsp, rbp, memRegStackPtr, nativeWordOpSize),
             (* Load the ML heap pointer. *)
-            loadMemory(r15, rbp, memRegLocalMPointer, nativeWordOpSize)
+            loadMemory(r15, rbp, memRegLocalMPointer, nativeWordOpSize),
+            (* Now move the function closure into the closure register ready for the call. *)
+            moveRR{source=r13, output=rdx, opSize=polyWordOpSize}
         ] @
         (* Reload the heap base address in 32-in-64. *)
         ( if targetArch = ObjectId32Bit then [loadMemory(rbx, rbp, memRegSavedRbx, nativeWordOpSize)] else [] )
@@ -1621,7 +1631,6 @@ struct
         ) :: boxRegAsSysWord(rcx, mlArg2Reg, [rax]) @
         [
             (* Call the ML function using the full closure call. *)
-            Move{source=AddressConstArg(Address.toMachineWord f), destination=RegisterArg rdx, moveSize=opSizeToMove polyWordOpSize},
             CallAddress(
                 if targetArch = ObjectId32Bit
                 then MemoryArg{base=rbx, index=Index4 rdx, offset=0}
@@ -1673,19 +1682,40 @@ struct
        SysWord.word value except that while it exists the code will not be GCed.  *)
     fun buildCallBack(abivalue: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
     let
-        (* For the moment we do everything inside the result function.  The intention is to generate
-           the main closure function outside this and have this function load "f" into a register
-           and jump to the main function. *)
+        val code =
+            case (getABI(), getFFIAbi abivalue) of
+                (X64Unix, FFI_UNIX64) => closureUnix64Bits(args, result)
+            |   (X64Win, FFI_WIN64) => closureWindows64Bits(args, result)
+            |   (X86_32, abi) => closure32Bits(abi, args, result)
+            |   _ => raise Foreign.Foreign "Unsupported ABI"
+
+        val functionName = "foreignCallBack(2)"
+        val debugSwitches =
+            [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
+               Universal.tagInject DEBUG.assemblyCodeTag true*)]
+        val profileObject = createProfileObject functionName
+        val newCode = codeCreate (functionName, profileObject, debugSwitches)
+        val closure = makeConstantClosure()
+        val () = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
+        val stage2Code = closureAsAddress closure
+
         fun resultFunction f =
         let
+            (* Generate a small function to load the address of f into rax/eax and then jump to stage2.
+               The idea is that it should be possible to generate this eventually in a single RTS call.
+               That could be done by using a version of this as a model. *)
+            val codeAddress =
+                (* In the native code versions we extract the code address from the closure.
+                   We don't do that in 32-in-64 and instead the RTS does it. *)
+                if targetArch = ObjectId32Bit
+                then stage2Code
+                else Address.loadWord(Address.toAddress stage2Code, 0w0)
             val code =
-                case (getABI(), getFFIAbi abivalue) of
-                    (X64Unix, FFI_UNIX64) => closureUnix64Bits(args, result, f)
-                |   (X64Win, FFI_WIN64) => closureWindows64Bits(args, result, f)
-                |   (X86_32, abi) => closure32Bits(abi, args, result, f)
-                |   _ => raise Foreign.Foreign "Unsupported ABI"
-
-            val functionName = "foreignCallBack"
+                [
+                    Move{source=AddressConstArg(Address.toMachineWord f), destination=RegisterArg rax, moveSize=opSizeToMove polyWordOpSize},
+                    JumpAddress(AddressConstArg codeAddress)
+                ]
+            val functionName = "foreignCallBack(1)"
             val debugSwitches =
                 [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                    Universal.tagInject DEBUG.assemblyCodeTag true*)]
