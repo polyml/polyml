@@ -1146,7 +1146,6 @@ struct
             if resultStructByRef
             then loadMemory(rcx, r10, ~112, nativeWordOpSize)
             else ArithToGenReg{opc=ADD, output=rcx, source=NonAddressConstArg(Word.toLargeInt resultOffset), opSize=nativeWordOpSize}
-                    
         ) :: boxRegAsSysWord(rcx, mlArg2Reg, [rax]) @
         [
             (* Call the ML function using the full closure call. *)
@@ -1367,7 +1366,8 @@ struct
 
                     |   (_, _, gRegs', fpRegs') => (* Either larger than 16 bytes or we've run out of the right kind of registers. *)
                             (* Move the argument in the preCode.  It's possible a large struct could be the first argument
-                               and if we left it until the end RDI and RSI would already have been loaded. *)
+                               and if we left it until the end RDI and RSI would already have been loaded.
+                               Structs are passed by value on the stack not, as in Win64, by reference. *)
                         let
                             val space = intAlignUp(Word.toInt size, 0w8)
                         in
@@ -1481,11 +1481,9 @@ struct
         
         fun closureUnix64Bits(args, result) =
         let
-            val resultStructByRef = false
+            fun moveSysV64Args([], _, _, _, _, moveFromStack) = moveFromStack
 
-            fun moveSysV64Args([], _, argOffset, _, _, code) = (argOffset, code)
-
-            |   moveSysV64Args(arg::args, nStackArgs, argOffset, gRegs, fpRegs, code) =
+            |   moveSysV64Args(arg::args, stackSpace, argOffset, gRegs, fpRegs, moveFromStack) =
                 let
                     val {size, align, ...} = Foreign.LibFFI.extractFFItype arg
                     fun storeRegister(reg, offset, size) = storeUpTo8(reg, rsp, offset, size)
@@ -1496,52 +1494,75 @@ struct
                     case (classifyArg arg, size > 0w8, gRegs, fpRegs) of
                         (* 8 bytes or smaller - single general reg.  This is the usual case. *)
                         (ArgInRegs{firstInSSE=false, ...}, false, gReg :: gRegs', fpRegs') =>
-                            moveSysV64Args(args, nStackArgs, newArgOffset+size, gRegs', fpRegs',
-                                storeRegister(gReg, Word.toInt newArgOffset, size) @ code)
+                            storeRegister(gReg, Word.toInt newArgOffset, size) @
+                                moveSysV64Args(args, stackSpace, newArgOffset+size, gRegs', fpRegs', moveFromStack)
 
                         (* 8 bytes or smaller - single SSE reg.  Usual case for real arguments. *)
                     |   (ArgInRegs{firstInSSE=true, ...}, false, gRegs', fpReg :: fpRegs') =>
-                            moveSysV64Args(args, nStackArgs, newArgOffset+size, gRegs', fpRegs',
-                                XMMStoreToMemory{precision=if size = 0w4 then SinglePrecision else DoublePrecision, address=word1Addr, toStore=fpReg } :: code)
+                            XMMStoreToMemory{precision=if size = 0w4 then SinglePrecision else DoublePrecision, address=word1Addr, toStore=fpReg } :: 
+                                moveSysV64Args(args, stackSpace, newArgOffset+size, gRegs', fpRegs', moveFromStack)
                     
                         (* 9-16 bytes - both values in general regs. *)
                     |   (ArgInRegs{firstInSSE=false, secondInSSE=false}, true, gReg1 :: gReg2 :: gRegs', fpRegs') =>
-                            moveSysV64Args(args, nStackArgs, newArgOffset+size, gRegs', fpRegs',
-                                Move{source=MemoryArg word1Addr, destination=RegisterArg gReg1, moveSize=Move64} ::
-                                storeRegister(gReg2, Word.toInt newArgOffset+8, size-0w8) @ code)
+                            Move{source=MemoryArg word1Addr, destination=RegisterArg gReg1, moveSize=Move64} ::
+                                storeRegister(gReg2, Word.toInt newArgOffset+8, size-0w8) @ 
+                                moveSysV64Args(args, stackSpace, newArgOffset+size, gRegs', fpRegs', moveFromStack)
 
                         (* 9-16 bytes - first in general, second in SSE. *)
                     |   (ArgInRegs{firstInSSE=false, secondInSSE=true}, true, gReg :: gRegs', fpReg :: fpRegs') =>
-                            moveSysV64Args(args, nStackArgs, newArgOffset+size, gRegs', fpRegs',
-                                Move{source=MemoryArg word1Addr, destination=RegisterArg gReg, moveSize=Move64} ::
-                                    XMMStoreToMemory{precision=if size = 0w12 then SinglePrecision else DoublePrecision, address=word2Addr, toStore=fpReg } :: code)
+                            Move{source=MemoryArg word1Addr, destination=RegisterArg gReg, moveSize=Move64} ::
+                                XMMStoreToMemory{precision=if size = 0w12 then SinglePrecision else DoublePrecision, address=word2Addr, toStore=fpReg } :: 
+                                moveSysV64Args(args, stackSpace, newArgOffset+size, gRegs', fpRegs', moveFromStack)
 
                         (* 9-16 bytes - first in SSE, second in general. *)
                     |   (ArgInRegs{firstInSSE=true, secondInSSE=false}, true, gReg :: gRegs', fpReg :: fpRegs') =>
-                            moveSysV64Args(args, nStackArgs, newArgOffset+size, gRegs', fpRegs',
-                                XMMStoreToMemory{precision=DoublePrecision, address=word1Addr, toStore=fpReg } ::
-                                    storeRegister(gReg, Word.toInt newArgOffset+8, size-0w8) @ code)
+                            XMMStoreToMemory{precision=DoublePrecision, address=word1Addr, toStore=fpReg } ::
+                                storeRegister(gReg, Word.toInt newArgOffset+8, size-0w8) @
+                                moveSysV64Args(args, stackSpace, newArgOffset+size, gRegs', fpRegs', moveFromStack)
 
                     |   (* 9-16 bytes - both values in SSE regs. *)
                         (ArgInRegs{firstInSSE=true, secondInSSE=true}, true, gRegs', fpReg1 :: fpReg2 :: fpRegs') =>
-                            moveSysV64Args(args, nStackArgs, newArgOffset+size, gRegs', fpRegs',
-                                XMMStoreToMemory{precision=DoublePrecision, address=word1Addr, toStore=fpReg1 } ::
+                            XMMStoreToMemory{precision=DoublePrecision, address=word1Addr, toStore=fpReg1 } ::
                                 XMMStoreToMemory{precision=if size = 0w12 then SinglePrecision else DoublePrecision,
-                                        address=word2Addr, toStore=fpReg2 } :: code)
+                                        address=word2Addr, toStore=fpReg2 } :: 
+                                moveSysV64Args(args, stackSpace, newArgOffset+size, gRegs', fpRegs', moveFromStack)
 
-                    |   (_, _, gRegs', fpRegs') => (* Either larger than 16 bytes or we've run out of the right kind of registers. *)
-                            (* Move the argument in the preCode.  It's possible a large struct could be the first argument
-                               and if we left it until the end RDI and RSI would already have been loaded. *)
-                            raise Fail "TODO"
+                    |   (_, _, gRegs', fpRegs') =>
+                        (* Either larger than 16 bytes or we've run out of the right kind of register.
+                           Structs larger than 16 bytes are passed by value on the stack.  Move the
+                           argument after we've stored all the registers in particular rsi and rdi. *)
+                        let
+                            val space = intAlignUp(Word.toInt size, 0w8)
+                        in
+                            moveSysV64Args(args, stackSpace+space, newArgOffset+size, gRegs', fpRegs',
+                                moveMemory{source=(r10, stackSpace), destination=(rsp, Word.toInt newArgOffset), length=Word.toInt size} @ 
+                                    moveFromStack)
+                        end
                 end
 
-            val (argumentSpace, copyArgsFromRegsAndStack) =
-                moveSysV64Args(args, 0, 0w0, sysVGenRegs, sysVFPRegs, [])
+            (* Result structs larger than 16 bytes are returned by reference.  *)
+            val resultStructByRef = #size (Foreign.LibFFI.extractFFItype result) > 0w16
+
+            val copyArgsFromRegsAndStack =
+                if resultStructByRef (* rdi contains the address for the result. *)
+                then moveSysV64Args(args, 0, 0w0, tl sysVGenRegs, sysVFPRegs, [])
+                else moveSysV64Args(args, 0, 0w0, sysVGenRegs, sysVFPRegs, [])
+
+            local
+                fun getNextSize (arg, argOffset) =
+                let val {size, align, ...} = Foreign.LibFFI.extractFFItype arg in alignUp(argOffset, align) + size end
+            in
+                val argumentSpace = List.foldl getNextSize 0w0 args
+            end
 
             (* Allocate a 16-byte area for any results returned in registers.  This will not be used
                if the result is a structure larger than 16-bytes. *)
             val resultOffset = alignUp(argumentSpace, 0w8)
-            val stackToAllocate = Word.toInt(alignUp(resultOffset + 0w16, 0w16))
+            (* Ensure the stack is 16 bytes aligned.  We've pushed 6 regs and a return address
+               so add a further 8 bytes to bring it back into alignment.  If we're returning a struct
+               by reference, though, we've pushed 7 regs so don't add 8. *)
+            val stackToAllocate =
+                Word.toInt(alignUp(resultOffset + 0w16, 0w16)) + (if resultStructByRef then 0 else 8)
 
             (* The rules for returning structs are similar to those for parameters. *)
             local
@@ -1593,9 +1614,16 @@ struct
             PushToStack(RegisterArg rbp), PushToStack(RegisterArg rbx), PushToStack(RegisterArg r12),
             PushToStack(RegisterArg r13), PushToStack(RegisterArg r14), PushToStack(RegisterArg r15)
         ] @
+        (
+            (* If we're returning a struct by reference we have to return the address in rax even though
+               it's been set by the caller.  Save this address. *)
+            if resultStructByRef
+            then [PushToStack(RegisterArg rdi)]
+            else []
+        ) @
         [
             (* Set r10 to point to the original stack args if any. *)
-            LoadAddress{ output=r10, offset=56, base=SOME rsp, index=NoIndex, opSize=nativeWordOpSize},
+            LoadAddress{ output=r10, offset=if resultStructByRef then 64 else 56, base=SOME rsp, index=NoIndex, opSize=nativeWordOpSize},
             (* Allocate stack space. *)
             ArithToGenReg{opc=SUB, output=rsp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=nativeWordOpSize},
             (* Move the function we're calling, in rax, into r13, a callee-save register *)
@@ -1624,9 +1652,8 @@ struct
             (* If we're returning a struct by reference the address for the result will have been passed in the
                first argument.  We use that as the result area.  Otherwise point to the result area on the stack.  *)
             if resultStructByRef
-            then loadMemory(rcx, r10, ~112, nativeWordOpSize)
+            then loadMemory(rcx, r10, ~64, nativeWordOpSize)
             else ArithToGenReg{opc=ADD, output=rcx, source=NonAddressConstArg(Word.toLargeInt resultOffset), opSize=nativeWordOpSize}
-                    
         ) :: boxRegAsSysWord(rcx, mlArg2Reg, [rax]) @
         [
             (* Call the ML function using the full closure call. *)
@@ -1643,6 +1670,7 @@ struct
             (* Remove the stack space. *)
             ArithToGenReg{opc=ADD, output=rsp, source=NonAddressConstArg(LargeInt.fromInt stackToAllocate), opSize=nativeWordOpSize}
         ] @
+        ( if resultStructByRef then [PopR rax] else [] ) @
         [
             PopR r15, PopR r14, PopR r13, PopR r12, PopR rbx, PopR rbp, (* Restore callee-save registers. *)
             ReturnFromFunction 0 (* Caller removes any stack arguments. *)
