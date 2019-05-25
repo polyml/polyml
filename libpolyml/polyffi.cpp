@@ -566,7 +566,7 @@ POLYUNSIGNED PolyFFIUnloadLibrary(FirstArgument threadId, PolyWord arg)
         if (!FreeLibrary(hMod))
             raise_syscall(taskData, "FreeLibrary failed", GetLastError());
 #else
-        void* lib = *(void**)(args.AsObjPtr());
+        void* lib = *(void**)(arg.AsObjPtr());
         if (dlclose(lib) != 0)
         {
             char buf[256];
