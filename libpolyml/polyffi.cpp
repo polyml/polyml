@@ -470,6 +470,7 @@ POLYUNSIGNED PolyFFIMalloc(FirstArgument threadId, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
+// Free memory.  Not currently used: freed memory is just added back to the free list.
 POLYUNSIGNED PolyFFIFree(PolyWord arg)
 {
     void* mem = *(void**)(arg.AsObjPtr());

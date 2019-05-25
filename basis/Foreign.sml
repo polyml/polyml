@@ -479,10 +479,10 @@ struct
     struct
         type voidStar = Memory.voidStar
         type externalSymbol = voidStar
-        fun loadLibrary(s: string): voidStar = ffiGeneral (2, s)
-        and loadExecutable(): voidStar = ffiGeneral (3, ())
-        and freeLibrary(s: voidStar): unit = ffiGeneral (4, s)
-        and getSymbol(lib: voidStar, s: string): voidStar = ffiGeneral (5, (lib, s))
+        val loadLibrary: string -> voidStar = RunCall.rtsCallFull1 "PolyFFILoadLibrary"
+        and loadExecutable: unit -> voidStar = RunCall.rtsCallFull0 "PolyFFILoadExecutable"
+        and freeLibrary: voidStar -> unit = RunCall.rtsCallFull1 "PolyFFIUnloadLibrary"
+        and getSymbol: voidStar * string -> voidStar = RunCall.rtsCallFull2 "PolyFFIGetSymbolAddress"
         
         (* Create an external symbol object.  The first word of this is filled in with the
            address after the code is exported and linked.
@@ -505,8 +505,9 @@ struct
     structure Error =
     struct
         type syserror = LibrarySupport.syserror
-        fun toWord (s: syserror): SysWord.word = RunCall.unsafeCast s
-        and fromWord (w: SysWord.word) : syserror = RunCall.unsafeCast w
+        val toWord = LibrarySupport.syserrorToWord
+        and fromWord = LibrarySupport.syserrorFromWord
+
         local
             val callGetError = RunCall.rtsCallFast1 "PolyFFIGetError"
         in

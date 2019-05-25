@@ -137,13 +137,8 @@ struct
         if sysWordSize = 0w4 then fn (s, i, v) => set32(s, i, Word32.fromLargeWord v) else set64
 
     local
-        local
-            val ffiGeneralCall = RunCall.rtsCallFull2 "PolyFFIGeneral"
-        in
-            fun ffiGeneral(code: int, arg: 'a): 'b = RunCall.unsafeCast(ffiGeneralCall(RunCall.unsafeCast(code, arg)))
-        end
-        fun systemMalloc (s: word): voidStar = ffiGeneral (0, s)
-        (*fun systemFree (s: voidStar): unit = ffiGeneral (1, s)*)
+        val systemMalloc: word -> voidStar = RunCall.rtsCallFull1 "PolyFFIMalloc"
+        (*val systemFree: word -> unit = RunCall.rtsCallFast1 "PolyFFIFree"*)
         
         (* Simple malloc/free implementation to reduce the number of RTS calls needed. *)
         val lock = Thread.Mutex.mutex()
