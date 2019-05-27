@@ -387,7 +387,6 @@ struct
     fun rtsCallFastGeneraltoFloat (functionName, debugSwitches) =
         rtsCallFastGeneral (functionName, [FastArgFixed], FastArgFloat, debugSwitches)
 
-
     datatype ffiABI =
         FFI_SYSV        (* Unix 32 bit and Windows GCC 32-bit *)
     |   FFI_STDCALL     (* Windows 32-bit system ABI.  Callee clears the stack. *)
@@ -397,24 +396,20 @@ struct
     (* We don't include various other 32-bit Windows ABIs. *)
 
     local
-        (* Get the current ABI list.  N.B.  Foreign.LibFFI.abiList is the ABIs on the platform we built
-           the compiler on, not necessarily the one we're running on. *)
-        val ffiGeneral = RunCall.rtsCallFull2 "PolyFFIGeneral"
+        val getOSType: unit -> int = RunCall.rtsCallFast0 "PolyGetOSType"
     in
-        fun getFFIAbi abi =
-        let
-            val abis: (string * Foreign.LibFFI.abi) list = ffiGeneral (50, ())
-        in
-            case List.find (fn ("default", _) => false | (_, a) => a = abi) abis of
-                SOME ("sysv", _)        => FFI_SYSV
-            |   SOME ("stdcall", _)     => FFI_STDCALL
-            |   SOME ("ms_cdecl", _)    => FFI_MS_CDECL
-            |   SOME ("win64", _)       => FFI_WIN64
-            |   SOME ("unix64", _)      => FFI_UNIX64
-            |   _   => raise Foreign.Foreign "Unknown or unsupported ABI"
-        end
+        val abiList =
+            case getABI() of
+                X86_32 =>
+                    [("sysv", FFI_SYSV), ("stdcall", FFI_STDCALL), ("ms_cdecl", FFI_MS_CDECL),
+                        (* Default to MS_CDECL on Windows otherwise SYSV. *)
+                     ("default", if getOSType() = 1 then FFI_MS_CDECL else FFI_SYSV)]
+            |   X64Win => [("win64", FFI_WIN64), ("default", FFI_WIN64)]
+            |   X64Unix => [("unix64", FFI_UNIX64), ("default", FFI_UNIX64)]
+
+        type abi = ffiABI
     end
-    
+
     fun alignUp(s, align) = Word.andb(s + align-0w1, ~ align)
     fun intAlignUp(s, align) = Word.toInt(alignUp(Word.fromInt s, align))
     
@@ -1686,14 +1681,13 @@ struct
         end
     end
 
-    fun foreignCall(abivalue: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
+    fun foreignCall(abi: ffiABI, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
     let
         val code =
-            case (getABI(), getFFIAbi abivalue) of
-                (X64Unix, FFI_UNIX64) => callUnix64Bits(args, result)
-            |   (X64Win, FFI_WIN64) => callWindows64Bits(args, result)
-            |   (X86_32, abi) => call32Bits(abi, args, result)
-            |   _ => raise Foreign.Foreign "Unsupported ABI"
+            case abi of
+                FFI_UNIX64 => callUnix64Bits(args, result)
+            |   FFI_WIN64 => callWindows64Bits(args, result)
+            |   abi => call32Bits(abi, args, result)
 
         val functionName = "foreignCall"
         val debugSwitches =
@@ -1715,14 +1709,13 @@ struct
        callback.
        N.B.  This returns a closure cell which contains the address of the code.  It can be used as a
        SysWord.word value except that while it exists the code will not be GCed.  *)
-    fun buildCallBack(abivalue: Foreign.LibFFI.abi, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
+    fun buildCallBack(abi: ffiABI, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
     let
         val code =
-            case (getABI(), getFFIAbi abivalue) of
-                (X64Unix, FFI_UNIX64) => closureUnix64Bits(args, result)
-            |   (X64Win, FFI_WIN64) => closureWindows64Bits(args, result)
-            |   (X86_32, abi) => closure32Bits(abi, args, result)
-            |   _ => raise Foreign.Foreign "Unsupported ABI"
+            case abi of
+                FFI_UNIX64 => closureUnix64Bits(args, result)
+            |   FFI_WIN64 => closureWindows64Bits(args, result)
+            |   abi => closure32Bits(abi, args, result)
 
         val functionName = "foreignCallBack(2)"
         val debugSwitches =

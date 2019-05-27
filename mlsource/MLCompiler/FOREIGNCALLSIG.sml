@@ -27,6 +27,9 @@ sig
     val rtsCallFastGeneraltoFloat: string * Universal.universal list -> Address.machineWord
     val rtsCallFastFloatGeneraltoFloat: string * Universal.universal list -> Address.machineWord
     
-    val foreignCall: Foreign.LibFFI.abi * Foreign.LibFFI.ffiType list * Foreign.LibFFI.ffiType -> Address.machineWord
-    val buildCallBack: Foreign.LibFFI.abi * Foreign.LibFFI.ffiType list * Foreign.LibFFI.ffiType -> Address.machineWord
+    type abi and cType
+    val abiList: (string * abi) list
+    
+    val foreignCall: abi * Foreign.LibFFI.ffiType list * Foreign.LibFFI.ffiType -> Address.machineWord
+    val buildCallBack: abi * Foreign.LibFFI.ffiType list * Foreign.LibFFI.ffiType -> Address.machineWord
 end;

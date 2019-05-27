@@ -199,9 +199,9 @@ struct
 
     (* We need to use the Pascal calling convention on 32-bit Windows. *)
     val winAbi =
-        case List.find (fn ("stdcall", _) => true | _ => false) LibFFI.abiList of
+        case List.find (fn ("stdcall", _) => true | _ => false) LowLevel.abiList of
             SOME(_, abi) => abi
-        |   NONE => LibFFI.abiDefault
+        |   NONE => LowLevel.abiDefault
 
     (* As well as setting the abi we can also use the old argument order. *)
     fun winCall1 sym argConv resConv = buildCall1withAbi(winAbi, sym, argConv, resConv)

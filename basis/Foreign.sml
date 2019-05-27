@@ -84,12 +84,6 @@ sig
     
     structure LibFFI:
     sig
-        eqtype abi
-        (* List of ABIs defined in libffi for this platform. *)
-        val abiList: (string * abi) list
-        (* The default Abi. *)
-        val abiDefault:         abi
-
         (* Type codes. *)
         val ffiTypeCodeVoid:    Word.word
         and ffiTypeCodeInt:     Word.word
@@ -138,11 +132,15 @@ sig
 
     structure LowLevel:
     sig
-
         datatype cTypeForm =
             CTypeDouble | CTypeFloat | CTypePointer | CTypeSInt8 | CTypeSInt16 | CTypeSInt32 | CTypeSInt64 |
             CTypeUInt8 | CTypeUInt16 | CTypeUInt32 | CTypeUInt64 | CTypeStruct of cType list
         withtype cType = { typeForm: cTypeForm, align: word, size: word }
+        
+        eqtype abi
+        
+        val abiList: (string * abi) list
+        val abiDefault: abi
     
         type ctype =
         {
@@ -172,11 +170,11 @@ sig
         
         val cStruct: ctype list -> ctype
 
-        val callwithAbi: LibFFI.abi -> ctype list -> ctype -> symbol -> Memory.voidStar * Memory.voidStar -> unit
+        val callwithAbi: abi -> ctype list -> ctype -> symbol -> Memory.voidStar * Memory.voidStar -> unit
         val call: ctype list -> ctype -> symbol -> Memory.voidStar * Memory.voidStar -> unit
         
         val cFunctionWithAbi:
-            LibFFI.abi -> ctype list -> ctype -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
+            abi -> ctype list -> ctype -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
         val cFunction:
             ctype list -> ctype -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
     end
@@ -236,34 +234,34 @@ sig
     
     val cFunction: ('a->'b) closure conversion
 
-    val buildClosure0withAbi: (unit -> 'a) * LibFFI.abi * unit * 'a conversion -> (unit -> 'a) closure
+    val buildClosure0withAbi: (unit -> 'a) * LowLevel.abi * unit * 'a conversion -> (unit -> 'a) closure
     val buildClosure0: (unit -> 'a) * unit * 'a conversion -> (unit -> 'a) closure
-    val buildClosure1withAbi: ('a -> 'b) * LibFFI.abi * 'a conversion * 'b conversion -> ('a -> 'b) closure
+    val buildClosure1withAbi: ('a -> 'b) * LowLevel.abi * 'a conversion * 'b conversion -> ('a -> 'b) closure
     val buildClosure1:  ('a -> 'b) * 'a conversion * 'b conversion -> ('a -> 'b) closure
     val buildClosure2withAbi:
-         ('a * 'b -> 'c) * LibFFI.abi * ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) closure
+         ('a * 'b -> 'c) * LowLevel.abi * ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) closure
     val buildClosure2: ('a * 'b -> 'c) * ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) closure
     val buildClosure3withAbi:
-         ('a * 'b *'c -> 'd) * LibFFI.abi * ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
+         ('a * 'b *'c -> 'd) * LowLevel.abi * ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
             ('a * 'b *'c -> 'd) closure
     val buildClosure3: ('a * 'b *'c -> 'd) * ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
             ('a * 'b *'c -> 'd) closure
     val buildClosure4withAbi:
-         ('a * 'b * 'c  * 'd -> 'e) * LibFFI.abi * ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
+         ('a * 'b * 'c  * 'd -> 'e) * LowLevel.abi * ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
             ('a * 'b * 'c * 'd -> 'e) closure
     val buildClosure4:
         ('a * 'b * 'c  * 'd -> 'e) * ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
             ('a * 'b * 'c * 'd -> 'e) closure
     val buildClosure5withAbi:
         ('a * 'b * 'c * 'd * 'e -> 'f) *
-            LibFFI.abi * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
+            LowLevel.abi * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
             ('a * 'b * 'c * 'd * 'e -> 'f) closure
     val buildClosure5:
         ('a * 'b * 'c * 'd * 'e -> 'f) *
         ('a conversion * 'b conversion * 'c conversion* 'd conversion * 'e conversion) * 'f conversion ->
             ('a * 'b * 'c * 'd * 'e -> 'f) closure
     val buildClosure6withAbi:
-        ('a * 'b * 'c * 'd * 'e * 'f -> 'g) * LibFFI.abi *
+        ('a * 'b * 'c * 'd * 'e * 'f -> 'g) * LowLevel.abi *
             ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) * 'g conversion ->
             ('a * 'b * 'c * 'd * 'e * 'f -> 'g) closure
     val buildClosure6:
@@ -339,38 +337,38 @@ sig
                    'o conversion * 'p conversion * 'q conversion * 'r conversion * 's conversion * 't conversion ->
                     ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s*'t)conversion
 
-    val buildCall0withAbi: LibFFI.abi * symbol * unit * 'a conversion -> unit -> 'a
+    val buildCall0withAbi: LowLevel.abi * symbol * unit * 'a conversion -> unit -> 'a
     val buildCall0: symbol * unit * 'a conversion -> unit -> 'a
-    val buildCall1withAbi: LibFFI.abi * symbol * 'a conversion * 'b conversion -> 'a -> 'b
+    val buildCall1withAbi: LowLevel.abi * symbol * 'a conversion * 'b conversion -> 'a -> 'b
     val buildCall1: symbol * 'a conversion * 'b conversion -> 'a -> 'b
     val buildCall2withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion) * 'c conversion -> 'a * 'b -> 'c
+        LowLevel.abi * symbol * ('a conversion * 'b conversion) * 'c conversion -> 'a * 'b -> 'c
     val buildCall2:
         symbol * ('a conversion * 'b conversion) * 'c conversion -> 'a * 'b -> 'c
     val buildCall3withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion) * 'd conversion -> 'a * 'b * 'c -> 'd
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion) * 'd conversion -> 'a * 'b * 'c -> 'd
     val buildCall3:
         symbol * ('a conversion * 'b conversion * 'c conversion) * 'd conversion -> 'a * 'b * 'c -> 'd
     val buildCall4withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion) * 'e conversion ->
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion) * 'e conversion ->
             'a * 'b * 'c * 'd -> 'e
     val buildCall4:
         symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion) * 'e conversion ->
             'a * 'b * 'c * 'd -> 'e
     val buildCall5withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
             'a * 'b * 'c * 'd * 'e -> 'f
     val buildCall5:
         symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
             'a * 'b * 'c * 'd * 'e -> 'f
     val buildCall6withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) *
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) *
                 'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
     val buildCall6:
         symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) *
                 'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
     val buildCall7withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion) *
                 'h conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
     val buildCall7:
@@ -378,7 +376,7 @@ sig
              'f conversion * 'g conversion) *
                 'h conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
     val buildCall8withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion) *
                 'i conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
     val buildCall8:
@@ -386,7 +384,7 @@ sig
              'f conversion * 'g conversion * 'h conversion) *
                 'i conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
     val buildCall9withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion) *
                 'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
     val buildCall9:
@@ -394,7 +392,7 @@ sig
              'f conversion * 'g conversion * 'h conversion * 'i conversion) *
                 'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
     val buildCall10withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion) *
                 'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
     val buildCall10:
@@ -402,7 +400,7 @@ sig
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion) *
                 'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
     val buildCall11withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion) *
                 'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
     val buildCall11:
@@ -410,7 +408,7 @@ sig
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion) *
              'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k  -> 'l
     val buildCall12withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
              'l conversion) * 'm conversion ->
                 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
@@ -420,7 +418,7 @@ sig
              'l conversion) * 'm conversion ->
              'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
     val buildCall13withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
              'l conversion * 'm conversion) *
             'n conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
@@ -430,7 +428,7 @@ sig
              'l conversion * 'm conversion) *
             'n conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
     val buildCall14withAbi:
-        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LowLevel.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
              'l conversion * 'm conversion * 'n conversion) *
             'o conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
@@ -510,15 +508,10 @@ struct
 
     structure LibFFI =
     struct
-        type abi = Word.word
-        val abiList: (string * abi) list = ffiGeneral (50, ())
-
         local
             fun getConstant (n: int) : Word.word = ffiGeneral (51, n)
         in
-            val abiDefault          = getConstant 0
-            
-            and ffiTypeCodeVoid     = getConstant 1
+            val ffiTypeCodeVoid     = getConstant 1
             and ffiTypeCodeInt      = getConstant 2
             and ffiTypeCodeFloat    = getConstant 3
             and ffiTypeCodeDouble   = getConstant 4
@@ -637,6 +630,11 @@ struct
             align: Word.word, (* Alignment *)
             ffiType: unit -> LibFFI.ffiType
         }
+        
+        type abi = Foreign.abi
+        val abiList = Foreign.abiList
+        (* One of the items in the list should be ("default", abi) *)
+        val abiDefault = #2(valOf(List.find(fn ("default", _) => true | _ => false) abiList))
          
         local
             open LibFFI Memory            
@@ -704,7 +702,7 @@ struct
                 let
                     (* Compile the intermediate function. *)
                     val functionCaller: LargeWord.word * LargeWord.word * LargeWord.word -> unit =
-                        (*Foreign.*)foreignCall(Word.toInt abi, List.map getType argTypes, getType resType)
+                        (*Foreign.*)foreignCall(abi, List.map getType argTypes, getType resType)
 
                     (* The result function. *)
                     fun callFunction (fnAddr: unit->voidStar) (args, resMem) =
@@ -724,7 +722,7 @@ struct
                         cbFun(sysWord2VoidStar args, sysWord2VoidStar resMem)
                             handle _ => callbackException()
                     val cCallBack =
-                        (*Foreign.*)buildCallBack(Word.toInt abi, List.map getType argTypes, getType resType) callBack
+                        (*Foreign.*)buildCallBack(abi, List.map getType argTypes, getType resType) callBack
                 in
                     sysWord2VoidStar cCallBack
                 end

@@ -163,7 +163,7 @@ struct
                     val code =
                         createTypeValue{
                             eqCode = CodeZero, printCode = mkConst (toMachineWord (ref monotypePrinter)),
-                            boxedCode = boxedEither (* Assume this for the moment *), sizeCode = singleWord }
+                            boxedCode = boxedNever, sizeCode = singleWord }
                 in
                     Global (genCode(code, [], 0) ())
                 end
@@ -1065,19 +1065,37 @@ struct
                 val buildCallBackEntry = mkInlproc(outerBody, 1, "buildCallBack(1)", [], 1)
             end
             
-            val abiType = Int
-            and ffiType = LargeWord
+            (* Abi - an eqtype. *)
+            local
+                open TypeValue
+                fun monotypePrinter _ = PRETTY.PrettyString "?"
+                val code =
+                    createTypeValue{
+                        eqCode = equalWordFn, printCode = mkConst (toMachineWord (ref monotypePrinter)),
+                        boxedCode = boxedEither (* Assume this for the moment *), sizeCode = singleWord }
+                val abiEqAndPrint = Global (genCode(code, [], 0) ())
+            in
+                val abiConstr =
+                    makeTypeConstructor("abi", [],
+                        makeFreeId(0, abiEqAndPrint, true,
+                            basisDescription "Foreign.LowLevel.abi"), declInBasis)
+            end
+            val () = #enterType foreignEnv ("abi", TypeConstrSet(abiConstr, []))
+            val abiType = mkTypeConstruction ("abi", abiConstr, [], declInBasis)
+            val ffiType = LargeWord
             (* It would be possible to put the definition of cType in here but it's complicated.
                It's easier to use an opaque type and put in a cast later. *)
             val foreignCallType =
                 mkProductType[abiType, List ffiType, ffiType] ->> mkProductType[LargeWord, LargeWord, LargeWord] ->> Unit
             val buildCallBackType =
                 mkProductType[abiType, List ffiType, ffiType] ->> (mkProductType[LargeWord, LargeWord] ->> Unit) ->> LargeWord
-            val foreignCallVal = mkGvar ("foreignCall", foreignCallType, foreignCallEntry, declInBasis)
-            and buildCallBackVal = mkGvar ("buildCallBack", buildCallBackType, buildCallBackEntry, declInBasis)
+        
+            fun enterForeign (name, entry, typ) =
+                #enterVal foreignEnv (name, mkGvar (name, typ, entry, declInBasis))
         in
-            val () = #enterVal foreignEnv ("foreignCall", foreignCallVal)
-            val () = #enterVal foreignEnv ("buildCallBack", buildCallBackVal)
+            val () = enterForeign("foreignCall", foreignCallEntry, foreignCallType)
+            val () = enterForeign("buildCallBack", buildCallBackEntry, buildCallBackType)
+            val () = enterForeign("abiList", mkConst(toMachineWord CODETREE.Foreign.abiList), List (String ** abiType))
         end
 
         local
