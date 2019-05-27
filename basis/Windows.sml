@@ -156,14 +156,10 @@ struct
     fun cCHARARRAY n : string conversion =
     let
         (* Make it a struct of chars *)
-        val { size=sizeC, align=alignC, ffiType=ffiTypeC } = LowLevel.cTypeChar
+        val { size=sizeC, align=alignC, ... } = LowLevel.cTypeChar
         val arraySize = sizeC * Word.fromInt n
-        fun ffiType () =
-            LibFFI.createFFItype {
-                size = arraySize, align = alignC, typeCode=LibFFI.ffiTypeCodeStruct,
-                elements = List.tabulate (n, fn _ => ffiTypeC()) }
-        val arrayType: LowLevel.ctype =
-            { size = arraySize, align = alignC, ffiType = ffiType }
+        val arrayType: LowLevel.cType =
+            { size = arraySize, align = alignC, typeForm = LowLevel.CTypeStruct(List.tabulate (n, fn _ => LowLevel.cTypeChar)) }
 
         open Memory
 

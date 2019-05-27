@@ -30,6 +30,6 @@ sig
     type abi and cType
     val abiList: (string * abi) list
     
-    val foreignCall: abi * Foreign.LibFFI.ffiType list * Foreign.LibFFI.ffiType -> Address.machineWord
-    val buildCallBack: abi * Foreign.LibFFI.ffiType list * Foreign.LibFFI.ffiType -> Address.machineWord
+    val foreignCall: abi * cType list * cType -> Address.machineWord
+    val buildCallBack: abi * cType list * cType -> Address.machineWord
 end;

@@ -458,8 +458,8 @@ struct
        type but note that this is the type we use within the compiler and we build Foreign.LowLevel
        AFTER compiling this. *)
     datatype cTypeForm =
-        CTypeDouble | CTypeFloat | CTypePointer | CTypeSInt8 | CTypeSInt16 | CTypeSInt32 | CTypeSInt64 |
-        CTypeUInt8 | CTypeUInt16 | CTypeUInt32 | CTypeUInt64 | CTypeStruct of cType list
+        CTypeFloatingPt | CTypePointer | CTypeSignedInt | CTypeUnsignedInt
+    |   CTypeStruct of cType list | CTypeVoid
     withtype cType = { typeForm: cTypeForm, align: word, size: word }
 
     fun call32Bits(abi, args, result) =
@@ -470,61 +470,52 @@ struct
 
         |   loadArgs32(arg::args, stackOffset, argOffset, code, continue) =
             let
-                val {size, align, typeCode, elements} = Foreign.LibFFI.extractFFItype arg
+                val {size, align, typeForm} = arg
                 val newArgOffset = alignUp(argOffset, align)
                 val baseAddr = {base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}
             in
-                if typeCode = Foreign.LibFFI.ffiTypeCodeUInt8
-                then (* Unsigned char. *)
-                    loadArgs32(args, stackOffset+4, newArgOffset+size,
-                        Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move8 }
-                            :: PushToStack(RegisterArg edx) :: code, continue)
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
-                then  (* Signed char. *)
-                    loadArgs32(args, stackOffset+4, newArgOffset+size,
-                        Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move8X32 }
-                            :: PushToStack(RegisterArg edx) :: code, continue)
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt16
-                then  (* Unsigned 16-bits. *)
-                    loadArgs32(args, stackOffset+4, newArgOffset+size,
-                        Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move16 }
-                            :: PushToStack(RegisterArg edx) :: code, continue)
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt16
-                then  (* Signed 16-bits. *)
-                    loadArgs32(args, stackOffset+4, newArgOffset+size,
-                        Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move16X32 }
-                            :: PushToStack(RegisterArg edx) :: code, continue)
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeUInt32 orelse typeCode = Foreign.LibFFI.ffiTypeCodeSInt32
-                        orelse typeCode = Foreign.LibFFI.ffiTypeCodePointer orelse typeCode = Foreign.LibFFI.ffiTypeCodeFloat
-                        orelse typeCode = Foreign.LibFFI.ffiTypeCodeInt
-                then  (* 32-bits. *)
-                    loadArgs32(args, stackOffset+4, newArgOffset+size, PushToStack(MemoryArg baseAddr) :: code, continue)
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
-                then  (* Double: push the two words.  High-order word first, then low-order. *)
-                    loadArgs32(args, stackOffset+8, newArgOffset+size,
-                        PushToStack(MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset+4, index=NoIndex}) ::
-                            PushToStack(MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}) :: code, continue)
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeStruct
-                (* structs passed as values are recursively unpacked. *)
-                then loadArgs32(elements, stackOffset, newArgOffset (* Struct is aligned. *), code,
+                case (typeForm, size) of
+                    (CTypeStruct elements, _) => (* structs passed as values are recursively unpacked. *)
+                        loadArgs32(elements, stackOffset, newArgOffset (* Struct is aligned. *), code,
                             fn (so, ao, code) => loadArgs32(args, so, ao, code, continue))
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeVoid
-                then raise Foreign.Foreign "Void cannot be used for a function argument"
-                else (* Anything else? *) raise Foreign.Foreign "Unrecognised type for function argument"
+                |   (CTypeVoid, _) => raise Foreign.Foreign "Void cannot be used for a function argument"
+                |   (CTypeUnsignedInt, 0w1) => (* Unsigned char. *)
+                        loadArgs32(args, stackOffset+4, newArgOffset+size,
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move8 }
+                                :: PushToStack(RegisterArg edx) :: code, continue)
+                |   (CTypeSignedInt, 0w1) => (* Signed char. *)
+                        loadArgs32(args, stackOffset+4, newArgOffset+size,
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move8X32 }
+                                :: PushToStack(RegisterArg edx) :: code, continue)
+                |   (CTypeUnsignedInt, 0w2) => (* Unsigned 16-bits. *)
+                        loadArgs32(args, stackOffset+4, newArgOffset+size,
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move16 }
+                                :: PushToStack(RegisterArg edx) :: code, continue)
+                |   (CTypeSignedInt, 0w2) => (* Signed 16-bits. *)
+                        loadArgs32(args, stackOffset+4, newArgOffset+size,
+                            Move{source=MemoryArg baseAddr, destination=RegisterArg edx, moveSize=Move16X32 }
+                                :: PushToStack(RegisterArg edx) :: code, continue)
+                |   (_, 0w4) => (* 32-bits. *)
+                        loadArgs32(args, stackOffset+4, newArgOffset+size, PushToStack(MemoryArg baseAddr) :: code, continue)
+                |   (CTypeFloatingPt, 0w8) =>(* Double: push the two words.  High-order word first, then low-order. *)
+                        loadArgs32(args, stackOffset+8, newArgOffset+size,
+                            PushToStack(MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset+4, index=NoIndex}) ::
+                                PushToStack(MemoryArg{base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}) :: code, continue)
+                |   _ => raise Foreign.Foreign "argument type not supported"
             end
 
-        val {typeCode, size, ...} = Foreign.LibFFI.extractFFItype result
+        val {typeForm, size, ...} =  result
 
         val resultMemory = {base=ecx, offset=0, index=NoIndex}
         (* Structures are passed by reference by storing the address of the result as
            the first argument except that in MS_CDECL (and STDCALL?) structures of
            size 1, 2, 4 and 8 are returned in EAX, and for 8, EDX.  *)
         val (getResult, needResultAddress) =
-            if typeCode = Foreign.LibFFI.ffiTypeCodeStruct andalso
+            if (case typeForm of CTypeStruct _ => true | _ => false) andalso
                 (abi = FFI_SYSV orelse (size <> 0w1 andalso size <> 0w2 andalso size <> 0w4 andalso size <> 0w8))
             (* TODO: We have to get the address of the destination area. *)
             then ([], true)
-            else if typeCode = Foreign.LibFFI.ffiTypeCodeVoid
+            else if typeForm = CTypeVoid
             then ([], false)
             else
                 (loadMemory(ecx, esp, 4, nativeWordOpSize)  ::
@@ -533,11 +524,11 @@ struct
                 then (* Single byte *) [Move{source=RegisterArg eax, destination=MemoryArg resultMemory, moveSize=Move8}]
                 else if size = 0w2
                 then (* 16-bits *) [Move{source=RegisterArg eax, destination=MemoryArg resultMemory, moveSize=Move16}]
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeFloat
+                else if typeForm = CTypeFloatingPt andalso size = 0w4
                 then [FPStoreToMemory{address=resultMemory, precision=SinglePrecision, andPop=true }]
                 else if size = 0w4
                 then [Move{source=RegisterArg eax, destination=MemoryArg resultMemory, moveSize=Move32}]
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
+                else if typeForm = CTypeFloatingPt andalso size = 0w8
                 then [FPStoreToMemory{address=resultMemory, precision=DoublePrecision, andPop=true }]
                 else if size = 0w8
                 then
@@ -612,45 +603,46 @@ struct
 
         |   copyArgs(arg::args, nArgs, argOffset, code, continue) =
             let
-                val {size, align, typeCode, elements} = Foreign.LibFFI.extractFFItype arg
+                val {size, align, typeForm} =  arg
                 val newArgOffset = alignUp(argOffset, align)
                 val sourceAddr = {base=ebx, offset=nArgs*4, index=NoIndex}
                 val destAddr = {base=esp, offset=Word.toInt newArgOffset, index=NoIndex}
             in
-                if typeCode = Foreign.LibFFI.ffiTypeCodeStruct
-                then (* structs passed as values are recursively unpacked. *)
-                    copyArgs(elements, nArgs, newArgOffset (* Struct is aligned. *), code,
-                        fn (na, ao, c) => copyArgs(args, na, ao, c, continue))
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeVoid
-                then raise Foreign.Foreign "Void cannot be used for a function argument"
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
-                then  (* Double: copy the two words.  High-order word first, then low-order. *)
+                case (typeForm, size) of
+                    (CTypeStruct elements, _) =>
+                        (* structs passed as values are recursively unpacked. *)
+                        copyArgs(elements, nArgs, newArgOffset (* Struct is aligned. *), code,
+                            fn (na, ao, c) => copyArgs(args, na, ao, c, continue))
+                |   (CTypeVoid, _) =>
+                        raise Foreign.Foreign "Void cannot be used for a function argument"
+                |   (CTypeFloatingPt, 0w8) =>
+                    (* Double: copy the two words.  High-order word first, then low-order. *)
                     copyArgs(args, nArgs+2, argOffset+size,
                         Move{source=MemoryArg sourceAddr, destination=RegisterArg eax, moveSize=Move32} ::
                         Move{source=RegisterArg eax, destination=MemoryArg destAddr, moveSize=Move32} ::
                         Move{source=MemoryArg {base=ebx, offset=nArgs*4+4, index=NoIndex}, destination=RegisterArg eax, moveSize=Move32} ::
                         Move{source=RegisterArg eax, destination=MemoryArg{base=esp, offset=Word.toInt newArgOffset + 4, index=NoIndex}, moveSize=Move32} ::
                             code, continue)
-                else (* Everything else is a single word on the stack. *)
-                let
-                    val moveOp =
-                        case size of
-                            0w1 => Move8
-                        |   0w2 => Move16
-                        |   0w4 => Move32
-                        |   _ => raise Foreign.Foreign "copyArgs: Invalid size"
-                in
-                    copyArgs(args, nArgs+1, argOffset+size,
-                        Move{source=MemoryArg sourceAddr, destination=RegisterArg eax, moveSize=Move32} ::
-                            Move{source=RegisterArg eax, destination=MemoryArg destAddr, moveSize=moveOp} :: code, continue)
-                end
+                |   _ => (* Everything else is a single word on the stack. *)
+                    let
+                        val moveOp =
+                            case size of
+                                0w1 => Move8
+                            |   0w2 => Move16
+                            |   0w4 => Move32
+                            |   _ => raise Foreign.Foreign "copyArgs: Invalid size"
+                    in
+                        copyArgs(args, nArgs+1, argOffset+size,
+                            Move{source=MemoryArg sourceAddr, destination=RegisterArg eax, moveSize=Move32} ::
+                                Move{source=RegisterArg eax, destination=MemoryArg destAddr, moveSize=moveOp} :: code, continue)
+                    end
             end
 
-        val {typeCode, size, align, ...} = Foreign.LibFFI.extractFFItype result
+        val {typeForm, size, align, ...} =  result
 
         (* Struct results are normally passed by reference. *)
         val resultStructByRef =
-            typeCode = Foreign.LibFFI.ffiTypeCodeStruct andalso
+            (case typeForm of CTypeStruct _ => true | _ => false) andalso
                 (abi = FFI_SYSV orelse (size <> 0w1 andalso size <> 0w2 andalso size <> 0w4 andalso size <> 0w8))
 
         val (argCount, argumentSpace, copyArgsFromStack) =
@@ -659,34 +651,27 @@ struct
         val resultOffset = alignUp(argumentSpace, align) (* Offset of result area *)
 
         val (loadResults, resultSize) =
-            if typeCode = Foreign.LibFFI.ffiTypeCodeVoid orelse resultStructByRef
+            if typeForm = CTypeVoid orelse resultStructByRef
             then ([], 0w0)
             else
             let
                 val resultMem = {base=esp, offset=Word.toInt resultOffset, index=NoIndex}
                 val resultCode =
-                    if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
-                    then [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move8X32 }]
-                    else if size = 0w1
-                    then [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move8 }]
-                    else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt16
-                    then [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move16X32 }]
-                    else if size = 0w2
-                    then [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move16 }]
-                    else if typeCode = Foreign.LibFFI.ffiTypeCodeFloat
-                    then [FPLoadFromMemory{ address=resultMem, precision=SinglePrecision }]
-                    else if size = 0w4
-                    then [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move32 }]
-                    else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
-                    then [FPLoadFromMemory{ address=resultMem, precision=DoublePrecision }]
-                    else if size = 0w8 (* MSC only.  Struct returned in eax/edx. *)
-                    then
-                    [
-                        Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move32 },
-                        Move{source=MemoryArg {base=esp, offset=Word.toInt resultOffset + 4, index=NoIndex},
-                            destination=RegisterArg edx, moveSize=Move32 }
-                    ]
-                    else raise Foreign.Foreign "Unrecognised result type"
+                    case (typeForm, size) of
+                        (CTypeSignedInt, 0w1) => [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move8X32 }]
+                    |   (_, 0w1) => [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move8 }]
+                    |   (CTypeSignedInt, 0w2) => [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move16X32 }]
+                    |   (_, 0w2) => [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move16 }]
+                    |   (CTypeFloatingPt, 0w4) => [FPLoadFromMemory{ address=resultMem, precision=SinglePrecision }]
+                    |   (_, 0w4) => [Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move32 }]
+                    |   (CTypeFloatingPt, 0w8) => [FPLoadFromMemory{ address=resultMem, precision=DoublePrecision }]
+                    |   (_, 0w8) => (* MSC only.  Struct returned in eax/edx. *)
+                        [
+                            Move{source=MemoryArg resultMem, destination=RegisterArg eax, moveSize=Move32 },
+                            Move{source=MemoryArg {base=esp, offset=Word.toInt resultOffset + 4, index=NoIndex},
+                                destination=RegisterArg edx, moveSize=Move32 }
+                        ]
+                    |   _ => raise Foreign.Foreign "Unrecognised result type"
             in
                 (resultCode, size)
             end
@@ -771,7 +756,7 @@ struct
 
             |   loadWin64Args(arg::args, stackOffset, argOffset, regs, code, extraStack, preCode) =
                 let
-                    val {size, align, typeCode, ...} = Foreign.LibFFI.extractFFItype arg
+                    val {size, align, typeForm, ...} =  arg
                     val newArgOffset = alignUp(argOffset, align)
                     val baseAddr = {base=mlArg2Reg, offset=Word.toInt newArgOffset, index=NoIndex}
                     val workReg = rcx (* rcx: the last to be loaded. *)
@@ -796,20 +781,14 @@ struct
                        be necessary to sign-extend 1, 2 or 4-byte values.
                        2, 4 or 8-byte structs may not be aligned onto the appropriate boundary but
                        it should still work. *)
-                    case size of
-                        0w1 =>
-                        if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
-                        then (* Signed char. *) loadIntArg Move8X64
-                        else (* Unsigned char or single byte struct *) loadIntArg Move8
+                    case (size, typeForm) of
+                        (0w1, CTypeSignedInt) => (* Signed char. *) loadIntArg Move8X64
+                    |   (0w1, _) => (* Unsigned char or single byte struct *) loadIntArg Move8
 
-                    |   0w2 =>
-                        if typeCode = Foreign.LibFFI.ffiTypeCodeSInt16
-                        then (* Signed 16-bits. *) loadIntArg Move16X64
-                        else (* Unsigned 16-bits. *) loadIntArg Move16
+                    |   (0w2, CTypeSignedInt) =>(* Signed 16-bits. *) loadIntArg Move16X64
+                    |   (0w2, _) => (* Unsigned 16-bits. *) loadIntArg Move16
 
-                    |   0w4 =>
-                        if typeCode = Foreign.LibFFI.ffiTypeCodeFloat
-                        then
+                    |   (0w4, CTypeFloatingPt) =>
                         (
                             case regs of
                                 (_, fpReg) :: regs' => 
@@ -821,13 +800,10 @@ struct
                                            destination=RegisterArg workReg, moveSize=Move32 } :: PushToStack(RegisterArg workReg) :: code,
                                     extraStack, preCode)
                         )
-                        else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt32 orelse typeCode = Foreign.LibFFI.ffiTypeCodeInt
-                        then (* Signed 32-bits. *) loadIntArg Move32X64
-                        else (* Unsigned 32-bits. *) loadIntArg Move32
+                    |   (0w4, CTypeSignedInt) => (* Signed 32-bits. *) loadIntArg Move32X64
+                    |   (0w4, _) => (* Unsigned 32-bits. *) loadIntArg Move32
 
-                    |   0w8 =>
-                        if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
-                        then
+                    |   (0w8, CTypeFloatingPt) =>
                         (
                             case regs of
                                 (_, fpReg) :: regs' => 
@@ -839,12 +815,9 @@ struct
                                            destination=RegisterArg workReg, moveSize=Move64 } :: PushToStack(RegisterArg workReg) :: code,
                                     extraStack, preCode)
                         )
-                        else (* 64-bits. *) loadIntArg Move64
+                    |   (0w8, _) => (* 64-bits. *) loadIntArg Move64
 
-                    |   _ =>
-                        if typeCode <> Foreign.LibFFI.ffiTypeCodeStruct
-                        then raise Foreign.Foreign "Unrecognised type for function argument"
-                        else
+                    |   (_, CTypeStruct _) =>
                         let
                             (* Structures of other sizes are passed by reference.  They are first
                                copied into new areas on the stack.  This ensures that the called function
@@ -864,9 +837,11 @@ struct
                                     loadAddress{source=(extraStackReg, extraStack), destination=workReg} ::
                                     PushToStack(RegisterArg workReg) :: code, newExtra, newPreCode)
                         end
+                   
+                    |   _ => raise Foreign.Foreign "Unrecognised type for function argument"
                 end
 
-            val {typeCode, size, ...} = Foreign.LibFFI.extractFFItype result
+            val {typeForm, size, ...} =  result
         
             val resultAreaPtr = r12 (* Saved value of r8 - This is callee save. *)
             val resultMemory = {base=resultAreaPtr, offset=0, index=NoIndex}
@@ -876,20 +851,16 @@ struct
                 ([XMMStoreToMemory{toStore=xmm0, address=resultMemory, precision=precision}], false)
 
             val (getResult, passStructAddress) =
-                if typeCode = Foreign.LibFFI.ffiTypeCodeVoid
-                then ([], false)
-                else if size = 0w1 (* Includes structs *) then (* Single byte *) storeIntValue Move8
-                else if size = 0w2 then (* 16-bits *) storeIntValue Move16
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeFloat
-                then storeFloatValue SinglePrecision
-                else if size = 0w4 then storeIntValue Move32
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
-                then storeFloatValue DoublePrecision
-                else if size = 0w8
-                then storeIntValue Move64
-                else if typeCode = Foreign.LibFFI.ffiTypeCodeStruct
-                then ([], true)
-                else raise Foreign.Foreign "Unrecognised result type"
+                case (typeForm, size) of
+                    (CTypeVoid, _) => ([], false)
+                |   (_, 0w1) (* Includes structs *) => (* Single byte *) storeIntValue Move8
+                |   (_, 0w2) => (* 16-bits *) storeIntValue Move16
+                |   (CTypeFloatingPt, 0w4) => storeFloatValue SinglePrecision
+                |   (_, 0w4) => storeIntValue Move32
+                |   (CTypeFloatingPt, 0w8) => storeFloatValue DoublePrecision
+                |   (_, 0w8) => storeIntValue Move64
+                |   (CTypeStruct _, _) => ([], true)
+                |   _ => raise Foreign.Foreign "Unrecognised result type"
 
             (* argCode is the code to load and push the arguments.  argStack is the amount of stack space
                the arguments will take.  It's only used to ensure that the stack is aligned onto a 16-byte
@@ -921,7 +892,7 @@ struct
                     (* Put the destination address into a callee save resgister.
                        We have to put the C address in there now because an ML address wouldn't be updated
                        by a possible GC in a callback. *)
-                    if #typeCode(Foreign.LibFFI.extractFFItype result) <> Foreign.LibFFI.ffiTypeCodeVoid
+                    if #typeForm( result) <> CTypeVoid
                     then [loadHeapMemory(resultAreaPtr, r8, 0, nativeWordOpSize)]
                     else []
                 ) @
@@ -974,11 +945,11 @@ struct
 
         fun closureWindows64Bits(args, result) =
         let
-            val {typeCode, size, align, ...} = Foreign.LibFFI.extractFFItype result
+            val {typeForm, size, align, ...} =  result
 
             (* Struct results are normally passed by reference. *)
             val resultStructByRef = (* If true we've copied rcx (the first arg) into r9 *)
-                typeCode = Foreign.LibFFI.ffiTypeCodeStruct andalso
+                (case typeForm of CTypeStruct _ => true | _ => false) andalso
                     size <> 0w1 andalso size <> 0w2 andalso size <> 0w4 andalso size <> 0w8
 
             (* Store the register arguments and copy everything else into the argument structure on the stack.
@@ -987,7 +958,7 @@ struct
 
             |   copyWin64Args(arg::args, nStackArgs, argOffset, regs) =
                 let
-                    val {size, align, typeCode, ...} = Foreign.LibFFI.extractFFItype arg
+                    val {size, align, typeForm, ...} =  arg
                     val newArgOffset = alignUp(argOffset, align)
                     val destAddr = {base=rsp, offset=Word.toInt newArgOffset, index=NoIndex}
                 
@@ -1003,13 +974,11 @@ struct
                                     copyWin64Args(args, nStackArgs+1, newArgOffset+size, [])
                 in
                     (* Structs of 1, 2, 4 and 8 bytes are passed as the corresponding int. *)
-                    case size of
-                        0w1 => moveIntArg Move8
-                    |   0w2 => moveIntArg Move16
+                    case (typeForm, size) of
+                        (_, 0w1) => moveIntArg Move8
+                    |   (_, 0w2) => moveIntArg Move16
 
-                    |   0w4 =>
-                        if typeCode = Foreign.LibFFI.ffiTypeCodeFloat
-                        then
+                    |   (CTypeFloatingPt, 0w4) =>
                         (
                             case regs of
                                 (_, fpReg) :: regs' =>
@@ -1017,11 +986,9 @@ struct
                                         copyWin64Args(args, nStackArgs, newArgOffset+size, regs')
                             |   [] => moveIntArg Move32
                         )
-                        else (* 32-bits *) moveIntArg Move32
+                    |   (_, 0w4) => (* 32-bits *) moveIntArg Move32
 
-                    |   0w8 =>
-                        if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
-                        then
+                    |   (CTypeFloatingPt, 0w8) =>
                         (
                             case regs of
                                 (_, fpReg) :: regs' =>
@@ -1029,12 +996,10 @@ struct
                                         copyWin64Args(args, nStackArgs, newArgOffset+size, regs')
                             |   [] => moveIntArg Move64
                         )
-                        else (* 64-bits. *) moveIntArg Move64
+                    |   (_, 0w8) => (* 64-bits. *) moveIntArg Move64
 
-                    |   _ =>
-                        if typeCode <> Foreign.LibFFI.ffiTypeCodeStruct
-                        then raise Foreign.Foreign "Unrecognised type for function argument"
-                        else (* Structures of other size are passed by reference.  We need to copy the source
+                    |   (CTypeStruct _, _) =>
+                        (* Structures of other size are passed by reference.  We need to copy the source
                                structure into our stack area.  Since rsi and rdi aren't used as args and
                                rcx is only used for the first argument we can copy the argument now. *)
                         (
@@ -1047,6 +1012,7 @@ struct
                                     copyWin64Args(args, nStackArgs+1, newArgOffset+size, [])
                         )
                             
+                    |   _ => raise Foreign.Foreign "Unrecognised type for function argument"
                 end
 
             val copyArgsFromRegsAndStack =
@@ -1059,7 +1025,7 @@ struct
 
             local
                 fun getNextSize (arg, argOffset) =
-                let val {size, align, ...} = Foreign.LibFFI.extractFFItype arg in alignUp(argOffset, align) + size end
+                let val {size, align, ...} =  arg in alignUp(argOffset, align) + size end
             in
                 val argumentSpace = List.foldl getNextSize 0w0 args
             end
@@ -1067,31 +1033,23 @@ struct
             val resultOffset = alignUp(argumentSpace, align) (* Offset of result area *)
         
             val (loadResults, resultSize) =
-                if typeCode = Foreign.LibFFI.ffiTypeCodeVoid orelse resultStructByRef
+                if typeForm = CTypeVoid orelse resultStructByRef
                 then ([], 0w0)
                 else
                 let
                     val resultMem = {base=rsp, offset=Word.toInt resultOffset, index=NoIndex}
                     val resultCode =
-                        if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
-                        then [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move8X64}]
-                        else if size = 0w1
-                        then [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move8}]
-                        else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt16
-                        then [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move16X64}]
-                        else if size = 0w2
-                        then [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move16}]
-                        else if typeCode = Foreign.LibFFI.ffiTypeCodeFloat
-                        then [XMMArith{opc=SSE2MoveFloat, source=MemoryArg resultMem, output=xmm0}]
-                        else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt32 orelse typeCode = Foreign.LibFFI.ffiTypeCodeInt
-                        then [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move32X64}]
-                        else if size = 0w4
-                        then [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move32}]
-                        else if typeCode = Foreign.LibFFI.ffiTypeCodeDouble
-                        then [XMMArith{opc=SSE2MoveDouble, source=MemoryArg resultMem, output=xmm0}]
-                        else if size = 0w8
-                        then [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move64}]
-                        else raise Foreign.Foreign "Unrecognised result type"
+                        case (typeForm, size) of
+                            (CTypeSignedInt, 0w1) => [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move8X64}]
+                        |   (_, 0w1) => [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move8}]
+                        |   (CTypeSignedInt, 0w2) => [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move16X64}]
+                        |   (_, 0w2) => [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move16}]
+                        |   (CTypeFloatingPt, 0w4) => [XMMArith{opc=SSE2MoveFloat, source=MemoryArg resultMem, output=xmm0}]
+                        |   (CTypeSignedInt, 0w4) => [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move32X64}]
+                        |   (_, 0w4) => [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move32}]
+                        |   (CTypeFloatingPt, 0w8) => [XMMArith{opc=SSE2MoveDouble, source=MemoryArg resultMem, output=xmm0}]
+                        |   (_, 0w8) => [Move{source=MemoryArg resultMem, destination=RegisterArg rax, moveSize=Move64}]
+                        |   _ => raise Foreign.Foreign "Unrecognised result type"
                 in
                     (resultCode, size)
                 end
@@ -1195,25 +1153,25 @@ struct
         
         fun classifyArg arg =
         let
-            val {size, ...} = Foreign.LibFFI.extractFFItype arg
+            val {size, ...} =  arg
 
             (* Unwrap the struct and any internal structs. *)
             fun getFields([], _) = []
 
             |   getFields(field::fields, offset) =
                 let
-                    val {size, align, typeCode, elements, ...} = Foreign.LibFFI.extractFFItype field
+                    val {size, align, typeForm} =  field
                     val alignedOffset = alignUp(offset, align) (* Align this even if it's a sub-struct *)
                 in
-                    if typeCode = Foreign.LibFFI.ffiTypeCodeVoid
-                    then raise Foreign.Foreign "Void cannot be used for a function argument"
-                    else if typeCode = Foreign.LibFFI.ffiTypeCodeStruct
-                    then getFields(elements, alignedOffset) @ getFields(fields, alignedOffset+size)
-                    else (typeCode, alignedOffset) :: getFields(fields, alignedOffset+size)
+                    case typeForm of
+                        CTypeVoid => raise Foreign.Foreign "Void cannot be used for a function argument"
+                    |   CTypeStruct elements =>
+                            getFields(elements, alignedOffset) @ getFields(fields, alignedOffset+size)
+                    |   _  => (typeForm, alignedOffset) :: getFields(fields, alignedOffset+size)
                 end
        
             val isSSE =
-                List.all (fn (tc, _) => tc = Foreign.LibFFI.ffiTypeCodeFloat orelse tc = Foreign.LibFFI.ffiTypeCodeDouble)
+                List.all (fn (CTypeFloatingPt, _) => true | _ => false)
         in
             if size > 0w16
             then ArgInMemory
@@ -1275,7 +1233,7 @@ struct
 
             |   loadSysV64Args(arg::args, stackOffset, argOffset, gRegs, fpRegs, code, preCode) =
                 let
-                    val {size, align, typeCode, ...} = Foreign.LibFFI.extractFFItype arg
+                    val {size, align, typeForm, ...} =  arg
 
                     (* Load a value into a register.  Normally the size will be 1, 2, 4 or 8 bytes and
                        this will just involve a simple load.  Structs, though, can be of any size up
@@ -1287,15 +1245,15 @@ struct
                         val moveOp =
                             if size = 0w8
                             then Move64
-                            else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt32 orelse typeCode = Foreign.LibFFI.ffiTypeCodeInt
+                            else if typeForm = CTypeSignedInt andalso size = 0w4
                             then Move32X64
                             else if size >= 0w4
                             then Move32
-                            else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt16
+                            else if typeForm = CTypeSignedInt andalso size = 0w2
                             then Move16X64
                             else if size >= 0w2
                             then Move16
-                            else if typeCode = Foreign.LibFFI.ffiTypeCodeSInt8
+                            else if typeForm = CTypeSignedInt andalso size = 0w1
                             then Move8X64 else Move8
                     in
                         [Move{source=MemoryArg{base=argPtrReg, offset=Word.toInt offset, index=NoIndex}, destination=RegisterArg reg, moveSize=moveOp}]
@@ -1386,10 +1344,10 @@ struct
                    this is very simple: the only complication is with structs of odd sizes. *)
                 fun storeResult(reg, offset, size) = storeUpTo8(reg, resultAreaPtr, offset, size)
                     
-                val {size, typeCode, ...} = Foreign.LibFFI.extractFFItype result
+                val {size, typeForm, ...} =  result
             in
                 val (getResult, passArgAddress) =
-                    if typeCode = Foreign.LibFFI.ffiTypeCodeVoid
+                    if typeForm = CTypeVoid
                     then ([], false)
                     else case (classifyArg result, size > 0w8) of
                         (* 8 bytes or smaller - returned in RAX - Normal case for int-like results. *)
@@ -1444,7 +1402,7 @@ struct
                 (* Put the destination address into a callee save resgister.
                    We have to put the C address in there now because an ML address wouldn't be updated
                    by a possible GC in a callback. *)
-                if #typeCode(Foreign.LibFFI.extractFFItype result) <> Foreign.LibFFI.ffiTypeCodeVoid
+                if #typeForm( result) <> CTypeVoid
                 then [loadHeapMemory(resultAreaPtr, r8, 0, nativeWordOpSize)]
                 else []
             ) @
@@ -1488,7 +1446,7 @@ struct
 
             |   moveSysV64Args(arg::args, stackSpace, argOffset, gRegs, fpRegs, moveFromStack) =
                 let
-                    val {size, align, ...} = Foreign.LibFFI.extractFFItype arg
+                    val {size, align, ...} =  arg
                     fun storeRegister(reg, offset, size) = storeUpTo8(reg, rsp, offset, size)
                     val newArgOffset = alignUp(argOffset, align)
                     val word1Addr = {base=rsp, offset=Word.toInt newArgOffset, index=NoIndex}
@@ -1544,7 +1502,7 @@ struct
                 end
 
             (* Result structs larger than 16 bytes are returned by reference.  *)
-            val resultStructByRef = #size (Foreign.LibFFI.extractFFItype result) > 0w16
+            val resultStructByRef = #size ( result) > 0w16
 
             val copyArgsFromRegsAndStack =
                 if resultStructByRef (* rdi contains the address for the result. *)
@@ -1553,7 +1511,7 @@ struct
 
             local
                 fun getNextSize (arg, argOffset) =
-                let val {size, align, ...} = Foreign.LibFFI.extractFFItype arg in alignUp(argOffset, align) + size end
+                let val {size, align, ...} =  arg in alignUp(argOffset, align) + size end
             in
                 val argumentSpace = List.foldl getNextSize 0w0 args
             end
@@ -1571,11 +1529,11 @@ struct
             local
                 (* The result area is always 16 bytes wide so we can load the result without risking reading outside.
                    At least at the moment we ignore any sign extension. *)                    
-                val {size, typeCode, ...} = Foreign.LibFFI.extractFFItype result
+                val {size, typeForm, ...} = result
                 val resultOffset = Word.toInt resultOffset
             in
                 val loadResults =
-                    if typeCode = Foreign.LibFFI.ffiTypeCodeVoid
+                    if typeForm = CTypeVoid
                     then []
                     else case (classifyArg result, size > 0w8) of
                         (* 8 bytes or smaller - returned in RAX - Normal case for int-like results. *)
@@ -1681,7 +1639,7 @@ struct
         end
     end
 
-    fun foreignCall(abi: ffiABI, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
+    fun foreignCall(abi: ffiABI, args: cType list, result: cType): Address.machineWord =
     let
         val code =
             case abi of
@@ -1709,7 +1667,7 @@ struct
        callback.
        N.B.  This returns a closure cell which contains the address of the code.  It can be used as a
        SysWord.word value except that while it exists the code will not be GCed.  *)
-    fun buildCallBack(abi: ffiABI, args: Foreign.LibFFI.ffiType list, result: Foreign.LibFFI.ffiType): Address.machineWord =
+    fun buildCallBack(abi: ffiABI, args: cType list, result: cType): Address.machineWord =
     let
         val code =
             case abi of

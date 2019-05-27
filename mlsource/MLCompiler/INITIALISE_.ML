@@ -1082,9 +1082,14 @@ struct
             end
             val () = #enterType foreignEnv ("abi", TypeConstrSet(abiConstr, []))
             val abiType = mkTypeConstruction ("abi", abiConstr, [], declInBasis)
-            val ffiType = LargeWord
             (* It would be possible to put the definition of cType in here but it's complicated.
                It's easier to use an opaque type and put in a cast later. *)
+            val ctypeConstr =
+                makeTypeConstructor("ctype", [],
+                        makeFreeId(0, defaultEqAndPrintCode(), false,
+                            basisDescription "Foreign.LowLevel.ctype"), declInBasis)
+            val () = #enterType foreignEnv ("ctype", TypeConstrSet(ctypeConstr, []))
+            val ffiType = mkTypeConstruction ("ctype", ctypeConstr, [], declInBasis)
             val foreignCallType =
                 mkProductType[abiType, List ffiType, ffiType] ->> mkProductType[LargeWord, LargeWord, LargeWord] ->> Unit
             val buildCallBackType =
