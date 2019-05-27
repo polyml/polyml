@@ -70,7 +70,7 @@ struct
     open ForeignConstants
     open ForeignMemory
     
-    exception Foreign = RunCall.Foreign
+    exception Foreign = Foreign.Foreign
 
     fun id x = x
     (* Internal utility function. *)
@@ -230,10 +230,10 @@ struct
         let
             (* This must be at least 16 byte aligned. *)
             val aligned = alignUp(length, Word.max(maxAlign, 0w16))
-            val space = RunCall.allocCStack aligned
+            val space = allocCStack aligned
         in
-            f space before RunCall.freeCStack(space, aligned)
-                handle exn => (RunCall.freeCStack(space, aligned); raise exn)
+            f space before freeCStack(space, aligned)
+                handle exn => (freeCStack(space, aligned); raise exn)
         end
     end
 end;

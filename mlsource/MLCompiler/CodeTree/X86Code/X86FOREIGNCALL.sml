@@ -459,6 +459,14 @@ struct
        The result is the code of the ML function that takes three arguments: the C function to call, the arguments
        as a vector of C values and the address of the memory for the result. *)
 
+    (* This must match the type in Foreign.LowLevel.  Once this is bootstrapped we could use that
+       type but note that this is the type we use within the compiler and we build Foreign.LowLevel
+       AFTER compiling this. *)
+    datatype cTypeForm =
+        CTypeDouble | CTypeFloat | CTypePointer | CTypeSInt8 | CTypeSInt16 | CTypeSInt32 | CTypeSInt64 |
+        CTypeUInt8 | CTypeUInt16 | CTypeUInt32 | CTypeUInt64 | CTypeStruct of cType list
+    withtype cType = { typeForm: cTypeForm, align: word, size: word }
+
     fun call32Bits(abi, args, result) =
     let
         (* 32-bit arguments.  These all go to the stack so we can simply push them.  The arguments go on the

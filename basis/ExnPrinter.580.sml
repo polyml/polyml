@@ -50,7 +50,7 @@ local
             case exn of
                 RunCall.Conversion s => stringException(exnName, s)
             |   Fail s => stringException(exnName, s)
-            |   Foreign.Foreign s => stringException(exnName, s)
+            |   RunCall.Foreign s => stringException(exnName, s)
             |   RunCall.Thread s => stringException(exnName, s)
             |   RunCall.XWindows s => stringException(exnName, s)
             |   LibrarySupport.SysErr param =>

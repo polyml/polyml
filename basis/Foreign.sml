@@ -112,27 +112,6 @@ sig
         val ffiType2voidStar: ffiType -> Memory.voidStar
         val voidStar2ffiType: Memory.voidStar -> ffiType
 
-        val getFFItypeVoid: unit -> ffiType
-        and getFFItypeUint8: unit -> ffiType
-        and getFFItypeSint8: unit -> ffiType
-        and getFFItypeUint16: unit -> ffiType
-        and getFFItypeSint16: unit -> ffiType
-        and getFFItypeUint32: unit -> ffiType
-        and getFFItypeSint32: unit -> ffiType
-        and getFFItypeUint64: unit -> ffiType
-        and getFFItypeSint64: unit -> ffiType
-        and getFFItypeFloat: unit -> ffiType
-        and getFFItypeDouble: unit -> ffiType
-        and getFFItypePointer: unit -> ffiType
-        and getFFItypeUChar: unit -> ffiType
-        and getFFItypeSChar: unit -> ffiType
-        and getFFItypeUShort: unit -> ffiType
-        and getFFItypeSShort: unit -> ffiType
-        and getFFItypeUint: unit -> ffiType
-        and getFFItypeSint: unit -> ffiType
-        and getFFItypeUlong: unit -> ffiType
-        and getFFItypeSlong: unit -> ffiType
-        
         val extractFFItype:
             ffiType -> { size: word, align: word, typeCode: word, elements: ffiType list }
         val createFFItype:
@@ -159,6 +138,12 @@ sig
 
     structure LowLevel:
     sig
+
+        datatype cTypeForm =
+            CTypeDouble | CTypeFloat | CTypePointer | CTypeSInt8 | CTypeSInt16 | CTypeSInt32 | CTypeSInt64 |
+            CTypeUInt8 | CTypeUInt16 | CTypeUInt32 | CTypeUInt64 | CTypeStruct of cType list
+        withtype cType = { typeForm: cTypeForm, align: word, size: word }
+    
         type ctype =
         {
             size: Word.word, (* Size in bytes *)
@@ -459,8 +444,8 @@ end;
 structure Foreign:> FOREIGN =
 struct
     fun id x = x
-    exception Foreign = RunCall.Foreign
 
+    open Foreign
     open ForeignConstants
     
     structure Memory = ForeignMemory
@@ -556,6 +541,7 @@ struct
         local
             fun getFFItype (n: int) (): ffiType = ffiGeneral (52, n)
         in
+            (* These are currently still used in the conversions. *)
             val getFFItypeVoid      = getFFItype 0
             and getFFItypeUint8     = getFFItype 1
             and getFFItypeSint8     = getFFItype 2
@@ -639,6 +625,12 @@ struct
 
     structure LowLevel =
     struct
+        (* This must match the type in ForeignCall. *)
+        datatype cTypeForm =
+            CTypeDouble | CTypeFloat | CTypePointer | CTypeSInt8 | CTypeSInt16 | CTypeSInt32 | CTypeSInt64 |
+            CTypeUInt8 | CTypeUInt16 | CTypeUInt32 | CTypeUInt64 | CTypeStruct of cType list
+        withtype cType = { typeForm: cTypeForm, align: word, size: word }
+
         type ctype =
         {
             size: Word.word, (* Size in bytes *)
@@ -712,7 +704,7 @@ struct
                 let
                     (* Compile the intermediate function. *)
                     val functionCaller: LargeWord.word * LargeWord.word * LargeWord.word -> unit =
-                        RunCall.foreignCall(Word.toInt abi, List.map getType argTypes, getType resType)
+                        (*Foreign.*)foreignCall(Word.toInt abi, List.map getType argTypes, getType resType)
 
                     (* The result function. *)
                     fun callFunction (fnAddr: unit->voidStar) (args, resMem) =
@@ -732,7 +724,7 @@ struct
                         cbFun(sysWord2VoidStar args, sysWord2VoidStar resMem)
                             handle _ => callbackException()
                     val cCallBack =
-                        RunCall.buildCallBack(Word.toInt abi, List.map getType argTypes, getType resType) callBack
+                        (*Foreign.*)buildCallBack(Word.toInt abi, List.map getType argTypes, getType resType) callBack
                 in
                     sysWord2VoidStar cCallBack
                 end

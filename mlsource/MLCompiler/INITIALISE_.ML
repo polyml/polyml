@@ -381,12 +381,6 @@ struct
                     mkStoreOperationFn LoadStoreUntaggedUnsigned, mkProductType[String, Word, Word] ->> Unit)
             val () = enterRunCall ("touch",
                         makePolymorphic([a], mkUnaryFn TouchAddress), a ->> Unit)
-            val () = enterRunCall ("allocCStack", mkUnaryFn AllocCStack, Word ->> LargeWord)
-            (* Free is a binary operation that takes both the allocated address and the size.
-               The allocated address is used by the interpreter where this is actually
-               implemented as malloc/free and the size is used by the compiled code where
-               this is implemented using the C-stack. *)
-            val () = enterRunCall ("freeCStack", mkBinaryFn FreeCStack, LargeWord ** Word ->> Unit)
         end
 
         local
@@ -567,7 +561,6 @@ struct
             val EXC_XWindows    = 10
             val EXC_subscript   = 11
             val EXC_thread      = 12
-            val EXC_foreign     = 23
             val EXC_Bind        = 100 (* In Match compiler. *)
             val EXC_Match       = 101
             val EXC_Fail        = 103
@@ -587,50 +580,11 @@ struct
                     ("Fail",        EXC_Fail,           String),
                     ("Conversion",  EXC_conversion,     String),
                     ("XWindows",    EXC_XWindows,       String),
-                    ("Foreign",     EXC_foreign,        String),
                     ("Thread",      EXC_thread,         String),
                     ("SysErr",      EXC_syserr,         String ** Option LargeWord)
                 ]
         end
         
-        local
-            val arg0 = mkLoadArgument 0
-            val arg1 = mkLoadArgument 1
-            
-            local
-                val callForeignCall = mkEval(mkConst (toMachineWord CODETREE.Foreign.foreignCall), [arg0])
-                val innerBody = mkEval(mkLoadClosure 0, [mkInd(0, arg0), mkInd(1, arg0), mkInd(2, arg0)])
-                val outerBody =
-                    mkEnv([mkDec(0, callForeignCall)], mkInlproc(innerBody, 1, "foreignCall(1)(1)", [mkLoadLocal 0], 0))
-            in
-                val foreignCallEntry = mkInlproc(outerBody, 1, "foreignCall(1)", [], 1)
-            end
-
-            local
-                (* Build a callback.  First apply the compiler to the abi/argtype/restype values.
-                   Then apply the result to a function to generate the final C callback code.
-                   The C callback code calls the function with two arguments.  Here we have to
-                   pass it a function that expects a tuple and unwrap it. *)
-                val innerMost =
-                    mkInlproc(mkEval(mkLoadClosure 0, [mkTuple[arg0, arg1]]), 2, "buildCallBack(1)(1)2", [mkLoadArgument 0], 0)
-                val resultFn =
-                    mkInlproc(mkEval(mkLoadClosure 0, [innerMost]), 1, "buildCallBack(1)(1)", [mkLoadLocal 0], 0)
-                val firstBuild = mkEval(mkConst (toMachineWord CODETREE.Foreign.buildCallBack), [arg0])
-                val outerBody = mkEnv([mkDec(0, firstBuild)], resultFn)
-            in
-                val buildCallBackEntry = mkInlproc(outerBody, 1, "buildCallBack(1)", [], 1)
-            end
-            
-            val abiType = Int
-            and ffiType = LargeWord
-            val foreignCallType =
-                mkProductType[abiType, List ffiType, ffiType] ->> mkProductType[LargeWord, LargeWord, LargeWord] ->> Unit
-            val buildCallBackType =
-                mkProductType[abiType, List ffiType, ffiType] ->> (mkProductType[LargeWord, LargeWord] ->> Unit) ->> LargeWord
-        in
-            val () = enterRunCall ("foreignCall", foreignCallEntry, foreignCallType)
-            val () = enterRunCall ("buildCallBack", buildCallBackEntry, buildCallBackType)
-        end
 
         (* Standard Basis structures for basic types.  These contain the definitions of the basic
            types and operations on them.  The structures are extended in the basis library and
@@ -1045,6 +999,10 @@ struct
             val setDoubleFunction =
                 mkGvar("setDouble",
                     mkProductType[LargeWord, Word, Real] ->> Unit, mkStoreOperationFn LoadStoreCDouble, declInBasis)
+            val allocCStackFn =
+                mkGvar("allocCStack", Word ->> LargeWord, mkUnaryFn BuiltIns.AllocCStack, declInBasis)
+            val freeCStackFn =
+                mkGvar("freeCStack", LargeWord ** Word ->> Unit, mkBinaryFn BuiltIns.FreeCStack, declInBasis)
         in
             val () = #enterVal fmemEnv ("get8", get8Function)
             val () = #enterVal fmemEnv ("get16", get16Function)
@@ -1058,6 +1016,68 @@ struct
             val () = #enterVal fmemEnv ("set64", set64Function)
             val () = #enterVal fmemEnv ("setFloat", setFloatFunction)
             val () = #enterVal fmemEnv ("setDouble", setDoubleFunction)
+            val () = #enterVal fmemEnv ("allocCStack", allocCStackFn)
+            (* Free is a binary operation that takes both the allocated address and the size.
+               The size is used by the compiled code where this is implemented using the C-stack.
+               The allocated address is intended for possible use by the interpreter where so
+               that it can be implemented as malloc/free. *)
+            val () = #enterVal fmemEnv ("freeCStack", freeCStackFn)
+        end
+        
+        local
+            val foreignEnv = makeStructure(globalEnv, "Foreign")
+
+            local
+                val EXC_foreign     = 23
+                val foreignException =
+                    Value{ name = "Foreign", typeOf = String ->> TYPETREE.exnType,
+                           access = Global(mkConst(toMachineWord EXC_foreign)),
+                           class = Exception, locations = declInBasis,
+                        references = NONE, instanceTypes=NONE }
+            in
+                val () = #enterVal foreignEnv ("Foreign", foreignException)
+            end
+            
+            val arg0 = mkLoadArgument 0
+            val arg1 = mkLoadArgument 1
+            
+            local
+                val callForeignCall = mkEval(mkConst (toMachineWord CODETREE.Foreign.foreignCall), [arg0])
+                val innerBody = mkEval(mkLoadClosure 0, [mkInd(0, arg0), mkInd(1, arg0), mkInd(2, arg0)])
+                val outerBody =
+                    mkEnv([mkDec(0, callForeignCall)], mkInlproc(innerBody, 1, "foreignCall(1)(1)", [mkLoadLocal 0], 0))
+            in
+                val foreignCallEntry = mkInlproc(outerBody, 1, "foreignCall(1)", [], 1)
+            end
+
+            local
+                (* Build a callback.  First apply the compiler to the abi/argtype/restype values.
+                   Then apply the result to a function to generate the final C callback code.
+                   The C callback code calls the function with two arguments.  Here we have to
+                   pass it a function that expects a tuple and unwrap it. *)
+                val innerMost =
+                    mkInlproc(mkEval(mkLoadClosure 0, [mkTuple[arg0, arg1]]), 2, "buildCallBack(1)(1)2", [mkLoadArgument 0], 0)
+                val resultFn =
+                    mkInlproc(mkEval(mkLoadClosure 0, [innerMost]), 1, "buildCallBack(1)(1)", [mkLoadLocal 0], 0)
+                val firstBuild = mkEval(mkConst (toMachineWord CODETREE.Foreign.buildCallBack), [arg0])
+                val outerBody = mkEnv([mkDec(0, firstBuild)], resultFn)
+            in
+                val buildCallBackEntry = mkInlproc(outerBody, 1, "buildCallBack(1)", [], 1)
+            end
+            
+            val abiType = Int
+            and ffiType = LargeWord
+            (* It would be possible to put the definition of cType in here but it's complicated.
+               It's easier to use an opaque type and put in a cast later. *)
+            val foreignCallType =
+                mkProductType[abiType, List ffiType, ffiType] ->> mkProductType[LargeWord, LargeWord, LargeWord] ->> Unit
+            val buildCallBackType =
+                mkProductType[abiType, List ffiType, ffiType] ->> (mkProductType[LargeWord, LargeWord] ->> Unit) ->> LargeWord
+            val foreignCallVal = mkGvar ("foreignCall", foreignCallType, foreignCallEntry, declInBasis)
+            and buildCallBackVal = mkGvar ("buildCallBack", buildCallBackType, buildCallBackEntry, declInBasis)
+        in
+            val () = #enterVal foreignEnv ("foreignCall", foreignCallVal)
+            val () = #enterVal foreignEnv ("buildCallBack", buildCallBackVal)
         end
 
         local

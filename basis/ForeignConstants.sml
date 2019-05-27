@@ -60,9 +60,5 @@ struct
     val bigEndian : bool = LibrarySupport.bigEndian
     and wordSize : word = RunCall.bytesPerWord
     and sysWordSize: word = LibrarySupport.sysWordSize
-    
-    (* Minimum argument size. *)
-    val ffiMinArgSize: Word.word = ffiGeneral (51, 15)
     end
-
 end;
