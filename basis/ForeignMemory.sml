@@ -151,7 +151,7 @@ struct
         val () = LibrarySupport.addOnEntry (fn _ => freeList := nil)
 
         (* Assume that if we align to the maximum of these we're all right. *)
-        val maxAlign = Word.max(#align saDouble, Word.max(#align saPointer, #align saSint64))
+        val maxAlign = Word.max(#align saDouble, Word.max(LibrarySupport.sysWordSize(*#align saPointer*), 0w8(*#align saSint64*)))
         (* We need a length word in each object we allocate but we need enough
            padding to align the result. *)
         val overhead = alignUp(sysWordSize, maxAlign)

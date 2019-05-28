@@ -509,6 +509,7 @@ struct
         local
             open Memory            
         in
+            (* Fixed size int-like types. *)
             val cTypeInt8 = { size= 0w1, align= 0w1, typeForm = CTypeSignedInt }
             val cTypeUint8 =  { size= 0w1, align= 0w1, typeForm = CTypeUnsignedInt }
             val cTypeInt16 = { size= 0w2, align= 0w2, typeForm = CTypeSignedInt }
@@ -517,23 +518,29 @@ struct
             val cTypeUint32 = { size= 0w4, align= 0w4, typeForm = CTypeUnsignedInt }
             val cTypeInt64 = { size= 0w8, align= 0w8, typeForm = CTypeSignedInt }
             val cTypeUint64 = { size= 0w8, align= 0w8, typeForm = CTypeUnsignedInt }
-            val cTypeChar = cTypeInt8
+
+            val cTypeChar = cTypeInt8 (* Apparently C99 defines sizeof(char) to be 1 *)
             val cTypeUchar = cTypeUint8
-            (* The sizes of these are dependent on the ABI. *)
-            val cTypeVoid = 
-                { size= #size saVoid, align= #align saVoid, typeForm = CTypeVoid }
+
+            (* Void: doesn't really have a size but GCC treats it as 1. *)
+            val cTypeVoid = { size= 0w1, align= 0w1, typeForm = CTypeVoid }
+            (* Pointer - this is the same as the size of SysWord.word. *)
             val cTypePointer = 
-                { size= #size saPointer, align= #align saPointer, typeForm = CTypePointer }
+                { size= LibrarySupport.sysWordSize, align= LibrarySupport.sysWordSize, typeForm = CTypePointer }
+            (* int: always size 4 on X86 but could be different on other platforms. *)
             val cTypeInt =
-                { size= #size saSint, align= #align saSint, typeForm = CTypeSignedInt }
+                { size= #size saInt, align= #align saInt, typeForm = CTypeSignedInt }
             val cTypeUint =
-                { size= #size saUint, align= #align saUint, typeForm = CTypeSignedInt }
+                { size= #size saInt, align= #align saInt, typeForm = CTypeSignedInt }
+            (* long: 8 bytes on X86/64 Unix but 4 on X86 Windows. *)
             val cTypeLong =
-                { size= #size saSlong, align= #align saSlong, typeForm = CTypeSignedInt }
+                { size= #size saLong, align= #align saLong, typeForm = CTypeSignedInt }
             val cTypeUlong =
-                { size= #size saUlong, align= #align saUlong, typeForm = CTypeSignedInt }
+                { size= #size saLong, align= #align saLong, typeForm = CTypeSignedInt }
+            (* Float: 4 on X86 *)
             val cTypeFloat =
                 { size= #size saFloat, align= #align saFloat, typeForm = CTypeFloatingPt }
+            (* Double: 8 on X86 *)
             val cTypeDouble =
                 { size= #size saDouble, align= #align saDouble, typeForm = CTypeFloatingPt }
 
@@ -853,61 +860,51 @@ struct
         end
 
         val cShort =
-            if #size saSShort = #size saSint16 then cInt16
-            (*else if #size saSShort = #size saSint32 then cInt32*)
+            if #size saShort = #size (#ctype cInt16) then cInt16
             else raise Foreign "Unable to find type for short"
 
         val cUshort = 
-            if #size saUShort = #size saUint16 then cUint16
-            (*else if #size saUShort = #size saUint32 then cUint32*)
+            if #size saShort = #size (#ctype cUint16) then cUint16
             else raise Foreign "Unable to find type for unsigned"
 
         val cInt =
-            (*if #size saSint = #size saSint16 then cInt16
-            else *)if #size saSint = #size saSint32 then cInt32
-            else if #size saSint = #size saSint64 then cInt64
+            if #size saInt = #size (#ctype cInt32) then cInt32
+            else if #size saInt = #size (#ctype cInt64) then cInt64
             else raise Foreign "Unable to find type for int"
 
         val cIntLarge =
-            (*if #size saSint = #size saSint16 then cInt16
-            else *)if #size saSint = #size saSint32 then cInt32Large
-            else if #size saSint = #size saSint64 then cInt64Large
+            if #size saInt = #size (#ctype cInt32Large) then cInt32Large
+            else if #size saInt = #size (#ctype cInt64Large) then cInt64Large
             else raise Foreign "Unable to find type for int"
 
         val cUint = 
-            (*if #size saUint = #size saUint16 then cUint16
-            else *)if #size saUint = #size saUint32 then cUint32
-            else if #size saUint = #size saUint64 then cUint64
+            if #size saInt = #size (#ctype cUint32) then cUint32
+            else if #size saInt = #size (#ctype cUint64) then cUint64
             else raise Foreign "Unable to find type for unsigned"
 
         val cUintLarge = 
-            (*if #size saUint = #size saUint16 then cUint16
-            else *)if #size saUint = #size saUint32 then cUint32Large
-            else if #size saUint = #size saUint64 then cUint64Large
+            if #size saInt = #size (#ctype cUint32Large) then cUint32Large
+            else if #size saInt = #size (#ctype cUint64Large) then cUint64Large
             else raise Foreign "Unable to find type for unsigned"
 
         val cLong =
-            (*if #size saSlong = #size saSint16 then cInt16
-            else *)if #size saSlong = #size saSint32 then cInt32
-            else if #size saSlong = #size saSint64 then cInt64
+            if #size saLong = #size (#ctype cInt32) then cInt32
+            else if #size saLong = #size (#ctype cInt64) then cInt64
             else raise Foreign "Unable to find type for long"
 
         val cLongLarge =
-            (*if #size saSlong = #size saSint16 then cInt16
-            else *)if #size saSlong = #size saSint32 then cInt32Large
-            else if #size saSlong = #size saSint64 then cInt64Large
+            if #size saLong = #size (#ctype cInt32Large) then cInt32Large
+            else if #size saLong = #size (#ctype cInt64Large) then cInt64Large
             else raise Foreign "Unable to find type for long"
 
         val cUlong = 
-            (*if #size saUlong = #size saUint16 then cUint16
-            else *)if #size saUlong = #size saUint32 then cUint32
-            else if #size saUlong = #size saUint64 then cUint64
+            if #size saLong = #size (#ctype cUint32) then cUint32
+            else if #size saLong = #size (#ctype cUint64) then cUint64
             else raise Foreign "Unable to find type for unsigned long"
 
         val cUlongLarge = 
-            (*if #size saUlong = #size saUint16 then cUint16
-            else *)if #size saUlong = #size saUint32 then cUint32Large
-            else if #size saUlong = #size saUint64 then cUint64Large
+            if #size saLong = #size (#ctype cUint32Large) then cUint32Large
+            else if #size saLong = #size (#ctype cUint64Large) then cUint64Large
             else raise Foreign "Unable to find type for unsigned long"
 
         local

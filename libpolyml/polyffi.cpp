@@ -62,7 +62,6 @@
 // We need to include globals.h before <new> in mingw64 otherwise
 // it messes up POLYUFMT/POLYSFMT.
 
-#include <ffi.h>
 #include <new>
 
 #include "arb.h"
@@ -88,6 +87,9 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeShort();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeInt();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeLong();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetError(PolyWord addr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(PolyWord err);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(FirstArgument threadId, PolyWord arg);
@@ -100,179 +102,9 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIUnloadLibrary(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetSymbolAddress(FirstArgument threadId, PolyWord moduleAddress, PolyWord symbolName);
 }
-
-static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
-{
-// Unfortunately the ABI entries are enums rather than #defines so we
-// can't test individual entries.
-#ifdef X86_WIN32
-    {"sysv", FFI_SYSV},
-    {"stdcall", FFI_STDCALL},
-    {"thiscall", FFI_THISCALL},
-    {"fastcall", FFI_FASTCALL},
-    {"ms_cdecl", FFI_MS_CDECL},
-#elif defined(X86_WIN64)
-    {"win64", FFI_WIN64},
-#elif defined(X86_ANY)
-#if (defined(__i386__) || defined(__i386))
-    {"sysv", FFI_SYSV},
-#else
-    {"unix64", FFI_UNIX64},
-#endif
-#endif
-    { "default", FFI_DEFAULT_ABI}
-};
-
-// Table of constants returned by call 51
-static int constantTable[] =
-{
-    FFI_DEFAULT_ABI,    // Default ABI
-    FFI_TYPE_VOID,      // Type codes
-    FFI_TYPE_INT,
-    FFI_TYPE_FLOAT,
-    FFI_TYPE_DOUBLE,
-    FFI_TYPE_UINT8,
-    FFI_TYPE_SINT8,
-    FFI_TYPE_UINT16,
-    FFI_TYPE_SINT16,
-    FFI_TYPE_UINT32,
-    FFI_TYPE_SINT32,
-    FFI_TYPE_UINT64,
-    FFI_TYPE_SINT64,
-    FFI_TYPE_STRUCT,
-    FFI_TYPE_POINTER,
-    FFI_SIZEOF_ARG      // Minimum size for result space
-};
-
-// Table of predefined ffi types
-static ffi_type *ffiTypeTable[] =
-{
-    &ffi_type_void,
-    &ffi_type_uint8,
-    &ffi_type_sint8,
-    &ffi_type_uint16,
-    &ffi_type_sint16,
-    &ffi_type_uint32,
-    &ffi_type_sint32,
-    &ffi_type_uint64,
-    &ffi_type_sint64,
-    &ffi_type_float,
-    &ffi_type_double,
-    &ffi_type_pointer,
-    &ffi_type_uchar, // These are all aliases for the above
-    &ffi_type_schar,
-    &ffi_type_ushort,
-    &ffi_type_sshort,
-    &ffi_type_uint,
-    &ffi_type_sint,
-    &ffi_type_ulong,
-    &ffi_type_slong
-};
-
-static Handle mkAbitab(TaskData *taskData, void*, char *p);
-
 static Handle toSysWord(TaskData *taskData, void *p)
 {
     return Make_sysword(taskData, (uintptr_t)p);
-}
-
-static Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
-{
-    unsigned c = get_C_unsigned(taskData, code->Word());
-    switch (c)
-    {
-
-        // Libffi functions
-    case 50: // Return a list of available ABIs
-            return makeList(taskData, sizeof(abiTable)/sizeof(abiTable[0]),
-                            (char*)abiTable, sizeof(abiTable[0]), 0, mkAbitab);
-
-    case 51: // A constant from the table
-        {
-            unsigned index = get_C_unsigned(taskData, args->Word());
-            if (index >= sizeof(constantTable) / sizeof(constantTable[0]))
-                raise_exception_string(taskData, EXC_foreign, "Index out of range");
-            return Make_arbitrary_precision(taskData, constantTable[index]);
-        }
-
-    case 52: // Return an FFI type
-        {
-            unsigned index = get_C_unsigned(taskData, args->Word());
-            if (index >= sizeof(ffiTypeTable) / sizeof(ffiTypeTable[0]))
-                raise_exception_string(taskData, EXC_foreign, "Index out of range");
-            return toSysWord(taskData, ffiTypeTable[index]);
-        }
-
-    case 53: // Extract fields from ffi type.
-        {
-            ffi_type *ffit = *(ffi_type**)(args->WordP());
-            Handle sizeHandle = Make_arbitrary_precision(taskData, ffit->size);
-            Handle alignHandle = Make_arbitrary_precision(taskData, ffit->alignment);
-            Handle typeHandle = Make_arbitrary_precision(taskData, ffit->type);
-            Handle elemHandle = toSysWord(taskData, ffit->elements);
-            Handle resHandle = alloc_and_save(taskData, 4);
-            resHandle->WordP()->Set(0, sizeHandle->Word());
-            resHandle->WordP()->Set(1, alignHandle->Word());
-            resHandle->WordP()->Set(2, typeHandle->Word());
-            resHandle->WordP()->Set(3, elemHandle->Word());
-            return resHandle;
-        }
-
-    case 54: // Construct an ffi type.
-        {
-            // This is probably only used to create structs.
-            size_t size = getPolyUnsigned(taskData, args->WordP()->Get(0));
-            unsigned short align = get_C_ushort(taskData, args->WordP()->Get(1));
-            unsigned short type = get_C_ushort(taskData, args->WordP()->Get(2));
-            unsigned nElems = 0;
-            for (PolyWord p = args->WordP()->Get(3); !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
-                nElems++;
-            size_t space = sizeof(ffi_type);
-            // If we need the elements add space for the elements plus
-            // one extra for the zero terminator.
-            if (nElems != 0) space += (nElems+1) * sizeof(ffi_type *);
-            ffi_type *result = (ffi_type*)calloc(1, space);
-            // Raise an exception rather than returning zero.
-            if (result == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-            ffi_type **elem = 0;
-            if (nElems != 0) elem = (ffi_type **)(result+1);
-            result->size = size;
-            result->alignment = align;
-            result->type = type;
-            result->elements = elem;
-            if (elem != 0)
-            {
-                for (PolyWord p = args->WordP()->Get(3); !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
-                {
-                    PolyWord e = ((ML_Cons_Cell*)p.AsObjPtr())->h;
-                    *elem++ = *(ffi_type**)(e.AsAddress());
-                }
-                *elem = 0;
-            }
-            return toSysWord(taskData, result);
-        }
-
-    default:
-        {
-            char msg[100];
-            sprintf(msg, "Unknown ffi function: %d", c);
-            raise_exception_string(taskData, EXC_foreign, msg);
-            return 0;
-        }
-    }
-}
-
-// Construct an entry in the ABI table.
-static Handle mkAbitab(TaskData *taskData, void *arg, char *p)
-{
-    struct _abiTable *ab = (struct _abiTable *)p;
-    // Construct a pair of the string and the code
-    Handle name = taskData->saveVec.push(C_string_to_Poly(taskData, ab->abiName));
-    Handle code = Make_arbitrary_precision(taskData, ab->abiCode);
-    Handle result = alloc_and_save(taskData, 2);
-    result->WordP()->Set(0, name->Word());
-    result->WordP()->Set(1, code->Word());
-    return result;
 }
 
 // General interface to IO.  Ideally the various cases will be made into
@@ -288,7 +120,7 @@ POLYUNSIGNED PolyFFIGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
     Handle result = 0;
 
     try {
-        result = poly_ffi(taskData, pushedArg, pushedCode);
+        raise_exception_string(taskData, EXC_foreign, "No longer used");
     } catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
@@ -485,6 +317,21 @@ POLYUNSIGNED PolySizeDouble()
     return TAGGED((POLYSIGNED)sizeof(double)).AsUnsigned();
 }
 
+POLYUNSIGNED PolySizeShort()
+{
+    return TAGGED((POLYSIGNED)sizeof(short)).AsUnsigned();
+}
+
+POLYUNSIGNED PolySizeInt()
+{
+    return TAGGED((POLYSIGNED)sizeof(int)).AsUnsigned();
+}
+
+POLYUNSIGNED PolySizeLong()
+{
+    return TAGGED((POLYSIGNED)sizeof(long)).AsUnsigned();
+}
+
 // Get either errno or GetLastError
 POLYUNSIGNED PolyFFIGetError(PolyWord addr)
 {
@@ -566,6 +413,9 @@ struct _entrypts polyFFIEPT[] =
     { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
     { "PolySizeFloat",                  (polyRTSFunction)&PolySizeFloat},
     { "PolySizeDouble",                 (polyRTSFunction)&PolySizeDouble},
+    { "PolySizeShort",                  (polyRTSFunction)&PolySizeShort},
+    { "PolySizeInt",                    (polyRTSFunction)&PolySizeInt},
+    { "PolySizeLong",                   (polyRTSFunction)&PolySizeLong},
     { "PolyFFIGetError",                (polyRTSFunction)&PolyFFIGetError},
     { "PolyFFISetError",                (polyRTSFunction)&PolyFFISetError},
     { "PolyFFICreateExtFn",             (polyRTSFunction)&PolyFFICreateExtFn},
