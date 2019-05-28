@@ -84,7 +84,6 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeShort();
@@ -105,28 +104,6 @@ extern "C" {
 static Handle toSysWord(TaskData *taskData, void *p)
 {
     return Make_sysword(taskData, (uintptr_t)p);
-}
-
-// General interface to IO.  Ideally the various cases will be made into
-// separate functions.
-POLYUNSIGNED PolyFFIGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(code);
-    Handle pushedArg = taskData->saveVec.push(arg);
-    Handle result = 0;
-
-    try {
-        raise_exception_string(taskData, EXC_foreign, "No longer used");
-    } catch (...) { } // If an ML exception is raised
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
 }
 
 // Malloc memory - Needs to allocate the SysWord.word value on the heap.
@@ -410,7 +387,6 @@ void PolyFFICallbackException()
 
 struct _entrypts polyFFIEPT[] =
 {
-    { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
     { "PolySizeFloat",                  (polyRTSFunction)&PolySizeFloat},
     { "PolySizeDouble",                 (polyRTSFunction)&PolySizeDouble},
     { "PolySizeShort",                  (polyRTSFunction)&PolySizeShort},
