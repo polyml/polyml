@@ -153,37 +153,13 @@ if test "x$with_gmp" != "xno"; then
         ])
 fi
 
-# libffi
-# libffi must be configured even if we are not building with it so that things like "make dist" work.
-AC_CONFIG_SUBDIRS([libpolyml/libffi])
-# Use the internal version unless --with-system-libffi is given.
+# libffi - No longer used - just retain this for backwards compatibility.
 AC_ARG_WITH([system-libffi],
             [AS_HELP_STRING([--with-system-libffi],
               [use the version of libffi installed on your system rather than the version supplied with poly @<:@default=no@:>@])],
             [],
             [with_system_libffi=no])
 
-# Libffi uses pkg-config.
-if test "x$with_system_libffi" = "xyes"; then
-    PKG_CHECK_MODULES([FFI], [libffi],
-        [LIBS="$FFI_LIBS $LIBS" CFLAGS="$FFI_CFLAGS $CFLAGS"],
-        [AC_CHECK_LIB([ffi], [ffi_prep_closure_loc],
-             [
-                 [LIBS="-lffi $LIBS"]
-                 AC_CHECK_HEADER([ffi.h], [],
-                     [ AC_MSG_FAILURE([--with-system-libffi was given, but ffi.h header file cannot be found]) ])
-             ],
-             [AC_MSG_FAILURE([--with-system-libffi was given, but the ffi library is not installed])]
-       )
-       ]
-    )
-else
-# Use internal libffi
-    CFLAGS="$CFLAGS -Ilibffi/include"
-    CXXFLAGS="$CXXFLAGS -Ilibffi/include"
-fi
-
-AM_CONDITIONAL([INTERNAL_LIBFFI], [test "x$with_system_libffi" != "xyes"])
 
 # Special configuration for Windows or Unix.
 poly_windows_enablegui=false

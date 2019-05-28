@@ -10,13 +10,6 @@ AM_CCASFLAGS = $(OSFLAG)
 lib_LTLIBRARIES = libpolyml.la
 libpolyml_la_LDFLAGS = -version-info 10:0:0
 
-DIST_SUBDIRS = libffi
-
-if INTERNAL_LIBFFI
-SUBDIRS = libffi
-libpolyml_la_LIBADD = libffi/libffi_convenience.la
-endif
-
 if NO_UNDEFINED
 # Force all references to be defined to build the DLL.
 libpolyml_la_LDFLAGS += -no-undefined
