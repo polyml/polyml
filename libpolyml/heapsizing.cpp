@@ -335,7 +335,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
         // compute the paging contribution in the cost function.
         double scaleFactor = 1.0 + log((double)majorGCPageFaults / PAGINGCOUNTFACTOR) / PAGINGCOSTSTEEPNESS;
         ASSERT(scaleFactor > 0.0);
-        POLYUNSIGNED newLimit = (POLYUNSIGNED)((double)heapSpace / scaleFactor);
+        uintptr_t newLimit = (uintptr_t)((double)heapSpace / scaleFactor);
         if (pagingLimitSize == 0)
             pagingLimitSize = newLimit;
         else 
@@ -537,7 +537,7 @@ double HeapSizeParameters::costFunction(uintptr_t heapSize, bool withSharing, bo
         return 1.0E6;
     // If we run the sharing pass the live space will be smaller.
     if (withSharing)
-        spaceUsed -= (POLYUNSIGNED)((double)currentSpaceUsed * sharingRecoveryRate);
+        spaceUsed -= (uintptr_t)((double)currentSpaceUsed * sharingRecoveryRate);
     uintptr_t estimatedFree = heapSize - spaceUsed;
     // The cost scales as the inverse of the amount of free space.
     double result = lastMajorGCRatio * (double)averageFree / (double)estimatedFree;
@@ -966,7 +966,7 @@ static size_t GetPhysicalMemorySize(void)
             if (physMem > (uint64_t)maxMem)
                 return maxMem;
             else
-                return (POLYUNSIGNED)physMem;
+                return (size_t)physMem;
         }
     }
 #endif
