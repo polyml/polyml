@@ -49,6 +49,10 @@ enum {
 
     PSS_CODE_SPACE,                 // Space for code
     PSS_STACK_SPACE,                // Space for stack
+
+    PSC_GC_STATE,                   // Whether in GC, ML or other phase
+    PSC_GC_PERCENT,                 // How far through the GC.
+
     N_PS_INTS
 };
 

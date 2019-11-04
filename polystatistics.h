@@ -78,6 +78,8 @@
 #define POLY_STATS_ID_CODE_SPACE             29     // Space occupied by code
 #define POLY_STATS_ID_STACK_SPACE            30     // Space occupied by stacks
 
+#define POLY_STATS_ID_GC_STATE               31
+#define POLY_STATS_ID_GC_PERCENT             32
 
 #endif // POLY_STATISTICS_INCLUDED
 

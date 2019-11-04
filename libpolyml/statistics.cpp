@@ -264,6 +264,8 @@ void Statistics::Init()
     addCounter(PSC_GC_FULLGC, POLY_STATS_ID_GC_FULLGC, "FullGCCount");
     addCounter(PSC_GC_PARTIALGC, POLY_STATS_ID_GC_PARTIALGC, "PartialGCCount");
     addCounter(PSC_GC_SHARING, POLY_STATS_ID_GC_SHARING, "GCSharingCount");
+    addCounter(PSC_GC_STATE, POLY_STATS_ID_GC_STATE, "GCState");
+    addCounter(PSC_GC_PERCENT, POLY_STATS_ID_GC_PERCENT, "GCPercent");
 
     addSize(PSS_TOTAL_HEAP, POLY_STATS_ID_TOTAL_HEAP, "TotalHeap");
     addSize(PSS_AFTER_LAST_GC, POLY_STATS_ID_AFTER_LAST_GC, "HeapAfterLastGC");
