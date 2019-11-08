@@ -483,6 +483,21 @@ void Statistics::decCount(int which)
     }
 }
 
+// This is only used for the GC progress which could really fit in a single byte.
+void Statistics::setCount(int which, POLYUNSIGNED count)
+{
+    if (statMemory && counterAddrs[which])
+    {
+        PLocker lock(&accessLock);
+        unsigned length = counterAddrs[which][-1];
+        while (length--)
+        {
+            counterAddrs[which][length] = (unsigned char)(count & 0xff);
+            count = count >> 8;
+        }
+    }
+}
+
 // Sizes.  Some of these are only set during GC so may not need interlocks
 size_t Statistics::getSizeWithLock(int which)
 {

@@ -74,6 +74,7 @@ noinst_HEADERS = \
 	exporter.h \
 	gc.h \
 	gctaskfarm.h \
+    gc_progress.h \
 	globals.h \
     heapsizing.h \
 	int_opcodes.h \
@@ -127,6 +128,7 @@ libpolyml_la_SOURCES = \
     gc_check_weak_ref.cpp \
     gc_copy_phase.cpp \
     gc_mark_phase.cpp \
+    gc_progress.cpp \
     gc_share_phase.cpp \
     gc_update_phase.cpp \
     gctaskfarm.cpp \

@@ -102,6 +102,7 @@
 #include "diagnostics.h"
 #include "gctaskfarm.h"
 #include "heapsizing.h"
+#include "gc_progress.h"
 
 #ifdef POLYML32IN64
 #define ENDOFLIST ((PolyObject*)globalHeapBase)
@@ -704,6 +705,7 @@ void GetSharing::SortData()
 void GCSharingPhase(void)
 {
     mainThreadPhase = MTP_GCPHASESHARING;
+    gcProgressBeginSharingGC();
 
     GetSharing sharer;
 

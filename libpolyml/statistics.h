@@ -86,6 +86,7 @@ public:
 
     void incCount(int which);
     void decCount(int which);
+    void setCount(int which, POLYUNSIGNED count);
 
     void setSize(int which, size_t s);
     void incSize(int which, size_t s);

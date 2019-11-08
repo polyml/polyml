@@ -1,7 +1,7 @@
 /*
     Title:      Quick copying garbage collector
 
-    Copyright (c) 2011-12, 2016-17 David C. J. Matthews
+    Copyright (c) 2011-12, 2016-17, 2019 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -56,6 +56,7 @@ these has filled up it fails and a full garbage collection must be done.
 #include "heapsizing.h"
 #include "gctaskfarm.h"
 #include "statistics.h"
+#include "gc_progress.h"
 
 // This protects access to the gMem.lSpace table.
 static PLock localTableLock("Minor GC tables");
@@ -540,6 +541,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
     globalStats.incCount(PSC_GC_PARTIALGC);
     mainThreadPhase = MTP_GCQUICK;
     succeeded = true;
+    gcProgressBeginMinorGC();
 
     if (debugOptions & DEBUG_GC)
         Log("GC: Beginning quick GC\n");

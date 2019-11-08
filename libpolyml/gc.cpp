@@ -55,6 +55,7 @@
 #include "statistics.h"
 #include "profiling.h"
 #include "heapsizing.h"
+#include "gc_progress.h"
 
 static GCTaskFarm gTaskFarm; // Global task farm.
 GCTaskFarm *gpTaskFarm = &gTaskFarm;
@@ -122,6 +123,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         globalStats.incCount(PSC_GC_SHARING);
         GCSharingPhase();
     }
+
+    gcProgressBeginMajorGC(); // The GC sharing phase is treated separately
+
 /*
  * There is a really weird bug somewhere.  An extra bit may be set in the bitmap during
  * the mark phase.  It seems to be related to heavy swapping activity.  Duplicating the
