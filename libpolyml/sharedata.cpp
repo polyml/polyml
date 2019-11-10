@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    and David C. J. Matthews 2006, 2010-13, 2016-17
+    and David C. J. Matthews 2006, 2010-13, 2016-17, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -56,6 +56,7 @@
 #include "gctaskfarm.h"
 #include "diagnostics.h"
 #include "sharedata.h"
+#include "gc_progress.h"
 
 /*
 This code was largely written by Simon Finn as a database improver for the
@@ -1074,6 +1075,7 @@ public:
         // allocation spaces.  It may be overkill if we are applying the sharing
         // to a small root but generally it seems to be applied to the whole heap.
         FullGCForShareCommonData();
+		gcProgressBeginOtherGC(); // Set the phase to "other" now the GC is complete.
         // Now do the sharing.
         result = s.RunShareData(shareRoot->WordP());
     }
