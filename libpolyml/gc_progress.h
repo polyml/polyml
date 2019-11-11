@@ -26,6 +26,7 @@ extern void gcProgressBeginMinorGC();
 extern void gcProgressBeginMajorGC();
 extern void gcProgressBeginSharingGC();
 extern void gcProgressBeginOtherGC();
+void gcProgressSetPercent(unsigned pc);
 
 #endif
 

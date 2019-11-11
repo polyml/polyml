@@ -68,4 +68,7 @@ void gcProgressBeginOtherGC()
     globalStats.setCount(PSC_GC_PERCENT, 0);
 }
 
-
+void gcProgressSetPercent(unsigned pc)
+{
+	globalStats.setCount(PSC_GC_PERCENT, pc);
+}

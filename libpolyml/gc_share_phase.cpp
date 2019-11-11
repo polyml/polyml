@@ -636,6 +636,8 @@ void GetSharing::SortData()
                 postShared - lastShared, (double)(postShared - lastShared) / (double) (lastCount-postCount) * 100.0,
                 postCount, carryOver, (double)carryOver / (double)(lastCount-postCount) * 100.0);
 
+		gcProgressSetPercent((unsigned)((double)(totalVisited - postCount) / (double)totalVisited * 100.0));
+
         // Condition for exiting the loop.  There are some heuristics here.
         // If we remove less than 10% in a pass it's probably not worth continuing
         // unless the carry over is large.  The "carry over" is the number of words updated as
