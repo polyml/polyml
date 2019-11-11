@@ -200,9 +200,12 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         lSpace->upperAllocPtr = lSpace->top;
     }
 
+	gcProgressSetPercent(25);
+
     if (debugOptions & DEBUG_GC) Log("GC: Check weak refs\n");
     /* Detect unreferenced streams, windows etc. */
     GCheckWeakRefs();
+	gcProgressSetPercent(50);
 
     // Check that the heap is not overfull.  We make sure the marked
     // mutable and immutable data is no more than 90% of the
@@ -234,6 +237,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     GCCopyPhase();
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Copy");
+	gcProgressSetPercent(75);
 
     // Update Phase.
     if (debugOptions & DEBUG_GC) Log("GC: Update\n");
