@@ -454,15 +454,16 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
 bool HeapSizeParameters::AdjustSizeAfterMinorGC(uintptr_t spaceAfterGC, uintptr_t spaceBeforeGC)
 {
     uintptr_t spaceCopiedOut = spaceAfterGC-spaceBeforeGC;
-    TIMEDATA gc, total;
+    TIMEDATA gc, nonGC;
     minorGCsSinceMajor++;
-    // The major costs are cumulative so we use those
-    gc.add(majorGCSystemCPU);
-    gc.add(majorGCUserCPU);
-    total.add(gc);
-    total.add(majorNonGCSystemCPU);
-    total.add(majorNonGCUserCPU);
-    float g = gc.toSeconds() / total.toSeconds();
+    // Work out the ratio of GC to non-GC time since the last major GC. We can only adjust the heap size
+    // at a major GC.  If we're now spending too much time in minor GCs we may need a major GC to adjust
+    // the size.
+    gc.add(minorGCSystemCPU);
+    gc.add(minorGCUserCPU);
+    nonGC.add(minorNonGCSystemCPU);
+    nonGC.add(minorNonGCUserCPU);
+    float g = gc.toSeconds() / nonGC.toSeconds();
 
     if (debugOptions & DEBUG_HEAPSIZE)
     {
