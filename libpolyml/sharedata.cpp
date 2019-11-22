@@ -257,7 +257,7 @@ void ShareDataClass::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED length, PolyOb
     if (depth >= maxVectorSize) maxVectorSize = depth+1;
 
     if (depth >= vectorToUse->vectorSize) {
-        POLYUNSIGNED newDepth = depth+1;
+		POLYUNSIGNED newDepth = depth + depth / 2 + 1; // Grow this by more than we need - avoids too many reallocations.
         DepthVector **newVec = (DepthVector **)realloc(vectorToUse->vector, sizeof(DepthVector*)*newDepth);
         if (newVec == 0) throw MemoryException();
         vectorToUse->vector = newVec;
