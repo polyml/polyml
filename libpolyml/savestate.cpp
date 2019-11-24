@@ -158,6 +158,13 @@ private:
     BASE m_value;
 };
 
+#ifdef _WIN32
+// fseek and ftell are only 32-bits in Windows.
+#define off_t   _int64
+#define fseek _fseeki64
+#define ftell _ftelli64
+#endif
+
 /*
  *  Structure definitions for the saved state files.
  */
@@ -177,9 +184,9 @@ typedef struct _savedStateHeader
     unsigned    segmentDescrLength;     // Number of bytes in a descriptor
 
     // These entries contain the real data.
-    fpos_t      segmentDescr;           // Position of segment descriptor table
+    off_t       segmentDescr;           // Position of segment descriptor table
     unsigned    segmentDescrCount;      // Number of segment descriptors in the table
-    fpos_t      stringTable;            // Pointer to the string table (zero if none)
+    off_t       stringTable;            // Pointer to the string table (zero if none)
     size_t      stringTableSize;        // Size of string table
     unsigned    parentNameEntry;        // Position of parent name in string table (0 if top)
     time_t      timeStamp;            // The time stamp for this file.
@@ -191,9 +198,9 @@ typedef struct _savedStateHeader
 // need to be loaded into memory.
 typedef struct _savedStateSegmentDescr
 {
-    fpos_t      segmentData;            // Position of the segment data
+    off_t       segmentData;            // Position of the segment data
     size_t      segmentSize;            // Size of the segment data
-    fpos_t      relocations;            // Position of the relocation table
+    off_t       relocations;            // Position of the relocation table
     unsigned    relocationCount;        // Number of entries in relocation table
     unsigned    relocationSize;         // Size of a relocation entry
     unsigned    segmentFlags;           // Segment flags (see SSF_ values)
@@ -684,7 +691,7 @@ void SaveRequest::Perform()
             descrs[j].segmentFlags |= SSF_CODE;
     }
     // Write out temporarily. Will be overwritten at the end.
-    fgetpos(exports.exportFile, &saveHeader.segmentDescr);
+    saveHeader.segmentDescr = ftell(exports.exportFile);
     fwrite(descrs, sizeof(SavedStateSegmentDescr), exports.memTableEntries, exports.exportFile);
 
     // Write out the relocations and the data.
@@ -696,7 +703,7 @@ void SaveRequest::Perform()
         if (k >= permanentEntries ||
             (entry->mtFlags & (MTF_WRITEABLE|MTF_NO_OVERWRITE)) == MTF_WRITEABLE)
         {
-            fgetpos(exports.exportFile, &(descrs[k].relocations));
+            descrs[k].relocations = ftell(exports.exportFile);
             // Have to write this out.
             exports.relocationCount = 0;
             // Create the relocation table.
@@ -717,7 +724,7 @@ void SaveRequest::Perform()
             }
             descrs[k].relocationCount = exports.relocationCount;
             // Write out the data.
-            fgetpos(exports.exportFile, &(descrs[k].segmentData));
+            descrs[k].segmentData = ftell(exports.exportFile);
             fwrite(entry->mtOriginalAddr, entry->mtLength, 1, exports.exportFile);
        }
     }
@@ -725,7 +732,7 @@ void SaveRequest::Perform()
     // If this is a child we need to write a string table containing the parent name.
     if (newHierarchy > 1)
     {
-        fgetpos(exports.exportFile, &saveHeader.stringTable);
+        saveHeader.stringTable = ftell(exports.exportFile);
         _fputtc(0, exports.exportFile); // First byte of string table is zero
         _fputts(hierarchyTable[newHierarchy-2]->fileName, exports.exportFile);
         _fputtc(0, exports.exportFile); // A terminating null.
@@ -1141,8 +1148,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             fileName = newFileName;
 
             if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
-				fsetpos(loadFile, &header.stringTable) != 0 ||
-                fseek(loadFile, header.parentNameEntry, SEEK_CUR) != 0 ||
+                fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
                 fread(fileName, 1, toRead, loadFile) != toRead)
             {
                 errorResult = "Unable to read parent file name";
@@ -1192,7 +1198,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     relocate.descrs = new SavedStateSegmentDescr[relocate.nDescrs];
     relocate.originalBaseAddr = (PolyWord*)header.originalBaseAddr;
 
-    if (fsetpos(loadFile, &header.segmentDescr) != 0 ||
+    if (fseek(loadFile, header.segmentDescr, SEEK_SET) != 0 ||
         fread(relocate.descrs, sizeof(SavedStateSegmentDescr), relocate.nDescrs, loadFile) != relocate.nDescrs)
     {
         errorResult = "Unable to read segment descriptors";
@@ -1250,7 +1256,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             }
 
             PolyWord *mem  = newSpace->bottom;
-            if (fsetpos(loadFile, &descr->segmentData) != 0 ||
+            if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0 ||
                 fread(mem, descr->segmentSize, 1, loadFile) != 1)
             {
                 errorResult = "Unable to read segment";
@@ -1279,7 +1285,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
         ASSERT(space != NULL); // We should have created it.
         if (descr->segmentFlags & SSF_OVERWRITE)
         {
-            if (fsetpos(loadFile, &descr->segmentData) != 0 ||
+            if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0 ||
                 fread(space->bottom, descr->segmentSize, 1, loadFile) != 1)
             {
                 errorResult = "Unable to read segment";
@@ -1306,7 +1312,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
         // everything in an unstable state.
         if (descr->relocations)
         {
-            if (fsetpos(loadFile, &descr->relocations) != 0)
+            if (fseek(loadFile, descr->relocations, SEEK_SET) != 0)
             {
                 errorResult = "Unable to read relocation segment";
                 return false;
@@ -1509,7 +1515,7 @@ static void RenameParent(TaskData *taskData, PolyWord childName, PolyWord parent
     // This makes the file grow slightly each time but it shouldn't be
     // significant.
     fseek(loadFile, 0, SEEK_END);
-    fgetpos(loadFile, &header.stringTable); // Remember where this is
+    header.stringTable = ftell(loadFile); // Remember where this is
     _fputtc(0, loadFile); // First byte of string table is zero
     _fputts(parentNameBuff, loadFile);
     _fputtc(0, loadFile); // A terminating null.
@@ -1585,8 +1591,7 @@ static Handle ShowParent(TaskData *taskData, Handle hFileName)
             raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
         if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
-            fsetpos(loadFile, &header.stringTable) != 0 ||
-            fseek(loadFile, header.parentNameEntry, SEEK_CUR) != 0 ||
+            fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
             fread(parentFileName, 1, toRead, loadFile) != toRead)
         {
             raise_fail(taskData, "Unable to read parent file name");
@@ -1637,7 +1642,7 @@ typedef struct _moduleHeader
     unsigned    segmentDescrLength;     // Number of bytes in a descriptor
 
     // These entries contain the real data.
-    fpos_t      segmentDescr;           // Position of segment descriptor table
+    off_t       segmentDescr;           // Position of segment descriptor table
     unsigned    segmentDescrCount;      // Number of segment descriptors in the table
     time_t      timeStamp;              // The time stamp for this file.
     time_t      executableTimeStamp;    // The time stamp for the parent executable.
@@ -1746,7 +1751,7 @@ void ModuleExport::exportStore(void)
              thisDescr->segmentFlags |= SSF_CODE;
     }
     // Write out temporarily. Will be overwritten at the end.
-    fgetpos(this->exportFile, &modHeader.segmentDescr);
+    modHeader.segmentDescr = ftell(this->exportFile);
     fwrite(descrs, sizeof(SavedStateSegmentDescr), this->memTableEntries, this->exportFile);
 
     // Write out the relocations and the data.
@@ -1756,7 +1761,7 @@ void ModuleExport::exportStore(void)
         memoryTableEntry *entry = &this->memTable[k];
         if (k >= newAreas) // Not permanent areas
         {
-            fgetpos(this->exportFile, &thisDescr->relocations);
+            thisDescr->relocations = ftell(this->exportFile);
             // Have to write this out.
             this->relocationCount = 0;
             // Create the relocation table.
@@ -1776,7 +1781,7 @@ void ModuleExport::exportStore(void)
             }
             thisDescr->relocationCount = this->relocationCount;
             // Write out the data.
-            fgetpos(exportFile, &thisDescr->segmentData);
+            thisDescr->segmentData = ftell(exportFile);
             fwrite(entry->mtOriginalAddr, entry->mtLength, 1, exportFile);
         }
     }
@@ -1870,7 +1875,7 @@ void ModuleLoader::Perform()
     relocate.nDescrs = header.segmentDescrCount;
     relocate.descrs = new SavedStateSegmentDescr[relocate.nDescrs];
 
-    if (fsetpos(loadFile, &header.segmentDescr) != 0 ||
+    if (fseek(loadFile, header.segmentDescr, SEEK_SET) != 0 ||
         fread(relocate.descrs, sizeof(SavedStateSegmentDescr), relocate.nDescrs, loadFile) != relocate.nDescrs)
     {
         errorResult = "Unable to read segment descriptors";
@@ -1936,7 +1941,7 @@ void ModuleLoader::Perform()
                 space = lSpace;
                 lSpace->lowerAllocPtr = (PolyWord*)((byte*)lSpace->bottom + descr->segmentSize);
             }
-            if (fsetpos(loadFile, &descr->segmentData) != 0 ||
+            if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0 ||
                 fread(space->bottom, descr->segmentSize, 1, loadFile) != 1)
             {
                 errorResult = "Unable to read segment";
@@ -1961,7 +1966,7 @@ void ModuleLoader::Perform()
         // everything in an unstable state.
         if (descr->relocations)
         {
-            if (fsetpos(loadFile, &descr->relocations) != 0)
+            if (fseek(loadFile, descr->relocations, SEEK_SET) != 0)
                 errorResult = "Unable to read relocation segment";
             for (unsigned k = 0; k < descr->relocationCount; k++)
             {
