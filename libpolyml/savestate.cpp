@@ -646,7 +646,7 @@ void SaveRequest::Perform()
     SavedStateHeader saveHeader;
     memset(&saveHeader, 0, sizeof(saveHeader));
     saveHeader.headerLength = sizeof(saveHeader);
-    strncpy(saveHeader.headerSignature,
+    memcpy(saveHeader.headerSignature,
         SAVEDSTATESIGNATURE, sizeof(saveHeader.headerSignature));
     saveHeader.headerVersion = SAVEDSTATEVERSION;
     saveHeader.segmentDescrLength = sizeof(SavedStateSegmentDescr);
@@ -1709,7 +1709,7 @@ void ModuleExport::exportStore(void)
     ModuleHeader modHeader;
     memset(&modHeader, 0, sizeof(modHeader));
     modHeader.headerLength = sizeof(modHeader);
-    strncpy(modHeader.headerSignature,
+    memcpy(modHeader.headerSignature,
         MODULESIGNATURE, sizeof(modHeader.headerSignature));
     modHeader.headerVersion = MODULEVERSION;
     modHeader.segmentDescrLength = sizeof(SavedStateSegmentDescr);
