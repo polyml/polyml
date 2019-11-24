@@ -158,9 +158,9 @@ private:
     BASE m_value;
 };
 
-#ifdef _WIN32
+#ifdef HAVE__FTELLI64
 // fseek and ftell are only 32-bits in Windows.
-#define off_t   _int64
+#define off_t   __int64
 #define fseek _fseeki64
 #define ftell _ftelli64
 #endif
