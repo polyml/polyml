@@ -361,6 +361,7 @@ AC_CHECK_DECLS([fpsetmask], [], [], [[#include <ieeefp.h>]])
 AC_CHECK_FUNCS([sysctl sysctlbyname])
 AC_CHECK_FUNCS([localtime_r gmtime_r])
 AC_CHECK_FUNCS([ctermid tcdrain])
+AC_CHECK_FUNCS([_ftelli64])
 
 # Where are the registers when we get a signal?  Used in time profiling.
 #Linux:

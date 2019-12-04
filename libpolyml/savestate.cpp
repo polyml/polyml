@@ -158,6 +158,13 @@ private:
     BASE m_value;
 };
 
+#ifdef HAVE__FTELLI64
+// fseek and ftell are only 32-bits in Windows.
+#define off_t   __int64
+#define fseek _fseeki64
+#define ftell _ftelli64
+#endif
+
 /*
  *  Structure definitions for the saved state files.
  */
@@ -639,7 +646,7 @@ void SaveRequest::Perform()
     SavedStateHeader saveHeader;
     memset(&saveHeader, 0, sizeof(saveHeader));
     saveHeader.headerLength = sizeof(saveHeader);
-    strncpy(saveHeader.headerSignature,
+    memcpy(saveHeader.headerSignature,
         SAVEDSTATESIGNATURE, sizeof(saveHeader.headerSignature));
     saveHeader.headerVersion = SAVEDSTATEVERSION;
     saveHeader.segmentDescrLength = sizeof(SavedStateSegmentDescr);
@@ -1702,7 +1709,7 @@ void ModuleExport::exportStore(void)
     ModuleHeader modHeader;
     memset(&modHeader, 0, sizeof(modHeader));
     modHeader.headerLength = sizeof(modHeader);
-    strncpy(modHeader.headerSignature,
+    memcpy(modHeader.headerSignature,
         MODULESIGNATURE, sizeof(modHeader.headerSignature));
     modHeader.headerVersion = MODULEVERSION;
     modHeader.segmentDescrLength = sizeof(SavedStateSegmentDescr);

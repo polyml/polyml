@@ -485,6 +485,9 @@
 /* Define to 1 if the system has the type `_Bool'. */
 #undef HAVE__BOOL
 
+/* Define to 1 if you have the `_ftelli64' function. */
+#define HAVE__FTELLI64 1
+
 /* These are commented out.  They may be defined in the project settings. */
 /* Define if the host is an ARM (64-bit) */
 /*#undef HOSTARCHITECTURE_AARCH64*/

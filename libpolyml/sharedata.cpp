@@ -43,6 +43,8 @@
 #include <string.h>
 #endif
 
+#include <vector>
+
 #include "globals.h"
 #include "save_vec.h"
 #include "machine_dep.h"
@@ -215,10 +217,7 @@ public:
     void AddToVector(POLYUNSIGNED depth, POLYUNSIGNED length, PolyObject *pt);
 
 private:
-    struct _depthVector {
-        DepthVector **vector;
-        POLYUNSIGNED vectorSize;
-    } depthVectorArray[FIXEDLENGTHSIZE];
+	std::vector<DepthVector*> depthVectorArray[FIXEDLENGTHSIZE];
 
     POLYUNSIGNED maxVectorSize;
 };
@@ -226,11 +225,6 @@ private:
 ShareDataClass::ShareDataClass()
 {
     maxVectorSize = 0;
-    for (unsigned i = 0; i < FIXEDLENGTHSIZE; i++)
-    {
-        depthVectorArray[i].vector = 0;
-        depthVectorArray[i].vectorSize = 0;
-    }
 }
 
 ShareDataClass::~ShareDataClass()
@@ -239,13 +233,12 @@ ShareDataClass::~ShareDataClass()
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
        (*i)->shareBitmap.Destroy();
 
-    // Free the depth vectors and vector of vectors.
+    // Free the depth vectors.
     for (unsigned i = 0; i < FIXEDLENGTHSIZE; i++)
     {
-        for (unsigned j = 0; j < depthVectorArray[i].vectorSize; j++)
-            delete(depthVectorArray[i].vector[j]);
-        free(depthVectorArray[i].vector);
-    }
+		for (std::vector <DepthVector*>::iterator j = depthVectorArray[i].begin(); j < depthVectorArray[i].end(); j++)
+			delete(*j);
+	}
 }
 
 // Grow the appropriate depth vector if necessary and add the item to it.
@@ -253,34 +246,23 @@ void ShareDataClass::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED length, PolyOb
 {
     // Select the appropriate vector.  Element zero is the variable length vector and is
     // also used for the, rare, zero length objects.
-    struct _depthVector *vectorToUse = &(depthVectorArray[length < FIXEDLENGTHSIZE ? length : 0]);
+    std::vector<DepthVector*> *vectorToUse = &(depthVectorArray[length < FIXEDLENGTHSIZE ? length : 0]);
 
     if (depth >= maxVectorSize) maxVectorSize = depth+1;
 
-    if (depth >= vectorToUse->vectorSize) {
-        POLYUNSIGNED newDepth = depth+1;
-        DepthVector **newVec = (DepthVector **)realloc(vectorToUse->vector, sizeof(DepthVector*)*newDepth);
-        if (newVec == 0) throw MemoryException();
-        vectorToUse->vector = newVec;
-        // Clear new entries first
-        for (POLYUNSIGNED d = vectorToUse->vectorSize; d < newDepth; d++)
-            vectorToUse->vector[d] = 0;
+	while (vectorToUse->size() <= depth)
+	{
+		try {
+			if (length != 0 && length < FIXEDLENGTHSIZE)
+				vectorToUse->push_back(new DepthVectorWithFixedLength(length));
+			else vectorToUse->push_back(new DepthVectorWithVariableLength);
+		}
+		catch (std::bad_alloc&) {
+			throw MemoryException();
+		}
+	}
 
-        for (POLYUNSIGNED d = vectorToUse->vectorSize; d < newDepth; d++)
-        {
-            try {
-                if (length != 0 && length < FIXEDLENGTHSIZE)
-                    vectorToUse->vector[d] = new DepthVectorWithFixedLength(length);
-                else vectorToUse->vector[d] = new DepthVectorWithVariableLength;
-            }
-            catch (std::bad_alloc &) {
-                throw MemoryException();
-            }
-        }
-        vectorToUse->vectorSize = newDepth;
-    }
-
-    vectorToUse->vector[depth]->AddToVector(length, pt);
+    (*vectorToUse)[depth]->AddToVector(length, pt);
 }
 
 // Add an object to a depth vector
@@ -976,9 +958,9 @@ bool ShareDataClass::RunShareData(PolyObject *root)
     {
         for (unsigned j = 0; j < FIXEDLENGTHSIZE; j++)
         {
-            if (depth < depthVectorArray[j].vectorSize)
+            if (depth < depthVectorArray[j].size())
             {
-                DepthVector *vec = depthVectorArray[j].vector[depth];
+                DepthVector *vec = depthVectorArray[j][depth];
                 // Set the length word and update all addresses.
                 vec->FixLengthAndAddresses(&fixup);
 
@@ -1029,9 +1011,9 @@ bool ShareDataClass::RunShareData(PolyObject *root)
        (mutables and code). */
     for (unsigned j = 0; j < FIXEDLENGTHSIZE; j++)
     {
-        if (depthVectorArray[j].vectorSize > 0)
+        if (! depthVectorArray[j].empty())
         {
-            DepthVector *v = depthVectorArray[j].vector[0];
+            DepthVector *v = depthVectorArray[j][0];
             // Log this because it could be very large.
             if (debugOptions & DEBUG_SHARING)
                 Log("Sharing: Level %4" POLYUFMT ", size %3u, Objects %6" POLYUFMT "\n", 0ul, j, v->ItemCount());
@@ -1047,9 +1029,9 @@ bool ShareDataClass::RunShareData(PolyObject *root)
     {
         for (unsigned j = 0; j < FIXEDLENGTHSIZE; j++)
         {
-            if (d < depthVectorArray[j].vectorSize)
+            if (d < depthVectorArray[j].size())
             {
-                DepthVector *v = depthVectorArray[j].vector[d];
+                DepthVector *v = depthVectorArray[j][d];
                 v->RestoreForwardingPointers();
             }
         }
