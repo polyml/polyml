@@ -1105,7 +1105,7 @@ struct
                (resultCode, decArgs, EnvSpecNone)
             end
 
-        |   (WordLogical logop, arg1, arg2 as Constnt(v2, _)) =>
+        |   (WordLogical logop, arg1, Constnt(v2, _)) =>
             (* Return the zero if we are anding with zero otherwise the original arg *)
             if isShort v2 andalso toShort v2 = 0w0
             then (case logop of LogicalAnd => CodeZero | _ => arg1, decArgs, EnvSpecNone)
