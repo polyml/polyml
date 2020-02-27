@@ -848,9 +848,11 @@ struct
 
         (* The definition of "exit" is obviously designed to allow
            OS.Process.exit to be defined in terms of it. In particular
-           it doesn't execute the functions registered with atExit. *)
+           it doesn't execute the functions registered with atExit.
+           This should use Terminate rather than Finish so that C atExit routines
+           aren't executed either. *)
         local
-            val doExit: Word8.word -> unit = RunCall.rtsCallFull1 "PolyFinish"
+            val doExit: Word8.word -> unit = RunCall.rtsCallFull1 "PolyTerminate"
         in
             fun exit w =
             (
