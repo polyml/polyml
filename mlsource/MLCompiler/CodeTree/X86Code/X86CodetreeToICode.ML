@@ -853,7 +853,7 @@ struct
                     in
                         (BlockSimple(LoadArgument{
                             source=StackLocation{wordOffset=finalOffset, container=container, field=offset, cache=NONE},
-                            dest=target, kind=movePolyWord}) :: tailCode,
+                            dest=target, kind=moveNativeWord}) :: tailCode,
                         RegisterArgument target, false)
                     end
                 |   _ =>   raise InternalError "codeToICodeRev-BICField"                      
