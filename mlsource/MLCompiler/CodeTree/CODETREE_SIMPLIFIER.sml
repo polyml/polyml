@@ -1574,7 +1574,10 @@ struct
 
     (* Process a SetContainer.  Unlike the other simpXXX functions this is called
        after the arguments have been processed.  We try to push the SetContainer
-       to the leaves of the expression. *)
+       to the leaves of the expression.  This is particularly important with tail-recursive
+       functions that return tuples.  Without this the function will lose tail-recursion
+       since each recursion will be followed by code to copy the result back to the
+       previous container. *)
     and simpPostSetContainer(container, Tuple{fields, ...}, RevList tupleDecs, filter) =
         let
             (* Apply the filter now. *)
@@ -1593,7 +1596,7 @@ struct
             fun checkFields(last, Extract(LoadLocal a) :: tl) =
                 (
                     case findOriginal a of
-                        SOME(Declar{value=Indirect{base=Extract ext, indKind=IndTuple, offset, ...}, ...}) =>
+                        SOME(Declar{value=Indirect{base=Extract ext, indKind=IndContainer, offset, ...}, ...}) =>
                         (
                             case last of
                                 NONE => checkFields(SOME(ext, [offset]), tl)
@@ -1619,7 +1622,7 @@ struct
             end
         in
             case checkFields(NONE, selected) of
-                SOME (ext, fields) =>
+                SOME (ext, fields) => (* It may be a container. *)
                     let
                         val filter = fieldsToFilter fields
                     in
@@ -1648,15 +1651,18 @@ struct
                                 case findContainer tupleDecs of
                                     SOME (setter, decs) =>
                                         (* Put in a binding for the inner container address so the
-                                           setter will set the outer container. *)
+                                           setter will set the outer container.
+                                           For this to work all loads from the stack must use native word length. *)
                                         mkEnv(List.rev(Declar{addr=localAddr, value=container, use=[]} :: decs), setter)
                                 |   NONE =>
                                         mkEnv(List.rev tupleDecs,
-                                                SetContainer{container=container, tuple = Extract ext, filter=filter})
+                                                SetContainer{container=container, tuple = mkTuple selected,
+                                                    filter=BoolVector.tabulate(List.length selected, fn _ => true)})
                             end
                         |   _ =>
                             mkEnv(List.rev tupleDecs,
-                                    SetContainer{container=container, tuple = Extract ext, filter=filter})
+                                    SetContainer{container=container, tuple = mkTuple selected,
+                                                    filter=BoolVector.tabulate(List.length selected, fn _ => true)})
                     end
 
             |   NONE =>
