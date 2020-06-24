@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Posix structure and signature.
-    Copyright   David Matthews 2000, 2016-17, 2019
+    Copyright   David Matthews 2000, 2016-17, 2019-2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1023,12 +1023,6 @@ struct
         in
             fun fdToWord (f: file_desc) = SysWord.fromInt(doIo(30, f, ()))
         end
-        local
-            val doIo: int*unit*int -> file_desc = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
-        in
-            fun wordToFD(s: SysWord.word): file_desc =
-                doIo(31, (), SysWord.toInt s)
-        end
 
         (* file_desc and OS.IO.iodesc are the same. *)
         fun fdToIOD i = i
@@ -1048,10 +1042,16 @@ struct
         local
             val persistentFD: int -> file_desc = RunCall.rtsCallFull1 "PolyPosixCreatePersistentFD"
         in
-            val stdin  : file_desc = persistentFD 0
-            and stdout : file_desc = persistentFD 1
-            and stderr : file_desc = persistentFD 2
+            (* Use persistent file descriptors here.  i.e. don't reset them to "invalid" if they are
+               read into a new session.  We always want that for 0, 1 and 2 but it's not clear whether
+               that is correct for other file descriptors.  Since this is a low-level function
+               assume that the caller understands the issues. *)
+            val wordToFD = persistentFD o SysWord.toInt
         end
+
+        val stdin  = wordToFD 0w0 (* Must be persistent. *)
+        and stdout = wordToFD 0w1
+        and stderr = wordToFD 0w2
 
         structure S =
         struct
