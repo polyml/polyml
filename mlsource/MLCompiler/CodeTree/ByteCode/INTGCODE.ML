@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Further development copyright David C.J. Matthews 2016-18
+    Further development copyright David C.J. Matthews 2016-18,2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -497,6 +497,7 @@ struct
                 |   DoubleToFloat rnding => genDoubleToFloat(rnding, cvec)
                 |   RealToInt (PrecDouble, rnding) => genRealToInt(rnding, cvec)
                 |   RealToInt (PrecSingle, rnding) => genFloatToInt(rnding, cvec)
+                |   TouchAddress => resetStack(1, false, cvec) (* Discard this *)
             end
 
         |   BICBinary { oper, arg1, arg2 } =>
