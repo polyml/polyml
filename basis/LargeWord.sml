@@ -277,7 +277,7 @@ in
         fun fromInt(i: int): word =
             if Bootstrap.intIsArbitraryPrecision
             then fromLargeInt(LargeInt.fromInt i)
-            else Word.toLargeWord(Word.fromInt i)
+            else Word.toLargeWordX(Word.fromInt i)
 
         and toInt(w: word): int =
             if Bootstrap.intIsArbitraryPrecision
