@@ -1,6 +1,9 @@
 type indexname = string * int;
 (* Cut down version of a test that Makarius had already cut down.
    This produced a segfault. *)
+(* The problem turned out to be that there was a function that returned a pair
+   of tuples and only the first field of one of the tuples was used in the
+   non-recursive case but whole of the tuple was used in the recursive case. *)
 
 
 type class = string;
