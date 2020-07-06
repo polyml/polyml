@@ -989,7 +989,7 @@ struct
     in
         case (oper, genArg1, genArg2) of
             (WordComparison{test, isSigned}, Constnt(v1, _), Constnt(v2, _)) =>
-            if (case test of TestEqual => false | _ => not(isShort v1) orelse not(isShort v2))
+            if not(isShort v1) orelse not(isShort v2) (* E.g. arbitrary precision on unreachable path. *)
             then (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             else
             let
@@ -997,7 +997,7 @@ struct
                 val testResult =
                     case (test, isSigned) of
                         (* TestEqual can be applied to addresses. *)
-                        (TestEqual, _)              => RunCall.pointerEq(v1, v2)
+                        (TestEqual, _)              => toShort v1 = toShort v2
                     |   (TestLess, false)           => toShort v1 < toShort v2
                     |   (TestLessEqual, false)      => toShort v1 <= toShort v2
                     |   (TestGreater, false)        => toShort v1 > toShort v2
@@ -1010,6 +1010,12 @@ struct
             in
                 (if testResult then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
             end
+        
+        |   (PointerEq, Constnt(v1, _), Constnt(v2, _)) =>
+            (
+                reprocess := true;
+                (if RunCall.pointerEq(v1, v2) then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
+            )
 
         |   (FixedPrecisionArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
             if not(isShort v1) orelse not(isShort v2)

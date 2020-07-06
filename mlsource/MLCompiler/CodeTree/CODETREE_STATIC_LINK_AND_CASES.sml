@@ -506,7 +506,12 @@ struct
                 (* If we have a call to the int equality operation then we may be able to use
                    an indexed case.  N.B. This works equally for word values (unsigned) and
                    fixed precision int (unsigned) but is unsafe for arbitrary precision since
-                   the lower levels assume that all values are tagged. *)
+                   the lower levels assume that all values are tagged.
+                   This could be used for PointerEq which is what arbitrary precision will generate
+                   provided that there was an extra check for long values.  N.B. the same also
+                   happens for
+                   e.g. datatype t = A | B | C | D | E of int*int
+                   i.e. one non-nullary constructor. *)
                 fun findCase (BICBinary{oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1, arg2}) =
                 let
                 in

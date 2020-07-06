@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15-17 David C.J. Matthews
+    Copyright (c) 2012,13,15-17, 20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -419,15 +419,15 @@ struct
     in
         fun mkNot arg = Unary{oper=NotBoolean, arg1=arg}
         and mkIsShort arg = Unary{oper=IsTaggedValue, arg1=arg}
-        and mkEqualWord (arg1, arg2) =
+        and mkEqualTaggedWord (arg1, arg2) =
             Binary{oper=eqWord, arg1=arg1, arg2=arg2}
-        val equalWordFn = (* This takes two words, not a tuple. *)
+        and mkEqualPointerOrWord (arg1, arg2) =
+            Binary{oper=PointerEq, arg1=arg1, arg2=arg2}
+        val equalTaggedWordFn = (* This takes two words, not a tuple. *)
             mkInlproc(mkBinary(eqWord, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualWord()", [], 0)
+        and equalPointerOrWordFn = (* This takes two words, not a tuple. *)
+            mkInlproc(mkBinary(PointerEq, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualWord()", [], 0)
     end
-    
-    (* Equality for arbitrary precision if at least one of the arguments is known to be short. *)
-    fun mkEqualArbShort (arg1, arg2) =
-        Arbitrary { oper=ArbCompare BuiltIns.TestEqual, shortCond=Constnt(toMachineWord 1, []), arg1=arg1, arg2=arg2, longCall=CodeZero}
 
     fun mkLoadOperation(oper, base, index) =
         LoadOperation{kind=oper, address={base=base, index=SOME index, offset=0w0}}
