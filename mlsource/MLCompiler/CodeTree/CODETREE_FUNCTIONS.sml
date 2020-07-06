@@ -455,7 +455,9 @@ struct
                dependencies in the reverse order i.e. if X depends on Y but not the other
                way round then X will appear before Y in the list.  We need to reverse
                it so that X goes after Y. *)
-            fun rebuild (multiple, tl) = RecDecs multiple :: tl
+            fun rebuild ([{lambda, addr, use}], tl) =
+                   Declar{addr=addr, use=use, value=Lambda lambda} :: tl
+            |   rebuild (multiple, tl) = RecDecs multiple :: tl
         in
             List.foldl rebuild [] processed
         end
