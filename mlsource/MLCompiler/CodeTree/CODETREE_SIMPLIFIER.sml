@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2016-17 David C.J. Matthews
+    Copyright (c) 2013, 2016-17, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -590,7 +590,7 @@ struct
                 val rlist = ListPair.map processFunction (orderedDecs, addresses)
             in
                 (* and put these declarations onto the list. *)
-                copyDecs(vs, RevList(List.rev(partitionMutableBindings(RecDecs rlist)) @ decs))
+                copyDecs(vs, RevList(List.rev(partitionMutualBindings(RecDecs rlist)) @ decs))
             end
 
         |   copyDecs (Container{addr, size, setter, ...} :: vs, RevList decs) =
