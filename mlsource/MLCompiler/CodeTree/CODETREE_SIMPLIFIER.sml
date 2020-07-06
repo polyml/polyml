@@ -631,9 +631,11 @@ struct
 
                 |   _ =>
                     let
-                        val dec = Container{addr=decAddr, use=[], size=size, setter=setGen}
+                        (* The setDecs could refer the container itself if we've optimised this with
+                           simpPostSetContainer so we must include them within the setter and not lift them out. *)
+                        val dec = Container{addr=decAddr, use=[], size=size, setter=mkEnv(List.rev setDecs, setGen)}
                     in
-                        copyDecs(vs, RevList(dec :: setDecs @ decs))
+                        copyDecs(vs, RevList(dec :: decs))
                     end
             end
     in
