@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012-13, 2015-17 David C.J. Matthews
+    Copyright (c) 2012-13, 2015-17, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -194,17 +194,15 @@ struct
                 let
                     val insArg1 = insert arg1 and insArg2 = insert arg2
                     and insCall = insert longCall and insShort = insert shortCond
-                    (* We have to rewrite this. *)
-                    (* if isShort i andalso isShort j then toShort i < toShort j else callComp(i, j) < 0 *)
+                    (* We have to rewrite this.
+                       e.g. if isShort i andalso isShort j then toShort i < toShort j else callComp(i, j) < 0
+                       This isn't done at the higher level because we'd like to recognise cases of
+                       comparisons with short constants *)
                     fun fixedComp(arg1, arg2) =
                         BICBinary { oper = BuiltIns.WordComparison{test=test, isSigned=true}, arg1 = arg1, arg2 = arg2 }
                     val zeroFalse = BICConstnt(toMachineWord 0, [])
                 in
-                    BICCond(
-                        insShort,
-                        fixedComp(insArg1, insArg2),
-                        fixedComp(insCall, zeroFalse)
-                    )
+                    BICCond(insShort, fixedComp(insArg1, insArg2), insCall)
                 end
 
             |   insert(Arbitrary { oper=ArbArith arith, shortCond, arg1, arg2, longCall}) =

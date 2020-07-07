@@ -557,18 +557,37 @@ struct
     val mkSetContainer =
         fn (container, tuple, size) => mkSetContainer(container, tuple, BoolVector.tabulate(size, fn _ => true))
 
-    (* An arbitrary precision operation takes a tuple consisting of a pair of arguments and
+    (* We don't generate the +, -, < etc operations directly here.  Instead we create functions
+       that the basis library can use to create the final versions by applying these functions
+       to the arguments and an RTS function.  The inline expansion system takes care of all the
+       optimisation. 
+       An arbitrary precision operation takes a tuple consisting of a pair of arguments and
        a function.  The code that is constructed checks both arguments to see if they are
        short.  If they are not or the short precision operation overflows the code to
        call the function is executed. *)
-    fun mkArbitraryFn oper =
-        mkInlproc(
-            Arbitrary{oper=oper,
-                shortCond=mkCand(mkIsShort(mkInd(0, mkLoadArgument 0)), mkIsShort(mkInd(1, mkLoadArgument 0))),
-                arg1=mkInd(0, mkLoadArgument 0), arg2=mkInd(1, mkLoadArgument 0),
-                    longCall= mkEval(mkInd(2, mkLoadArgument 0), [mkTuple[mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)]])},
-            1, "Arbitrary" ^ (case oper of ArbCompare test => BuiltIns.testRepr test | ArbArith arith => BuiltIns.arithRepr arith) ^ "()", [], 0)
+    local
+        val argX = mkInd(0, mkLoadArgument 0) and argY = mkInd(1, mkLoadArgument 0)
+        val testShort = mkCand(mkIsShort argX, mkIsShort argY)
+        val longCall = mkEval(mkInd(2, mkLoadArgument 0), [mkTuple[argX, argY]])
+    in
 
+        fun mkArbitraryFn (oper as ArbArith arith) =
+            mkInlproc(
+                Arbitrary{oper=oper, shortCond=testShort, arg1=argX, arg2=argY, longCall=longCall },
+                1, "Arbitrary" ^  BuiltIns.arithRepr arith ^ "()", [], 0)
+
+        |   mkArbitraryFn (oper as ArbCompare test) =
+            (* The long function here is PolyCompareArbitrary which returns -1,0,+1 so the
+               result has to be compared with zero. *)
+            let
+                val comparedResult =
+                    Binary{oper=BuiltIns.WordComparison{test=test, isSigned=true}, arg1=longCall, arg2=CodeZero}
+            in
+                mkInlproc(
+                    Arbitrary{oper=oper, shortCond=testShort, arg1=argX, arg2=argY, longCall=comparedResult },
+                    1, "Arbitrary" ^ BuiltIns.testRepr test ^ "()", [], 0)
+            end
+    end
 
     structure Foreign = BACKEND.Foreign
 

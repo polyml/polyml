@@ -1131,25 +1131,9 @@ struct
 
     (* Arbitrary precision operations.  This is a sort of mixture of a built-in and a conditional. *)
     and simpArbitraryCompare(TestEqual, shortCond, arg1, arg2, longCall, context, tailDecs) =
-            (* Equality is a special case and is only there to ensure that it is not accidentally converted into
-               an indexed case further down.  We must leave it as it is. *)
-        let
-            val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
-            val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
-            val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
-        in
-            case (genArg1, genArg2) of
-                (Constnt(v1, _), Constnt(v2, _)) =>
-                let
-                    val a1: LargeInt.int = RunCall.unsafeCast v1
-                    and a2: LargeInt.int = RunCall.unsafeCast v2
-                in
-                    (if a1 = a2 then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
-                end
-            |   _ =>   
-                (Arbitrary{oper=ArbCompare TestEqual, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)},
-                        decArgs, EnvSpecNone)
-        end
+        (* We no longer generate this for equality.  General equality for arbitrary precision
+           uses a combination of PointerEq and byte comparison. *)
+            raise InternalError "simpArbitraryCompare: TestEqual"
 
     |   simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context as {reprocess, ...}, tailDecs) =
     let
@@ -1179,13 +1163,16 @@ struct
             end
 
         |   (Constnt(c1, _),  _, _) =>
+            (* The condition is "isShort X andalso isShort Y".  This will have been reduced
+               to a constant false or true if either (a) either argument is long or
+               (b) both arguments are short.*)
                 if isShort c1 andalso toShort c1 = 0w0
                 then (* One argument is definitely long - generate the long form. *)
-                    (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=simplify(longCall, context), arg2=CodeZero},
-                        decArgs, EnvSpecNone)
+                    (simplify(longCall, context), decArgs, EnvSpecNone)
                 else (* Both arguments are short.  That should mean they're constants. *)
                     (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
                          before reprocess := true
+
         |   (_, genArg1, cArg2 as Constnt _) =>
             let (* The constant must be short otherwise the test would be false. *)
                 val isNeg =
