@@ -327,6 +327,10 @@ struct
                             else moveEachValue(rest,
                                     llLoadArgument({source=sourceToX86Code src, dest=reg, kind=if isFPReg reg then MoveDouble else moveNativeWord}, code))
 
+                    |   moveEachValue ([{dst=RegDest reg, src as StackSource _}] :: rest, code) =
+                            (* If loading from the stack always use native word.  The value could be a stack address. *)
+                            moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=moveNativeWord}, code))
+
                     |   moveEachValue ([{dst=RegDest reg, src}] :: rest, code) =
                             (* Load from store or a constant.  Have to use movePolyWord if it's an address constant. *)
                             moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=movePolyWord}, code))
@@ -726,6 +730,9 @@ struct
                        32-in-64 changes.  *)
                 |   StackLocation{cache=SOME(PReg sreg), ...} =>
                         moveIfNecessary({src=getAllocatedReg sreg, dst=realDestReg, kind=kind}, code)
+
+                |   source as StackLocation _ => (* Always use native loads from the stack. *)
+                        llLoadArgument({source=codeExtArgument source, dest=realDestReg, kind=moveNativeWord}, code)
 
                 |   source => (* Loads of constants or from an address. *)
                         llLoadArgument({source=codeExtArgument source, dest=realDestReg, kind=kind}, code)

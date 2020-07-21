@@ -8,7 +8,6 @@
 	<source name="basis\ASN1.sml" />
 	<source name="basis\BasicStreamIO.sml" />
 	<source name="basis\BinIO.sml" />
-	<source name="basis\BinPrimIO.sml" />
 	<source name="basis\BIT_FLAGS.sml" />
 	<source name="basis\Bool.sml" />
 	<source name="basis\BoolArray.sml" />
@@ -75,7 +74,6 @@
 	<source name="basis\StringSignatures.sml" />
 	<source name="basis\Text.sml" />
 	<source name="basis\TextIO.sml" />
-	<source name="basis\TextPrimIO.sml" />
 	<source name="basis\Thread.sml" />
 	<source name="basis\Time.sml" />
 	<source name="basis\Timer.sml" />

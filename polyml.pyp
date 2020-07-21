@@ -236,5 +236,5 @@
 	<source name="modules\IntInfAsInt\StringChar.sml" />
 	<source name="modules\IntInfAsInt\Word.sml" />
 	<source name="modules\IntInfAsInt\Word64.sml" />
-	<source name="Root.ML" root="true" />
+	<source name="RootX86.ML" root="true" />
 </polyproject>

@@ -55,7 +55,6 @@
 #include <mach-o/loader.h>
 #include <mach-o/reloc.h>
 #include <mach-o/nlist.h>
-#include <mach-o/ppc/reloc.h>
 #include <mach-o/x86_64/reloc.h>
 
 #ifdef HAVE_STRING_H

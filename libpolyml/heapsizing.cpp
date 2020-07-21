@@ -335,7 +335,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
         // compute the paging contribution in the cost function.
         double scaleFactor = 1.0 + log((double)majorGCPageFaults / PAGINGCOUNTFACTOR) / PAGINGCOSTSTEEPNESS;
         ASSERT(scaleFactor > 0.0);
-        POLYUNSIGNED newLimit = (POLYUNSIGNED)((double)heapSpace / scaleFactor);
+        uintptr_t newLimit = (uintptr_t)((double)heapSpace / scaleFactor);
         if (pagingLimitSize == 0)
             pagingLimitSize = newLimit;
         else 
@@ -454,15 +454,16 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
 bool HeapSizeParameters::AdjustSizeAfterMinorGC(uintptr_t spaceAfterGC, uintptr_t spaceBeforeGC)
 {
     uintptr_t spaceCopiedOut = spaceAfterGC-spaceBeforeGC;
-    TIMEDATA gc, total;
+    TIMEDATA gc, nonGC;
     minorGCsSinceMajor++;
-    // The major costs are cumulative so we use those
-    gc.add(majorGCSystemCPU);
-    gc.add(majorGCUserCPU);
-    total.add(gc);
-    total.add(majorNonGCSystemCPU);
-    total.add(majorNonGCUserCPU);
-    float g = gc.toSeconds() / total.toSeconds();
+    // Work out the ratio of GC to non-GC time since the last major GC. We can only adjust the heap size
+    // at a major GC.  If we're now spending too much time in minor GCs we may need a major GC to adjust
+    // the size.
+    gc.add(minorGCSystemCPU);
+    gc.add(minorGCUserCPU);
+    nonGC.add(minorNonGCSystemCPU);
+    nonGC.add(minorNonGCUserCPU);
+    float g = gc.toSeconds() / nonGC.toSeconds();
 
     if (debugOptions & DEBUG_HEAPSIZE)
     {
@@ -537,7 +538,7 @@ double HeapSizeParameters::costFunction(uintptr_t heapSize, bool withSharing, bo
         return 1.0E6;
     // If we run the sharing pass the live space will be smaller.
     if (withSharing)
-        spaceUsed -= (POLYUNSIGNED)((double)currentSpaceUsed * sharingRecoveryRate);
+        spaceUsed -= (uintptr_t)((double)currentSpaceUsed * sharingRecoveryRate);
     uintptr_t estimatedFree = heapSize - spaceUsed;
     // The cost scales as the inverse of the amount of free space.
     double result = lastMajorGCRatio * (double)averageFree / (double)estimatedFree;
@@ -966,7 +967,7 @@ static size_t GetPhysicalMemorySize(void)
             if (physMem > (uint64_t)maxMem)
                 return maxMem;
             else
-                return (POLYUNSIGNED)physMem;
+                return (size_t)physMem;
         }
     }
 #endif

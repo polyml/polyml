@@ -734,7 +734,7 @@ Handle Statistics::getRemoteStatistics(TaskData *taskData, POLYUNSIGNED pid)
     remMapFd = open(remMapFileName, O_RDONLY);
     if (remMapFd == -1)
         raise_exception_string(taskData, EXC_Fail, "No statistics available");
-    unsigned char *sMem = (unsigned char*)mmap(0, memSize, PROT_READ, MAP_PRIVATE, remMapFd, 0);
+    unsigned char *sMem = (unsigned char*)mmap(0, remMapSize, PROT_READ, MAP_PRIVATE, remMapFd, 0);
     if (sMem == MAP_FAILED)
     {
         close(remMapFd);
@@ -743,12 +743,12 @@ Handle Statistics::getRemoteStatistics(TaskData *taskData, POLYUNSIGNED pid)
     // Check the tag.
     if (*sMem != POLY_STATS_C_STATISTICS)
     {
-        munmap(sMem, memSize);
+        munmap(sMem, remMapSize);
         close(remMapFd);
         raise_exception_string(taskData, EXC_Fail, "Statistics data malformed");
     }
     Handle result = returnStatistics(taskData, sMem);
-    munmap(sMem, memSize);
+    munmap(sMem, remMapSize);
     close(remMapFd);
     return result;
 #else

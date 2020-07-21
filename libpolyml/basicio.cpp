@@ -1,7 +1,7 @@
 /*
     Title:      Basic IO.
 
-    Copyright (c) 2000, 2015-2019 David C. J. Matthews
+    Copyright (c) 2000, 2015-2020 David C. J. Matthews
 
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
@@ -868,7 +868,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
             return Make_fixed_precision(taskData, fd);
         }
 
-    case 31: /* Make an entry for a given descriptor. */
+    case 31: /* Make an entry for a given descriptor.  No longer used - previously used for Posix.FileSys.wordToFD. */
         {
             int ioDesc = get_C_int(taskData, DEREFWORD(args));
             return wrapFileDescriptor(taskData, ioDesc);
