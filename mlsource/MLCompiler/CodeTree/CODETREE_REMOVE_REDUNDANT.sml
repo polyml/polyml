@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13, 17 David C.J. Matthews
+    Copyright (c) 2012,13, 17, 20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -82,30 +82,42 @@ struct
                example they could be passed into an argument function which may require more fields.
                That in turn affects any functions whose results are used.  See Test138.ML.
                So, we check to see whether the result of recursive use has added anything to the
-               original usage and reprocess the body if it has. *)
+               original usage and reprocess the body if it has.
+               
+               This has been extended to a general recursive case since the original
+               single level case had a bug.  See Test191.ML. *)
             val recursiveResults = resultOfApps recursiveApps
-            val needReprocess =
-                if null recursiveApps orelse
-                    List.exists(fn UseGeneral => true | UseExport => true | _ => false) bodyUse
-                then NONE (* Not recursive or already general or export *)
-                else if List.all(fn UseField _ => true | _ => false) bodyUse andalso
-                            List.all(fn UseField _ => true | _ => false) recursiveResults
-                then (* All the entries are UseField - has the recursion added something new? *)
-                    if List.foldl
-                        (fn (UseField(n, _), false) =>
-                            List.all
-                                (fn UseField(m, _) => m <> n | _ => raise InternalError "not UseField")
-                                bodyUse (* false if it's already there *)
-                          | (_, true) => true
-                          | _ => raise InternalError "not UseField")
-                        false recursiveResults
-                then SOME recursiveApps
-                else NONE
-                else SOME [UseGeneral] (* If there's anything else reprocess it with UseGeneral *)
+            
+            datatype canonical = CExp | CGen | CApp of canonical | CFields of (int * canonical) list
+            
+            fun tocanon UseExport = CExp
+            |   tocanon UseGeneral = CGen
+            |   tocanon (UseApply(apps, _)) = CApp(tocanonical apps)
+            |   tocanon (UseField(i, uses)) = CFields[(i, tocanonical uses)]
+
+            and mergecanon(CExp, _) = CExp
+            |   mergecanon(_, CExp) = CExp
+            |   mergecanon(CGen, _) = CGen
+            |   mergecanon(_, CGen) = CGen
+            |   mergecanon(CFields a, CFields b) = CFields(mergefield(a, b))
+            |   mergecanon(CApp a, CApp b) = CApp(mergecanon(a, b))
+            |   mergecanon _ = CGen
+
+            and mergefield(l1 as ((f1 as (i1, u1)) :: tl1), l2 as (f2 as (i2, u2)) ::tl2) =
+                if i1 < i2 then f1 :: mergefield(tl1, l2)
+                else if i1 > i2 then f2 :: mergefield(l1, tl2)
+                else (i1, mergecanon(u1, u2)) :: mergefield(tl1, tl2)
+            |   mergefield([], l) = l
+            |   mergefield(l, []) = l
+            
+            and tocanonical [] = CGen
+            |   tocanonical (hd::tl) = List.foldl (fn (a, b) => mergecanon(tocanon a, b)) (tocanon hd) tl
+
         in
-            case needReprocess of
-                SOME reprocessWith => cleanLambda(lambda, lambdaUse @ reprocessWith)
-            |   NONE =>
+            if not (null recursiveResults) (* short cut *)
+                andalso tocanonical bodyUse <> tocanonical(recursiveResults @ bodyUse)
+            then cleanLambda(lambda, lambdaUse @ recursiveApps)
+            else
                 let
                     val newClosure = extractClosure closureUse
 
@@ -355,6 +367,7 @@ struct
                 end
         
             |   doClean _ _ = NONE (* Anything else *)
+            
         in
             (* If we recognise this as a special case we use the result otherwise
                we process it as a general value using UseGeneral as the usage. *)

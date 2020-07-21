@@ -110,8 +110,10 @@ static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
     {"ms_cdecl", FFI_MS_CDECL},
 #elif defined(X86_WIN64)
     {"win64", FFI_WIN64},
-#elif defined(X86_ANY)
+#elif defined(X86_64) || (defined (__x86_64__) && defined (X86_DARWIN))
     {"unix64", FFI_UNIX64},
+#elif defined(X86_ANY)
+    {"sysv", FFI_SYSV},
 #endif
     { "default", FFI_DEFAULT_ABI}
 };

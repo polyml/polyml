@@ -1377,7 +1377,7 @@ struct
         |   IndexedJumpCalc { addrReg, indexReg, jumpSize=ref jumpSize } =>
             (
                 stream "IndexedJumpCalc "; printGReg addrReg; stream " += "; printGReg indexReg;
-                print (case jumpSize of JumpSize2 => " * 2" | JumpSize8 => " * 8 ")
+                stream (case jumpSize of JumpSize2 => " * 2" | JumpSize8 => " * 8 ")
             )
         |   MoveXMMRegToGenReg { source, output } =>
             (

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,16,18,19 David C.J. Matthews
+    Copyright (c) 2012,13,16,18-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -448,21 +448,21 @@ struct
        other.  It's better to partition the recursive declarations into
        strongly connected components i.e. those that actually refer
        to each other.  *)
-    fun partitionMutableBindings(RecDecs rlist) =
+    fun partitionMutualBindings(RecDecs rlist) =
         let
             val processed = stronglyConnected rlist
             (* Convert the result.  Note that stronglyConnectedComponents returns the
                dependencies in the reverse order i.e. if X depends on Y but not the other
                way round then X will appear before Y in the list.  We need to reverse
                it so that X goes after Y. *)
-            fun rebuild ([], _) = raise InternalError "partitionMutableBindings" (* Should not happen *)
-            |   rebuild ([{addr, lambda, use}], tl) = Declar{addr=addr, use=use, value=Lambda lambda} :: tl
+            fun rebuild ([{lambda, addr, use}], tl) =
+                   Declar{addr=addr, use=use, value=Lambda lambda} :: tl
             |   rebuild (multiple, tl) = RecDecs multiple :: tl
         in
             List.foldl rebuild [] processed
         end
         (* This is only intended for RecDecs but it's simpler to handle all bindings. *)
-    |   partitionMutableBindings other = [other]
+    |   partitionMutualBindings other = [other]
 
 
     (* Functions to help in building a closure. *)
