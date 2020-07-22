@@ -28,6 +28,7 @@
 	<source name="basis\IEEEReal.sml" />
 	<source name="basis\IMPERATIVE_IO.sml" />
 	<source name="basis\ImperativeIO.sml" />
+	<source name="basis\INet6Sock.sml" />
 	<source name="basis\INetSock.sml" />
 	<source name="basis\InitialBasis.ML" />
 	<source name="basis\InitialPolyML.ML" />
@@ -47,7 +48,6 @@
 	<source name="basis\MONO_ARRAY_SLICE.sml" />
 	<source name="basis\MONO_VECTOR.sml" />
 	<source name="basis\MONO_VECTOR_SLICE.sml" />
-	<source name="basis\NetHostDB.sml" />
 	<source name="basis\NetProtDB.sml" />
 	<source name="basis\NetServDB.sml" />
 	<source name="basis\Option.sml" />
