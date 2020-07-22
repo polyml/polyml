@@ -153,12 +153,16 @@ if test "x$with_gmp" != "xno"; then
         ])
 fi
 
-# libffi - No longer used - just retain this for backwards compatibility.
+# libffi - No longer used in native code - just retain this for backwards compatibility.
 AC_ARG_WITH([system-libffi],
             [AS_HELP_STRING([--with-system-libffi],
               [use the version of libffi installed on your system rather than the version supplied with poly @<:@default=no@:>@])],
             [],
             [with_system_libffi=no])
+
+# But libffi is needed if we want FFI in the interpreted version.
+AC_CHECK_LIB([ffi], [ffi_prep_closure_loc])
+AC_CHECK_HEADERS([ffi.h])
 
 
 # Special configuration for Windows or Unix.
