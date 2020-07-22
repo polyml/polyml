@@ -814,7 +814,12 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFastRTS0:
             {
                 callFastRts0 doCall = *(callFastRts0*)(*sp++).AsObjPtr();
+                this->raiseException = false;
+                SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall();
+                LoadInterpreterState(pc, sp);
+                // If this raised an exception 
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -823,7 +828,12 @@ int IntTaskData::SwitchToPoly()
             {
                 callFastRts1 doCall = *(callFastRts1*)(*sp++).AsObjPtr();
                 intptr_t rtsArg1 = (*sp++).AsSigned();
+                this->raiseException = false;
+                SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1);
+                LoadInterpreterState(pc, sp);
+                // If this raised an exception 
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -833,7 +843,12 @@ int IntTaskData::SwitchToPoly()
                 callFastRts2 doCall = *(callFastRts2*)(*sp++).AsObjPtr();
                 intptr_t rtsArg2 = (*sp++).AsSigned(); // Pop off the args, last arg first.
                 intptr_t rtsArg1 = (*sp++).AsSigned();
+                this->raiseException = false;
+                SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2);
+                LoadInterpreterState(pc, sp);
+                // If this raised an exception 
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -844,7 +859,12 @@ int IntTaskData::SwitchToPoly()
                 intptr_t rtsArg3 = (*sp++).AsSigned(); // Pop off the args, last arg first.
                 intptr_t rtsArg2 = (*sp++).AsSigned();
                 intptr_t rtsArg1 = (*sp++).AsSigned();
+                this->raiseException = false;
+                SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3);
+                LoadInterpreterState(pc, sp);
+                // If this raised an exception 
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -856,7 +876,12 @@ int IntTaskData::SwitchToPoly()
                 intptr_t rtsArg3 = (*sp++).AsSigned();
                 intptr_t rtsArg2 = (*sp++).AsSigned();
                 intptr_t rtsArg1 = (*sp++).AsSigned();
+                this->raiseException = false;
+                SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4);
+                LoadInterpreterState(pc, sp);
+                // If this raised an exception 
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -869,7 +894,12 @@ int IntTaskData::SwitchToPoly()
                 intptr_t rtsArg3 = (*sp++).AsSigned();
                 intptr_t rtsArg2 = (*sp++).AsSigned();
                 intptr_t rtsArg1 = (*sp++).AsSigned();
+                this->raiseException = false;
+                SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4, rtsArg5);
+                LoadInterpreterState(pc, sp);
+                // If this raised an exception 
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -2148,6 +2178,25 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_allocCSpace:
+        {
+            // Allocate this on the C heap.
+            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp);
+            void* memory = malloc(length);
+            *sp = Make_sysword(this, (uintptr_t)memory)->Word();
+            break;
+        }
+
+        case INSTR_freeCSpace:
+        {
+            // Both the address and the size are passed as arguments.
+            PolyWord size = *sp++;
+            PolyWord addr = *sp;
+            free(*(void**)(addr.AsObjPtr()));
+            *sp = TAGGED(0);
+            break;
+        }
+
         default: Crash("Unknown instruction %x\n", pc[-1]);
 
         } /* switch */
@@ -2323,6 +2372,131 @@ bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
     return false;
 }
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId);
+}
+
+// FFI
+#if (defined(HAVE_LIBFFI) && defined(HAVE_LIBFFI_H))
+
+static struct _abiTable { const char* abiName; ffi_abi abiCode; } abiTable[] =
+{
+    // Unfortunately the ABI entries are enums rather than #defines so we
+    // can't test individual entries.
+    #ifdef X86_WIN32
+        {"sysv", FFI_SYSV},
+        {"stdcall", FFI_STDCALL},
+        {"thiscall", FFI_THISCALL},
+        {"fastcall", FFI_FASTCALL},
+        {"ms_cdecl", FFI_MS_CDECL},
+    #elif defined(X86_WIN64)
+        {"win64", FFI_WIN64},
+    #elif defined(X86_64) || (defined (__x86_64__) && defined (X86_DARWIN))
+        {"unix64", FFI_UNIX64},
+    #elif defined(X86_ANY)
+        {"sysv", FFI_SYSV},
+    #endif
+        { "default", FFI_DEFAULT_ABI}
+};
+
+// Table of constants returned by call 51
+static int constantTable[] =
+{
+    FFI_DEFAULT_ABI,    // Default ABI
+    FFI_TYPE_VOID,      // Type codes
+    FFI_TYPE_INT,
+    FFI_TYPE_FLOAT,
+    FFI_TYPE_DOUBLE,
+    FFI_TYPE_UINT8,
+    FFI_TYPE_SINT8,
+    FFI_TYPE_UINT16,
+    FFI_TYPE_SINT16,
+    FFI_TYPE_UINT32,
+    FFI_TYPE_SINT32,
+    FFI_TYPE_UINT64,
+    FFI_TYPE_SINT64,
+    FFI_TYPE_STRUCT,
+    FFI_TYPE_POINTER,
+    FFI_SIZEOF_ARG      // Minimum size for result space
+};
+
+// Table of predefined ffi types
+static ffi_type* ffiTypeTable[] =
+{
+    &ffi_type_void,
+    &ffi_type_uint8,
+    &ffi_type_sint8,
+    &ffi_type_uint16,
+    &ffi_type_sint16,
+    &ffi_type_uint32,
+    &ffi_type_sint32,
+    &ffi_type_uint64,
+    &ffi_type_sint64,
+    &ffi_type_float,
+    &ffi_type_double,
+    &ffi_type_pointer,
+    &ffi_type_uchar, // These are all aliases for the above
+    &ffi_type_schar,
+    &ffi_type_ushort,
+    &ffi_type_sshort,
+    &ffi_type_uint,
+    &ffi_type_sint,
+    &ffi_type_ulong,
+    &ffi_type_slong
+};
+
+static Handle mkAbitab(TaskData* taskData, void*, char* p);
+
+static Handle toSysWord(TaskData* taskData, void* p)
+{
+    return Make_sysword(taskData, (uintptr_t)p);
+}
+
+#else
+// Libffi is not present.
+
+// A basic table so that the Foreign structure will compile
+static struct _abiTable { const char* abiName; int abiCode; } abiTable[] =
+{
+        { "default", 0}
+};
+
+#endif
+
+// Construct an entry in the ABI table.
+static Handle mkAbitab(TaskData* taskData, void* arg, char* p)
+{
+    struct _abiTable* ab = (struct _abiTable*)p;
+    // Construct a pair of the string and the code
+    Handle name = taskData->saveVec.push(C_string_to_Poly(taskData, ab->abiName));
+    Handle code = Make_arbitrary_precision(taskData, ab->abiCode);
+    Handle result = alloc_and_save(taskData, 2);
+    result->WordP()->Set(0, name->Word());
+    result->WordP()->Set(1, code->Word());
+    return result;
+}
+
+// Get ABI list.  This is called once only before the basis library is built.
+POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = makeList(taskData, sizeof(abiTable) / sizeof(abiTable[0]),
+            (char*)abiTable, sizeof(abiTable[0]), 0, mkAbitab);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+
+}
 
 static Interpreter interpreterObject;
 
@@ -2331,5 +2505,6 @@ MachineDependent *machineDependent = &interpreterObject;
 // No machine-specific calls in the interpreter.
 struct _entrypts machineSpecificEPT[] =
 {
+    { "PolyInterpretedGetAbiList",           (polyRTSFunction)&PolyInterpretedGetAbiList },
     { NULL, NULL} // End of list.
 };

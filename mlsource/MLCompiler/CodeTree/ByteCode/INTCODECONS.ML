@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015-18 David C.J. Matthews
+    Copyright (c) 2015-18, 2020 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -174,7 +174,7 @@ struct
     and opcode_callFastRTS4      = 0wx87
     and opcode_callFastRTS5      = 0wx88
 
-    and opcode_callFullRTS0      = 0wx89
+    and opcode_callFullRTS0      = 0wx89 (* Legacy *)
     and opcode_callFullRTS1      = 0wx8a
     and opcode_callFullRTS2      = 0wx8b
     and opcode_callFullRTS3      = 0wx8c
@@ -289,6 +289,8 @@ struct
     and opcode_constAddr8        = 0wxfa
     and opcode_stackSize8        = 0wxfb
     and opcode_stackSize16       = 0wxfc
+    and opcode_allocCSpace       = 0wxfd
+    and opcode_freeCSpace        = 0wxfe
 
  
     local
@@ -521,6 +523,8 @@ struct
         val () = repUpdate(opcode_constAddr8,   "constAddr8")
         val () = repUpdate(opcode_stackSize8,   "stackSize8")
         val () = repUpdate(opcode_stackSize16,  "stackSize16")
+        val () = repUpdate(opcode_allocCSpace,  "allocCSpace")
+        val () = repUpdate(opcode_freeCSpace,   "freeCSpace")
     in
         fun repr n : string = Array.sub (repArray, Word8.toInt n);
     end;
@@ -1178,13 +1182,13 @@ struct
         |   genRTSCallFast(5, cvec) = genOpc (opcode_callFastRTS5, cvec)
         |   genRTSCallFast(_, _) = raise InternalError "genRTSFastCall"
 
-        fun genRTSCallFull(0, cvec) = genOpc (opcode_callFullRTS0, cvec)
+(*        fun genRTSCallFull(0, cvec) = genOpc (opcode_callFullRTS0, cvec)
         |   genRTSCallFull(1, cvec) = genOpc (opcode_callFullRTS1, cvec)
         |   genRTSCallFull(2, cvec) = genOpc (opcode_callFullRTS2, cvec)
         |   genRTSCallFull(3, cvec) = genOpc (opcode_callFullRTS3, cvec)
         |   genRTSCallFull(4, cvec) = genOpc (opcode_callFullRTS4, cvec)
         |   genRTSCallFull(5, cvec) = genOpc (opcode_callFullRTS5, cvec)
-        |   genRTSCallFull(_, _) = raise InternalError "genRTSCallFull"
+        |   genRTSCallFull(_, _) = raise InternalError "genRTSCallFull"*)
 
         fun genContainer (size, cvec) = genOpcWord(opcode_containerW, size, cvec)
         and genTupleFromContainer (size, cvec) = genOpcWord(opcode_tuple_containerW, size, cvec)
@@ -1431,6 +1435,8 @@ struct
     val opcode_blockEqualByte   = SimpleCode [opcode_blockEqualByte]
     val opcode_blockCompareByte = SimpleCode [opcode_blockCompareByte]
     val opcode_deleteHandler    = SimpleCode [opcode_deleteHandler]
+    val opcode_allocCSpace      = SimpleCode [opcode_allocCSpace]
+    val opcode_freeCSpace       = SimpleCode [opcode_freeCSpace]
 
     structure Sharing =
     struct

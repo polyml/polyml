@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-18 David C.J. Matthews
+    Copyright (c) 2016-18, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -134,6 +134,8 @@ sig
     val opcode_blockEqualByte: opcode
     val opcode_blockCompareByte: opcode
     val opcode_deleteHandler: opcode
+    val opcode_allocCSpace: opcode
+    val opcode_freeCSpace: opcode
 
     val codeCreate: string * Universal.universal list -> code  (* makes the initial segment. *)
 
@@ -161,7 +163,6 @@ sig
    and genFloatToInt:  IEEEReal.rounding_mode * code -> unit
 
    val genRTSCallFast:    int * code -> unit
-   val genRTSCallFull:    int * code -> unit
    val genRTSCallFastRealtoReal: code -> unit
    val genRTSCallFastRealRealtoReal: code -> unit
    val genRTSCallFastGeneraltoReal: code -> unit
