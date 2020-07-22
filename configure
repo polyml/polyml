@@ -19159,7 +19159,7 @@ fi
 
 fi
 
-# libffi - No longer used - just retain this for backwards compatibility.
+# libffi - No longer used in native code - just retain this for backwards compatibility.
 
 # Check whether --with-system-libffi was given.
 if test "${with_system_libffi+set}" = set; then :
@@ -19167,6 +19167,65 @@ if test "${with_system_libffi+set}" = set; then :
 else
   with_system_libffi=no
 fi
+
+
+# But libffi is needed if we want FFI in the interpreted version.
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for ffi_prep_closure_loc in -lffi" >&5
+$as_echo_n "checking for ffi_prep_closure_loc in -lffi... " >&6; }
+if ${ac_cv_lib_ffi_ffi_prep_closure_loc+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lffi  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char ffi_prep_closure_loc ();
+int
+main ()
+{
+return ffi_prep_closure_loc ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_ffi_ffi_prep_closure_loc=yes
+else
+  ac_cv_lib_ffi_ffi_prep_closure_loc=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ffi_ffi_prep_closure_loc" >&5
+$as_echo "$ac_cv_lib_ffi_ffi_prep_closure_loc" >&6; }
+if test "x$ac_cv_lib_ffi_ffi_prep_closure_loc" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBFFI 1
+_ACEOF
+
+  LIBS="-lffi $LIBS"
+
+fi
+
+for ac_header in ffi.h
+do :
+  ac_fn_c_check_header_mongrel "$LINENO" "ffi.h" "ac_cv_header_ffi_h" "$ac_includes_default"
+if test "x$ac_cv_header_ffi_h" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_FFI_H 1
+_ACEOF
+
+fi
+
+done
 
 
 
