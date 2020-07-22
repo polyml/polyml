@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-19 David C.J. Matthews
+    Copyright (c) 2016-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -398,7 +398,10 @@ struct
     local
         val getOSType: unit -> int = RunCall.rtsCallFast0 "PolyGetOSType"
     in
-        val abiList =
+        (* This actually a constant since each exported saved state has
+           a distinct ABI.  However for compatibility with the interpreted
+           version we make this a function. *)
+        fun abiList () =
             case getABI() of
                 X86_32 =>
                     [("sysv", FFI_SYSV), ("stdcall", FFI_STDCALL), ("ms_cdecl", FFI_MS_CDECL),

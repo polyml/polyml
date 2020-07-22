@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-19
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1100,7 +1100,8 @@ struct
         in
             val () = enterForeign("foreignCall", foreignCallEntry, foreignCallType)
             val () = enterForeign("buildCallBack", buildCallBackEntry, buildCallBackType)
-            val () = enterForeign("abiList", mkConst(toMachineWord CODETREE.Foreign.abiList), List (String ** abiType))
+            (* Apply the abiList function here.  The ABIs depend on the platform in the interpreted version. *)
+            val () = enterForeign("abiList", mkConst(toMachineWord(CODETREE.Foreign.abiList())), List (String ** abiType))
         end
 
         local

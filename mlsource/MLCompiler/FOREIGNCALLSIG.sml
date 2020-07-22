@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016, 2018-19 David C.J. Matthews
+    Copyright (c) 2016, 2018-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,7 +28,7 @@ sig
     val rtsCallFastFloatGeneraltoFloat: string * Universal.universal list -> Address.machineWord
     
     type abi and cType
-    val abiList: (string * abi) list
+    val abiList: unit -> (string * abi) list
     
     val foreignCall: abi * cType list * cType -> Address.machineWord
     val buildCallBack: abi * cType list * cType -> Address.machineWord
