@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,17 David C.J. Matthews
+    Copyright (c) 2012,13,17,20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -54,7 +54,7 @@ sig
     
     val earlyRtsCall: int -> bool
 
-    val partitionMutableBindings: codeBinding -> codeBinding list
+    val partitionMutualBindings: codeBinding -> codeBinding list
 
     type createClosure
     val makeClosure: unit -> createClosure

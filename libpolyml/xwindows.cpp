@@ -2576,6 +2576,8 @@ static XImage *GetXImage(TaskData *taskData, Display *d, PolyWord p)
   image.blue_mask        = get_C_ulong(taskData, I->visualBlueMask);
   
   if (ImageBytes(&image) != data->length) RaiseXWindows(taskData, "Bad image string length");
+
+  XInitImage(&image);
   
   return &image;
 }

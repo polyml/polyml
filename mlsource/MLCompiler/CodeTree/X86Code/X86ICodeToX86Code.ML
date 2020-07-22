@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -327,6 +327,10 @@ struct
                             else moveEachValue(rest,
                                     llLoadArgument({source=sourceToX86Code src, dest=reg, kind=if isFPReg reg then MoveDouble else moveNativeWord}, code))
 
+                    |   moveEachValue ([{dst=RegDest reg, src as StackSource _}] :: rest, code) =
+                            (* If loading from the stack always use native word.  The value could be a stack address. *)
+                            moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=moveNativeWord}, code))
+
                     |   moveEachValue ([{dst=RegDest reg, src}] :: rest, code) =
                             (* Load from store or a constant.  Have to use movePolyWord if it's an address constant. *)
                             moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=movePolyWord}, code))
@@ -649,6 +653,7 @@ struct
             |   instructionUses(X87RealToInt{source, ...}) = used source
             |   instructionUses(SSE2RealToInt{source, ...}) = argUses source
             |   instructionUses(SignExtend32To64{source, dest}) = if isUsed dest then argUses source else ()
+            |   instructionUses(TouchArgument{source}) = used source
 
             (* Depth-first scan. *)
             val visited = Array.array(numBlocks, false)
@@ -724,6 +729,9 @@ struct
                        32-in-64 changes.  *)
                 |   StackLocation{cache=SOME(PReg sreg), ...} =>
                         moveIfNecessary({src=getAllocatedReg sreg, dst=realDestReg, kind=kind}, code)
+
+                |   source as StackLocation _ => (* Always use native loads from the stack. *)
+                        llLoadArgument({source=codeExtArgument source, dest=realDestReg, kind=moveNativeWord}, code)
 
                 |   source => (* Loads of constants or from an address. *)
                         llLoadArgument({source=codeExtArgument source, dest=realDestReg, kind=kind}, code)
@@ -1651,6 +1659,8 @@ struct
             in
                 Move{moveSize=Move32X, source=opArg, destination=RegisterArg regResult } :: code
             end
+        
+        |   codeExtended _ ({instr=TouchArgument _, ...}, code) = code (* Don't need to do anything. *)
 
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 
         

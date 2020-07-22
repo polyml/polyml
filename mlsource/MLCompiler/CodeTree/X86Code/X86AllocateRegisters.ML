@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -787,7 +787,10 @@ struct
                 allocateRegister(destReg, NONE, generalRegisters);
                 allocateArgGeneral source
             )
-    
+
+        |   registerAllocate({instr=TouchArgument{source=PReg srcReg}, ...}) =
+                allocateRegister(srcReg, NONE, generalRegisters)
+
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)
 

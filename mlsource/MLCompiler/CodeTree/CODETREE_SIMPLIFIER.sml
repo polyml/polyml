@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2016-17 David C.J. Matthews
+    Copyright (c) 2013, 2016-17, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -590,7 +590,7 @@ struct
                 val rlist = ListPair.map processFunction (orderedDecs, addresses)
             in
                 (* and put these declarations onto the list. *)
-                copyDecs(vs, RevList(List.rev(partitionMutableBindings(RecDecs rlist)) @ decs))
+                copyDecs(vs, RevList(List.rev(partitionMutualBindings(RecDecs rlist)) @ decs))
             end
 
         |   copyDecs (Container{addr, size, setter, ...} :: vs, RevList decs) =
@@ -631,9 +631,11 @@ struct
 
                 |   _ =>
                     let
-                        val dec = Container{addr=decAddr, use=[], size=size, setter=setGen}
+                        (* The setDecs could refer the container itself if we've optimised this with
+                           simpPostSetContainer so we must include them within the setter and not lift them out. *)
+                        val dec = Container{addr=decAddr, use=[], size=size, setter=mkEnv(List.rev setDecs, setGen)}
                     in
-                        copyDecs(vs, RevList(dec :: setDecs @ decs))
+                        copyDecs(vs, RevList(dec :: decs))
                     end
             end
     in
@@ -1105,7 +1107,7 @@ struct
                (resultCode, decArgs, EnvSpecNone)
             end
 
-        |   (WordLogical logop, arg1, arg2 as Constnt(v2, _)) =>
+        |   (WordLogical logop, arg1, Constnt(v2, _)) =>
             (* Return the zero if we are anding with zero otherwise the original arg *)
             if isShort v2 andalso toShort v2 = 0w0
             then (case logop of LogicalAnd => CodeZero | _ => arg1, decArgs, EnvSpecNone)
@@ -1282,7 +1284,10 @@ struct
             val (newIndex, newOffset) =
                 case genIndex of
                     Constnt(indexOffset, _) =>
-                        if isShort indexOffset
+                        (* Convert small, positive offsets but leave large values as
+                           indexes.  We could have silly index values here which will
+                           never be executed because of a range check but should still compile. *)
+                        if isShort indexOffset andalso toShort indexOffset < 0w1000
                         then (NONE, offset + toShort indexOffset * multiplier)
                         else (SOME genIndex, offset)
                 |   _ => (SOME genIndex, offset)
@@ -1574,7 +1579,10 @@ struct
 
     (* Process a SetContainer.  Unlike the other simpXXX functions this is called
        after the arguments have been processed.  We try to push the SetContainer
-       to the leaves of the expression. *)
+       to the leaves of the expression.  This is particularly important with tail-recursive
+       functions that return tuples.  Without this the function will lose tail-recursion
+       since each recursion will be followed by code to copy the result back to the
+       previous container. *)
     and simpPostSetContainer(container, Tuple{fields, ...}, RevList tupleDecs, filter) =
         let
             (* Apply the filter now. *)
@@ -1593,7 +1601,7 @@ struct
             fun checkFields(last, Extract(LoadLocal a) :: tl) =
                 (
                     case findOriginal a of
-                        SOME(Declar{value=Indirect{base=Extract ext, indKind=IndTuple, offset, ...}, ...}) =>
+                        SOME(Declar{value=Indirect{base=Extract ext, indKind=IndContainer, offset, ...}, ...}) =>
                         (
                             case last of
                                 NONE => checkFields(SOME(ext, [offset]), tl)
@@ -1619,7 +1627,7 @@ struct
             end
         in
             case checkFields(NONE, selected) of
-                SOME (ext, fields) =>
+                SOME (ext, fields) => (* It may be a container. *)
                     let
                         val filter = fieldsToFilter fields
                     in
@@ -1648,15 +1656,18 @@ struct
                                 case findContainer tupleDecs of
                                     SOME (setter, decs) =>
                                         (* Put in a binding for the inner container address so the
-                                           setter will set the outer container. *)
+                                           setter will set the outer container.
+                                           For this to work all loads from the stack must use native word length. *)
                                         mkEnv(List.rev(Declar{addr=localAddr, value=container, use=[]} :: decs), setter)
                                 |   NONE =>
                                         mkEnv(List.rev tupleDecs,
-                                                SetContainer{container=container, tuple = Extract ext, filter=filter})
+                                                SetContainer{container=container, tuple = mkTuple selected,
+                                                    filter=BoolVector.tabulate(List.length selected, fn _ => true)})
                             end
                         |   _ =>
                             mkEnv(List.rev tupleDecs,
-                                    SetContainer{container=container, tuple = Extract ext, filter=filter})
+                                    SetContainer{container=container, tuple = mkTuple selected,
+                                                    filter=BoolVector.tabulate(List.length selected, fn _ => true)})
                     end
 
             |   NONE =>

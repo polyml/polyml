@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015, 2017 David C.J. Matthews
+    Copyright (c) 2013, 2015, 2017, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -114,7 +114,7 @@ struct
             (* First expand out any mutually-recursive bindings.  This ensures that if
                we have any RecDecs left *)
             val expandedBindings =
-                List.foldr (fn (d, l) => partitionMutableBindings d @ l) [] envBindings
+                List.foldr (fn (d, l) => partitionMutualBindings d @ l) [] envBindings
 
             fun processBindings(Declar{value, addr, use} :: tail) =
                 (

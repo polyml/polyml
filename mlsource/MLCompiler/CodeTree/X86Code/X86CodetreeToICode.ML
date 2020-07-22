@@ -853,7 +853,7 @@ struct
                     in
                         (BlockSimple(LoadArgument{
                             source=StackLocation{wordOffset=finalOffset, container=container, field=offset, cache=NONE},
-                            dest=target, kind=movePolyWord}) :: tailCode,
+                            dest=target, kind=moveNativeWord}) :: tailCode,
                         RegisterArgument target, false)
                     end
                 |   _ =>   raise InternalError "codeToICodeRev-BICField"                      
@@ -2094,6 +2094,16 @@ struct
                         [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=wrkReg2, operand2=IntegerConstant 1, ccRef = newCCRef(), opSize=polyWordOpSize})]
             in
                 (revApp(doConvert @ checkAndTag, tailCode), RegisterArgument target, false)
+            end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.TouchAddress, arg1}, context, _, destination, tailCode) =
+            let
+                (* Put the value in a register.  This is not entirely necessary but ensures that if the value is
+                   a constant the constant will be included in the code. *)
+                val (argCode, aReg) = codeToPRegRev(arg1, context, tailCode)
+            in
+                moveIfNotAllowedRev(destination, BlockSimple(TouchArgument{source=aReg}) :: argCode,
+                        (* Unit result *) IntegerConstant(tag 0))
             end
  
         and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =
@@ -3729,10 +3739,11 @@ struct
                         ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
                     end
                     else ([], baseReg)
+                val iOffset = Word.toInt offset handle Overflow => 0 (* See below: special case may not happen. *)
                 val memResult =
                     if wordSize = 0w8
-                    then {base=realBase, offset=Word.toInt offset-4, index=MemIndex4 indexReg, cache=NONE}
-                    else {base=realBase, offset=Word.toInt offset-2, index=MemIndex2 indexReg, cache=NONE}
+                    then {base=realBase, offset=iOffset-4, index=MemIndex4 indexReg, cache=NONE}
+                    else {base=realBase, offset=iOffset-2, index=MemIndex2 indexReg, cache=NONE}
             in
                 (codeLoadAddr @ codeIndex, [], memResult)
             end
@@ -3740,8 +3751,10 @@ struct
         |   codeAddressRev({base, index=NONE, offset}, _, context, tailCode) =
             let
                 val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
-                val memResult =
-                    {offset=Word.toInt offset, base=baseReg, index=memIndexOrObject, cache=NONE}
+                (* A negative value for "offset" will produce an overflow at compile time.  It should never be
+                   reached at run-time because of bounds checking.  See Test192. *)
+                val iOffset = Word.toInt offset handle Overflow => 0
+                val memResult = {offset=iOffset, base=baseReg, index=memIndexOrObject, cache=NONE}
             in
                 (codeBase, [], memResult)
             end
