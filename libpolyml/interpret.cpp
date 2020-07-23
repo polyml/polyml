@@ -2380,7 +2380,7 @@ extern "C" {
 }
 
 // FFI
-#if (defined(HAVE_LIBFFI) && defined(HAVE_FFI_H))
+#if (1) // (defined(HAVE_LIBFFI) && defined(HAVE_FFI_H))
 
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
@@ -2560,8 +2560,31 @@ POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAdd
     ffi_cif* cif = *(ffi_cif**)cifAddr.AsAddress();
     void* f = *(void**)cFunAddr.AsAddress();
     void* res = *(void**)resAddr.AsAddress();
-    void** arg = *(void***)argVec.AsAddress();
-    ffi_call(cif, FFI_FN(f), res, arg);
+    void* arg = *(void**)argVec.AsAddress();
+    // Poly passes the arguments as values, effectively a single struct.
+    // Libffi wants a vector of addresses.
+    void** argVector = (void**)calloc(cif->nargs + 1, sizeof(void*));
+    unsigned n = 0;
+    uintptr_t p = (uintptr_t)arg;
+    while (n < cif->nargs)
+    {
+        uintptr_t align = cif->arg_types[n]->alignment;
+        p = (p + align - 1) & (0-align);
+        argVector[n] = (void*)p;
+        p += cif->arg_types[n]->size;
+        n++;
+    }
+    // The result area we have provided is only as big as required.
+    // Libffi may need a larger area.
+    if (cif->rtype->size < FFI_SIZEOF_ARG)
+    {
+        char result[FFI_SIZEOF_ARG];
+        ffi_call(cif, FFI_FN(f), &result, argVector);
+        if (cif->rtype->type != FFI_TYPE_VOID)
+            memcpy(res, result, cif->rtype->size);
+    }
+    else ffi_call(cif, FFI_FN(f), res, argVector);
+    free(argVector);
     return TAGGED(0).AsUnsigned();
 }
 
