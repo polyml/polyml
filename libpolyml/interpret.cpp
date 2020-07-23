@@ -2190,7 +2190,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_freeCSpace:
         {
             // Both the address and the size are passed as arguments.
-            //PolyWord size = *sp++;
+            sp++; // Size
             PolyWord addr = *sp;
             free(*(void**)(addr.AsObjPtr()));
             *sp = TAGGED(0);
@@ -2433,7 +2433,8 @@ static ffi_type* decodeType(PolyWord pType)
         size_t size = typeSize.UnTaggedUnsigned();
         unsigned short align = (unsigned short)pType.AsObjPtr()->Get(1).UnTaggedUnsigned();
         unsigned nElems = 0;
-        for (PolyWord p = typeForm; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
+        PolyWord listStart = typeForm.AsObjPtr()->Get(0);
+        for (PolyWord p = listStart; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
             nElems++;
         size_t space = sizeof(ffi_type);
         // Add space for the elements plus one extra for the zero terminator.
@@ -2448,7 +2449,7 @@ static ffi_type* decodeType(PolyWord pType)
         result->elements = elem;
         if (elem != 0)
         {
-            for (PolyWord p = typeForm; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
+            for (PolyWord p = listStart; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
             {
                 PolyWord e = ((ML_Cons_Cell*)p.AsObjPtr())->h;
                 ffi_type* t = decodeType(e);
@@ -2457,6 +2458,7 @@ static ffi_type* decodeType(PolyWord pType)
             }
             *elem = 0; // Null terminator
         }
+        return result;
     }
     else
     {
