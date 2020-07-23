@@ -2375,10 +2375,12 @@ bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCreateCallback(FirstArgument threadId);
 }
 
 // FFI
-#if (defined(HAVE_LIBFFI) && defined(HAVE_LIBFFI_H))
+#if (defined(HAVE_LIBFFI) && defined(HAVE_FFI_H))
 
 #include <ffi.h>
 
@@ -2549,7 +2551,7 @@ POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue,
 }
 
 // Call a function.
-POLYUNSIGNED PolyInterpretedCallFunction(PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
+POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
 {
     ffi_cif* cif = *(ffi_cif**)cifAddr.AsAddress();
     void* f = *(void**)cFunAddr.AsAddress();
@@ -2559,7 +2561,7 @@ POLYUNSIGNED PolyInterpretedCallFunction(PolyWord cifAddr, PolyWord cFunAddr, Po
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyInterpretedCreateCallback()
+POLYUNSIGNED PolyInterpretedCreateCallback(FirstArgument threadId)
 {
     return TAGGED(0).AsUnsigned();
 }
@@ -2613,6 +2615,20 @@ POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId)
     taskData->PostRTSCall();
     if (result == 0) return TAGGED(0).AsUnsigned();
     else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    raise_exception_string(taskData, EXC_foreign, "Foreign function calling is not available.  Libffi is not installled.");
+    return TAGGED(0).AsUnsigned();
+}
+
+POLYUNSIGNED PolyInterpretedCreateCallback(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    raise_exception_string(taskData, EXC_foreign, "Foreign function calling is not available.  Libffi is not installled.");
+    return TAGGED(0).AsUnsigned();
 }
 
 static Interpreter interpreterObject;

@@ -1170,7 +1170,7 @@ struct
             val createCIF: abi * cType * cType list -> cif=
                 RunCall.rtsCallFull3 "PolyInterpretedCreateCIF"
             val callCFunction: cif * LargeWord.word * LargeWord.word * LargeWord.word -> unit =
-                RunCall.rtsCallFast4 "PolyInterpretedCallFunction"
+                RunCall.rtsCallFull4 "PolyInterpretedCallFunction"
             
             (* foreignCall returns a function that actually calls the foreign function. *)
             fun foreignCall(abi, argTypes, resultType) =
