@@ -2374,10 +2374,13 @@ bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes);
 }
 
 // FFI
 #if (defined(HAVE_LIBFFI) && defined(HAVE_LIBFFI_H))
+
+#include <ffi.h>
 
 static struct _abiTable { const char* abiName; ffi_abi abiCode; } abiTable[] =
 {
@@ -2399,57 +2402,166 @@ static struct _abiTable { const char* abiName; ffi_abi abiCode; } abiTable[] =
         { "default", FFI_DEFAULT_ABI}
 };
 
-// Table of constants returned by call 51
-static int constantTable[] =
-{
-    FFI_DEFAULT_ABI,    // Default ABI
-    FFI_TYPE_VOID,      // Type codes
-    FFI_TYPE_INT,
-    FFI_TYPE_FLOAT,
-    FFI_TYPE_DOUBLE,
-    FFI_TYPE_UINT8,
-    FFI_TYPE_SINT8,
-    FFI_TYPE_UINT16,
-    FFI_TYPE_SINT16,
-    FFI_TYPE_UINT32,
-    FFI_TYPE_SINT32,
-    FFI_TYPE_UINT64,
-    FFI_TYPE_SINT64,
-    FFI_TYPE_STRUCT,
-    FFI_TYPE_POINTER,
-    FFI_SIZEOF_ARG      // Minimum size for result space
-};
-
-// Table of predefined ffi types
-static ffi_type* ffiTypeTable[] =
-{
-    &ffi_type_void,
-    &ffi_type_uint8,
-    &ffi_type_sint8,
-    &ffi_type_uint16,
-    &ffi_type_sint16,
-    &ffi_type_uint32,
-    &ffi_type_sint32,
-    &ffi_type_uint64,
-    &ffi_type_sint64,
-    &ffi_type_float,
-    &ffi_type_double,
-    &ffi_type_pointer,
-    &ffi_type_uchar, // These are all aliases for the above
-    &ffi_type_schar,
-    &ffi_type_ushort,
-    &ffi_type_sshort,
-    &ffi_type_uint,
-    &ffi_type_sint,
-    &ffi_type_ulong,
-    &ffi_type_slong
-};
-
 static Handle mkAbitab(TaskData* taskData, void*, char* p);
 
 static Handle toSysWord(TaskData* taskData, void* p)
 {
     return Make_sysword(taskData, (uintptr_t)p);
+}
+
+// Convert the Poly type info into ffi_type values.
+/*
+    datatype cTypeForm =
+            CTypeFloatingPt | CTypePointer | CTypeSignedInt | CTypeUnsignedInt
+        |   CTypeStruct of cType list | CTypeVoid
+        withtype cType = { typeForm: cTypeForm, align: word, size: word }
+*/
+static ffi_type* decodeType(PolyWord pType)
+{
+    PolyWord typeForm = pType.AsObjPtr()->Get(2);
+    PolyWord typeSize = pType.AsObjPtr()->Get(0);
+
+    if (typeForm.IsDataPtr())
+    {
+        // Struct
+        size_t size = typeSize.UnTaggedUnsigned();
+        unsigned short align = (unsigned short)pType.AsObjPtr()->Get(1).UnTaggedUnsigned();
+        unsigned nElems = 0;
+        for (PolyWord p = typeForm; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
+            nElems++;
+        size_t space = sizeof(ffi_type);
+        // Add space for the elements plus one extra for the zero terminator.
+        space += (nElems + 1) * sizeof(ffi_type*);
+        ffi_type* result = (ffi_type*)calloc(1, space);
+        // Raise an exception rather than returning zero.
+        if (result == 0) return 0;
+        ffi_type** elem = (ffi_type**)(result + 1);
+        result->size = size;
+        result->alignment = align;
+        result->type = FFI_TYPE_STRUCT;
+        result->elements = elem;
+        if (elem != 0)
+        {
+            for (PolyWord p = typeForm; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
+            {
+                PolyWord e = ((ML_Cons_Cell*)p.AsObjPtr())->h;
+                ffi_type* t = decodeType(e);
+                if (t == 0) return 0;
+                *elem++ = t;
+            }
+            *elem = 0; // Null terminator
+        }
+    }
+    else
+    {
+        switch (typeForm.UnTaggedUnsigned())
+        {
+        case 0:
+        {
+            // Floating point
+            if (typeSize.UnTaggedUnsigned() == ffi_type_float.size)
+                return &ffi_type_float;
+            else if (typeSize.UnTaggedUnsigned() == ffi_type_double.size)
+                return &ffi_type_double;
+            ASSERT(0);
+        }
+        case 1: // FFI type poiner
+            return &ffi_type_pointer;
+        case 2: // Signed integer.
+        {
+            switch (typeSize.UnTaggedUnsigned())
+            {
+            case 1: return &ffi_type_sint8;
+            case 2: return &ffi_type_sint16;
+            case 4: return &ffi_type_sint32;
+            case 8: return &ffi_type_sint64;
+            default: ASSERT(0);
+            }
+        }
+        case 3: // Unsigned integer.
+        {
+            switch (typeSize.UnTaggedUnsigned())
+            {
+            case 1: return &ffi_type_uint8;
+            case 2: return &ffi_type_uint16;
+            case 4: return &ffi_type_uint32;
+            case 8: return &ffi_type_uint64;
+            default: ASSERT(0);
+            }
+        }
+        case 4: // Void
+            return &ffi_type_void;
+        }
+        ASSERT(0);
+    }
+    return 0;
+}
+
+// Create a CIF.  This contains all the types and some extra information.
+// The arguments are the raw ML values.  That does make this dependent on the
+// representations used by the compiler.
+// This mallocs space for the CIF and the types.  The space is never freed.
+// 
+POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+    ffi_abi abi = (ffi_abi)get_C_ushort(taskData, abiValue);
+
+    try {
+        unsigned nArgs = 0;
+        for (PolyWord p = argTypes; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
+            nArgs++;
+        // Allocate space for the cif followed by the argument type vector
+        size_t space = sizeof(ffi_cif) + nArgs * sizeof(ffi_type*);
+        ffi_cif* cif = (ffi_cif*)malloc(space);
+        if (cif == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        ffi_type* rtype = decodeType(resultType);
+        if (rtype == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        ffi_type** atypes = (ffi_type**)(cif + 1);
+        // Copy the arguments types.
+        ffi_type** at = atypes;
+        for (PolyWord p = argTypes; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
+        {
+            PolyWord e = ((ML_Cons_Cell*)p.AsObjPtr())->h;
+            ffi_type *atype = decodeType(e);
+            if (atype == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            *at++ = atype;
+        }
+        ffi_status status = ffi_prep_cif(cif, abi, nArgs, rtype, atypes);
+        if (status == FFI_BAD_TYPEDEF)
+            raise_exception_string(taskData, EXC_foreign, "Bad typedef in ffi_prep_cif");
+        else if (status == FFI_BAD_ABI)
+            raise_exception_string(taskData, EXC_foreign, "Bad ABI in ffi_prep_cif");
+        else if (status != FFI_OK)
+            raise_exception_string(taskData, EXC_foreign, "Error in ffi_prep_cif");
+        result = toSysWord(taskData, cif);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Call a function.
+POLYUNSIGNED PolyInterpretedCallFunction(PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
+{
+    ffi_cif* cif = *(ffi_cif**)cifAddr.AsAddress();
+    void* f = *(void**)cFunAddr.AsAddress();
+    void* res = *(void**)resAddr.AsAddress();
+    void** arg = *(void***)argVec.AsAddress();
+    ffi_call(cif, FFI_FN(f), res, arg);
+    return TAGGED(0).AsUnsigned();
+}
+
+POLYUNSIGNED PolyInterpretedCreateCallback()
+{
+    return TAGGED(0).AsUnsigned();
 }
 
 #else
@@ -2460,6 +2572,12 @@ static struct _abiTable { const char* abiName; int abiCode; } abiTable[] =
 {
         { "default", 0}
 };
+
+// Don't raise an exception at this point so we can build calls.
+POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes)
+{
+    return TAGGED(0).AsUnsigned();
+}
 
 #endif
 
@@ -2495,7 +2613,6 @@ POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId)
     taskData->PostRTSCall();
     if (result == 0) return TAGGED(0).AsUnsigned();
     else return result->Word().AsUnsigned();
-
 }
 
 static Interpreter interpreterObject;
@@ -2506,5 +2623,8 @@ MachineDependent *machineDependent = &interpreterObject;
 struct _entrypts machineSpecificEPT[] =
 {
     { "PolyInterpretedGetAbiList",           (polyRTSFunction)&PolyInterpretedGetAbiList },
+    { "PolyInterpretedCreateCIF",            (polyRTSFunction)&PolyInterpretedCreateCIF },
+    { "PolyInterpretedCallFunction",         (polyRTSFunction)&PolyInterpretedCallFunction },
+    { "PolyInterpretedCreateCallback",       (polyRTSFunction)&PolyInterpretedCreateCallback },
     { NULL, NULL} // End of list.
 };

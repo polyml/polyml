@@ -1165,14 +1165,37 @@ struct
 
             val abiList: unit -> (string * abi) list =
                 RunCall.rtsCallFull0 "PolyInterpretedGetAbiList"
+
+            type cif = LargeWord.word
+            val createCIF: abi * cType * cType list -> cif=
+                RunCall.rtsCallFull3 "PolyInterpretedCreateCIF"
+            val callCFunction: cif * LargeWord.word * LargeWord.word * LargeWord.word -> unit =
+                RunCall.rtsCallFast4 "PolyInterpretedCallFunction"
             
             (* foreignCall returns a function that actually calls the foreign function. *)
             fun foreignCall(abi, argTypes, resultType) =
             let
-                fun callFFI(fnAddr: LargeWord.word, argVec: LargeWord.word, resMem: LargeWord.word): unit =
-                    raise Foreign.Foreign "foreignCall not implemented"
+                val cif = createCIF(abi, resultType, argTypes)
+                val closure = makeConstantClosure()
+                (* For compatibility with the native code version we have to
+                   construct a function that takes three arguments rather than
+                   a single triple. *)
+                val bodyCode =
+                    BICEval{function=BICConstnt(toMachineWord callCFunction, []),
+                        argList=[
+                            (BICTuple[
+                                BICConstnt(toMachineWord cif, []),
+                                BICExtract(BICLoadArgument 0),
+                                BICExtract(BICLoadArgument 2),
+                                BICExtract(BICLoadArgument 1)], GeneralType)
+                        ],
+                        resultType=GeneralType}
+                val lambdaCode =
+                { body = bodyCode, name = "foreignCall", closure=[], argTypes=[GeneralType, GeneralType, GeneralType],
+                  resultType = GeneralType, localCount=0, heapClosure=false}
+                val () = gencodeLambda(lambdaCode, [], closure)
             in
-                Address.toMachineWord callFFI
+                closureAsAddress closure
             end
             
             fun buildCallBack(abi, argTypes, resultType) =
