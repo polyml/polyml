@@ -28,6 +28,8 @@ infix  0  before
 structure RunCall =
 struct
     open RunCall
+    (* This is included in 5.8.2 but not 5.8.1.  It's needed for the interpreter. *)
+    fun rtsCallFull4 _ _ = raise Fail "rtsCallFull4 not implemented"
 end;
 
 (* Types and values from the initial Bool structure. *)
