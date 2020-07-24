@@ -148,6 +148,7 @@ struct
                     |   RealComparison _ => applicative
                         (* Real arithmetic operations depend on the current rounding setting. *)
                     |   RealArith _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   PointerEq => applicative
 
             in
                 operProps andb codeProps arg1 andb codeProps arg2
