@@ -2376,11 +2376,10 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCreateCallback(FirstArgument threadId);
 }
 
 // FFI
-#if (1) // (defined(HAVE_LIBFFI) && defined(HAVE_FFI_H))
+#if (defined(HAVE_LIBFFI) && defined(HAVE_FFI_H))
 
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
@@ -2590,11 +2589,6 @@ POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAdd
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyInterpretedCreateCallback(FirstArgument threadId)
-{
-    return TAGGED(0).AsUnsigned();
-}
-
 #else
 // Libffi is not present.
 
@@ -2611,13 +2605,6 @@ POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue,
 }
 
 POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
-{
-    TaskData* taskData = TaskData::FindTaskForId(threadId);
-    raise_exception_string(taskData, EXC_foreign, "Foreign function calling is not available.  Libffi is not installled.");
-    return TAGGED(0).AsUnsigned();
-}
-
-POLYUNSIGNED PolyInterpretedCreateCallback(FirstArgument threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     raise_exception_string(taskData, EXC_foreign, "Foreign function calling is not available.  Libffi is not installled.");
@@ -2670,6 +2657,5 @@ struct _entrypts machineSpecificEPT[] =
     { "PolyInterpretedGetAbiList",           (polyRTSFunction)&PolyInterpretedGetAbiList },
     { "PolyInterpretedCreateCIF",            (polyRTSFunction)&PolyInterpretedCreateCIF },
     { "PolyInterpretedCallFunction",         (polyRTSFunction)&PolyInterpretedCallFunction },
-    { "PolyInterpretedCreateCallback",       (polyRTSFunction)&PolyInterpretedCreateCallback },
     { NULL, NULL} // End of list.
 };
