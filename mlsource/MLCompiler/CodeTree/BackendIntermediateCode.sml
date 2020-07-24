@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-19 David C.J. Matthews
+    Copyright (c) 2012, 2016-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -86,6 +86,7 @@ struct
         |   LargeWordShift of shiftOperations
         |   RealComparison of testConditions * precision
         |   RealArith of arithmeticOperations * precision
+        |   PointerEq
         |   FreeCStack
 
         and nullaryOps =
@@ -126,6 +127,7 @@ struct
         |   binaryRepr (LargeWordShift shiftOp) =  (shiftRepr shiftOp) ^ "LargeWord"
         |   binaryRepr (RealComparison (test, prec)) = "Test" ^ testRepr test ^ precRepr prec
         |   binaryRepr (RealArith (arithOp, prec)) = arithRepr arithOp ^ precRepr prec
+        |   binaryRepr PointerEq = "PointerEq"
         |   binaryRepr FreeCStack = "FreeCStack"
         
         and nullaryRepr GetCurrentThreadId = "GetCurrentThreadId"

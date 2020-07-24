@@ -1,7 +1,7 @@
 (*
     Signature for built-in functions
 
-    Copyright David C. J. Matthews 2016, 2018-19
+    Copyright David C. J. Matthews 2016, 2018-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -72,8 +72,7 @@ sig
     and binaryOps =
         (* Compare two words and return the result.  This is used for both
            word values (isSigned=false) and fixed precision integer (isSigned=true).
-           Tests for (in)equality can also be done on pointers in which case
-           this is pointer equality. *)
+           Values must be tagged and not pointers. *)
         WordComparison of { test: testConditions, isSigned: bool }
         (* Fixed precision int operations.  These may raise Overflow. *)
     |   FixedPrecisionArith of arithmeticOperations
@@ -95,14 +94,19 @@ sig
     |   LargeWordShift of shiftOperations
     |   RealComparison of testConditions * precision
     |   RealArith of arithmeticOperations * precision
+        (* Equality of values which could be pointers or tagged values.
+           At the lowest level this is the same as WordComparison but
+           if we try to use an indexed case there must be a check that the
+           values are tagged. *)
+    |   PointerEq
     |   FreeCStack  (* Free  space on the C stack. *)
     
     and nullaryOps =
         (* Get the current thread id *)
         GetCurrentThreadId
         (* Check whether the last RTS call set the exception status and raise it if it had. *)
-   |    CheckRTSException
-        
+    |   CheckRTSException
+
     val unaryRepr: unaryOps -> string
     and binaryRepr: binaryOps -> string
     and testRepr: testConditions -> string

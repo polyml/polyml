@@ -523,6 +523,8 @@ struct
                 |   WordComparison{test=TestGreaterEqual, isSigned=false} => genOpcode(opcode_greaterEqUnsigned, cvec)
                 |   WordComparison{test=TestUnordered, ...} => raise InternalError "WordComparison: TestUnordered"
 
+                |   PointerEq => genOpcode(opcode_equalWord, cvec)
+
                 |   FixedPrecisionArith ArithAdd => genOpcode(opcode_fixedAdd, cvec)
                 |   FixedPrecisionArith ArithSub => genOpcode(opcode_fixedSub, cvec)
                 |   FixedPrecisionArith ArithMult => genOpcode(opcode_fixedMult, cvec)

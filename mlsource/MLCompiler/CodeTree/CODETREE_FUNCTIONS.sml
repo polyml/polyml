@@ -148,6 +148,7 @@ struct
                         (* Real arithmetic operations depend on the current rounding setting. *)
                     |   RealArith _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                     |   FreeCStack => PROPWORD_NORAISE orb PROPWORD_NODEREF
+                    |   PointerEq => applicative
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end

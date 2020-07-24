@@ -125,9 +125,7 @@ EXTNAME(id):
     .text
 
 #define CALL_EXTRA(index) \
-        pushq %rcx; \
         movb  $index,Arg_ReturnReason(%rbp); \
-        popq  %rcx; \
         jmp   CallTrapHandler;
 
 

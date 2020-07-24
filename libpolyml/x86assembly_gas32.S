@@ -97,9 +97,7 @@ EXTNAME(id):
     .text
 
 #define CALL_EXTRA(index) \
-        pushl %ecx; \
         movb  $index,Arg_ReturnReason(%ebp); \
-        popl  %ecx; \
         jmp   CallTrapHandler;
 
 /*  Enter ML code.  This is now only ever used to start a new thread.

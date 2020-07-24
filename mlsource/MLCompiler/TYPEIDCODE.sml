@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015-16 David C. J. Matthews
+    Copyright (c) 2009, 2013, 2015-16, 2020 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -651,7 +651,7 @@ struct
                    pointer equality and not attempt to create equality functions for
                    the argument.  It may not be an equality type. *)
                 if isPointerEqType iden
-                then equalWordFn
+                then equalPointerOrWordFn
                 else
                 let
                     open TypeValue
@@ -839,7 +839,7 @@ struct
                 case vConstrs of
                     [Value{class=Constructor{nullary=true, ...}, ...}] => CodeTrue
                 |   [_] => processConstrs vConstrs
-                |   _ => mkCor(mkEqualWord(arg1, arg2), processConstrs vConstrs)
+                |   _ => mkCor(mkEqualPointerOrWord(arg1, arg2), processConstrs vConstrs)
         in
             if null argTypes
             then (addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)", getClosure baseEqLevelP1, 0)) :: otherFns
@@ -928,7 +928,8 @@ struct
 *)
 
         local
-            fun eqStr (arg, str) = mkEqualWord(arg, mkConst(toMachineWord str))
+            fun eqStr (arg, str) = mkEqualPointerOrWord(arg, mkConst(toMachineWord str))
+            (* eqStr assumes that all occurrences of the same single character string are shared. *)
 
             val isNotNull = mkNot o mkIsShort
 
