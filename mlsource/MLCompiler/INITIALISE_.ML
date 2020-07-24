@@ -1065,14 +1065,14 @@ struct
                 val buildCallBackEntry = mkInlproc(outerBody, 1, "buildCallBack(1)", [], 1)
             end
             
-            (* Abi - an eqtype. *)
+            (* Abi - an eqtype.  An enumerated type or short int. *)
             local
                 open TypeValue
                 fun monotypePrinter _ = PRETTY.PrettyString "?"
                 val code =
                     createTypeValue{
-                        eqCode = equalWordFn, printCode = mkConst (toMachineWord (ref monotypePrinter)),
-                        boxedCode = boxedEither (* Assume this for the moment *), sizeCode = singleWord }
+                        eqCode = equalTaggedWordFn, printCode = mkConst (toMachineWord (ref monotypePrinter)),
+                        boxedCode = boxedNever, sizeCode = singleWord }
                 val abiEqAndPrint = Global (genCode(code, [], 0) ())
             in
                 val abiConstr =
