@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015-16 David C.J. Matthews
+    Copyright (c) 2009, 2013, 2015-16, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -120,8 +120,6 @@ struct
         (* The run-time test whether a value matches a constructor. *)
         fun constrMatch (test: representations, value:codetree) : codetree =
         let
-            fun testTag (tag, v) = mkEqualWord(mkTag tag, v)
-
             fun testTagOf(tag, maxTag, v) = mkTagTest (v, tag, maxTag)
       
             fun testBoxedTagOf (tag, maxTag, v) =
@@ -140,7 +138,7 @@ struct
             |   BoxedForm            => testBoxed value
             |   RefForm              => CodeTrue
             |   EnumForm{tag, maxTag}   => testTagOf(tag, maxTag, value)
-            |   ShortForm tag        => testTag(tag, value)
+            |   ShortForm tag        => mkEqualPointerOrWord(mkTag tag, value) (* Could be an address. *)
             |   TaggedBox{tag, maxTag}  => testBoxedTagOf(tag, maxTag, value)
             |   TaggedTuple{tag, maxTag, ...} => testBoxedTagOf(tag, maxTag, value)
             |   ConstForm{value=c, maxTag} => testBoxedTagOf(toShort (loadTag c), maxTag, value)
