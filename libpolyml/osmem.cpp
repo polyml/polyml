@@ -188,18 +188,6 @@ bool OSMem::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
 #define FIXTYPE
 #endif
 
-static int ConvertPermissions(unsigned perm)
-{
-    int res = 0;
-    if (perm & PERMISSION_READ)
-        res |= PROT_READ;
-    if (perm & PERMISSION_WRITE)
-        res |= PROT_WRITE;
-    if (perm & PERMISSION_EXEC)
-        res |= PROT_EXEC;
-    return res;
-}
-
 #ifdef POLYML32IN64
 // Unix-specific implementation of the subsidiary functions.
 
@@ -218,9 +206,10 @@ bool OSMem::UnreserveHeap(void *p, size_t space)
     return munmap(FIXTYPE p, space) == 0;
 }
 
-void *OSMem::CommitPages(void *baseAddr, size_t space, unsigned permissions)
+void *OSMem::CommitPages(void *baseAddr, size_t space, bool allowExecute)
 {
-    if (mmap(baseAddr, space, ConvertPermissions(permissions), MAP_FIXED|MAP_PRIVATE|MAP_ANON, -1, 0) == MAP_FAILED)
+    if (mmap(baseAddr, space, allowExecute ? PROT_READ|PROT_WRITE|PROT_EXEC : PROT_READ|PROT_WRITE,
+             MAP_FIXED|MAP_PRIVATE|MAP_ANON, -1, 0) == MAP_FAILED)
         return 0;
     msync(baseAddr, space, MS_SYNC|MS_INVALIDATE);
 
@@ -236,15 +225,21 @@ bool OSMem::UncommitPages(void *p, size_t space)
     return true;
 }
 
-bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
+bool OSMem::EnableWrite(bool enable, void* p, size_t space)
 {
-    int res = mprotect(FIXTYPE p, space, ConvertPermissions(permissions));
+    int res = mprotect(FIXTYPE p, space, enable ? PROT_READ|PROT_WRITE: PROT_READ);
+    return res != -1;
+}
+
+bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
+{
+    int res = mprotect(FIXTYPE codeAddr, space, PROT_READ|PROT_EXEC);
     return res != -1;
 }
 
 #else
 
-bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
+bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
     pageSize = getpagesize();
     return true;
@@ -253,13 +248,12 @@ bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
 // Allocate space and return a pointer to it.  The size is the minimum
 // size requested and it is updated with the actual space allocated.
 // Returns NULL if it cannot allocate the space.
-void *OSMem::Allocate(size_t &space, unsigned permissions)
+void *OSMem::AllocateDataArea(size_t &space)
 {
-    int prot = ConvertPermissions(permissions);
     // Round up to an integral number of pages.
     space = (space + pageSize-1) & ~(pageSize-1);
     int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
-    void *result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON, fd, 0);
+    void *result = mmap(0, space, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, fd, 0);
     // Convert MAP_FAILED (-1) into NULL
     if (result == MAP_FAILED)
         return 0;
@@ -268,16 +262,39 @@ void *OSMem::Allocate(size_t &space, unsigned permissions)
 
 // Release the space previously allocated.  This must free the whole of
 // the segment.  The space must be the size actually allocated.
-bool OSMem::Free(void *p, size_t space)
+bool OSMem::FreeDataArea(void *p, size_t space)
 {
     return munmap(FIXTYPE p, space) == 0;
 }
 
-// Adjust the permissions on a segment.  This must apply to the
-// whole of a segment.
-bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
+bool OSMem::EnableWrite(bool enable, void* p, size_t space)
 {
-    int res = mprotect(FIXTYPE p, space, ConvertPermissions(permissions));
+    int res = mprotect(FIXTYPE p, space, enable ? PROT_READ|PROT_WRITE: PROT_READ);
+    return res != -1;
+}
+
+void *OSMem::AllocateCodeArea(size_t &space, void*& shadowArea)
+{
+    // Round up to an integral number of pages.
+    space = (space + pageSize-1) & ~(pageSize-1);
+    int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
+    void *result = mmap(0, space, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, fd, 0);
+    // Convert MAP_FAILED (-1) into NULL
+    if (result == MAP_FAILED)
+        return 0;
+    shadowArea = result;
+    return result;
+}
+
+bool OSMem::FreeCodeArea(void *codeArea, void *dataArea, size_t space)
+{
+    ASSERT(codeArea == dataArea);
+    return munmap(FIXTYPE codeArea, space) == 0;
+}
+
+bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
+{
+    int res = mprotect(FIXTYPE codeAddr, space, PROT_READ|PROT_EXEC);
     return res != -1;
 }
 
