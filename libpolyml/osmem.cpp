@@ -1,7 +1,7 @@
 /*
     Title:  osomem.cpp - Interface to OS memory management
 
-    Copyright (c) 2006, 2017-18 David C.J. Matthews
+    Copyright (c) 2006, 2017-18, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,7 +55,7 @@
 
 #ifdef POLYML32IN64
 
-bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
+bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
     pageSize = PageSize();
     memBase = (char*)ReserveHeap(space);
@@ -77,7 +77,7 @@ bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
     return true;
 }
 
-void *OSMem::Allocate(size_t &space, unsigned permissions)
+void *OSMem::AllocateDataArea(size_t& space)
 {
     char *baseAddr;
     {
@@ -95,10 +95,10 @@ void *OSMem::Allocate(size_t &space, unsigned permissions)
         // TODO: Do we need to zero this?  It may have previously been set.
         baseAddr = memBase + free * pageSize;
     }
-    return CommitPages(baseAddr, space, permissions);
+    return CommitPages(baseAddr, space, false);
 }
 
-bool OSMem::Free(void *p, size_t space)
+bool OSMem::FreeDataArea(void *p, size_t space)
 {
     char *addr = (char*)p;
     uintptr_t offset = (addr - memBase) / pageSize;
@@ -113,6 +113,47 @@ bool OSMem::Free(void *p, size_t space)
     }
     return true;
 }
+
+void * OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
+{
+    char* baseAddr;
+    {
+        PLocker l(&bitmapLock);
+        uintptr_t pages = (space + pageSize - 1) / pageSize;
+        // Round up to an integral number of pages.
+        space = pages * pageSize;
+        // Find some space
+        while (pageMap.TestBit(lastAllocated - 1)) // Skip the wholly allocated area.
+            lastAllocated--;
+        uintptr_t free = pageMap.FindFree(0, lastAllocated, pages);
+        if (free == lastAllocated)
+            return 0; // Can't find the space.
+        pageMap.SetBits(free, pages);
+        // TODO: Do we need to zero this?  It may have previously been set.
+        baseAddr = memBase + free * pageSize;
+    }
+    void *dataArea = CommitPages(baseAddr, space, true);
+    shadowArea = dataArea;
+    return dataArea;
+}
+
+bool OSMem::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
+{
+    ASSERT(codeAddr == dataAddr);
+    char* addr = (char*)codeAddr;
+    uintptr_t offset = (addr - memBase) / pageSize;
+    if (!UncommitPages(codeAddr, space))
+        return false;
+    uintptr_t pages = space / pageSize;
+    {
+        PLocker l(&bitmapLock);
+        pageMap.ClearBits(offset, pages);
+        if (offset + pages > lastAllocated) // We allocate from the top down.
+            lastAllocated = offset + pages;
+    }
+    return true;
+}
+
 #endif
 
 #if (defined(HAVE_MMAP) && defined(MAP_ANON))
@@ -246,30 +287,6 @@ bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
 // Use Windows memory management.
 #include <windows.h>
 
-static int ConvertPermissions(unsigned perm)
-{
-    if (perm & PERMISSION_WRITE)
-    {
-        // Write.  Always includes read permission.
-        if (perm & PERMISSION_EXEC)
-            return PAGE_EXECUTE_READWRITE;
-        else
-            return PAGE_READWRITE;
-    }
-    else if (perm & PERMISSION_EXEC)
-    {
-        // Execute but not write.
-        if (perm & PERMISSION_READ)
-            return PAGE_EXECUTE_READ;
-        else
-            return PAGE_EXECUTE; // Execute only
-    }
-    else if(perm & PERMISSION_READ)
-        return PAGE_READONLY;
-    else 
-        return PAGE_NOACCESS;
-}
-
 #ifdef POLYML32IN64
 
 // Windows-specific implementations of the subsidiary functions.
@@ -302,9 +319,9 @@ bool OSMem::UnreserveHeap(void *p, size_t space)
     return VirtualFree(p, 0, MEM_RELEASE) == TRUE;
 }
 
-void *OSMem::CommitPages(void *baseAddr, size_t space, unsigned permissions)
+void *OSMem::CommitPages(void *baseAddr, size_t space, bool allowExecute)
 {
-    return VirtualAlloc(baseAddr, space, MEM_COMMIT, ConvertPermissions(permissions));
+    return VirtualAlloc(baseAddr, space, MEM_COMMIT, allowExecute ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
 }
 
 bool OSMem::UncommitPages(void *baseAddr, size_t space)
@@ -312,15 +329,22 @@ bool OSMem::UncommitPages(void *baseAddr, size_t space)
     return VirtualFree(baseAddr, space, MEM_DECOMMIT) == TRUE;
 }
 
-bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
+bool OSMem::EnableWrite(bool enable, void* p, size_t space)
 {
     DWORD oldProtect;
-    return VirtualProtect(p, space, ConvertPermissions(permissions), &oldProtect) == TRUE;
+    return VirtualProtect(p, space, enable ? PAGE_READWRITE : PAGE_READONLY, &oldProtect) == TRUE;
+}
+
+bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
+{
+    ASSERT(codeAddr == dataAddr);
+    DWORD oldProtect;
+    return VirtualProtect(codeAddr, space, PAGE_EXECUTE_READ, &oldProtect) == TRUE;
 }
 
 #else
 
-bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
+bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
     // Get the page size and round up to that multiple.
     SYSTEM_INFO sysInfo;
@@ -334,26 +358,48 @@ bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
 // Allocate space and return a pointer to it.  The size is the minimum
 // size requested and it is updated with the actual space allocated.
 // Returns NULL if it cannot allocate the space.
-void *OSMem::Allocate(size_t &space, unsigned permissions)
+void *OSMem::AllocateDataArea(size_t &space)
 {
     space = (space + pageSize - 1) & ~(pageSize - 1);
     DWORD options = MEM_RESERVE | MEM_COMMIT;
-    return VirtualAlloc(0, space, options, ConvertPermissions(permissions));
+    return VirtualAlloc(0, space, options, PAGE_READWRITE);
 }
 
 // Release the space previously allocated.  This must free the whole of
 // the segment.  The space must be the size actually allocated.
-bool OSMem::Free(void *p, size_t space)
+bool OSMem::FreeDataArea(void *p, size_t space)
 {
     return VirtualFree(p, 0, MEM_RELEASE) == TRUE;
 }
 
 // Adjust the permissions on a segment.  This must apply to the
 // whole of a segment.
-bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
+bool OSMem::EnableWrite(bool enable, void* p, size_t space)
 {
     DWORD oldProtect;
-    return VirtualProtect(p, space, ConvertPermissions(permissions), &oldProtect) == TRUE;
+    return VirtualProtect(p, space, enable ? PAGE_READWRITE: PAGE_READONLY, &oldProtect) == TRUE;
+}
+
+void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
+{
+    space = (space + pageSize - 1) & ~(pageSize - 1);
+    DWORD options = MEM_RESERVE | MEM_COMMIT;
+    void * dataAddr = VirtualAlloc(0, space, options, PAGE_EXECUTE_READWRITE);
+    shadowArea = dataAddr;
+    return dataAddr;
+}
+
+bool OSMem::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
+{
+    ASSERT(codeAddr == dataAddr);
+    return VirtualFree(codeAddr, 0, MEM_RELEASE) == TRUE;
+}
+
+bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
+{
+    ASSERT(codeAddr == dataAddr);
+    DWORD oldProtect;
+    return VirtualProtect(codeAddr, space, PAGE_EXECUTE_READ, &oldProtect) == TRUE;
 }
 
 #endif

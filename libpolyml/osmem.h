@@ -1,7 +1,7 @@
 /*
     Title:  osomem.h - Interface to OS memory management
 
-    Copyright (c) 2006, 2017-18 David C.J. Matthews
+    Copyright (c) 2006, 2017-18, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -41,46 +41,55 @@
 // free for this but we need to have execute permission on the code
 // objects.
 
-#define PERMISSION_READ     1
-#define PERMISSION_WRITE    2
-#define PERMISSION_EXEC     4
+class OSMem {
 
-class OSMem
-{
 public:
     OSMem() {}
     ~OSMem() {}
-    bool Initialise(size_t space = 0, void **pBase = 0);
+
+    bool Initialise(bool requiresExecute, size_t space = 0, void** pBase = 0);
 
     // Allocate space and return a pointer to it.  The size is the minimum
     // size requested in bytes and it is updated with the actual space allocated.
     // Returns NULL if it cannot allocate the space.
-    void *Allocate(size_t &bytes, unsigned permissions);
+    void *AllocateDataArea(size_t& bytes);
 
     // Release the space previously allocated.  This must free the whole of
     // the segment.  The space must be the size actually allocated.
-    bool Free(void *p, size_t space);
+    bool FreeDataArea(void* p, size_t space);
 
-    // Adjust the permissions on a segment.  This must apply to the
-    // whole of a segment.
-    bool SetPermissions(void *p, size_t space, unsigned permissions);
+    // Enable/disable writing.  This must apply to the whole of a segment.
+    // Only for data areas.
+    bool EnableWrite(bool enable, void* p, size_t space);
+
+    // Allocate code area.  Some systems will not allow both write and execute permissions
+    // on the same page.  On those systems we have to allocate two regions of shared memory,
+    // one with read+execute permission and the other with read+write.
+    void *AllocateCodeArea(size_t& bytes, void*& shadowArea);
+
+    // Free the allocated areas.
+    bool FreeCodeArea(void* codeAddr, void* dataAddr, size_t space);
+
+    // Remove write access.  This is used after the permanent code area has been created
+    // either from importing a portable export file or copying the area in 32-in-64.
+    bool DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space);
 
 protected:
     size_t pageSize;
 
 #ifdef POLYML32IN64
     size_t PageSize();
-    void *ReserveHeap(size_t space);
-    bool UnreserveHeap(void *baseAddr, size_t space);
-    void *CommitPages(void *baseAddr, size_t space, unsigned permissions);
-    bool UncommitPages(void *baseAddr, size_t space);
+    void* ReserveHeap(size_t space);
+    bool UnreserveHeap(void* baseAddr, size_t space);
+    void* CommitPages(void* baseAddr, size_t space, bool allowExecute);
+    bool UncommitPages(void* baseAddr, size_t space);
 
     Bitmap pageMap;
     uintptr_t lastAllocated;
-    char *memBase;
+    char* memBase;
     PLock bitmapLock;
-
 #endif
+
 };
 
 #endif

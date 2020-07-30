@@ -1347,8 +1347,11 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     for (unsigned j = 0; j < relocate.nDescrs; j++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[j];
-        PermanentMemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
-        gMem.CompletePermanentSpaceAllocation(space);
+        if (descr->segmentData != 0)
+        {
+            PermanentMemSpace* space = gMem.SpaceForIndex(descr->segmentIndex);
+            gMem.CompletePermanentSpaceAllocation(space);
+        }
     }
 
     // Add an entry to the hierarchy table for this file.
