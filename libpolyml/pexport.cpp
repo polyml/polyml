@@ -724,6 +724,7 @@ bool PImport::DoImport()
                     fscanf(f, "%02x", &n);
                     u[i] = n;
                 }
+                machineDependent->FlushInstructionCache(u, nBytes);
                 ch = getc(f);
                 ASSERT(ch == '|');
                 /* Set the constant count. */

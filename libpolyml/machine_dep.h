@@ -53,6 +53,7 @@ public:
     void  ScanConstantsWithinCode(PolyObject *addr, ScanAddress *process)
         { ScanConstantsWithinCode(addr, addr, addr->Length(), process); } // Common case
 
+    virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes) {}
     virtual Architectures MachineArchitecture(void) = 0; 
 };
 
