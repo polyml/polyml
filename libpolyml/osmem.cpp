@@ -57,6 +57,7 @@
 
 bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
+    needExecute = requiresExecute;
     pageSize = PageSize();
     memBase = (char*)ReserveHeap(space);
     if (memBase == 0)
@@ -132,7 +133,7 @@ void * OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
         // TODO: Do we need to zero this?  It may have previously been set.
         baseAddr = memBase + free * pageSize;
     }
-    void *dataArea = CommitPages(baseAddr, space, true);
+    void *dataArea = CommitPages(baseAddr, space, needExecute);
     shadowArea = dataArea;
     return dataArea;
 }
@@ -208,8 +209,9 @@ bool OSMem::UnreserveHeap(void *p, size_t space)
 
 void *OSMem::CommitPages(void *baseAddr, size_t space, bool allowExecute)
 {
-    if (mmap(baseAddr, space, allowExecute ? PROT_READ|PROT_WRITE|PROT_EXEC : PROT_READ|PROT_WRITE,
-             MAP_FIXED|MAP_PRIVATE|MAP_ANON, -1, 0) == MAP_FAILED)
+    int prot = PROT_READ | PROT_WRITE;
+    if (allowExecute) prot |= PROT_EXEC;
+    if (mmap(baseAddr, space, prot, MAP_FIXED|MAP_PRIVATE|MAP_ANON, -1, 0) == MAP_FAILED)
         return 0;
     msync(baseAddr, space, MS_SYNC|MS_INVALIDATE);
 
@@ -233,7 +235,9 @@ bool OSMem::EnableWrite(bool enable, void* p, size_t space)
 
 bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
-    int res = mprotect(FIXTYPE codeAddr, space, PROT_READ|PROT_EXEC);
+    int prot = PROT_READ;
+    if (needExecute) prot |= PROT_EXEC;
+    int res = mprotect(FIXTYPE codeAddr, space, prot);
     return res != -1;
 }
 
@@ -241,6 +245,7 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 
 bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
+    needExecute = requiresExecute;
     pageSize = getpagesize();
     return true;
 }
@@ -278,7 +283,9 @@ void *OSMem::AllocateCodeArea(size_t &space, void*& shadowArea)
     // Round up to an integral number of pages.
     space = (space + pageSize-1) & ~(pageSize-1);
     int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
-    void *result = mmap(0, space, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, fd, 0);
+    int prot = PROT_READ | PROT_WRITE;
+    if (needExecute) prot |= PROT_EXEC;
+    void *result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON, fd, 0);
     // Convert MAP_FAILED (-1) into NULL
     if (result == MAP_FAILED)
         return 0;
@@ -294,7 +301,9 @@ bool OSMem::FreeCodeArea(void *codeArea, void *dataArea, size_t space)
 
 bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
-    int res = mprotect(FIXTYPE codeAddr, space, PROT_READ|PROT_EXEC);
+    int prot = PROT_READ;
+    if (needExecute) prot |= PROT_EXEC;
+    int res = mprotect(FIXTYPE codeAddr, space, prot);
     return res != -1;
 }
 
@@ -356,13 +365,14 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
     ASSERT(codeAddr == dataAddr);
     DWORD oldProtect;
-    return VirtualProtect(codeAddr, space, PAGE_EXECUTE_READ, &oldProtect) == TRUE;
+    return VirtualProtect(codeAddr, space, needExecute ? PAGE_EXECUTE_READ : PAGE_READONLY, &oldProtect) == TRUE;
 }
 
 #else
 
 bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
+    needExecute = requiresExecute;
     // Get the page size and round up to that multiple.
     SYSTEM_INFO sysInfo;
     GetSystemInfo(&sysInfo);
@@ -401,7 +411,7 @@ void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
 {
     space = (space + pageSize - 1) & ~(pageSize - 1);
     DWORD options = MEM_RESERVE | MEM_COMMIT;
-    void * dataAddr = VirtualAlloc(0, space, options, PAGE_EXECUTE_READWRITE);
+    void * dataAddr = VirtualAlloc(0, space, options, needExecute ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
     shadowArea = dataAddr;
     return dataAddr;
 }
@@ -416,7 +426,7 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
     ASSERT(codeAddr == dataAddr);
     DWORD oldProtect;
-    return VirtualProtect(codeAddr, space, PAGE_EXECUTE_READ, &oldProtect) == TRUE;
+    return VirtualProtect(codeAddr, space, needExecute ? PAGE_EXECUTE_READ : PAGE_READONLY, &oldProtect) == TRUE;
 }
 
 #endif

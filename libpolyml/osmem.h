@@ -76,6 +76,7 @@ public:
 
 protected:
     size_t pageSize;
+    bool needExecute;
 
 #ifdef POLYML32IN64
     size_t PageSize();

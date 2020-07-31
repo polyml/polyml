@@ -45,6 +45,7 @@
 #include "diagnostics.h"
 #include "statistics.h"
 #include "processes.h"
+#include "machine_dep.h"
 
 
 #ifdef POLYML32IN64
@@ -159,12 +160,13 @@ bool MemMgr::Initialise()
 
     // Allocate a 2G area for the code.
     void *codeBase;
-    if (!osCodeAlloc.Initialise(true, (size_t)2 * 1024 * 1024 * 1024, &codeBase))
+    if (!osCodeAlloc.Initialise(machineDependent->CodeMustBeExecutable(), (size_t)2 * 1024 * 1024 * 1024, &codeBase))
         return false;
     globalCodeBase = (PolyWord*)codeBase;
     return true;
 #else
-    return osHeapAlloc.Initialise(false) && osStackAlloc.Initialise(false) && osCodeAlloc.Initialise(true);
+    return osHeapAlloc.Initialise(false) && osStackAlloc.Initialise(false) &&
+        osCodeAlloc.Initialise(machineDependent->CodeMustBeExecutable());
 #endif
 }
 
