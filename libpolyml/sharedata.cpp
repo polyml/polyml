@@ -545,7 +545,11 @@ void DepthVector::SortRange(PolyObject * *first, PolyObject * *last)
 void DepthVectorWithVariableLength::RestoreLengthWords()
 {
     for (POLYUNSIGNED i = 0; i < this->nitems; i++)
-        ptrVector[i]->SetLengthWord(lengthVector[i]); // restore genuine length word
+    {
+        PolyObject* obj = ptrVector[i];
+        obj = gMem.SpaceForAddress(obj)->writeAble(obj); // This could be code.
+        obj->SetLengthWord(lengthVector[i]); // restore genuine length word
+    }
 }
 void DepthVectorWithFixedLength::RestoreLengthWords()
 {
@@ -768,7 +772,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectToDepthVector(PolyObject *obj)
         // We want to update addresses in the code segment.
         m_parent->AddToVector(0, L, obj);
         PushToStack(obj);
-        obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
+        gMem.SpaceForAddress(obj)->writeAble(obj)->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
 
         return 0;
     }
@@ -841,7 +845,7 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
             // If it's local set the depth with the value zero.  It has already been
             // added to the zero depth vector.
             if (obj->LengthWord() & _OBJ_GC_MARK)
-                obj->SetLengthWord(OBJ_SET_DEPTH(0)); // Now scanned
+                gMem.SpaceForAddress(obj)->writeAble(obj)->SetLengthWord(OBJ_SET_DEPTH(0)); // Now scanned
         }
 
         else

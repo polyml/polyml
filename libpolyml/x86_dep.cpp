@@ -663,7 +663,8 @@ void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
     // build a small code segment which jumps to the code.
     unsigned requiredSize = 8; // 8 words i.e. 32 bytes
     PolyObject *result = gMem.AllocCodeSpace(requiredSize);
-    byte *p = (byte*)result;
+    PolyObject* writeAble = gMem.SpaceForAddress(result)->writeAble(result);
+    byte *p = (byte*)writeAble;
     *p++ = 0x48; // rex.w
     *p++ = 0x8b; // Movl
     *p++ = 0x0d; // rcx, pc relative
@@ -685,7 +686,7 @@ void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
     // of address constants to zero.
     for (unsigned i = 0; i < 8; i++)
         *p++ = 0;
-    result->SetLengthWord(requiredSize, F_CODE_OBJ);
+    writeAble->SetLengthWord(requiredSize, F_CODE_OBJ);
     *pointer = (byte*)result;
 #else
     *pointer = entryPt; // Can go there directly
@@ -1297,9 +1298,10 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                         // We have to correct the displacement for the new location and store
                         // that away before we call ScanConstant.
                         size_t newDisp = absAddr - pt - 4;
+                        byte* wr = gMem.SpaceForAddress(pt)->writeAble(pt);
                         for (unsigned i = 0; i < 4; i++)
                         {
-                            pt[i] = (byte)(newDisp & 0xff);
+                            wr[i] = (byte)(newDisp & 0xff);
                             newDisp >>= 8;
                         }
                     }

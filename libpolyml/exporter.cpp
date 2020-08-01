@@ -1,7 +1,7 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006-7, 2015, 2016-19 David C.J. Matthews
+    Copyright (c) 2006-7, 2015, 2016-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -347,6 +347,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     POLYUNSIGNED words = OBJ_OBJECT_LENGTH(lengthWord);
 
     PolyObject *newObj = 0;
+    PolyObject* writeAble = 0;
     bool isMutableObj = obj->IsMutable();
     bool isNoOverwrite = false;
     bool isByteObj = false;
@@ -371,12 +372,13 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
             if (spaceLeft > words)
             {
                 newObj = (PolyObject*)(space->topPointer + 1);
+                writeAble = space->writeAble(newObj);
                 space->topPointer += words + 1;
 #ifdef POLYML32IN64
                 // Maintain the odd-word alignment of topPointer
                 if ((words & 1) == 0 && space->topPointer < space->top)
                 {
-                    *space->topPointer = PolyWord::FromUnsigned(0);
+                    *space->writeAble(space->topPointer) = PolyWord::FromUnsigned(0);
                     space->topPointer++;
                 }
 #endif
@@ -410,6 +412,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
             throw MemoryException();
         }
         newObj = (PolyObject*)(space->topPointer + 1);
+        writeAble = space->writeAble(newObj);
         space->topPointer += words + 1;
 #ifdef POLYML32IN64
         // Maintain the odd-word alignment of topPointer
@@ -422,9 +425,9 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         ASSERT(space->topPointer <= space->top && space->topPointer >= space->bottom);
     }
 
-    newObj->SetLengthWord(lengthWord); // copy length word
+    writeAble->SetLengthWord(lengthWord); // copy length word
 
-    memcpy(newObj, obj, words * sizeof(PolyWord));
+    memcpy(writeAble, obj, words * sizeof(PolyWord));
 
     if (space->spaceType == ST_PERMANENT && !space->isMutable && ((PermanentMemSpace*)space)->hierarchy == 0)
     {
@@ -452,14 +455,16 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         }
         ASSERT(m < tombs); // Should be there.
     }
+    else if (isCodeObj)
 #ifdef POLYML32IN64
     // If this is a code address we can't use the usual forwarding pointer format.
     // Instead we have to compute the offset relative to the base of the code.
-    else if (isCodeObj)
     {
         POLYUNSIGNED ll = (POLYUNSIGNED)(((PolyWord*)newObj-globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT);
-        obj->SetLengthWord(ll);
+        gMem.SpaceForAddress(obj)->writeAble(obj)->SetLengthWord(ll);
     }
+#else
+        gMem.SpaceForAddress(obj)->writeAble(obj)->SetForwardingPtr(newObj);
 #endif
     else obj->SetForwardingPtr(newObj); // Put forwarding pointer in old object.
 
@@ -526,7 +531,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
         POLYUNSIGNED length = GetObjLength(forwardedTo);
         MemSpace *space = gMem.SpaceForAddress((PolyWord*)forwardedTo-1);
         if (space->spaceType == ST_EXPORT)
-            obj->SetLengthWord(length);
+            gMem.SpaceForAddress(obj)->writeAble(obj)->SetLengthWord(length);
         return length;
     }
     else {
@@ -816,6 +821,11 @@ void Exporter::relocateValue(PolyWord *pt)
     if (IS_INT(q) || q == PolyWord::FromUnsigned(0)) {}
     else createRelocation(pt);
 #endif
+}
+
+void Exporter::createRelocation(PolyWord* pt)
+{
+    *gMem.SpaceForAddress(pt)->writeAble(pt) = createRelocation(*pt, pt);
 }
 
 // Check through the areas to see where the address is.  It must be

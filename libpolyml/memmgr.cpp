@@ -439,7 +439,7 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
 #ifdef POLYML32IN64
         // The address must be on an odd-word boundary so that after the length
         // word is put in the actual cell address is on an even-word boundary.
-        space->topPointer[0] = PolyWord::FromUnsigned(0);
+        space->writeAble(space->topPointer)[0] = PolyWord::FromUnsigned(0);
         space->topPointer = space->bottom + 1;
 #endif
 
@@ -506,7 +506,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                     // Enable write access.  Permanent spaces are read-only.
  //                   osCodeAlloc.SetPermissions(pSpace->bottom, (char*)pSpace->top - (char*)pSpace->bottom,
  //                       PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
-                    CodeSpace *space = new CodeSpace(pSpace->bottom, pSpace->spaceSize(), &osCodeAlloc);
+                    CodeSpace *space = new CodeSpace(pSpace->bottom, pSpace->shadowSpace, pSpace->spaceSize(), &osCodeAlloc);
                     if (! space->headerMap.Create(space->spaceSize()))
                     {
                         if (debugOptions & DEBUG_MEMMGR)
@@ -587,7 +587,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
         space->spaceType = ST_PERMANENT;
         // Put a dummy object to fill up the unused space.
         if (space->topPointer != space->top)
-            FillUnusedSpace(space->topPointer, space->top - space->topPointer);
+            FillUnusedSpace(space->writeAble(space->topPointer), space->top - space->topPointer);
         // Put in a dummy object to fill the rest of the space.
         pSpaces.push_back(space);
     }
@@ -738,16 +738,17 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
     return 0; // There isn't space even for the minimum.
 }
 
-CodeSpace::CodeSpace(PolyWord *start, uintptr_t spaceSize, OSMem *alloc): MarkableSpace(alloc)
+CodeSpace::CodeSpace(PolyWord *start, PolyWord *shadow, uintptr_t spaceSize, OSMem *alloc): MarkableSpace(alloc)
 {
     bottom = start;
+    shadowSpace = shadow;
     top = start+spaceSize;
     isMutable = true; // Make it mutable just in case.  This will cause it to be scanned.
     isCode = true;
     spaceType = ST_CODE;
 #ifdef POLYML32IN64
     // Dummy word so that the cell itself, after the length word, is on an 8-byte boundary.
-    *start = PolyWord::FromUnsigned(0);
+    writeAble(start)[0] = PolyWord::FromUnsigned(0);
     largestFree = spaceSize - 2;
     firstFree = start+1;
 #else
@@ -768,7 +769,7 @@ CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
     if (mem != 0)
     {
         try {
-            allocSpace = new CodeSpace(mem, actualSize / sizeof(PolyWord), &osCodeAlloc);
+            allocSpace = new CodeSpace(mem, (PolyWord*)shadow, actualSize / sizeof(PolyWord), &osCodeAlloc);
             allocSpace->shadowSpace = (PolyWord*)shadow;
             if (!allocSpace->headerMap.Create(allocSpace->spaceSize()))
             {
@@ -783,7 +784,7 @@ CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
             else if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: New code space %p allocated at %p size %lu\n", allocSpace, allocSpace->bottom, allocSpace->spaceSize());
             // Put in a byte cell to mark the area as unallocated.
-            FillUnusedSpace(allocSpace->firstFree, allocSpace->top- allocSpace->firstFree);
+            FillUnusedSpace(allocSpace->writeAble(allocSpace->firstFree), allocSpace->top- allocSpace->firstFree);
         }
         catch (std::bad_alloc&)
         {
@@ -839,18 +840,18 @@ PolyObject* MemMgr::AllocCodeSpace(POLYUNSIGNED requiredSize)
                             // Maintain alignment.
                             if (((requiredSize + 1) & 1) && spare != 0)
                             {
-                                *next++ = PolyWord::FromUnsigned(0);
+                                space->writeAble(next++)[0] = PolyWord::FromUnsigned(0);
                                 spare--;
                             }
 #endif
                             if (spare != 0)
-                                FillUnusedSpace(next, spare);
+                                FillUnusedSpace(space->writeAble(next), spare);
                             space->isMutable = true; // Set this - it ensures the area is scanned on GC.
                             space->headerMap.SetBit(pt-space->bottom); // Set the "header" bit
                             // Set the length word of the code area and copy the byte cell in.
                             // The code bit must be set before the lock is released to ensure
                             // another thread doesn't reuse this.
-                            obj->SetLengthWord(requiredSize,  F_CODE_OBJ|F_MUTABLE_BIT);
+                            space->writeAble(obj)->SetLengthWord(requiredSize,  F_CODE_OBJ|F_MUTABLE_BIT);
                             return obj;
                         }
                         else if (length >= actualLargest) actualLargest = length+1;

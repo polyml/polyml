@@ -33,8 +33,10 @@
 
 #ifdef POLYML32IN64
 #include "bitmap.h"
-#include "locking.h"
 #endif
+
+#include "locking.h"
+
 
 // This class provides access to the memory management provided by the
 // operating system.  It would be nice if we could always use malloc and
@@ -44,7 +46,7 @@
 class OSMem {
 
 public:
-    OSMem() {}
+    OSMem();
     ~OSMem() {}
 
     bool Initialise(bool requiresExecute, size_t space = 0, void** pBase = 0);
@@ -77,6 +79,10 @@ public:
 protected:
     size_t pageSize;
     bool needExecute;
+
+    // If we need to use dual areas because WRITE+EXECUTE permission is not allowed.
+    PLock allocLock;
+    size_t allocPtr;
 
 #ifdef POLYML32IN64
     size_t PageSize();

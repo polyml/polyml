@@ -55,6 +55,11 @@
 
 #ifdef POLYML32IN64
 
+OSMem::OSMem()
+{
+    memBase = 0;
+}
+
 bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
     needExecute = requiresExecute;
@@ -242,6 +247,10 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 }
 
 #else
+OSMem::OSMem()
+{
+    allocPtr = 0;
+}
 
 bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
@@ -369,6 +378,11 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 }
 
 #else
+
+OSMem::OSMem()
+{
+    allocPtr = 0;
+}
 
 bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
