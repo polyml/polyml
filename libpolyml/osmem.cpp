@@ -60,9 +60,9 @@ OSMem::OSMem()
     memBase = 0;
 }
 
-bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
+bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
-    needExecute = requiresExecute;
+    memUsage = usage;
     pageSize = PageSize();
     memBase = (char*)ReserveHeap(space);
     if (memBase == 0)
@@ -138,7 +138,7 @@ void * OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
         // TODO: Do we need to zero this?  It may have previously been set.
         baseAddr = memBase + free * pageSize;
     }
-    void *dataArea = CommitPages(baseAddr, space, needExecute);
+    void *dataArea = CommitPages(baseAddr, space, memUsage == UsageExecutableCode);
     shadowArea = dataArea;
     return dataArea;
 }
@@ -278,11 +278,11 @@ static int openTmpFile(const char *dirName)
     return fd;
 }
 
-bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
+bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
-    needExecute = requiresExecute;
+    memUsage = usage;
     pageSize = getpagesize();
-    if (! needExecute) return true;
+    if (usage != UsageExecutableCode) return true;
     // Can we allocate memory with write+execute?
     int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
     void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, fd, 0);
@@ -325,7 +325,11 @@ void *OSMem::AllocateDataArea(size_t &space)
     // Round up to an integral number of pages.
     space = (space + pageSize-1) & ~(pageSize-1);
     int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
-    void *result = mmap(0, space, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, fd, 0);
+    int flags = MAP_PRIVATE | MAP_ANON;
+#ifdef MAP_STACK
+    if (usage == UsageStack) flags |= MAP_STACK; // OpenBSD seems to require this
+#endif
+    void *result = mmap(0, space, PROT_READ|PROT_WRITE, flags, fd, 0);
     // Convert MAP_FAILED (-1) into NULL
     if (result == MAP_FAILED)
         return 0;
@@ -458,7 +462,8 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
     ASSERT(codeAddr == dataAddr);
     DWORD oldProtect;
-    return VirtualProtect(codeAddr, space, needExecute ? PAGE_EXECUTE_READ : PAGE_READONLY, &oldProtect) == TRUE;
+    return VirtualProtect(codeAddr, space,
+        memUsage == UsageExecutableCode ? PAGE_EXECUTE_READ : PAGE_READONLY, &oldProtect) == TRUE;
 }
 
 #else
@@ -467,9 +472,9 @@ OSMem::OSMem()
 {
 }
 
-bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
+bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
-    needExecute = requiresExecute;
+    memUsage = usage;
     // Get the page size and round up to that multiple.
     SYSTEM_INFO sysInfo;
     GetSystemInfo(&sysInfo);
@@ -508,7 +513,8 @@ void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
 {
     space = (space + pageSize - 1) & ~(pageSize - 1);
     DWORD options = MEM_RESERVE | MEM_COMMIT;
-    void * dataAddr = VirtualAlloc(0, space, options, needExecute ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
+    void * dataAddr = VirtualAlloc(0, space, options,
+        memUsage == UsageExecutableCode ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
     shadowArea = dataAddr;
     return dataAddr;
 }
@@ -523,7 +529,8 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
     ASSERT(codeAddr == dataAddr);
     DWORD oldProtect;
-    return VirtualProtect(codeAddr, space, needExecute ? PAGE_EXECUTE_READ : PAGE_READONLY, &oldProtect) == TRUE;
+    return VirtualProtect(codeAddr, space,
+        memUsage == UsageExecutableCode ? PAGE_EXECUTE_READ : PAGE_READONLY, &oldProtect) == TRUE;
 }
 
 #endif

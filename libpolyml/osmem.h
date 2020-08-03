@@ -49,7 +49,13 @@ public:
     OSMem();
     ~OSMem() {}
 
-    bool Initialise(bool requiresExecute, size_t space = 0, void** pBase = 0);
+    enum _MemUsage {
+        UsageData,          // Data or code in the interpreted version
+        UsageStack,         // Stack
+        UsageExecutableCode // Code in the native code versions.
+    };
+
+    bool Initialise(enum _MemUsage usage, size_t space = 0, void** pBase = 0);
 
     // Allocate space and return a pointer to it.  The size is the minimum
     // size requested in bytes and it is updated with the actual space allocated.
@@ -78,7 +84,7 @@ public:
 
 protected:
     size_t pageSize;
-    bool needExecute;
+    enum _MemUsage memUsage;
 
 #ifndef _WIN32
     // If we need to use dual areas because WRITE+EXECUTE permission is not allowed.

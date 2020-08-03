@@ -148,25 +148,26 @@ bool MemMgr::Initialise()
 #ifdef POLYML32IN64
     // Allocate a single 16G area but with no access.
     void *heapBase;
-    if (!osHeapAlloc.Initialise(false, (size_t)16 * 1024 * 1024 * 1024, &heapBase))
+    if (!osHeapAlloc.Initialise(OSMem::UsageData, (size_t)16 * 1024 * 1024 * 1024, &heapBase))
         return false;
     globalHeapBase = (PolyWord*)heapBase;
 
     // Allocate a 4 gbyte area for the stacks.
     // It's important that the stack and code areas have addresses with
     // non-zero top 32-bits.
-    if (!osStackAlloc.Initialise(false, (size_t)4 * 1024 * 1024 * 1024))
+    if (!osStackAlloc.Initialise(OSMem::UsageStack, (size_t)4 * 1024 * 1024 * 1024))
         return false;
 
     // Allocate a 2G area for the code.
     void *codeBase;
-    if (!osCodeAlloc.Initialise(machineDependent->CodeMustBeExecutable(), (size_t)2 * 1024 * 1024 * 1024, &codeBase))
+    if (!osCodeAlloc.Initialise(machineDependent->CodeMustBeExecutable() ? OSMem::UsageExecutableCode : OSMem::UsageData,
+            (size_t)2 * 1024 * 1024 * 1024, &codeBase))
         return false;
     globalCodeBase = (PolyWord*)codeBase;
     return true;
 #else
-    return osHeapAlloc.Initialise(false) && osStackAlloc.Initialise(false) &&
-        osCodeAlloc.Initialise(machineDependent->CodeMustBeExecutable());
+    return osHeapAlloc.Initialise(OSMem::UsageData) && osStackAlloc.Initialise(OSMem::UsageStack) &&
+        osCodeAlloc.Initialise(machineDependent->CodeMustBeExecutable() ? OSMem::UsageExecutableCode : OSMem::UsageData);
 #endif
 }
 
