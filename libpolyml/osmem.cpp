@@ -178,6 +178,16 @@ bool OSMem::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
 #include <sys/param.h>
 #endif
 
+#ifdef HAVE_ERRNO_H
+#include <errno.h>
+#endif
+
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
+
+#include "polystring.h" // For TempCString
+
 // How do we get the page size?
 #ifndef HAVE_GETPAGESIZE
 #ifdef _SC_PAGESIZE
@@ -250,13 +260,61 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 OSMem::OSMem()
 {
     allocPtr = 0;
+    needExecute = false;
+    shadowFd = -1;
+}
+
+// Open a temporary file, unlink it and return the file descriptor.
+static int openTmpFile(const char *dirName)
+{
+    const char *template_subdir =  "/mlMapXXXXXX";
+    TempString buff((char *)malloc(strlen(dirName) + strlen(template_subdir) + 1));
+    if (buff == 0) return -1; // Unable to allocate
+    strcpy(buff, dirName);
+    strcat(buff, template_subdir);
+    int fd = mkstemp(buff);
+    if (fd == -1) return -1;
+    unlink(buff);
+    return fd;
 }
 
 bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)
 {
     needExecute = requiresExecute;
     pageSize = getpagesize();
-    return true;
+    if (! needExecute) return true;
+    // Can we allocate memory with write+execute?
+    int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
+    void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, fd, 0);
+    if (test != MAP_FAILED)
+    {
+        // Don't require shadow area
+        munmap(FIXTYPE test, pageSize);
+        return true;
+    }
+    if (errno != ENOTSUP) // This fails with ENOTSUPP on OpenBSD.
+        return false;
+    // Check that read-write works.
+    test = mmap(0, pageSize, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, fd, 0);
+    if (test == MAP_FAILED)
+        return false; // There's a problem.
+    munmap(FIXTYPE test, pageSize);
+    // Need to create a file descriptor for mapping.
+    char *tmpDir = getenv("TMPDIR");
+    if (tmpDir != NULL)
+    {
+        shadowFd = openTmpFile(tmpDir);
+        if (shadowFd != -1) return true;
+    }
+#ifdef P_tmpdir
+    shadowFd = openTmpFile(P_tmpdir);
+    if (shadowFd != -1) return true;
+#endif
+    shadowFd = openTmpFile("/tmp");
+    if (shadowFd != -1) return true;
+    shadowFd = openTmpFile("/var/tmp");
+    if (shadowFd != -1) return true;
+    return false;
 }
 
 // Allocate space and return a pointer to it.  The size is the minimum
@@ -291,21 +349,47 @@ void *OSMem::AllocateCodeArea(size_t &space, void*& shadowArea)
 {
     // Round up to an integral number of pages.
     space = (space + pageSize-1) & ~(pageSize-1);
-    int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
-    int prot = PROT_READ | PROT_WRITE;
-    if (needExecute) prot |= PROT_EXEC;
-    void *result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON, fd, 0);
-    // Convert MAP_FAILED (-1) into NULL
-    if (result == MAP_FAILED)
+
+    if (shadowFd == -1)
+    {
+        int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
+        int prot = PROT_READ | PROT_WRITE;
+        if (needExecute) prot |= PROT_EXEC;
+        void *result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON, fd, 0);
+        // Convert MAP_FAILED (-1) into NULL
+        if (result == MAP_FAILED)
+            return 0;
+        shadowArea = result;
+        return result;
+    }
+
+    // Have to use dual areas.
+    size_t allocAt;
+    {
+        PLocker lock(&allocLock);
+        allocAt = allocPtr;
+        allocPtr += space;
+    }
+    if (ftruncate(shadowFd, allocAt + space) == -1)
         return 0;
-    shadowArea = result;
-    return result;
+    void *readExec = mmap(0, space, PROT_READ|PROT_EXEC, MAP_SHARED, shadowFd, allocAt);
+    if (readExec == MAP_FAILED)
+        return 0;
+    void *readWrite = mmap(0, space, PROT_READ|PROT_WRITE, MAP_SHARED, shadowFd, allocAt);
+    if (readWrite == MAP_FAILED)
+    {
+        munmap(FIXTYPE readExec, space);
+        return 0;
+    }
+    shadowArea = readWrite;
+    return readExec;
 }
 
 bool OSMem::FreeCodeArea(void *codeArea, void *dataArea, size_t space)
 {
-    ASSERT(codeArea == dataArea);
-    return munmap(FIXTYPE codeArea, space) == 0;
+    bool freeCode = munmap(FIXTYPE codeArea, space) == 0;
+    if (codeArea == dataArea) return freeCode;
+    return (munmap(FIXTYPE dataArea, space) == 0) & freeCode;
 }
 
 bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
@@ -381,7 +465,6 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 
 OSMem::OSMem()
 {
-    allocPtr = 0;
 }
 
 bool OSMem::Initialise(bool requiresExecute, size_t space /* = 0 */, void **pBase /* = 0 */)

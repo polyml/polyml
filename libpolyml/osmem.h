@@ -80,9 +80,12 @@ protected:
     size_t pageSize;
     bool needExecute;
 
+#ifndef _WIN32
     // If we need to use dual areas because WRITE+EXECUTE permission is not allowed.
+    int shadowFd;
     PLock allocLock;
     size_t allocPtr;
+#endif
 
 #ifdef POLYML32IN64
     size_t PageSize();
