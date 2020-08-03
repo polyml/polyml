@@ -474,7 +474,12 @@ void ELFExport::exportStore(void)
     PolyWord    *p;
     ElfXX_Ehdr fhdr;
     ElfXX_Shdr *sections = 0;
-    unsigned numSections = 6 + 2*memTableEntries /*- 1*/;
+#ifdef __linux__
+    unsigned extraSections = 1; // Extra section for .note.GNU-stack
+#else
+    unsigned extraSections = 0;
+#endif
+    unsigned numSections = 6 + 2*memTableEntries /*- 1*/ + extraSections;
     // The symbol table comes at the end.
     unsigned sect_symtab = sect_data + 2*memTableEntries + 2/* - 1*/;
     
@@ -618,6 +623,12 @@ void ELFExport::exportStore(void)
     // sections[sect_symtab].sh_info is set later
     // sections[sect_symtab].sh_size is set later
     // sections[sect_symtab].sh_offset is set later
+
+#ifdef __linux__
+    // Add a .note.GNU-stack section to indicate this does not require executable stack
+    sections[numSections-1].sh_name = makeStringTableEntry(".note.GNU-stack", &sectionStrings);
+    sections[numSections - 1].sh_type = SHT_PROGBITS;
+#endif
 
     // Write the relocations.
 
