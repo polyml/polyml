@@ -260,7 +260,6 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 OSMem::OSMem()
 {
     allocPtr = 0;
-    needExecute = false;
     shadowFd = -1;
 }
 
@@ -327,7 +326,7 @@ void *OSMem::AllocateDataArea(size_t &space)
     int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
     int flags = MAP_PRIVATE | MAP_ANON;
 #ifdef MAP_STACK
-    if (usage == UsageStack) flags |= MAP_STACK; // OpenBSD seems to require this
+    if (memUsage == UsageStack) flags |= MAP_STACK; // OpenBSD seems to require this
 #endif
     void *result = mmap(0, space, PROT_READ|PROT_WRITE, flags, fd, 0);
     // Convert MAP_FAILED (-1) into NULL
@@ -358,7 +357,7 @@ void *OSMem::AllocateCodeArea(size_t &space, void*& shadowArea)
     {
         int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
         int prot = PROT_READ | PROT_WRITE;
-        if (needExecute) prot |= PROT_EXEC;
+        if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
         void *result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON, fd, 0);
         // Convert MAP_FAILED (-1) into NULL
         if (result == MAP_FAILED)
@@ -399,7 +398,7 @@ bool OSMem::FreeCodeArea(void *codeArea, void *dataArea, size_t space)
 bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
     int prot = PROT_READ;
-    if (needExecute) prot |= PROT_EXEC;
+    if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
     int res = mprotect(FIXTYPE codeAddr, space, prot);
     return res != -1;
 }
