@@ -22327,35 +22327,6 @@ if test "x$with_portable" = "xno" ; then
     fi
 fi
 
-if test "x$polyarch" != "xinterpret" ; then
-# Check for .note.GNU-stack support, used for marking the stack as non-executable.
-# Only do this check if we're using the native X86 versions.  We don't need this if
-# we're using the interpreter and the assembler on other architectures may choke.
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether as supports .note.GNU-stack" >&5
-$as_echo_n "checking whether as supports .note.GNU-stack... " >&6; }
-    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-__asm__(".section .note.GNU-stack,\"\",@progbits");
-int
-main ()
-{
-
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_compile "$LINENO"; then :
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-$as_echo "yes" >&6; }
-$as_echo "#define HAVE_GNU_STACK 1" >>confdefs.h
-
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-fi
-
 # Build 32-bit in 64-bits.  This is only allowed when building on native 64-bit X86.
 # Check whether --enable-compact32bit was given.
 if test "${enable_compact32bit+set}" = set; then :
