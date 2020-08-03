@@ -292,7 +292,7 @@ bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBas
         munmap(FIXTYPE test, pageSize);
         return true;
     }
-    if (errno != ENOTSUP) // This fails with ENOTSUPP on OpenBSD.
+    if (errno != ENOTSUP && errno != EACCES) // Fails with ENOTSUPP on OpenBSD and EACCES in SELinux.
         return false;
     // Check that read-write works.
     test = mmap(0, pageSize, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, fd, 0);
