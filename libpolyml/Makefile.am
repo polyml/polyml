@@ -58,9 +58,9 @@ endif
 endif
 
 if NATIVE_WINDOWS
-OSSOURCE = winstartup.cpp winbasicio.cpp winguiconsole.cpp windows_specific.cpp
+OSSOURCE = winstartup.cpp winbasicio.cpp winguiconsole.cpp windows_specific.cpp osmemwin.cpp
 else
-OSSOURCE = basicio.cpp unix_specific.cpp
+OSSOURCE = basicio.cpp unix_specific.cpp osmemunix.cpp
 endif
 
 noinst_HEADERS = \
@@ -136,7 +136,6 @@ libpolyml_la_SOURCES = \
     mpoly.cpp \
     network.cpp \
     objsize.cpp \
-    osmem.cpp \
     pexport.cpp \
     poly_specific.cpp \
     polyffi.cpp \

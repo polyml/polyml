@@ -47,7 +47,7 @@ class OSMem {
 
 public:
     OSMem();
-    ~OSMem() {}
+    virtual ~OSMem();
 
     enum _MemUsage {
         UsageData,          // Data or code in the interpreted version
@@ -94,12 +94,6 @@ protected:
 #endif
 
 #ifdef POLYML32IN64
-    size_t PageSize();
-    void* ReserveHeap(size_t space);
-    bool UnreserveHeap(void* baseAddr, size_t space);
-    void* CommitPages(void* baseAddr, size_t space, bool allowExecute);
-    bool UncommitPages(void* baseAddr, size_t space);
-
     Bitmap pageMap;
     uintptr_t lastAllocated;
     char* memBase;
