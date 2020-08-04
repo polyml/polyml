@@ -219,7 +219,11 @@ void* OSMem::AllocateDataArea(size_t& space)
         baseAddr = memBase + free * pageSize;
     }
     int prot = PROT_READ | PROT_WRITE;
-    if (mmap(baseAddr, space, prot, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0) == MAP_FAILED)
+    int flags = MAP_FIXED | MAP_PRIVATE | MAP_ANON;
+#ifdef MAP_STACK
+    if (memUsage == UsageStack) flags |= MAP_STACK; // OpenBSD seems to require this
+#endif
+    if (mmap(baseAddr, space, prot, flags, -1, 0) == MAP_FAILED)
         return 0;
     msync(baseAddr, space, MS_SYNC | MS_INVALIDATE);
     return baseAddr;
