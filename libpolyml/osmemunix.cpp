@@ -100,6 +100,27 @@ static int openTmpFile(const char* dirName)
     return fd;
 }
 
+static int createTemporaryFile()
+{
+    char *tmpDir = getenv("TMPDIR");
+    int fd;
+    if (tmpDir != NULL)
+    {
+        fd = openTmpFile(tmpDir);
+        if (fd != -1) return fd;
+    }
+#ifdef P_tmpdir
+    fd = openTmpFile(P_tmpdir);
+    if (fd != -1) return fd;
+#endif
+    fd = openTmpFile("/tmp");
+    if (fd != -1) return fd;
+    fd = openTmpFile("/var/tmp");
+    if (fd != -1) return fd;
+
+    return -1;
+}
+
 #ifdef POLYML32IN64
 OSMem::OSMem()
 {
@@ -161,7 +182,6 @@ void* OSMem::AllocateDataArea(size_t& space)
         baseAddr = memBase + free * pageSize;
     }
     int prot = PROT_READ | PROT_WRITE;
-    if (allowExecute) prot |= PROT_EXEC;
     if (mmap(baseAddr, space, prot, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0) == MAP_FAILED)
         return 0;
     msync(baseAddr, space, MS_SYNC | MS_INVALIDATE);
@@ -240,7 +260,7 @@ bool OSMem::EnableWrite(bool enable, void* p, size_t space)
 bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
     int prot = PROT_READ;
-    if (needExecute) prot |= PROT_EXEC;
+    if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
     int res = mprotect(FIXTYPE codeAddr, space, prot);
     return res != -1;
 }
@@ -255,7 +275,7 @@ OSMem::OSMem()
     shadowFd = -1;
 }
 
-OSMem::OSMem()
+OSMem::~OSMem()
 {
     if (shadowFd != -1) close(shadowFd);
 }
@@ -282,19 +302,7 @@ bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBas
         return false; // There's a problem.
     munmap(FIXTYPE test, pageSize);
     // Need to create a file descriptor for mapping.
-    char *tmpDir = getenv("TMPDIR");
-    if (tmpDir != NULL)
-    {
-        shadowFd = openTmpFile(tmpDir);
-        if (shadowFd != -1) return true;
-    }
-#ifdef P_tmpdir
-    shadowFd = openTmpFile(P_tmpdir);
-    if (shadowFd != -1) return true;
-#endif
-    shadowFd = openTmpFile("/tmp");
-    if (shadowFd != -1) return true;
-    shadowFd = openTmpFile("/var/tmp");
+    shadowFd = createTemporaryFile();
     if (shadowFd != -1) return true;
     return false;
 }
