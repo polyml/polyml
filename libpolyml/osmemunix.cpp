@@ -125,6 +125,7 @@ static int createTemporaryFile()
 OSMem::OSMem()
 {
     memBase = 0;
+    shadowFd = -1;
 }
 
 OSMem::~OSMem()
@@ -135,17 +136,53 @@ bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBas
 {
     memUsage = usage;
     pageSize = getpagesize();
-
-    memBase = (char*)mmap(0, space, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
-    if (memBase == 0) return 0;
-    // We need the heap to be such that the top 32-bits are non-zero.
-    if ((uintptr_t)memBase < ((uintptr_t)1 << 32))
+    bool simpleMmap;
+    if (usage != UsageExecutableCode) simpleMmap = true;
+    else
     {
-        // Allocate again.
-        void* newSpace = mmap(0, space, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
-        munmap(FIXTYPE memBase, space); // Free the old area that isn't suitable.
-        // Return what we got, or zero if it failed.
-        memBase = (char*)newSpace;
+        // Can we allocate memory with write+execute?
+        void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
+        if (test != MAP_FAILED)
+        {
+            munmap(FIXTYPE test, pageSize);
+            simpleMmap = true;
+        }
+        else simpleMmap = false;
+    }
+    
+    if (simpleMmap)
+    {
+        // Don't require shadow area.  Can use mmap
+        memBase = (char*)mmap(0, space, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+        if (memBase == MAP_FAILED) return false;
+        // We need the heap to be such that the top 32-bits are non-zero.
+        if ((uintptr_t)memBase < ((uintptr_t)1 << 32))
+        {
+            // Allocate again.
+            void* newSpace = mmap(0, space, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+            munmap(FIXTYPE memBase, space); // Free the old area that isn't suitable.
+            // Return what we got, or zero if it failed.
+            memBase = (char*)newSpace;
+        }
+        shadowBase = memBase;
+    }
+    else
+    {
+        // More difficult - require file mapping
+        shadowFd = createTemporaryFile();
+        if (shadowFd == -1) return false;
+        if (ftruncate(shadowFd, space) == -1) return false;
+        void *readWrite = mmap(0, space, PROT_NONE, MAP_SHARED, shadowFd, 0);
+        if (readWrite == MAP_FAILED) return 0;
+        memBase = (char*)mmap(0, space, PROT_NONE, MAP_SHARED, shadowFd, 0);
+        if (memBase == MAP_FAILED)
+        {
+            munmap(FIXTYPE readWrite, space);
+            return false;
+        }
+        // This should be above 32-bits.
+        ASSERT((uintptr_t)memBase >= ((uintptr_t)1 << 32));
+        shadowBase = (char*)readWrite;
     }
 
     if (pBase != 0) *pBase = memBase;
@@ -208,7 +245,7 @@ bool OSMem::FreeDataArea(void* p, size_t space)
 
 void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
 {
-    char* baseAddr;
+    uintptr_t offset;
     {
         PLocker l(&bitmapLock);
         uintptr_t pages = (space + pageSize - 1) / pageSize;
@@ -221,26 +258,52 @@ void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
         if (free == lastAllocated)
             return 0; // Can't find the space.
         pageMap.SetBits(free, pages);
-        // TODO: Do we need to zero this?  It may have previously been set.
-        baseAddr = memBase + free * pageSize;
+        offset = free * pageSize;
     }
-
-    int prot = PROT_READ | PROT_WRITE;
-    if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
-    if (mmap(baseAddr, space, prot, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0) == MAP_FAILED)
-        return 0;
-    msync(baseAddr, space, MS_SYNC | MS_INVALIDATE);
-    shadowArea = baseAddr;
-    return baseAddr;
+    
+    if (shadowFd == -1)
+    {
+        char *baseAddr = memBase + offset;
+        int prot = PROT_READ | PROT_WRITE;
+        if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
+        if (mmap(baseAddr, space, prot, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0) == MAP_FAILED)
+            return 0;
+        msync(baseAddr, space, MS_SYNC | MS_INVALIDATE);
+        shadowArea = baseAddr;
+        return baseAddr;
+    }
+    else
+    {
+        char *baseAddr = memBase + offset;
+        char *readWriteArea = shadowBase + offset;
+        if (mmap(baseAddr, space, PROT_READ|PROT_EXEC, MAP_FIXED | MAP_SHARED, shadowFd, offset) == MAP_FAILED)
+            return 0;
+        msync(baseAddr, space, MS_SYNC | MS_INVALIDATE);
+        if (mmap(readWriteArea, space, PROT_READ|PROT_WRITE, MAP_FIXED | MAP_SHARED, shadowFd, offset) == MAP_FAILED)
+            return 0;
+        msync(readWriteArea, space, MS_SYNC | MS_INVALIDATE);
+        shadowArea = readWriteArea;
+        return baseAddr;
+    }
 }
 
 bool OSMem::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
 {
-    ASSERT(codeAddr == dataAddr);
-    char* addr = (char*)codeAddr;
-    uintptr_t offset = (addr - memBase) / pageSize;
-    mmap(codeAddr, space, PROT_NONE, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
-    msync(codeAddr, space, MS_SYNC | MS_INVALIDATE);
+    // Free areas by mapping them with PROT_NONE.
+    uintptr_t offset = ((char*)codeAddr - memBase) / pageSize;
+    if (shadowFd == -1)
+    {
+        mmap(codeAddr, space, PROT_NONE, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
+        msync(codeAddr, space, MS_SYNC | MS_INVALIDATE);
+    }
+    else
+    {
+
+        mmap(codeAddr, space, PROT_NONE, MAP_SHARED, shadowFd, offset);
+        msync(codeAddr, space, MS_SYNC | MS_INVALIDATE);
+        mmap(dataAddr, space, PROT_NONE, MAP_SHARED, shadowFd, offset);
+        msync(dataAddr, space, MS_SYNC | MS_INVALIDATE);
+    }
     uintptr_t pages = space / pageSize;
     {
         PLocker l(&bitmapLock);

@@ -96,7 +96,7 @@ protected:
 #ifdef POLYML32IN64
     Bitmap pageMap;
     uintptr_t lastAllocated;
-    char* memBase;
+    char* memBase, *shadowBase;
     PLock bitmapLock;
 #endif
 

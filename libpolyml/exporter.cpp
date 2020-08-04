@@ -418,7 +418,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         // Maintain the odd-word alignment of topPointer
         if ((words & 1) == 0 && space->topPointer < space->top)
         {
-            *space->topPointer = PolyWord::FromUnsigned(0);
+            *space->writeAble(space->topPointer) = PolyWord::FromUnsigned(0);
             space->topPointer++;
         }
 #endif
