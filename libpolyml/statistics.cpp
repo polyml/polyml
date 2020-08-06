@@ -183,7 +183,7 @@ Statistics::Statistics(): accessLock("Statistics")
 #ifdef _WIN32
 // In Windows we always create shared memory for the statistics.
 // If this fails just create local stats.
-unsigned char *createWindowsSharedStats()
+bool Statistics::createWindowsSharedStats()
 {
     // Get the process ID to use in the shared memory name
     DWORD pid = ::GetCurrentProcessId();
@@ -193,24 +193,25 @@ unsigned char *createWindowsSharedStats()
     // Create a piece of shared memory
     hFileMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
                                  0, STATS_SPACE, shmName);
-    if (hFileMap == NULL) return 0;
+    if (hFileMap == NULL) return false;
 
     // If it already exists it's the wrong one.
     if (GetLastError() == ERROR_ALREADY_EXISTS) 
     { 
         CloseHandle(hFileMap);
         hFileMap = NULL;
-        return 0;
+        return false;
     }
 
-    char *mem = (unsigned char*)MapViewOfFile(hFileMap, FILE_MAP_ALL_ACCESS, 0, 0, STATS_SPACE);
-    if (mem == NULL)
+    statMemory = (unsigned char*)MapViewOfFile(hFileMap, FILE_MAP_ALL_ACCESS, 0, 0, STATS_SPACE);
+    if (statMemory == NULL)
     {
         CloseHandle(hFileMap);
         hFileMap = NULL;
-        return 0;
+        return false;
     }
-    return mem;
+    memSize = STATS_SPACE;
+    return true;
 }
 #endif
 
@@ -219,8 +220,7 @@ void Statistics::Init()
 #ifdef _WIN32
     // Record an initial time of day to use as the basis of real timing
     GetSystemTimeAsFileTime(&startTime);
-    statMemory = createWindowsSharedStats();
-    memSize = STATS_SPACE;
+    createWindowsSharedStats();
 #else
     // Record an initial time of day to use as the basis of real timing
     gettimeofday(&startTime, NULL);
@@ -260,6 +260,7 @@ void Statistics::Init()
         // If we just want the statistics locally.
         statMemory = (unsigned char*)calloc(STATS_SPACE, sizeof(unsigned char));
         if (statMemory == 0) return;
+        memSize = STATS_SPACE;
     }
     
     // Set up the ASN1 structure in the statistics area.
