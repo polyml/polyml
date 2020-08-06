@@ -24,6 +24,11 @@
 #error "No configuration file"
 #endif
 
+#if defined __linux__ && !defined _GNU_SOURCE
+// _GNU_SOURCE must be defined before #include <fcntl.h> to get O_TEMPFILE etc.
+#define _GNU_SOURCE 1
+#endif
+
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
@@ -38,19 +43,6 @@
 #else
 #define ASSERT(x)
 #endif
-
-#include "osmem.h"
-#include "bitmap.h"
-#include "locking.h"
-
-// Linux prefers MAP_ANONYMOUS to MAP_ANON 
-#ifndef MAP_ANON
-#ifdef MAP_ANONYMOUS
-#define MAP_ANON MAP_ANONYMOUS 
-#endif
-#endif
-
-// Assume that mmap is supported.  If it isn't we can't run.
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -68,6 +60,26 @@
 #include <stdlib.h>
 #endif
 
+#ifdef HAVE_SYS_STAT_H
+#include <sys/stat.h>
+#endif
+
+#ifdef HAVE_FCNTL_H
+#include <fcntl.h>
+#endif
+
+// Linux prefers MAP_ANONYMOUS to MAP_ANON
+#ifndef MAP_ANON
+#ifdef MAP_ANONYMOUS
+#define MAP_ANON MAP_ANONYMOUS
+#endif
+#endif
+
+// Assume that mmap is supported.  If it isn't we can't run.
+
+#include "osmem.h"
+#include "bitmap.h"
+#include "locking.h"
 #include "polystring.h" // For TempCString
 
 // How do we get the page size?
@@ -89,6 +101,15 @@
 // Open a temporary file, unlink it and return the file descriptor.
 static int openTmpFile(const char* dirName)
 {
+#ifdef O_TMPFILE
+    int flags = 0;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    int tfd = open(dirName, flags | O_TMPFILE | O_RDWR | O_EXCL, 0700);
+    if (tfd != -1)
+        return tfd;
+#endif
     const char* template_subdir = "/mlMapXXXXXX";
     TempString buff((char*)malloc(strlen(dirName) + strlen(template_subdir) + 1));
     if (buff == 0) return -1; // Unable to allocate
@@ -353,8 +374,7 @@ bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBas
     pageSize = getpagesize();
     if (usage != UsageExecutableCode) return true;
     // Can we allocate memory with write+execute?
-    int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
-    void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, fd, 0);
+    void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
     if (test != MAP_FAILED)
     {
         // Don't require shadow area
@@ -364,7 +384,7 @@ bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBas
     if (errno != ENOTSUP && errno != EACCES) // Fails with ENOTSUPP on OpenBSD and EACCES in SELinux.
         return false;
     // Check that read-write works.
-    test = mmap(0, pageSize, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, fd, 0);
+    test = mmap(0, pageSize, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, -1, 0);
     if (test == MAP_FAILED)
         return false; // There's a problem.
     munmap(FIXTYPE test, pageSize);
