@@ -689,28 +689,10 @@ void Statistics::setUserCounter(unsigned which, POLYSIGNED value)
     }
 }
 
-Handle Statistics::returnStatistics(TaskData *taskData, const unsigned char *stats, unsigned size)
+Handle Statistics::returnStatistics(TaskData *taskData, const unsigned char *stats, size_t size)
 {
-    // Parse the ASN1 tag and length.
-    const unsigned char *p = stats;
-    if (*p == POLY_STATS_C_STATISTICS) // Check and skip the tag
-    {
-        p++;
-        if ((*p & 0x80) == 0)
-             p += *p + 1;
-        else
-        {
-            int lengthOfLength = *p++ & 0x7f;
-            if (lengthOfLength != 0)
-            {
-                unsigned l = 0;
-                while (lengthOfLength--)
-                    l = (l << 8) | *p++;
-                p += l;
-            }
-        }
-    }
-    return taskData->saveVec.push(C_string_to_Poly(taskData, (const char*)stats, p - stats));
+    // Just return the memory as a string i.e. Word8Vector.vector.
+    return taskData->saveVec.push(C_string_to_Poly(taskData, (const char*)stats, size));
 }
 
 // Copy the local statistics into the buffer
@@ -726,25 +708,34 @@ Handle Statistics::getRemoteStatistics(TaskData *taskData, POLYUNSIGNED pid)
 {
 #ifdef _WIN32
     TCHAR shmName[MAX_PATH];
-    wsprintf(shmName, _T(POLY_STATS_NAME) _T("%") _T(POLYUFMT), pid);
+    wsprintf(shmName, _T(POLY_STATS_NAME) _T("%lu"), pid);
     HANDLE hRemMemory = OpenFileMapping(FILE_MAP_READ, FALSE, shmName);
     if (hRemMemory == NULL)
         raise_exception_string(taskData, EXC_Fail, "No statistics available");
 
     unsigned char *sMem = (unsigned char *)MapViewOfFile(hRemMemory, FILE_MAP_READ, 0, 0, 0);
-    CloseHandle(hRemMemory);
 
     if (sMem == NULL)
+    {
+        CloseHandle(hRemMemory);
         raise_exception_string(taskData, EXC_Fail, "No statistics available");
-    if (*sMem != POLY_STATS_C_STATISTICS)
+    }
+    // The size may not be the size of the statistics for this process
+    // because we may be using a different version of Poly/ML.  It should
+    // still be properly formatted ASN1.
+    MEMORY_BASIC_INFORMATION memInfo;
+    SIZE_T buffSize = VirtualQuery(sMem, &memInfo, sizeof(memInfo));
+    if (buffSize == 0)
     {
         UnmapViewOfFile(sMem);
-        raise_exception_string(taskData, EXC_Fail, "Statistics data malformed");
+        CloseHandle(hRemMemory);
+        raise_exception_string(taskData, EXC_Fail, "Unable to get statistics");
     }
 
-    Handle result = returnStatistics(taskData, sMem, memSize);
+    Handle result = returnStatistics(taskData, sMem, memInfo.RegionSize);
 
     UnmapViewOfFile(sMem);
+    CloseHandle(hRemMemory);
     return result;
 #else
     int remMapFd = -1;
@@ -777,10 +768,6 @@ Handle Statistics::getRemoteStatistics(TaskData *taskData, POLYUNSIGNED pid)
 
     if (haveRead < 0)
         raise_exception_string(taskData, EXC_Fail, "No statistics available");
-
-    // Check the tag.
-    if (*statData != POLY_STATS_C_STATISTICS)
-        raise_exception_string(taskData, EXC_Fail, "Statistics data malformed");
 
     return returnStatistics(taskData, (const unsigned char*)(const char *)statData, statBuf.st_size);
 #endif

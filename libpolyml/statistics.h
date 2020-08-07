@@ -124,7 +124,7 @@ private:
     struct { unsigned char *secAddr; unsigned char *usecAddr; } timeAddrs[N_PS_TIMES];
     unsigned char *userAddrs[N_PS_USER];
 
-    Handle returnStatistics(TaskData *taskData, const unsigned char *stats, unsigned size);
+    Handle returnStatistics(TaskData *taskData, const unsigned char *stats, size_t size);
     void addCounter(int cEnum, unsigned statId, const char *name);
     void addSize(int cEnum, unsigned statId, const char *name);
     void addTime(int cEnum, unsigned statId, const char *name);
