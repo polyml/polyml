@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-18
+    Copyright David C. J. Matthews 2016-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -2085,11 +2085,12 @@ struct
                 moveIfNotAllowedRev(destination, BlockSimple(TouchArgument{source=aReg}) :: argCode,
                         (* Unit result *) IntegerConstant(tag 0))
             end
- 
+
         and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =
             let
                 (* Comparisons.  Because this is also used for pointer equality and even for exception matching it
-                   is perfectly possible that the argument could be an address. *)
+                   is perfectly possible that the argument could be an address.
+                   The higher levels used to generate this for pointer equality. *)
                 val ccRef = newCCRef()
                 val comparison =
                     (* If the argument is a tagged value that will fit in 32-bits we can use
@@ -2217,6 +2218,12 @@ struct
             in
                 (code, RegisterArgument target, false)
             end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.PointerEq, arg1, arg2}, context, isTail, destination, tailCode) =
+                (* Equality of general values which can include pointers. This can be treated exactly as a word equality.
+                   It has to be analysed differently for indexed cases. *)
+                codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false}, arg1=arg1, arg2=arg2},
+                                      context, isTail, destination, tailCode)
 
         |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context, _, destination, tailCode) =
             let

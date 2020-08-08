@@ -266,7 +266,7 @@ struct
         val lambda:lambdaForm =
         {
             body = resultCode,
-            isInline = NonInline,
+            isInline = DontInline,
             name = "<top level>",
             closure = [],
             argTypes = [(GeneralType, [])],

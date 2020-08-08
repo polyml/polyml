@@ -1,7 +1,7 @@
 /*
-    Title:  statics.cpp - Profiling statistics
+    Title:  statistics.cpp - Profiling statistics
 
-    Copyright (c) 2011, 2013, 2015, 2019 David C.J. Matthews
+    Copyright (c) 2011, 2013, 2015, 2019, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -65,7 +65,6 @@
 #include <string.h>
 #endif
 
-
 #ifdef HAVE_TIME_H
 #include <time.h>
 #endif
@@ -84,6 +83,10 @@
 
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
+#endif
+
+#ifdef HAVE_ERRNO_H
+#include <errno.h>
 #endif
 
 #if defined(HAVE_MMAP)
@@ -127,13 +130,13 @@
 #include "../polystatistics.h"
 #include "rtsentry.h"
 #include "arb.h"
+#include "diagnostics.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetUserStatsCount();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(PolyObject *threadId, PolyWord index, PolyWord value);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(PolyObject *threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(PolyObject *threadId, PolyWord procId);
-//    POLYEXTERNALSYMBOL POLYUNSIGNED PolySpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
 }
 
 #define STATS_SPACE 4096 // Enough for all the statistics
@@ -162,7 +165,7 @@ Statistics::Statistics(): accessLock("Statistics")
     memset(&gcSystemTime, 0, sizeof(gcSystemTime));
     memset(&gcRealTime, 0, sizeof(gcRealTime));
 
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
     // File mapping handle
     hFileMap  = NULL;
     exportStats = true; // Actually unused
@@ -176,15 +179,11 @@ Statistics::Statistics(): accessLock("Statistics")
     newPtr = 0;
 }
 
-void Statistics::Init()
+#ifdef _WIN32
+// In Windows we always create shared memory for the statistics.
+// If this fails just create local stats.
+bool Statistics::createWindowsSharedStats()
 {
-#if (defined(_WIN32))
-    // Record an initial time of day to use as the basis of real timing
-    GetSystemTimeAsFileTime(&startTime);
-#else
-    gettimeofday(&startTime, NULL);
-#endif
-#ifdef HAVE_WINDOWS_H
     // Get the process ID to use in the shared memory name
     DWORD pid = ::GetCurrentProcessId();
     TCHAR shmName[MAX_PATH];
@@ -193,14 +192,14 @@ void Statistics::Init()
     // Create a piece of shared memory
     hFileMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
                                  0, STATS_SPACE, shmName);
-    if (hFileMap == NULL) return;
+    if (hFileMap == NULL) return false;
 
     // If it already exists it's the wrong one.
     if (GetLastError() == ERROR_ALREADY_EXISTS) 
     { 
         CloseHandle(hFileMap);
         hFileMap = NULL;
-        return;
+        return false;
     }
 
     statMemory = (unsigned char*)MapViewOfFile(hFileMap, FILE_MAP_ALL_ACCESS, 0, 0, STATS_SPACE);
@@ -208,45 +207,47 @@ void Statistics::Init()
     {
         CloseHandle(hFileMap);
         hFileMap = NULL;
-        return;
+        return false;
     }
     memSize = STATS_SPACE;
+    return true;
+}
+#endif
+
+void Statistics::Init()
+{
+#ifdef _WIN32
+    // Record an initial time of day to use as the basis of real timing
+    GetSystemTimeAsFileTime(&startTime);
+    createWindowsSharedStats();
 #else
-#if HAVE_MMAP
+    // Record an initial time of day to use as the basis of real timing
+    gettimeofday(&startTime, NULL);
+
+    // On Unix we need to specify --exportstats but if we do and have a problem we exit.
     if (exportStats)
     {
         // Create the shared memory in the user's .polyml directory
         int pageSize = getpagesize();
         memSize = (STATS_SPACE + pageSize-1) & ~(pageSize-1);
-        char *homeDir = getenv("HOME");
-        if (homeDir == NULL) return;
-        mapFileName = (char*)malloc(strlen(homeDir) + 100);
-        strcpy(mapFileName, homeDir);
-        strcat(mapFileName, "/.polyml");
-        mkdir(mapFileName, 0777); // Make the directory to ensure it exists
-        sprintf(mapFileName + strlen(mapFileName), "/" POLY_STATS_NAME "%d", getpid());
-        // Open the file.  Truncates it if it already exists.  That should only happen
-        // if a previous run with the same process id crashed.
-        mapFd = open(mapFileName, O_RDWR|O_CREAT, 0444);
-        if (mapFd == -1) return;
-        // Write enough of the file to fill the space.
-        char ch = 0;
-        for (size_t i = 0; i < memSize; i++) write(mapFd, &ch, 1);
-        statMemory = (unsigned char*)mmap(0, memSize, PROT_READ|PROT_WRITE, MAP_SHARED, mapFd, 0);
-        if (statMemory == MAP_FAILED)
+        char* polyStatsDir = getenv("POLYSTATSDIR");
+        if (!polyStatsDir || !createSharedStats(polyStatsDir, ""))
         {
-            statMemory = 0;
-            return;
+            char* homeDir = getenv("HOME");
+            if (homeDir == NULL)
+                Exit("Unable to create shared statistics - HOME is not defined");
+            if (!createSharedStats(homeDir, "/.polyml"))
+                Exit("Unable to create shared statistics");
         }
     }
-    else
 #endif
+    if (statMemory == 0)
     {
         // If we just want the statistics locally.
         statMemory = (unsigned char*)calloc(STATS_SPACE, sizeof(unsigned char));
         if (statMemory == 0) return;
+        memSize = STATS_SPACE;
     }
-#endif
     
     // Set up the ASN1 structure in the statistics area.
     newPtr = statMemory;
@@ -291,6 +292,41 @@ void Statistics::Init()
     addUser(6, POLY_STATS_ID_USER6, "UserCounter6");
     addUser(7, POLY_STATS_ID_USER7, "UserCounter7");
 }
+
+#ifndef _WIN32
+// Try to create a shared memory file in the appropriate directory.
+bool Statistics::createSharedStats(const char* baseName, const char* subDirName)
+{
+    size_t tMapSize = strlen(baseName) + strlen(subDirName) + strlen(POLY_STATS_NAME) + 100;
+    TempCString tMapFileName((char*)malloc(tMapSize));
+    // First construct the directory name because it may not exist.
+    if (subDirName[0] != 0)
+    {
+         int cx = snprintf(tMapFileName, tMapSize, "%s%s", baseName, subDirName);
+         if (cx < 0 || (size_t)cx >= tMapSize)
+             return -1;
+         mkdir(tMapFileName, 0777);
+    }
+    int cx = snprintf(tMapFileName, tMapSize, "%s%s/%s%d", baseName, subDirName, POLY_STATS_NAME, getpid());
+    if (cx < 0 || (size_t)cx >= tMapSize)
+        return -1;
+    // Remove any existing file.  We're creating with 0444 so if there's an old one
+    // left over from a previous crash we won't be able to reopen it.
+    unlink(tMapFileName);
+    // Open the file.
+    mapFd = open(tMapFileName, O_RDWR | O_CREAT, 0444);
+    if (mapFd == -1) return false;
+    if (ftruncate(mapFd, memSize) == -1) return false;
+    statMemory = (unsigned char*)mmap(0, memSize, PROT_READ | PROT_WRITE, MAP_SHARED, mapFd, 0);
+    if (statMemory == MAP_FAILED) return false;
+    memset(statMemory, 0, memSize);
+    // Set the file name to this.
+    mapFileName = tMapFileName;
+    tMapFileName = 0;
+    return true;
+}
+
+#endif
 
 void Statistics::addCounter(int cEnum, unsigned statId, const char *name)
 {
@@ -433,24 +469,25 @@ void Statistics::addUser(int n, unsigned statId, const char *name)
 
 Statistics::~Statistics()
 {
-#ifdef HAVE_WINDOWS_H
-    if (statMemory != NULL) ::UnmapViewOfFile(statMemory);
-    if (hFileMap != NULL) ::CloseHandle(hFileMap);
+#ifdef _WIN32
+    if (hFileMap != NULL)
+    {
+        if (statMemory != NULL) ::UnmapViewOfFile(statMemory);
+        ::CloseHandle(hFileMap);
+        statMemory = NULL;
+    }
 #else
-#if HAVE_MMAP
     if (mapFileName != 0)
     {
         if (statMemory != 0 && statMemory != MAP_FAILED) munmap(statMemory, memSize);
         if (mapFd != -1) close(mapFd);
         if (mapFileName != 0) unlink(mapFileName);
         free(mapFileName);
+        statMemory = NULL;
     }
-    else
 #endif
-    {
+    if (statMemory)
         free(statMemory);
-    }
-#endif
 }
 
 // Counters.  These are used for thread state so need interlocks
@@ -669,28 +706,10 @@ void Statistics::setUserCounter(unsigned which, POLYSIGNED value)
     }
 }
 
-Handle Statistics::returnStatistics(TaskData *taskData, unsigned char *stats)
+Handle Statistics::returnStatistics(TaskData *taskData, const unsigned char *stats, size_t size)
 {
-    // Parse the ASN1 tag and length.
-    unsigned char *p = stats;
-    if (*p == POLY_STATS_C_STATISTICS) // Check and skip the tag
-    {
-        p++;
-        if ((*p & 0x80) == 0)
-             p += *p + 1;
-        else
-        {
-            int lengthOfLength = *p++ & 0x7f;
-            if (lengthOfLength != 0)
-            {
-                unsigned l = 0;
-                while (lengthOfLength--)
-                    l = (l << 8) | *p++;
-                p += l;
-            }
-        }
-    }
-    return taskData->saveVec.push(C_string_to_Poly(taskData, (const char*)stats, p - stats));
+    // Just return the memory as a string i.e. Word8Vector.vector.
+    return taskData->saveVec.push(C_string_to_Poly(taskData, (const char*)stats, size));
 }
 
 // Copy the local statistics into the buffer
@@ -698,81 +717,92 @@ Handle Statistics::getLocalStatistics(TaskData *taskData)
 {
     if (statMemory == 0)
         raise_exception_string(taskData, EXC_Fail, "No statistics available");
-    return returnStatistics(taskData, statMemory);
+    return returnStatistics(taskData, statMemory, memSize);
 }
 
 // Get statistics for a remote instance.  We don't do any locking 
 Handle Statistics::getRemoteStatistics(TaskData *taskData, POLYUNSIGNED pid)
 {
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
     TCHAR shmName[MAX_PATH];
-    wsprintf(shmName, _T(POLY_STATS_NAME) _T("%") _T(POLYUFMT), pid);
+    wsprintf(shmName, _T(POLY_STATS_NAME) _T("%lu"), pid);
     HANDLE hRemMemory = OpenFileMapping(FILE_MAP_READ, FALSE, shmName);
     if (hRemMemory == NULL)
         raise_exception_string(taskData, EXC_Fail, "No statistics available");
 
     unsigned char *sMem = (unsigned char *)MapViewOfFile(hRemMemory, FILE_MAP_READ, 0, 0, 0);
-    CloseHandle(hRemMemory);
 
     if (sMem == NULL)
+    {
+        CloseHandle(hRemMemory);
         raise_exception_string(taskData, EXC_Fail, "No statistics available");
-    if (*sMem != POLY_STATS_C_STATISTICS)
+    }
+    // The size may not be the size of the statistics for this process
+    // because we may be using a different version of Poly/ML.  It should
+    // still be properly formatted ASN1.
+    MEMORY_BASIC_INFORMATION memInfo;
+    SIZE_T buffSize = VirtualQuery(sMem, &memInfo, sizeof(memInfo));
+    if (buffSize == 0)
     {
         UnmapViewOfFile(sMem);
-        raise_exception_string(taskData, EXC_Fail, "Statistics data malformed");
+        CloseHandle(hRemMemory);
+        raise_exception_string(taskData, EXC_Fail, "Unable to get statistics");
     }
 
-    Handle result = returnStatistics(taskData, sMem);
+    Handle result = returnStatistics(taskData, sMem, memInfo.RegionSize);
 
     UnmapViewOfFile(sMem);
-    return result;
-#elif HAVE_MMAP
-    // Find the shared memory in the user's home directory
-    char *homeDir = getenv("HOME");
-    if (homeDir == NULL)
-        raise_exception_string(taskData, EXC_Fail, "No statistics available");
-
-    int remMapFd = -1;
-    size_t remMapSize = 4096;
-    TempCString remMapFileName((char *)malloc(remMapSize));
-    if (remMapFileName == NULL)
-        raise_exception_string(taskData, EXC_Fail, "No statistics available");
-
-    while ((snprintf(remMapFileName, remMapSize, "%s/.polyml/" POLY_STATS_NAME "%" POLYUFMT, homeDir, pid), strlen(remMapFileName) >= remMapSize - 1)) {
-        if (remMapSize > std::numeric_limits<size_t>::max() / 2)
-            raise_exception_string(taskData, EXC_Fail, "No statistics available");
-        remMapSize *= 2;
-        char *newFileName = (char *)realloc(remMapFileName, remMapSize);
-        if (newFileName == NULL)
-            raise_exception_string(taskData, EXC_Fail, "No statistics available");
-        remMapFileName = newFileName;
-    }
-
-    remMapFd = open(remMapFileName, O_RDONLY);
-    if (remMapFd == -1)
-        raise_exception_string(taskData, EXC_Fail, "No statistics available");
-    unsigned char *sMem = (unsigned char*)mmap(0, remMapSize, PROT_READ, MAP_PRIVATE, remMapFd, 0);
-    if (sMem == MAP_FAILED)
-    {
-        close(remMapFd);
-        raise_exception_string(taskData, EXC_Fail, "No statistics available");
-    }
-    // Check the tag.
-    if (*sMem != POLY_STATS_C_STATISTICS)
-    {
-        munmap(sMem, remMapSize);
-        close(remMapFd);
-        raise_exception_string(taskData, EXC_Fail, "Statistics data malformed");
-    }
-    Handle result = returnStatistics(taskData, sMem);
-    munmap(sMem, remMapSize);
-    close(remMapFd);
+    CloseHandle(hRemMemory);
     return result;
 #else
-    raise_exception_string(taskData, EXC_Fail, "No statistics available");
+    int remMapFd = -1;
+    char* polyStatsDir = getenv("POLYSTATSDIR");
+    if (polyStatsDir) remMapFd = openSharedStats(polyStatsDir, "", pid);
+    if (remMapFd == -1) 
+    {
+        char* homeDir = getenv("HOME");
+        if (homeDir) remMapFd = openSharedStats(homeDir, "/.polyml", pid);
+    }
+    if (remMapFd == -1)
+        raise_exception_string(taskData, EXC_Fail, "No statistics available");
+
+    struct stat statBuf;
+    if (fstat(remMapFd, &statBuf) == -1)
+    {
+        close(remMapFd);
+        raise_exception_string(taskData, EXC_Fail, "No statistics available");
+    }
+
+    TempCString statData((char*)malloc(statBuf.st_size));
+    if (statData == NULL)
+    {
+        close(remMapFd);
+        raise_exception_string(taskData, EXC_Fail, "No statistics available");
+    }
+
+    ssize_t haveRead = read(remMapFd, statData, statBuf.st_size);
+    close(remMapFd);
+
+    if (haveRead < 0)
+        raise_exception_string(taskData, EXC_Fail, "No statistics available");
+
+    return returnStatistics(taskData, (const unsigned char*)(const char *)statData, statBuf.st_size);
 #endif
 }
 
+#ifndef _WIN32
+// Try to open a shared statistics file
+int Statistics::openSharedStats(const char* baseName, const char* subDirName, int pid)
+{
+    size_t remMapSize = strlen(baseName) + strlen(subDirName) + strlen(POLY_STATS_NAME) + 100;
+    TempCString remMapFileName((char*)malloc(remMapSize));
+    int cx = snprintf(remMapFileName, remMapSize, "%s%s/%s%d", baseName, subDirName, POLY_STATS_NAME, pid);
+    if (cx < 0 || (size_t)cx >= remMapSize)
+        return -1;
+    // Open the file.
+    return open(remMapFileName, O_RDONLY);
+}
+#endif
 
 // Create the global statistics object.
 Statistics globalStats;

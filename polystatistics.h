@@ -1,6 +1,6 @@
 /*
     Title:  polystatics.h - Layout of statistics data in shared memory
-    Copyright (c) 2011, 2019 David C.J. Matthews
+    Copyright (c) 2011, 2019-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,7 @@
 #endif
 
 // Name of shared memory file.  This has the process ID appended.
-// In Unix this is in /tmp
+// In Unix this may be in the the $POLYSTATSDIR or $HOME/.polyml directories.
 #define POLY_STATS_NAME "poly-stats-"
 
 // ASN1 tags for the statistics

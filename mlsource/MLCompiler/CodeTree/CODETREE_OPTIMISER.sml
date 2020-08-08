@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15,17 David C.J. Matthews
+    Copyright (c) 2012,13,15,17, 20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -34,7 +34,8 @@ functor CODETREE_OPTIMISER(
         type codetree and codeBinding and envSpecial
 
         val simplifier:
-            codetree * int -> (codetree * codeBinding list * envSpecial) * int * bool
+            { code: codetree, numLocals: int, maxInlineSize: int } ->
+                (codetree * codeBinding list * envSpecial) * int * bool
         val specialToGeneral:
             codetree * codeBinding list * envSpecial -> codetree
 
@@ -69,7 +70,7 @@ functor CODETREE_OPTIMISER(
 ) :
     sig
         type codetree and envSpecial and codeBinding
-        val codetreeOptimiser: codetree  * Universal.universal list * int ->
+        val codetreeOptimiser: codetree * Universal.universal list * int ->
             { numLocals: int, general: codetree, bindings: codeBinding list, special: envSpecial }
         structure Sharing: sig type codetree = codetree and envSpecial = envSpecial and codeBinding = codeBinding end
     end
@@ -83,136 +84,6 @@ struct
     infix 9 sub
     
     exception InternalError = Misc.InternalError
-
- 
-    datatype inlineTest =
-        TooBig
-    |   NonRecursive
-    |   TailRecursive of bool vector
-    |   NonTailRecursive of bool vector
-
-    fun evaluateInlining(function, numArgs, maxInlineSize) =
-    let
-        (* This checks for the possibility of inlining a function.  It sees if it is
-           small enough according to some rough estimate of the cost and it also looks
-           for recursive uses of the function.
-           Typically if the function is small enough to inline there will be only
-           one recursive use but we consider the possibility of more than one.  If
-           the only uses are tail recursive we can replace the recursive calls by
-           a Loop with a BeginLoop outside it.  If there are non-tail recursive
-           calls we may be able to lift out arguments that are unchanged.  For
-           example for fun map f [] = [] | map f (a::b) = f a :: map f b 
-           it may be worth lifting out f and generating specific mapping
-           functions for each application. *)
-        val hasRecursiveCall = ref false (* Set to true if rec call *)
-        val allTail = ref true (* Set to false if non recursive *)
-        (* An element of this is set to false if the actual value if anything
-           other than the original argument.  At the end we are then
-           left with the arguments that are unchanged. *)
-        val argMod = Array.array(numArgs, true)
-
-        infix 6 --
-        (* Subtract y from x but return 0 rather than a negative number. *)
-        fun x -- y = if x >= y then x-y else 0
-
-        (* Check for the code size and also recursive references.  N,B. We assume in hasLoop
-           that tail recursion applies only with Cond, Newenv and Handler. *)
-        fun checkUse _ (_, 0, _) = 0 (* The function is too big to inline. *)
- 
-        |   checkUse isMain (Newenv(decs, exp), cl, isTail) =
-            let
-                fun checkBind (Declar{value, ...}, cl) = checkUse isMain(value, cl, false)
-                |   checkBind (RecDecs decs, cl) = List.foldl(fn ({lambda, ...}, n) => checkUse isMain (Lambda lambda, n, false)) cl decs
-                |   checkBind (NullBinding c, cl) = checkUse isMain (c, cl, false)
-                |   checkBind (Container{setter, ...}, cl) = checkUse isMain(setter, cl -- 1, false)
-            in
-                checkUse isMain (exp, List.foldl checkBind cl decs, isTail)
-            end
-
-        |   checkUse _      (Constnt(w, _), cl, _) = if isShort w then cl else cl -- 1
-
-            (* A recursive reference in any context other than a call prevents any inlining. *)
-        |   checkUse true   (Extract LoadRecursive, _, _) = 0
-        |   checkUse _      (Extract _, cl, _) = cl -- 1
-
-        |   checkUse isMain (Indirect{base, ...}, cl, _) = checkUse isMain (base, cl -- 1, false)
-
-        |   checkUse _      (Lambda {body, argTypes, closure, ...}, cl, _) =
-                (* For the moment, any recursive use in an inner function prevents inlining. *)
-                if List.exists (fn LoadRecursive => true | _ => false) closure
-                then 0
-                else checkUse false (body, cl -- (List.length argTypes + List.length closure), false)
-
-        |   checkUse true (Eval{function = Extract LoadRecursive, argList, ...}, cl, isTail) =
-            let
-                (* If the actual argument is anything but the original argument
-                   then the corresponding entry in the array is set to false. *)
-                fun testArg((exp, _), n) =
-                (
-                    if (case exp of Extract(LoadArgument a) => n = a | _ => false)
-                    then ()
-                    else Array.update(argMod, n, false);
-                    n+1
-                )
-            in
-                List.foldl testArg 0 argList;
-                hasRecursiveCall := true;
-                if isTail then () else allTail := false;
-                List.foldl(fn ((e, _), n) => checkUse true (e, n, false)) (cl--3) argList
-            end
-
-        |   checkUse isMain (Eval{function, argList, ...}, cl, _) =
-                checkUse isMain (function, List.foldl(fn ((e, _), n) => checkUse isMain (e, n, false)) (cl--2) argList, false)
-
-        |   checkUse _ (GetThreadId, cl, _) = cl -- 1
-        |   checkUse isMain (Unary{arg1, ...}, cl, _) = checkUse isMain (arg1, cl -- 1, false)
-        |   checkUse isMain (Binary{arg1, arg2, ...}, cl, _) = checkUseList isMain ([arg1, arg2], cl -- 1)
-        |   checkUse isMain (Arbitrary{arg1, arg2, ...}, cl, _) = checkUseList isMain ([arg1, arg2], cl -- 4)
-        |   checkUse isMain (AllocateWordMemory {numWords, flags, initial}, cl, _) =
-                checkUseList isMain ([numWords, flags, initial], cl -- 1)
-
-        |   checkUse isMain (Cond(i, t, e), cl, isTail) =
-                checkUse isMain (i, checkUse isMain (t, checkUse isMain (e, cl -- 2, isTail), isTail), false)
-        |   checkUse isMain (BeginLoop { loop, arguments, ...}, cl, _) =
-                checkUse isMain (loop, List.foldl (fn (({value, ...}, _), n) => checkUse isMain (value, n, false)) cl arguments, false)
-        |   checkUse isMain (Loop args, cl, _) = List.foldl(fn ((e, _), n) => checkUse isMain (e, n, false)) cl args
-        |   checkUse isMain (Raise c, cl, _) = checkUse isMain (c, cl -- 1, false)
-        |   checkUse isMain (Handle {exp, handler, ...}, cl, isTail) =
-                checkUse isMain (exp, checkUse isMain (handler, cl, isTail), false)
-        |   checkUse isMain (Tuple{ fields, ...}, cl, _) = checkUseList isMain (fields, cl)
-
-        |   checkUse isMain (SetContainer{container, tuple = Tuple { fields, ...}, ...}, cl, _) =
-                (* This can be optimised *)
-                checkUse isMain (container, checkUseList isMain (fields, cl), false)
-        |   checkUse isMain (SetContainer{container, tuple, filter}, cl, _) =
-                checkUse isMain (container, checkUse isMain (tuple, cl -- (BoolVector.length filter), false), false)
-
-        |   checkUse isMain (TagTest{test, ...}, cl, _) = checkUse isMain (test, cl -- 1, false)
-
-        |   checkUse isMain (LoadOperation{address, ...}, cl, _) = checkUseAddress isMain (address, cl -- 1)
-
-        |   checkUse isMain (StoreOperation{address, value, ...}, cl, _) =
-                checkUse isMain (value, checkUseAddress isMain (address, cl -- 1), false)
-
-        |   checkUse isMain (BlockOperation{sourceLeft, destRight, length, ...}, cl, _) =
-                checkUse isMain (length,
-                    checkUseAddress isMain (destRight, checkUseAddress isMain (sourceLeft, cl -- 1)), false)
-        
-        and checkUseList isMain (elems, cl) =
-            List.foldl(fn (e, n) => checkUse isMain (e, n, false)) cl elems
-
-        and checkUseAddress isMain ({base, index=NONE, ...}, cl) = checkUse isMain (base, cl, false)
-        |   checkUseAddress isMain ({base, index=SOME index, ...}, cl) = checkUseList isMain ([base, index], cl)
-        
-        val costLeft = checkUse true (function, maxInlineSize, true)
-    in
-        if costLeft = 0
-        then TooBig
-        else if not (! hasRecursiveCall) 
-        then NonRecursive
-        else if ! allTail then TailRecursive(Array.vector argMod)
-        else NonTailRecursive(Array.vector argMod)
-    end
 
     (* Turn a list of fields to use into a filter for SetContainer. *)
     fun fieldsToFilter useList =
@@ -348,7 +219,7 @@ struct
                             fn (l, t) => Eval {
                                 function = Extract LoadRecursive, argList = l, resultType = t
                             }),
-                    isInline = NonInline, (* Don't inline this function. *)
+                    isInline = DontInline, (* Don't inline this function. *)
                     name = name ^ "()",
                     closure = List.tabulate(closureSize, fn n => LoadClosure n) @ stableArgs,
                     argTypes = List.map (fn (_, t, u) => (t, u)) changeArgsAndTypes,
@@ -622,7 +493,7 @@ struct
                     )
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = Inline, localCount = 1, recUse = [UseGeneral] }
+                  resultType = resultType, isInline = InlineAlways, localCount = 1, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimLambda)
          in
             (shimLambda, [mainFunction, shimFunction])
@@ -758,7 +629,7 @@ struct
                             val needContainer = case (tl, filterOpt) of ([], SOME _) => true | _ => false
                         in
                             Lambda { closure = fnclosure,
-                                isInline = Inline, name = name ^ "-P", resultType = GeneralType,
+                                isInline = InlineAlways, name = name ^ "-P", resultType = GeneralType,
                                 argTypes = List.tabulate(nArgs, fn _ => (GeneralType, [UseGeneral])),
                                 localCount = if needContainer then 1 else 0, recUse = [],
                                 body = curryPack(tl,
@@ -812,7 +683,7 @@ struct
                 in
                     val thisArg =
                         Lambda {
-                            closure = loadThisArg, isInline = Inline, name = name ^ "-E",
+                            closure = loadThisArg, isInline = InlineAlways, name = name ^ "-E",
                             argTypes = List.tabulate(totalArgCount, fn _ => (GeneralType, [UseGeneral])),
                             resultType = GeneralType, localCount = 0, recUse = [UseGeneral], body = functionBody
                         }
@@ -863,7 +734,7 @@ struct
                 Eval { function = Extract(LoadClosure 0), argList = transArgs, resultType = resultType }
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = Inline, localCount = 0, recUse = [UseGeneral] }
+                  resultType = resultType, isInline = InlineAlways, localCount = 0, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimLambda)
             (* TODO:  We have two copies of the shim function here. *)
         in
@@ -921,13 +792,13 @@ struct
                                 argList = mapArgs (fn n => LoadClosure(n+1)) argTypes @
                                           mapArgs LoadArgument subArgTypes
                             },
-                    name = name ^ "-", resultType = subResultType, localCount = 0, isInline = Inline,
+                    name = name ^ "-", resultType = subResultType, localCount = 0, isInline = InlineAlways,
                     argTypes = subArgTypes, recUse = [UseGeneral]
                 }
 
             val shimOuterLambda =
                 { body = shimInnerLambda, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = Inline, localCount = 0, recUse = [UseGeneral] }
+                  resultType = resultType, isInline = InlineAlways, localCount = 0, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimOuterLambda)
         in
             (shimOuterLambda: lambdaForm, [mainFunction, shimFunction])
@@ -1034,7 +905,7 @@ struct
     and optGeneral context exp = mapCodetree (optimise(context, [UseGeneral])) exp
 
     and optLambda(
-            { debugArgs, reprocess, makeAddr, ... },
+            { maxInlineSize, reprocess, makeAddr, ... },
             contextUse,
             { body, name, argTypes, resultType, closure, localCount, isInline, recUse, ...},
             lambdaContext) : (int * lambdaForm) list * codetree =
@@ -1089,7 +960,7 @@ struct
         case replaceBody of
             SOME c => ([], c)
         |   NONE =>
-            if isInline = Inline andalso List.exists (fn UseExport => true | _ => false) use
+            if isInline <> DontInline andalso List.exists (fn UseExport => true | _ => false) use
             then
             let
                 (* If it's inline any application of this will be optimised after
@@ -1101,7 +972,7 @@ struct
                 {
                     makeAddr = fn () => (! addressAllocator) before addressAllocator := ! addressAllocator + 1,
                     reprocess = reprocess,
-                    debugArgs = debugArgs
+                    maxInlineSize = maxInlineSize
                 }
                 val optBody = mapCodetree (optimise(optContext, [UseGeneral])) body
                 val lambdaRes =
@@ -1122,7 +993,7 @@ struct
                 {
                     makeAddr = fn () => (! addressAllocator) before addressAllocator := ! addressAllocator + 1,
                     reprocess = reprocess,
-                    debugArgs = debugArgs
+                    maxInlineSize = maxInlineSize
                 }
                 val optBody = mapCodetree (optimise(optContext, [UseGeneral])) body
 
@@ -1130,22 +1001,22 @@ struct
                    immediately we try to expand it unless maxInlineSize is zero.  We
                    may not be able to expand it if it is recursive. (It may have been
                    inside an inline function). *)
-                val maxInlineSize = DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs
+
                 val (inlineType, updatedBody, localCount) =
                     case evaluateInlining(optBody, List.length argTypes,
                             if maxInlineSize <> 0 andalso lambdaContext = LCImmediateCall
                             then 1000 else FixedInt.toInt maxInlineSize) of
-                        NonRecursive  => (Inline, optBody, ! addressAllocator)
+                        NonRecursive  => (SmallInline, optBody, ! addressAllocator)
                     |   TailRecursive bv =>
-                            (Inline,
+                            (SmallInline,
                                 replaceTailRecursiveWithLoop(optBody, argTypes, bv, addressAllocator), ! addressAllocator)
                     |   NonTailRecursive bv =>
                             if Vector.exists (fn n => n) bv
-                            then (Inline, 
+                            then (SmallInline, 
                                     liftRecursiveFunction(
                                         optBody, argTypes, bv, List.length closure, name, resultType, !addressAllocator), 0)
-                            else (NonInline, optBody, ! addressAllocator) (* All arguments have been modified *)
-                    |   TooBig => (NonInline, optBody, ! addressAllocator)
+                            else (DontInline, optBody, ! addressAllocator) (* All arguments have been modified *)
+                    |   TooBig => (DontInline, optBody, ! addressAllocator)
 
                 val lambda: lambdaForm =
                 {
@@ -1162,7 +1033,7 @@ struct
                    achieve anything because we are going to pass the untransformed "shim"
                    function anyway. *)
                 val (newLambda, bindings) =
-                    if isInline = NonInline
+                    if isInline = DontInline
                     then
                     let
                         val functionPattern =
@@ -1258,7 +1129,7 @@ struct
                    We don't reprocess if this is only exported.  If it's only exported
                    we're not going to expand it within this code and we can end up with
                    repeated processing. *)
-                if #isInline newLambda = Inline andalso isInline = NonInline andalso
+                if #isInline newLambda <> DontInline andalso isInline = DontInline andalso
                     (case use of [UseExport] => false | _ => true)
                 then reprocess := true
                 else ();
@@ -1395,7 +1266,7 @@ struct
                 List.exists notInLambdas closure
             end
         in
-            if theseTransformed orelse List.exists (fn {lambda={isInline=Inline, ...}, ...} => true | _ => false) lambdaList
+            if theseTransformed orelse List.exists (fn {lambda={isInline, ...}, ...} => isInline <> DontInline) lambdaList
                orelse List.exists hasFreeVariables lambdaList
             (* If we have transformed any of the bodies we need to reprocess so defer any
                code-generation.  Don't CG it if it is inline, or perhaps if it is inline and exported. 
@@ -1419,7 +1290,7 @@ struct
             end
         end
 
-        and runChecks (Lambda (lambda as { isInline=NonInline, closure=[], ... })) =
+        and runChecks (Lambda (lambda as { isInline=DontInline, closure=[], ... })) =
             (
                 (* Bare lambda. *)
                 case processLambdas[{lambda=lambda, use = [], addr = 0}] of
@@ -1475,12 +1346,15 @@ struct
     let
         fun topLevel _ = raise InternalError "top level reached in optimiser"
 
+        val maxInlineSize = DEBUG.getParameter DEBUG.maxInlineSizeTag debugSwitches
+
         fun processTree (code, nLocals, optAgain) =
         let
             (* First run the simplifier.  Among other things this does inline
                expansion and if it does any we at least need to run cleanProc
                on the code so it will have set simpAgain. *)
-            val (simpCode, simpCount, simpAgain) = SIMPLIFIER.simplifier(code, nLocals)
+            val (simpCode, simpCount, simpAgain) =
+                SIMPLIFIER.simplifier{code=code, numLocals=nLocals, maxInlineSize=FixedInt.toInt maxInlineSize}
         in
             if optAgain orelse simpAgain
             then
@@ -1506,7 +1380,7 @@ struct
                 {
                     makeAddr = makeAddr,
                     reprocess = reprocess,
-                    debugArgs = debugSwitches
+                    maxInlineSize = maxInlineSize
                 }
                 (* Optimise the code, rewriting it as necessary. *)
                 val optCode = mapCodetree (optimise(optContext, [UseExport])) preOptCode
