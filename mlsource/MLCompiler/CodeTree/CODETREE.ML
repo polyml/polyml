@@ -336,8 +336,8 @@ struct
                 recUse        = []
               }
     in
-        val mkProc = Lambda o mkSimpleFunction NonInline (* Normal function *)
-        and mkInlproc = Lambda o mkSimpleFunction Inline (* Explicitly inlined by the front-end *)
+        val mkProc = Lambda o mkSimpleFunction DontInline (* Normal function *)
+        and mkInlproc = Lambda o mkSimpleFunction InlineAlways (* Explicitly inlined by the front-end *)
 
         (* Unless Compiler.inlineFunctor is false functors are treated as macros and expanded
            when they are applied.  Unlike core-language functions they are not first-class
@@ -352,10 +352,10 @@ struct
         fun mkMacroProc (args as (_, _, _, [], _)) =
             Constnt(toMachineWord 0,
                 setInline (
-                    EnvSpecInlineFunction(mkSimpleFunction Inline args,
+                    EnvSpecInlineFunction(mkSimpleFunction InlineAlways args,
                         fn _ => raise InternalError "mkMacroProc: closure")) [])
 
-        |   mkMacroProc args = Lambda(mkSimpleFunction Inline args)
+        |   mkMacroProc args = Lambda(mkSimpleFunction InlineAlways args)
     end
 
     local
@@ -372,8 +372,8 @@ struct
                 recUse        = []
             }
     in
-        val mkFunction = mkFunWithTypes NonInline
-        and mkInlineFunction = mkFunWithTypes Inline
+        val mkFunction = mkFunWithTypes DontInline
+        and mkInlineFunction = mkFunWithTypes InlineAlways
     end
 
     fun mkEval (ct, clist)   =

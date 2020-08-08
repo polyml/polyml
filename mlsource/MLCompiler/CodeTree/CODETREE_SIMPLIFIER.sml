@@ -566,7 +566,7 @@ struct
                 local
                     val (inlines, nonInlines) =
                         List.partition (
-                            fn {lambda = { isInline=Inline, ...}, ... } => true | _ => false) mutuals
+                            fn {lambda = { isInline=DontInline, ...}, ... } => false | _ => true) mutuals
                 in
                     val orderedDecs = inlines @ nonInlines
                 end
@@ -746,18 +746,20 @@ struct
                is actually tail-recursion. *)
             val isNowInline =
                 case isInline of
-                    Inline =>
-                        if ! isNowRecursive then NonInline else Inline
-                |   NonInline => NonInline
+                    SmallInline =>
+                        if ! isNowRecursive then DontInline else SmallInline
+                |   InlineAlways =>
+                        if ! isNowRecursive then raise InternalError "inline always: recursive" else InlineAlways
+                |   DontInline => DontInline
 
             (* Clean up the function body at this point if it could be inlined.
                There are examples where failing to do this can blow up.  This
                can be the result of creating both a general and special function
                inside an inline function. *)
             val cleanBody =
-                case isNowInline of
-                    NonInline => newCode
-                |   _ => REMOVE_REDUNDANT.cleanProc(newCode, [UseExport], LoadClosure, localCount)
+                if isNowInline = DontInline
+                then newCode
+                else REMOVE_REDUNDANT.cleanProc(newCode, [UseExport], LoadClosure, localCount)
 
             val copiedLambda: lambdaForm =
                 {
@@ -776,8 +778,9 @@ struct
                big.  In some cases we can get exponential blow-up.  We check here that the
                body is still small enough before allowing it to be used inline. *)
             val inlineCode =
-                if isNowInline = Inline andalso
-                    evaluateInlining(cleanBody, List.length argTypes, maxInlineSize) <> TooBig
+                if isInline = InlineAlways orelse
+                    (isNowInline = SmallInline andalso
+                         evaluateInlining(cleanBody, List.length argTypes, maxInlineSize) <> TooBig)
                 then EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
                 else EnvSpecNone
          in

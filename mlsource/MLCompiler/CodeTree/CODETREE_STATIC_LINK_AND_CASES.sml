@@ -200,7 +200,6 @@ struct
                        comparisons with short constants *)
                     fun fixedComp(arg1, arg2) =
                         BICBinary { oper = BuiltIns.WordComparison{test=test, isSigned=true}, arg1 = arg1, arg2 = arg2 }
-                    val zeroFalse = BICConstnt(toMachineWord 0, [])
                 in
                     BICCond(insShort, fixedComp(insArg1, insArg2), insCall)
                 end

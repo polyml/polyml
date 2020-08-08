@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15,17 David C.J. Matthews
+    Copyright (c) 2012,13,15,17, 20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -219,7 +219,7 @@ struct
                             fn (l, t) => Eval {
                                 function = Extract LoadRecursive, argList = l, resultType = t
                             }),
-                    isInline = NonInline, (* Don't inline this function. *)
+                    isInline = DontInline, (* Don't inline this function. *)
                     name = name ^ "()",
                     closure = List.tabulate(closureSize, fn n => LoadClosure n) @ stableArgs,
                     argTypes = List.map (fn (_, t, u) => (t, u)) changeArgsAndTypes,
@@ -493,7 +493,7 @@ struct
                     )
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = Inline, localCount = 1, recUse = [UseGeneral] }
+                  resultType = resultType, isInline = InlineAlways, localCount = 1, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimLambda)
          in
             (shimLambda, [mainFunction, shimFunction])
@@ -629,7 +629,7 @@ struct
                             val needContainer = case (tl, filterOpt) of ([], SOME _) => true | _ => false
                         in
                             Lambda { closure = fnclosure,
-                                isInline = Inline, name = name ^ "-P", resultType = GeneralType,
+                                isInline = InlineAlways, name = name ^ "-P", resultType = GeneralType,
                                 argTypes = List.tabulate(nArgs, fn _ => (GeneralType, [UseGeneral])),
                                 localCount = if needContainer then 1 else 0, recUse = [],
                                 body = curryPack(tl,
@@ -683,7 +683,7 @@ struct
                 in
                     val thisArg =
                         Lambda {
-                            closure = loadThisArg, isInline = Inline, name = name ^ "-E",
+                            closure = loadThisArg, isInline = InlineAlways, name = name ^ "-E",
                             argTypes = List.tabulate(totalArgCount, fn _ => (GeneralType, [UseGeneral])),
                             resultType = GeneralType, localCount = 0, recUse = [UseGeneral], body = functionBody
                         }
@@ -734,7 +734,7 @@ struct
                 Eval { function = Extract(LoadClosure 0), argList = transArgs, resultType = resultType }
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = Inline, localCount = 0, recUse = [UseGeneral] }
+                  resultType = resultType, isInline = InlineAlways, localCount = 0, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimLambda)
             (* TODO:  We have two copies of the shim function here. *)
         in
@@ -792,13 +792,13 @@ struct
                                 argList = mapArgs (fn n => LoadClosure(n+1)) argTypes @
                                           mapArgs LoadArgument subArgTypes
                             },
-                    name = name ^ "-", resultType = subResultType, localCount = 0, isInline = Inline,
+                    name = name ^ "-", resultType = subResultType, localCount = 0, isInline = InlineAlways,
                     argTypes = subArgTypes, recUse = [UseGeneral]
                 }
 
             val shimOuterLambda =
                 { body = shimInnerLambda, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = Inline, localCount = 0, recUse = [UseGeneral] }
+                  resultType = resultType, isInline = InlineAlways, localCount = 0, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimOuterLambda)
         in
             (shimOuterLambda: lambdaForm, [mainFunction, shimFunction])
@@ -960,7 +960,7 @@ struct
         case replaceBody of
             SOME c => ([], c)
         |   NONE =>
-            if isInline = Inline andalso List.exists (fn UseExport => true | _ => false) use
+            if isInline <> DontInline andalso List.exists (fn UseExport => true | _ => false) use
             then
             let
                 (* If it's inline any application of this will be optimised after
@@ -1006,17 +1006,17 @@ struct
                     case evaluateInlining(optBody, List.length argTypes,
                             if maxInlineSize <> 0 andalso lambdaContext = LCImmediateCall
                             then 1000 else FixedInt.toInt maxInlineSize) of
-                        NonRecursive  => (Inline, optBody, ! addressAllocator)
+                        NonRecursive  => (SmallInline, optBody, ! addressAllocator)
                     |   TailRecursive bv =>
-                            (Inline,
+                            (SmallInline,
                                 replaceTailRecursiveWithLoop(optBody, argTypes, bv, addressAllocator), ! addressAllocator)
                     |   NonTailRecursive bv =>
                             if Vector.exists (fn n => n) bv
-                            then (Inline, 
+                            then (SmallInline, 
                                     liftRecursiveFunction(
                                         optBody, argTypes, bv, List.length closure, name, resultType, !addressAllocator), 0)
-                            else (NonInline, optBody, ! addressAllocator) (* All arguments have been modified *)
-                    |   TooBig => (NonInline, optBody, ! addressAllocator)
+                            else (DontInline, optBody, ! addressAllocator) (* All arguments have been modified *)
+                    |   TooBig => (DontInline, optBody, ! addressAllocator)
 
                 val lambda: lambdaForm =
                 {
@@ -1033,7 +1033,7 @@ struct
                    achieve anything because we are going to pass the untransformed "shim"
                    function anyway. *)
                 val (newLambda, bindings) =
-                    if isInline = NonInline
+                    if isInline = DontInline
                     then
                     let
                         val functionPattern =
@@ -1129,7 +1129,7 @@ struct
                    We don't reprocess if this is only exported.  If it's only exported
                    we're not going to expand it within this code and we can end up with
                    repeated processing. *)
-                if #isInline newLambda = Inline andalso isInline = NonInline andalso
+                if #isInline newLambda <> DontInline andalso isInline = DontInline andalso
                     (case use of [UseExport] => false | _ => true)
                 then reprocess := true
                 else ();
@@ -1266,7 +1266,7 @@ struct
                 List.exists notInLambdas closure
             end
         in
-            if theseTransformed orelse List.exists (fn {lambda={isInline=Inline, ...}, ...} => true | _ => false) lambdaList
+            if theseTransformed orelse List.exists (fn {lambda={isInline, ...}, ...} => isInline <> DontInline) lambdaList
                orelse List.exists hasFreeVariables lambdaList
             (* If we have transformed any of the bodies we need to reprocess so defer any
                code-generation.  Don't CG it if it is inline, or perhaps if it is inline and exported. 
@@ -1290,7 +1290,7 @@ struct
             end
         end
 
-        and runChecks (Lambda (lambda as { isInline=NonInline, closure=[], ... })) =
+        and runChecks (Lambda (lambda as { isInline=DontInline, closure=[], ... })) =
             (
                 (* Bare lambda. *)
                 case processLambdas[{lambda=lambda, use = [], addr = 0}] of
