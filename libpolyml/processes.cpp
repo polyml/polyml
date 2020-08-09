@@ -2,7 +2,7 @@
     Title:      Thread functions
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007,2008,2013-15, 2017, 2019 David C.J. Matthews
+    Copyright (c) 2007,2008,2013-15, 2017, 2019, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -188,7 +188,8 @@ public:
     Processes();
     virtual void Init(void);
     virtual void Stop(void);
-    void GarbageCollect(ScanAddress *process);
+    virtual void GarbageCollect(ScanAddress *process);
+    virtual void ForkChild(void) { SetSingleThreaded();  } // After a Unix fork this is single threaded
 public:
     void BroadcastInterrupt(void);
     void BeginRootThread(PolyObject *rootFunction);

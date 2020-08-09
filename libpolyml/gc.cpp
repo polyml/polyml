@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector
 
-    Copyright (c) 2010-12, 2019 David C. J. Matthews
+    Copyright (c) 2010-12, 2019, 2020 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -354,14 +354,6 @@ void CreateHeap()
     initialiseMarkerTables();
 }
 
-// Set single threaded mode. This is only used in a child process after
-// Posix fork in case there is a GC before the exec.
-void GCSetSingleThreadAfterFork()
-{
-    gpTaskFarm->SetSingleThreaded();
-    initialiseMarkerTables();
-}
-
 class FullGCRequest: public MainThreadRequest
 {
 public:
@@ -422,3 +414,21 @@ void FullGCForShareCommonData(void)
 {
     doGC(0);
 }
+
+// RTS module for the GC.  Only used for ForkChild.
+class GarbageCollectModule : public RtsModule
+{
+public:
+    virtual void ForkChild(void);
+};
+
+// Set single threaded mode. This is only used in a child process after
+// Posix fork in case there is a GC before the exec.
+void GarbageCollectModule::ForkChild(void)
+{
+    gpTaskFarm->SetSingleThreaded();
+    initialiseMarkerTables();
+}
+
+// Declare this.  It will be automatically added to the table.
+static GarbageCollectModule gcModule;
