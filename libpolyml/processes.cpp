@@ -186,10 +186,11 @@ class Processes: public ProcessExternal, public RtsModule
 {
 public:
     Processes();
+    // RtsModule overrides
     virtual void Init(void);
     virtual void Stop(void);
     virtual void GarbageCollect(ScanAddress *process);
-    virtual void ForkChild(void) { SetSingleThreaded();  } // After a Unix fork this is single threaded
+    virtual void ForkChild(void) { singleThreaded = true;  } // After a Unix fork this is single threaded
 public:
     void BroadcastInterrupt(void);
     void BeginRootThread(PolyObject *rootFunction);
@@ -267,8 +268,6 @@ public:
     // woken up by the signal detection thread.
     virtual bool WaitForSignal(TaskData *taskData, PLock *sigLock);
     virtual void SignalArrived(void);
-
-    virtual void SetSingleThreaded(void) { singleThreaded = true; }
 
     // Operations on mutexes
     void MutexBlock(TaskData *taskData, Handle hMutex);
