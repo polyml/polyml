@@ -749,7 +749,9 @@ struct
                     SmallInline =>
                         if ! isNowRecursive then DontInline else SmallInline
                 |   InlineAlways =>
-                        if ! isNowRecursive then raise InternalError "inline always: recursive" else InlineAlways
+                        (* Functions marked as inline could become recursive as a result of
+                           other inlining. *)
+                        if ! isNowRecursive then DontInline else InlineAlways
                 |   DontInline => DontInline
 
             (* Clean up the function body at this point if it could be inlined.
