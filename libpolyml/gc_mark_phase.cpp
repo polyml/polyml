@@ -356,14 +356,17 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     // We may have a forwarding pointer if this has been moved by the
     // minor GC.
     if (obj->ContainsForwardingPtr())
+    {
         obj = FollowForwarding(obj);
+        sp = gMem.SpaceForAddress((PolyWord*)obj - 1);
+    }
 
     ASSERT(obj->ContainsNormalLengthWord());
 
     POLYUNSIGNED L = obj->LengthWord();
     if (L & _OBJ_GC_MARK)
         return obj; // Already marked
-    obj->SetLengthWord(L | _OBJ_GC_MARK); // Mark it
+    sp->writeAble(obj)->SetLengthWord(L | _OBJ_GC_MARK); // Mark it
 
     if (profileMode == kProfileLiveData || (profileMode == kProfileLiveMutables && obj->IsMutable()))
         AddObjectProfile(obj);
@@ -505,7 +508,10 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         else if (secondWord != 0)
         {
             // Mark it now because we will process it.
-            secondWord->SetLengthWord(secondWord->LengthWord() | _OBJ_GC_MARK);
+            PolyObject* writeAble = secondWord;
+            if (secondWord->IsCodeObject())
+                writeAble = gMem.SpaceForAddress(secondWord)->writeAble(secondWord);
+            writeAble->SetLengthWord(secondWord->LengthWord() | _OBJ_GC_MARK);
             // Put this on the stack.  If this is a list node we will be
             // pushing the tail.
             PushToStack(secondWord);
@@ -514,7 +520,10 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         if (firstWord != 0)
         {
             // Mark it and process it immediately.
-            firstWord->SetLengthWord(firstWord->LengthWord() | _OBJ_GC_MARK);
+            PolyObject* writeAble = firstWord;
+            if (firstWord->IsCodeObject())
+                writeAble = gMem.SpaceForAddress(firstWord)->writeAble(firstWord);
+            writeAble->SetLengthWord(firstWord->LengthWord() | _OBJ_GC_MARK);
             obj = firstWord;
         }
         else if (msp == 0)
@@ -767,7 +776,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
         {
             // It's marked - retain it.
             ASSERT(L & _OBJ_CODE_OBJ);
-            obj->SetLengthWord(L & ~(_OBJ_GC_MARK)); // Clear the mark bit
+            space->writeAble(obj)->SetLengthWord(L & ~(_OBJ_GC_MARK)); // Clear the mark bit
             lastFree = 0;
             lastFreeSpace = 0;
         }
@@ -781,7 +790,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
             {
                 lastFreeSpace += length + 1;
                 PolyObject *freeSpace = (PolyObject*)(lastFree + 1);
-                freeSpace->SetLengthWord(lastFreeSpace - 1, F_BYTE_OBJ);
+                space->writeAble(freeSpace)->SetLengthWord(lastFreeSpace - 1, F_BYTE_OBJ);
             }
         }
 #endif
@@ -797,7 +806,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
                 lastFreeSpace = length + 1;
             }
             PolyObject *freeSpace = (PolyObject*)(lastFree+1);
-            freeSpace->SetLengthWord(lastFreeSpace-1, F_BYTE_OBJ);
+            space->writeAble(freeSpace)->SetLengthWord(lastFreeSpace-1, F_BYTE_OBJ);
             if (lastFreeSpace > space->largestFree) space->largestFree = lastFreeSpace;
         }
         pt += length+1;

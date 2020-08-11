@@ -610,7 +610,7 @@ void SaveRequest::Perform()
                 PolyObject *forwardedTo = obj->FollowForwardingChain();
 #endif
                 POLYUNSIGNED lengthWord = forwardedTo->LengthWord();
-                obj->SetLengthWord(lengthWord);
+                space->writeAble(obj)->SetLengthWord(lengthWord);
             }
             pt += obj->Length();
         }
@@ -974,7 +974,7 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt)
 {
     PolyWord val = *pt;
     if (! val.IsTagged())
-        *pt = RelocateAddress(val.AsObjPtr(originalBaseAddr));
+        *gMem.SpaceForAddress(pt)->writeAble(pt) = RelocateAddress(val.AsObjPtr(originalBaseAddr));
 }
 
 PolyObject *LoadRelocate::RelocateAddress(PolyObject *obj)
@@ -1256,14 +1256,15 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             }
 
             PolyWord *mem  = newSpace->bottom;
+            PolyWord* writeAble = newSpace->writeAble(mem);
             if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0 ||
-                fread(mem, descr->segmentSize, 1, loadFile) != 1)
+                fread(writeAble, descr->segmentSize, 1, loadFile) != 1)
             {
                 errorResult = "Unable to read segment";
                 return false;
             }
             // Fill unused space to the top of the area.
-            gMem.FillUnusedSpace(mem+descr->segmentSize/sizeof(PolyWord),
+            gMem.FillUnusedSpace(writeAble +descr->segmentSize/sizeof(PolyWord),
                 newSpace->spaceSize() - descr->segmentSize/sizeof(PolyWord));
             // Leave it writable until we've done the relocations.
 
@@ -1347,8 +1348,11 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     for (unsigned j = 0; j < relocate.nDescrs; j++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[j];
-        PermanentMemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
-        gMem.CompletePermanentSpaceAllocation(space);
+        if (descr->segmentData != 0)
+        {
+            PermanentMemSpace* space = gMem.SpaceForIndex(descr->segmentIndex);
+            gMem.CompletePermanentSpaceAllocation(space);
+        }
     }
 
     // Add an entry to the hierarchy table for this file.
@@ -2083,8 +2087,9 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
             Exit("Unable to initialise a permanent memory space");
 
         PolyWord *mem = newSpace->bottom;
-        memcpy(mem, memTable[i].mtCurrentAddr, memTable[i].mtLength);
-        gMem.FillUnusedSpace(mem + memTable[i].mtLength / sizeof(PolyWord),
+        memcpy(newSpace->writeAble(mem), memTable[i].mtCurrentAddr, memTable[i].mtLength);
+        PolyWord* unused = mem + memTable[i].mtLength / sizeof(PolyWord);
+        gMem.FillUnusedSpace(newSpace->writeAble(unused),
             newSpace->spaceSize() - memTable[i].mtLength / sizeof(PolyWord));
 
         if (newSpace == 0)

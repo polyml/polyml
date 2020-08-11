@@ -501,17 +501,6 @@ if test "x$with_portable" = "xno" ; then
     fi
 fi
 
-if test "x$polyarch" != "xinterpret" ; then
-# Check for .note.GNU-stack support, used for marking the stack as non-executable.
-# Only do this check if we're using the native X86 versions.  We don't need this if
-# we're using the interpreter and the assembler on other architectures may choke.
-    AC_MSG_CHECKING([whether as supports .note.GNU-stack])
-    AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[__asm__(".section .note.GNU-stack,\"\",@progbits");]])],
-        [AC_MSG_RESULT([yes])] [AC_DEFINE([HAVE_GNU_STACK], [1],
-            [Define to 1 if you have .note.GNU-stack support in the assembler.])],
-        [AC_MSG_RESULT([no])])
-fi
-
 # Build 32-bit in 64-bits.  This is only allowed when building on native 64-bit X86.
 AC_ARG_ENABLE([compact32bit],
         [AS_HELP_STRING([--enable-compact32bit],

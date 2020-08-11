@@ -603,6 +603,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="gc_progress.cpp" />
+    <ClCompile Include="osmemwin.cpp" />
     <ClCompile Include="winbasicio.cpp" />
     <ClCompile Include="bitmap.cpp" />
     <ClCompile Include="check_objects.cpp" />
@@ -641,7 +642,6 @@
     <ClCompile Include="mpoly.cpp" />
     <ClCompile Include="network.cpp" />
     <ClCompile Include="objsize.cpp" />
-    <ClCompile Include="osmem.cpp" />
     <ClCompile Include="pecoffexport.cpp" />
     <ClCompile Include="pexport.cpp" />
     <ClCompile Include="polyffi.cpp" />
