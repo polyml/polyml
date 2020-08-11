@@ -18,11 +18,13 @@
 
 */
 
-#ifndef _WIN32
-#error "This is for Windows only"
-#endif
-
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#elif defined(_WIN32)
 #include "winconfig.h"
+#else
+#error "No configuration file"
+#endif
 
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
