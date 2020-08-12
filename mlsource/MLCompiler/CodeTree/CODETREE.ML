@@ -395,9 +395,11 @@ struct
     and mkBinary (oper, arg1, arg2) =
         Binary { oper = oper, arg1 = arg1, arg2 = arg2 }
 
-    val getCurrentThreadId = GetThreadId
-    and getCurrentThreadIdFn =
-        mkInlproc(GetThreadId, 1 (* Ignores argument *), "GetThreadId()", [], 0)
+    val getCurrentThreadId = Nullary{oper=BuiltIns.GetCurrentThreadId}
+    val getCurrentThreadIdFn =
+        mkInlproc(getCurrentThreadId, 1 (* Ignores argument *), "GetThreadId()", [], 0)
+    
+    val checkRTSException = Nullary{oper=BuiltIns.CheckRTSException}
 
     fun mkAllocateWordMemory (numWords, flags, initial) =
         AllocateWordMemory { numWords = numWords, flags = flags, initial = initial }

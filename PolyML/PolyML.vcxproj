@@ -13,36 +13,20 @@
       <Configuration>Debug</Configuration>
       <Platform>Win32</Platform>
     </ProjectConfiguration>
-    <ProjectConfiguration Include="Int32in64Debug|Win32">
-      <Configuration>Int32in64Debug</Configuration>
+    <ProjectConfiguration Include="DebugInterpreted|Win32">
+      <Configuration>DebugInterpreted</Configuration>
       <Platform>Win32</Platform>
     </ProjectConfiguration>
-    <ProjectConfiguration Include="Int32in64Debug|x64">
-      <Configuration>Int32in64Debug</Configuration>
+    <ProjectConfiguration Include="DebugInterpreted|x64">
+      <Configuration>DebugInterpreted</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
-    <ProjectConfiguration Include="Int32In64Release|Win32">
-      <Configuration>Int32In64Release</Configuration>
+    <ProjectConfiguration Include="ReleaseInterpreted|Win32">
+      <Configuration>ReleaseInterpreted</Configuration>
       <Platform>Win32</Platform>
     </ProjectConfiguration>
-    <ProjectConfiguration Include="Int32In64Release|x64">
-      <Configuration>Int32In64Release</Configuration>
-      <Platform>x64</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="IntDebug|Win32">
-      <Configuration>IntDebug</Configuration>
-      <Platform>Win32</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="IntDebug|x64">
-      <Configuration>IntDebug</Configuration>
-      <Platform>x64</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="IntRelease|Win32">
-      <Configuration>IntRelease</Configuration>
-      <Platform>Win32</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="IntRelease|x64">
-      <Configuration>IntRelease</Configuration>
+    <ProjectConfiguration Include="ReleaseInterpreted|x64">
+      <Configuration>ReleaseInterpreted</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
     <ProjectConfiguration Include="Release32in64|Win32">
@@ -81,148 +65,112 @@
     <CustomBuild Include="..\imports\polymli386.txt">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">true</ExcludedFromBuild>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">..\polytemp.txt</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">..\polytemp.txt</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">..\polytemp.txt</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">..\polytemp.txt</Outputs>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">true</ExcludedFromBuild>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">..\polytemp.txt</Outputs>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
     </CustomBuild>
     <CustomBuild Include="..\imports\polymlint.txt">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">false</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">true</ExcludedFromBuild>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">..\polytemp.txt</Outputs>
     </CustomBuild>
     <CustomBuild Include="..\imports\polymlint64.txt">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">true</ExcludedFromBuild>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">false</ExcludedFromBuild>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">..\polytemp.txt</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">..\polytemp.txt</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">..\polytemp.txt</Outputs>
     </CustomBuild>
     <None Include="..\poly.ico" />
     <CustomBuild Include="..\polytemp.txt">
@@ -230,50 +178,38 @@
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">cd ..
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">$(IntDir)polyexport.obj</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">cd ..
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">$(IntDir)polyexport.obj</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">cd ..
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">$(IntDir)polyexport.obj</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">$(IntDir)polyexport.obj</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">$(IntDir)polyexport.obj</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">cd ..
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">$(IntDir)polyexport.obj</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">$(IntDir)polyexport.obj</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">$(IntDir)polyexport.obj</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">$(IntDir)polyexport.obj</Outputs>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
@@ -290,98 +226,74 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">..\polytemp.txt</Outputs>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">true</ExcludedFromBuild>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">..\polytemp.txt</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">..\polytemp.txt</Outputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">..\polytemp.txt</Outputs>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="..\imports\polymlx64_32win.txt">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">false</ExcludedFromBuild>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">..\polytemp.txt</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">..\polytemp.txt</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">..\polytemp.txt</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">copy "%(FullPath)" ..\polytemp.txt</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">..\polytemp.txt</Outputs>
     </CustomBuild>
@@ -405,13 +317,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
     <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
-    <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
-    <CharacterSet>Unicode</CharacterSet>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'" Label="Configuration">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
@@ -431,14 +337,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
-    <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>Unicode</CharacterSet>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'" Label="Configuration">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
@@ -457,13 +356,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
     <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
-    <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
-    <CharacterSet>Unicode</CharacterSet>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'" Label="Configuration">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
@@ -483,14 +376,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
-    <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>Unicode</CharacterSet>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'" Label="Configuration">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
@@ -508,10 +394,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'" Label="PropertySheets">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'" Label="PropertySheets">
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -520,10 +403,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'" Label="PropertySheets">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'" Label="PropertySheets">
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -532,10 +412,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'" Label="PropertySheets">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'" Label="PropertySheets">
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -544,10 +421,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'" Label="PropertySheets">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'" Label="PropertySheets">
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
@@ -557,10 +431,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">
     <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">
-    <LinkIncremental>true</LinkIncremental>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">
     <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -569,10 +440,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">
     <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">
-    <LinkIncremental>true</LinkIncremental>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">
     <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -581,10 +449,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">
-    <LinkIncremental>false</LinkIncremental>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -593,10 +458,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">
-    <LinkIncremental>false</LinkIncremental>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -637,27 +499,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">
-    <ClCompile>
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <WarningLevel>Level3</WarningLevel>
-      <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <PrecompiledHeaderFile>
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderOutputFile>
-      </PrecompiledHeaderOutputFile>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>libcmtd.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <LargeAddressAware>true</LargeAddressAware>
-      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
-      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
-    </Link>
-  </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|Win32'">
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
@@ -715,27 +557,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">
-    <ClCompile>
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <WarningLevel>Level3</WarningLevel>
-      <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <PrecompiledHeaderFile>
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderOutputFile>
-      </PrecompiledHeaderOutputFile>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>libcmtd.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <LargeAddressAware>true</LargeAddressAware>
-      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
-      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
-    </Link>
-  </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
@@ -801,31 +623,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">
-    <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <Optimization>MaxSpeed</Optimization>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <PrecompiledHeaderFile>
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderOutputFile>
-      </PrecompiledHeaderOutputFile>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>libcmt.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <LargeAddressAware>true</LargeAddressAware>
-      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
-      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
-    </Link>
-  </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|Win32'">
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -895,31 +693,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">
-    <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <Optimization>MaxSpeed</Optimization>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <PrecompiledHeaderFile>
-      </PrecompiledHeaderFile>
-      <PrecompiledHeaderOutputFile>
-      </PrecompiledHeaderOutputFile>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>libcmt.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <LargeAddressAware>true</LargeAddressAware>
-      <MinimumRequiredVersion>6.0</MinimumRequiredVersion>
-      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
-    </Link>
-  </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Int32In64Release|x64'">
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>

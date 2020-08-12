@@ -216,13 +216,12 @@ public:
     X86TaskData();
     unsigned allocReg; // The register to take the allocated space.
     POLYUNSIGNED allocWords; // The words to allocate.
-    Handle callBackResult;
     AssemblyArgs assemblyInterface;
     int saveRegisterMask; // Registers that need to be updated by a GC.
 
     virtual void GarbageCollect(ScanAddress *process);
     void ScanStackAddress(ScanAddress *process, stackItem &val, StackSpace *stack);
-    virtual Handle EnterPolyCode(); // Start running ML
+    virtual void EnterPolyCode(); // Start running ML
     virtual void InterruptCode();
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context);
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg);
@@ -250,15 +249,13 @@ public:
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
-    virtual Handle EnterCallbackFunction(Handle func, Handle args);
-
-    int SwitchToPoly();
-
     void HeapOverflowTrap(byte *pcPtr);
 
     void SetMemRegisters();
     void SaveMemRegisters();
     void SetRegisterMask();
+
+    void HandleTrap();
 
     void MakeTrampoline(byte **pointer, byte*entryPt);
 
@@ -314,35 +311,24 @@ public:
 
 // Values for the returnReason byte
 enum RETURN_REASON {
-    RETURN_IO_CALL_NOW_UNUSED = 0,
     RETURN_HEAP_OVERFLOW = 1,
     RETURN_STACK_OVERFLOW = 2,
     RETURN_STACK_OVERFLOWEX = 3,
-    RETURN_CALLBACK_RETURN = 6,
-    RETURN_CALLBACK_EXCEPTION = 7,
-    RETURN_KILL_SELF = 9
 };
 
 extern "C" {
 
     // These are declared in the assembly code segment.
     void X86AsmSwitchToPoly(void *);
-
-    extern int X86AsmKillSelf(void);
-    extern int X86AsmCallbackReturn(void);
-    extern int X86AsmCallbackException(void);
-    extern int X86AsmPopArgAndClosure(void);
-    extern int X86AsmRaiseException(void);
     extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
 
     POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
-};
 
-// Pointers to assembly code or trampolines to assembly code.
-static byte *popArgAndClosure, *killSelf, *raiseException, *callbackException, *callbackReturn;
+    void X86TrapHandler(PolyWord threadId);
+};
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
 {
@@ -502,156 +488,91 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length, S
     }
 }
 
-Handle X86TaskData::EnterPolyCode()
+void X86TaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
-    Handle hOriginal = this->saveVec.mark(); // Set this up for the IO calls.
-    while (1)
-    {
-        this->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
+    SetMemRegisters();
+    // Enter the ML code.
+    X86AsmSwitchToPoly(&this->assemblyInterface);
+    // This should never return
+    ASSERT(0);
+ }
 
-        // Run the ML code and return with the function to call.
-        this->inML = true;
-        int ioFunction = SwitchToPoly();
-        this->inML = false;
-
-        try {
-            switch (ioFunction)
-            {
-            case -1:
-                // We've been interrupted.  This usually involves simulating a
-                // stack overflow so we could come here because of a genuine
-                // stack overflow.
-                // Previously this code was executed on every RTS call but there
-                // were problems on Mac OS X at least with contention on schedLock.
-                // Process any asynchronous events i.e. interrupts or kill
-                processes->ProcessAsynchRequests(this);
-                // Release and re-acquire use of the ML memory to allow another thread
-                // to GC.
-                processes->ThreadReleaseMLMemory(this);
-                processes->ThreadUseMLMemory(this);
-                break;
-
-            case -2: // A callback has returned.
-                return callBackResult; // Return the saved value. Not used in the new interface.
-
-            default:
-                Crash("Unknown io operation %d\n", ioFunction);
-            }
-        }
-        catch (IOException &) {
-        }
-    }
+// Called from the assembly code as a result of a trap i.e. a request for
+// a GC or to extend the stack.
+void X86TrapHandler(PolyWord threadId)
+{
+    X86TaskData* taskData = (X86TaskData*)TaskData::FindTaskForId(threadId);
+    taskData->HandleTrap();
 }
 
-// Run the current ML process.  X86AsmSwitchToPoly saves the C state so that
-// whenever the ML requires assistance from the rest of the RTS it simply
-// returns to C with the appropriate values set in assemblyInterface.requestCode and
-// 
-
-int X86TaskData::SwitchToPoly()
-// (Re)-enter the Poly code from C.  Returns with the io function to call or
-// -1 if we are responding to an interrupt.
+void X86TaskData::HandleTrap()
 {
-    Handle mark = this->saveVec.mark();
-    do
+    SaveMemRegisters(); // Update globals from the memory registers.
+
+    switch (this->assemblyInterface.returnReason)
     {
-        this->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
-        SetMemRegisters();
 
-        // We need to save the C stack entry across this call in case
-        // we're making a callback and the previous C stack entry is
-        // for the original call.
-        uintptr_t savedCStack = this->assemblyInterface.saveCStack;
-        // Restore the saved error state.
-#if (defined(_WIN32))
-        SetLastError(savedErrno);
-#else
-        errno = savedErrno;
-#endif
-        // Enter the ML code.
-        X86AsmSwitchToPoly(&this->assemblyInterface);
+    case RETURN_HEAP_OVERFLOW:
+        // The heap has overflowed.
+        SetRegisterMask();
+        this->HeapOverflowTrap(assemblyInterface.stackPtr[0].codeAddr); // Computes a value for allocWords only
+        break;
 
-        this->assemblyInterface.saveCStack = savedCStack;
-        // Save the error codes.  We may have made an RTS/FFI call that
-        // has set these and we don't want to do anything to change them.
-#if (defined(_WIN32))
-        savedErrno = GetLastError();
-#else
-        savedErrno = errno;
-#endif
-
-        SaveMemRegisters(); // Update globals from the memory registers.
-
-        // Handle any heap/stack overflows or arbitrary precision traps.
-        switch (this->assemblyInterface.returnReason)
+    case RETURN_STACK_OVERFLOW:
+    case RETURN_STACK_OVERFLOWEX:
+    {
+        SetRegisterMask();
+        uintptr_t min_size; // Size in PolyWords
+        if (assemblyInterface.returnReason == RETURN_STACK_OVERFLOW)
         {
-
-        case RETURN_HEAP_OVERFLOW:
-            // The heap has overflowed.
-            SetRegisterMask();
-            this->HeapOverflowTrap(assemblyInterface.stackPtr[0].codeAddr); // Computes a value for allocWords only
-            break;
-
-        case RETURN_STACK_OVERFLOW:
-        case RETURN_STACK_OVERFLOWEX:
+            min_size = (this->stack->top - (PolyWord*)assemblyInterface.stackPtr) +
+                OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
+        }
+        else
         {
-            SetRegisterMask();
-            uintptr_t min_size; // Size in PolyWords
-            if (assemblyInterface.returnReason == RETURN_STACK_OVERFLOW)
-            {
-                min_size = (this->stack->top - (PolyWord*)assemblyInterface.stackPtr) +
-                    OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
-            }
-            else
-            {
-                // Stack limit overflow.  If the required stack space is larger than
-                // the fixed overflow size the code will calculate the limit in %EDI.
-                stackItem *stackP = regDI().stackAddr;
-                min_size = (this->stack->top - (PolyWord*)stackP) +
-                    OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
-            }
-            try {
-                // The stack check has failed.  This may either be because we really have
-                // overflowed the stack or because the stack limit value has been adjusted
-                // to result in a call here.
-                CheckAndGrowStack(this, min_size);
-            }
-            catch (IOException &) {
-               // We may get an exception while handling this if we run out of store
-            }
-            {
-                PLocker l(&interruptLock);
-                // Set the stack limit.  This clears any interrupt and also sets the
-                // correct value if we've grown the stack.
-                this->assemblyInterface.stackLimit = (stackItem*)this->stack->bottom + OVERFLOW_STACK_SIZE;
-            }
-            return -1; // We're in a safe state to handle any interrupts.
+            // Stack limit overflow.  If the required stack space is larger than
+            // the fixed overflow size the code will calculate the limit in %EDI.
+            stackItem* stackP = regDI().stackAddr;
+            min_size = (this->stack->top - (PolyWord*)stackP) +
+                OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
         }
-
-        case RETURN_CALLBACK_RETURN:
-            // regSP has been set by the assembly code.  N.B.  This may not be the same value as when
-            // EnterCallbackFunction was called because the callback may have grown and moved the stack.
-            // Remove the extra exception handler we created in EnterCallbackFunction
-            ASSERT(assemblyInterface.handlerRegister == regSP());
-            regSP() += 1;
-            assemblyInterface.handlerRegister = (*(regSP()++)).stackAddr; // Restore the previous handler.
-            this->callBackResult = this->saveVec.push(regAX()); // Argument to return is in RAX.
-            return -2;
-
-        case RETURN_CALLBACK_EXCEPTION:
-            // An ML callback has raised an exception.
-            // It isn't possible to do anything here except abort.
-            Crash("An ML function called from foreign code raised an exception.  Unable to continue.");
-
-        case RETURN_KILL_SELF:
-            exitThread(this);
-
-        default:
-            Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
+        try {
+            // The stack check has failed.  This may either be because we really have
+            // overflowed the stack or because the stack limit value has been adjusted
+            // to result in a call here.
+            CheckAndGrowStack(this, min_size);
         }
+        catch (IOException&) {
+            // We may get an exception while handling this if we run out of store
+        }
+        {
+            PLocker l(&interruptLock);
+            // Set the stack limit.  This clears any interrupt and also sets the
+            // correct value if we've grown the stack.
+            this->assemblyInterface.stackLimit = (stackItem*)this->stack->bottom + OVERFLOW_STACK_SIZE;
+        }
+        // We're in a safe state to handle any interrupts.
+        try {
+            // Process any asynchronous events i.e. interrupts or kill
+            processes->ProcessAsynchRequests(this);
+            // Release and re-acquire use of the ML memory to allow another thread to GC.
+            processes->ThreadReleaseMLMemory(this);
+            processes->ThreadUseMLMemory(this);
+        }
+        catch (IOException&) {
+            // If this resulted in an ML exception it will also raise a C++ exception.
+        }
+        catch (KillException&) {
+            processes->ThreadExit(this);
+        }
+        break;
+    }
 
-    } while (1);
+    default:
+        Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
+    }
+    SetMemRegisters();
 }
 
 void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
@@ -696,21 +617,14 @@ void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
 void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
-    // Set the assembly code addresses.
-    if (popArgAndClosure == 0) MakeTrampoline(&popArgAndClosure, (byte*)&X86AsmPopArgAndClosure);
-    if (killSelf == 0) MakeTrampoline(&killSelf, (byte*)&X86AsmKillSelf);
-    if (raiseException == 0) MakeTrampoline(&raiseException, (byte*)&X86AsmRaiseException);
-    if (callbackException == 0) MakeTrampoline(&callbackException, (byte*)&X86AsmCallbackException);
-    if (callbackReturn == 0) MakeTrampoline(&callbackReturn, (byte*)&X86AsmCallbackReturn);
-
     StackSpace *space = this->stack;
     StackObject * newStack = space->stack();
     uintptr_t stack_size     = space->spaceSize() * sizeof(PolyWord) / sizeof(stackItem);
-    uintptr_t topStack = stack_size-6;
+    uintptr_t topStack = stack_size;
     stackItem *stackTop = (stackItem*)newStack + topStack;
     assemblyInterface.stackPtr = stackTop;
     assemblyInterface.stackLimit = (stackItem*)space->bottom + OVERFLOW_STACK_SIZE;
-    assemblyInterface.handlerRegister = (stackItem*)newStack+topStack+4;
+    assemblyInterface.handlerRegister = stackTop;
 
     // Floating point save area.
     memset(&assemblyInterface.p_fp, 0, sizeof(struct fpSaveArea));
@@ -719,27 +633,11 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     assemblyInterface.p_fp.cw = 0x027f ; // Control word
     assemblyInterface.p_fp.tw = 0xffff; // Tag registers - all unused
 #endif
-    // Initial entry point - on the stack.
-    stackTop[0].codeAddr = popArgAndClosure;
-
-    // Push the argument and the closure on the stack.  We can't put them into the registers
-    // yet because we might get a GC before we actually start the code.
-    stackTop[1] = proc->Word(); // Closure
-    stackTop[2] = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
-    /* We initialise the end of the stack with a sequence that will jump to
-       kill_self whether the process ends with a normal return or by raising an
-       exception.  A bit of this was added to fix a bug when stacks were objects
-       on the heap and could be scanned by the GC. */
-    stackTop[5] = TAGGED(0); // Probably no longer needed
-    // Set the default handler and return address to point to this code.
-//    PolyWord killJump(PolyWord::FromCodePtr((byte*)&X86AsmKillSelf));
-    // Exception handler.
-    stackTop[4].codeAddr = killSelf;
-    // Normal return address.  We need a separate entry on the stack from
-    // the exception handler because it is possible that the code we are entering
-    // may replace this entry with an argument.  The code-generator optimises tail-recursive
-    // calls to functions with more args than the called function.
-    stackTop[3].codeAddr = killSelf;
+    // Store the argument and the closure.
+    assemblyInterface.p_rdx = proc->Word(); // Closure
+    assemblyInterface.p_rax = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
+    // Have to set the register mask in case we get a GC before the thread starts.
+    saveRegisterMask = (1 << 2) | 1; // Rdx and rax
 
 #ifdef POLYML32IN64
     // In 32-in-64 RBX always contains the heap base address.
@@ -933,8 +831,6 @@ void X86TaskData::SetMemRegisters()
     if (profileMode == kProfileStoreAllocation)
         this->assemblyInterface.localMbottom = this->assemblyInterface.localMpointer;
 
-    this->assemblyInterface.returnReason = RETURN_IO_CALL_NOW_UNUSED;
-
     this->assemblyInterface.threadId = this->threadObject;
 }
 
@@ -1061,44 +957,11 @@ void X86TaskData::HeapOverflowTrap(byte *pcPtr)
 }
 
 void X86TaskData::SetException(poly_exn *exc)
-// Set up the stack to raise an exception.
+// The RTS wants to raise an exception packet.  Normally this is as the
+// result of an RTS call in which case the caller will check this.  It can
+// also happen in a trap.
 {
-    // Do we need to set the PC value any longer?  It may be necessary if
-    // we have taken a trap because another thread has sent a broadcast interrupt.
-    (--assemblyInterface.stackPtr)->codeAddr = raiseException;
-    regAX() = (PolyWord)exc; /* put exception data into eax */
     assemblyInterface.exceptionPacket = (PolyWord)exc; // Set for direct calls.
-}
-
-// Sets up a callback function on the current stack.  The present state is that
-// the ML code has made a call in to foreign_dispatch.  We need to set the stack
-// up so that we will enter the callback (as with CallCodeTupled) but when we return
-// the result we enter callback_return. 
-Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
-{
-    // If we ever implement a light version of the FFI that allows a call to C
-    // code without saving enough to allow allocation in C code we need to ensure
-    // that this code doesn't do any allocation.  Essentially we need the values
-    // in localMpointer and localMbottom to be valid across a call to C.  If we do
-    // a callback the ML callback function would pick up the values saved in the
-    // originating call.
-    // However, it is essential that the light version still saves the stack pointer
-    // and reloads it afterwards.
-
-    // Set up an exception handler so we will enter callBackException if there is an exception.
-    (--regSP())->stackAddr = assemblyInterface.handlerRegister; // Create a special handler entry
-    (--regSP())->codeAddr = callbackException;
-    assemblyInterface.handlerRegister = regSP();
-    // Push the call to callBackReturn onto the stack as the return address.
-    (--regSP())->codeAddr = callbackReturn;
-    // Set up the entry point of the callback.
-    PolyObject *functToCall = func->WordP();
-    regDX() = (PolyWord)functToCall; // Closure address
-    regAX() = args->Word();
-    // Push entry point address
-    (--regSP())->codeAddr = *(POLYCODEPTR*)functToCall; // First word of closure is entry pt.
-
-    return EnterPolyCode();
 }
 
 // Decode and process an effective address.  There may
@@ -1342,20 +1205,16 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             else
 #endif /* HOSTARCHITECTURE_X86_64 */
             {
-                // This is no longer generated in 64-bit mode but needs to
-                // be retained in native 64-bit for backwards compatibility.
-#ifndef POLYML32IN64
-                // 32 bits in 32-bit mode, 64-bits in 64-bit mode.
+                // This is used in native 32-bit for constants and in
+                // 32-in-64 for the special case of an absolute address.
                 process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
-#endif
-                pt += sizeof(PolyWord);
+                pt += sizeof(uintptr_t);
             }
             break;
 
         case 0x68: /* PUSH_32 */
             pt ++;
-#if (!defined(HOSTARCHITECTURE_X86_64) || defined(POLYML32IN64))
-            // Currently the only inline constant in 32-in-64.
+#if (!defined(HOSTARCHITECTURE_X86_64))
             process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
 #endif
             pt += 4;
@@ -1368,6 +1227,8 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 {
                 case 0xb6: /* movzl */
                 case 0xb7: // movzw
+                case 0xbe: // movsx
+                case 0xbf: // movsx
                 case 0xc1: /* xaddl */
                 case 0xae: // ldmxcsr/stmxcsr
                 case 0xaf: // imul
@@ -1437,28 +1298,37 @@ static X86Dependent x86Dependent;
 
 MachineDependent *machineDependent = &x86Dependent;
 
-class X86Module : public RtsModule
+extern "C" {
+    POLYEXTERNALSYMBOL void *PolyX86GetThreadData();
+}
+
+// Return the address of assembly data for the current thread.  This is normally in
+// RBP except if we are in a callback.
+void *PolyX86GetThreadData()
 {
-public:
-    virtual void GarbageCollect(ScanAddress * /*process*/);
+    // We should get the task data for the thread that is running this code.
+    // If this thread has been created by the foreign code we will have to
+    // create a new one here.
+    TaskData* taskData = processes->GetTaskDataForThread();
+    if (taskData == 0)
+    {
+        try {
+            taskData = processes->CreateNewTaskData(0, 0, 0, TAGGED(0));
+        }
+        catch (std::bad_alloc&) {
+            ::Exit("Unable to create thread data - insufficient memory");
+        }
+        catch (MemoryException&) {
+            ::Exit("Unable to create thread data - insufficient memory");
+        }
+    }
+    return &((X86TaskData*)taskData)->assemblyInterface;
+}
+
+struct _entrypts machineSpecificEPT[] =
+{
+    { "PolyX86GetThreadData",           (polyRTSFunction)& PolyX86GetThreadData },
+
+    { NULL, NULL} // End of list.
 };
 
-// Declare this.  It will be automatically added to the table.
-static X86Module x86Module;
-
-void X86Module::GarbageCollect(ScanAddress *process)
-{
-#ifdef POLYML32IN64
-    // These are trampolines in the code area rather than direct calls.
-    if (popArgAndClosure != 0)
-        process->ScanRuntimeAddress((PolyObject**)&popArgAndClosure, ScanAddress::STRENGTH_STRONG);
-    if (killSelf != 0)
-        process->ScanRuntimeAddress((PolyObject**)&killSelf, ScanAddress::STRENGTH_STRONG);
-    if (raiseException != 0)
-        process->ScanRuntimeAddress((PolyObject**)&raiseException, ScanAddress::STRENGTH_STRONG);
-    if (callbackException != 0)
-        process->ScanRuntimeAddress((PolyObject**)&callbackException, ScanAddress::STRENGTH_STRONG);
-    if (callbackReturn != 0)
-        process->ScanRuntimeAddress((PolyObject**)&callbackReturn, ScanAddress::STRENGTH_STRONG);
-#endif
-}

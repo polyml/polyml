@@ -140,8 +140,11 @@
 #endif
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(FirstArgument threadId, PolyWord code, PolyWord strm, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(FirstArgument threadId, PolyWord streamVec, PolyWord bitVec, PolyWord maxMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForInput(FirstArgument threadId, PolyWord strm, PolyWord waitMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForOutput(FirstArgument threadId, PolyWord strm, PolyWord waitMillisecs);
 }
 
 // References to the standard streams.  They are only needed if we are compiling
@@ -170,30 +173,27 @@ int WinStream::fileTypeOfHandle(HANDLE hStream)
     }
 }
 
-void WinStream::waitUntilAvailable(TaskData *taskData)
-{
-    while (!isAvailable(taskData))
-    {
-        WaitHandle waiter(NULL);
-        processes->ThreadPauseForIO(taskData, &waiter);
-    }
-}
-
-void WinStream::waitUntilOutputPossible(TaskData *taskData)
-{
-    while (!canOutput(taskData))
-    {
-        // Use the default waiter for the moment since we don't have
-        // one to test for output.
-        processes->ThreadPauseForIO(taskData, Waiter::defaultWaiter);
-    }
-}
-
 void WinStream::unimplemented(TaskData *taskData)
 {
     // Called on the random access functions
     raise_syscall(taskData, "Position error", ERROR_NOT_SUPPORTED);
 }
+
+// Backwards compatibility.  This should now be done in ML.
+void WinStream::waitUntilAvailable(TaskData *taskData)
+{
+    while (!testForInput(taskData, 1000))
+    {
+    }
+}
+
+void WinStream::waitUntilOutputPossible(TaskData *taskData)
+{
+    while (!testForOutput(taskData, 1000))
+    {
+    }
+}
+
 
 WinInOutStream::WinInOutStream()
 {
@@ -413,25 +413,27 @@ bool WinInOutStream::isAvailable(TaskData *taskData)
     }
 }
 
-void WinInOutStream::waitUntilAvailable(TaskData *taskData)
+bool WinInOutStream::testForInput(TaskData *taskData, unsigned waitMilliSecs)
 {
-    while (!isAvailable(taskData))
+    if (isAvailable(taskData)) return true;
+    if (waitMilliSecs != 0)
     {
-        WaitHandle waiter(hEvent);
+        WaitHandle waiter(hEvent, waitMilliSecs);
         processes->ThreadPauseForIO(taskData, &waiter);
     }
+    return false;
 }
 
 int WinInOutStream::poll(TaskData *taskData, int test)
 {
     if (test & POLL_BIT_IN)
     {
-        if (isAvailable(taskData))
+        if (testForInput(taskData, 0))
             return POLL_BIT_IN;
     }
     if (test & POLL_BIT_OUT)
     {
-        if (canOutput(taskData))
+        if (testForOutput(taskData, 0))
             return POLL_BIT_OUT;
     }
 
@@ -457,10 +459,9 @@ void WinInOutStream::setPos(TaskData *taskData, uint64_t pos)
     // we need to flush anything before changing the position.
     if (isRead)
     {
-        
         while (WaitForSingleObject(hEvent, 0) == WAIT_TIMEOUT)
         {
-            WaitHandle waiter(hEvent);
+            WaitHandle waiter(hEvent, 1000);
             processes->ThreadPauseForIO(taskData, &waiter);
         }
     }
@@ -482,7 +483,6 @@ uint64_t WinInOutStream::fileSize(TaskData *taskData)
         raise_syscall(taskData, "Stream is not a file", GetLastError());
     return fileSize.QuadPart;
 }
-
 
 bool WinInOutStream::canOutput(TaskData *taskData)
 {
@@ -511,16 +511,15 @@ bool WinInOutStream::canOutput(TaskData *taskData)
     return true;
 }
 
-void WinInOutStream::waitUntilOutputPossible(TaskData *taskData)
+bool WinInOutStream::testForOutput(TaskData *taskData, unsigned waitMilliSecs)
 {
-    if (isRead)
-        unimplemented(taskData);
-
-    while (!canOutput(taskData))
+    if (canOutput(taskData)) return true;
+    if (waitMilliSecs != 0)
     {
-        WaitHandle waiter(hEvent);
+        WaitHandle waiter(hEvent, waitMilliSecs);
         processes->ThreadPauseForIO(taskData, &waiter);
     }
+    return false;
 }
 
 // Write data.  N.B.  This is also used with zero data from closeEntry.
@@ -666,76 +665,67 @@ Handle pollTest(TaskData *taskData, Handle stream)
     return Make_fixed_precision(taskData, strm->pollTest());
 }
 
-// Do the polling.  Takes a vector of io descriptors, a vector of bits to test
+// Poll file descriptors.  Also used with empty descriptors as OS.Process.sleep.
+// Takes a vector of io descriptors, a vector of bits to test
 // and a time to wait and returns a vector of results.
-
 // Windows: This is messy because "select" only works on sockets.
 // Do the best we can.
-static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(FirstArgument threadId, PolyWord streamVector, PolyWord bitVector, PolyWord maxMillisecs)
 {
-    Handle hSave = taskData->saveVec.mark();
-TryAgain:
-    PolyObject  *strmVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
-    PolyObject  *bitVec = DEREFHANDLE(args)->Get(1).AsObjPtr();
-    POLYUNSIGNED nDesc = strmVec->Length();
-    ASSERT(nDesc == bitVec->Length());
-    // We should check for interrupts even if we're not going to block.
-    processes->TestAnyEvents(taskData);
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    unsigned maxMilliseconds = (unsigned)maxMillisecs.UnTaggedUnsigned();
+    Handle result = 0;
 
-    /* Simply do a non-blocking poll. */
-    /* Record the results in this vector. */
-    char *results = 0;
-    bool haveResult = false;
-    Handle  resVec;
-    if (nDesc > 0)
-    {
-        results = (char*)alloca(nDesc);
-        memset(results, 0, nDesc);
-    }
+    try {
+        PolyObject  *strmVec = streamVector.AsObjPtr();
+        PolyObject  *bitVec = bitVector.AsObjPtr();
+        POLYUNSIGNED nDesc = strmVec->Length();
+        ASSERT(nDesc == bitVec->Length());
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
 
-    for (POLYUNSIGNED i = 0; i < nDesc; i++)
-    {
-        WinStream *strm = *(WinStream**)(strmVec->Get(i).AsObjPtr());
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        int bits = get_C_int(taskData, bitVec->Get(i));
-        results[i] = strm->poll(taskData, bits);
-        if (results[i] != 0)
-            haveResult = true;
-    }
-    if (haveResult == 0)
-    {
-        /* Poll failed - treat as time out. */
-        switch (blockType)
+        /* Simply do a non-blocking poll. */
+        /* Record the results in this vector. */
+        char *results = 0;
+        bool haveResult = false;
+        if (nDesc > 0)
         {
-        case 0: /* Check the time out. */
+            results = (char*)alloca(nDesc);
+            memset(results, 0, nDesc);
+        }
+
+        for (POLYUNSIGNED i = 0; i < nDesc; i++)
         {
-            Handle hSave = taskData->saveVec.mark();
-            /* The time argument is an absolute time. */
-            FILETIME ftTime, ftNow;
-            /* Get the file time. */
-            getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(2)), &ftTime);
-            GetSystemTimeAsFileTime(&ftNow);
-            taskData->saveVec.reset(hSave);
-            /* If the timeout time is earlier than the current time
-            we must return, otherwise we block. */
-            if (CompareFileTime(&ftTime, &ftNow) <= 0)
-                break; /* Return the empty set. */
-                        /* else drop through and block. */
+            WinStream *strm = *(WinStream**)(strmVec->Get(i).AsObjPtr());
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+            int bits = get_C_int(taskData, bitVec->Get(i));
+            results[i] = strm->poll(taskData, bits);
+            if (results[i] != 0)
+                haveResult = true;
         }
-        case 1: /* Block until one of the descriptors is ready. */
-            processes->ThreadPause(taskData);
-            taskData->saveVec.reset(hSave);
-            goto TryAgain;
-            /*NOTREACHED*/
-        case 2: /* Just a simple poll - drop through. */
-            break;
+        if (haveResult == 0 && maxMilliseconds != 0)
+        {
+            /* Poll failed - treat as time out. */
+            WaitHandle waiter(NULL, maxMilliseconds);
+            processes->ThreadPauseForIO(taskData, &waiter);
         }
+        /* Copy the results to a result vector. */
+        result = alloc_and_save(taskData, nDesc);
+        for (POLYUNSIGNED j = 0; j < nDesc; j++)
+            (DEREFWORDHANDLE(result))->Set(j, TAGGED(results[j]));
     }
-    /* Copy the results to a result vector. */
-    resVec = alloc_and_save(taskData, nDesc);
-    for (POLYUNSIGNED j = 0; j < nDesc; j++)
-        (DEREFWORDHANDLE(resVec))->Set(j, TAGGED(results[j]));
-    return resVec;
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 // Directory functions.
@@ -848,7 +838,7 @@ static Handle change_dirc(TaskData *taskData, Handle name)
 }
 
 // External call
-POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyChDir(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1106,7 +1096,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     {
         WinStream *stream = *(WinStream **)(strm->WordP());
         if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        return Make_fixed_precision(taskData, stream->isAvailable(taskData) ? 1 : 0);
+        return Make_fixed_precision(taskData, stream->testForInput(taskData, 0) ? 1 : 0);
     }
 
     case 17: // Return the number of bytes available. PrimIO.avail.
@@ -1153,12 +1143,13 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     }
     case 22: /* Return the polling options allowed on this descriptor. */
         return pollTest(taskData, strm);
-    case 23: /* Poll the descriptor, waiting forever. */
-        return pollDescriptors(taskData, args, 1);
-    case 24: /* Poll the descriptor, waiting for the time requested. */
-        return pollDescriptors(taskData, args, 0);
-    case 25: /* Poll the descriptor, returning immediately.*/
-        return pollDescriptors(taskData, args, 2);
+//    case 23: /* Poll the descriptor, waiting forever. */
+//        return pollDescriptors(taskData, args, 1);
+//    case 24: /* Poll the descriptor, waiting for the time requested. */
+//        return pollDescriptors(taskData, args, 0);
+//    case 25: /* Poll the descriptor, returning immediately.*/
+//        return pollDescriptors(taskData, args, 2);
+
     case 26: /* Get binary as a vector. */
         return readString(taskData, strm, args, false);
 
@@ -1176,7 +1167,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     {
         WinStream *stream = *(WinStream **)(strm->WordP());
         if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        return Make_fixed_precision(taskData, stream->canOutput(taskData) ? 1 : 0);
+        return Make_fixed_precision(taskData, stream->testForOutput(taskData, 0) ? 1 : 0);
     }
 
     case 29: /* Block until output is possible. */
@@ -1341,7 +1332,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 
 // General interface to IO.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg)
+POLYUNSIGNED PolyBasicIOGeneral(FirstArgument threadId, PolyWord code, PolyWord strm, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1366,10 +1357,59 @@ POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord st
     else return result->Word().AsUnsigned();
 }
 
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForInput(FirstArgument threadId, PolyWord strm, PolyWord waitMillisecs)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    bool result = false;
+
+    try {
+        WinStream *stream = *(WinStream **)(strm.AsObjPtr());
+        if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+        result = stream->testForInput(taskData, (unsigned)waitMillisecs.UnTaggedUnsigned());
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(result? 1: 0).AsUnsigned();
+}
+
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForOutput(FirstArgument threadId, PolyWord strm, PolyWord waitMillisecs)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    bool result = false;
+
+    try {
+        WinStream *stream = *(WinStream **)(strm.AsObjPtr());
+        if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
+        result = stream->testForOutput(taskData, (unsigned)waitMillisecs.UnTaggedUnsigned());
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(result ? 1 : 0).AsUnsigned();
+}
+
 struct _entrypts basicIOEPT[] =
 {
     { "PolyChDir",                      (polyRTSFunction)&PolyChDir },
     { "PolyBasicIOGeneral",             (polyRTSFunction)&PolyBasicIOGeneral },
+    { "PolyPollIODescriptors",          (polyRTSFunction)&PolyPollIODescriptors },
+    { "PolyTestForInput",               (polyRTSFunction)&PolyTestForInput },
+    { "PolyTestForOutput",              (polyRTSFunction)&PolyTestForOutput },
 
     { NULL, NULL } // End of list.
 };

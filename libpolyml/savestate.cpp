@@ -118,15 +118,15 @@ typedef char TCHAR;
 #endif
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySaveState(PolyObject *threadId, PolyWord fileName, PolyWord depth);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadState(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowHierarchy(PolyObject *threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRenameParent(PolyObject *threadId, PolyWord childName, PolyWord parentName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowParent(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyStoreModule(PolyObject *threadId, PolyWord name, PolyWord contents);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadModule(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadHierarchy(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetModuleDirectory(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySaveState(FirstArgument threadId, PolyWord fileName, PolyWord depth);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadState(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowHierarchy(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRenameParent(FirstArgument threadId, PolyWord childName, PolyWord parentName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowParent(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyStoreModule(FirstArgument threadId, PolyWord name, PolyWord contents);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadModule(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadHierarchy(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetModuleDirectory(FirstArgument threadId);
 }
 
 // Helper class to close files on exit.
@@ -756,7 +756,7 @@ void SaveRequest::Perform()
 }
 
 // Write a saved state file.
-POLYUNSIGNED PolySaveState(PolyObject *threadId, PolyWord fileName, PolyWord depth)
+POLYUNSIGNED PolySaveState(FirstArgument threadId, PolyWord fileName, PolyWord depth)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1388,7 +1388,7 @@ static void LoadState(TaskData *taskData, bool isHierarchy, Handle hFileList)
 }
 
 // Load a saved state file and any ancestors.
-POLYUNSIGNED PolyLoadState(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyLoadState(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1407,7 +1407,7 @@ POLYUNSIGNED PolyLoadState(PolyObject *threadId, PolyWord arg)
 }
 
 // Load hierarchy.  This provides a complete list of children and parents.
-POLYUNSIGNED PolyLoadHierarchy(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyLoadHierarchy(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1452,7 +1452,7 @@ static Handle ShowHierarchy(TaskData *taskData)
 }
 
 // Show the hierarchy.
-POLYUNSIGNED PolyShowHierarchy(PolyObject *threadId)
+POLYUNSIGNED PolyShowHierarchy(FirstArgument threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1530,7 +1530,7 @@ static void RenameParent(TaskData *taskData, PolyWord childName, PolyWord parent
     fwrite(&header, sizeof(header), 1, loadFile);
 }
 
-POLYUNSIGNED PolyRenameParent(PolyObject *threadId, PolyWord childName, PolyWord parentName)
+POLYUNSIGNED PolyRenameParent(FirstArgument threadId, PolyWord childName, PolyWord parentName)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1612,7 +1612,7 @@ static Handle ShowParent(TaskData *taskData, Handle hFileName)
 }
 
 // Return the name of the immediate parent stored in a child
-POLYUNSIGNED PolyShowParent(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyShowParent(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1800,7 +1800,7 @@ void ModuleExport::exportStore(void)
 }
 
 // Store a module
-POLYUNSIGNED PolyStoreModule(PolyObject *threadId, PolyWord name, PolyWord contents)
+POLYUNSIGNED PolyStoreModule(FirstArgument threadId, PolyWord name, PolyWord contents)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2019,7 +2019,7 @@ static Handle LoadModule(TaskData *taskData, Handle args)
 }
 
 // Load a module
-POLYUNSIGNED PolyLoadModule(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyLoadModule(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2156,7 +2156,7 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
 
 // Return the system directory for modules.  This is configured differently
 // in Unix and in Windows.
-POLYUNSIGNED PolyGetModuleDirectory(PolyObject *threadId)
+POLYUNSIGNED PolyGetModuleDirectory(FirstArgument threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

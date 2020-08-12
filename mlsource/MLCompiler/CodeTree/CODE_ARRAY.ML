@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2017 David C.J. Matthews
+    Copyright (c) 2017, 2019 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -112,13 +112,14 @@ struct
         fun codeVecPutConstant (addr, byteIndex, value:machineWord, option: constantType) =
         let
             val optValue =
-                case option of ConstAbsolute => 0w0 | ConstX86Relative => 0w1
+                case option of ConstAbsolute => 0w2 | ConstX86Relative => 0w1
         in
             setCodeConstantCall(addr, byteIndex, value, optValue)
         end
         
+        (* Used to set constants in the constant area. *)
         fun codeVecPutWord(addr, wordIndex, value) =
-            codeVecPutConstant(addr, wordIndex * wordSize, value, ConstAbsolute)
+            setCodeConstantCall(addr, wordIndex * wordSize, value, 0w0)
     end
 
     structure Sharing =

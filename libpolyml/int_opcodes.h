@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development Copyright David C.J. Matthews 2015-18.
+    Further development Copyright David C.J. Matthews 2015-18, 2020.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -136,11 +136,11 @@
 #define INSTR_callFastRTS4      0x87
 #define INSTR_callFastRTS5      0x88
 #define INSTR_callFullRTS0      0x89
-#define INSTR_callFullRTS1      0x8a
-#define INSTR_callFullRTS2      0x8b
-#define INSTR_callFullRTS3      0x8c
-#define INSTR_callFullRTS4      0x8d
-#define INSTR_callFullRTS5      0x8e
+#define INSTR_callFullRTS1      0x8a // Legacy
+#define INSTR_callFullRTS2      0x8b // Legacy
+#define INSTR_callFullRTS3      0x8c // Legacy
+#define INSTR_callFullRTS4      0x8d // Legacy
+#define INSTR_callFullRTS5      0x8e // Legacy
 #define INSTR_callFastRtoR      0x8f
 #define INSTR_callFastGtoR      0x90
 #define INSTR_notBoolean        0x91
@@ -247,4 +247,6 @@
 #define INSTR_constAddr8        0xfa
 #define INSTR_stackSize8        0xfb
 #define INSTR_stackSize16       0xfc
+#define INSTR_allocCSpace       0xfd
+#define INSTR_freeCSpace        0xfe
 

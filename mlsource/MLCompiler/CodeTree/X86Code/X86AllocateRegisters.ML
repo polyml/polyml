@@ -45,7 +45,8 @@ struct
     
     val floatingPtRegisters =
         case fpMode of
-            FPModeSSE2 => List.map XMMReg [xmm6, xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
+            (* XMM0-5 are the only volatile SSE2 registers in Windows X64. *)
+            FPModeSSE2 => List.map XMMReg [xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
             (* We can't include fp7 because we need one spare. *)
             (* For the moment we only have FP0 here.  There are problems with using the
                others because we need to ensure the stack is empty if we call any
@@ -438,8 +439,10 @@ struct
                         allocateArgIndex index
                     end
             )
-        
+
         |   registerAllocate{instr=LoadMemReg { dest=PReg pr, ...}, ...} = allocateGeneralReg pr
+
+        |   registerAllocate{instr=StoreMemReg { source=PReg pr, ...}, ...} = allocateGeneralReg pr
 
         |   registerAllocate{instr=BeginFunction _, ...} = ()
             (* Any registers that are referenced will have been allocated real registers. *)

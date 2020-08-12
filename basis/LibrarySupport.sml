@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Support functions
-    Copyright   David C.J. Matthews 2000, 2015-18
+    Copyright   David C.J. Matthews 2000, 2015-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -64,6 +64,12 @@ sig
     val emptyVector: word
     val quotRem: LargeInt.int*LargeInt.int -> LargeInt.int*LargeInt.int
     val getOSType: unit -> int
+    eqtype syserror
+    val syserrorToWord: syserror -> LargeWord.word
+    val syserrorFromWord : LargeWord.word -> syserror
+    exception SysErr of (string * syserror option)
+    val onEntryList: (unit->unit) list ref (* This is picked up by InitialPolyML *)
+    val addOnEntry: (unit->unit) -> unit
 end
 =
 struct
@@ -196,5 +202,16 @@ struct
     val quotRem = LargeInt.quotRem
     
     val getOSType: unit -> int = RunCall.rtsCallFast0 "PolyGetOSType"
+    
+    (* syserror is the same as SysWord.word and these are needed in Posix at least. *)
+    type syserror = LargeWord.word
+    fun syserrorToWord i = i
+    and syserrorFromWord i = i
+    
+    exception SysErr = RunCall.SysErr
+    
+    (* The onEntry list.  PolyML.onEntry adds a mutex here. *)
+    val onEntryList: (unit->unit) list ref = ref[]
+    fun addOnEntry f = onEntryList := f :: !onEntryList
 end;
 

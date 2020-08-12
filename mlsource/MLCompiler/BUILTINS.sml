@@ -65,6 +65,7 @@ sig
     |   DoubleToFloat of IEEEReal.rounding_mode option (* Convert a double precision floating point value to single precision. *)
     |   RealToInt of precision * IEEEReal.rounding_mode (* Convert a double or float to a fixed precision int. *)
     |   TouchAddress (* Ensures that the cell is reachable. *)
+    |   AllocCStack (* Allocate space on the C stack. *)
 
     and precision = PrecSingle | PrecDouble (* Single or double precision floating pt. *)
 
@@ -98,9 +99,17 @@ sig
            if we try to use an indexed case there must be a check that the
            values are tagged. *)
     |   PointerEq
-        
+    |   FreeCStack  (* Free  space on the C stack. *)
+    
+    and nullaryOps =
+        (* Get the current thread id *)
+        GetCurrentThreadId
+        (* Check whether the last RTS call set the exception status and raise it if it had. *)
+    |   CheckRTSException
+
     val unaryRepr: unaryOps -> string
     and binaryRepr: binaryOps -> string
     and testRepr: testConditions -> string
     and arithRepr: arithmeticOperations -> string
+    and nullaryRepr: nullaryOps -> string
 end;

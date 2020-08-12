@@ -110,7 +110,7 @@ public:
     void FillUnusedSpace(void);
     virtual void GarbageCollect(ScanAddress *process);
 
-    virtual Handle EnterPolyCode() = 0; // Start running ML
+    virtual void EnterPolyCode() = 0; // Start running ML
 
     virtual void InterruptCode() = 0;
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context) = 0;
@@ -118,9 +118,6 @@ public:
     // allocation that needs to be made must be made in the parent.
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg) = 0;
     virtual void SetException(poly_exn *exc) = 0;
-    // If a foreign function calls back to ML we need to set up the call to the
-    // ML callback function.
-    virtual Handle EnterCallbackFunction(Handle func, Handle args) = 0;
 
     // The scheduler needs versions of atomic increment and atomic reset that
     // work in exactly the same way as the code-generated versions (if any).
@@ -158,8 +155,8 @@ public:
     // It is can be called safely to get the thread's own TaskData object without
     // a lock but any call to get the TaskData for another thread must take the
     // schedLock first in case the thread is exiting.
-    static TaskData *FindTaskForId(PolyObject *taskId) {
-        return *(TaskData**)(((ThreadObject*)taskId)->threadRef.AsObjPtr());
+    static TaskData *FindTaskForId(PolyWord taskId) {
+        return *(TaskData**)(((ThreadObject*)taskId.AsObjPtr())->threadRef.AsObjPtr());
     }
 
 private:
@@ -263,10 +260,11 @@ public:
 class WaitHandle: public Waiter
 {
 public:
-    WaitHandle(HANDLE h): m_Handle(h) {}
+    WaitHandle(HANDLE h, unsigned maxWait): m_Handle(h), m_maxWait(maxWait) {}
     virtual void Wait(unsigned maxMillisecs);
 private:
     HANDLE m_Handle;
+    unsigned m_maxWait;
 };
 
 #else

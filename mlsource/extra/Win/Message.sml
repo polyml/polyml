@@ -233,7 +233,7 @@ struct
             val {load=loadStruct, store=storeStruct, ctype={size=sizeStr, ...}, ...} = breakConversion NCCALCSIZE_PARAMS
             val {load=loadRect, store=storeRect, ctype={size=sizeRect, ...}, ...} = breakConversion cRect
         in
-            fun decompileNCCalcSize{wp=0w0, lp} =
+            fun decompileNCCalcSize{wp=0w1, lp} =
                 let
                     val (newrect,oldrect,oldclientarea,winpos) = loadStruct (toAddr lp)
                     val (wh,front,x,y,cx,cy,style) = winpos 
@@ -3382,8 +3382,8 @@ WM_IME_KEYUP                    0x0291
             let
                 val (hWnd, msgId, wParam, lParam, t, pt) = loadMsg v
                 val msg = decompileMessage(msgId, wParam, lParam)
-                val () =
-                    case msg of WM_USER _ => TextIO.print(Int.toString msgId ^ "\n") | _ => ()
+                (*val () =
+                    case msg of WM_USER _ => TextIO.print(Int.toString msgId ^ "\n") | _ => ()*)
             in
                 {
                     msg = msg,
@@ -3712,55 +3712,48 @@ WM_IME_KEYUP                    0x0291
             else SOME(loadMessage msg)) before free msg
         end;
 
-        (* TODO: This was originally implemented before we had threads.  The only reason
-           for continuing with it is to allow the thread to be interrupted. *)
+        (* This was originally implemented before we had threads and used a RTS call to
+           pick up the messages. *)
+        
+        val WaitMessage = winCall0 (user "WaitMessage") () cBool
+
         local
-            val callWin = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+            val getMsg = winCall4(user "GetMessage") (cPointer, cHWND, cUint, cUint) cBool
         in
-            fun pauseForMessage(hwnd: HWND, min, max): unit =
-                callWin(1101, (hwnd, min, max))
-
-            (* We implement WaitMessage within the RTS. *)
-            fun WaitMessage(): bool =
-                (pauseForMessage(hwndNull, 0, 0); true)
+            fun GetMessage(hWnd: HWND option, wMsgFilterMin: int, wMsgFilterMax: int): MSG =
+            let
+                val msg = malloc msgSize
+                val res = getMsg(msg, getOpt(hWnd, hNull), wMsgFilterMin, wMsgFilterMax)
+            in
+                loadMessage msg before free msg
+            end
         end
-
-        (* We don't use the underlying GetMessage function because that blocks the
-           thread which would prevent other ML processes from running.  Instead we
-           use PeekMessage and an RTS call which allows other threads to run. *)
-        fun GetMessage(hWnd: HWND option, wMsgFilterMin: int, wMsgFilterMax: int): MSG =
-            case PeekMessage(hWnd, wMsgFilterMin, wMsgFilterMax, PM_REMOVE) of
-                SOME msg => msg
-            |   NONE =>
-                let
-                    val hwnd = getOpt(hWnd, hwndNull)
-                in
-                    pauseForMessage(hwnd, wMsgFilterMin, wMsgFilterMax);
-                    GetMessage(hWnd, wMsgFilterMin, wMsgFilterMax)
-                end
 
         (* Wait for messages and dispatch them.  It only returns when a QUIT message
            has been received. *)
-        fun RunApplication() =
-        let
+        local
             val peekMsg = winCall5(user "PeekMessageA") (cPointer, cHWND, cUint, cUint, cUint) cBool
             val transMsg = winCall1(user "TranslateMessage") (cPointer) cBool
             val dispMsg = winCall1(user "DispatchMessageA") (cPointer) cInt
-            val msg = malloc msgSize
-            val res = peekMsg(msg, hNull, 0, 0, 1)
         in
-            if not res
-            then (* There's no message at the moment.  Wait for one. *)
-                (free msg; WaitMessage(); RunApplication())
-            else case loadMessage msg of
-                { msg = WM_QUIT{exitcode}, ...} => (free msg; exitcode)
-            |   _ =>
-                (
-                    if isDialogueMsg msg then ()
-                    else ( transMsg msg; dispMsg msg; () );
-                    free msg;
-                    RunApplication()
-                )
+            fun RunApplication() =
+            let
+                val msg = malloc msgSize
+                val res = peekMsg(msg, hNull, 0, 0, 1)
+            in
+                if not res
+                then (* There's no message at the moment.  Wait for one. *)
+                    (free msg; WaitMessage(); RunApplication())
+                else case loadMessage msg of
+                    { msg = WM_QUIT{exitcode}, ...} => (free msg; exitcode)
+                |   _ =>
+                    (
+                        if isDialogueMsg msg then ()
+                        else ( transMsg msg; dispMsg msg; () );
+                        free msg;
+                        RunApplication()
+                    )
+            end
         end
 
         local

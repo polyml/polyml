@@ -170,3 +170,4 @@ fun value dummy =
 end;
 
 Generated_Code.value () 1 true 1;
+

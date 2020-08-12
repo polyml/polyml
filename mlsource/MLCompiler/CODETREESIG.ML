@@ -1,5 +1,6 @@
 (*
-    Copyright (c) 2012,13,15-18, 20 David C.J. Matthews
+
+    Copyright (c) 2012,13,15-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -131,6 +132,7 @@ sig
     
     val getCurrentThreadId: codetree
     and getCurrentThreadIdFn: codetree
+    and checkRTSException: codetree
     val mkAllocateWordMemory: codetree * codetree * codetree -> codetree
     and mkAllocateWordMemoryFn: codetree
 

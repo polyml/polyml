@@ -95,20 +95,20 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include "profiling.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitraryPair(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyAddArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySubtractArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyMultiplyArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyDivideArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRemainderArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitraryPair(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYSIGNED PolyCompareArbitrary(PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOrArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyAndArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGCDArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLCMArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLowOrderAsLargeWord(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOrArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyAndArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2);
 }
 
 static Handle add_longc(TaskData *taskData, Handle,Handle);
@@ -1674,7 +1674,7 @@ Handle lcm_arbitrary(TaskData *taskData, Handle x, Handle y)
     return mult_longc(taskData, x, div_longc(taskData, g, y));
 }
 
-POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyAddArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1699,7 +1699,7 @@ POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolySubtractArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1722,7 +1722,7 @@ POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyMultiplyArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1745,7 +1745,7 @@ POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyDivideArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1769,7 +1769,7 @@ POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord a
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyRemainderArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1793,7 +1793,7 @@ POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWor
 }
 
 // This is the older version that took a container as an argument.
-POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3)
+POLYUNSIGNED PolyQuotRemArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1822,7 +1822,7 @@ POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord 
 }
 
 // This is the newer version that returns a pair.  It's simpler and works with 32-in-64.
-POLYUNSIGNED PolyQuotRemArbitraryPair(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyQuotRemArbitraryPair(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1861,7 +1861,7 @@ POLYSIGNED PolyCompareArbitrary(PolyWord arg1, PolyWord arg2)
     return TAGGED(compareLong(arg2, arg1)).AsSigned();
 }
 
-POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyGCDArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1882,7 +1882,7 @@ POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyLCMArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1907,7 +1907,7 @@ POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
 // value.  If the value is negative it is treated as a twos complement value.
 // This is used Word.fromLargeInt and LargeWord.fromLargeInt with long-form
 // arbitrary precision values.
-POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyGetLowOrderAsLargeWord(FirstArgument threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1947,7 +1947,7 @@ POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyOrArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyOrArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1969,7 +1969,7 @@ POLYUNSIGNED PolyOrArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyAndArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyAndArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1991,7 +1991,7 @@ POLYUNSIGNED PolyAndArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+POLYUNSIGNED PolyXorArbitrary(FirstArgument threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

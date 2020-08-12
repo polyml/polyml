@@ -464,10 +464,14 @@ struct
                 genOpcode(opcode_equalWord, cvec)
             )
 
-        |   BICGetThreadId =>
+        |   BICNullary {oper=BuiltIns.GetCurrentThreadId} =>
             (
                 genOpcode(opcode_getThreadId, cvec);
                 incsp()
+            )
+        
+        |   BICNullary {oper=BuiltIns.CheckRTSException} =>
+            ( (* Do nothing.  This is done in the RTS call. *)
             )
 
         |   BICUnary { oper, arg1 } =>
@@ -498,6 +502,7 @@ struct
                 |   RealToInt (PrecDouble, rnding) => genRealToInt(rnding, cvec)
                 |   RealToInt (PrecSingle, rnding) => genFloatToInt(rnding, cvec)
                 |   TouchAddress => resetStack(1, false, cvec) (* Discard this *)
+                |   AllocCStack => genOpcode(opcode_allocCSpace, cvec)
             end
 
         |   BICBinary { oper, arg1, arg2 } =>
@@ -591,6 +596,8 @@ struct
                 |   RealArith (ArithDiv, PrecSingle) => genOpcode(opcode_floatDiv, cvec)
 
                 |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
+                
+                |   FreeCStack => genOpcode(opcode_freeCSpace, cvec)
                  ;
                 decsp() (* Removes one item from the stack. *)
             end
@@ -1128,7 +1135,6 @@ struct
         struct
 
             val rtsCallFast = rtsCall genRTSCallFast
-            and rtsCallFull = rtsCall genRTSCallFull
             
             fun rtsCallFastRealtoReal(entryName, debugArgs) =
                 rtsCall (fn (_, c) => genRTSCallFastRealtoReal c) (entryName, 1, debugArgs)
@@ -1147,6 +1153,61 @@ struct
                 rtsCall (fn (_, c) => genRTSCallFastGeneraltoFloat c) (entryName, 1, debugArgs)
             and rtsCallFastFloatGeneraltoFloat(entryName, debugArgs) =
                 rtsCall (fn (_, c) => genRTSCallFastFloatGeneraltoFloat c) (entryName, 2, debugArgs)
+                
+            
+            type abi = int
+
+            (* This must match the type in Foreign.LowLevel.  Once this is bootstrapped we could use that
+               type but note that this is the type we use within the compiler and we build Foreign.LowLevel
+               AFTER compiling this. *)
+            datatype cTypeForm =
+                CTypeFloatingPt | CTypePointer | CTypeSignedInt | CTypeUnsignedInt
+            |   CTypeStruct of cType list | CTypeVoid
+            withtype cType = { typeForm: cTypeForm, align: word, size: word }
+
+            val abiList: unit -> (string * abi) list =
+                RunCall.rtsCallFull0 "PolyInterpretedGetAbiList"
+
+            type cif = LargeWord.word
+            val createCIF: abi * cType * cType list -> cif=
+                RunCall.rtsCallFull3 "PolyInterpretedCreateCIF"
+            val callCFunction: cif * LargeWord.word * LargeWord.word * LargeWord.word -> unit =
+                RunCall.rtsCallFull4 "PolyInterpretedCallFunction"
+            
+            (* foreignCall returns a function that actually calls the foreign function. *)
+            fun foreignCall(abi, argTypes, resultType) =
+            let
+                val cif = createCIF(abi, resultType, argTypes)
+                val closure = makeConstantClosure()
+                (* For compatibility with the native code version we have to
+                   construct a function that takes three arguments rather than
+                   a single triple. *)
+                val bodyCode =
+                    BICEval{function=BICConstnt(toMachineWord callCFunction, []),
+                        argList=[
+                            (BICTuple[
+                                BICConstnt(toMachineWord cif, []),
+                                BICExtract(BICLoadArgument 0),
+                                BICExtract(BICLoadArgument 2),
+                                BICExtract(BICLoadArgument 1)], GeneralType)
+                        ],
+                        resultType=GeneralType}
+                val lambdaCode =
+                { body = bodyCode, name = "foreignCall", closure=[], argTypes=[GeneralType, GeneralType, GeneralType],
+                  resultType = GeneralType, localCount=0, heapClosure=false}
+                val () = gencodeLambda(lambdaCode, [], closure)
+            in
+                closureAsAddress closure
+            end
+            
+            fun buildCallBack(abi, argTypes, resultType) =
+            let
+                fun buildClosure (mlFun: LargeWord.word*LargeWord.word -> unit) =
+                    (* The result is the SysWord.word holding the C function. *)
+                    raise Foreign.Foreign "foreignCall not implemented"
+            in
+                Address.toMachineWord buildClosure
+            end
         end
     end
 

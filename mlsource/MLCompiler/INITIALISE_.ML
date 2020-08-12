@@ -163,7 +163,7 @@ struct
                     val code =
                         createTypeValue{
                             eqCode = CodeZero, printCode = mkConst (toMachineWord (ref monotypePrinter)),
-                            boxedCode = boxedEither (* Assume this for the moment *), sizeCode = singleWord }
+                            boxedCode = boxedNever, sizeCode = singleWord }
                 in
                     Global (genCode(code, [], 0) ())
                 end
@@ -287,7 +287,7 @@ struct
         in
             val largeWordType =
                 makeTypeConstructor("word", [],
-                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
+                    makeFreeId(0, idCode, true, basisDescription "LargeWord.word"), declInBasis)
             val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
         end
 
@@ -390,7 +390,6 @@ struct
  
             fun makeCall rtsCall n entryName = rtsCall (entryName, n, debugOpts)
             val makeFastCall = makeCall CODETREE.Foreign.rtsCallFast
-            and makeFullCall = makeCall CODETREE.Foreign.rtsCallFull
             (* We need to wrap this so that the arguments are passed in registers. *)
 
             fun makeRunCallTupled (argTypes, resultType, callN) : codetree =
@@ -427,6 +426,47 @@ struct
                 outerLambda
             end
 
+            (* "Full" calls pass the thread Id as the first parameter. *)
+            fun makeRunCallTupledFull (argTypes, resultType) =
+            let
+                val width = List.length argTypes
+                val callN = toMachineWord(makeFastCall(width + 1))
+                val name = "rtsCall" ^ Int.toString width;
+
+                local
+                    val f     = mkLoadClosure 0        (* first item from enclosing scope *)
+                    val tuple = mkLoadArgument 0       (* the inner parameter *)
+                    val args  =
+                        case argTypes of
+                            [singleType] => [(tuple, singleType)]
+                        |   argTypes =>
+                            let
+                                val argVals = List.tabulate(width, fn n => mkInd (n, tuple))
+                            in
+                                ListPair.zipEq(argVals, argTypes)
+                            end
+                in
+                    val innerBody =
+                        mkEnv(
+                            [
+                            mkDec(0, mkCall (f, (getCurrentThreadId, GeneralType) :: args, resultType)),
+                            mkNullDec checkRTSException
+                            ], mkLoadLocal 0)
+                end
+
+                local
+                    (* The closure contains the address of the RTS call. *)
+                    val f = mkEval(mkConst callN, [mkLoadArgument 0]) (* This creates the actual call. *)
+                    val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)", [mkLoadLocal 0], 1)
+                in
+                    val outerBody = mkEnv([mkDec (0, f)], innerLambda)
+                end
+
+                val outerLambda  = mkInlproc (outerBody, 1, name, [], 1)
+            in
+                outerLambda
+            end
+
             local
                 val a = makeTV ()
                 and b = makeTV ()
@@ -440,8 +480,7 @@ struct
                     makePolymorphic([a, b], proc)
                 end
             in
-                val rtsCallFull1Entry = makeInlCode(makeFullCall, "rtsCallFull1")
-                and rtsCallFast1Entry = makeInlCode(makeFastCall, "rtsCallFast1")
+                val rtsCallFast1Entry = makeInlCode(makeFastCall, "rtsCallFast1")
             end
             
             local
@@ -450,23 +489,28 @@ struct
                 and c = makeTV ()
                 and d = makeTV ()
                 and e = makeTV ()
+                and f = makeTV ()
                 
                 fun makeRtsCall(n, makeCall) = makeRunCallTupled(List.tabulate(n, fn _ => GeneralType), GeneralType, toMachineWord(makeCall n))
+                fun makeFullRtsCall n = makeRunCallTupledFull(List.tabulate(n, fn _ => GeneralType), GeneralType)
             in
-                val rtsCallFull0Entry = makePolymorphic([a], makeRtsCall(0, makeFullCall))
+                val rtsCallFull0Entry = makePolymorphic([a], makeFullRtsCall 0)
                 and rtsCallFast0Entry = makePolymorphic([a], makeRtsCall(0, makeFastCall))
                 val rtsCall0Type = String ->> Unit ->> a
  
                 val rtsCall1Type = String ->> a ->> b
-
-                val rtsCallFull2Entry = makePolymorphic([a, b, c], makeRtsCall(2, makeFullCall))
+                val rtsCallFull1Entry = makePolymorphic([a, b], makeFullRtsCall 1)
+                val rtsCallFull2Entry = makePolymorphic([a, b, c], makeFullRtsCall 2)
                 and rtsCallFast2Entry = makePolymorphic([a, b, c], makeRtsCall(2, makeFastCall))
                 val rtsCall2Type = String ->> TYPETREE.mkProductType [a,b] ->> c
-                val rtsCallFull3Entry = makePolymorphic([a, b, c, d], makeRtsCall(3, makeFullCall))
+                val rtsCallFull3Entry = makePolymorphic([a, b, c, d], makeFullRtsCall 3)
                 val rtsCallFast3Entry = makePolymorphic([a, b, c, d], makeRtsCall(3, makeFastCall))
                 val rtsCall3Type = String ->> TYPETREE.mkProductType [a,b,c] ->> d
+                val rtsCallFull4Entry = makePolymorphic([a, b, c, d, e], makeFullRtsCall 4)
                 val rtsCallFast4Entry = makePolymorphic([a, b, c, d, e], makeRtsCall(4, makeFastCall))
                 val rtsCall4Type = String ->> TYPETREE.mkProductType [a,b,c,d] ->> e
+                val rtsCallFull5Entry = makePolymorphic([a, b, c, d, e, f], makeFullRtsCall 5)
+                val rtsCall5Type = String ->> TYPETREE.mkProductType [a,b,c,d,e] ->> f
             end
         in
             val () = enterRunCall ("rtsCallFull0", rtsCallFull0Entry, rtsCall0Type)
@@ -478,6 +522,8 @@ struct
             val () = enterRunCall ("rtsCallFull3", rtsCallFull3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type)
+            val () = enterRunCall ("rtsCallFull4", rtsCallFull4Entry, rtsCall4Type)
+            val () = enterRunCall ("rtsCallFull5", rtsCallFull5Entry, rtsCall5Type)
             
             val makeRunCallTupled = makeRunCallTupled (* Needed for reals. *)
         end
@@ -515,7 +561,6 @@ struct
             val EXC_XWindows    = 10
             val EXC_subscript   = 11
             val EXC_thread      = 12
-            val EXC_foreign     = 23
             val EXC_Bind        = 100 (* In Match compiler. *)
             val EXC_Match       = 101
             val EXC_Fail        = 103
@@ -535,11 +580,11 @@ struct
                     ("Fail",        EXC_Fail,           String),
                     ("Conversion",  EXC_conversion,     String),
                     ("XWindows",    EXC_XWindows,       String),
-                    ("Foreign",     EXC_foreign,        String),
                     ("Thread",      EXC_thread,         String),
                     ("SysErr",      EXC_syserr,         String ** Option LargeWord)
                 ]
         end
+        
 
         (* Standard Basis structures for basic types.  These contain the definitions of the basic
            types and operations on them.  The structures are extended in the basis library and
@@ -954,6 +999,10 @@ struct
             val setDoubleFunction =
                 mkGvar("setDouble",
                     mkProductType[LargeWord, Word, Real] ->> Unit, mkStoreOperationFn LoadStoreCDouble, declInBasis)
+            val allocCStackFn =
+                mkGvar("allocCStack", Word ->> LargeWord, mkUnaryFn BuiltIns.AllocCStack, declInBasis)
+            val freeCStackFn =
+                mkGvar("freeCStack", LargeWord ** Word ->> Unit, mkBinaryFn BuiltIns.FreeCStack, declInBasis)
         in
             val () = #enterVal fmemEnv ("get8", get8Function)
             val () = #enterVal fmemEnv ("get16", get16Function)
@@ -967,6 +1016,92 @@ struct
             val () = #enterVal fmemEnv ("set64", set64Function)
             val () = #enterVal fmemEnv ("setFloat", setFloatFunction)
             val () = #enterVal fmemEnv ("setDouble", setDoubleFunction)
+            val () = #enterVal fmemEnv ("allocCStack", allocCStackFn)
+            (* Free is a binary operation that takes both the allocated address and the size.
+               The size is used by the compiled code where this is implemented using the C-stack.
+               The allocated address is intended for possible use by the interpreter where so
+               that it can be implemented as malloc/free. *)
+            val () = #enterVal fmemEnv ("freeCStack", freeCStackFn)
+        end
+        
+        local
+            val foreignEnv = makeStructure(globalEnv, "Foreign")
+
+            local
+                val EXC_foreign     = 23
+                val foreignException =
+                    Value{ name = "Foreign", typeOf = String ->> TYPETREE.exnType,
+                           access = Global(mkConst(toMachineWord EXC_foreign)),
+                           class = Exception, locations = declInBasis,
+                        references = NONE, instanceTypes=NONE }
+            in
+                val () = #enterVal foreignEnv ("Foreign", foreignException)
+            end
+            
+            val arg0 = mkLoadArgument 0
+            val arg1 = mkLoadArgument 1
+            
+            local
+                val callForeignCall = mkEval(mkConst (toMachineWord CODETREE.Foreign.foreignCall), [arg0])
+                val innerBody = mkEval(mkLoadClosure 0, [mkInd(0, arg0), mkInd(1, arg0), mkInd(2, arg0)])
+                val outerBody =
+                    mkEnv([mkDec(0, callForeignCall)], mkInlproc(innerBody, 1, "foreignCall(1)(1)", [mkLoadLocal 0], 0))
+            in
+                val foreignCallEntry = mkInlproc(outerBody, 1, "foreignCall(1)", [], 1)
+            end
+
+            local
+                (* Build a callback.  First apply the compiler to the abi/argtype/restype values.
+                   Then apply the result to a function to generate the final C callback code.
+                   The C callback code calls the function with two arguments.  Here we have to
+                   pass it a function that expects a tuple and unwrap it. *)
+                val innerMost =
+                    mkInlproc(mkEval(mkLoadClosure 0, [mkTuple[arg0, arg1]]), 2, "buildCallBack(1)(1)2", [mkLoadArgument 0], 0)
+                val resultFn =
+                    mkInlproc(mkEval(mkLoadClosure 0, [innerMost]), 1, "buildCallBack(1)(1)", [mkLoadLocal 0], 0)
+                val firstBuild = mkEval(mkConst (toMachineWord CODETREE.Foreign.buildCallBack), [arg0])
+                val outerBody = mkEnv([mkDec(0, firstBuild)], resultFn)
+            in
+                val buildCallBackEntry = mkInlproc(outerBody, 1, "buildCallBack(1)", [], 1)
+            end
+            
+            (* Abi - an eqtype.  An enumerated type or short int. *)
+            local
+                open TypeValue
+                fun monotypePrinter _ = PRETTY.PrettyString "?"
+                val code =
+                    createTypeValue{
+                        eqCode = equalTaggedWordFn, printCode = mkConst (toMachineWord (ref monotypePrinter)),
+                        boxedCode = boxedNever, sizeCode = singleWord }
+                val abiEqAndPrint = Global (genCode(code, [], 0) ())
+            in
+                val abiConstr =
+                    makeTypeConstructor("abi", [],
+                        makeFreeId(0, abiEqAndPrint, true,
+                            basisDescription "Foreign.LowLevel.abi"), declInBasis)
+            end
+            val () = #enterType foreignEnv ("abi", TypeConstrSet(abiConstr, []))
+            val abiType = mkTypeConstruction ("abi", abiConstr, [], declInBasis)
+            (* It would be possible to put the definition of cType in here but it's complicated.
+               It's easier to use an opaque type and put in a cast later. *)
+            val ctypeConstr =
+                makeTypeConstructor("ctype", [],
+                        makeFreeId(0, defaultEqAndPrintCode(), false,
+                            basisDescription "Foreign.LowLevel.ctype"), declInBasis)
+            val () = #enterType foreignEnv ("ctype", TypeConstrSet(ctypeConstr, []))
+            val ffiType = mkTypeConstruction ("ctype", ctypeConstr, [], declInBasis)
+            val foreignCallType =
+                mkProductType[abiType, List ffiType, ffiType] ->> mkProductType[LargeWord, LargeWord, LargeWord] ->> Unit
+            val buildCallBackType =
+                mkProductType[abiType, List ffiType, ffiType] ->> (mkProductType[LargeWord, LargeWord] ->> Unit) ->> LargeWord
+        
+            fun enterForeign (name, entry, typ) =
+                #enterVal foreignEnv (name, mkGvar (name, typ, entry, declInBasis))
+        in
+            val () = enterForeign("foreignCall", foreignCallEntry, foreignCallType)
+            val () = enterForeign("buildCallBack", buildCallBackEntry, buildCallBackType)
+            (* Apply the abiList function here.  The ABIs depend on the platform in the interpreted version. *)
+            val () = enterForeign("abiList", mkConst(toMachineWord(CODETREE.Foreign.abiList())), List (String ** abiType))
         end
 
         local

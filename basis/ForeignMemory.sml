@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: memory operations
     Author:     David Matthews
-    Copyright   David Matthews 2015, 2017
+    Copyright   David Matthews 2015, 2017, 2019
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -44,6 +44,10 @@ structure ForeignMemory :>
         (* free - free allocated memory. *)
         val free: voidStar -> unit
 
+        (* alloca: allocate temporary memory on the C-stack and call the function.
+           The memory is deallocated when the function returns or raises and exception. *)
+        val alloca: word * (voidStar -> 'a) -> 'a
+
         val get8:  voidStar * Word.word -> Word8.word
         val get16: voidStar * Word.word -> Word.word
         val get32: voidStar * Word.word -> Word32.word
@@ -66,7 +70,7 @@ struct
     open ForeignConstants
     open ForeignMemory
     
-    exception Foreign = RunCall.Foreign
+    exception Foreign = Foreign.Foreign
 
     fun id x = x
     (* Internal utility function. *)
@@ -133,13 +137,8 @@ struct
         if sysWordSize = 0w4 then fn (s, i, v) => set32(s, i, Word32.fromLargeWord v) else set64
 
     local
-        local
-            val ffiGeneralCall = RunCall.rtsCallFull2 "PolyFFIGeneral"
-        in
-            fun ffiGeneral(code: int, arg: 'a): 'b = RunCall.unsafeCast(ffiGeneralCall(RunCall.unsafeCast(code, arg)))
-        end
-        fun systemMalloc (s: word): voidStar = ffiGeneral (0, s)
-        (*fun systemFree (s: voidStar): unit = ffiGeneral (1, s)*)
+        val systemMalloc: word -> voidStar = RunCall.rtsCallFull1 "PolyFFIMalloc"
+        (*val systemFree: word -> unit = RunCall.rtsCallFast1 "PolyFFIFree"*)
         
         (* Simple malloc/free implementation to reduce the number of RTS calls needed. *)
         val lock = Thread.Mutex.mutex()
@@ -149,10 +148,10 @@ struct
            address.  That allows us to merge adjacent free blocks. *)
         val freeList: {address: SysWord.word, size: word} list ref = LibrarySupport.noOverwriteRef nil
         (* Clear it once on entry. *)
-        val () = PolyML.onEntry (fn _ => freeList := nil)
+        val () = LibrarySupport.addOnEntry (fn _ => freeList := nil)
 
         (* Assume that if we align to the maximum of these we're all right. *)
-        val maxAlign = Word.max(#align saDouble, Word.max(#align saPointer, #align saSint64))
+        val maxAlign = Word.max(#align saDouble, Word.max(LibrarySupport.sysWordSize(*#align saPointer*), 0w8(*#align saSint64*)))
         (* We need a length word in each object we allocate but we need enough
            padding to align the result. *)
         val overhead = alignUp(sysWordSize, maxAlign)
@@ -222,9 +221,20 @@ struct
                     address ++ overhead
                 end
         end
-   in
+    in
         val malloc: word -> voidStar = ThreadLib.protect lock allocMem
         fun free v = if v = null then () else ThreadLib.protect lock freeMem v
-   end
+
+        (* Allocate space on the C stack.  This is faster than using malloc/free. *)
+        fun alloca(length, f) =
+        let
+            (* This must be at least 16 byte aligned. *)
+            val aligned = alignUp(length, Word.max(maxAlign, 0w16))
+            val space = allocCStack aligned
+        in
+            f space before freeCStack(space, aligned)
+                handle exn => (freeCStack(space, aligned); raise exn)
+        end
+    end
 end;
 

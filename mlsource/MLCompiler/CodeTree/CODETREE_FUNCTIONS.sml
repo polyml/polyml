@@ -94,8 +94,6 @@ struct
                function are constants.  This then gets converted to
                (exp1; true) and we can eliminate exp1 if it is simply
                a comparison. *)
-        |   codeProps GetThreadId = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
-
         |   codeProps (Unary{oper, arg1}) =
             let
                 open BuiltIns
@@ -124,6 +122,7 @@ struct
                         (* May raise the overflow exception *)
                     |   RealToInt _ => PROPWORD_NOUPDATE orb PROPWORD_NODEREF
                     |   TouchAddress => PROPWORD_NORAISE (* Treat as updating a notional reference count. *)
+                    |   AllocCStack => PROPWORD_NORAISE
             in
                 operProps andb codeProps arg1
             end
@@ -148,11 +147,14 @@ struct
                     |   RealComparison _ => applicative
                         (* Real arithmetic operations depend on the current rounding setting. *)
                     |   RealArith _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+                    |   FreeCStack => PROPWORD_NORAISE orb PROPWORD_NODEREF
                     |   PointerEq => applicative
-
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end
+
+        |   codeProps (Nullary{oper=BuiltIns.GetCurrentThreadId}) = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+        |   codeProps (Nullary{oper=BuiltIns.CheckRTSException}) = PROPWORD_NOUPDATE
 
         |   codeProps (Arbitrary{shortCond, arg1, arg2, longCall, ...}) =
                 (* Arbitrary precision operations are applicative but the longCall is
@@ -560,7 +562,7 @@ struct
         |   checkUse isMain (Eval{function, argList, ...}, cl, _) =
                 checkUse isMain (function, List.foldl(fn ((e, _), n) => checkUse isMain (e, n, false)) (cl--2) argList, false)
 
-        |   checkUse _ (GetThreadId, cl, _) = cl -- 1
+        |   checkUse _ (Nullary _, cl, _) = cl -- 1
         |   checkUse isMain (Unary{arg1, ...}, cl, _) = checkUse isMain (arg1, cl -- 1, false)
         |   checkUse isMain (Binary{arg1, arg2, ...}, cl, _) = checkUseList isMain ([arg1, arg2], cl -- 1)
         |   checkUse isMain (Arbitrary{arg1, arg2, ...}, cl, _) = checkUseList isMain ([arg1, arg2], cl -- 4)

@@ -114,8 +114,11 @@ struct
     |   StoreArgument of
             { source: argument, base: preg, offset: int, index: memoryIndex, kind: moveKind, isMutable: bool }
 
-        (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
-    |   LoadMemReg of { offset: int, dest: preg }
+        (* Load an entry from the "memory registers".  Used for ThreadSelf and AllocCStack. *)
+    |   LoadMemReg of { offset: int, dest: preg, kind: moveKind }
+
+        (* Store a value into an entry in the "memory registers".  Used for AllocCStack/FreeCStack. *)
+    |   StoreMemReg of { offset: int, source: preg, kind: moveKind }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  The last entry is the return address.  If the function
@@ -444,8 +447,11 @@ struct
                 printIndex(index, stream)
             )
 
-        |   printICode(LoadMemReg { offset, dest}, stream) =
-                ( stream "\tLoadMemReg\t"; stream(Int.toString offset); stream " => "; printReg(dest, stream) )
+        |   printICode(LoadMemReg { offset, dest, kind}, stream) =
+                ( stream "\tLoadMemReg"; printKind(kind, stream); stream "\t"; stream(Int.toString offset); stream " => "; printReg(dest, stream) )
+
+        |   printICode(StoreMemReg { offset, source, kind}, stream) =
+                ( stream "\tStoreMemReg"; printKind(kind, stream); stream "\t"; printReg(source, stream); stream " => "; stream(Int.toString offset)  )
 
         |   printICode(BeginFunction {regArgs, stackArgs}, stream) =
             (

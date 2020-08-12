@@ -92,8 +92,8 @@
 #endif
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord fileName, PolyWord root);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyExportPortable(PolyObject *threadId, PolyWord fileName, PolyWord root);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyExport(FirstArgument threadId, PolyWord fileName, PolyWord root);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyExportPortable(FirstArgument threadId, PolyWord fileName, PolyWord root);
 }
 
 /*
@@ -742,7 +742,7 @@ Handle exportPortable(TaskData *taskData, Handle args)
     return taskData->saveVec.push(TAGGED(0));
 }
 
-POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord fileName, PolyWord root)
+POLYUNSIGNED PolyExport(FirstArgument threadId, PolyWord fileName, PolyWord root)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -781,7 +781,7 @@ POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord fileName, PolyWord root)
     return TAGGED(0).AsUnsigned(); // Returns unit
 }
 
-POLYUNSIGNED PolyExportPortable(PolyObject *threadId, PolyWord fileName, PolyWord root)
+POLYUNSIGNED PolyExportPortable(FirstArgument threadId, PolyWord fileName, PolyWord root)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

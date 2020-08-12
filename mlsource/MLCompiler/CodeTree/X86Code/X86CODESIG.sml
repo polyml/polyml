@@ -38,12 +38,14 @@ sig
 
     val eax: genReg and ebx: genReg and ecx: genReg and edx: genReg
     and edi: genReg and esi: genReg and esp: genReg and ebp: genReg
+    and rax: genReg and rbx: genReg and rcx: genReg and rdx: genReg
+    and rdi: genReg and rsi: genReg and rsp: genReg and rbp: genReg
     and r8:  genReg and r9:  genReg and r10: genReg and r11: genReg
     and r12: genReg and r13: genReg and r14: genReg and r15: genReg
     and fp0: fpReg and fp1: fpReg and fp2: fpReg and fp3: fpReg
     and fp4: fpReg and fp5: fpReg and fp6: fpReg and fp7: fpReg
     and xmm0:xmmReg and xmm1:xmmReg and xmm2:xmmReg and xmm3:xmmReg
-    and xmm4:xmmReg and xmm5:xmmReg and xmm6:xmmReg
+    and xmm4:xmmReg and xmm5:xmmReg and xmm6:xmmReg and xmm7:xmmReg
     (* For vector indexing we provide a numbering for the registers. *)
     val regs:   int
     val regN:   int -> reg
@@ -111,7 +113,8 @@ sig
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
     
-    datatype moveSize = Move64 | Move32 | Move8 | Move16 | Move32X
+    datatype moveSize =
+        Move64 | Move32 | Move8 | Move16 | Move32X64 | Move8X32 | Move8X64 | Move16X32 | Move16X64
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype trapEntries =
@@ -180,6 +183,7 @@ sig
     |   FPStoreInt of memoryAddress
     |   XMMStoreInt of { source: xmmReg regOrMemoryArg, output: genReg, precision: fpSize, isTruncate: bool }
     |   CondMove of { test: branchOps, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
+    |   LoadAbsolute of { destination: genReg, value: machineWord }
 
     and jumpSize = JumpSize2 | JumpSize8
 
@@ -199,6 +203,7 @@ sig
     and memRegCStackPtr: int
     and memRegThreadSelf: int
     and memRegStackPtr: int
+    and memRegSavedRbx: int
 
     (* Debugging controls and streams for optimiser. *)
     val lowLevelOptimise: code -> bool

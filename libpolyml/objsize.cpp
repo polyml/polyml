@@ -67,9 +67,9 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowSize(PolyObject *threadId, PolyWord obj);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjSize(FirstArgument threadId, PolyWord obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowSize(FirstArgument threadId, PolyWord obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjProfile(FirstArgument threadId, PolyWord obj);
 }
 
 extern FILE *polyStdout;
@@ -374,7 +374,7 @@ static void printfprof(unsigned *counts)
     }
 }
 
-POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj)
+POLYUNSIGNED PolyObjSize(FirstArgument threadId, PolyWord obj)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -388,7 +388,7 @@ POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj)
     return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyShowSize(PolyObject *threadId, PolyWord obj)
+POLYUNSIGNED PolyShowSize(FirstArgument threadId, PolyWord obj)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -403,7 +403,7 @@ POLYUNSIGNED PolyShowSize(PolyObject *threadId, PolyWord obj)
     return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj)
+POLYUNSIGNED PolyObjProfile(FirstArgument threadId, PolyWord obj)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

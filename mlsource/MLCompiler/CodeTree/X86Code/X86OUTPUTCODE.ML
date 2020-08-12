@@ -151,6 +151,7 @@ struct
     and memRegHeapOverflowCall    = 10 * Word.toInt nativeWordSize
     and memRegStackOverflowCall   = 11 * Word.toInt nativeWordSize
     and memRegStackOverflowCallEx = 12 * Word.toInt nativeWordSize
+    and memRegSavedRbx            = 14 * Word.toInt nativeWordSize (* Heap base in 32-in-64. *)
 
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
@@ -226,14 +227,16 @@ struct
 
     (* These are the real registers we have.  The AMD extension encodes the
        additional registers through the REX prefix. *)
-    val eax = GeneralReg (0w0, false)
-    val ecx = GeneralReg (0w1, false)
-    val edx = GeneralReg (0w2, false)
-    val ebx = GeneralReg (0w3, false)
-    val esp = GeneralReg (0w4, false)
-    val ebp = GeneralReg (0w5, false)
-    val esi = GeneralReg (0w6, false)
-    val edi = GeneralReg (0w7, false)
+    val rax = GeneralReg (0w0, false)
+    val rcx = GeneralReg (0w1, false)
+    val rdx = GeneralReg (0w2, false)
+    val rbx = GeneralReg (0w3, false)
+    val rsp = GeneralReg (0w4, false)
+    val rbp = GeneralReg (0w5, false)
+    val rsi = GeneralReg (0w6, false)
+    val rdi = GeneralReg (0w7, false)
+    val eax = rax and ecx = rcx and edx = rdx and ebx = rbx
+    and esp = rsp and ebp = rbp and esi = rsi and edi = rdi
     val r8  = GeneralReg (0w0, true)
     val r9  = GeneralReg (0w1, true)
     val r10 = GeneralReg (0w2, true)
@@ -264,6 +267,7 @@ struct
     and xmm4 = SSE2Reg 0w4
     and xmm5 = SSE2Reg 0w5
     and xmm6 = SSE2Reg 0w6
+    and xmm7 = SSE2Reg 0w7
 
     fun getReg (GeneralReg r) = r
     fun mkReg  n      = GeneralReg n  (* reg.up   *)
@@ -646,8 +650,12 @@ struct
     |   XCHNG32
     |   XCHNG64
     |   REP (* Rep prefix *)
-    |   MOVZB32 (* Needs escape code. *)
-    |   MOVZW32 (* Needs escape code. *)
+    |   MOVZB (* Needs escape code. *)
+    |   MOVZW (* Needs escape code. *)
+    |   MOVSXB32 (* Needs escape code. *)
+    |   MOVSXW32 (* Needs escape code. *)
+    |   MOVSXB64 (* Needs escape code. *)
+    |   MOVSXW64 (* Needs escape code. *)
     |   IMUL32 (* Needs escape code. *)
     |   IMUL64 (* Needs escape code. *)
     |   SSE2StoreSingle (* movss with memory destination - needs escape sequence. *)
@@ -731,8 +739,12 @@ struct
     |   opToInt XCHNG32         = 0wx87
     |   opToInt XCHNG64         = 0wx87
     |   opToInt REP             = 0wxf3
-    |   opToInt MOVZB32         = 0wxb6 (* Needs escape code. *)
-    |   opToInt MOVZW32         = 0wxb7 (* Needs escape code. *)
+    |   opToInt MOVZB           = 0wxb6 (* Needs escape code. *)
+    |   opToInt MOVZW           = 0wxb7 (* Needs escape code. *)
+    |   opToInt MOVSXB32        = 0wxbe (* Needs escape code. *)
+    |   opToInt MOVSXW32        = 0wxbf (* Needs escape code. *)
+    |   opToInt MOVSXB64        = 0wxbe (* Needs escape code. *)
+    |   opToInt MOVSXW64        = 0wxbf (* Needs escape code. *)
     |   opToInt IMUL32          = 0wxaf (* Needs escape code. *)
     |   opToInt IMUL64          = 0wxaf (* Needs escape code. *)
     |   opToInt SSE2StoreSingle = 0wx11 (* Needs F3 0F escape. *)
@@ -846,8 +858,12 @@ struct
     |   opcodePrefix _                          = []
 
     (* A few instructions require an escape.  Escapes come after the REX. *)
-    fun escapePrefix MOVZB32                    = [0wx0f]
-    |   escapePrefix MOVZW32                    = [0wx0f]
+    fun escapePrefix MOVZB                      = [0wx0f]
+    |   escapePrefix MOVZW                      = [0wx0f]
+    |   escapePrefix MOVSXB32                   = [0wx0f]
+    |   escapePrefix MOVSXW32                   = [0wx0f]
+    |   escapePrefix MOVSXB64                   = [0wx0f]
+    |   escapePrefix MOVSXW64                   = [0wx0f]
     |   escapePrefix LOCK_XADD32                = [0wx0f]
     |   escapePrefix LOCK_XADD64                = [0wx0f]
     |   escapePrefix IMUL32                     = [0wx0f]
@@ -919,6 +935,8 @@ struct
             |   CVTTSS2SI64 => true
             |   MOVSXD      => true
             |   CMOV64 _    => true
+            |   MOVSXB64   => true
+            |   MOVSXW64   => true
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
@@ -1109,7 +1127,8 @@ struct
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
 
-    datatype moveSize = Move64 | Move32 | Move8 | Move16 | Move32X
+    datatype moveSize =
+        Move64 | Move32 | Move8 | Move16 | Move32X64 | Move8X32 | Move8X64 | Move16X32 | Move16X64
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype operation =
@@ -1173,6 +1192,7 @@ struct
     |   FPStoreInt of memoryAddress
     |   XMMStoreInt of { source: xmmReg regOrMemoryArg, output: genReg, precision: fpSize, isTruncate: bool }
     |   CondMove of { test: branchOps, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
+    |   LoadAbsolute of { destination: genReg, value: machineWord }
 
     and jumpSize = JumpSize2 | JumpSize8
 
@@ -1211,7 +1231,11 @@ struct
                 |   Move32  => stream "Move32 "
                 |   Move8   => stream "Move8 "
                 |   Move16  => stream "Move16 "
-                |   Move32X => stream "Move32X ";
+                |   Move32X64 => stream "Move32X64 "
+                |   Move8X32  => stream "Move8X32 "
+                |   Move8X64  => stream "Move8X64 "
+                |   Move16X32 => stream "Move16X32 "
+                |   Move16X64 => stream "Move16X64 ";
                 printRegOrMemoryArg printGReg destination; stream " <= "; printRegOrMemoryArg printGReg source
             )
 
@@ -1423,6 +1447,8 @@ struct
                 stream "CondMove"; stream(branchOpRepr test); stream(printOpSize opSize);
                 printGReg output; stream " <= "; printRegOrMemoryArg printGReg source 
             )
+        |   LoadAbsolute { destination, value } =>
+                ( stream "LoadAbsolute "; printGReg destination; stream " <= "; stream(Address.stringOfWord value) )
         ;
  
         stream "\n"
@@ -1571,6 +1597,29 @@ struct
                     end
             )
 
+        |   cgOp(LoadAbsolute{ destination, ... }) =
+            (
+                (* Immediate address constant.  This is currently only used the special case of loading
+                   the address of PolyX86GetThreadData in a callback when we don't have rbx in 32-in-64. *)
+                case targetArch of
+                    Native32Bit =>
+                    let
+                        val (rc, _) = getReg destination
+                    in
+                        opCodeBytes(MOVL_32_R rc, NONE) @ int32Signed(tag 0)
+                    end
+                
+                |   Native64Bit => opConstantOperand(MOVL_A_R64, destination)
+                
+                |   ObjectId32Bit =>
+                    let
+                        val (rc, rx) = getReg destination
+                    in
+                        opCodeBytes(MOVL_64_R rc, SOME{w=true, r=false, b=rx, x=false}) @ largeWordToBytes(LargeWord.fromLargeInt(tag 0), 8)
+                    end
+                    
+            )
+
         |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move32 }) =
                 opAddress(MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
 
@@ -1580,7 +1629,7 @@ struct
         |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move8 }) =
                 (* We don't need a REX.W bit here because the top 32-bits of a
                    64-bit register will always be zeroed. *)
-                opAddress(MOVZB32, LargeInt.fromInt offset, base, index, output)
+                opAddress(MOVZB, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(Move{source=RegisterArg source, destination=RegisterArg output, moveSize=Move8 }) =
             let
@@ -1597,22 +1646,36 @@ struct
                     then SOME {w=false, r=rrX, b=rbX, x=false}
                     else raise InternalError "Move8 with esi/edi"
             in
-                opCodeBytes(MOVZB32, rexByte) @ [modrm(Register, rrC, rbC)]
+                opCodeBytes(MOVZB, rexByte) @ [modrm(Register, rrC, rbC)]
             end
 
-        |   cgOp(Move{moveSize=Move16, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
-                (* Likewise *)
-                opAddress(MOVZW32, LargeInt.fromInt offset, base, index, output)
+        |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move8X32 }) =
+                opAddress(MOVSXB32, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(Move{moveSize=Move32X, source=RegisterArg source, destination=RegisterArg output }) =
+        |   cgOp(Move{source=MemoryArg{base, offset, index}, destination=RegisterArg output, moveSize=Move8X64 }) =
+                (* But we will need a Rex.W here. *)
+                opAddress(MOVSXB64, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(Move{moveSize=Move16, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
+                (* No need for Rex.W *)
+                opAddress(MOVZW, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(Move{moveSize=Move16X32, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
+                opAddress(MOVSXW32, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(Move{moveSize=Move16X64, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
+                (* But we do need Rex.W here *)
+                opAddress(MOVSXW64, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(Move{moveSize=Move32X64, source=RegisterArg source, destination=RegisterArg output }) =
                 (* We should have a REX.W bit here. *)
                 opReg(MOVSXD, output, source)
 
-        |   cgOp(Move{moveSize=Move32X, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
+        |   cgOp(Move{moveSize=Move32X64, source=MemoryArg{base, offset, index}, destination=RegisterArg output }) =
                 (* We should have a REX.W bit here. *)
                 opAddress(MOVSXD, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(Move{moveSize=Move32X, ...}) = raise InternalError "cgOp: LoadNonWord Size32Bit"
+        |   cgOp(Move{moveSize=Move32X64, ...}) = raise InternalError "cgOp: LoadNonWord Size32Bit"
 
         |   cgOp(LoadAddress{ offset, base, index, output, opSize }) =
                 (* This provides a mixture of addition and multiplication in a single
@@ -2560,6 +2623,13 @@ struct
                 (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, source) :: addr, na)
             else ((ic + Word.fromInt(Word8Vector.length bytes) - wordSize, InlineAbsoluteAddress source) :: inl, addr, na)
 
+        |   getConstant(LoadAbsolute{value, ...}, bytes, ic, (inl, addr, na)) =
+            if targetArch = Native64Bit
+            then (* Address constants go in the constant area. *)
+                (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, value) :: addr, na)
+                (* This is the only case of an inline constant in 32-in-64 *)
+            else ((ic + Word.fromInt(Word8Vector.length bytes) - nativeWordSize, InlineAbsoluteAddress value) :: inl, addr, na)
+
         |   getConstant(ArithToGenReg{ source=NonAddressConstArg source, ... }, bytes, ic, (inl, addr, na)) =
                 if is32bit source
                 then (inl, addr, na)
@@ -3204,6 +3274,28 @@ struct
                                     val reg = (nb >>- 0w3) andb8 0w7
                                 in
                                     print "movzx\t";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                                    print ",";
+                                    printEA (rex, SZWord)
+                                end
+
+                            |   0wxBE =>
+                                let
+                                    val nb = codeVecGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    print "movsx\t";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                                    print ",";
+                                    printEA (rex, SZByte)
+                                end
+
+                            |   0wxBF =>
+                                let
+                                    val nb = codeVecGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    print "movsx\t";
                                     print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
                                     print ",";
                                     printEA (rex, SZWord)
@@ -3858,7 +3950,7 @@ struct
                     setBytes(b >> 0w8, addr+0w1, count-0w1)
                 )
 
-            (*  Inline constants - native 32-bit only, *)
+            (*  Inline constants - native 32-bit only plus one special case in 32-in-64 *)
             fun putInlConst (addrs, SelfAddress) =
                     (* Self address goes inline. *)
                     codeVecPutConstant (codeSeg, addrs, toMachineWord(codeVecAddr codeSeg), ConstAbsolute)

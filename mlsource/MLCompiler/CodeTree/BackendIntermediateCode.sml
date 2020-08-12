@@ -69,6 +69,7 @@ struct
         |   DoubleToFloat of IEEEReal.rounding_mode option
         |   RealToInt of precision * IEEEReal.rounding_mode
         |   TouchAddress
+        |   AllocCStack
 
         and precision = PrecSingle | PrecDouble
 
@@ -86,7 +87,12 @@ struct
         |   RealComparison of testConditions * precision
         |   RealArith of arithmeticOperations * precision
         |   PointerEq
-        
+        |   FreeCStack
+
+        and nullaryOps =
+            GetCurrentThreadId
+        |   CheckRTSException
+
         fun unaryRepr NotBoolean = "NotBoolean"
         |   unaryRepr IsTaggedValue = "IsTaggedValue"
         |   unaryRepr MemoryCellLength = "MemoryCellLength"
@@ -106,6 +112,7 @@ struct
         |   unaryRepr (DoubleToFloat (SOME mode)) = "DoubleToFloat" ^ rndModeRepr mode
         |   unaryRepr (RealToInt (prec, mode)) = "RealToInt" ^ precRepr prec ^ rndModeRepr mode
         |   unaryRepr TouchAddress = "TouchAddress"
+        |   unaryRepr AllocCStack = "AllocCStack"
 
         and binaryRepr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
@@ -121,6 +128,10 @@ struct
         |   binaryRepr (RealComparison (test, prec)) = "Test" ^ testRepr test ^ precRepr prec
         |   binaryRepr (RealArith (arithOp, prec)) = arithRepr arithOp ^ precRepr prec
         |   binaryRepr PointerEq = "PointerEq"
+        |   binaryRepr FreeCStack = "FreeCStack"
+        
+        and nullaryRepr GetCurrentThreadId = "GetCurrentThreadId"
+        |   nullaryRepr CheckRTSException = "CheckRTSException"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestLess           = "Less"
@@ -178,6 +189,7 @@ struct
         }
 
         (* Built-in functions. *)
+    |   BICNullary of {oper: BuiltIns.nullaryOps}
     |   BICUnary of {oper: BuiltIns.unaryOps, arg1: backendIC}
     |   BICBinary of {oper: BuiltIns.binaryOps, arg1: backendIC, arg2: backendIC}
     
@@ -226,8 +238,6 @@ struct
     |   BICBlockOperation of
             { kind: blockOpKind, sourceLeft: bicAddress, destRight: bicAddress, length: backendIC }
 
-    |   BICGetThreadId
-    
     |   BICAllocateWordMemory of {numWords: backendIC, flags: backendIC, initial: backendIC}
 
     and bicCodeBinding =
@@ -400,8 +410,6 @@ struct
                 )
             end
 
-        |   BICGetThreadId => PrettyString "GetThreadId"
-
         |   BICUnary { oper, arg1 } =>
                 PrettyBlock (3, false, [],
                     [ PrettyString(BuiltIns.unaryRepr oper), PrettyBreak(1, 0), printList("", [arg1], ",") ]
@@ -411,6 +419,8 @@ struct
                 PrettyBlock (3, false, [],
                     [ PrettyString(BuiltIns.binaryRepr oper), PrettyBreak(1, 0), printList("", [arg1, arg2], ",") ]
                 )
+
+        |   BICNullary { oper } => PrettyString(BuiltIns.nullaryRepr oper)
 
         |   BICArbitrary { oper, shortCond, arg1, arg2, longCall } =>
                 PrettyBlock (3, false, [],
@@ -721,6 +731,7 @@ struct
         and  blockOpKind = blockOpKind
         and  unaryOps = BuiltIns.unaryOps
         and  binaryOps = BuiltIns.binaryOps
+        and  nullaryOps = BuiltIns.nullaryOps
         and  testConditions = BuiltIns.testConditions
         and  arithmeticOperations = BuiltIns.arithmeticOperations
     end

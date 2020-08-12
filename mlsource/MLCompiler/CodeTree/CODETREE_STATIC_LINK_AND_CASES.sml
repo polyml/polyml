@@ -184,7 +184,7 @@ struct
                     BICEval {function = func, argList = newargs, resultType=resultType}
                 end
 
-            |   insert GetThreadId = BICGetThreadId
+            |   insert(Nullary{oper}) = BICNullary{oper=oper}
 
             |   insert(Unary { oper, arg1 }) = BICUnary { oper = oper, arg1 = insert arg1 }
 

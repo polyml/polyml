@@ -1074,12 +1074,32 @@ struct
                 (callCode, RegisterArgument target, tailCall (* We've exited if this was a tail jump *))
             end
 
-        |   codeToICodeRev(BICGetThreadId, _, _, destination, tailCode) =
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.GetCurrentThreadId}, _, _, destination, tailCode) =
             (* Get the ID of the current thread. *)
             let
                 val target = asTarget destination
             in
-                (BlockSimple(LoadMemReg{offset=memRegThreadSelf, dest=target}) :: tailCode, RegisterArgument target, false)
+                (BlockSimple(LoadMemReg{offset=memRegThreadSelf, dest=target, kind=movePolyWord}) :: tailCode, RegisterArgument target, false)
+            end
+
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, { currHandler, ...}, _, _, tailCode) =
+            let
+                (* Raise an exception in ML if the last RTS call set the exception packet. *)
+                val haveException = newLabel() and noException = newLabel()
+                val ccRef = newCCRef()
+                val testReg = newPReg()
+                val raiseCode = RaiseExceptionPacket{packetReg=testReg}
+                val code =
+                    BlockLabel noException ::
+                    (case currHandler of
+                        NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h)) ::
+                    BlockLabel haveException ::
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=JNE, trueJump=haveException, falseJump=noException }) ::
+                    BlockSimple(CompareLiteral{arg1=RegisterArgument testReg, arg2=tag 0, opSize=polyWordOpSize, ccRef=ccRef}) ::
+                    BlockSimple(LoadMemReg{offset=memRegExceptionPacket, dest=testReg, kind=movePolyWord}) ::
+                    tailCode
+            in
+                (code, (* Unit result *) IntegerConstant(tag 0), false)
             end
 
         |   codeToICodeRev(BICUnary instr, context, isTail, destination, tailCode) =
@@ -1827,6 +1847,7 @@ struct
                 val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
                 val code =
                     BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false, opSize=polyWordOpSize }) ::
+                    (* Use movePolyWord even on 32-in-64 since we're producing a 32-bit value anyway. *)
                     BlockSimple(LoadArgument{source=wordAt addrReg, dest=argReg1, kind=movePolyWord}) ::
                     argCode
             in
@@ -2085,6 +2106,36 @@ struct
                 moveIfNotAllowedRev(destination, BlockSimple(TouchArgument{source=aReg}) :: argCode,
                         (* Unit result *) IntegerConstant(tag 0))
             end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.AllocCStack, arg1}, context, _, destination, tailCode) =
+            (* Allocate space on the C stack.  Assumes that the argument has already been aligned. *)
+            let
+                val target = asTarget destination
+                val (argCode, untaggedArg) =
+                    case arg1 of
+                        BICConstnt(value, _) => (tailCode, IntegerConstant(Word.toLargeInt(toShort value)) (* Leave untagged *))
+                    |   _ =>
+                        let
+                            val (argCode, aReg) = codeToPRegRev(arg1, context, tailCode)
+                            val arg1Untagged = newUReg()
+                        in
+                            (
+                                BlockSimple(UntagValue{source=aReg, dest=arg1Untagged, isSigned=false, cache=NONE, opSize=polyWordOpSize}) :: argCode,
+                                RegisterArgument arg1Untagged
+                            )
+                        end
+                val argReg1 = newUReg() and resReg1 = newUReg()
+                val code =
+                    BlockSimple(BoxValue{boxKind=BoxLargeWord, source=resReg1, dest=target, saveRegs=[]}) ::
+                    BlockSimple(StoreMemReg{offset=memRegCStackPtr, source=resReg1, kind=moveNativeWord}) ::
+                    BlockSimple(ArithmeticFunction{oper=SUB, resultReg=resReg1, operand1=argReg1, operand2=untaggedArg,
+                            ccRef=newCCRef(), opSize=nativeWordOpSize}) ::
+                    BlockSimple(LoadMemReg{offset=memRegCStackPtr, dest=argReg1, kind=moveNativeWord}) ::
+                    argCode
+            in
+                (code, RegisterArgument target, false)
+            end
+ 
 
         and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =
             let
@@ -2969,6 +3020,38 @@ struct
                     end
             in
                 (code, RegisterArgument target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.FreeCStack, arg1, arg2}, context, _, destination, tailCode) =
+            (* Free space on the C stack by storing the address in the argument into the "memory register".
+               This is a binary operation that takes the base address and the size.  The base address isn't
+               used in this version.  *)
+            let
+                val (arg2Code, untaggedLength) =
+                    case arg2 of
+                        BICConstnt(value, _) => (tailCode, IntegerConstant(Word.toLargeInt(toShort value)) (* Leave untagged *))
+                    |   _ =>
+                        let
+                            val (arg2Code, lengthReg) = codeToPRegRev(arg2, context, tailCode)
+                            val lengthUntagged = newUReg()
+                        in
+                            (
+                                BlockSimple(UntagValue{source=lengthReg, dest=lengthUntagged, isSigned=false, cache=NONE, opSize=polyWordOpSize}) :: arg2Code,
+                                RegisterArgument lengthUntagged
+                            )
+                        end
+
+                (* Evaluate the first argument for side-effects but discard it. *)
+                val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, Allowed allowDefer, arg2Code)
+                val addrReg = newUReg() and resAddrReg = newUReg()
+                val code =
+                    BlockSimple(StoreMemReg{offset=memRegCStackPtr, source=resAddrReg, kind=moveNativeWord}) ::
+                    BlockSimple(ArithmeticFunction{oper=ADD, resultReg=resAddrReg, operand1=addrReg, operand2=untaggedLength,
+                                    ccRef=newCCRef(), opSize=nativeWordOpSize}) ::
+                    BlockSimple(LoadMemReg{offset=memRegCStackPtr, dest=addrReg, kind=moveNativeWord}) ::
+                    arg1Code
+            in
+                moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
         
         (* Multiply tagged word by a constant.  We're not concerned with overflow so it's possible to use

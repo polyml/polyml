@@ -64,4 +64,6 @@ public:
 
 extern MachineDependent *machineDependent;
 
+extern struct _entrypts machineSpecificEPT[];
+
 #endif /* _MACHINE_DEP_H */

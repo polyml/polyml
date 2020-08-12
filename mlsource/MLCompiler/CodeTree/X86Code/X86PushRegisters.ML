@@ -675,11 +675,18 @@ struct
                                     indexCode @ baseCode @ sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=LoadMemReg { offset, dest}, ...}, code) =
+                    |   pushRegisters({instr=LoadMemReg { offset, dest, kind}, ...}, code) =
                         let
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ LoadMemReg { offset=offset, dest=destVal} :: code
+                            destCode @ LoadMemReg { offset=offset, dest=destVal, kind=kind} :: code
+                        end
+
+                    |   pushRegisters({instr=StoreMemReg { offset, source, kind}, ...}, code) =
+                        let
+                            val (sourceValue, sourceCode) = mapSrcReg source
+                        in
+                            StoreMemReg { offset=offset, source=sourceValue, kind=kind} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, ...}, code) =
