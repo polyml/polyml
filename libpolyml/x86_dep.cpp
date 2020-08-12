@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-19
+    Further work copyright David C. J. Matthews 2011-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -256,8 +256,6 @@ public:
     void SetRegisterMask();
 
     void HandleTrap();
-
-    void MakeTrampoline(byte **pointer, byte*entryPt);
 
     PLock interruptLock;
 
@@ -573,45 +571,6 @@ void X86TaskData::HandleTrap()
         Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
     }
     SetMemRegisters();
-}
-
-void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
-{
-#ifdef POLYML32IN64
-    // In the native address versions we can store the address directly onto the stack.
-    // We can't do that in 32-in-64 because it's likely that the address will be in the
-    // bottom 32-bits and we can't distinguish it from an object ID.  Instead we have to
-    // build a small code segment which jumps to the code.
-    unsigned requiredSize = 8; // 8 words i.e. 32 bytes
-    PolyObject *result = gMem.AllocCodeSpace(requiredSize);
-    PolyObject* writeAble = gMem.SpaceForAddress(result)->writeAble(result);
-    byte *p = (byte*)writeAble;
-    *p++ = 0x48; // rex.w
-    *p++ = 0x8b; // Movl
-    *p++ = 0x0d; // rcx, pc relative
-    *p++ = 0x09; // +2 bytes
-    *p++ = 0x00;
-    *p++ = 0x00;
-    *p++ = 0x00;
-    *p++ = 0xff; // jmp
-    *p++ = 0xe1; // rcx
-    *p++ = 0xf4; // hlt - needed to stop scan of constants
-    for (unsigned i = 0; i < 6; i++) *p++ = 0;
-    uintptr_t ep = (uintptr_t)entryPt;
-    for (unsigned i = 0;  i < 8; i++)
-    {
-        *p++ = ep & 0xff;
-        ep >>= 8;
-    }
-    // Clear the remainder.  In particular this sets the number
-    // of address constants to zero.
-    for (unsigned i = 0; i < 8; i++)
-        *p++ = 0;
-    writeAble->SetLengthWord(requiredSize, F_CODE_OBJ);
-    *pointer = (byte*)result;
-#else
-    *pointer = entryPt; // Can go there directly
-#endif
 }
 
 void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle arg)
