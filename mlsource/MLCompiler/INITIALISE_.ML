@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-19
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -326,7 +326,7 @@ struct
             (* pointer equality *)
             val () =
                 enterRunCall ("pointerEq",
-                    makePolymorphic([a], mkBinaryFn(WordComparison{test=TestEqual, isSigned=false})), a ** a ->> Bool)
+                    makePolymorphic([a], mkBinaryFn PointerEq), a ** a ->> Bool)
             (* load a word. The index is in words and is always zero or positive. *)
             val () = enterRunCall ("loadWord",
                     makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLWord{isImmutable=false})), a ** Word ->> b)
@@ -940,7 +940,7 @@ struct
             fun monoTypePrinter _ = PRETTY.PrettyString "?"
             val code =
                 createTypeValue{
-                    eqCode=equalWordFn,
+                    eqCode=equalPointerOrWordFn,
                     printCode=mkConst (toMachineWord (ref monoTypePrinter)),
                     boxedCode=boxedAlways,
                     sizeCode=singleWord
@@ -1087,7 +1087,7 @@ struct
                                 mkProc(
                                     mkIf(
                                         (* Finished? *)
-                                        mkEqualWord(mkLoadClosure 0, mkLoadArgument 0),
+                                        mkEqualTaggedWord(mkLoadClosure 0, mkLoadArgument 0),
                                         CodeTrue, (* Yes, all equal. *)
                                         mkIf(
                                             mkEval(
@@ -1113,7 +1113,7 @@ struct
                             ],
                             mkIf(
                                 (* Test the lengths. *)
-                                mkEqualWord(mkLoadLocal 0, mkLoadLocal 1),
+                                mkEqualTaggedWord(mkLoadLocal 0, mkLoadLocal 1),
                                 (* Equal - test the contents. *)
                                 mkEval(mkLoadLocal 2, [CodeZero]),
                                 CodeFalse (* Not same length- result false *)
@@ -1155,7 +1155,7 @@ struct
                         ],
                         mkIf(
                             (* Test the lengths. *)
-                            mkEqualWord(mkLoadLocal 0, mkLoadLocal 1),
+                            mkEqualTaggedWord(mkLoadLocal 0, mkLoadLocal 1),
                             (* Equal - test the contents. *)
                             mkEnv([
                                 (* ByteVecEqual takes a byte length so we have to multiply by

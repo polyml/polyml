@@ -474,13 +474,10 @@ WaitPoll::WaitPoll(POLYUNSIGNED nDesc, struct pollfd *fds, unsigned maxMillisecs
 
 void WaitPoll::Wait(unsigned maxMillisecs)
 {
-    if (nDescr == 0) pollResult = 0;
-    else
-    {
-        if (maxTime < maxMillisecs) maxMillisecs = maxTime;
-        pollResult = poll(fdVec, nDescr, maxMillisecs);
-        if (pollResult < 0) errorResult = ERRORNUMBER;
-    }
+    // N.B. We use this for OS.Process.sleep with empty descriptor list.
+    if (maxTime < maxMillisecs) maxMillisecs = maxTime;
+    pollResult = poll(fdVec, nDescr, maxMillisecs);
+    if (pollResult < 0) errorResult = ERRORNUMBER;
 }
 
 POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(FirstArgument threadId, PolyWord streamVector, PolyWord bitVector, PolyWord maxMillisecs)

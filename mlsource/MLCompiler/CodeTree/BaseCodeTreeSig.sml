@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2016-19
+    Modified David C. J. Matthews 2008-2010, 2013, 2016-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,8 +24,9 @@ sig
     type machineWord = Address.machineWord
     
     datatype inlineStatus =
-        NonInline
-    |   Inline
+        DontInline
+    |   InlineAlways
+    |   SmallInline
 
     datatype argumentType =
         GeneralType

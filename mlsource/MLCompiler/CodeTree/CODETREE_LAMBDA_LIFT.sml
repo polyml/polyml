@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015 David C.J. Matthews
+    Copyright (c) 2015, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -137,7 +137,7 @@ struct
             fun refToClosure n = markExtract(List.nth(closure, n))
             val processedBody = checkBody(body, refToClosure, refToRecursive, localCount)
         in
-            {body=processedBody, isInline=NonInline, closure=closure, localCount=localCount, name=name,
+            {body=processedBody, isInline=DontInline, closure=closure, localCount=localCount, name=name,
              argTypes=argTypes, resultType=resultType, recUse=if !recNeedsClosure then [UseGeneral] else []}
         end
 
@@ -302,7 +302,7 @@ struct
 
             val processedBody = processBody(body, closureRef, fn () => [], localCount, debugArgs)
         in
-            {body=processedBody, isInline=NonInline, closure=extractClosure newClosure, localCount=localCount, name=name,
+            {body=processedBody, isInline=DontInline, closure=extractClosure newClosure, localCount=localCount, name=name,
              argTypes=argTypes, resultType=resultType, recUse=[]}
         end
 
@@ -416,7 +416,7 @@ struct
                     val processedBody = processBody(body, closureRef, recursiveRef, localCount, debugArgs)
 
                     val lambda = 
-                        {body=processedBody, isInline=NonInline, closure=extractClosure residual,
+                        {body=processedBody, isInline=DontInline, closure=extractClosure residual,
                          localCount=localCount, name=name,
                          argTypes=argTypes @ extraArgs, resultType=resultType, recUse=[]}
                 in
@@ -446,7 +446,7 @@ struct
                 val lambda:lambdaForm =
                 {
                     body = code,
-                    isInline = NonInline,
+                    isInline = DontInline,
                     name = "<top level>",
                     closure = [],
                     argTypes = [(GeneralType, [])],

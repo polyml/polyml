@@ -55,6 +55,7 @@
 #include "statistics.h"
 #include "profiling.h"
 #include "heapsizing.h"
+#include "gc_progress.h"
 
 static GCTaskFarm gTaskFarm; // Global task farm.
 GCTaskFarm *gpTaskFarm = &gTaskFarm;
@@ -122,6 +123,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         globalStats.incCount(PSC_GC_SHARING);
         GCSharingPhase();
     }
+
+    gcProgressBeginMajorGC(); // The GC sharing phase is treated separately
+
 /*
  * There is a really weird bug somewhere.  An extra bit may be set in the bitmap during
  * the mark phase.  It seems to be related to heavy swapping activity.  Duplicating the
@@ -196,9 +200,12 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         lSpace->upperAllocPtr = lSpace->top;
     }
 
+	gcProgressSetPercent(25);
+
     if (debugOptions & DEBUG_GC) Log("GC: Check weak refs\n");
     /* Detect unreferenced streams, windows etc. */
     GCheckWeakRefs();
+	gcProgressSetPercent(50);
 
     // Check that the heap is not overfull.  We make sure the marked
     // mutable and immutable data is no more than 90% of the
@@ -230,6 +237,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     GCCopyPhase();
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Copy");
+	gcProgressSetPercent(75);
 
     // Update Phase.
     if (debugOptions & DEBUG_GC) Log("GC: Update\n");

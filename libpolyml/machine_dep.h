@@ -4,10 +4,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
+    Further development Copyright 2020 David C. J. Matthews
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -54,6 +55,10 @@ public:
         { ScanConstantsWithinCode(addr, addr, addr->Length(), process); } // Common case
 
     virtual Architectures MachineArchitecture(void) = 0; 
+
+    // The interpreted version does not need the code to have execute
+    // permission because it's not actually executed.
+    virtual bool CodeMustBeExecutable(void) { return true; }
 };
 
 extern MachineDependent *machineDependent;

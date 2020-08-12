@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008-9, 2013, 2015-16.
+    Modified David C.J. Matthews 2008-9, 2013, 2015-16, 2020.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1201,7 +1201,7 @@ struct
     |   makeGuard (value as Value{class=Exception, ...}, _, testing, level, typeVarMap) =
         (* Should only be an exception. Get the value of the exception identifier 
            and compare with the identifier in the exception packet. *)
-        mkEqualWord (mkInd (0, testing),
+        mkEqualPointerOrWord (mkInd (0, testing),
                         codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
 
     |   makeGuard _ = raise InternalError "makeGuard"

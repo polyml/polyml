@@ -668,7 +668,8 @@ void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
     // build a small code segment which jumps to the code.
     unsigned requiredSize = 8; // 8 words i.e. 32 bytes
     PolyObject *result = gMem.AllocCodeSpace(requiredSize);
-    byte *p = (byte*)result;
+    PolyObject* writeAble = gMem.SpaceForAddress(result)->writeAble(result);
+    byte *p = (byte*)writeAble;
     *p++ = 0x48; // rex.w
     *p++ = 0x8b; // Movl
     *p++ = 0x0d; // rcx, pc relative
@@ -690,7 +691,7 @@ void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
     // of address constants to zero.
     for (unsigned i = 0; i < 8; i++)
         *p++ = 0;
-    result->SetLengthWord(requiredSize, F_CODE_OBJ);
+    writeAble->SetLengthWord(requiredSize, F_CODE_OBJ);
     *pointer = (byte*)result;
 #else
     *pointer = entryPt; // Can go there directly
@@ -803,18 +804,18 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 #ifndef HOSTARCHITECTURE_X86_64
 #if(defined(HAVE_STRUCT_MCONTEXT_SS)||defined(HAVE_STRUCT___DARWIN_MCONTEXT32_SS))
         pc = (byte*)context->uc_mcontext->ss.eip;
-        sp = (PolyWord*)context->uc_mcontext->ss.esp;
+        sp = (stackItem*)context->uc_mcontext->ss.esp;
 #elif(defined(HAVE_STRUCT___DARWIN_MCONTEXT32___SS))
         pc = (byte*)context->uc_mcontext->__ss.__eip;
-        sp = (PolyWord*)context->uc_mcontext->__ss.__esp;
+        sp = (stackItem*)context->uc_mcontext->__ss.__esp;
 #endif
 #else /* HOSTARCHITECTURE_X86_64 */
 #if(defined(HAVE_STRUCT_MCONTEXT_SS)||defined(HAVE_STRUCT___DARWIN_MCONTEXT64_SS))
         pc = (byte*)context->uc_mcontext->ss.rip;
-        sp = (PolyWord*)context->uc_mcontext->ss.rsp;
+        sp = (stackItem*)context->uc_mcontext->ss.rsp;
 #elif(defined(HAVE_STRUCT___DARWIN_MCONTEXT64___SS))
         pc = (byte*)context->uc_mcontext->__ss.__rip;
-        sp = (PolyWord*)context->uc_mcontext->__ss.__rsp;
+        sp = (stackItem*)context->uc_mcontext->__ss.__rsp;
 #endif
 #endif /* HOSTARCHITECTURE_X86_64 */
 #endif
@@ -822,10 +823,10 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 #if defined(HOSTARCHITECTURE_X86_64) && defined(__OpenBSD__)
         // CPP defines missing in amd64/signal.h in OpenBSD
         pc = (byte*)context->sc_rip;
-        sp = (PolyWord*)context->sc_rsp;
+        sp = (stackItem*)context->sc_rsp;
 #else // !HOSTARCHITEXTURE_X86_64 || !defined(__OpenBSD__)
         pc = (byte*)context->sc_pc;
-        sp = (PolyWord*)context->sc_sp;
+        sp = (stackItem*)context->sc_sp;
 #endif
 #endif
     }
@@ -1300,9 +1301,10 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                         // We have to correct the displacement for the new location and store
                         // that away before we call ScanConstant.
                         size_t newDisp = absAddr - pt - 4;
+                        byte* wr = gMem.SpaceForAddress(pt)->writeAble(pt);
                         for (unsigned i = 0; i < 4; i++)
                         {
-                            pt[i] = (byte)(newDisp & 0xff);
+                            wr[i] = (byte)(newDisp & 0xff);
                             newDisp >>= 8;
                         }
                     }

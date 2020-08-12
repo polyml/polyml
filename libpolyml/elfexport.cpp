@@ -2,7 +2,7 @@
     Title:     Write out a database as an ELF object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011, 2016-18 David C. J. Matthews
+    Copyright (c) 2006-7, 2011, 2016-18, 2020 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,6 +55,9 @@
 #include <elf.h>
 #elif defined(HAVE_ELF_ABI_H)
 #include <elf_abi.h>
+#endif
+
+#ifdef HAVE_MACHINE_RELOC_H
 #include <machine/reloc.h>
 
 #ifndef EM_X86_64
@@ -471,7 +474,12 @@ void ELFExport::exportStore(void)
     PolyWord    *p;
     ElfXX_Ehdr fhdr;
     ElfXX_Shdr *sections = 0;
-    unsigned numSections = 6 + 2*memTableEntries /*- 1*/;
+#ifdef __linux__
+    unsigned extraSections = 1; // Extra section for .note.GNU-stack
+#else
+    unsigned extraSections = 0;
+#endif
+    unsigned numSections = 6 + 2*memTableEntries /*- 1*/ + extraSections;
     // The symbol table comes at the end.
     unsigned sect_symtab = sect_data + 2*memTableEntries + 2/* - 1*/;
     
@@ -615,6 +623,12 @@ void ELFExport::exportStore(void)
     // sections[sect_symtab].sh_info is set later
     // sections[sect_symtab].sh_size is set later
     // sections[sect_symtab].sh_offset is set later
+
+#ifdef __linux__
+    // Add a .note.GNU-stack section to indicate this does not require executable stack
+    sections[numSections-1].sh_name = makeStringTableEntry(".note.GNU-stack", &sectionStrings);
+    sections[numSections - 1].sh_type = SHT_PROGBITS;
+#endif
 
     // Write the relocations.
 

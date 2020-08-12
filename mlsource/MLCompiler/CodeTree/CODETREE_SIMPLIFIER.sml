@@ -38,6 +38,8 @@ functor CODETREE_SIMPLIFIER(
         structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
     end
 
+    structure DEBUG: DEBUGSIG
+
     sharing
         BASECODETREE.Sharing
     =   CODETREE_FUNCTIONS.Sharing
@@ -47,7 +49,8 @@ functor CODETREE_SIMPLIFIER(
         type codetree and codeBinding and envSpecial
 
         val simplifier:
-            codetree * int -> (codetree * codeBinding list * envSpecial) * int * bool
+            { code: codetree, numLocals: int, maxInlineSize: int } ->
+                (codetree * codeBinding list * envSpecial) * int * bool
         val specialToGeneral:
             codetree * codeBinding list * envSpecial -> codetree
 
@@ -79,7 +82,8 @@ struct
         lookupAddr: loadForm -> envGeneral * envSpecial,
         enterAddr: int * (envGeneral * envSpecial) -> unit,
         nextAddress: unit -> int,
-        reprocess: bool ref
+        reprocess: bool ref,
+        maxInlineSize: int
     }
 
     fun envGeneralToCodetree(EnvGenLoad ext) = Extract ext
@@ -562,7 +566,7 @@ struct
                 local
                     val (inlines, nonInlines) =
                         List.partition (
-                            fn {lambda = { isInline=Inline, ...}, ... } => true | _ => false) mutuals
+                            fn {lambda = { isInline=DontInline, ...}, ... } => false | _ => true) mutuals
                 in
                     val orderedDecs = inlines @ nonInlines
                 end
@@ -663,7 +667,7 @@ struct
         end
 
     and simpLambda({body, isInline, name, argTypes, resultType, closure, localCount, ...},
-                  { lookupAddr, reprocess, ... }, myOldAddrOpt, myNewAddrOpt) =
+                  { lookupAddr, reprocess, maxInlineSize, ... }, myOldAddrOpt, myNewAddrOpt) =
         let
             (* A new table for the new function. *)
             val oldAddrTab = Array.array (localCount, NONE)
@@ -728,7 +732,8 @@ struct
                     {
                         enterAddr = setTab, lookupAddr = localOldAddr,
                         nextAddress=mkAddr,
-                        reprocess = reprocess
+                        reprocess = reprocess,
+                        maxInlineSize = maxInlineSize
                     })
             end
 
@@ -741,18 +746,22 @@ struct
                is actually tail-recursion. *)
             val isNowInline =
                 case isInline of
-                    Inline =>
-                        if ! isNowRecursive then NonInline else Inline
-                |   NonInline => NonInline
+                    SmallInline =>
+                        if ! isNowRecursive then DontInline else SmallInline
+                |   InlineAlways =>
+                        (* Functions marked as inline could become recursive as a result of
+                           other inlining. *)
+                        if ! isNowRecursive then DontInline else InlineAlways
+                |   DontInline => DontInline
 
             (* Clean up the function body at this point if it could be inlined.
                There are examples where failing to do this can blow up.  This
                can be the result of creating both a general and special function
                inside an inline function. *)
             val cleanBody =
-                case isNowInline of
-                    NonInline => newCode
-                |   _ => REMOVE_REDUNDANT.cleanProc(newCode, [UseExport], LoadClosure, localCount)
+                if isNowInline = DontInline
+                then newCode
+                else REMOVE_REDUNDANT.cleanProc(newCode, [UseExport], LoadClosure, localCount)
 
             val copiedLambda: lambdaForm =
                 {
@@ -766,10 +775,16 @@ struct
                     recUse        = []
                 }
 
+            (* The optimiser checks the size of a function and decides whether it can be inlined.
+               However if we have expanded some other inlines inside the body it may now be too
+               big.  In some cases we can get exponential blow-up.  We check here that the
+               body is still small enough before allowing it to be used inline. *)
             val inlineCode =
-                case isNowInline of
-                    NonInline => EnvSpecNone
-                |   _ => EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
+                if isInline = InlineAlways orelse
+                    (isNowInline = SmallInline andalso
+                         evaluateInlining(cleanBody, List.length argTypes, maxInlineSize) <> TooBig)
+                then EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
+                else EnvSpecNone
          in
             (
                 copiedLambda,
@@ -777,7 +792,7 @@ struct
             )
         end
 
-    and simpFunctionCall(function, argList, resultType, context as { reprocess, ...}, tailDecs) =
+    and simpFunctionCall(function, argList, resultType, context as { reprocess, maxInlineSize, ...}, tailDecs) =
     let
         (* Function call - This may involve inlining the function. *)
 
@@ -849,7 +864,8 @@ struct
                     val lambdaContext =
                     {
                         lookupAddr=localOldAddr, enterAddr=setTabForInline,
-                        nextAddress=nextAddress, reprocess = reprocess
+                        nextAddress=nextAddress, reprocess = reprocess,
+                        maxInlineSize = maxInlineSize
                     }
                 in
                     val (cGen, cDecs, cSpec) = simpSpecial(lambdaBody,lambdaContext, copiedArgs)
@@ -989,7 +1005,7 @@ struct
     in
         case (oper, genArg1, genArg2) of
             (WordComparison{test, isSigned}, Constnt(v1, _), Constnt(v2, _)) =>
-            if (case test of TestEqual => false | _ => not(isShort v1) orelse not(isShort v2))
+            if not(isShort v1) orelse not(isShort v2) (* E.g. arbitrary precision on unreachable path. *)
             then (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             else
             let
@@ -997,7 +1013,7 @@ struct
                 val testResult =
                     case (test, isSigned) of
                         (* TestEqual can be applied to addresses. *)
-                        (TestEqual, _)              => RunCall.pointerEq(v1, v2)
+                        (TestEqual, _)              => toShort v1 = toShort v2
                     |   (TestLess, false)           => toShort v1 < toShort v2
                     |   (TestLessEqual, false)      => toShort v1 <= toShort v2
                     |   (TestGreater, false)        => toShort v1 > toShort v2
@@ -1010,6 +1026,12 @@ struct
             in
                 (if testResult then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
             end
+        
+        |   (PointerEq, Constnt(v1, _), Constnt(v2, _)) =>
+            (
+                reprocess := true;
+                (if RunCall.pointerEq(v1, v2) then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
+            )
 
         |   (FixedPrecisionArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
             if not(isShort v1) orelse not(isShort v2)
@@ -1124,26 +1146,10 @@ struct
     end
 
     (* Arbitrary precision operations.  This is a sort of mixture of a built-in and a conditional. *)
-    and simpArbitraryCompare(TestEqual, shortCond, arg1, arg2, longCall, context, tailDecs) =
-            (* Equality is a special case and is only there to ensure that it is not accidentally converted into
-               an indexed case further down.  We must leave it as it is. *)
-        let
-            val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
-            val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
-            val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
-        in
-            case (genArg1, genArg2) of
-                (Constnt(v1, _), Constnt(v2, _)) =>
-                let
-                    val a1: LargeInt.int = RunCall.unsafeCast v1
-                    and a2: LargeInt.int = RunCall.unsafeCast v2
-                in
-                    (if a1 = a2 then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
-                end
-            |   _ =>   
-                (Arbitrary{oper=ArbCompare TestEqual, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)},
-                        decArgs, EnvSpecNone)
-        end
+    and simpArbitraryCompare(TestEqual, _, _, _, _, _, _) =
+        (* We no longer generate this for equality.  General equality for arbitrary precision
+           uses a combination of PointerEq and byte comparison. *)
+            raise InternalError "simpArbitraryCompare: TestEqual"
 
     |   simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context as {reprocess, ...}, tailDecs) =
     let
@@ -1173,13 +1179,16 @@ struct
             end
 
         |   (Constnt(c1, _),  _, _) =>
+            (* The condition is "isShort X andalso isShort Y".  This will have been reduced
+               to a constant false or true if either (a) either argument is long or
+               (b) both arguments are short.*)
                 if isShort c1 andalso toShort c1 = 0w0
                 then (* One argument is definitely long - generate the long form. *)
-                    (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=simplify(longCall, context), arg2=CodeZero},
-                        decArgs, EnvSpecNone)
+                    (simplify(longCall, context), decArgs, EnvSpecNone)
                 else (* Both arguments are short.  That should mean they're constants. *)
                     (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
                          before reprocess := true
+
         |   (_, genArg1, cArg2 as Constnt _) =>
             let (* The constant must be short otherwise the test would be false. *)
                 val isNeg =
@@ -1706,7 +1715,7 @@ struct
     |   simpPostSetContainer(container, tupleGen, RevList tupleDecs, filter) =
             mkEnv(List.rev tupleDecs, mkSetContainer(container, tupleGen, filter))
 
-    fun simplifier(c, numLocals) =
+    fun simplifier{code, numLocals, maxInlineSize} =
     let
         val localAddressAllocator = ref 0
         val addrTab = Array.array(numLocals, NONE)
@@ -1722,8 +1731,9 @@ struct
             ! localAddressAllocator before localAddressAllocator := ! localAddressAllocator + 1
         val reprocess = ref false
         val (gen, RevList bindings, spec) =
-            simpSpecial(c,
-                {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr, reprocess = reprocess}, RevList[])
+            simpSpecial(code,
+                {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr,
+                 reprocess = reprocess, maxInlineSize = maxInlineSize}, RevList[])
     in
         ((gen, List.rev bindings, spec), ! localAddressAllocator, !reprocess)
     end

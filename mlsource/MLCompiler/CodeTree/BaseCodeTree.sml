@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-19
+    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -36,8 +36,9 @@ struct
     |   ArbArith of BuiltIns.arithmeticOperations
 
     datatype inlineStatus =
-        NonInline
-    |   Inline
+        DontInline
+    |   InlineAlways
+    |   SmallInline
 
     (* How variables are used.  Added and examined by the optimisation pass. *)
     datatype codeUse =
@@ -323,8 +324,9 @@ struct
             let
                 val inl = 
                     case isInline of
-                      NonInline   => ""
-                    | Inline => "inline,"
+                        DontInline   => ""
+                    |   InlineAlways => "inline,"
+                    |   SmallInline => "small,"
                 fun genType GeneralType = []
                 |   genType DoubleFloatType = [ space, string ":double" ]
                 |   genType SingleFloatType = [ space, string ":float" ]

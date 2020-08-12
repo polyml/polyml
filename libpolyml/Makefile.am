@@ -58,9 +58,9 @@ endif
 endif
 
 if NATIVE_WINDOWS
-OSSOURCE = winstartup.cpp winbasicio.cpp winguiconsole.cpp windows_specific.cpp
+OSSOURCE = winstartup.cpp winbasicio.cpp winguiconsole.cpp windows_specific.cpp osmemwin.cpp
 else
-OSSOURCE = basicio.cpp unix_specific.cpp
+OSSOURCE = basicio.cpp unix_specific.cpp osmemunix.cpp
 endif
 
 noinst_HEADERS = \
@@ -74,6 +74,7 @@ noinst_HEADERS = \
 	exporter.h \
 	gc.h \
 	gctaskfarm.h \
+    gc_progress.h \
 	globals.h \
     heapsizing.h \
 	int_opcodes.h \
@@ -127,6 +128,7 @@ libpolyml_la_SOURCES = \
     gc_check_weak_ref.cpp \
     gc_copy_phase.cpp \
     gc_mark_phase.cpp \
+    gc_progress.cpp \
     gc_share_phase.cpp \
     gc_update_phase.cpp \
     gctaskfarm.cpp \
@@ -136,7 +138,6 @@ libpolyml_la_SOURCES = \
     mpoly.cpp \
     network.cpp \
     objsize.cpp \
-    osmem.cpp \
     pexport.cpp \
     poly_specific.cpp \
     polyffi.cpp \

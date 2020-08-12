@@ -391,11 +391,11 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
             fprintf(stderr, "Unable to allocate memory\n");
             return 0;
         }
-        memSpace->bottom[0] = PolyWord::FromUnsigned(0);
+        memSpace->writeAble(memSpace->bottom)[0] = PolyWord::FromUnsigned(0);
         used = 1;
     }
     PolyObject *newObj = (PolyObject*)(memSpace->bottom + used + 1);
-    if (rounded != objWords) newObj->Set(objWords, PolyWord::FromUnsigned(0));
+    if (rounded != objWords) memSpace->writeAble(newObj)->Set(objWords, PolyWord::FromUnsigned(0));
     used += rounded + 1;
     ASSERT(((uintptr_t)newObj & 0x7) == 0);
     return newObj;
@@ -579,17 +579,18 @@ bool PImport::DoImport()
             return false;
         }
 
-        PolyObject  *p;
+        SpaceAlloc* alloc;
         if (objBits & F_MUTABLE_BIT)
-            p = mutSpace.NewObj(nWords);
+            alloc = &mutSpace;
         else if ((objBits & 3) == F_CODE_OBJ)
-            p = codeSpace.NewObj(nWords);
-        else p = immutSpace.NewObj(nWords);
+            alloc = &codeSpace;
+        else alloc = &immutSpace;
+        PolyObject* p = alloc->NewObj(nWords);
         if (p == 0)
             return false;
         objMap[objNo] = p;
         /* Put in length PolyWord and flag bits. */
-        p->SetLengthWord(nWords, objBits);
+        alloc->memSpace->writeAble(p)->SetLengthWord(nWords, objBits);
 
         /* Skip the object contents. */
         while (getc(f) != '\n') ;
@@ -710,9 +711,11 @@ bool PImport::DoImport()
         case 'D':
             {
                 bool oldForm = ch == 'C';
-                byte *u = (byte*)p;
                 POLYUNSIGNED length = p->Length();
                 POLYUNSIGNED nWords, nBytes;
+                MemSpace* space = gMem.SpaceForAddress(p);
+                PolyObject *wr = space->writeAble(p);
+                byte* u = (byte*)wr;
                 /* Read the number of bytes of code and the number of words
                    for constants. */
                 fscanf(f, "%" POLYUFMT ",%" POLYUFMT, &nWords, &nBytes);
@@ -727,19 +730,19 @@ bool PImport::DoImport()
                 ch = getc(f);
                 ASSERT(ch == '|');
                 /* Set the constant count. */
-                p->Set(length-1, PolyWord::FromUnsigned(nWords));
+                wr->Set(length-1, PolyWord::FromUnsigned(nWords));
                 if (oldForm)
                 {
-                    p->Set(length-1-nWords-1, PolyWord::FromUnsigned(0)); /* Profile count. */
-                    p->Set(length-1-nWords-3, PolyWord::FromUnsigned(0)); /* Marker word. */
-                    p->Set(length-1-nWords-2, PolyWord::FromUnsigned((length-1-nWords-2)*sizeof(PolyWord)));
+                    wr->Set(length-1-nWords-1, PolyWord::FromUnsigned(0)); /* Profile count. */
+                    wr->Set(length-1-nWords-3, PolyWord::FromUnsigned(0)); /* Marker word. */
+                    wr->Set(length-1-nWords-2, PolyWord::FromUnsigned((length-1-nWords-2)*sizeof(PolyWord)));
                     /* Check - the code should end at the marker word. */
                     ASSERT(nBytes == ((length-1-nWords-3)*sizeof(PolyWord)));
                 }
                 /* Read in the constants. */
                 for (POLYUNSIGNED i = 0; i < nWords; i++)
                 {
-                    if (! ReadValue(p, i+length-nWords-1))
+                    if (! ReadValue(wr, i+length-nWords-1))
                         return false;
                     ch = getc(f);
                     ASSERT((ch == ',' && i < nWords-1) ||
@@ -765,7 +768,7 @@ bool PImport::DoImport()
                             fscanf(f, "%" POLYUFMT, &obj);
                             ASSERT(obj < nObjects);
                             PolyObject *addr = objMap[obj];
-                            byte *toPatch = (byte*)p + offset;
+                            byte *toPatch = (byte*)p + offset; // Pass the execute address here.
                             ScanAddress::SetConstantValue(toPatch, addr, (ScanRelocationKind)code);
                         }
                         else
@@ -781,7 +784,7 @@ bool PImport::DoImport()
                     }
                 }
                 // Clear the mutable bit
-                p->SetLengthWord(p->Length(), F_CODE_OBJ);
+                wr->SetLengthWord(p->Length(), F_CODE_OBJ);
                 break;
             }
 

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15-19 David C.J. Matthews
+    Copyright (c) 2012,13,15-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -101,11 +101,12 @@ sig
     val mkNullDec:          codetree -> codeBinding
     val mkContainer:        int * int * codetree -> codeBinding
     
-    val mkNot:              codetree -> codetree
-    val mkIsShort:          codetree -> codetree
-    val mkEqualWord:        codetree * codetree -> codetree
-    val mkEqualArbShort:    codetree * codetree -> codetree
-    val equalWordFn:        codetree
+    val mkNot:                codetree -> codetree
+    val mkIsShort:            codetree -> codetree
+    val mkEqualTaggedWord:    codetree * codetree -> codetree
+    val mkEqualPointerOrWord: codetree * codetree -> codetree
+    val equalTaggedWordFn:    codetree
+    val equalPointerOrWordFn: codetree
 
     val decSequenceWithFinalExp: codeBinding list -> codetree
 

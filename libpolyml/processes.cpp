@@ -125,6 +125,7 @@
 #include "exporter.h"
 #include "statistics.h"
 #include "rtsentry.h"
+#include "gc_progress.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(FirstArgument threadId);
@@ -1426,10 +1427,12 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         if (allStopped && threadRequest != 0)
         {
             mainThreadPhase = threadRequest->mtp;
+            gcProgressBeginOtherGC(); // The default unless we're doing a GC.
             gMem.ProtectImmutable(false); // GC, sharing and export may all write to the immutable area
             threadRequest->Perform();
             gMem.ProtectImmutable(true);
             mainThreadPhase = MTP_USER_CODE;
+            gcProgressReturnToML();
             threadRequest->completed = true;
             threadRequest = 0; // Allow a new request.
             mlThreadWait.Signal();

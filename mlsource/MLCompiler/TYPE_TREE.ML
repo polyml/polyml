@@ -9,7 +9,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2012-2018 David C.J. Matthews
+    Copyright (c) 2000-9, 2012-2018, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -203,7 +203,7 @@ struct
             and boxedRepEither = 0w3   (* Either boxed or tagged e.g. (arbitrary precision) int *)
             fun make n = mkConst(Address.toMachineWord n)
             fun isCode n =
-                mkInlproc(mkEqualWord(mkLoadArgument 0, make n), 1, "test-box", [], 0)
+                mkInlproc(mkEqualTaggedWord(mkLoadArgument 0, make n), 1, "test-box", [], 0)
         in
             val boxedNever  = make boxedRepNever
             and boxedAlways = make boxedRepAlways
@@ -279,8 +279,7 @@ struct
     
         (* since code generator relies on these representations,
            we may as well export them *)
-        (* wordEq is used both for tagged words and for pointer equality *)
-        val wordEq = equalWordFn
+
         (* Strings are now always vectors whose first word is the length.
            The old special case for single-character strings has been removed. *)
         local
@@ -292,7 +291,7 @@ struct
                        they are the same.  This seems to save more time than including
                        the length word in the byte comparison. *)
                     mkCand(
-                        mkEqualWord(
+                        mkEqualPointerOrWord( (* Because we're not actually tagging these we use pointerEq here. *)
                             mkLoadOperation(LoadStoreUntaggedUnsigned, mkLoadArgument 0, CodeZero),
                             mkLoadOperation(LoadStoreUntaggedUnsigned, mkLoadArgument 1, CodeZero)),
                         mkBlockOperation{kind=BlockOpEqualByte, leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1,
@@ -324,7 +323,7 @@ struct
                         mkProc(
                             (* Equal if  signs are the same ... *)
                             mkCand(
-                                mkEqualWord(
+                                mkEqualTaggedWord(
                                     mkUnary(BuiltIns.MemoryCellFlags, mkLoadArgument 0),
                                     mkUnary(BuiltIns.MemoryCellFlags, mkLoadArgument 1)
                                 ),
@@ -332,7 +331,7 @@ struct
                                     [mkDec(0, mkUnary(BuiltIns.MemoryCellLength, mkLoadArgument 1))],
                                     mkCand(
                                         (* ... and the lengths are equal ... *)
-                                        mkEqualWord(
+                                        mkEqualTaggedWord(
                                             mkUnary(BuiltIns.MemoryCellLength, mkLoadArgument 0),
                                             mkLoadLocal 0
                                         ),
@@ -349,12 +348,11 @@ struct
                     ],
                 mkInlproc(
                     mkCor( (* Either they're equal... *)
-                           (* We can't use mkEqualWord here
-                               because if we have a short constant here the code will reduce to the
-                               simple equality.  If we used mkEqualWord it could further reduce to
-                               an indexed case but the code for that does not handle arbitrary
-                               precision values in the lo *)
-                        mkEqualArbShort(mkLoadArgument 0, mkLoadArgument 1),
+                           (* N.B. The values could be short or long.  That's particularly important
+                              if we have a series of tests against short constants.  If we convert it to
+                              an indexed case we MUST check that the value is short before computing
+                              the index. *)
+                        mkEqualPointerOrWord(mkLoadArgument 0, mkLoadArgument 1),
                         (* .. or if either is short the result is false ... *)
                         mkCand(
                             mkCand(
@@ -375,11 +373,11 @@ struct
             val intEquality = genCode(intEquality, [Universal.tagInject DEBUG.maxInlineSizeTag 5], 1) ()
         end
     in
-        val fixedIntConstr = makeConstr("int",  "FixedInt.int", wordEq, boxedNever) (* Fixed precision is always short *)
+        val fixedIntConstr = makeConstr("int",  "FixedInt.int", equalTaggedWordFn, boxedNever) (* Fixed precision is always short *)
         val intInfConstr = makeConstr("int",    "IntInf.int", intEquality, boxedEither)
-        val charConstr   = makeConstr("char",   "char", wordEq, boxedNever) (* Always short *)
+        val charConstr   = makeConstr("char",   "char", equalTaggedWordFn, boxedNever) (* Always short *)
         val stringConstr = makeConstr("string", "string", stringEquality, boxedEither (* Single chars are unboxed. *))
-        val wordConstr   = makeConstr("word",   "word", wordEq, boxedNever)
+        val wordConstr   = makeConstr("word",   "word", equalTaggedWordFn, boxedNever)
 
         (* Ref is a datatype with a single constructor.  The constructor is added in INITIALISE.
            Equality is special for "'a ref", "'a array" and "'a Array2.array".  They permit equality
@@ -388,29 +386,29 @@ struct
             makeTypeConstructor 
                 ("ref",
                 [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
-                makeFreeId(1, eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "ref"),
+                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1, boxedAlways), true, basisDescription "ref"),
                 [DeclaredAt inBasis]);
         val arrayConstr =
             makeTypeConstructor 
                 ("array",
                 [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
-                makeFreeId(1, eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "Array.array"),
+                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1, boxedAlways), true, basisDescription "Array.array"),
                 [DeclaredAt inBasis]);
         val array2Constr =
             makeTypeConstructor 
                 ("array",
                 [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
-                makeFreeId(1, eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "Array2.array"),
+                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1, boxedAlways), true, basisDescription "Array2.array"),
                 [DeclaredAt inBasis]);
         val byteArrayConstr =
             makeTypeConstructor 
                 ("byteArray", [],
-                makeFreeId(0, eqAndPrintCode(wordEq, 0, boxedAlways), true, basisDescription "byteArray"),
+                makeFreeId(0, eqAndPrintCode(equalPointerOrWordFn, 0, boxedAlways), true, basisDescription "byteArray"),
                 [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolConstr =
             makeTypeConstructor 
-                ("bool", [], makeFreeId(0, eqAndPrintCode(wordEq, 0, boxedNever), true, basisDescription "bool"),
+                ("bool", [], makeFreeId(0, eqAndPrintCode(equalTaggedWordFn, 0, boxedNever), true, basisDescription "bool"),
                 [DeclaredAt inBasis]);
     end
 

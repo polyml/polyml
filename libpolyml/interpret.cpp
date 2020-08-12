@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2015-18.
+    Further development Copyright David C.J. Matthews 2015-18, 2020.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -281,6 +281,9 @@ public:
     // Create a task data object.
     virtual TaskData *CreateTaskData(void) { return new IntTaskData(); }
     virtual Architectures MachineArchitecture(void) { return MA_Interpreted; }
+    // The interpreted version does not need the code to have execute
+    // permission because it's not actually executed.
+    virtual bool CodeMustBeExecutable(void) { return false; }
 };
 
 void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)

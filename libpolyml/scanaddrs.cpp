@@ -83,7 +83,8 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
         
             // Skip to the constants and get ready to scan them.
             obj->GetConstSegmentForCode(length, baseAddr, length);
-
+            // Adjust to the read-write area if necessary.
+            baseAddr = gMem.SpaceForAddress(baseAddr)->writeAble(baseAddr);
         }
 
         else if (OBJ_IS_CLOSURE_OBJECT(lengthWord))
@@ -234,6 +235,8 @@ PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocatio
 // been exported using the C exporter.
 void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanRelocationKind code)
 {
+    MemSpace* space = gMem.SpaceForAddress(addressOfConstant);
+    byte* addressToWrite = space->writeAble(addressOfConstant);
     switch (code)
     {
     case PROCESS_RELOC_DIRECT: // 32 or 64 bit address of target
@@ -241,7 +244,7 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
             POLYUNSIGNED valu = ((PolyWord)p).AsUnsigned();
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
             {
-                addressOfConstant[i] = (byte)(valu & 255); 
+                addressToWrite[i] = (byte)(valu & 255);
                 valu >>= 8;
             }
         }
@@ -254,7 +257,7 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
             ASSERT(newDisp < (intptr_t)0x80000000 && newDisp >= -(intptr_t)0x80000000);
 #endif
             for (unsigned i = 0; i < 4; i++) {
-                addressOfConstant[i] = (byte)(newDisp & 0xff);
+                addressToWrite[i] = (byte)(newDisp & 0xff);
                 newDisp >>= 8;
             }
         }
