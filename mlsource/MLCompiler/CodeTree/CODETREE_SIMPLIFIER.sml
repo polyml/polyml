@@ -763,6 +763,18 @@ struct
                 then newCode
                 else REMOVE_REDUNDANT.cleanProc(newCode, [UseExport], LoadClosure, localCount)
 
+            (* The optimiser checks the size of a function and decides whether it can be inlined.
+               However if we have expanded some other inlines inside the body it may now be too
+               big.  In some cases we can get exponential blow-up.  We check here that the
+               body is still small enough before allowing it to be used inline. *)
+            val stillInline =
+                case isNowInline of
+                    SmallInline =>
+                        if evaluateInlining(cleanBody, List.length argTypes, maxInlineSize*20) <> TooBig
+                        then SmallInline
+                        else DontInline
+                |   inl => inl
+
             val copiedLambda: lambdaForm =
                 {
                     body          = cleanBody,
@@ -780,9 +792,7 @@ struct
                big.  In some cases we can get exponential blow-up.  We check here that the
                body is still small enough before allowing it to be used inline. *)
             val inlineCode =
-                if isInline = InlineAlways orelse
-                    (isNowInline = SmallInline andalso
-                         evaluateInlining(cleanBody, List.length argTypes, maxInlineSize) <> TooBig)
+                if stillInline <> DontInline
                 then EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
                 else EnvSpecNone
          in
