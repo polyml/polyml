@@ -122,11 +122,11 @@ static POLYCODEPTR pcQueue[PCQUEUESIZE];
 // Increment, returning the original value.
 static int incrAtomically(long & p)
 {
-#ifdef _WIN32
+#if (defined(HAVE_SYNC_FETCH))
+    return __sync_fetch_and_add(&p, 1);
+#elif (defined(_WIN32))
     long newValue = InterlockedIncrement(&p);
     return newValue - 1;
-#elif (defined(HAVE_SYNC_FETCH))
-    return __sync_fetch_and_add(&p, 1);
 #else
     return p++;
 #endif
@@ -135,10 +135,10 @@ static int incrAtomically(long & p)
 // Decrement and return new value.
 static int decrAtomically(long & p)
 {
-#ifdef _WIN32
+#if (defined(HAVE_SYNC_FETCH))
+     return __sync_sub_and_fetch(&p, 1);
+#elif (defined(_WIN32))
     return InterlockedDecrement(&p);
-#elif (defined(HAVE_SYNC_FETCH))
-    return __sync_sub_and_fetch(&p, 1);
 #else
     return --p;
 #endif
