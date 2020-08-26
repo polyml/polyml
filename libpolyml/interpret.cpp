@@ -145,7 +145,7 @@ public:
     // Return the minimum space occupied by the stack.   Used when setting a limit.
     virtual uintptr_t currentStackSpace(void) const { return (this->stack->top - this->taskSp) + OVERFLOW_STACK_SIZE; }
 
-    virtual void addProfileCount(POLYUNSIGNED words) { add_count(this, taskPc, words); }
+    virtual void addProfileCount(POLYUNSIGNED words) { addSynchronousCount(taskPc, words); }
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
@@ -2321,7 +2321,7 @@ bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(taskPc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, taskPc, 1);
+            incrementCountAsynch(taskPc);
             return true;
         }
     }

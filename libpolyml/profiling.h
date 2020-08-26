@@ -43,8 +43,13 @@ extern ProfileMode profileMode;
 
 #include "processes.h" // For SIGNALCONTEXT
 
+// Handle a SIGVTALRM or the simulated equivalent in Windows.
 extern void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context);
-extern void add_count(TaskData *taskData, POLYCODEPTR pc,POLYUNSIGNED incr);
+// Add count.  Must not be called from a signal handler.
+extern void addSynchronousCount(POLYCODEPTR pc, POLYUNSIGNED incr);
+// Add one to the timing counter.  May occur at any time.
+extern void incrementCountAsynch(POLYCODEPTR pc);
+
 extern void AddObjectProfile(PolyObject *obj);
 
 extern struct _entrypts profilingEPT[];

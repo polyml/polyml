@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development copyright (c) David C.J. Matthews 2011, 2015
+    Further development copyright (c) David C.J. Matthews 2011, 2015, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -176,7 +176,7 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
 // Adds incr to the profile count for the function pointed at by
 // pc or by one of its callers.
 // This is called from a signal handler in the case of time profiling.
-void add_count(TaskData *taskData, POLYCODEPTR fpc, POLYUNSIGNED incr)
+void addSynchronousCount(POLYCODEPTR fpc, POLYUNSIGNED incr)
 {
     // Check that the pc value is within the heap.  It could be
     // in the assembly code.
@@ -340,6 +340,17 @@ Handle ProfileRequest::extractAsList(TaskData *taskData)
     return list;
 }
 
+// We have had an asynchronous interrupt and found a potential PC but
+// we're in a signal handler.
+void incrementCountAsynch(POLYCODEPTR pc)
+{
+    addSynchronousCount(pc, 1); // Temporarily
+}
+
+// Handle a SIGVTALRM or the simulated equivalent in Windows.  This may be called
+// at any time so we have to be careful.  In particular in Linux this may be
+// executed by a thread while holding a mutex so we must not do anything, such
+// calling malloc, that could require locking.
 void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
 {
     if (singleThreadProfile != 0 && singleThreadProfile != taskData)

@@ -240,7 +240,7 @@ public:
 
     // Increment the profile count for an allocation.  Also now used for mutex contention.
     virtual void addProfileCount(POLYUNSIGNED words)
-    { add_count(this, assemblyInterface.stackPtr[0].codeAddr, words); }
+    { addSynchronousCount(assemblyInterface.stackPtr[0].codeAddr, words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
     virtual void PreRTSCall(void) { TaskData::PreRTSCall();  SaveMemRegisters(); }
@@ -758,6 +758,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
 
 // Get the PC and SP(stack) from a signal context.  This is needed for profiling.
 // This version gets the actual sp and pc if we are in ML.
+// N.B. This must not call malloc since we're in a signal handler.
 bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 {
     stackItem * sp = 0;
@@ -831,7 +832,7 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, pc, 1);
+            incrementCountAsynch(pc);
             return true;
         }
     }
@@ -843,7 +844,7 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, pc, 1);
+            incrementCountAsynch(pc);
             return true;
         }
     }
@@ -858,7 +859,7 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, pc, 1);
+            incrementCountAsynch(pc);
             return true;
         }
     }
