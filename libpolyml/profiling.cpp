@@ -138,7 +138,7 @@ static int decrAtomically(long & p)
 #ifdef _WIN32
     return InterlockedDecrement(&p);
 #elif (defined(HAVE_SYNC_FETCH))
-    return __sync_sub_and_fetch(&p);
+    return __sync_sub_and_fetch(&p, 1);
 #else
     return --p;
 #endif
