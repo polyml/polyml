@@ -1527,6 +1527,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         // threads in case a thread has allocated some more.
         freeSpace += gMem.GetFreeAllocSpace();
         globalStats.updatePeriodicStats(freeSpace, threadsInML);
+
+        // Process the profile queue if necessary.
+        processProfileQueue();
     }
     schedLock.Unlock();
     finish(exitResult); // Close everything down and exit.

@@ -298,6 +298,13 @@ AC_CHECK_TYPES([IMAGE_FILE_HEADER],
     [#include <windows.h>]
 )
 
+AC_MSG_CHECKING([whether the compiler supports __sync_add_and_fetch])
+AC_LINK_IFELSE([AC_LANG_SOURCE([[int main(void) { long i=0; return __sync_fetch_and_add(&i, 0) + __sync_sub_and_fetch(&i, 0); ]])],
+    [AC_MSG_RESULT([yes])] [AC_DEFINE([HAVE_SYNC_FETCH], [1],
+        [Define to 1 if the compiler supports __sync_fetch_and_add.])],
+    [AC_MSG_RESULT([no])])
+
+
 AM_CONDITIONAL([EXPPECOFF], [test "$polyexport" = pecoff])
 AM_CONDITIONAL([EXPELF], [test "$polyexport" = elf])
 AM_CONDITIONAL([EXPMACHO], [test "$polyexport" = macho])

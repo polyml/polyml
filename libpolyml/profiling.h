@@ -49,6 +49,9 @@ extern void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context);
 extern void addSynchronousCount(POLYCODEPTR pc, POLYUNSIGNED incr);
 // Add one to the timing counter.  May occur at any time.
 extern void incrementCountAsynch(POLYCODEPTR pc);
+// Process the queue of profile pc values if we're time profiling.
+// Only called by the main thread.
+extern void processProfileQueue();
 
 extern void AddObjectProfile(PolyObject *obj);
 
