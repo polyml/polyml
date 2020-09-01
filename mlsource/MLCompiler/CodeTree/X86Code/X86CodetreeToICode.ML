@@ -3382,18 +3382,18 @@ struct
                         then NONE
                         else
                         let
-                            val leng = toShort l
+                            val leng = Word.toInt(toShort l)
                             val moveKind =
                                 if toShort l = nativeWordSize
                                 then moveNativeWord
                                 else Move32Bit
                             val isLeftAligned =
                                 case sourceLeft of
-                                    {index=NONE, offset, ...} => offset mod leng = 0w0
+                                    {index=NONE, offset:int, ...} => offset mod leng = 0
                                 |   _ => false
                             val isRightAligned =
                                 case destRight of
-                                    {index=NONE, offset, ...} => offset mod leng = 0w0
+                                    {index=NONE, offset: int, ...} => offset mod leng = 0
                                 |   _ => false
                         in
                             if isLeftAligned andalso isRightAligned
@@ -3706,7 +3706,7 @@ struct
                         ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
                     end
                     else ([], baseReg)
-                val memResult = {base=realBase, offset=Word.toInt offset, index=MemIndex1 indexReg1, cache=NONE}
+                val memResult = {base=realBase, offset=offset, index=MemIndex1 indexReg1, cache=NONE}
             in
                 (codeLoadAddr @ codeIndex, untagCode, memResult)
             end
@@ -3726,11 +3726,10 @@ struct
                         ([BlockSimple(LoadEffectiveAddress{ base=SOME baseReg, offset=0, index=ObjectIndex, dest=addrReg, opSize=nativeWordOpSize})], addrReg)
                     end
                     else ([], baseReg)
-                val iOffset = Word.toInt offset handle Overflow => 0 (* See below: special case may not happen. *)
                 val memResult =
                     if wordSize = 0w8
-                    then {base=realBase, offset=iOffset-4, index=MemIndex4 indexReg, cache=NONE}
-                    else {base=realBase, offset=iOffset-2, index=MemIndex2 indexReg, cache=NONE}
+                    then {base=realBase, offset=offset-4, index=MemIndex4 indexReg, cache=NONE}
+                    else {base=realBase, offset=offset-2, index=MemIndex2 indexReg, cache=NONE}
             in
                 (codeLoadAddr @ codeIndex, [], memResult)
             end
@@ -3738,10 +3737,7 @@ struct
         |   codeAddressRev({base, index=NONE, offset}, _, context, tailCode) =
             let
                 val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
-                (* A negative value for "offset" will produce an overflow at compile time.  It should never be
-                   reached at run-time because of bounds checking.  See Test192. *)
-                val iOffset = Word.toInt offset handle Overflow => 0
-                val memResult = {offset=iOffset, base=baseReg, index=memIndexOrObject, cache=NONE}
+                val memResult = {offset=offset, base=baseReg, index=memIndexOrObject, cache=NONE}
             in
                 (codeBase, [], memResult)
             end
@@ -3758,15 +3754,29 @@ struct
         and codeCAddress({base, index=SOME index, offset}, 0w1, context) =
             let
                 (* Byte address with index.  The index needs to be untagged. *)
-                val untaggedBaseReg = newUReg() and indexReg1 = newUReg()
+                val untaggedBaseReg = newUReg()
                 val (codeBase, baseReg) = codeToPReg(base, context)
                 and (codeIndex, indexReg) = codeToPReg(index, context)
-                val untagCode =
-                    [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord}),
-                     BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false, cache=NONE, opSize=polyWordOpSize})]
-                val memResult = {base=untaggedBaseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1, cache=NONE}
+                (* The index needs to untagged and, if necessary, sign-extended to the native word size. *)
+                val (untagCode, sxReg) =
+                    if targetArch = ObjectId32Bit
+                    then
+                    let
+                        val sReg1 = newUReg() and sReg2 = newUReg()
+                    in
+                        ([BlockSimple(SignExtend32To64{dest=sReg1, source=RegisterArgument indexReg}),
+                          BlockSimple(UntagValue{dest=sReg2, source=sReg1, isSigned=true, cache=NONE, opSize=nativeWordOpSize})], sReg2)
+                    end
+                    else
+                    let
+                        val sReg = newUReg()
+                    in
+                        ([BlockSimple(UntagValue{dest=sReg, source=indexReg, isSigned=true, cache=NONE, opSize=nativeWordOpSize})], sReg)
+                    end
+                val loadCode = [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord})]
+                val memResult = {base=untaggedBaseReg, offset=offset, index=MemIndex1 sxReg, cache=NONE}
             in
-                (codeBase @ codeIndex, untagCode, memResult)
+                (codeBase @ codeIndex, loadCode @ untagCode, memResult)
             end
 
         |   codeCAddress({base, index=SOME index, offset}, size, context) =
@@ -3776,15 +3786,27 @@ struct
                 val untaggedBaseReg = newUReg()
                 val (codeBase, baseReg) = codeToPReg(base, context)
                 and (codeIndex, indexReg) = codeToPReg(index, context)
-                val untagCode = [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord})]
+                (* The index is signed i.e. negative index values are legal.  We don't have
+                   to do anything special on the native code versions but on 32-in-64 we need
+                   to sign extend. *)
+                val (untagCode, sxReg) =
+                    if targetArch = ObjectId32Bit
+                    then
+                    let
+                        val sReg = newUReg()
+                    in
+                        ([BlockSimple(SignExtend32To64{source=RegisterArgument indexReg, dest=sReg})], sReg)
+                    end
+                    else ([], indexReg)
+                val loadCode = [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord})]
                 val memResult =
                     case size of
-                        0w2 => {base=untaggedBaseReg, offset=Word.toInt offset-1, index=MemIndex1 indexReg, cache=NONE}
-                    |   0w4 => {base=untaggedBaseReg, offset=Word.toInt offset-2, index=MemIndex2 indexReg, cache=NONE}
-                    |   0w8 => {base=untaggedBaseReg, offset=Word.toInt offset-4, index=MemIndex4 indexReg, cache=NONE}
+                        0w2 => {base=untaggedBaseReg, offset=offset-1, index=MemIndex1 sxReg, cache=NONE}
+                    |   0w4 => {base=untaggedBaseReg, offset=offset-2, index=MemIndex2 sxReg, cache=NONE}
+                    |   0w8 => {base=untaggedBaseReg, offset=offset-4, index=MemIndex4 sxReg, cache=NONE}
                     |   _ => raise InternalError "codeCAddress: unknown size"
             in
-                (codeBase @ codeIndex, untagCode, memResult)
+                (codeBase @ codeIndex, loadCode @ untagCode, memResult)
             end
 
         |   codeCAddress({base, index=NONE, offset}, _, context) =
@@ -3792,7 +3814,7 @@ struct
                 val untaggedBaseReg = newUReg()
                 val (codeBase, baseReg) = codeToPReg(base, context)
                 val untagCode = [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=moveNativeWord})]
-                val memResult = {offset=Word.toInt offset, base=untaggedBaseReg, index=NoMemIndex, cache=NONE}
+                val memResult = {offset=offset, base=untaggedBaseReg, index=NoMemIndex, cache=NONE}
             in
                 (codeBase, untagCode, memResult)
             end
