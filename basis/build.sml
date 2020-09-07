@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Commands to build the library
-    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018
+    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -85,9 +85,10 @@ val () = Bootstrap.use "basis/RealSignature.sml";
 val () = Bootstrap.use "basis/Real.sml";
 val () = Bootstrap.use "basis/Real32.sml";
 val () = Bootstrap.use "basis/Time.sml";
-val () = Bootstrap.use "basis/DateSignature.sml";
+val () = Bootstrap.use "basis/DATE.sig";
 val () = Bootstrap.use "basis/Date.sml";
 val () = Bootstrap.use "basis/Thread.sml"; (* Non-standard. *)
+val () = Bootstrap.use "basis/ThreadLib.sml"; (* Non-standard. *)
 val () = Bootstrap.use "basis/Timer.sml";
 val () = Bootstrap.use "basis/CommandLine.sml";
 val () = Bootstrap.use "basis/OS.sml";

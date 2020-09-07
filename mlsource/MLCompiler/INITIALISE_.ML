@@ -37,7 +37,7 @@ functor INITIALISE_ (
     structure MAKE: MAKESIG
     structure ADDRESS : AddressSig
     structure DEBUG: DEBUGSIG
-    structure DEBUGGER : DEBUGGERSIG
+    structure DEBUGGER : DEBUGGER
     structure PRETTY : PRETTYSIG
     structure PRINTTABLE: PRINTTABLESIG
 
