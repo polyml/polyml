@@ -96,7 +96,7 @@ use "mlsource/MLCompiler/DatatypeRep.ML";
 use "mlsource/MLCompiler/ValueOps.ML";
 use "mlsource/MLCompiler/PARSETREESIG.sml";
 use "mlsource/MLCompiler/SIGNATURESSIG.sml";
-use "mlsource/MLCompiler/DEBUGGERSIG.sml";
+use "mlsource/MLCompiler/DEBUGGER.sig";
 use "mlsource/MLCompiler/STRUCTURES_.ML";
 use "mlsource/MLCompiler/DEBUGGER_.sml";
 use "mlsource/MLCompiler/Debugger.sml";
