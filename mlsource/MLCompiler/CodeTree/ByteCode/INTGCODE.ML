@@ -139,7 +139,7 @@ struct
                them if we need both. *)
             case (index, offset) of
                 (NONE, offset) => (pushConst (toMachineWord offset, cvec); incsp())
-            |   (SOME indexVal, 0w0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
+            |   (SOME indexVal, 0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
             |   (SOME indexVal, offset) =>
                 (
                     gencde (indexVal, ToStack, NotEnd, loopAddr);
@@ -628,8 +628,8 @@ struct
                    The offset is a byte count so has to be divided by the word size but
                    it should always be an exact multiple. *)
                 gencde (base, ToStack, NotEnd, loopAddr);
-                offset mod wordSize = 0w0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
-                genIndirect (Word.toInt(offset div wordSize), cvec)
+                offset mod Word.toInt wordSize = 0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
+                genIndirect (offset div Word.toInt wordSize, cvec)
             )
 
         |   BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}} =>
