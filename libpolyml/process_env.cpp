@@ -1,6 +1,6 @@
 /*
     Title:      Process environment.
-    Copyright (c) 2000-8, 2016-17
+    Copyright (c) 2000-8, 2016-17, 2020
         David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -106,6 +106,8 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetMaxStringSize();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetPolyVersionNumber();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(PolyObject *threadId, PolyWord fnAddr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetProcessName(PolyObject* threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCommandlineArguments(PolyObject* threadId);
 }
 
 #define SAVE(x) mdTaskData->saveVec.push(x)
@@ -169,10 +171,10 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
     unsigned c = get_C_unsigned(mdTaskData, DEREFWORD(code));
     switch (c)
     {
-    case 0: /* Return the program name. */
+    case 0: /* Return the program name. */ // Now a separate function.
         return SAVE(C_string_to_Poly(mdTaskData, userOptions.programName));
 
-    case 1: /* Return the argument list. */
+    case 1: /* Return the argument list. */ // Now a separate function.
         return convert_string_list(mdTaskData, userOptions.user_arg_count, userOptions.user_arg_strings);
 
     case 14: /* Return a string from the environment. */
@@ -726,6 +728,48 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(PolyObject *threadId, PolyWo
     else return result->Word().AsUnsigned();
 }
 
+// Get the command line process name.
+POLYUNSIGNED PolyGetProcessName(PolyObject* threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = taskData->saveVec.push(C_string_to_Poly(taskData, userOptions.programName));
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+// Get the command line arguments.
+POLYUNSIGNED PolyGetCommandlineArguments(PolyObject* threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = convert_string_list(taskData, userOptions.user_arg_count, userOptions.user_arg_strings);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+
+
 struct _entrypts processEnvEPT[] =
 {
     { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
@@ -738,6 +782,8 @@ struct _entrypts processEnvEPT[] =
     { "PolyGetMaxStringSize",           (polyRTSFunction)&PolyGetMaxStringSize },
     { "PolyGetPolyVersionNumber",       (polyRTSFunction)&PolyGetPolyVersionNumber },
     { "PolyGetFunctionName",            (polyRTSFunction)&PolyGetFunctionName },
+    { "PolyGetProcessName",             (polyRTSFunction)&PolyGetProcessName },
+    { "PolyGetCommandlineArguments",    (polyRTSFunction)&PolyGetCommandlineArguments },
 
     { NULL, NULL} // End of list.
 };
