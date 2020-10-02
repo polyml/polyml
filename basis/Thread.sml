@@ -21,7 +21,7 @@
    but are included here because they depend on the Time structure and are
    in turn dependencies of the BasicIO structure. *)
 
-(*&Earlier versions of Poly/ML have provided a form of concurrent execution through 
+(*!Earlier versions of Poly/ML have provided a form of concurrent execution through 
   the Process structure. Version 5.1 introduces 
   new thread primitives in the Thread structure. This structure is modelled on 
   the Posix thread (pthread) package but simplified and modified for ML. The aim 
@@ -51,17 +51,17 @@ interrupts makes correct programming difficult.
 
 signature THREAD =
 sig
-    (*&The Thread exception can be raised by various of the functions in the
+    (*!The Thread exception can be raised by various of the functions in the
        structure if they detect an error.*)
     exception Thread of string (* Raised if an operation fails. *)
     
     structure Thread:
     sig
-        (*&The type of a thread identifier.*)
+        (*!The type of a thread identifier.*)
         eqtype thread
         
         (* Thread attributes - This may be extended. *)
-        (*&The type of a thread attribute. Thread attributes are
+        (*!The type of a thread attribute. Thread attributes are
             properties of the thread that are set initially when the thread is
             created but can subsequently be modified by the thread itself.  The
             thread attribute type may be extended in the future to include things
@@ -126,47 +126,47 @@ sig
                that it has been interrupted without the risk of a second asynchronous
                interrupt occurring in the handler for the first interrupt. *)
         
-        (*&Fork a thread. Starts a new thread running 
+        (*!Fork a thread. Starts a new thread running 
           the function argument. The attribute list gives initial values for thread attributes 
           which can be modified by the thread itself. Any unspecified attributes take 
           default values. The thread is terminated when the thread function returns, if 
           it raises an uncaught exception or if it calls `exit`;*)
         val fork: (unit->unit) * threadAttribute list -> thread
 
-        (*&Terminate this thread. *)
+        (*!Terminate this thread. *)
         val exit: unit -> unit
-        (*&Test if a thread is still running or has terminated.  This function should be
+        (*!Test if a thread is still running or has terminated.  This function should be
           used with care.  The thread may be on the point of terminating and still appear
           to be active.*)
         val isActive: thread -> bool
         
-        (*&Test whether thread ids are the same.  This is provided for backwards compatibility
+        (*!Test whether thread ids are the same.  This is provided for backwards compatibility
           since `thread` is an eqtype. *)
         val equal: thread * thread -> bool
-        (*&Return the thread identifier for the current thread. *)
+        (*!Return the thread identifier for the current thread. *)
         val self: unit -> thread
         
         exception Interrupt (* = SML90.Interrupt *)
-        (*&Send an Interrupt exception to a specific thread.  When and indeed whether
+        (*!Send an Interrupt exception to a specific thread.  When and indeed whether
            the exception is actually delivered will depend on the interrupt state
            of the target thread.  Raises Thread if the thread is no longer running,
            so an exception handler should be used unless the thread is known to
            be blocked. *)
         val interrupt: thread -> unit
-        (*&Send an interrupt exception to every thread which is set to accept it. *)
+        (*!Send an interrupt exception to every thread which is set to accept it. *)
         val broadcastInterrupt: unit -> unit
-        (*&If this thread is handling interrupts synchronously, test to see 
+        (*!If this thread is handling interrupts synchronously, test to see 
            if it has been interrupted.  If so it raises the
            `Interrupt` exception. *)
         val testInterrupt: unit -> unit
-        (*&Terminate a thread. This should be used as a last resort.  Normally
+        (*!Terminate a thread. This should be used as a last resort.  Normally
            a thread should be allowed to clean up and terminate by using the
            interrupt call.  Raises Thread if the thread is no longer running,
            so an exception handler should be used unless the thread is known to
            be blocked. *)
         val kill: thread -> unit
         
-        (*&Get and set thread-local store for the calling thread. The store is a
+        (*!Get and set thread-local store for the calling thread. The store is a
            tagged associative memory which is initially empty for a new thread.
            A thread can call setLocal to add or replace items in its store and
            call getLocal to return values if they exist.  The Universal structure
@@ -175,13 +175,13 @@ sig
         val getLocal: 'a Universal.tag -> 'a option
         and setLocal: 'a Universal.tag * 'a -> unit
         
-        (*&Change the specified attribute(s) for the calling thread.  Unspecified
+        (*!Change the specified attribute(s) for the calling thread.  Unspecified
            attributes remain unchanged. *)
         val setAttributes: threadAttribute list -> unit
-        (*&Get the values of attributes. *)
+        (*!Get the values of attributes. *)
         val getAttributes: unit -> threadAttribute list
 
-        (*&Return the number of processors that will be used to run threads
+        (*!Return the number of processors that will be used to run threads
            and the number of physical processors if that is available. *)
         val numProcessors: unit -> int
         and numPhysicalProcessors: unit -> int option
@@ -189,7 +189,7 @@ sig
         
     structure Mutex:
     sig
-        (*&A mutex provides simple mutual exclusion.  A thread can lock
+        (*!A mutex provides simple mutual exclusion.  A thread can lock
            a mutex and until it unlocks it no other thread will be able to lock it.
            Locking and unlocking are intended to be fast in the situation when
            there is no other process attempting to lock the mutex.
@@ -197,19 +197,19 @@ sig
            is delivered during the calls.  A thread should use synchronous interrupt
            when using these calls. *)
         type mutex
-        (*&Make a new mutex *)
+        (*!Make a new mutex *)
         val mutex: unit -> mutex
-        (*&Lock a mutex.  If the mutex is currently locked the thread is
+        (*!Lock a mutex.  If the mutex is currently locked the thread is
            blocked until it is unlocked.  If a thread tries to lock a mutex that
            it has previously locked the thread will deadlock.
            N.B.  `thread` is not an interruption point
            (a point where synchronous
            interrupts are delivered) even though a thread can be blocked indefinitely. *)
         val lock: mutex -> unit
-        (*&Unlock a mutex and allow any waiting threads to run.  The behaviour
+        (*!Unlock a mutex and allow any waiting threads to run.  The behaviour
            if the mutex was not previously locked by the calling thread is undefined.  *)
         val unlock: mutex -> unit
-        (*&Attempt to lock the mutex.  Returns true if the mutex was not
+        (*!Attempt to lock the mutex.  Returns true if the mutex was not
            previously locked and has now been locked by the calling thread.  Returns
            false if the mutex was previously locked, including by the calling thread. *)
         val trylock: mutex -> bool
@@ -218,7 +218,7 @@ sig
     
     structure ConditionVar:
     sig
-        (*&Condition variables are used to provide communication
+        (*!Condition variables are used to provide communication
            between threads.  A condition variable is used in conjunction with a mutex
            and usually a reference to establish and test changes in state.  The normal
            use is for one thread to lock a mutex, test the reference and then wait on
@@ -230,9 +230,9 @@ sig
            More complex communication mechanisms, such as blocking channels, can
            be written in terms of condition variables. *)
         type conditionVar
-        (*&Make a new condition variable. *)
+        (*!Make a new condition variable. *)
         val conditionVar: unit -> conditionVar
-        (*&Release the mutex and block until the condition variable is signalled. When 
+        (*!Release the mutex and block until the condition variable is signalled. When 
             wait returns the mutex will have been re-acquired.
             
             If the thread is handling interrupts synchronously this function can be interrupted 
@@ -256,16 +256,16 @@ sig
             All the threads waiting on a condition variable should pass the same mutex 
             as argument.*)
         val wait: conditionVar * Mutex.mutex -> unit
-        (*&As wait except that it blocks until either the condition
+        (*!As wait except that it blocks until either the condition
            variable is signalled or the time (absolute) is reached.  Either way
            the mutex is reacquired so there may be a further delay if it is held
            by another thread.  *)
         val waitUntil: conditionVar * Mutex.mutex * Time.time -> bool
-        (*&Wake up one thread if any are waiting on the condition variable. 
+        (*!Wake up one thread if any are waiting on the condition variable. 
           If there are several threads waiting for the condition variable one will be 
           selected to run and will run as soon as it has re-acquired the lock.*)
         val signal: conditionVar -> unit
-        (*&Wake up all threads waiting on the condition variable. *)
+        (*!Wake up all threads waiting on the condition variable. *)
         val broadcast: conditionVar -> unit
     end
 

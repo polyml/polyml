@@ -19,10 +19,12 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(*&Although the `Posix` structure in the Standard Basis Library provides functions
+(**
+Although the `Posix` structure in the Standard Basis Library provides functions
 which send signals to a process there is no standard method of handling signals. The
 `Signal` structure has been added to Poly/ML to allow signals to be blocked or
-handled.*)
+handled.
+**)
 signature SIGNAL =
 sig
     datatype sig_handle = SIG_DFL | SIG_IGN | SIG_HANDLE of int->unit
@@ -94,7 +96,8 @@ struct
         val _ = PolyML.onEntry forkThread
     end
 end;
-(*&The `Signal.signal` function takes as its arguments a signal number and an
+(**
+The `Signal.signal` function takes as its arguments a signal number and an
 action and returns the previous action. The action may be `SIG_DFL`,
 indicating the default action, `SIG_IGN`, indicating that the signal should be
 ignored (blocked) or `SIG_HANDLE`, which allows a handler function to be installed.
@@ -116,4 +119,4 @@ by the profiling mechanism.
 The Signal structure is provided in the Windows implementation but only the 
 console interrupt signal (2) has effect.
 
-*)
+**)

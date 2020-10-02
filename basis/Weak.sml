@@ -27,21 +27,22 @@
    reachable.
 *)
 
-(*&The `Weak` structure contains functions for constructing 
+(**
+  The `Weak` structure contains functions for constructing 
   *weak* references and arrays. A weak reference is a way of detecting 
   when a resource is no longer in use and can be recovered. It is, in effect, 
   a way of extending the concept of garbage-collection to user code.
-*)
+**)
 signature WEAK =
 sig
-    (*&Constructs a weak reference.*)
+    (** Constructs a weak reference.  **)
     val weak: 'a ref option -> 'a ref option ref
-    (*&Constructs an array containing weak references.*)
+    (** Constructs an array containing weak references. **)
     val weakArray: int * 'a ref option -> 'a ref option array
-    (*&A lock and a condition variable that is broadcast when the garbage collector has recovered a *token*.*)
+    (** A lock and a condition variable that is broadcast when the garbage collector has recovered a *token*. **)
     val weakLock: Thread.Mutex.mutex
     and weakSignal: Thread.ConditionVar.conditionVar
-    (*&Uses the reference without changing it, ensuring that it is reachable at that point.*)
+    (** Uses the reference without changing it, ensuring that it is reachable at that point. **)
     val touch : 'a ref -> unit
 end;
 
@@ -68,7 +69,8 @@ struct
        work out that something is no longer referenced. *)
     val touch: 'a ref -> unit = RunCall.touch
 end;
-(*&The idea behind weak references is to allow user library code to recover resources 
+(**
+   The idea behind weak references is to allow user library code to recover resources 
   when they are no longer in use. This is only relevant for resources, such as 
   file descriptors, that exist outside the Poly/ML memory and need to be recovered.
   
@@ -115,4 +117,4 @@ end;
   The garbage-collector is only run when necessary and detection of released 
   resources may happen very infrequently, depending on factors such as the size 
   of the heap. To force a collection the library can call `PolyML.fullGC`
-*)
+**)

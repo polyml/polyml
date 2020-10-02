@@ -17,25 +17,25 @@
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(*&The `SingleAssignment` structure provides a reference 
+(*!The `SingleAssignment` structure provides a reference 
   that can be assigned a value only once.*)
 
 structure SingleAssignment:>
 sig
-    (*&The type of a single-assignment reference. It is similar to the standard 
+    (*!The type of a single-assignment reference. It is similar to the standard 
       `ref` type constructor.*)
     type 'a saref (* Equality not allowed *)
-    (*&This exception is raised if an attempt is made to assign a value twice 
+    (*!This exception is raised if an attempt is made to assign a value twice 
       to the same reference.*)
     exception Locked
-    (*&Construct a single-assignment reference.*)
+    (*!Construct a single-assignment reference.*)
     val saref: unit -> 'a saref
-    (*&Assign a value to the reference. If it has already been assigned a value 
+    (*!Assign a value to the reference. If it has already been assigned a value 
       this will raise `Locked`. Note that this function is not thread-safe. A `mutex`
       must be associated with reference if there is the possibility that two different 
       threads may attempt to assign to the same reference.*)
     val saset: 'a saref * 'a -> unit
-    (*&Extract the current value of the reference. If it has not yet been assigned 
+    (*!Extract the current value of the reference. If it has not yet been assigned 
       a value it will return `NONE`. If it has, 
       it will return `SOME v` where `v`
       is the value that was assigned.*)
@@ -58,7 +58,7 @@ struct
     )
     |   saset _ = raise Locked
 end;
-(*&The reason behind the `SingleAssignment` structure 
+(*!The reason behind the `SingleAssignment` structure 
   has to do with the way the Poly/ML storage management system deals with *mutable* 
   and *immutable* data. Immutable memory cells are given a value when they 
   are created and once created never change. They are used for lists, tuples, 

@@ -17,9 +17,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(*&These functions provide assistance in the encoding and decoding of ASN1
+(**
+These functions provide assistance in the encoding and decoding of ASN1
 binary encoding.
-*)
+**)
 
 signature ASN1 =
 sig
