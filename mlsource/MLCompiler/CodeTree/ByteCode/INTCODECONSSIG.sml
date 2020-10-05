@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-18 David C.J. Matthews
+    Copyright (c) 2016-18, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -187,9 +187,6 @@ sig
    (* Create a container on the stack *)
    val genContainer : int * code -> unit
 
-   (* Create a tuple from a container. *)
-   val genTupleFromContainer : int * code -> unit
-      
    (* copyCode - Finish up after compiling a function. *)
    val copyCode : code * int * closureRef -> unit
    

@@ -378,6 +378,7 @@ int IntTaskData::SwitchToPoly()
     POLYCODEPTR     pc;
     PolyWord        *sp;
     double          dv;
+    byte lastInstr = 0, prevInstr = 0;
 
     LoadInterpreterState(pc, sp);
 
@@ -390,6 +391,10 @@ int IntTaskData::SwitchToPoly()
         //char buff[1000];
         //sprintf(buff, "addr = %p sp=%p instr=%02x *sp=%p\n", pc, sp, *pc, (*sp).AsStackAddr());
         //OutputDebugStringA(buff);
+        prevInstr = lastInstr;
+ //       if (prevInstr == INSTR_local_0)
+  //          after[*pc]++;
+        lastInstr = *pc;
 
         switch(*pc++) {
 
@@ -470,7 +475,7 @@ int IntTaskData::SwitchToPoly()
             {
                 // arg1 is the largest value that is in the range
                 POLYSIGNED u = UNTAGGED(*sp++); /* Get the value */
-                if (u > arg1 || u < 0) pc += (arg1+2)*2; /* Out of range */
+                if (u >= arg1 || u < 0) pc += 2 + arg1*2; /* Out of range */
                 else {
                     pc += 2;
                     pc += /* Index */pc[u*2]+pc[u*2 + 1]*256; }
@@ -492,25 +497,25 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_tail_3_b:
+        case INSTR_tail_3_bLegacy:
            tailCount = 3;
            tailPtr = sp + tailCount;
            sp = tailPtr + *pc;
            goto TAIL_CALL;
 
-        case INSTR_tail_3_2:
+        case INSTR_tail_3_2Legacy:
            tailCount = 3;
            tailPtr = sp + tailCount;
            sp = tailPtr + 2;
            goto TAIL_CALL;
 
-        case INSTR_tail_3_3:
+        case INSTR_tail_3_3Legacy:
            tailCount = 3;
            tailPtr = sp + tailCount;
            sp = tailPtr + 3;
            goto TAIL_CALL;
 
-        case INSTR_tail_4_b:
+        case INSTR_tail_4_bLegacy:
            tailCount = 4;
            tailPtr = sp + tailCount;
            sp = tailPtr + *pc;
@@ -534,17 +539,40 @@ int IntTaskData::SwitchToPoly()
            if (tailCount < 2) Crash("Invalid argument\n");
            for (; tailCount > 0; tailCount--) *(--sp) = *(--tailPtr);
            pc = (*sp++).AsCodePtr(); /* Pop the original return address. */
-           /* And drop through. */
+           goto CALL_CLOSURE; /* And drop through. */
 
         case INSTR_call_closure: /* Closure call. */
         {
+            CALL_CLOSURE:
             POLYCODEPTR newPc = (*sp).AsObjPtr()->Get(0).AsCodePtr();
             sp--;
             *sp = sp[1];      /* Move closure up. */
             sp[1] = PolyWord::FromCodePtr(pc); /* Save return address. */
             pc = newPc;    /* Get entry point. */
             this->taskPc = pc; // Update in case we're profiling
-            break;
+            // Check that there at least 128 words on the stack
+            stackCheck = 128;
+            goto STACKCHECK;
+        }
+
+        case INSTR_callConstAddr8:
+            *(--sp) = *(PolyWord*)(pc + pc[0] + 1); pc += 1; goto CALL_CLOSURE;
+
+        case INSTR_callConstAddr16:
+            *(--sp) = *(PolyWord*)(pc + arg1 + 2); pc += 2; goto CALL_CLOSURE;
+
+        case INSTR_callConstAddr32:
+        {
+            POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
+            *(--sp) = *(PolyWord*)(pc + offset + 4);
+            pc += 4;
+            goto CALL_CLOSURE;
+        }
+
+        case INSTR_callLocalB:
+        {
+            PolyWord u = sp[*pc]; *(--sp) = u; pc += 1;
+            goto CALL_CLOSURE;
         }
 
         case INSTR_return_w:
@@ -596,8 +624,6 @@ int IntTaskData::SwitchToPoly()
             }
             break;
         }
-
-        case INSTR_pad: /* No-op */ break;
 
         case INSTR_raise_ex:
         {
@@ -720,6 +746,9 @@ int IntTaskData::SwitchToPoly()
         case INSTR_indirect_b:
             *sp = (*sp).AsObjPtr()->Get(*pc); pc += 1; break;
 
+        case INSTR_indirectLocalBB:
+            { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(*pc++); break; }
+
         case INSTR_move_to_vec_b:
             { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(*pc, u); pc += 1; break; }
 
@@ -745,6 +774,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_local_9: { PolyWord u = sp[9]; *(--sp) = u; break; }
         case INSTR_local_10: { PolyWord u = sp[10]; *(--sp) = u; break; }
         case INSTR_local_11: { PolyWord u = sp[11]; *(--sp) = u; break; }
+        case INSTR_local_12: { PolyWord u = sp[12]; *(--sp) = u; break; }
 
         case INSTR_indirect_0:
             *sp = (*sp).AsObjPtr()->Get(0); break;
@@ -778,7 +808,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_reset_1: sp += 1; break;
         case INSTR_reset_2: sp += 2; break;
 
-        case INSTR_stack_container:
+        case INSTR_stack_containerW:
         {
             POLYUNSIGNED words = arg1; pc += 2;
             while (words-- > 0) *(--sp) = Zero;
@@ -787,7 +817,16 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_tuple_container: /* Create a tuple from a container. */
+        case INSTR_stack_containerB:
+        {
+            POLYUNSIGNED words = *pc++;
+            while (words-- > 0) *(--sp) = Zero;
+            sp--;
+            *sp = PolyWord::FromStackAddr(sp + 1);
+            break;
+        }
+
+        case INSTR_tuple_containerLegacy: /* Create a tuple from a container. */
             {
                 storeWords = arg1;
                 PolyObject *t = this->allocateMemory(storeWords, pc, sp);
