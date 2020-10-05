@@ -127,23 +127,22 @@ struct
      (* Save the stack pointer value here. We may want to reset the stack. *)
      val oldsp = !realstackptr;
 
-        (* Load the address and index value for byte operations.
-           For ML memory operations the base is the address of an ML heap cell
-           whereas for C operations it is a large-word box containing an
-           address in C memory.  That doesn't affect this code but the interpreter
-           has to deal with these differently. *)
-        fun genByteAddress{base, index, offset} =
+        (* Operations on ML memory always have the base as an ML address.
+           Word operations are always word aligned.  The higher level will
+           have extracted any constant offset and scaled it if necessary.
+           That's helpful for the X86 but not for the interpreter.  We
+           have to turn them back into indexes. *)
+        fun genMLAddress({base, index, offset}, scale) =
         (
             gencde (base, ToStack, NotEnd, loopAddr);
-            (* Because the index and offset are both byte counts we can just add
-               them if we need both. *)
-            case (index, offset) of
-                (NONE, offset) => (pushConst (toMachineWord offset, cvec); incsp())
+            offset mod scale = 0 orelse raise InternalError "genMLAddress";
+            case (index, offset div scale) of
+                (NONE, soffset) => (pushConst (toMachineWord soffset, cvec); incsp())
             |   (SOME indexVal, 0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
-            |   (SOME indexVal, offset) =>
+            |   (SOME indexVal, soffset) =>
                 (
                     gencde (indexVal, ToStack, NotEnd, loopAddr);
-                    pushConst (toMachineWord offset, cvec);
+                    pushConst (toMachineWord soffset, cvec);
                     genOpcode(opcode_wordAdd, cvec)
                 )
        )
@@ -151,7 +150,7 @@ struct
        (* Load the address, index value and offset for non-byte operations.
           Because the offset has already been scaled by the size of the operand
           we have to load the index and offset separately. *)
-       fun genNonByteAddress{base, index, offset} =
+       fun genCAddress{base, index, offset} =
         (
             gencde (base, ToStack, NotEnd, loopAddr);
             case index of
@@ -632,41 +631,37 @@ struct
                 genIndirect (offset div Word.toInt wordSize, cvec)
             )
 
-        |   BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}} =>
-            let
-                (* Variable index. *)
-                val () = gencde (base, ToStack, NotEnd, loopAddr)
-                val () = gencde (indexVal, ToStack, NotEnd, loopAddr)
-                val () = (pushConst (toMachineWord offset, cvec); incsp())
-            in
+        |   BICLoadOperation { kind=LoadStoreMLWord _, address} =>
+            (
+                genMLAddress(address, Word.toInt wordSize);
                 genOpcode(opcode_loadMLWord, cvec);
-                decsp(); decsp()
-            end
+                decsp()
+            )
 
         |   BICLoadOperation { kind=LoadStoreMLByte _, address} =>
             (
-                genByteAddress address;
+                genMLAddress(address, 1);
                 genOpcode(opcode_loadMLByte, cvec);
                 decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreC8, address} =>
             (
-                genByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadC8, cvec);
                 decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreC16, address} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadC16, cvec);
                 decsp(); decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreC32, address} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadC32, cvec);
                 decsp(); decsp()
             )
@@ -674,63 +669,43 @@ struct
         |   BICLoadOperation { kind=LoadStoreC64, address} =>
             (
                 wordSize = 0w8 orelse raise InternalError "LoadStoreC64 but not 64-bit mode";
-                genNonByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadC64, cvec);
                 decsp(); decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreCFloat, address} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadCFloat, cvec);
                 decsp(); decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreCDouble, address} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadCDouble, cvec);
                 decsp(); decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreUntaggedUnsigned, address} =>
             (
-                genNonByteAddress address;
+                genMLAddress(address, Word.toInt wordSize);
                 genOpcode(opcode_loadUntagged, cvec);
+                decsp()
+            )
+
+        |   BICStoreOperation { kind=LoadStoreMLWord _, address, value } =>
+            (
+                genMLAddress(address, Word.toInt wordSize);
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storeMLWord, cvec);
                 decsp(); decsp()
             )
 
-        |   BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}, value } =>
-            let
-                (* No index.  We could almost use move_to_vec here except that it leaves
-                   the destination address on the stack instead of replacing it with "unit". *)
-                val () = gencde (base, ToStack, NotEnd, loopAddr)
-                val () = pushConst (toMachineWord 0, cvec)
-                val () = incsp()
-                val () = pushConst (toMachineWord offset, cvec)
-                val () = incsp()
-                val () = gencde (value, ToStack, NotEnd, loopAddr)
-            in
-                genOpcode(opcode_storeMLWord, cvec);
-                decsp(); decsp(); decsp()
-            end
-
-        |   BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}, value } =>
-            let
-                (* Variable index *)
-                val () = gencde (base, ToStack, NotEnd, loopAddr)
-                val () = gencde (indexVal, ToStack, NotEnd, loopAddr)
-                val () = pushConst (toMachineWord offset, cvec)
-                val () = incsp()
-                val () = gencde (value, ToStack, NotEnd, loopAddr)
-            in
-                genOpcode(opcode_storeMLWord, cvec);
-                decsp(); decsp(); decsp()
-            end
-
         |   BICStoreOperation { kind=LoadStoreMLByte _, address, value } =>
             (
-                genByteAddress address;
+                genMLAddress(address, 1);
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeMLByte, cvec);
                 decsp(); decsp()
@@ -738,7 +713,7 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreC8, address, value} =>
             (
-                genByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeC8, cvec);
                 decsp(); decsp()
@@ -746,7 +721,7 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreC16, address, value} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeC16, cvec);
                 decsp(); decsp(); decsp()
@@ -754,7 +729,7 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreC32, address, value} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeC32, cvec);
                 decsp(); decsp(); decsp()
@@ -762,7 +737,7 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreC64, address, value} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeC64, cvec);
                 decsp(); decsp(); decsp()
@@ -770,7 +745,7 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreCFloat, address, value} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeCFloat, cvec);
                 decsp(); decsp(); decsp()
@@ -778,7 +753,7 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreCDouble, address, value} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeCDouble, cvec);
                 decsp(); decsp(); decsp()
@@ -786,16 +761,16 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreUntaggedUnsigned, address, value} =>
             (
-                genNonByteAddress address;
+                genMLAddress(address, Word.toInt wordSize);
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeUntagged, cvec);
-                decsp(); decsp(); decsp()
+                decsp(); decsp()
             )
 
         |   BICBlockOperation { kind=BlockOpMove{isByteMove=true}, sourceLeft, destRight, length } =>
             (
-                genByteAddress sourceLeft;
-                genByteAddress destRight;
+                genMLAddress(sourceLeft, 1);
+                genMLAddress(destRight, 1);
                 gencde (length, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_blockMoveByte, cvec);
                 decsp(); decsp(); decsp(); decsp()
@@ -803,17 +778,17 @@ struct
 
         |   BICBlockOperation { kind=BlockOpMove{isByteMove=false}, sourceLeft, destRight, length } =>
             (
-                genNonByteAddress sourceLeft;
-                genNonByteAddress destRight;
+                genMLAddress(sourceLeft, Word.toInt wordSize);
+                genMLAddress(destRight, Word.toInt wordSize);
                 gencde (length, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_blockMoveWord, cvec);
-                decsp(); decsp(); decsp(); decsp(); decsp(); decsp()
+                decsp(); decsp(); decsp(); decsp()
             )
 
         |   BICBlockOperation { kind=BlockOpEqualByte, sourceLeft, destRight, length } =>
             (
-                genByteAddress sourceLeft;
-                genByteAddress destRight;
+                genMLAddress(sourceLeft, 1);
+                genMLAddress(destRight, 1);
                 gencde (length, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_blockEqualByte, cvec);
                 decsp(); decsp(); decsp(); decsp()
@@ -821,8 +796,8 @@ struct
 
         |   BICBlockOperation { kind=BlockOpCompareByte, sourceLeft, destRight, length } =>
             (
-                genByteAddress sourceLeft;
-                genByteAddress destRight;
+                genMLAddress(sourceLeft, 1);
+                genMLAddress(destRight, 1);
                 gencde (length, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_blockCompareByte, cvec);
                 decsp(); decsp(); decsp(); decsp()
