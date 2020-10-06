@@ -89,6 +89,9 @@
 #define INSTR_return_2      0x43
 #define INSTR_return_3      0x44
 #define INSTR_local_12      0x45
+#define INSTR_jump8True     0x46
+#define INSTR_jump16True    0x47
+#define INSTR_jump32True    0x48
 #define INSTR_reset_1       0x50
 #define INSTR_reset_2       0x51
 #define INSTR_tuple_containerLegacy 0x55
@@ -131,6 +134,7 @@
 #define INSTR_atomicIncr        0x97
 #define INSTR_atomicDecr        0x98
 #define INSTR_equalWord         0xa0
+#define INSTR_equalWordConstB       0xa1
 #define INSTR_lessSigned        0xa2
 #define INSTR_lessUnsigned      0xa3
 #define INSTR_lessEqSigned      0xa4

@@ -117,6 +117,9 @@ struct
     and opcode_return_2          = 0wx43
     and opcode_return_3          = 0wx44
     and opcode_local_12          = 0wx45
+    and opcode_jumpTrue          = 0wx46
+    and opcode_jump16True        = 0wx47
+    and opcode_jump32True        = 0wx48
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
     and opcode_resetR_1          = 0wx64
@@ -158,6 +161,7 @@ struct
     and opcode_atomicDecr        = 0wx98
     
     and opcode_equalWord         = 0wxa0
+    and opcode_equalWordConstB   = 0wxa1
     and opcode_lessSigned        = 0wxa2
     and opcode_lessUnsigned      = 0wxa3
     and opcode_lessEqSigned      = 0wxa4
@@ -291,7 +295,7 @@ struct
     type labels = {destination: Word.word ref }
 
     (* Used for jump, jumpFalse, setHandler and delHandler. *)
-    datatype jumpTypes = Jump | JumpFalse | SetHandler
+    datatype jumpTypes = Jump | JumpFalse | JumpTrue | SetHandler
 
     datatype opcode =
         SimpleCode of Word8.word list           (* Bytes that don't need any special treatment *)
@@ -514,6 +518,9 @@ struct
                 |   0wx43 => printStream "return_2"
                 |   0wx44 => printStream "return_3"
                 |   0wx45 => printStream "local_12"
+                |   0wx46 => (printStream "jumpTrue"; printDisp (1, "\t", false))
+                |   0wx47 => (printStream "jumpTrue"; printDisp (2, "\t", false))
+                |   0wx48 => (printStream "jumpTrue"; printDisp (4, "\t", false))
                 |   0wx50 => printStream "reset_1"
                 |   0wx51 => printStream "reset_2"
                 |   0wx52 => printStream "getStore_2"
@@ -557,6 +564,7 @@ struct
                 |   0wx97 => printStream "atomicIncr"
                 |   0wx98 => printStream "atomicDecr"
                 |   0wxa0 => printStream "equalWord"
+                |   0wxa1 => printOp(1, "equalWordConstB\t")
                 |   0wxa2 => printStream "lessSigned"
                 |   0wxa3 => printStream "lessUnsigned"
                 |   0wxa4 => printStream "lessEqSigned"
@@ -836,6 +844,7 @@ struct
                     case jumpType of
                         SetHandler => opcode_setHandler32
                     |   JumpFalse => opcode_jump32False
+                    |   JumpTrue => opcode_jump32True
                     |   Jump => opcode_jump32
                 val diff = dest - (ic + 0w5)
             in
@@ -865,6 +874,7 @@ struct
                     case jumpType of
                         SetHandler => opcode_setHandler16
                     |   JumpFalse => opcode_jump16False
+                    |   JumpTrue => opcode_jump16True
                     |   Jump => opcode_jump16
                 val diff = dest - (ic + 0w3)
                 val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
@@ -891,6 +901,7 @@ struct
                     case jumpType of
                         SetHandler => opcode_setHandler
                     |   JumpFalse => opcode_jumpFalse
+                    |   JumpTrue => opcode_jumpTrue
                     |   Jump => opcode_jump
                 val diff = dest - (ic + 0w2)
                 val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
@@ -1232,6 +1243,11 @@ struct
 
         and genRealToInt(rnding, cvec) = genExtOpcByte(ext_opcode_realToInt, encodeRound rnding, cvec)
         and genFloatToInt(rnding, cvec) = genExtOpcByte(ext_opcode_floatToInt, encodeRound rnding, cvec)
+        
+        fun genEqualWordConst(w, cvec) =
+            if w < 0w256
+            then genOpcByte (opcode_equalWordConstB, Word.toInt w, cvec)
+            else (pushConst(toMachineWord w, cvec); genOpc(opcode_equalWord, cvec))
     end
     
     local

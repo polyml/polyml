@@ -192,7 +192,7 @@ sig
    
    (* putBranchInstruction puts in an instruction which involves
       a forward reference. *)
-   datatype jumpTypes = Jump | JumpFalse | SetHandler
+   datatype jumpTypes = Jump | JumpFalse | JumpTrue | SetHandler
    val putBranchInstruction: jumpTypes * labels * code -> unit
    
    val createLabel: unit -> labels
@@ -201,6 +201,8 @@ sig
    val setLabel: labels * code -> unit
    
    val resetStack: int * bool * code -> unit (* Set a pending reset *)
+   
+    val genEqualWordConst: word * code -> unit
    
     structure Sharing:
     sig

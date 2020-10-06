@@ -457,10 +457,8 @@ struct
 
         |   BICTagTest { test, tag, ... } =>
             (
-                (* Convert this into a simple equality function. *)
                 gencde (test, ToStack, NotEnd, loopAddr);
-                pushConst (toMachineWord tag, cvec);
-                genOpcode(opcode_equalWord, cvec)
+                genEqualWordConst(tag, cvec)
             )
 
         |   BICGetThreadId =>
@@ -497,6 +495,20 @@ struct
                 |   RealToInt (PrecDouble, rnding) => genRealToInt(rnding, cvec)
                 |   RealToInt (PrecSingle, rnding) => genFloatToInt(rnding, cvec)
                 |   TouchAddress => resetStack(1, false, cvec) (* Discard this *)
+            end
+
+        |   BICBinary { oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1, arg2=BICConstnt(w, _) } =>
+            let
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+            in
+                genEqualWordConst(toShort w, cvec)
+            end
+
+        |   BICBinary { oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1=BICConstnt(w, _), arg2 } =>
+            let
+                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+            in
+                genEqualWordConst(toShort w, cvec)
             end
 
         |   BICBinary { oper, arg1, arg2 } =>
@@ -947,10 +959,41 @@ struct
 
     and genCond (testCode, thenCode, elseCode, whereto, tailKind, loopAddr) =
     let
-        val () = gencde (testCode, ToStack, NotEnd, loopAddr)
+        (* andalso and orelse are turned into conditionals with constants.
+           Convert this into a series of tests. *)
+        fun genTest(BICConstnt(w, _), jumpOn, targetLabel) =
+            let
+                val cVal = case toShort w of 0w0 => false | 0w1 => true | _ => raise InternalError "genTest"
+            in
+                if cVal = jumpOn
+                then putBranchInstruction (Jump, targetLabel, cvec)
+                else ()
+            end
+
+        |   genTest(BICUnary { oper=BuiltIns.NotBoolean, arg1 }, jumpOn, targetLabel) =
+                genTest(arg1, not jumpOn, targetLabel)
+
+        |   genTest(BICCond (testPart, thenPart, elsePart), jumpOn, targetLabel) =
+            let
+                val toElse = createLabel() and exitJump = createLabel()
+            in
+                genTest(testPart, false, toElse);
+                genTest(thenPart, jumpOn, targetLabel);
+                putBranchInstruction (Jump, exitJump, cvec);
+                setLabel (toElse, cvec);
+                genTest(elsePart, jumpOn, targetLabel);
+                setLabel (exitJump, cvec)
+            end
+
+        |   genTest(testCode, jumpOn, targetLabel) =
+            (
+                gencde (testCode, ToStack, NotEnd, loopAddr);
+                putBranchInstruction(if jumpOn then JumpTrue else JumpFalse, targetLabel, cvec);
+                decsp() (* conditional branch pops a value. *)
+            )
+
         val toElse = createLabel() and exitJump = createLabel()
-        val () = putBranchInstruction(JumpFalse, toElse, cvec)
-        val () = decsp()
+        val () = genTest(testCode, false, toElse)
         val () = gencde (thenCode, whereto, tailKind, loopAddr)
         (* Get rid of the result from the stack. If there is a result then the
         ``else-part'' will push it. *)

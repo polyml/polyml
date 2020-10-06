@@ -366,18 +366,10 @@ void IntTaskData::SetException(poly_exn *exc)
 int IntTaskData::SwitchToPoly()
 /* (Re)-enter the Poly code from C. */
 {
-    // These are temporary values used where one instruction jumps to
-    // common code.
-    POLYUNSIGNED    tailCount;
-    PolyWord        *tailPtr;
-    POLYUNSIGNED    returnCount;
-    POLYUNSIGNED    storeWords;
-    POLYUNSIGNED    stackCheck;
     // Local values.  These are copies of member variables but are used so frequently that
     // it is important that access should be fast.
     POLYCODEPTR     pc;
     PolyWord        *sp;
-    double          dv;
     byte lastInstr = 0, prevInstr = 0;
 
     LoadInterpreterState(pc, sp);
@@ -388,24 +380,47 @@ int IntTaskData::SwitchToPoly()
     if (this->raiseException) goto RAISE_EXCEPTION;
 
     for(;;){ /* Each instruction */
-        //char buff[1000];
-        //sprintf(buff, "addr = %p sp=%p instr=%02x *sp=%p\n", pc, sp, *pc, (*sp).AsStackAddr());
-        //OutputDebugStringA(buff);
+//        char buff[1000];
+//        sprintf(buff, "addr = %p sp=%p instr=%02x *sp=%p\n", pc, sp, *pc, (*sp).AsStackAddr());
+//        OutputDebugStringA(buff);
         prevInstr = lastInstr;
- //       if (prevInstr == INSTR_local_0)
-  //          after[*pc]++;
         lastInstr = *pc;
+
+        // These are temporary values used where one instruction jumps to
+        // common code.
+        POLYUNSIGNED    tailCount;
+        PolyWord*       tailPtr;
+        POLYUNSIGNED    returnCount;
+        POLYUNSIGNED    storeWords;
+        POLYUNSIGNED    stackCheck;
+        PolyObject      *closure;
+        double          dv;
+
+//        freq[*pc]++;
 
         switch(*pc++) {
 
         case INSTR_jump8false:
-            {
-                PolyWord u = *sp++; /* Pop argument */
-                if (u == True) { pc += 1; break; }
-                /* else - false - take the jump */
-            }
+        {
+            PolyWord u = *sp++;
+            if (u == True) pc += 1;
+            else pc += *pc + 1;
+            break;
+        }
 
         case INSTR_jump8: pc += *pc + 1; break;
+
+        case INSTR_jump8True:
+        {
+            PolyWord u = *sp++;
+            if (u == False) pc += 1;
+            else pc += *pc + 1;
+            break;
+        }
+
+        case INSTR_jump16True:
+            // Invert the sense of the test and fall through.
+            *sp = ((*sp) == True) ? False : True;
 
         case INSTR_jump16false:
         {
@@ -416,6 +431,10 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_jump16:
             pc += arg1 + 2; break;
+
+        case INSTR_jump32True:
+            // Invert the sense of the test and fall through.
+            *sp = ((*sp) == True) ? False : True;
 
         case INSTR_jump32False:
         {
@@ -539,16 +558,16 @@ int IntTaskData::SwitchToPoly()
            if (tailCount < 2) Crash("Invalid argument\n");
            for (; tailCount > 0; tailCount--) *(--sp) = *(--tailPtr);
            pc = (*sp++).AsCodePtr(); /* Pop the original return address. */
+           closure = (*sp++).AsObjPtr();
            goto CALL_CLOSURE; /* And drop through. */
 
         case INSTR_call_closure: /* Closure call. */
         {
+            closure = (*sp++).AsObjPtr();
             CALL_CLOSURE:
-            POLYCODEPTR newPc = (*sp).AsObjPtr()->Get(0).AsCodePtr();
-            sp--;
-            *sp = sp[1];      /* Move closure up. */
-            sp[1] = PolyWord::FromCodePtr(pc); /* Save return address. */
-            pc = newPc;    /* Get entry point. */
+            *(--sp) = PolyWord::FromCodePtr(pc); /* Save return address. */
+            *(--sp) = closure;
+            pc = closure->Get(0).AsCodePtr();    /* Get entry point. */
             this->taskPc = pc; // Update in case we're profiling
             // Check that there at least 128 words on the stack
             stackCheck = 128;
@@ -556,22 +575,22 @@ int IntTaskData::SwitchToPoly()
         }
 
         case INSTR_callConstAddr8:
-            *(--sp) = *(PolyWord*)(pc + pc[0] + 1); pc += 1; goto CALL_CLOSURE;
+            closure = (*(PolyWord*)(pc + pc[0] + 1)).AsObjPtr(); pc += 1; goto CALL_CLOSURE;
 
         case INSTR_callConstAddr16:
-            *(--sp) = *(PolyWord*)(pc + arg1 + 2); pc += 2; goto CALL_CLOSURE;
+            closure = (*(PolyWord*)(pc + arg1 + 2)).AsObjPtr(); pc += 2; goto CALL_CLOSURE;
 
         case INSTR_callConstAddr32:
         {
             POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
-            *(--sp) = *(PolyWord*)(pc + offset + 4);
+            closure = (*(PolyWord*)(pc + offset + 4)).AsObjPtr();
             pc += 4;
             goto CALL_CLOSURE;
         }
 
         case INSTR_callLocalB:
         {
-            PolyWord u = sp[*pc]; *(--sp) = u; pc += 1;
+            closure = (sp[*pc++]).AsObjPtr();
             goto CALL_CLOSURE;
         }
 
@@ -747,7 +766,7 @@ int IntTaskData::SwitchToPoly()
             *sp = (*sp).AsObjPtr()->Get(*pc); pc += 1; break;
 
         case INSTR_indirectLocalBB:
-            { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(*pc++); break; }
+        { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(*pc++); break; }
 
         case INSTR_move_to_vec_b:
             { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(*pc, u); pc += 1; break; }
@@ -1054,6 +1073,17 @@ int IntTaskData::SwitchToPoly()
         {
             PolyWord u = *sp++;
             *sp = u == (*sp) ? True : False;
+            break;
+        }
+
+
+        case INSTR_equalWordConstB:
+        {
+            PolyWord u = *sp;
+            if (u.IsTagged() && u.UnTagged() == *pc)
+                *sp = True;
+            else *sp = False;
+            pc++;
             break;
         }
 
