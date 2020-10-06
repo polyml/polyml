@@ -1255,19 +1255,10 @@ struct
                     else [opcode_returnW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)]),
                     cvec)
 
-        (*fun genLocal (arg1, cvec) =
-        let
-            val ops = [opcode_local_0, opcode_local_1, opcode_local_2, opcode_local_3, opcode_local_4,
-                       opcode_local_5, opcode_local_6, opcode_local_7, opcode_local_8, opcode_local_9,
-                       opcode_local_10, opcode_local_11, opcode_local_12]
-        in
-            gen1 (opcode_localW, opcode_localB, ops, 0, arg1, cvec)
-        end*)
-        
         fun genLocal (arg1, cvec) =
-            if 0 <= arg1 andalso arg1 <= 256 then addItemToList(LoadLocal(Word8.fromInt arg1), cvec)
+            if 0 <= arg1 andalso arg1 < 256 then addItemToList(LoadLocal(Word8.fromInt arg1), cvec)
             else addItemToList(SimpleCode[opcode_localW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)], cvec)
-        
+
         fun genIndirectSimple(arg1, cvec) =
         let
             val ops = [opcode_indirect_0, opcode_indirect_1, opcode_indirect_2, opcode_indirect_3,
@@ -1283,7 +1274,6 @@ struct
 
         |   genIndirect (arg1, cvec) = genIndirectSimple(arg1, cvec)
 
-        
         (* genMoveToVec is now only used for mutually recursive closures. *)
         fun genMoveToVec (arg1, cvec) =
             gen1 (opcode_moveToVecW, opcode_moveToVecB, [], 0, arg1, cvec)
