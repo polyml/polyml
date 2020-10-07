@@ -435,7 +435,7 @@ struct
                 val ()  = ptr := !ptr + 0w1
             in
                 case opc of
-                    0wx02 => (printStream "jump"; printDisp (1, "\t", false))
+                    0wx02 => (printStream "jump"; printDisp (1, "\t\t", false))
                 |   0wx03 => (printStream "jumpFalse"; printDisp (1, "\t", false))
                 |   0wx04 => printStream "loadMLWord"
                 |   0wx05 => printStream "storeMLWord"
@@ -1096,13 +1096,28 @@ struct
         
         |   peepHole(_ :: tl, true, output) = peepHole(tl, true, output)
 
-
         |   peepHole((jump as JumpInstruction{jumpType=Jump, ...}) :: tl, _, output) =
                 peepHole(tl, true, jump :: output)
                 
             (* Return, raise-exception and tail-call. *)
         |   peepHole((uncond as UncondTransfer _) :: tl, _, output) =
                 peepHole(tl, true, uncond :: output)
+
+            (* A conditional branch round an unconditional branch.  Replace by a
+               conditional branch with the sense reversed. *)
+        |   peepHole((cond as JumpInstruction{jumpType=JumpFalse, label=lab1, ...}) ::
+                (uncond as JumpInstruction{jumpType=Jump, label=lab2, size}) ::
+                (tail as LabelCode lab3 :: _), _, output) =
+                if lab1 = lab3
+                then peepHole(tail, false, JumpInstruction{jumpType=JumpTrue, label=lab2, size=size} :: output)
+                else peepHole(uncond :: tail, false, cond :: output)
+
+        |   peepHole((cond as JumpInstruction{jumpType=JumpTrue, label=lab1, ...}) ::
+                (uncond as JumpInstruction{jumpType=Jump, label=lab2, size}) ::
+                (tail as LabelCode lab3 :: _), _, output) =
+                if lab1 = lab3
+                then peepHole(tail, false, JumpInstruction{jumpType=JumpFalse, label=lab2, size=size} :: output)
+                else peepHole(uncond :: tail, false, cond :: output)
 
         |   peepHole(hd::tl, exited, output) = peepHole(tl, exited, hd::output)
     in
