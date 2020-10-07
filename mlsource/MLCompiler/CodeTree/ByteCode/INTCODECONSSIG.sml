@@ -25,8 +25,7 @@ sig
     type closureRef
 
     val opcode_notBoolean: opcode
-    val opcode_isTagged: opcode
-    and opcode_cellLength: opcode
+    val opcode_cellLength: opcode
     and opcode_cellFlags: opcode
     and opcode_clearMutable: opcode
     and opcode_atomicIncr: opcode
@@ -203,6 +202,7 @@ sig
    val resetStack: int * bool * code -> unit (* Set a pending reset *)
    
     val genEqualWordConst: word * code -> unit
+    val genIsTagged: code -> unit
    
     structure Sharing:
     sig

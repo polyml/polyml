@@ -159,7 +159,6 @@ struct
     and opcode_clearMutable      = 0wx95
     and opcode_atomicIncr        = 0wx97
     and opcode_atomicDecr        = 0wx98
-    
     and opcode_equalWord         = 0wxa0
     and opcode_equalWordConstB   = 0wxa1
     and opcode_lessSigned        = 0wxa2
@@ -170,7 +169,6 @@ struct
     and opcode_greaterUnsigned   = 0wxa7
     and opcode_greaterEqSigned   = 0wxa8
     and opcode_greaterEqUnsigned = 0wxa9
-
     and opcode_fixedAdd          = 0wxaa
     and opcode_fixedSub          = 0wxab
     and opcode_fixedMult         = 0wxac
@@ -187,6 +185,9 @@ struct
     and opcode_wordShiftLeft     = 0wxba
     and opcode_wordShiftRLog     = 0wxbb
     and opcode_allocByteMem      = 0wxbd
+    and opcode_equalLocalConstBB = 0wxc0
+    and opcode_equalLocalIndBBB  = 0wxc1
+    and opcode_isTaggedLocalB    = 0wxc2
     and opcode_getThreadId       = 0wxd9
     and opcode_allocWordMemory   = 0wxda
     and opcode_loadMLByte        = 0wxdc
@@ -304,6 +305,7 @@ struct
     |   PushConstant of { constNum: int, size : jumpSize ref, isCall: bool }
     |   IndexedCase of { labels: labels list, size : jumpSize ref }
     |   LoadLocal of Word8.word (* Locals - simplifies peephole optimisation. *)
+    |   IndirectLocal of { localAddr: Word8.word, indirect: Word8.word } (* Ditto *)
     
     and jumpSize = Size8 | Size16 | Size32
 
@@ -589,6 +591,9 @@ struct
                 |   0wxba => printStream "wordShiftLeft"
                 |   0wxbb => printStream "wordShiftRLog"
                 |   0wxbd => printStream "allocByteMem"
+                |   0wxc0 => (printOp(1, "equalLocalConstBB\t"); printOp(1, ","))
+                |   0wxc1 => (printOp(1, "equalLocalIndBBB\t"); printOp(1, ","); printOp(1, ","))
+                |   0wxc2 => printOp(1, "isTaggedLocalB\t")
                 |   0wxd9 => printStream "getThreadId"
                 |   0wxda => printStream "allocWordMemory"
                 |   0wxdc => printStream "loadMLByte"
@@ -719,6 +724,7 @@ struct
     |   codeSize (IndexedCase{labels, size=ref Size16, ...}) = 3 + List.length labels * 2 
     |   codeSize (IndexedCase{labels=_, size=ref Size8, ...}) = raise InternalError "codeSize"
     |   codeSize (LoadLocal w) = if w <= 0w12 then 1 else 2
+    |   codeSize (IndirectLocal _) = 3
    
     (* General function to process the code.  ic is the byte counter within the original code. *)
     fun foldCode foldFn n ops =
@@ -1003,7 +1009,9 @@ struct
         |   genByteCode(LoadLocal 0w11, _, _) = genByte opcode_local_11
         |   genByteCode(LoadLocal 0w12, _, _) = genByte opcode_local_12
         |   genByteCode(LoadLocal w, _, _) = (genByte opcode_localB; genByte w)
-            
+
+        |   genByteCode(IndirectLocal{localAddr, indirect}, _, _) =
+                (genByte opcode_indirectLocalBB; genByte localAddr; genByte indirect)
     in
         foldCode genByteCode () (ops @ paddingBytes);
         (codeVec (* Return the completed code. *), endIC (* And the size. *))
@@ -1244,10 +1252,24 @@ struct
         and genRealToInt(rnding, cvec) = genExtOpcByte(ext_opcode_realToInt, encodeRound rnding, cvec)
         and genFloatToInt(rnding, cvec) = genExtOpcByte(ext_opcode_floatToInt, encodeRound rnding, cvec)
         
-        fun genEqualWordConst(w, cvec) =
+        fun genEqualWordConst(w, cvec as Code{stage1Code as ref(LoadLocal addr :: tail), ...}) =
+            if w < 0w256
+            then stage1Code := SimpleCode[opcode_equalLocalConstBB, addr, wordToWord8 w] :: tail
+            else (pushConst(toMachineWord w, cvec); genOpc(opcode_equalWord, cvec))
+
+        |   genEqualWordConst(w, cvec as Code{stage1Code as ref(IndirectLocal{localAddr, indirect} :: tail), ...}) =
+            if w < 0w256
+            then stage1Code := SimpleCode[opcode_equalLocalIndBBB, localAddr, indirect, wordToWord8 w] :: tail
+            else (pushConst(toMachineWord w, cvec); genOpc(opcode_equalWord, cvec))
+
+        |   genEqualWordConst(w, cvec) =
             if w < 0w256
             then genOpcByte (opcode_equalWordConstB, Word.toInt w, cvec)
             else (pushConst(toMachineWord w, cvec); genOpc(opcode_equalWord, cvec))
+       
+        fun genIsTagged(Code{stage1Code as ref(LoadLocal addr :: tail), ...}) =
+                stage1Code := SimpleCode[opcode_isTaggedLocalB, addr] :: tail
+        |   genIsTagged cvec = genOpc(opcode_isTagged, cvec)
     end
     
     local
@@ -1285,7 +1307,7 @@ struct
         
         fun genIndirect (arg1, cvec as Code{stage1Code as ref(LoadLocal w :: tail), ...}) =
             if 0 <= arg1 andalso arg1 <= 255
-            then stage1Code := SimpleCode [opcode_indirectLocalBB, w, Word8.fromInt arg1] :: tail
+            then stage1Code := IndirectLocal{localAddr=w, indirect=Word8.fromInt arg1} :: tail
             else genIndirectSimple(arg1, cvec)
 
         |   genIndirect (arg1, cvec) = genIndirectSimple(arg1, cvec)
@@ -1309,8 +1331,7 @@ struct
     and genEnterIntCall _ = ()
 
     val opcode_notBoolean       = SimpleCode [opcode_notBoolean]
-    val opcode_isTagged         = SimpleCode [opcode_isTagged]
-    and opcode_cellLength       = SimpleCode [opcode_cellLength]
+    val opcode_cellLength       = SimpleCode [opcode_cellLength]
     and opcode_cellFlags        = SimpleCode [opcode_cellFlags]
     and opcode_clearMutable     = SimpleCode [opcode_clearMutable]
     and opcode_atomicIncr       = SimpleCode [opcode_atomicIncr]

@@ -474,7 +474,7 @@ struct
             in
                 case oper of
                     NotBoolean => genOpcode(opcode_notBoolean, cvec)
-                |   IsTaggedValue => genOpcode(opcode_isTagged, cvec)
+                |   IsTaggedValue => genIsTagged cvec
                 |   MemoryCellLength => genOpcode(opcode_cellLength, cvec)
                 |   MemoryCellFlags => genOpcode(opcode_cellFlags, cvec)
                 |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)

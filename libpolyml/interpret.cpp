@@ -1087,6 +1087,35 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_equalLocalConstBB:
+        {
+            // Combined load local with equalWordConstB
+            PolyWord u = sp[pc[0]];
+            u = (u.IsTagged() && u.UnTagged() == pc[1]) ? True : False;
+            pc += 2;
+            *(--sp) = u;
+            break;
+        }
+
+        case INSTR_equalLocalIndBBB:
+        {
+            // Combined load local with indirection and equalWordConstB.
+            // This is used to check the tag in a datatype so occurs frequently.
+            PolyWord u = sp[pc[0]];
+            u = u.AsObjPtr()->Get(pc[1]);
+            u = (u.IsTagged() && u.UnTagged() == pc[2]) ? True : False;
+            pc += 3;
+            *(--sp) = u;
+            break;
+        }
+
+        case INSTR_isTaggedLocalB:
+        {
+            PolyWord u = sp[*pc++];
+            *(--sp) = u.IsTagged() ? True : False;
+            break;
+        }
+
         case INSTR_lessSigned:
         {
             PolyWord u = *sp++;
@@ -1484,7 +1513,9 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        // Backwards compatibility
+        // Backwards compatibility.
+        // These are either used in the current compiler or compiled by it
+        // while building the basis library.
         case EXTINSTR_unsignedToLongW:
         case EXTINSTR_signedToLongW:
         case EXTINSTR_longWToTagged:
