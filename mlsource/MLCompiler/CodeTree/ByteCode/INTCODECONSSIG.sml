@@ -191,7 +191,7 @@ sig
    
    (* putBranchInstruction puts in an instruction which involves
       a forward reference. *)
-   datatype jumpTypes = Jump | JumpFalse | JumpTrue | SetHandler
+   datatype jumpTypes = Jump | JumpBack | JumpFalse | JumpTrue | SetHandler
    val putBranchInstruction: jumpTypes * labels * code -> unit
    
    val createLabel: unit -> labels

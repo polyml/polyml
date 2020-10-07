@@ -292,15 +292,19 @@ struct
     and ext_opcode_storeCDouble      = 0wxea
    
 
-    (* A Label is a ref that is later set to the location. *)
-    type labels = {destination: Word.word ref }
+    (* A Label is a ref that is later set to the location.
+       Several labels can be linked together so that they are only set
+       at a single point.
+       Only forward jumps are linked so when we come to finally set the
+       label we will have the full list. *)
+    type labels = Word.word ref list ref
 
     (* Used for jump, jumpFalse, setHandler and delHandler. *)
-    datatype jumpTypes = Jump | JumpFalse | JumpTrue | SetHandler
+    datatype jumpTypes = Jump | JumpBack | JumpFalse | JumpTrue | SetHandler
 
     datatype opcode =
         SimpleCode of Word8.word list           (* Bytes that don't need any special treatment *)
-    |   LabelCode of labels                     (* A label - forwards or backwards. *)
+    |   LabelCode of labels            (* A label - forwards or backwards. *)
     |   JumpInstruction of { label: labels, jumpType: jumpTypes, size : jumpSize ref }   (* Jumps or SetHandler. *)
     |   PushConstant of { constNum: int, size : jumpSize ref, isCall: bool }
     |   IndexedCase of { labels: labels list, size : jumpSize ref }
@@ -739,11 +743,11 @@ struct
         doFold(ops, 0w0, n)
     end
 
-    (* Process the code, setting the destination of any labels.  Return the length of the code. *)    
-    fun setLabels(LabelCode{destination, ...} :: ops, ic) = (destination := ic; setLabels(ops, ic))
+    (* Process the code, setting the destination of any labels.  Return the length of the code. *)
+    fun setLabels(LabelCode(ref labs) :: ops, ic) = (List.app(fn d => d := ic) labs; setLabels(ops, ic))
     |   setLabels(oper :: ops, ic) = setLabels(ops, ic + Word.fromInt(codeSize oper))
     |   setLabels([], ic) = ic
-    
+
     (* Set the sizes of branches depending on the distance to the destination. *)
     fun setLabelsAndSizes ops =
     let
@@ -760,8 +764,9 @@ struct
                instruction and the target could actually increase. *)
             val alignment = wordLength - 0w1
         
-            fun adjust(JumpInstruction{size as ref Size32, label={destination=ref dest}, ...}, ic, _) =
+            fun adjust(JumpInstruction{size as ref Size32, label=ref lab, ...}, ic, _) =
                 let
+                    val dest = !(hd lab)
                     val diff =
                         if dest <= ic (* N.B. Include infinite loops as backwards. *)
                         then ic - dest (* Backwards - Counts from start of instruction. *)
@@ -774,17 +779,25 @@ struct
                     else ()
                 end
 
-            |   adjust(JumpInstruction{size as ref Size16, label={destination=ref dest}, ...}, ic, _) =
-                if dest <= ic
-                then if ic - dest < 0wx100 then size := Size8 else ()
-                else if dest - (ic + 0w3)  < 0wx100 then size := Size8 else ()
+            |   adjust(JumpInstruction{size as ref Size16, label=ref lab, ...}, ic, _) =
+                let
+                    val dest = !(hd lab)
+                in
+                    if dest <= ic
+                    then if ic - dest < 0wx100 then size := Size8 else ()
+                    else if dest - (ic + 0w3)  < 0wx100 then size := Size8 else ()
+                end
         
             |   adjust(IndexedCase{size as ref Size32, labels}, ic, _) =
                 let
                     val startAddr = ic+0w3
                     (* Use 16-bit case if all the offsets are 16-bits. *)
-                    fun is16bit{destination=ref dest} =
+                    fun is16bit(ref lab) =
+                    let
+                        val dest = !(hd lab)
+                    in
                         dest > startAddr andalso dest < startAddr+0wx10000
+                    end
                 in
                     if List.all is16bit labels
                     then size := Size16
@@ -848,14 +861,16 @@ struct
 
         |   genByteCode(LabelCode _, _, _) = ()
 
-        |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size32, ...}, ic, _) =
+        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size32, ...}, ic, _) =
             let
+                val dest = !(hd labs)
                 val opc =
                     case jumpType of
                         SetHandler => opcode_setHandler32
                     |   JumpFalse => opcode_jump32False
                     |   JumpTrue => opcode_jump32True
                     |   Jump => opcode_jump32
+                    |   JumpBack => opcode_jump32
                 val diff = dest - (ic + 0w5)
             in
                 genByte opc;
@@ -866,58 +881,68 @@ struct
                 genByte(wordToWord8(diff ~>> 0w24))
             end
 
-        |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size16, ...}, ic, _) =
-            if dest <= ic
-            then (* Jump back. *)
+        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size16, ...}, ic, _) =
             let
-                val _ = jumpType = Jump orelse raise InternalError "genByteCode - back jump"
-                val diff = ic - dest
-                val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
+                val dest = !(hd labs)
             in
-                genByte opcode_jumpBack16;
-                genByte(wordToWord8 diff);
-                genByte(wordToWord8(diff >> 0w8))
-            end
-            else
-            let
-                val opc =
-                    case jumpType of
-                        SetHandler => opcode_setHandler16
-                    |   JumpFalse => opcode_jump16False
-                    |   JumpTrue => opcode_jump16True
-                    |   Jump => opcode_jump16
-                val diff = dest - (ic + 0w3)
-                val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
-            in
-                genByte opc;
-                genByte(wordToWord8 diff);
-                genByte(wordToWord8(diff >> 0w8))
+                if dest <= ic
+                then (* Jump back. *)
+                let
+                    val _ = jumpType = JumpBack orelse raise InternalError "genByteCode - back jump"
+                    val diff = ic - dest
+                    val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
+                in
+                    genByte opcode_jumpBack16;
+                    genByte(wordToWord8 diff);
+                    genByte(wordToWord8(diff >> 0w8))
+                end
+                else
+                let
+                    val opc =
+                        case jumpType of
+                            SetHandler => opcode_setHandler16
+                        |   JumpFalse => opcode_jump16False
+                        |   JumpTrue => opcode_jump16True
+                        |   Jump => opcode_jump16
+                        |   JumpBack => raise InternalError "genByteCode: JumpBack goes forward"
+                    val diff = dest - (ic + 0w3)
+                    val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
+                in
+                    genByte opc;
+                    genByte(wordToWord8 diff);
+                    genByte(wordToWord8(diff >> 0w8))
+                end
             end
 
-        |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size8, ...}, ic, _) =
-            if dest <= ic
-            then (* Jump back. *)
+        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size8, ...}, ic, _) =
             let
-                val _ = jumpType = Jump orelse raise InternalError "genByteCode - back jump"
-                val diff = ic - dest
-                val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
+                val dest = !(hd labs)
             in
-                genByte opcode_jumpBack8;
-                genByte(wordToWord8 diff)
-            end
-            else
-            let
-                val opc =
-                    case jumpType of
-                        SetHandler => opcode_setHandler
-                    |   JumpFalse => opcode_jumpFalse
-                    |   JumpTrue => opcode_jumpTrue
-                    |   Jump => opcode_jump
-                val diff = dest - (ic + 0w2)
-                val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
-            in
-                genByte opc;
-                genByte(wordToWord8 diff)
+                if dest <= ic
+                then (* Jump back. *)
+                let
+                    val _ = jumpType = JumpBack orelse raise InternalError "genByteCode - back jump"
+                    val diff = ic - dest
+                    val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
+                in
+                    genByte opcode_jumpBack8;
+                    genByte(wordToWord8 diff)
+                end
+                else
+                let
+                    val opc =
+                        case jumpType of
+                            SetHandler => opcode_setHandler
+                        |   JumpFalse => opcode_jumpFalse
+                        |   JumpTrue => opcode_jumpTrue
+                        |   Jump => opcode_jump
+                        |   JumpBack => raise InternalError "genByteCode: JumpBack goes forward"
+                    val diff = dest - (ic + 0w2)
+                    val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
+                in
+                    genByte opc;
+                    genByte(wordToWord8 diff)
+                end
             end
 
         |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall, ... }, ic, _) =
@@ -962,8 +987,9 @@ struct
                 val () = genByte(Word8.fromInt (nCases div 256))
                 val startOffset = ic+0w3 (* Offsets are relative to here. *)
 
-                fun putLabel{destination=ref dest} =
+                fun putLabel(ref labs) =
                 let
+                    val dest = !(hd labs)
                     val diff = dest - startOffset
                     val _ = dest > startOffset orelse raise InternalError "genByteCode - indexed case"
                 in
@@ -984,8 +1010,9 @@ struct
                 val () = genByte(Word8.fromInt (nCases div 256))
                 val startOffset = ic+0w3 (* Offsets are relative to here. *)
 
-                fun putLabel{destination=ref dest} =
+                fun putLabel(ref labs) =
                 let
+                    val dest = !(hd labs)
                     val diff = dest - startOffset
                     val _ = dest > startOffset orelse raise InternalError "genByteCode - indexed case"
                     val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - indexed case"
@@ -1041,13 +1068,35 @@ struct
     (* Peephole optimisation. *)
     local
         fun peepHole([], _, output) = List.rev output
+        
+        |   peepHole(LabelCode lab1 :: (instrs as LabelCode lab2 :: _), exited, output) =
+            (
+                (* Consecutive labels.  Merge these, discarding the first. *)
+                lab2 := !lab1 @ !lab2;
+                peepHole(instrs, exited, output)
+            )
 
-            (* Discard everything after an unconditional transfer until the next label. *)
+            (* A label followed by an unconditional branch.  Forward the original label.
+               Although JumpBack is also unconditional we don't forward those because
+               we don't have a conditional backwards jump. *)
+        |   peepHole((LabelCode lab1)  ::
+                     (jump as JumpInstruction{jumpType=Jump, label=lab2, ...}) :: tl,
+                     exited, output) =
+            (
+                lab2 := !lab1 @ !lab2;
+                (* Leave the jump in the stream and leave "exited" unchanged.
+                   This will now be unreachable if we had previously exited but
+                   we need to take the jump if we hadn't. *)
+                peepHole(jump :: tl, exited, output)
+            )
+
+           (* Discard everything after an unconditional transfer until the next label. *)
         |   peepHole((label as LabelCode _) :: tl, _, output) =
                 peepHole(tl, false, label::output)
         
         |   peepHole(_ :: tl, true, output) = peepHole(tl, true, output)
-        
+
+
         |   peepHole((jump as JumpInstruction{jumpType=Jump, ...}) :: tl, _, output) =
                 peepHole(tl, true, jump :: output)
                 
@@ -1144,7 +1193,7 @@ struct
 
     fun setLabel(label, cvec) = addItemToList(LabelCode label, cvec)
     
-    fun createLabel () = { destination=ref 0w0 }
+    fun createLabel () = ref [ref 0w0]
     
     local
         fun genOpc(opc, cvec) = addItemToList(SimpleCode [opc], cvec)

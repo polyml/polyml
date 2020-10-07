@@ -276,7 +276,7 @@ struct
                 else ();
             
                 (* Jump back to the start of the loop. *)
-                putBranchInstruction(Jump, startLoop, cvec)
+                putBranchInstruction(JumpBack, startLoop, cvec)
             end
   
         |   BICRaise exp =>
