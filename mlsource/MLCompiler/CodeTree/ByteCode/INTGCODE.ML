@@ -82,8 +82,6 @@ struct
         
         (* Maximum size of the stack. *)
         val maxStack = ref 1
-        (* Exited - set to true if we have jumped out. *)
-        val exited = ref false;
 
         (* Push a value onto the stack. *)
         fun incsp () =
@@ -282,12 +280,10 @@ struct
             end
   
         |   BICRaise exp =>
-            let
-                val () = gencde (exp, ToStack, NotEnd, loopAddr)
-                val () = genRaiseEx cvec;
-            in
-                exited := true
-            end
+            (
+                gencde (exp, ToStack, NotEnd, loopAddr);
+                genRaiseEx cvec
+            )
   
         |   BICHandle {exp, handler, exPacketAddr} =>
             let
@@ -315,7 +311,6 @@ struct
                    optimisation either. SPF 6/1/97
                 *)
                 val () = realstackptr := oldsp
-                val () = exited := false
                 val () = setLabel (handlerLabel, cvec)
                 (* If we were executing machine code we must re-enter the interpreter. *)
                 val () = genEnterIntCatch cvec
@@ -331,7 +326,7 @@ struct
                 (* Finally fix-up the jump around the handler *)
                 val () = setLabel (skipHandler, cvec)
             in
-                exited := false
+                ()
             end
   
         |   BICCase ({cases, test, default, firstIndex, ...}) =>
@@ -364,18 +359,15 @@ struct
                 end
                 val () = gencde (default, whereto, tailKind, loopAddr);
 
-                val () = exited := false;
-                
                 fun genCases(SOME body, label) =
                     (
                         (* First exit from the previous case or the default if
                            this is the first. *)
-                        if !exited then () else putBranchInstruction(Jump, exitJump, cvec);
+                        putBranchInstruction(Jump, exitJump, cvec);
                         (* Remove the result - the last case will leave it. *)
                         case whereto of ToStack => decsp () | NoResult => ();
                         (* Fix up the jump to come here. *)
                         setLabel(label, cvec);
-                        exited := false;
                         gencde (body, whereto, tailKind, loopAddr)
                     )
                 |   genCases(NONE, _) = ()
@@ -385,7 +377,7 @@ struct
                 (* Finally set the exit jump to come here. *)
                 val () = setLabel (exitJump, cvec)
             in
-                exited := false
+                ()
             end
   
         |   BICTuple recList =>
@@ -847,7 +839,7 @@ struct
                 val adjustment = !realstackptr - newsp
 
                 val () =
-                    if !exited orelse adjustment = 0
+                    if adjustment = 0
                     then ()
                     else if adjustment < ~1
                     then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
@@ -864,7 +856,7 @@ struct
                 val adjustment = !realstackptr - oldsp
 
                 val () =
-                    if !exited orelse adjustment = 0
+                    if adjustment = 0
                     then ()
                     else if adjustment < 0
                     then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
@@ -999,20 +991,14 @@ struct
         ``else-part'' will push it. *)
         val () = case whereto of ToStack => decsp () | NoResult => ()
 
-        val thenExited = !exited
-
-        val () = if thenExited then () else putBranchInstruction (Jump, exitJump, cvec)
+        val () = putBranchInstruction (Jump, exitJump, cvec)
 
         (* start of "else part" *)
         val () = setLabel (toElse, cvec)
-        val () = exited := false
         val () = gencde (elseCode, whereto, tailKind, loopAddr)
-
-        val elseExited = !exited
-
         val () = setLabel (exitJump, cvec)
     in
-        exited := (thenExited andalso elseExited) (* Only exited if both sides did. *)
+        ()
     end (* genCond *)
 
     and genEval (eval, tailKind : tail) : unit =
@@ -1048,7 +1034,7 @@ struct
                         (* It's "-1" not "-2", because we didn't bump the realstackptr
                            when we pushed the return address. SPF 3/1/97 *)
                 in
-                    exited := true
+                    ()
                 end
 
         (* Have to guarantee that the expression to return the function
@@ -1101,7 +1087,7 @@ struct
       caller wants a result (e.g. the identity function). *)
     val () = gencde (pt, ToStack, EndOfProc, NONE)
 
-    val () = if !exited then () else genReturn (numOfArgs, cvec);
+    val () = genReturn (numOfArgs, cvec);
     in (* body of codegen *)
        (* Having code-generated the body of the function, it is copied
           into a new data segment. *)

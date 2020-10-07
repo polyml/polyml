@@ -306,6 +306,7 @@ struct
     |   IndexedCase of { labels: labels list, size : jumpSize ref }
     |   LoadLocal of Word8.word (* Locals - simplifies peephole optimisation. *)
     |   IndirectLocal of { localAddr: Word8.word, indirect: Word8.word } (* Ditto *)
+    |   UncondTransfer of Word8.word list (* Raisex, return and tail. *)
     
     and jumpSize = Size8 | Size16 | Size32
 
@@ -711,7 +712,7 @@ struct
             printStream "\n"
         end (* main loop *)
     end (* printCode *)
-    
+
     fun codeSize (SimpleCode l) = List.length l
     |   codeSize (LabelCode _) = 0
     |   codeSize (JumpInstruction{size=ref Size8, ...}) = 2
@@ -725,7 +726,8 @@ struct
     |   codeSize (IndexedCase{labels=_, size=ref Size8, ...}) = raise InternalError "codeSize"
     |   codeSize (LoadLocal w) = if w <= 0w12 then 1 else 2
     |   codeSize (IndirectLocal _) = 3
-   
+    |   codeSize (UncondTransfer l) = List.length l
+
     (* General function to process the code.  ic is the byte counter within the original code. *)
     fun foldCode foldFn n ops =
     let
@@ -841,6 +843,8 @@ struct
         fun genByteCode(SimpleCode bytes, _, _) =
             (* Simple code - just generate the bytes. *)
                 List.app genByte bytes
+
+        |   genByteCode(UncondTransfer bytes, _, _) = List.app genByte bytes
 
         |   genByteCode(LabelCode _, _, _) = ()
 
@@ -1034,13 +1038,35 @@ struct
         putBytes(value, addrs, seg, 0w0)
     end
 
+    (* Peephole optimisation. *)
+    local
+        fun peepHole([], _, output) = List.rev output
+
+            (* Discard everything after an unconditional transfer until the next label. *)
+        |   peepHole((label as LabelCode _) :: tl, _, output) =
+                peepHole(tl, false, label::output)
+        
+        |   peepHole(_ :: tl, true, output) = peepHole(tl, true, output)
+        
+        |   peepHole((jump as JumpInstruction{jumpType=Jump, ...}) :: tl, _, output) =
+                peepHole(tl, true, jump :: output)
+                
+            (* Return, raise-exception and tail-call. *)
+        |   peepHole((uncond as UncondTransfer _) :: tl, _, output) =
+                peepHole(tl, true, uncond :: output)
+
+        |   peepHole(hd::tl, exited, output) = peepHole(tl, exited, hd::output)
+    in
+        fun optimise code = peepHole(code, false, [])
+    end
+
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun copyCode (cvec as
                     Code{ printAssemblyCode, printStream,
                            procName, constVec, stage1Code, ...}, maxStack, resultClosure) =
     let
         local
-            val revCode = List.rev(!stage1Code)
+            val revCode = optimise(List.rev(!stage1Code))
             (* Add a stack check.  This is only needed if the
                function needs more than 128 words since the call and tail functions
                check for this much. *)
@@ -1135,7 +1161,7 @@ struct
         |   encodeRound TO_POSINF = 2
         |   encodeRound TO_ZERO = 3
     in
-        fun genRaiseEx cvec = genOpc (opcode_raiseEx, cvec)
+        fun genRaiseEx cvec = addItemToList(UncondTransfer [opcode_raiseEx], cvec)
         fun genLock cvec = genOpc (opcode_lock, cvec)
         fun genLdexc cvec = genOpc (opcode_ldexc, cvec)
         fun genPushHandler cvec = genOpc (opcode_pushHandler, cvec)
@@ -1208,10 +1234,10 @@ struct
         fun genTailCall (toslide, slideby, cvec) =
         if toslide < 256 andalso slideby < 256
         then (* General byte case *)
-            addItemToList(SimpleCode[opcode_tailbb, Word8.fromInt toslide, Word8.fromInt slideby], cvec)          
+            addItemToList(UncondTransfer[opcode_tailbb, Word8.fromInt toslide, Word8.fromInt slideby], cvec)          
         else (* General case. *)
                 addItemToList(
-                    SimpleCode[opcode_tail, Word8.fromInt toslide, Word8.fromInt(toslide div 256),
+                    UncondTransfer[opcode_tail, Word8.fromInt toslide, Word8.fromInt(toslide div 256),
                                Word8.fromInt slideby, Word8.fromInt (slideby div 256)], cvec)
 
         fun pushConst (value : machineWord, cvec) =
@@ -1283,11 +1309,11 @@ struct
             else addItemToList(
                 SimpleCode [opW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)], cvec)
     in
-        fun genReturn(1, cvec) = addItemToList(SimpleCode[opcode_return_1], cvec)
-        |   genReturn(2, cvec) = addItemToList(SimpleCode[opcode_return_2], cvec)
-        |   genReturn(3, cvec) = addItemToList(SimpleCode[opcode_return_3], cvec)
+        fun genReturn(1, cvec) = addItemToList(UncondTransfer[opcode_return_1], cvec)
+        |   genReturn(2, cvec) = addItemToList(UncondTransfer[opcode_return_2], cvec)
+        |   genReturn(3, cvec) = addItemToList(UncondTransfer[opcode_return_3], cvec)
         |   genReturn(arg1, cvec) =
-                addItemToList(SimpleCode(
+                addItemToList(UncondTransfer(
                     if 0 <= arg1 andalso arg1 <= 255
                     then [opcode_returnB, Word8.fromInt arg1]
                     else [opcode_returnW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)]),
