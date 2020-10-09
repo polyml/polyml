@@ -58,25 +58,16 @@ struct
     and opcode_loadUntagged      = 0wx08
     and opcode_storeUntagged     = 0wx09
     and opcode_case16            = 0wx0a
-    and opcode_containerW        = 0wx0b
     and opcode_callClosure       = 0wx0c
     and opcode_returnW           = 0wx0d
     and opcode_containerB        = 0wx0e
-    and opcode_callConstAddr32   = 0wx0f
     and opcode_raiseEx           = 0wx10
     and opcode_callConstAddr16   = 0wx11
     and opcode_callConstAddr8    = 0wx12
     and opcode_localW            = 0wx13
-    and opcode_indirectW         = 0wx14
-    and opcode_moveToVecW        = 0wx15
     and opcode_callLocalB        = 0wx16
-    and opcode_setStackValW      = 0wx17
-    and opcode_resetW            = 0wx18
-    and opcode_resetR_w          = 0wx19
     and opcode_constAddr16       = 0wx1a
     and opcode_constIntW         = 0wx1b
-    and opcode_callFastRTSRRtoR  = 0wx1c (* 2 byte *)
-    and opcode_callFastRTSRGtoR  = 0wx1d (* 2 byte *)
     and opcode_jumpBack8         = 0wx1e   (* 8-bit unsigned jump backwards - relative to end of instr. *)
     and opcode_returnB           = 0wx1f
     and opcode_jumpBack16        = 0wx20    (* 16-bit unsigned jump backwards - relative to end of instr. *)
@@ -112,46 +103,38 @@ struct
     and opcode_const_3           = 0wx3e
     and opcode_const_4           = 0wx3f
     and opcode_const_10          = 0wx40
-    (*and opcode_return_0          = 0wx41 *) (* Legacy *)
     and opcode_return_1          = 0wx42
     and opcode_return_2          = 0wx43
     and opcode_return_3          = 0wx44
     and opcode_local_12          = 0wx45
     and opcode_jumpTrue          = 0wx46
     and opcode_jump16True        = 0wx47
-    and opcode_jump32True        = 0wx48
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
     and opcode_resetR_1          = 0wx64
     and opcode_resetR_2          = 0wx65
     and opcode_resetR_3          = 0wx66
-    and opcode_tupleW            = 0wx67
     and opcode_tupleB            = 0wx68
     and opcode_tuple_2           = 0wx69
     and opcode_tuple_3           = 0wx6a
     and opcode_tuple_4           = 0wx6b
     and opcode_lock              = 0wx6c
     and opcode_ldexc             = 0wx6d
-
     and opcode_pushHandler       = 0wx78
     and opcode_tailbb            = 0wx7b
-    and opcode_tail              = 0wx7c
     and opcode_setHandler        = 0wx81
-
     and opcode_callFastRTS0      = 0wx83
     and opcode_callFastRTS1      = 0wx84
     and opcode_callFastRTS2      = 0wx85
     and opcode_callFastRTS3      = 0wx86
     and opcode_callFastRTS4      = 0wx87
     and opcode_callFastRTS5      = 0wx88
-
     and opcode_callFullRTS0      = 0wx89
     and opcode_callFullRTS1      = 0wx8a
     and opcode_callFullRTS2      = 0wx8b
     and opcode_callFullRTS3      = 0wx8c
     and opcode_callFullRTS4      = 0wx8d
     and opcode_callFullRTS5      = 0wx8e
-
     and opcode_notBoolean        = 0wx91
     and opcode_isTagged          = 0wx92
     and opcode_cellLength        = 0wx93
@@ -196,11 +179,6 @@ struct
     and opcode_blockEqualByte    = 0wxed
     and opcode_blockCompareByte  = 0wxee
     and opcode_deleteHandler     = 0wxf1 (* Just deletes the handler - no jump. *)
-    and opcode_jump32            = 0wxf2 (* 32-bit signed jump, forwards or backwards. *)
-    and opcode_jump32False       = 0wxf3 (* Test top item. Take 32-bit signed jump if false. *)
-    and opcode_constAddr32       = 0wxf4 (* Followed by a 32-bit offset. Load a constant at that address. *)
-    and opcode_setHandler32      = 0wxf5 (* Setup a handler whose address is given by the 32-bit signed offset. *)
-    and opcode_case32            = 0wxf6 (* Indexed case with 32-bit offsets *)
     and opcode_jump16            = 0wxf7
     and opcode_jump16False       = 0wxf8
     and opcode_setHandler16      = 0wxf9
@@ -209,17 +187,18 @@ struct
     and opcode_stackSize16       = 0wxfc
     and opcode_escape            = 0wxfe (* For two-byte opcodes. *)
     and opcode_enterIntX86       = 0wxff (* Reserved - this is the first byte of a call *)
-    
-(*    
-    val opcode_loadMLWord        = 0wxdb
-    and opcode_storeMLWord       = 0wxe3
-    and opcode_blockMoveWord     = 0wxeb
-    and opcode_loadUntagged      = 0wxef
-    and opcode_storeUntagged     = 0wxf0 *)
 
-    
     (* Extended opcodes - preceded by 0xfe escape *)
-    val ext_opcode_floatAbs          = 0wx56
+    val ext_opcode_containerW        = 0wx0b
+    and ext_opcode_indirectW         = 0wx14
+    and ext_opcode_moveToVecW        = 0wx15
+    and ext_opcode_setStackValW      = 0wx17
+    and ext_opcode_resetW            = 0wx18
+    and ext_opcode_resetR_w          = 0wx19
+    and ext_opcode_callFastRTSRRtoR  = 0wx1c
+    and ext_opcode_callFastRTSRGtoR  = 0wx1d
+    and ext_opcode_jump32True        = 0wx48
+    and ext_opcode_floatAbs          = 0wx56
     and ext_opcode_floatNeg          = 0wx57
     and ext_opcode_fixedIntToFloat   = 0wx58
     and ext_opcode_floatToReal       = 0wx59
@@ -233,6 +212,7 @@ struct
     and ext_opcode_floatSub          = 0wx61
     and ext_opcode_floatMult         = 0wx62
     and ext_opcode_floatDiv          = 0wx63
+    and ext_opcode_tupleW            = 0wx67
     and ext_opcode_realToInt         = 0wx6e
     and ext_opcode_floatToInt        = 0wx6f
     and ext_opcode_callFastRTSFtoF   = 0wx70
@@ -241,6 +221,7 @@ struct
     and ext_opcode_callFastRTSFGtoF  = 0wx73
     and ext_opcode_realUnordered     = 0wx79
     and ext_opcode_floatUnordered    = 0wx7a
+    and ext_opcode_tail              = 0wx7c
     and ext_opcode_callFastRTSRtoR   = 0wx8f
     and ext_opcode_callFastRTSGtoR   = 0wx90
     and ext_opcode_atomicReset       = 0wx99
@@ -290,6 +271,11 @@ struct
     and ext_opcode_storeC64          = 0wxe8
     and ext_opcode_storeCFloat       = 0wxe9
     and ext_opcode_storeCDouble      = 0wxea
+    and ext_opcode_jump32            = 0wxf2 (* 32-bit signed jump, forwards or backwards. *)
+    and ext_opcode_jump32False       = 0wxf3 (* Test top item. Take 32-bit signed jump if false. *)
+    and ext_opcode_constAddr32       = 0wxf4 (* Followed by a 32-bit offset. Load a constant at that address. *)
+    and ext_opcode_setHandler32      = 0wxf5 (* Setup a handler whose address is given by the 32-bit signed offset. *)
+    and ext_opcode_case32            = 0wxf6 (* Indexed case with 32-bit offsets *)
    
 
     (* A Label is a ref that is later set to the location.
@@ -456,25 +442,16 @@ struct
                     in
                         forLoop printEntry 0w0 limit
                     end
-                |   0wx0b => printStream "containerW"
                 |   0wx0c => printStream "callClosure"
                 |   0wx0d => printOp(2, "returnW\t")
                 |   0wx0e => printStream "containerB"
-                |   0wx0f => printDisp (4, "callConstAddr32\t", false)
                 |   0wx10 => printStream "raiseEx"
                 |   0wx11 => printDisp (2, "callConstAddr16\t", false)
                 |   0wx12 => printDisp (1, "callConstAddr8\t", false)
                 |   0wx13 => printOp(2, "localW\t")
-                |   0wx14 => printOp(2, "indirectW\t")
-                |   0wx15 => printOp(2, "moveToVecW\t")
-                |   0wx17 => printOp(2, "setStackValW\t")
                 |   0wx16 => printOp(1, "callLocalB\t")
-                |   0wx18 => printOp(2, "resetW\t")
-                |   0wx19 => printOp(2, "resetR_w\t")
                 |   0wx1a => (printStream "constAddr16"; printDisp (2, "\t", false))
                 |   0wx1b => printOp(2, "constIntW\t")
-                |   0wx1c => printStream "callFastRTSRRtoR"
-                |   0wx1d => printStream "callFastRTSRGtoR"
                 |   0wx1e =>
                     ((* Should be negative *)
                         printStream "jumpBack8\t";
@@ -527,7 +504,6 @@ struct
                 |   0wx45 => printStream "local_12"
                 |   0wx46 => (printStream "jumpTrue"; printDisp (1, "\t", false))
                 |   0wx47 => (printStream "jumpTrue"; printDisp (2, "\t", false))
-                |   0wx48 => (printStream "jumpTrue"; printDisp (4, "\t", false))
                 |   0wx50 => printStream "reset_1"
                 |   0wx51 => printStream "reset_2"
                 |   0wx52 => printStream "getStore_2"
@@ -536,7 +512,6 @@ struct
                 |   0wx64 => printStream "resetR_1"
                 |   0wx65 => printStream "resetR_2"
                 |   0wx66 => printStream "resetR_3"
-                |   0wx67 => printOp(2, "tupleW\t")
                 |   0wx68 => printOp(1, "tupleB\t")
                 |   0wx69 => printStream "tuple_2"
                 |   0wx6a => printStream "tuple_3"
@@ -545,7 +520,6 @@ struct
                 |   0wx6d => printStream "ldexc"
                 |   0wx78 => printStream "pushHandler"
                 |   0wx7b => (printOp (1, "tailbb\t"); printOp (1, ","))
-                |   0wx7c => (printOp (2, "tail\t"); printOp (2, ","))
                 |   0wx7d => printOp(1, "tail3b\t")
                 |   0wx7e => printOp(1, "tail4b\t")
                 |   0wx7f => printStream "tail3_2"
@@ -607,23 +581,6 @@ struct
                 |   0wxed => printStream "blockEqualByte"
                 |   0wxee => printStream "blockCompareByte"
                 |   0wxf1 => printStream "deleteHandler"
-                |   0wxf2 => printDisp (4, "jump32\t", false)
-                |   0wxf3 => printDisp (4, "jump32False\t", false)
-                |   0wxf4 => printDisp (4, "constAddr32\t", false)
-                |   0wxf5 => printDisp (4, "setHandler32\t", false)
-                |   0wxf6 =>
-                    let
-                        (* Have to find out how many items there are. *)
-                        val limit = getB (2, !ptr, seg);
-                        val () = printOp (2, "case32\t");
-                        val base = !ptr;
-        
-                        fun printEntry _ = (printStream "\n\t"; printHex(base + getB(4, !ptr, seg)); ptr := !ptr + 0w4)
-        
-                        fun forLoop f i n = if i >= n then () else (f i; forLoop f (i + 0w1) n)
-                    in
-                        forLoop printEntry 0w0 limit
-                    end
                 |   0wxf7 => printStream "jump16"
                 |   0wxf8 => printStream "jump16False"
                 |   0wxf9 => printStream "setHandler16"
@@ -635,7 +592,17 @@ struct
                 |   0wxfe =>
                     (
                         case codeVecGet (seg, !ptr) before ptr := !ptr + 0w1 of
-                            0wx56 => printStream "floatAbs"
+                            0wx0b => printStream "containerW"
+                        |   0wx0f => printDisp (4, "callConstAddr32\t", false)
+                        |   0wx14 => printOp(2, "indirectW\t")
+                        |   0wx15 => printOp(2, "moveToVecW\t")
+                        |   0wx17 => printOp(2, "setStackValW\t")
+                        |   0wx18 => printOp(2, "resetW\t")
+                        |   0wx19 => printOp(2, "resetR_w\t")
+                        |   0wx1c => printStream "callFastRTSRRtoR"
+                        |   0wx1d => printStream "callFastRTSRGtoR"
+                        |   0wx48 => (printStream "jumpTrue"; printDisp (4, "\t", false))
+                        |   0wx56 => printStream "floatAbs"
                         |   0wx57 => printStream "floatNeg"
                         |   0wx58 => printStream "fixedIntToFloat"
                         |   0wx59 => printStream "floatToReal"
@@ -649,6 +616,7 @@ struct
                         |   0wx61 => printStream "floatSub"
                         |   0wx62 => printStream "floatMult"
                         |   0wx63 => printStream "floatDiv"
+                        |   0wx67 => printOp(2, "tupleW\t")
                         |   0wx6e => printOp(1, "realToInt\t")
                         |   0wx6f => printOp(1, "floatToInt\t")
                         |   0wx70 => printStream "callFastRTSFtoF"
@@ -657,6 +625,7 @@ struct
                         |   0wx73 => printStream "callFastRTSFGtoF"
                         |   0wx79 => printStream "realUnordered"
                         |   0wx7a => printStream "floatUnordered"
+                        |   0wx7c => (printOp (2, "tail\t"); printOp (2, ","))
                         |   0wx8f => printStream "callFastRTSRtoR"
                         |   0wx90 => printStream "callFastRTSGtoR"
                         |   0wx99 => printStream "atomicReset"
@@ -706,6 +675,23 @@ struct
                         |   0wxe8 => printStream "storeC64"
                         |   0wxe9 => printStream "storeCFloat"
                         |   0wxea => printStream "storeCDouble"
+                        |   0wxf2 => printDisp (4, "jump32\t", false)
+                        |   0wxf3 => printDisp (4, "jump32False\t", false)
+                        |   0wxf4 => printDisp (4, "constAddr32\t", false)
+                        |   0wxf5 => printDisp (4, "setHandler32\t", false)
+                        |   0wxf6 =>
+                            let
+                                (* Have to find out how many items there are. *)
+                                val limit = getB (2, !ptr, seg);
+                                val () = printOp (2, "case32\t");
+                                val base = !ptr;
+        
+                                fun printEntry _ = (printStream "\n\t"; printHex(base + getB(4, !ptr, seg)); ptr := !ptr + 0w4)
+        
+                                fun forLoop f i n = if i >= n then () else (f i; forLoop f (i + 0w1) n)
+                            in
+                                forLoop printEntry 0w0 limit
+                            end
                         |  _ => printStream ("unknown:0xfe 0x" ^ Word8.toString opc)
                     )
 
@@ -721,11 +707,12 @@ struct
     |   codeSize (LabelCode _) = 0
     |   codeSize (JumpInstruction{size=ref Size8, ...}) = 2
     |   codeSize (JumpInstruction{size=ref Size16, ...}) = 3
-    |   codeSize (JumpInstruction{size=ref Size32, ...}) = 5
+    |   codeSize (JumpInstruction{size=ref Size32, ...}) = 6
     |   codeSize (PushConstant{size=ref Size8, ...}) = 2
     |   codeSize (PushConstant{size=ref Size16, ...}) = 3
-    |   codeSize (PushConstant{size=ref Size32, ...}) = 5
-    |   codeSize (IndexedCase{labels, size=ref Size32, ...}) = 3 + List.length labels * 4 
+    |   codeSize (PushConstant{size=ref Size32, isCall=false, ...}) = 6
+    |   codeSize (PushConstant{size=ref Size32, isCall=true, ...}) = 7
+    |   codeSize (IndexedCase{labels, size=ref Size32, ...}) = 4 + List.length labels * 4 
     |   codeSize (IndexedCase{labels, size=ref Size16, ...}) = 3 + List.length labels * 2 
     |   codeSize (IndexedCase{labels=_, size=ref Size8, ...}) = raise InternalError "codeSize"
     |   codeSize (LoadLocal w) = if w <= 0w12 then 1 else 2
@@ -770,7 +757,7 @@ struct
                     val diff =
                         if dest <= ic (* N.B. Include infinite loops as backwards. *)
                         then ic - dest (* Backwards - Counts from start of instruction. *)
-                        else dest - (ic + 0w5) (* Forwards - Relative to the current end. *)
+                        else dest - (ic + 0w6) (* Forwards - Relative to the current end. *)
                 in
                     if diff < 0wx100
                     then size := Size8
@@ -790,7 +777,7 @@ struct
         
             |   adjust(IndexedCase{size as ref Size32, labels}, ic, _) =
                 let
-                    val startAddr = ic+0w3
+                    val startAddr = ic+0w4
                     (* Use 16-bit case if all the offsets are 16-bits. *)
                     fun is16bit(ref lab) =
                     let
@@ -807,7 +794,7 @@ struct
             |   adjust(PushConstant{size as ref Size32, constNum, ...}, ic, _) =
                 let
                     val constAddr = firstConstant + Word.fromInt constNum * wordLength
-                    val offset = constAddr - (ic + 0w5)
+                    val offset = constAddr - (ic + 0w6)
                 in
                     if offset < 0wx100-alignment then size := Size8
                     else if offset < 0wx10000-alignment then size := Size16
@@ -864,16 +851,17 @@ struct
         |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size32, ...}, ic, _) =
             let
                 val dest = !(hd labs)
-                val opc =
+                val extOpc =
                     case jumpType of
-                        SetHandler => opcode_setHandler32
-                    |   JumpFalse => opcode_jump32False
-                    |   JumpTrue => opcode_jump32True
-                    |   Jump => opcode_jump32
-                    |   JumpBack => opcode_jump32
-                val diff = dest - (ic + 0w5)
+                        SetHandler => ext_opcode_setHandler32
+                    |   JumpFalse => ext_opcode_jump32False
+                    |   JumpTrue => ext_opcode_jump32True
+                    |   Jump => ext_opcode_jump32
+                    |   JumpBack => ext_opcode_jump32
+                val diff = dest - (ic + 0w6)
             in
-                genByte opc;
+                genByte opcode_escape;
+                genByte extOpc;
                 genByte(wordToWord8 diff);
                 (* This may be negative so we must use an arithmetic shift. *)
                 genByte(wordToWord8(diff ~>> 0w8));
@@ -945,18 +933,26 @@ struct
                 end
             end
 
-        |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall, ... }, ic, _) =
+        |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=false, ... }, ic, _) =
             let
                 val constAddr = firstConstant + Word.fromInt constNum * wordSize
                 (* Offsets are calculated from the END of the instruction *)
-                val offset = constAddr - (ic + 0w5)
+                val offset = constAddr - (ic + 0w6)
             in
-                genByte(if isCall then opcode_callConstAddr32 else opcode_constAddr32);
+                genByte opcode_escape;
+                genByte ext_opcode_constAddr32;
                 genByte(wordToWord8 offset);
                 genByte(wordToWord8(offset >> 0w8));
                 genByte(wordToWord8(offset >> 0w16));
                 genByte(wordToWord8(offset >> 0w24))
             end
+
+        |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=true, ... }, ic, a) =
+            (
+                (* Turn this back into a push of a constant and call-closure. *)
+                genByteCode(PushConstant{ constNum=constNum, size=ref Size32, isCall=false }, ic, a);
+                genByte opcode_callClosure
+            )
 
         |   genByteCode(PushConstant{ constNum, size=ref Size16, isCall, ... }, ic, _) =
             let
@@ -982,10 +978,11 @@ struct
         |   genByteCode(IndexedCase{labels, size=ref Size32, ...}, ic, _) =
             let
                 val nCases = List.length labels
-                val () = genByte(opcode_case32)
+                val () = genByte opcode_escape
+                val () = genByte ext_opcode_case32
                 val () = genByte(Word8.fromInt nCases)
                 val () = genByte(Word8.fromInt (nCases div 256))
-                val startOffset = ic+0w3 (* Offsets are relative to here. *)
+                val startOffset = ic+0w4 (* Offsets are relative to here. *)
 
                 fun putLabel(ref labs) =
                 let
@@ -1213,10 +1210,22 @@ struct
     local
         fun genOpc(opc, cvec) = addItemToList(SimpleCode [opc], cvec)
         and genExtOpc(opc, cvec) = addItemToList(SimpleCode [opcode_escape, opc], cvec)
-        and genOpcByte(opc, arg1, cvec) = addItemToList(SimpleCode [opc, Word8.fromInt arg1], cvec)
-        and genExtOpcByte(opc, arg1, cvec) = addItemToList(SimpleCode [opcode_escape, opc, Word8.fromInt arg1], cvec)
+        and genOpcByte(opc, arg1, cvec) =
+            if 0 <= arg1 andalso arg1 < 256
+            then addItemToList(SimpleCode [opc, Word8.fromInt arg1], cvec)
+            else raise InternalError "genOpcByte"
+        and genExtOpcByte(opc, arg1, cvec) = 
+            if 0 <= arg1 andalso arg1 < 256
+            then addItemToList(SimpleCode [opcode_escape, opc, Word8.fromInt arg1], cvec)
+            else raise InternalError "genExtOpcByte"
         and genOpcWord(opc, arg1, cvec) =
-            addItemToList(SimpleCode[opc, Word8.fromInt arg1, Word8.fromInt (arg1 div 256)], cvec)
+            if 0 <= arg1 andalso arg1 < 65536
+            then addItemToList(SimpleCode[opc, Word8.fromInt arg1, Word8.fromInt (arg1 div 256)], cvec)
+            else raise InternalError "genOpcWord"
+        and genExtOpcWord(opc, arg1, cvec) =
+            if 0 <= arg1 andalso arg1 < 65536
+            then addItemToList(SimpleCode[opcode_escape, opc, Word8.fromInt arg1, Word8.fromInt (arg1 div 256)], cvec)
+            else raise InternalError "genExtOpcWord"
         
         open IEEEReal
         
@@ -1249,7 +1258,7 @@ struct
         fun genContainer (size, cvec) =
             if size < 256
             then genOpcByte(opcode_containerB, size, cvec)
-            else genOpcWord(opcode_containerW, size, cvec)
+            else genExtOpcWord(ext_opcode_containerW, size, cvec)
 
         fun genCase (nCases, cvec) =
         let
@@ -1272,7 +1281,7 @@ struct
         |   resetStack(offset, true, cvec) =
             if offset < 0 then raise InternalError "resetStack"
             else if offset > 255
-            then genOpcWord(opcode_resetR_w, offset, cvec)
+            then genExtOpcWord(ext_opcode_resetR_w, offset, cvec)
             else genOpcByte(opcode_resetRB, offset, cvec)
             
         |   resetStack(1, false, cvec) =
@@ -1283,7 +1292,7 @@ struct
         |   resetStack(offset, false, cvec) =
             if offset < 0 then raise InternalError "resetStack"
             else if offset > 255
-            then genOpcWord(opcode_resetW, offset, cvec)
+            then genExtOpcWord(ext_opcode_resetW, offset, cvec)
             else genOpcByte(opcode_resetB, offset, cvec)
 
         fun genCallClosure(Code{stage1Code as ref(PushConstant{constNum, size, isCall=false} :: tail), ...}) =
@@ -1301,7 +1310,7 @@ struct
             addItemToList(UncondTransfer[opcode_tailbb, Word8.fromInt toslide, Word8.fromInt slideby], cvec)          
         else (* General case. *)
                 addItemToList(
-                    UncondTransfer[opcode_tail, Word8.fromInt toslide, Word8.fromInt(toslide div 256),
+                    UncondTransfer[opcode_escape, ext_opcode_tail, Word8.fromInt toslide, Word8.fromInt(toslide div 256),
                                Word8.fromInt slideby, Word8.fromInt (slideby div 256)], cvec)
 
         fun pushConst (value : machineWord, cvec) =
@@ -1327,9 +1336,9 @@ struct
                 addItemToList(PushConstant{constNum = addConstToVec(value, cvec), size=ref Size32, isCall=false}, cvec)
 
         fun genRTSCallFastRealtoReal cvec = genExtOpc (ext_opcode_callFastRTSRtoR, cvec)
-        and genRTSCallFastRealRealtoReal cvec = genOpc (opcode_callFastRTSRRtoR, cvec)
+        and genRTSCallFastRealRealtoReal cvec = genExtOpc (ext_opcode_callFastRTSRRtoR, cvec)
         and genRTSCallFastGeneraltoReal cvec = genExtOpc (ext_opcode_callFastRTSGtoR, cvec)
-        and genRTSCallFastRealGeneraltoReal cvec = genOpc (opcode_callFastRTSRGtoR, cvec)
+        and genRTSCallFastRealGeneraltoReal cvec = genExtOpc (ext_opcode_callFastRTSRGtoR, cvec)
         
         and genRTSCallFastFloattoFloat cvec = genExtOpc (ext_opcode_callFastRTSFtoF, cvec)
         and genRTSCallFastFloatFloattoFloat cvec = genExtOpc (ext_opcode_callFastRTSFFtoF, cvec)
@@ -1360,62 +1369,59 @@ struct
         fun genIsTagged(Code{stage1Code as ref(LoadLocal addr :: tail), ...}) =
                 stage1Code := SimpleCode[opcode_isTaggedLocalB, addr] :: tail
         |   genIsTagged cvec = genOpc(opcode_isTagged, cvec)
-    end
-    
-    local
-        fun gen1 (opW, opB, opF, first, arg1, cvec) =
-            if first <= arg1 andalso arg1 < first+List.length opF
-            then addItemToList(SimpleCode[List.nth(opF, arg1 - first)], cvec)
 
-            else if 0 <= arg1 andalso arg1 <= 255
-            then addItemToList(SimpleCode [opB, Word8.fromInt arg1], cvec)
-
-            else addItemToList(
-                SimpleCode [opW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)], cvec)
-    in
-        fun genReturn(1, cvec) = addItemToList(UncondTransfer[opcode_return_1], cvec)
-        |   genReturn(2, cvec) = addItemToList(UncondTransfer[opcode_return_2], cvec)
-        |   genReturn(3, cvec) = addItemToList(UncondTransfer[opcode_return_3], cvec)
-        |   genReturn(arg1, cvec) =
-                addItemToList(UncondTransfer(
-                    if 0 <= arg1 andalso arg1 <= 255
-                    then [opcode_returnB, Word8.fromInt arg1]
-                    else [opcode_returnW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)]),
-                    cvec)
-
-        fun genLocal (arg1, cvec) =
-            if 0 <= arg1 andalso arg1 < 256 then addItemToList(LoadLocal(Word8.fromInt arg1), cvec)
-            else addItemToList(SimpleCode[opcode_localW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)], cvec)
-
-        fun genIndirectSimple(arg1, cvec) =
-        let
-            val ops = [opcode_indirect_0, opcode_indirect_1, opcode_indirect_2, opcode_indirect_3,
-                       opcode_indirect_4, opcode_indirect_5]
-        in
-            gen1 (opcode_indirectW, opcode_indirectB, ops, 0, arg1, cvec)
-        end
-        
-        fun genIndirect (arg1, cvec as Code{stage1Code as ref(LoadLocal w :: tail), ...}) =
-            if 0 <= arg1 andalso arg1 <= 255
-            then stage1Code := IndirectLocal{localAddr=w, indirect=Word8.fromInt arg1} :: tail
-            else genIndirectSimple(arg1, cvec)
-
-        |   genIndirect (arg1, cvec) = genIndirectSimple(arg1, cvec)
+        fun genIndirectSimple(0, cvec) = genOpc(opcode_indirect_0, cvec)
+        |   genIndirectSimple(1, cvec) = genOpc(opcode_indirect_1, cvec)
+        |   genIndirectSimple(2, cvec) = genOpc(opcode_indirect_2, cvec)
+        |   genIndirectSimple(3, cvec) = genOpc(opcode_indirect_3, cvec)
+        |   genIndirectSimple(4, cvec) = genOpc(opcode_indirect_4, cvec)
+        |   genIndirectSimple(5, cvec) = genOpc(opcode_indirect_5, cvec)
+        |   genIndirectSimple(arg1, cvec) =
+                if arg1 < 256
+                then genOpcByte(opcode_indirectB, arg1, cvec)
+                else genExtOpcWord(ext_opcode_indirectW, arg1, cvec)
 
         (* genMoveToVec is now only used for mutually recursive closures. *)
         fun genMoveToVec (arg1, cvec) =
-            gen1 (opcode_moveToVecW, opcode_moveToVecB, [], 0, arg1, cvec)
-
+            if arg1 < 256
+            then genOpcByte(opcode_moveToVecB, arg1, cvec)
+            else genExtOpcWord(ext_opcode_moveToVecW, arg1, cvec)
+        
         fun genSetStackVal (arg1, cvec) =
-            gen1 (opcode_setStackValW, opcode_setStackValB, [], 0, arg1, cvec)
+            if arg1 < 256
+            then genOpcByte(opcode_setStackValB, arg1, cvec)
+            else genExtOpcWord(ext_opcode_setStackValW, arg1, cvec)
 
-        fun genTuple (arg1, cvec) =
-        let
-            val ops = [opcode_tuple_2, opcode_tuple_3, opcode_tuple_4]
-        in
-            gen1 (opcode_tupleW, opcode_tupleB, ops, 2, arg1, cvec)
-        end
+        fun genTuple (2, cvec) = genOpc(opcode_tuple_2, cvec)
+        |   genTuple (3, cvec) = genOpc(opcode_tuple_3, cvec)
+        |   genTuple (4, cvec) = genOpc(opcode_tuple_4, cvec)
+        |   genTuple (arg1, cvec) =
+                if arg1 < 256
+                then genOpcByte(opcode_tupleB, arg1, cvec)
+                else genExtOpcWord(ext_opcode_tupleW, arg1, cvec)
     end
+    
+    fun genReturn(1, cvec) = addItemToList(UncondTransfer[opcode_return_1], cvec)
+    |   genReturn(2, cvec) = addItemToList(UncondTransfer[opcode_return_2], cvec)
+    |   genReturn(3, cvec) = addItemToList(UncondTransfer[opcode_return_3], cvec)
+    |   genReturn(arg1, cvec) =
+            addItemToList(UncondTransfer(
+                if 0 <= arg1 andalso arg1 <= 255
+                then [opcode_returnB, Word8.fromInt arg1]
+                else [opcode_returnW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)]),
+                cvec)
+
+    fun genLocal (arg1, cvec) =
+        if 0 <= arg1 andalso arg1 < 256 then addItemToList(LoadLocal(Word8.fromInt arg1), cvec)
+        else addItemToList(SimpleCode[opcode_localW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)], cvec)
+    
+    fun genIndirect (arg1, cvec as Code{stage1Code as ref(LoadLocal w :: tail), ...}) =
+        if 0 <= arg1 andalso arg1 <= 255
+        then stage1Code := IndirectLocal{localAddr=w, indirect=Word8.fromInt arg1} :: tail
+        else genIndirectSimple(arg1, cvec)
+
+    |   genIndirect (arg1, cvec) = genIndirectSimple(arg1, cvec)
+
     
     fun genEnterIntCatch _ = ()
     and genEnterIntCall _ = ()
