@@ -269,14 +269,10 @@ public:
     unsigned before[256], after[256];
     unsigned argval[256];
     unsigned freq[256];
-
-    byte* ringBuffer[256];
-    byte rpt;
 };
 
 IntTaskData::IntTaskData() : interrupt_requested(false), overflowPacket(0), dividePacket(0)
 {
-    rpt = 0;
     memset(before, 0, sizeof(before));
     memset(after, 0, sizeof(after));
     memset(argval, 0, sizeof(argval));
@@ -435,10 +431,8 @@ int IntTaskData::SwitchToPoly()
 //        char buff[1000];
 //        sprintf(buff, "addr = %p sp=%p instr=%02x *sp=%p\n", pc, sp, *pc, (*sp).AsStackAddr());
 //        OutputDebugStringA(buff);
-        ringBuffer[(rpt++) & 0xff] = pc;
         prevInstr = lastInstr;
         lastInstr = *pc;
-        static byte previousInstr = prevInstr;
 
         // These are temporary values used where one instruction jumps to
         // common code.
@@ -450,7 +444,7 @@ int IntTaskData::SwitchToPoly()
         PolyObject      *closure;
         double          dv;
 
- //       freq[*pc]++;
+//        freq[*pc]++;
 
         switch(*pc++) {
 
@@ -1018,10 +1012,31 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_jumpNEqLocalInd:
+        {
+            // Combined jump with equalLocalIndBBB
+            PolyWord u = sp[pc[0]];
+            u = u.AsObjPtr()->Get(pc[1]);
+            if (u.IsTagged() && u.UnTagged() == pc[2])
+                pc += 4;
+            else pc += pc[3] + 4;
+            break;
+        }
+
         case INSTR_isTaggedLocalB:
         {
             PolyWord u = sp[*pc++];
             *(--sp) = u.IsTagged() ? True : False;
+            break;
+        }
+
+        case INSTR_jumpTaggedLocal:
+        {
+            PolyWord u = sp[*pc];
+            // Jump if the value is tagged.
+            if (u.IsTagged())
+                pc += pc[1] + 2;
+            else pc += 2;
             break;
         }
 

@@ -171,6 +171,8 @@ struct
     and opcode_equalLocalConstBB = 0wxc0
     and opcode_equalLocalIndBBB  = 0wxc1
     and opcode_isTaggedLocalB    = 0wxc2
+    and opcode_jumpNEqLocalInd   = 0wxc3
+    and opcode_jumpTaggedLocal   = 0wxc4
     and opcode_getThreadId       = 0wxd9
     and opcode_allocWordMemory   = 0wxda
     and opcode_loadMLByte        = 0wxdc
@@ -186,7 +188,7 @@ struct
     (*and opcode_stackSize8        = 0wxfb*)
     and opcode_stackSize16       = 0wxfc
     and opcode_escape            = 0wxfe (* For two-byte opcodes. *)
-    and opcode_enterIntX86       = 0wxff (* Reserved - this is the first byte of a call *)
+    (*and opcode_enterIntX86       = 0wxff*) (* Reserved - this is the first byte of a call *)
 
     (* Extended opcodes - preceded by 0xfe escape *)
     val ext_opcode_containerW        = 0wx0b
@@ -291,12 +293,17 @@ struct
     datatype opcode =
         SimpleCode of Word8.word list           (* Bytes that don't need any special treatment *)
     |   LabelCode of labels            (* A label - forwards or backwards. *)
-    |   JumpInstruction of { label: labels, jumpType: jumpTypes, size : jumpSize ref }   (* Jumps or SetHandler. *)
+    |   JumpInstruction of { label: labels, jumpType: jumpTypes, size: jumpSize ref }   (* Jumps or SetHandler. *)
     |   PushConstant of { constNum: int, size : jumpSize ref, isCall: bool }
     |   IndexedCase of { labels: labels list, size : jumpSize ref }
     |   LoadLocal of Word8.word (* Locals - simplifies peephole optimisation. *)
     |   IndirectLocal of { localAddr: Word8.word, indirect: Word8.word } (* Ditto *)
+    |   EqualLocalIndBBB of { localAddr: Word8.word, indirect: Word8.word, const: Word8.word }
     |   UncondTransfer of Word8.word list (* Raisex, return and tail. *)
+    |   IsTaggedLocalB of Word8.word
+    |   JumpOnIsTaggedLocalB of { label: labels, size: jumpSize ref, localAddr: Word8.word }
+    |   JumpNotEqualLocalIndBBB of
+            { label: labels, size: jumpSize ref, localAddr: Word8.word, indirect: Word8.word, const: Word8.word }
     
     and jumpSize = Size8 | Size16 | Size32
 
@@ -353,24 +360,7 @@ struct
         fun printHex (v) = printStream(Word.fmt StringCvt.HEX v);
  
         val ptr = ref 0w0;
- 
-        (* To make sure we do not print branch extensions as though they
-           were instructions we keep a list of all indirect forward references
-           and print values at those addresses as addresses.
-           This list is sorted with the lowest address first. *)
- 
-        val indirections = ref [];
- 
-        local
-            fun addL (n, []) = [n]
-            |   addL (n, l as (x :: xs)) =
-                    if n < x then n :: l
-                    else if n = x then l
-                    else x :: addL (n, xs)
-        in
-            fun addInd (ind) = indirections := addL (ind, !indirections)
-        end
-        
+
         (* Gets "length" bytes from locations "addr", "addr"+1...
            Returns an unsigned number. *)
         fun getB (0, _, _) = 0w0
@@ -378,10 +368,9 @@ struct
                 (getB (length - 1, addr + 0w1, seg) << 0w8) + word8ToWord (codeVecGet (seg, addr))
 
         (* Prints a relative address. *)
-        fun printDisp (len, spacer: string, addToList: bool) =
+        fun printDisp (len, spacer: string) =
         let
             val ad = getB(len, !ptr, seg) + !ptr + Word.fromInt len
-            val () = if addToList then addInd ad else ();
             val () = printStream spacer;
             val () = printHex ad;
         in
@@ -404,25 +393,14 @@ struct
         in
             printHex addr; (* The address. *)
 
-            if (case !indirections of v :: _ => v = addr | [] => false)
-            then
-            let (* It's an address. *)
-                val () = printDisp (2, "\t", false);
-            in
-                case !indirections of
-                    _ :: vs => indirections := vs
-                |   _       => raise InternalError "printCode: indirection list confused"
-            end
-      
-            else
             let (* It's an instruction. *)
                 val ()  = printStream "\t"
                 val opc = codeVecGet (seg, !ptr) (* opcode *)
                 val ()  = ptr := !ptr + 0w1
             in
                 case opc of
-                    0wx02 => (printStream "jump"; printDisp (1, "\t\t", false))
-                |   0wx03 => (printStream "jumpFalse"; printDisp (1, "\t", false))
+                    0wx02 => (printStream "jump"; printDisp (1, "\t\t"))
+                |   0wx03 => (printStream "jumpFalse"; printDisp (1, "\t"))
                 |   0wx04 => printStream "loadMLWord"
                 |   0wx05 => printStream "storeMLWord"
                 |   0wx06 => printStream "alloc_ref"
@@ -446,11 +424,11 @@ struct
                 |   0wx0d => printOp(2, "returnW\t")
                 |   0wx0e => printStream "containerB"
                 |   0wx10 => printStream "raiseEx"
-                |   0wx11 => printDisp (2, "callConstAddr16\t", false)
-                |   0wx12 => printDisp (1, "callConstAddr8\t", false)
+                |   0wx11 => printDisp (2, "callConstAddr16\t")
+                |   0wx12 => printDisp (1, "callConstAddr8\t")
                 |   0wx13 => printOp(2, "localW\t")
                 |   0wx16 => printOp(1, "callLocalB\t")
-                |   0wx1a => (printStream "constAddr16"; printDisp (2, "\t", false))
+                |   0wx1a => (printStream "constAddr16"; printDisp (2, "\t"))
                 |   0wx1b => printOp(2, "constIntW\t")
                 |   0wx1e =>
                     ((* Should be negative *)
@@ -502,8 +480,8 @@ struct
                 |   0wx43 => printStream "return_2"
                 |   0wx44 => printStream "return_3"
                 |   0wx45 => printStream "local_12"
-                |   0wx46 => (printStream "jumpTrue"; printDisp (1, "\t", false))
-                |   0wx47 => (printStream "jumpTrue"; printDisp (2, "\t", false))
+                |   0wx46 => (printStream "jumpTrue"; printDisp (1, "\t"))
+                |   0wx47 => (printStream "jumpTrue"; printDisp (2, "\t"))
                 |   0wx50 => printStream "reset_1"
                 |   0wx51 => printStream "reset_2"
                 |   0wx52 => printStream "getStore_2"
@@ -524,7 +502,7 @@ struct
                 |   0wx7e => printOp(1, "tail4b\t")
                 |   0wx7f => printStream "tail3_2"
                 |   0wx80 => printStream "tail3_3"
-                |   0wx81 => (printStream "setHandler"; printDisp (1, "\t", false))
+                |   0wx81 => (printStream "setHandler"; printDisp (1, "\t"))
                 |   0wx83 => printStream "callFastRTS0"
                 |   0wx84 => printStream "callFastRTS1"
                 |   0wx85 => printStream "callFastRTS2"
@@ -573,6 +551,8 @@ struct
                 |   0wxc0 => (printOp(1, "equalLocalConstBB\t"); printOp(1, ","))
                 |   0wxc1 => (printOp(1, "equalLocalIndBBB\t"); printOp(1, ","); printOp(1, ","))
                 |   0wxc2 => printOp(1, "isTaggedLocalB\t")
+                |   0wxc3 => (printOp(1, "jumpNEqLocalInd\t"); printOp(1, ","); printOp(1, ","); printDisp(1, "\t"))
+                |   0wxc4 => (printOp(1, "jumpTaggedLocal\t"); printDisp(1, "\t"))
                 |   0wxd9 => printStream "getThreadId"
                 |   0wxda => printStream "allocWordMemory"
                 |   0wxdc => printStream "loadMLByte"
@@ -584,7 +564,7 @@ struct
                 |   0wxf7 => printStream "jump16"
                 |   0wxf8 => printStream "jump16False"
                 |   0wxf9 => printStream "setHandler16"
-                |   0wxfa => printDisp (1, "constAddr8\t", false)
+                |   0wxfa => printDisp (1, "constAddr8\t")
                 |   0wxfb => printOp(1, "stackSize8\t")
                 |   0wxfc => printOp(2, "stackSize16\t")
                 |   0wxff => printStream "enterIntX86"
@@ -593,7 +573,7 @@ struct
                     (
                         case codeVecGet (seg, !ptr) before ptr := !ptr + 0w1 of
                             0wx0b => printStream "containerW"
-                        |   0wx0f => printDisp (4, "callConstAddr32\t", false)
+                        |   0wx0f => printDisp (4, "callConstAddr32\t")
                         |   0wx14 => printOp(2, "indirectW\t")
                         |   0wx15 => printOp(2, "moveToVecW\t")
                         |   0wx17 => printOp(2, "setStackValW\t")
@@ -601,7 +581,7 @@ struct
                         |   0wx19 => printOp(2, "resetR_w\t")
                         |   0wx1c => printStream "callFastRTSRRtoR"
                         |   0wx1d => printStream "callFastRTSRGtoR"
-                        |   0wx48 => (printStream "jumpTrue"; printDisp (4, "\t", false))
+                        |   0wx48 => (printStream "jumpTrue"; printDisp (4, "\t"))
                         |   0wx56 => printStream "floatAbs"
                         |   0wx57 => printStream "floatNeg"
                         |   0wx58 => printStream "fixedIntToFloat"
@@ -675,10 +655,10 @@ struct
                         |   0wxe8 => printStream "storeC64"
                         |   0wxe9 => printStream "storeCFloat"
                         |   0wxea => printStream "storeCDouble"
-                        |   0wxf2 => printDisp (4, "jump32\t", false)
-                        |   0wxf3 => printDisp (4, "jump32False\t", false)
-                        |   0wxf4 => printDisp (4, "constAddr32\t", false)
-                        |   0wxf5 => printDisp (4, "setHandler32\t", false)
+                        |   0wxf2 => printDisp (4, "jump32\t")
+                        |   0wxf3 => printDisp (4, "jump32False\t")
+                        |   0wxf4 => printDisp (4, "constAddr32\t")
+                        |   0wxf5 => printDisp (4, "setHandler32\t")
                         |   0wxf6 =>
                             let
                                 (* Have to find out how many items there are. *)
@@ -718,16 +698,26 @@ struct
     |   codeSize (LoadLocal w) = if w <= 0w12 then 1 else 2
     |   codeSize (IndirectLocal _) = 3
     |   codeSize (UncondTransfer l) = List.length l
+    |   codeSize (EqualLocalIndBBB _) = 4
+    |   codeSize (IsTaggedLocalB _) = 2
+    |   codeSize (JumpOnIsTaggedLocalB{size=ref Size8, ...}) = 3
+    |   codeSize (JumpOnIsTaggedLocalB{size=ref Size16, ...}) = 5
+    |   codeSize (JumpOnIsTaggedLocalB{size=ref Size32, ...}) = 8
+    |   codeSize (JumpNotEqualLocalIndBBB{size=ref Size8, ...}) = 5
+    |   codeSize (JumpNotEqualLocalIndBBB{size=ref Size16, ...}) = 7
+    |   codeSize (JumpNotEqualLocalIndBBB{size=ref Size32, ...}) = 10
+
 
     (* General function to process the code.  ic is the byte counter within the original code. *)
-    fun foldCode foldFn n ops =
+    fun foldCode foldFn ops =
     let
-        fun doFold(oper :: operList, ic, acc) =
-            doFold(operList, ic + Word.fromInt(codeSize oper),
-                foldFn(oper, ic, acc))
-        |   doFold(_, _, n) = n
+        fun doFold(oper :: operList, ic) =
+            doFold(operList,
+                (* Get the size BEFORE any possible change. *)
+                ic + Word.fromInt(codeSize oper) before foldFn(oper, ic))
+        |   doFold(_, ic) = ic
     in
-        doFold(ops, 0w0, n)
+        doFold(ops, 0w0)
     end
 
     (* Process the code, setting the destination of any labels.  Return the length of the code. *)
@@ -751,7 +741,7 @@ struct
                instruction and the target could actually increase. *)
             val alignment = wordLength - 0w1
         
-            fun adjust(JumpInstruction{size as ref Size32, label=ref lab, ...}, ic, _) =
+            fun adjust(JumpInstruction{size as ref Size32, label=ref lab, ...}, ic) =
                 let
                     val dest = !(hd lab)
                     val diff =
@@ -766,7 +756,7 @@ struct
                     else ()
                 end
 
-            |   adjust(JumpInstruction{size as ref Size16, label=ref lab, ...}, ic, _) =
+            |   adjust(JumpInstruction{size as ref Size16, label=ref lab, ...}, ic) =
                 let
                     val dest = !(hd lab)
                 in
@@ -774,8 +764,8 @@ struct
                     then if ic - dest < 0wx100 then size := Size8 else ()
                     else if dest - (ic + 0w3)  < 0wx100 then size := Size8 else ()
                 end
-        
-            |   adjust(IndexedCase{size as ref Size32, labels}, ic, _) =
+
+            |   adjust(IndexedCase{size as ref Size32, labels}, ic) =
                 let
                     val startAddr = ic+0w4
                     (* Use 16-bit case if all the offsets are 16-bits. *)
@@ -791,7 +781,7 @@ struct
                     else ()
                 end
 
-            |   adjust(PushConstant{size as ref Size32, constNum, ...}, ic, _) =
+            |   adjust(PushConstant{size as ref Size32, constNum, ...}, ic) =
                 let
                     val constAddr = firstConstant + Word.fromInt constNum * wordLength
                     val offset = constAddr - (ic + 0w6)
@@ -801,7 +791,7 @@ struct
                     else ()
                 end
 
-            |   adjust(PushConstant{size as ref Size16, constNum, ...}, ic, _) =
+            |   adjust(PushConstant{size as ref Size16, constNum, ...}, ic) =
                 let
                     val constAddr = firstConstant + Word.fromInt constNum * wordLength
                     val offset = constAddr - (ic + 0w3)
@@ -810,9 +800,47 @@ struct
                     else ()
                 end
 
+            |   adjust(JumpOnIsTaggedLocalB{size as ref Size32, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                    val diff = dest - (ic + 0w8)
+                in
+                    if diff < 0wx100
+                    then size := Size8
+                    else if diff < 0wx10000
+                    then size := Size16
+                    else ()
+                end
+
+            |   adjust(JumpOnIsTaggedLocalB{size as ref Size16, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                in
+                    if dest - (ic + 0w5)  < 0wx100 then size := Size8 else ()
+                end
+
+            |   adjust(JumpNotEqualLocalIndBBB{size as ref Size32, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                    val diff = dest - (ic + 0w10)
+                in
+                    if diff < 0wx100
+                    then size := Size8
+                    else if diff < 0wx10000
+                    then size := Size16
+                    else ()
+                end
+
+            |   adjust(JumpNotEqualLocalIndBBB{size as ref Size16, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                in
+                    if dest - (ic + 0w7)  < 0wx100 then size := Size8 else ()
+                end
+
             |   adjust _ = ()
 
-            val () = foldCode adjust () ops
+            val _ = foldCode adjust ops
             val nextSize = setLabels(ops, 0w0)
         in
             if nextSize < lastSize then setLabAndSize(ops, nextSize)
@@ -840,15 +868,15 @@ struct
         
         fun genByte b = byteVecSet(codeVec, !ic, b) before ic := !ic + 0w1
 
-        fun genByteCode(SimpleCode bytes, _, _) =
+        fun genByteCode(SimpleCode bytes, _) =
             (* Simple code - just generate the bytes. *)
                 List.app genByte bytes
 
-        |   genByteCode(UncondTransfer bytes, _, _) = List.app genByte bytes
+        |   genByteCode(UncondTransfer bytes, _) = List.app genByte bytes
 
-        |   genByteCode(LabelCode _, _, _) = ()
+        |   genByteCode(LabelCode _, _) = ()
 
-        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size32, ...}, ic, _) =
+        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size32, ...}, ic) =
             let
                 val dest = !(hd labs)
                 val extOpc =
@@ -869,7 +897,7 @@ struct
                 genByte(wordToWord8(diff ~>> 0w24))
             end
 
-        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size16, ...}, ic, _) =
+        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size16, ...}, ic) =
             let
                 val dest = !(hd labs)
             in
@@ -902,7 +930,7 @@ struct
                 end
             end
 
-        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size8, ...}, ic, _) =
+        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size8, ...}, ic) =
             let
                 val dest = !(hd labs)
             in
@@ -933,7 +961,7 @@ struct
                 end
             end
 
-        |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=false, ... }, ic, _) =
+        |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=false, ... }, ic) =
             let
                 val constAddr = firstConstant + Word.fromInt constNum * wordSize
                 (* Offsets are calculated from the END of the instruction *)
@@ -947,14 +975,14 @@ struct
                 genByte(wordToWord8(offset >> 0w24))
             end
 
-        |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=true, ... }, ic, a) =
+        |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=true, ... }, ic) =
             (
                 (* Turn this back into a push of a constant and call-closure. *)
-                genByteCode(PushConstant{ constNum=constNum, size=ref Size32, isCall=false }, ic, a);
+                genByteCode(PushConstant{ constNum=constNum, size=ref Size32, isCall=false }, ic);
                 genByte opcode_callClosure
             )
 
-        |   genByteCode(PushConstant{ constNum, size=ref Size16, isCall, ... }, ic, _) =
+        |   genByteCode(PushConstant{ constNum, size=ref Size16, isCall, ... }, ic) =
             let
                 val constAddr = firstConstant + Word.fromInt constNum * wordSize
                 val offset = constAddr - (ic + 0w3)
@@ -965,7 +993,7 @@ struct
                 genByte(wordToWord8(offset >> 0w8))
             end
 
-        |   genByteCode(PushConstant{ constNum, size=ref Size8, isCall, ... }, ic, _) =
+        |   genByteCode(PushConstant{ constNum, size=ref Size8, isCall, ... }, ic) =
             let
                 val constAddr = firstConstant + Word.fromInt constNum * wordSize
                 val offset = constAddr - (ic + 0w2)
@@ -975,7 +1003,7 @@ struct
                 genByte(wordToWord8 offset)
             end
 
-        |   genByteCode(IndexedCase{labels, size=ref Size32, ...}, ic, _) =
+        |   genByteCode(IndexedCase{labels, size=ref Size32, ...}, ic) =
             let
                 val nCases = List.length labels
                 val () = genByte opcode_escape
@@ -999,7 +1027,7 @@ struct
                 List.app putLabel labels
             end
         
-        |   genByteCode(IndexedCase{labels, size=ref Size16, ...}, ic, _) =
+        |   genByteCode(IndexedCase{labels, size=ref Size16, ...}, ic) =
             let
                 val nCases = List.length labels
                 val () = genByte(opcode_case16)
@@ -1021,27 +1049,67 @@ struct
                 List.app putLabel labels
             end
         
-        |   genByteCode(IndexedCase{size=ref Size8, ...}, _, _) = raise InternalError "genByteCode - IndexedCase byte"
+        |   genByteCode(IndexedCase{size=ref Size8, ...}, _) = raise InternalError "genByteCode - IndexedCase byte"
         
-        |   genByteCode(LoadLocal 0w0, _, _) = genByte opcode_local_0
-        |   genByteCode(LoadLocal 0w1, _, _) = genByte opcode_local_1
-        |   genByteCode(LoadLocal 0w2, _, _) = genByte opcode_local_2
-        |   genByteCode(LoadLocal 0w3, _, _) = genByte opcode_local_3
-        |   genByteCode(LoadLocal 0w4, _, _) = genByte opcode_local_4
-        |   genByteCode(LoadLocal 0w5, _, _) = genByte opcode_local_5
-        |   genByteCode(LoadLocal 0w6, _, _) = genByte opcode_local_6
-        |   genByteCode(LoadLocal 0w7, _, _) = genByte opcode_local_7
-        |   genByteCode(LoadLocal 0w8, _, _) = genByte opcode_local_8
-        |   genByteCode(LoadLocal 0w9, _, _) = genByte opcode_local_9
-        |   genByteCode(LoadLocal 0w10, _, _) = genByte opcode_local_10
-        |   genByteCode(LoadLocal 0w11, _, _) = genByte opcode_local_11
-        |   genByteCode(LoadLocal 0w12, _, _) = genByte opcode_local_12
-        |   genByteCode(LoadLocal w, _, _) = (genByte opcode_localB; genByte w)
+        |   genByteCode(LoadLocal 0w0, _) = genByte opcode_local_0
+        |   genByteCode(LoadLocal 0w1, _) = genByte opcode_local_1
+        |   genByteCode(LoadLocal 0w2, _) = genByte opcode_local_2
+        |   genByteCode(LoadLocal 0w3, _) = genByte opcode_local_3
+        |   genByteCode(LoadLocal 0w4, _) = genByte opcode_local_4
+        |   genByteCode(LoadLocal 0w5, _) = genByte opcode_local_5
+        |   genByteCode(LoadLocal 0w6, _) = genByte opcode_local_6
+        |   genByteCode(LoadLocal 0w7, _) = genByte opcode_local_7
+        |   genByteCode(LoadLocal 0w8, _) = genByte opcode_local_8
+        |   genByteCode(LoadLocal 0w9, _) = genByte opcode_local_9
+        |   genByteCode(LoadLocal 0w10, _) = genByte opcode_local_10
+        |   genByteCode(LoadLocal 0w11, _) = genByte opcode_local_11
+        |   genByteCode(LoadLocal 0w12, _) = genByte opcode_local_12
+        |   genByteCode(LoadLocal w, _) = (genByte opcode_localB; genByte w)
 
-        |   genByteCode(IndirectLocal{localAddr, indirect}, _, _) =
+        |   genByteCode(IndirectLocal{localAddr, indirect}, _) =
                 (genByte opcode_indirectLocalBB; genByte localAddr; genByte indirect)
+
+        |   genByteCode(EqualLocalIndBBB{localAddr, indirect, const}, _) =
+                (genByte opcode_equalLocalIndBBB; genByte localAddr; genByte indirect; genByte const)
+
+        |   genByteCode(IsTaggedLocalB addr, _) =
+                (genByte opcode_isTaggedLocalB; genByte addr)
+
+        |   genByteCode(JumpOnIsTaggedLocalB {label=ref labs, size=ref Size8, localAddr}, ic) =
+            let
+                val dest = !(hd labs)
+                val diff = dest - (ic + 0w3)
+            in
+                genByte opcode_jumpTaggedLocal;
+                genByte localAddr;
+                genByte(wordToWord8 diff)
+            end
+
+        |   genByteCode(JumpOnIsTaggedLocalB {label, size, localAddr}, ic) =
+            (
+                (* Turn this back into the original sequence. *)
+                genByteCode(IsTaggedLocalB localAddr, ic);
+                genByteCode(JumpInstruction{jumpType=JumpTrue, label=label, size=size}, ic+0w2)
+            )
+
+        |   genByteCode(JumpNotEqualLocalIndBBB {label=ref labs, size=ref Size8, localAddr, indirect, const}, ic) =
+            let
+                val dest = !(hd labs)
+                val diff = dest - (ic + 0w5)
+            in
+                genByte opcode_jumpNEqLocalInd;
+                genByte localAddr; genByte indirect; genByte const;
+                genByte(wordToWord8 diff)
+            end
+
+        |   genByteCode(JumpNotEqualLocalIndBBB {label, size, localAddr, indirect, const}, ic) =
+            (
+                (* Turn this back into the original sequence. *)
+                genByteCode(EqualLocalIndBBB{localAddr=localAddr, indirect=indirect, const=const}, ic);
+                genByteCode(JumpInstruction{jumpType=JumpFalse, label=label, size=size}, ic+0w4)
+            )
     in
-        foldCode genByteCode () (ops @ paddingBytes);
+        foldCode genByteCode (ops @ paddingBytes);
         (codeVec (* Return the completed code. *), endIC (* And the size. *))
     end
 
@@ -1115,6 +1183,14 @@ struct
                 if lab1 = lab3
                 then peepHole(tail, false, JumpInstruction{jumpType=JumpFalse, label=lab2, size=size} :: output)
                 else peepHole(uncond :: tail, false, cond :: output)
+
+        |   peepHole(IsTaggedLocalB addr :: JumpInstruction{jumpType=JumpTrue, label, size} :: tail, _, output) =
+                peepHole(tail, false, JumpOnIsTaggedLocalB {label=label, size=size, localAddr=addr} :: output)
+
+        |   peepHole(EqualLocalIndBBB{localAddr, indirect, const} ::
+                    JumpInstruction{jumpType=JumpFalse, label, size} :: tail, _, output) =
+                peepHole(tail, false,
+                    JumpNotEqualLocalIndBBB {label=label, size=size, localAddr=localAddr, indirect=indirect, const=const} :: output)
 
         |   peepHole(hd::tl, exited, output) = peepHole(tl, exited, hd::output)
     in
@@ -1358,7 +1434,7 @@ struct
 
         |   genEqualWordConst(w, cvec as Code{stage1Code as ref(IndirectLocal{localAddr, indirect} :: tail), ...}) =
             if w < 0w256
-            then stage1Code := SimpleCode[opcode_equalLocalIndBBB, localAddr, indirect, wordToWord8 w] :: tail
+            then stage1Code := EqualLocalIndBBB{localAddr=localAddr, indirect=indirect, const=wordToWord8 w} :: tail
             else (pushConst(toMachineWord w, cvec); genOpc(opcode_equalWord, cvec))
 
         |   genEqualWordConst(w, cvec) =
@@ -1367,7 +1443,7 @@ struct
             else (pushConst(toMachineWord w, cvec); genOpc(opcode_equalWord, cvec))
        
         fun genIsTagged(Code{stage1Code as ref(LoadLocal addr :: tail), ...}) =
-                stage1Code := SimpleCode[opcode_isTaggedLocalB, addr] :: tail
+                stage1Code := IsTaggedLocalB addr :: tail
         |   genIsTagged cvec = genOpc(opcode_isTagged, cvec)
 
         fun genIndirectSimple(0, cvec) = genOpc(opcode_indirect_0, cvec)

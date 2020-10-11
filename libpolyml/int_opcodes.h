@@ -150,6 +150,8 @@
 #define INSTR_equalLocalConstBB     0xc0
 #define INSTR_equalLocalIndBBB      0xc1
 #define INSTR_isTaggedLocalB        0xc2
+#define INSTR_jumpNEqLocalInd       0xc3
+#define INSTR_jumpTaggedLocal       0xc4
 #define INSTR_getThreadId       0xd9
 #define INSTR_allocWordMemory   0xda
 #define INSTR_loadMLWordLegacy        0xdb
