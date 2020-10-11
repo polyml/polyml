@@ -1398,6 +1398,7 @@ int IntTaskData::SwitchToPoly()
         case EXTINSTR_lgWordEqual:
         case EXTINSTR_lgWordOr:
         case EXTINSTR_wordShiftRArith:
+        case EXTINSTR_lgWordLess:
             // Back up and handle them as though they were escaped.
             pc--;
 

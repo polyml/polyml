@@ -146,13 +146,13 @@
 #define INSTR_wordShiftLeft     0xba
 #define INSTR_wordShiftRLog     0xbb
 #define INSTR_allocByteMem      0xbd
-#define INSTR_indirectLocalB0       0xc0
 #define INSTR_indirectLocalB1       0xc1
 #define INSTR_isTaggedLocalB        0xc2
 #define INSTR_jumpNEqLocalInd       0xc3
 #define INSTR_jumpTaggedLocal       0xc4
 #define INSTR_jumpNEqLocal          0xc5
 #define INSTR_indirect0Local0       0xc6
+#define INSTR_indirectLocalB0       0xc7
 #define INSTR_getThreadId       0xd9
 #define INSTR_allocWordMemory   0xda
 #define INSTR_loadMLWordLegacy        0xdb
