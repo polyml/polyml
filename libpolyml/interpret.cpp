@@ -265,62 +265,14 @@ public:
     PolyWord        *sl; /* Stack limit register. */
 
     PolyObject      *overflowPacket, *dividePacket;
-
-    unsigned before[256], after[256];
-    unsigned argval[256];
-    unsigned freq[256];
 };
 
 IntTaskData::IntTaskData() : interrupt_requested(false), overflowPacket(0), dividePacket(0)
 {
-    memset(before, 0, sizeof(before));
-    memset(after, 0, sizeof(after));
-    memset(argval, 0, sizeof(argval));
-    memset(freq, 0, sizeof(freq));
 }
 
 IntTaskData::~IntTaskData()
 {
-    OutputDebugStringA("Frequency\n");
-    for (unsigned i = 0; i < 256; i++)
-    {
-        if (freq[i] != 0)
-        {
-            char buffer[100];
-            sprintf(buffer, "%02x: %u\n", i, freq[i]);
-            OutputDebugStringA(buffer);
-        }
-    }
-    OutputDebugStringA("Before\n");
-    for (unsigned i = 0; i < 256; i++)
-    {
-        if (before[i] != 0)
-        {
-            char buffer[100];
-            sprintf(buffer, "%02x: %u\n", i, before[i]);
-            OutputDebugStringA(buffer);
-        }
-    }
-    OutputDebugStringA("After\n");
-    for (unsigned i = 0; i < 256; i++)
-    {
-        if (after[i] != 0)
-        {
-            char buffer[100];
-            sprintf(buffer, "%02x: %u\n", i, after[i]);
-            OutputDebugStringA(buffer);
-        }
-    }
-    OutputDebugStringA("Argval\n");
-    for (unsigned i = 0; i < 256; i++)
-    {
-        if (argval[i] != 0)
-        {
-            char buffer[100];
-            sprintf(buffer, "%02x: %u\n", i, argval[i]);
-            OutputDebugStringA(buffer);
-        }
-    }
 }
 
 // This lock is used to synchronise all atomic operations.
@@ -418,7 +370,6 @@ int IntTaskData::SwitchToPoly()
     // it is important that access should be fast.
     POLYCODEPTR     pc;
     PolyWord        *sp;
-    byte lastInstr = 0, prevInstr = 0;
 
     LoadInterpreterState(pc, sp);
 
@@ -431,8 +382,6 @@ int IntTaskData::SwitchToPoly()
 //        char buff[1000];
 //        sprintf(buff, "addr = %p sp=%p instr=%02x *sp=%p\n", pc, sp, *pc, (*sp).AsStackAddr());
 //        OutputDebugStringA(buff);
-        prevInstr = lastInstr;
-        lastInstr = *pc;
 
         // These are temporary values used where one instruction jumps to
         // common code.
@@ -443,8 +392,6 @@ int IntTaskData::SwitchToPoly()
         POLYUNSIGNED    stackCheck;
         PolyObject      *closure;
         double          dv;
-
-//        freq[*pc]++;
 
         switch(*pc++) {
 
@@ -714,6 +661,15 @@ int IntTaskData::SwitchToPoly()
         case INSTR_indirectLocalBB:
         { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(*pc++); break; }
 
+        case INSTR_indirectLocalB0:
+        { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(0); break; }
+
+        case INSTR_indirect0Local0:
+        { PolyWord u = sp[0]; *(--sp) = u.AsObjPtr()->Get(0); break; }
+
+        case INSTR_indirectLocalB1:
+        { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(1); break; }
+
         case INSTR_move_to_vec_b:
             { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(*pc, u); pc += 1; break; }
 
@@ -979,30 +935,9 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-
-        case INSTR_equalWordConstB:
-        {
-            PolyWord u = *sp;
-            if (u.IsTagged() && u.UnTagged() == *pc)
-                *sp = True;
-            else *sp = False;
-            pc++;
-            break;
-        }
-
-        case INSTR_equalLocalConstBB:
-        {
-            // Combined load local with equalWordConstB
-            PolyWord u = sp[pc[0]];
-            u = (u.IsTagged() && u.UnTagged() == pc[1]) ? True : False;
-            pc += 2;
-            *(--sp) = u;
-            break;
-        }
-
         case INSTR_jumpNEqLocal:
         {
-            // Combined jump with equalLocalConstBB
+            // Compare a local with a constant and jump if not equal.
             PolyWord u = sp[pc[0]];
             if (u.IsTagged() && u.UnTagged() == pc[1])
                 pc += 3;
@@ -1010,26 +945,14 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_equalLocalIndBBB:
-        {
-            // Combined load local with indirection and equalWordConstB.
-            // This is used to check the tag in a datatype so occurs frequently.
-            PolyWord u = sp[pc[0]];
-            u = u.AsObjPtr()->Get(pc[1]);
-            u = (u.IsTagged() && u.UnTagged() == pc[2]) ? True : False;
-            pc += 3;
-            *(--sp) = u;
-            break;
-        }
-
         case INSTR_jumpNEqLocalInd:
         {
-            // Combined jump with equalLocalIndBBB
+            // Test the union tag value in the first word of a tuple.
             PolyWord u = sp[pc[0]];
-            u = u.AsObjPtr()->Get(pc[1]);
-            if (u.IsTagged() && u.UnTagged() == pc[2])
-                pc += 4;
-            else pc += pc[3] + 4;
+            u = u.AsObjPtr()->Get(0);
+            if (u.IsTagged() && u.UnTagged() == pc[1])
+                pc += 3;
+            else pc += pc[2] + 3;
             break;
         }
 
