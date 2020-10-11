@@ -1000,6 +1000,16 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_jumpNEqLocal:
+        {
+            // Combined jump with equalLocalConstBB
+            PolyWord u = sp[pc[0]];
+            if (u.IsTagged() && u.UnTagged() == pc[1])
+                pc += 3;
+            else pc += pc[2] + 3;
+            break;
+        }
+
         case INSTR_equalLocalIndBBB:
         {
             // Combined load local with indirection and equalWordConstB.

@@ -152,6 +152,7 @@
 #define INSTR_isTaggedLocalB        0xc2
 #define INSTR_jumpNEqLocalInd       0xc3
 #define INSTR_jumpTaggedLocal       0xc4
+#define INSTR_jumpNEqLocal          0xc5
 #define INSTR_getThreadId       0xd9
 #define INSTR_allocWordMemory   0xda
 #define INSTR_loadMLWordLegacy        0xdb

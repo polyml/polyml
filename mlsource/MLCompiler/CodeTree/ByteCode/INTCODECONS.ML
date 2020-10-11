@@ -173,6 +173,7 @@ struct
     and opcode_isTaggedLocalB    = 0wxc2
     and opcode_jumpNEqLocalInd   = 0wxc3
     and opcode_jumpTaggedLocal   = 0wxc4
+    and opcode_jumpNEqLocal      = 0wxc5
     and opcode_getThreadId       = 0wxd9
     and opcode_allocWordMemory   = 0wxda
     and opcode_loadMLByte        = 0wxdc
@@ -299,11 +300,14 @@ struct
     |   LoadLocal of Word8.word (* Locals - simplifies peephole optimisation. *)
     |   IndirectLocal of { localAddr: Word8.word, indirect: Word8.word } (* Ditto *)
     |   EqualLocalIndBBB of { localAddr: Word8.word, indirect: Word8.word, const: Word8.word }
+    |   EqualLocalConstBB of { localAddr: Word8.word, const: Word8.word }
     |   UncondTransfer of Word8.word list (* Raisex, return and tail. *)
     |   IsTaggedLocalB of Word8.word
     |   JumpOnIsTaggedLocalB of { label: labels, size: jumpSize ref, localAddr: Word8.word }
     |   JumpNotEqualLocalIndBBB of
             { label: labels, size: jumpSize ref, localAddr: Word8.word, indirect: Word8.word, const: Word8.word }
+    |   JumpNotEqualLocalConstBB of
+            { label: labels, size: jumpSize ref, localAddr: Word8.word, const: Word8.word }
     
     and jumpSize = Size8 | Size16 | Size32
 
@@ -551,8 +555,9 @@ struct
                 |   0wxc0 => (printOp(1, "equalLocalConstBB\t"); printOp(1, ","))
                 |   0wxc1 => (printOp(1, "equalLocalIndBBB\t"); printOp(1, ","); printOp(1, ","))
                 |   0wxc2 => printOp(1, "isTaggedLocalB\t")
-                |   0wxc3 => (printOp(1, "jumpNEqLocalInd\t"); printOp(1, ","); printOp(1, ","); printDisp(1, "\t"))
+                |   0wxc3 => (printOp(1, "jumpNEqLocalInd\t"); printOp(1, ","); printOp(1, ","); printOp(1, ","); printDisp(1, "\t"))
                 |   0wxc4 => (printOp(1, "jumpTaggedLocal\t"); printDisp(1, "\t"))
+                |   0wxc5 => (printOp(1, "jumpNEqLocal\t"); printOp(1, ","); printOp(1, ","); printDisp(1, "\t"))
                 |   0wxd9 => printStream "getThreadId"
                 |   0wxda => printStream "allocWordMemory"
                 |   0wxdc => printStream "loadMLByte"
@@ -699,6 +704,7 @@ struct
     |   codeSize (IndirectLocal _) = 3
     |   codeSize (UncondTransfer l) = List.length l
     |   codeSize (EqualLocalIndBBB _) = 4
+    |   codeSize (EqualLocalConstBB _) = 3
     |   codeSize (IsTaggedLocalB _) = 2
     |   codeSize (JumpOnIsTaggedLocalB{size=ref Size8, ...}) = 3
     |   codeSize (JumpOnIsTaggedLocalB{size=ref Size16, ...}) = 5
@@ -706,7 +712,9 @@ struct
     |   codeSize (JumpNotEqualLocalIndBBB{size=ref Size8, ...}) = 5
     |   codeSize (JumpNotEqualLocalIndBBB{size=ref Size16, ...}) = 7
     |   codeSize (JumpNotEqualLocalIndBBB{size=ref Size32, ...}) = 10
-
+    |   codeSize (JumpNotEqualLocalConstBB{size=ref Size8, ...}) = 4
+    |   codeSize (JumpNotEqualLocalConstBB{size=ref Size16, ...}) = 6
+    |   codeSize (JumpNotEqualLocalConstBB{size=ref Size32, ...}) = 9
 
     (* General function to process the code.  ic is the byte counter within the original code. *)
     fun foldCode foldFn ops =
@@ -836,6 +844,25 @@ struct
                     val dest = !(hd lab)
                 in
                     if dest - (ic + 0w7)  < 0wx100 then size := Size8 else ()
+                end
+
+            |   adjust(JumpNotEqualLocalConstBB{size as ref Size32, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                    val diff = dest - (ic + 0w9)
+                in
+                    if diff < 0wx100
+                    then size := Size8
+                    else if diff < 0wx10000
+                    then size := Size16
+                    else ()
+                end
+
+            |   adjust(JumpNotEqualLocalConstBB{size as ref Size16, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                in
+                    if dest - (ic + 0w6)  < 0wx100 then size := Size8 else ()
                 end
 
             |   adjust _ = ()
@@ -1072,6 +1099,9 @@ struct
         |   genByteCode(EqualLocalIndBBB{localAddr, indirect, const}, _) =
                 (genByte opcode_equalLocalIndBBB; genByte localAddr; genByte indirect; genByte const)
 
+        |   genByteCode(EqualLocalConstBB{localAddr, const}, _) =
+                (genByte opcode_equalLocalConstBB; genByte localAddr; genByte const)
+
         |   genByteCode(IsTaggedLocalB addr, _) =
                 (genByte opcode_isTaggedLocalB; genByte addr)
 
@@ -1107,6 +1137,23 @@ struct
                 (* Turn this back into the original sequence. *)
                 genByteCode(EqualLocalIndBBB{localAddr=localAddr, indirect=indirect, const=const}, ic);
                 genByteCode(JumpInstruction{jumpType=JumpFalse, label=label, size=size}, ic+0w4)
+            )
+
+        |   genByteCode(JumpNotEqualLocalConstBB {label=ref labs, size=ref Size8, localAddr, const}, ic) =
+            let
+                val dest = !(hd labs)
+                val diff = dest - (ic + 0w4)
+            in
+                genByte opcode_jumpNEqLocal;
+                genByte localAddr; genByte const;
+                genByte(wordToWord8 diff)
+            end
+
+        |   genByteCode(JumpNotEqualLocalConstBB {label, size, localAddr, const}, ic) =
+            (
+                (* Turn this back into the original sequence. *)
+                genByteCode(EqualLocalConstBB{localAddr=localAddr, const=const}, ic);
+                genByteCode(JumpInstruction{jumpType=JumpFalse, label=label, size=size}, ic+0w3)
             )
     in
         foldCode genByteCode (ops @ paddingBytes);
@@ -1191,6 +1238,11 @@ struct
                     JumpInstruction{jumpType=JumpFalse, label, size} :: tail, _, output) =
                 peepHole(tail, false,
                     JumpNotEqualLocalIndBBB {label=label, size=size, localAddr=localAddr, indirect=indirect, const=const} :: output)
+
+        |   peepHole(EqualLocalConstBB{localAddr, const} ::
+                    JumpInstruction{jumpType=JumpFalse, label, size} :: tail, _, output) =
+                peepHole(tail, false,
+                    JumpNotEqualLocalConstBB {label=label, size=size, localAddr=localAddr, const=const} :: output)
 
         |   peepHole(hd::tl, exited, output) = peepHole(tl, exited, hd::output)
     in
@@ -1429,7 +1481,7 @@ struct
         
         fun genEqualWordConst(w, cvec as Code{stage1Code as ref(LoadLocal addr :: tail), ...}) =
             if w < 0w256
-            then stage1Code := SimpleCode[opcode_equalLocalConstBB, addr, wordToWord8 w] :: tail
+            then stage1Code := EqualLocalConstBB{ localAddr=addr, const=wordToWord8 w} :: tail
             else (pushConst(toMachineWord w, cvec); genOpc(opcode_equalWord, cvec))
 
         |   genEqualWordConst(w, cvec as Code{stage1Code as ref(IndirectLocal{localAddr, indirect} :: tail), ...}) =
