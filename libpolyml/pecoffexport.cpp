@@ -76,6 +76,14 @@
 #define RELATIVE_32BIT_RELOCATION   IMAGE_REL_I386_REL32
 #endif
 
+void PECOFFExport::writeRelocation(const IMAGE_RELOCATION* reloc)
+{
+    fwrite(reloc, sizeof(*reloc), 1, exportFile);
+    if (relocationCount == 0)
+        firstRelocation = *reloc;
+    relocationCount++;
+}
+
 void PECOFFExport::addExternalReference(void *relocAddr, const char *name, bool/* isFuncPtr*/)
 {
     externTable.makeEntry(name);
@@ -84,8 +92,7 @@ void PECOFFExport::addExternalReference(void *relocAddr, const char *name, bool/
     setRelocationAddress(relocAddr, &reloc.VirtualAddress);
     reloc.SymbolTableIndex = symbolNum++;
     reloc.Type = DIRECT_WORD_RELOCATION;
-    fwrite(&reloc, sizeof(reloc), 1, exportFile);
-    relocationCount++;
+    writeRelocation(&reloc);
 }
 
 // Generate the address relative to the start of the segment.
@@ -107,8 +114,7 @@ PolyWord PECOFFExport::createRelocation(PolyWord p, void *relocAddr)
     POLYUNSIGNED offset = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
     reloc.SymbolTableIndex = addrArea;
     reloc.Type = DIRECT_WORD_RELOCATION;
-    fwrite(&reloc, sizeof(reloc), 1, exportFile);
-    relocationCount++;
+    writeRelocation(&reloc);
     return PolyWord::FromUnsigned(offset);
 }
 
@@ -181,8 +187,7 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
     else
         reloc.Type = DIRECT_WORD_RELOCATION;
 
-    fwrite(&reloc, sizeof(reloc), 1, exportFile);
-    relocationCount++;
+    writeRelocation(&reloc);
 #endif
 }
 
@@ -263,13 +268,8 @@ void PECOFFExport::exportStore(void)
 
     for (i = 0; i < memTableEntries; i++)
     {
-        // Relocations.  The first entry is special and is only used if
-        // we have more than 64k relocations.  It contains the number of relocations but is
-        // otherwise ignored.
         sections[i].PointerToRelocations = ftell(exportFile);
-        memset(&reloc, 0, sizeof(reloc));
-        fwrite(&reloc, sizeof(reloc), 1, exportFile);
-        relocationCount = 1;
+        relocationCount = 0;
 
         // Create the relocation table and turn all addresses into offsets.
         char *start = (char*)memTable[i].mtOriginalAddr;
@@ -288,13 +288,16 @@ void PECOFFExport::exportStore(void)
         }
             // If there are more than 64k relocations set this bit and set the value to 64k-1.
         if (relocationCount >= 65535) {
+            // We're going to overwrite the first relocation so we have to write the
+            // copy we saved here.
+            writeRelocation(&firstRelocation); // Increments relocationCount
             sections[i].NumberOfRelocations = 65535;
             sections[i].Characteristics |= IMAGE_SCN_LNK_NRELOC_OVFL;
             // We have to go back and patch up the first (dummy) relocation entry
             // which contains the count.
             fseek(exportFile, sections[i].PointerToRelocations, SEEK_SET);
             memset(&reloc, 0, sizeof(reloc));
-            reloc.VirtualAddress = relocationCount;
+            reloc.RelocCount = relocationCount;
             fwrite(&reloc, sizeof(reloc), 1, exportFile);
             fseek(exportFile, 0, SEEK_END); // Return to the end of the file.
         }

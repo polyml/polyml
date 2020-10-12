@@ -1,6 +1,7 @@
 /*
     Title:      Process environment.
-    Copyright (c) 2000-8, 2016-17, 2019
+
+    Copyright (c) 2000-8, 2016-17, 2020
 
         David C. J. Matthews
 
@@ -107,8 +108,8 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetMaxStringSize();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetPolyVersionNumber();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(FirstArgument threadId, PolyWord fnAddr);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyCommandLineName(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyCommandLineArgs(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetProcessName(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCommandlineArguments(FirstArgument threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetEnv(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetEnvironment(FirstArgument threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvSuccessValue(FirstArgument threadId);
@@ -405,8 +406,9 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(FirstArgument threadId, Poly
     else return result->Word().AsUnsigned();
 }
 
-/* Return the program name. */
-POLYUNSIGNED PolyCommandLineName(FirstArgument threadId)
+
+// Get the command line process name.
+POLYUNSIGNED PolyGetProcessName(FirstArgument threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -425,8 +427,8 @@ POLYUNSIGNED PolyCommandLineName(FirstArgument threadId)
     else return result->Word().AsUnsigned();
 }
 
-/* Return the argument list. */
-POLYUNSIGNED PolyCommandLineArgs(FirstArgument threadId)
+// Get the command line arguments.
+POLYUNSIGNED PolyGetCommandlineArguments(FirstArgument threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -689,8 +691,8 @@ struct _entrypts processEnvEPT[] =
     { "PolyGetMaxStringSize",           (polyRTSFunction)&PolyGetMaxStringSize },
     { "PolyGetPolyVersionNumber",       (polyRTSFunction)&PolyGetPolyVersionNumber },
     { "PolyGetFunctionName",            (polyRTSFunction)&PolyGetFunctionName },
-    { "PolyCommandLineName",            (polyRTSFunction)& PolyCommandLineName },
-    { "PolyCommandLineArgs",            (polyRTSFunction)& PolyCommandLineArgs },
+    { "PolyGetProcessName",             (polyRTSFunction)&PolyGetProcessName },
+    { "PolyGetCommandlineArguments",    (polyRTSFunction)&PolyGetCommandlineArguments },
     { "PolyGetEnv",                     (polyRTSFunction)& PolyGetEnv },
     { "PolyGetEnvironment",             (polyRTSFunction)& PolyGetEnvironment },
     { "PolyProcessEnvSuccessValue",     (polyRTSFunction)& PolyProcessEnvSuccessValue },

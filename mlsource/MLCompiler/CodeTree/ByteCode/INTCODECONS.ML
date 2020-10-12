@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015-18 David C.J. Matthews
+    Copyright (c) 2015-18, 2020 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -38,7 +38,7 @@ struct
 
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
-
+    
     (* Typically the compiler is built on a little-endian machine but it could
        be run on a machine with either endian-ness.  We have to find out the
        endian-ness when we run.  There are separate versions of the compiler
@@ -46,37 +46,32 @@ struct
     local
         val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
     in
-        val littleEndian = not o isBigEndian
+        val isBigEndian = isBigEndian()
     end
 
-    val wordLength = RunCall.bytesPerWord
-    
-    val opcode_enterInt          = 0wx00
-    and opcode_jump              = 0wx02    (* 8-bit unsigned jump forward. *)
+    val opcode_jump              = 0wx02    (* 8-bit unsigned jump forward. *)
     and opcode_jumpFalse         = 0wx03    (* Test top of stack. Take 8-bit unsigned jump if false. *)
-    and opcode_delHandler        = 0wx05
+    and opcode_loadMLWord        = 0wx04
+    and opcode_storeMLWord       = 0wx05
     and opcode_alloc_ref         = 0wx06
+    and opcode_blockMoveWord     = 0wx07
+    and opcode_loadUntagged      = 0wx08
+    and opcode_storeUntagged     = 0wx09
     and opcode_case16            = 0wx0a
-    and opcode_containerW        = 0wx0b
     and opcode_callClosure       = 0wx0c
     and opcode_returnW           = 0wx0d
-    and opcode_pad               = 0wx0e
+    and opcode_containerB        = 0wx0e
     and opcode_raiseEx           = 0wx10
-    and opcode_getStoreW         = 0wx11
+    and opcode_callConstAddr16   = 0wx11
+    and opcode_callConstAddr8    = 0wx12
     and opcode_localW            = 0wx13
-    and opcode_indirectW         = 0wx14
-    and opcode_moveToVecW        = 0wx15
-    and opcode_setStackValW      = 0wx17
-    and opcode_resetW            = 0wx18
-    and opcode_resetR_w          = 0wx19
+    and opcode_callLocalB        = 0wx16
     and opcode_constAddr16       = 0wx1a
     and opcode_constIntW         = 0wx1b
-    and opcode_callFastRTSRRtoR  = 0wx1c
-    and opcode_callFastRTSRGtoR  = 0wx1d
     and opcode_jumpBack8         = 0wx1e   (* 8-bit unsigned jump backwards - relative to end of instr. *)
     and opcode_returnB           = 0wx1f
     and opcode_jumpBack16        = 0wx20    (* 16-bit unsigned jump backwards - relative to end of instr. *)
-    and opcode_getStoreB         = 0wx21
+    and opcode_indirectLocalBB   = 0wx21
     and opcode_localB            = 0wx22
     and opcode_indirectB         = 0wx23
     and opcode_moveToVecB        = 0wx24
@@ -108,82 +103,38 @@ struct
     and opcode_const_3           = 0wx3e
     and opcode_const_4           = 0wx3f
     and opcode_const_10          = 0wx40
-    and opcode_return_0          = 0wx41
     and opcode_return_1          = 0wx42
     and opcode_return_2          = 0wx43
     and opcode_return_3          = 0wx44
-(*  and opcode_moveToVec_0       = 0wx45
-    and opcode_moveToVec_1       = 0wx46
-    and opcode_moveToVec_2       = 0wx47
-    and opcode_moveToVec_3       = 0wx48
-    and opcode_moveToVec_4       = 0wx49
-    and opcode_moveToVec_5       = 0wx4a
-    and opcode_moveToVec_6       = 0wx4b
-    and opcode_moveToVec_7       = 0wx4c *)
+    and opcode_local_12          = 0wx45
+    and opcode_jumpTrue          = 0wx46
+    and opcode_jump16True        = 0wx47
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
-    and opcode_getStore_2        = 0wx52
-    and opcode_getStore_3        = 0wx53
-    and opcode_getStore_4        = 0wx54
-    and opcode_tuple_containerW  = 0wx55
-    and opcode_floatAbs          = 0wx56
-    and opcode_floatNeg          = 0wx57
-    and opcode_fixedIntToFloat   = 0wx58
-    and opcode_floatToReal       = 0wx59
-    and opcode_realToFloat       = 0wx5a
-    and opcode_floatEqual        = 0wx5b
-    and opcode_floatLess         = 0wx5c
-    and opcode_floatLessEq       = 0wx5d
-    and opcode_floatGreater      = 0wx5e
-    and opcode_floatGreaterEq    = 0wx5f
-    and opcode_floatAdd          = 0wx60
-    and opcode_floatSub          = 0wx61
-    and opcode_floatMult         = 0wx62
-    and opcode_floatDiv          = 0wx63
     and opcode_resetR_1          = 0wx64
     and opcode_resetR_2          = 0wx65
     and opcode_resetR_3          = 0wx66
-    and opcode_tupleW            = 0wx67
     and opcode_tupleB            = 0wx68
     and opcode_tuple_2           = 0wx69
     and opcode_tuple_3           = 0wx6a
     and opcode_tuple_4           = 0wx6b
     and opcode_lock              = 0wx6c
     and opcode_ldexc             = 0wx6d
-    and opcode_realToInt         = 0wx6e
-    and opcode_floatToInt        = 0wx6f
-    and opcode_callFastRTSFtoF   = 0wx70
-    and opcode_callFastRTSGtoF   = 0wx71
-    and opcode_callFastRTSFFtoF  = 0wx72
-    and opcode_callFastRTSFGtoF  = 0wx73
     and opcode_pushHandler       = 0wx78
-    and opcode_realUnordered     = 0wx79
-    and opcode_floatUnordered    = 0wx7a
     and opcode_tailbb            = 0wx7b
-    and opcode_tail              = 0wx7c
-    and opcode_tail3b            = 0wx7d
-    and opcode_tail4b            = 0wx7e
-    and opcode_tail3_2           = 0wx7f
-    and opcode_tail3_3           = 0wx80
     and opcode_setHandler        = 0wx81
-
     and opcode_callFastRTS0      = 0wx83
     and opcode_callFastRTS1      = 0wx84
     and opcode_callFastRTS2      = 0wx85
     and opcode_callFastRTS3      = 0wx86
     and opcode_callFastRTS4      = 0wx87
     and opcode_callFastRTS5      = 0wx88
-
     and opcode_callFullRTS0      = 0wx89
     and opcode_callFullRTS1      = 0wx8a
     and opcode_callFullRTS2      = 0wx8b
     and opcode_callFullRTS3      = 0wx8c
     and opcode_callFullRTS4      = 0wx8d
     and opcode_callFullRTS5      = 0wx8e
-
-    and opcode_callFastRTSRtoR   = 0wx8f
-    and opcode_callFastRTSGtoR   = 0wx90
-    
     and opcode_notBoolean        = 0wx91
     and opcode_isTagged          = 0wx92
     and opcode_cellLength        = 0wx93
@@ -191,14 +142,6 @@ struct
     and opcode_clearMutable      = 0wx95
     and opcode_atomicIncr        = 0wx97
     and opcode_atomicDecr        = 0wx98
-    and opcode_atomicReset       = 0wx99
-    and opcode_longWToTagged     = 0wx9a
-    and opcode_signedToLongW     = 0wx9b
-    and opcode_unsignedToLongW   = 0wx9c
-    and opcode_realAbs           = 0wx9d
-    and opcode_realNeg           = 0wx9e
-    and opcode_fixedIntToReal    = 0wx9f
-    
     and opcode_equalWord         = 0wxa0
     and opcode_lessSigned        = 0wxa2
     and opcode_lessUnsigned      = 0wxa3
@@ -208,14 +151,11 @@ struct
     and opcode_greaterUnsigned   = 0wxa7
     and opcode_greaterEqSigned   = 0wxa8
     and opcode_greaterEqUnsigned = 0wxa9
-
     and opcode_fixedAdd          = 0wxaa
     and opcode_fixedSub          = 0wxab
     and opcode_fixedMult         = 0wxac
     and opcode_fixedQuot         = 0wxad
     and opcode_fixedRem          = 0wxae
-    and opcode_fixedDiv          = 0wxaf
-    and opcode_fixedMod          = 0wxb0
     and opcode_wordAdd           = 0wxb1
     and opcode_wordSub           = 0wxb2
     and opcode_wordMult          = 0wxb3
@@ -226,371 +166,145 @@ struct
     and opcode_wordXor           = 0wxb9
     and opcode_wordShiftLeft     = 0wxba
     and opcode_wordShiftRLog     = 0wxbb
-    and opcode_wordShiftRArith   = 0wxbc
     and opcode_allocByteMem      = 0wxbd
-    and opcode_lgWordEqual       = 0wxbe
-    and opcode_lgWordLess        = 0wxc0
-    and opcode_lgWordLessEq      = 0wxc1
-    and opcode_lgWordGreater     = 0wxc2
-    and opcode_lgWordGreaterEq   = 0wxc3
-    and opcode_lgWordAdd         = 0wxc4
-    and opcode_lgWordSub         = 0wxc5
-    and opcode_lgWordMult        = 0wxc6
-    and opcode_lgWordDiv         = 0wxc7
-    and opcode_lgWordMod         = 0wxc8
-    and opcode_lgWordAnd         = 0wxc9
-    and opcode_lgWordOr          = 0wxca
-    and opcode_lgWordXor         = 0wxcb
-    and opcode_lgWordShiftLeft   = 0wxcc
-    and opcode_lgWordShiftRLog   = 0wxcd
-    and opcode_lgWordShiftRArith = 0wxce
-    and opcode_realEqual         = 0wxcf
-    and opcode_realLess          = 0wxd1
-    and opcode_realLessEq        = 0wxd2
-    and opcode_realGreater       = 0wxd3
-    and opcode_realGreaterEq     = 0wxd4
-    and opcode_realAdd           = 0wxd5
-    and opcode_realSub           = 0wxd6
-    and opcode_realMult          = 0wxd7
-    and opcode_realDiv           = 0wxd8
+    and opcode_indirectLocalB1   = 0wxc1
+    and opcode_isTaggedLocalB    = 0wxc2
+    and opcode_jumpNEqLocalInd   = 0wxc3
+    and opcode_jumpTaggedLocal   = 0wxc4
+    and opcode_jumpNEqLocal      = 0wxc5
+    and opcode_indirect0Local0   = 0wxc6
+    and opcode_indirectLocalB0   = 0wxc7
     and opcode_getThreadId       = 0wxd9
     and opcode_allocWordMemory   = 0wxda
-    and opcode_loadMLWord        = 0wxdb
     and opcode_loadMLByte        = 0wxdc
-    and opcode_loadC8            = 0wxdd
-    and opcode_loadC16           = 0wxde
-    and opcode_loadC32           = 0wxdf
-    and opcode_loadC64           = 0wxe0
-    and opcode_loadCFloat        = 0wxe1
-    and opcode_loadCDouble       = 0wxe2
-    and opcode_storeMLWord       = 0wxe3
     and opcode_storeMLByte       = 0wxe4
-    and opcode_storeC8           = 0wxe5
-    and opcode_storeC16          = 0wxe6
-    and opcode_storeC32          = 0wxe7
-    and opcode_storeC64          = 0wxe8
-    and opcode_storeCFloat       = 0wxe9
-    and opcode_storeCDouble      = 0wxea
-    and opcode_blockMoveWord     = 0wxeb
     and opcode_blockMoveByte     = 0wxec
     and opcode_blockEqualByte    = 0wxed
     and opcode_blockCompareByte  = 0wxee
-    and opcode_loadUntagged      = 0wxef
-    and opcode_storeUntagged     = 0wxf0
     and opcode_deleteHandler     = 0wxf1 (* Just deletes the handler - no jump. *)
-    and opcode_jump32            = 0wxf2 (* 32-bit signed jump, forwards or backwards. *)
-    and opcode_jump32False       = 0wxf3 (* Test top item. Take 32-bit signed jump if false. *)
-    and opcode_constAddr32       = 0wxf4 (* Followed by a 32-bit offset. Load a constant at that address. *)
-    and opcode_setHandler32      = 0wxf5 (* Setup a handler whose address is given by the 32-bit signed offset. *)
-    and opcode_case32            = 0wxf6 (* Indexed case with 32-bit offsets *)
     and opcode_jump16            = 0wxf7
     and opcode_jump16False       = 0wxf8
     and opcode_setHandler16      = 0wxf9
     and opcode_constAddr8        = 0wxfa
-    and opcode_stackSize8        = 0wxfb
+    (*and opcode_stackSize8        = 0wxfb*)
     and opcode_stackSize16       = 0wxfc
+    and opcode_escape            = 0wxfe (* For two-byte opcodes. *)
+    (*and opcode_enterIntX86       = 0wxff*) (* Reserved - this is the first byte of a call *)
 
- 
-    local
-        val repArray : string Array.array = 
-            Array.tabulate (256, fn (i) => "<UNKNOWN " ^ Int.toString i ^ ">");
-      
-        fun repUpdate (n, s) = Array.update (repArray, Word8.toInt n, s);
+    (* Extended opcodes - preceded by 0xfe escape *)
+    val ext_opcode_containerW        = 0wx0b
+    and ext_opcode_indirectW         = 0wx14
+    and ext_opcode_moveToVecW        = 0wx15
+    and ext_opcode_setStackValW      = 0wx17
+    and ext_opcode_resetW            = 0wx18
+    and ext_opcode_resetR_w          = 0wx19
+    and ext_opcode_callFastRTSRRtoR  = 0wx1c
+    and ext_opcode_callFastRTSRGtoR  = 0wx1d
+    and ext_opcode_jump32True        = 0wx48
+    and ext_opcode_floatAbs          = 0wx56
+    and ext_opcode_floatNeg          = 0wx57
+    and ext_opcode_fixedIntToFloat   = 0wx58
+    and ext_opcode_floatToReal       = 0wx59
+    and ext_opcode_realToFloat       = 0wx5a
+    and ext_opcode_floatEqual        = 0wx5b
+    and ext_opcode_floatLess         = 0wx5c
+    and ext_opcode_floatLessEq       = 0wx5d
+    and ext_opcode_floatGreater      = 0wx5e
+    and ext_opcode_floatGreaterEq    = 0wx5f
+    and ext_opcode_floatAdd          = 0wx60
+    and ext_opcode_floatSub          = 0wx61
+    and ext_opcode_floatMult         = 0wx62
+    and ext_opcode_floatDiv          = 0wx63
+    and ext_opcode_tupleW            = 0wx67
+    and ext_opcode_realToInt         = 0wx6e
+    and ext_opcode_floatToInt        = 0wx6f
+    and ext_opcode_callFastRTSFtoF   = 0wx70
+    and ext_opcode_callFastRTSGtoF   = 0wx71
+    and ext_opcode_callFastRTSFFtoF  = 0wx72
+    and ext_opcode_callFastRTSFGtoF  = 0wx73
+    and ext_opcode_realUnordered     = 0wx79
+    and ext_opcode_floatUnordered    = 0wx7a
+    and ext_opcode_tail              = 0wx7c
+    and ext_opcode_callFastRTSRtoR   = 0wx8f
+    and ext_opcode_callFastRTSGtoR   = 0wx90
+    and ext_opcode_atomicReset       = 0wx99
+    and ext_opcode_longWToTagged     = 0wx9a
+    and ext_opcode_signedToLongW     = 0wx9b
+    and ext_opcode_unsignedToLongW   = 0wx9c
+    and ext_opcode_realAbs           = 0wx9d
+    and ext_opcode_realNeg           = 0wx9e
+    and ext_opcode_fixedIntToReal    = 0wx9f
+    and ext_opcode_fixedDiv          = 0wxaf
+    and ext_opcode_fixedMod          = 0wxb0
+    and ext_opcode_wordShiftRArith   = 0wxbc
+    and ext_opcode_lgWordEqual       = 0wxbe
+    and ext_opcode_lgWordLess        = 0wxc0
+    and ext_opcode_lgWordLessEq      = 0wxc1
+    and ext_opcode_lgWordGreater     = 0wxc2
+    and ext_opcode_lgWordGreaterEq   = 0wxc3
+    and ext_opcode_lgWordAdd         = 0wxc4
+    and ext_opcode_lgWordSub         = 0wxc5
+    and ext_opcode_lgWordMult        = 0wxc6
+    and ext_opcode_lgWordDiv         = 0wxc7
+    and ext_opcode_lgWordMod         = 0wxc8
+    and ext_opcode_lgWordAnd         = 0wxc9
+    and ext_opcode_lgWordOr          = 0wxca
+    and ext_opcode_lgWordXor         = 0wxcb
+    and ext_opcode_lgWordShiftLeft   = 0wxcc
+    and ext_opcode_lgWordShiftRLog   = 0wxcd
+    and ext_opcode_lgWordShiftRArith = 0wxce
+    and ext_opcode_realEqual         = 0wxcf
+    and ext_opcode_realLess          = 0wxd1
+    and ext_opcode_realLessEq        = 0wxd2
+    and ext_opcode_realGreater       = 0wxd3
+    and ext_opcode_realGreaterEq     = 0wxd4
+    and ext_opcode_realAdd           = 0wxd5
+    and ext_opcode_realSub           = 0wxd6
+    and ext_opcode_realMult          = 0wxd7
+    and ext_opcode_realDiv           = 0wxd8
+    and ext_opcode_loadC8            = 0wxdd
+    and ext_opcode_loadC16           = 0wxde
+    and ext_opcode_loadC32           = 0wxdf
+    and ext_opcode_loadC64           = 0wxe0
+    and ext_opcode_loadCFloat        = 0wxe1
+    and ext_opcode_loadCDouble       = 0wxe2
+    and ext_opcode_storeC8           = 0wxe5
+    and ext_opcode_storeC16          = 0wxe6
+    and ext_opcode_storeC32          = 0wxe7
+    and ext_opcode_storeC64          = 0wxe8
+    and ext_opcode_storeCFloat       = 0wxe9
+    and ext_opcode_storeCDouble      = 0wxea
+    and ext_opcode_jump32            = 0wxf2 (* 32-bit signed jump, forwards or backwards. *)
+    and ext_opcode_jump32False       = 0wxf3 (* Test top item. Take 32-bit signed jump if false. *)
+    and ext_opcode_constAddr32       = 0wxf4 (* Followed by a 32-bit offset. Load a constant at that address. *)
+    and ext_opcode_setHandler32      = 0wxf5 (* Setup a handler whose address is given by the 32-bit signed offset. *)
+    and ext_opcode_case32            = 0wxf6 (* Indexed case with 32-bit offsets *)
+   
 
-        val () = repUpdate(opcode_enterInt,     "enterInt");
-        val () = repUpdate(opcode_jump,         "jump");
-        val () = repUpdate(opcode_jumpFalse,    "jumpFalse");
-        val () = repUpdate(opcode_delHandler,   "delHandler");
-        val () = repUpdate(opcode_alloc_ref,    "alloc_ref");
-        val () = repUpdate(opcode_case16,       "case16");
-        val () = repUpdate(opcode_callClosure,  "callClosure");
-        val () = repUpdate(opcode_returnW,      "returnW");
-        val () = repUpdate(opcode_pad,          "pad");
-        val () = repUpdate(opcode_raiseEx,      "raiseEx");
-        val () = repUpdate(opcode_getStoreW,    "getStoreW");
-        val () = repUpdate(opcode_localW,       "localW");
-        val () = repUpdate(opcode_indirectW,    "indirectW");
-        val () = repUpdate(opcode_moveToVecW,   "moveToVecW");
-        val () = repUpdate(opcode_setStackValW, "setStackValW");
-        val () = repUpdate(opcode_resetW,        "resetW");
-        val () = repUpdate(opcode_resetR_w,      "resetR_w");
-        val () = repUpdate(opcode_constAddr16,   "constAddr16");
-        val () = repUpdate(opcode_constIntW,     "constIntW");
-        val () = repUpdate(opcode_callFastRTSRRtoR,  "callFullRTSRRtoR")
-        val () = repUpdate(opcode_callFastRTSRGtoR,  "callFullRTSRGtoR")
-        val () = repUpdate(opcode_jumpBack8,     "jumpBack8");
-        val () = repUpdate(opcode_returnB,       "returnB");
-        val () = repUpdate(opcode_jumpBack16,    "jumpBack16");
-        val () = repUpdate(opcode_getStoreB,     "getStoreB");
-        val () = repUpdate(opcode_localB,        "localB");
-        val () = repUpdate(opcode_indirectB,     "indirectB");
-        val () = repUpdate(opcode_moveToVecB,    "moveToVecB");
-        val () = repUpdate(opcode_setStackValB,  "setStackValB");
-        val () = repUpdate(opcode_resetB,        "resetB");
-        val () = repUpdate(opcode_resetRB,       "resetRB");
-        val () = repUpdate(opcode_constIntB,     "constIntB");
-        val () = repUpdate(opcode_local_0,       "local_0");
-        val () = repUpdate(opcode_local_1,       "local_1");
-        val () = repUpdate(opcode_local_2,       "local_2");
-        val () = repUpdate(opcode_local_3,       "local_3");
-        val () = repUpdate(opcode_local_4,       "local_4");
-        val () = repUpdate(opcode_local_5,       "local_5");
-        val () = repUpdate(opcode_local_6,       "local_6");
-        val () = repUpdate(opcode_local_7,       "local_7");
-        val () = repUpdate(opcode_local_8,       "local_8");
-        val () = repUpdate(opcode_local_9,       "local_9");
-        val () = repUpdate(opcode_local_10,      "local_10");
-        val () = repUpdate(opcode_local_11,      "local_11");
-        val () = repUpdate(opcode_indirect_0,    "indirect_0");
-        val () = repUpdate(opcode_indirect_1,    "indirect_1");
-        val () = repUpdate(opcode_indirect_2,    "indirect_2");
-        val () = repUpdate(opcode_indirect_3,    "indirect_3");
-        val () = repUpdate(opcode_indirect_4,    "indirect_4");
-        val () = repUpdate(opcode_indirect_5,    "indirect_5");
-        val () = repUpdate(opcode_const_0,       "const_0");
-        val () = repUpdate(opcode_const_1,       "const_1");
-        val () = repUpdate(opcode_const_2,       "const_2");
-        val () = repUpdate(opcode_const_3,       "const_3");
-        val () = repUpdate(opcode_const_4,       "const_4");
-        val () = repUpdate(opcode_const_10,      "const_10");
-        val () = repUpdate(opcode_return_0,      "return_0");
-        val () = repUpdate(opcode_return_1,      "return_1");
-        val () = repUpdate(opcode_return_2,      "return_2");
-        val () = repUpdate(opcode_return_3,      "return_3");
-        val () = repUpdate(opcode_reset_1,       "reset_1");
-        val () = repUpdate(opcode_reset_2,       "reset_2");
-        val () = repUpdate(opcode_getStore_2,    "getStore_2");
-        val () = repUpdate(opcode_getStore_3,    "getStore_3");
-        val () = repUpdate(opcode_getStore_4,    "getStore_4");
-        val () = repUpdate(opcode_tuple_containerW,    "tuple_containerW");
-        val () = repUpdate(opcode_floatAbs,      "floatAbs");
-        val () = repUpdate(opcode_floatNeg,      "floatNeg");
-        val () = repUpdate(opcode_fixedIntToFloat,  "opcode_fixedIntToFloat");
-        val () = repUpdate(opcode_floatToReal,   "floatToReal");
-        val () = repUpdate(opcode_realToFloat,   "realToFloat");
-        val () = repUpdate(opcode_floatEqual,    "floatEqual");
-        val () = repUpdate(opcode_floatLess,     "floatLess");
-        val () = repUpdate(opcode_floatLessEq,   "floatLessEq");
-        val () = repUpdate(opcode_floatGreater,  "floatGreater");
-        val () = repUpdate(opcode_floatGreaterEq,"floatGreaterEq");
-        val () = repUpdate(opcode_floatAdd,      "floatAdd");
-        val () = repUpdate(opcode_floatSub,      "floatSub");
-        val () = repUpdate(opcode_floatMult,     "floatMult");
-        val () = repUpdate(opcode_floatDiv,      "floatDiv");
-        val () = repUpdate(opcode_resetR_1,      "resetR_1");
-        val () = repUpdate(opcode_resetR_2,      "resetR_2");
-        val () = repUpdate(opcode_resetR_3,      "resetR_3");
-        val () = repUpdate(opcode_tupleW,        "tupleW");
-        val () = repUpdate(opcode_tupleB,        "tupleB");
-        val () = repUpdate(opcode_tuple_2,       "tuple_2");
-        val () = repUpdate(opcode_tuple_3,       "tuple_3");
-        val () = repUpdate(opcode_tuple_4,       "tuple_4");
-        val () = repUpdate(opcode_lock,          "lock");
-        val () = repUpdate(opcode_ldexc,         "ldexc");
-        val () = repUpdate(opcode_realToInt,     "realToInt");
-        val () = repUpdate(opcode_floatToInt,    "floatToInt");
-        val () = repUpdate(opcode_callFastRTSFtoF,  "callFastRTSFtoF");
-        val () = repUpdate(opcode_callFastRTSGtoF,  "callFastRTSGtoF");
-        val () = repUpdate(opcode_callFastRTSFFtoF, "callFastRTSFFtoF");
-        val () = repUpdate(opcode_callFastRTSFGtoF, "callFastRTSFGtoF");
-        val () = repUpdate(opcode_setHandler,    "setHandler");
-        val () = repUpdate(opcode_pushHandler,   "pushHandler");
-        val () = repUpdate(opcode_realUnordered, "realUnordered");
-        val () = repUpdate(opcode_floatUnordered, "floatUnordered");
-        val () = repUpdate(opcode_tailbb,        "tailbb");
-        val () = repUpdate(opcode_tail,          "tail");
-        val () = repUpdate(opcode_tail3b,        "tail3b");
-        val () = repUpdate(opcode_tail4b,        "tail4b");
-        val () = repUpdate(opcode_tail3_2,       "tail3_2");
-        val () = repUpdate(opcode_tail3_3,       "tail3_3");
-        val () = repUpdate(opcode_callFastRTS0,  "callFastRTS0")
-        val () = repUpdate(opcode_callFastRTS1,  "callFastRTS1")
-        val () = repUpdate(opcode_callFastRTS2,  "callFastRTS2")
-        val () = repUpdate(opcode_callFastRTS3,  "callFastRTS3")
-        val () = repUpdate(opcode_callFastRTS4,  "callFastRTS4")
-        val () = repUpdate(opcode_callFastRTS5,  "callFastRTS5")
-        val () = repUpdate(opcode_callFullRTS0,  "callFullRTS0")
-        val () = repUpdate(opcode_callFullRTS1,  "callFullRTS1")
-        val () = repUpdate(opcode_callFullRTS2,  "callFullRTS2")
-        val () = repUpdate(opcode_callFullRTS3,  "callFullRTS3")
-        val () = repUpdate(opcode_callFullRTS4,  "callFullRTS4")
-        val () = repUpdate(opcode_callFullRTS5,  "callFullRTS5")
-        val () = repUpdate(opcode_callFastRTSRtoR,  "callFullRTSRtoR")
-        val () = repUpdate(opcode_callFastRTSGtoR,  "callFullRTSGtoR")
-        val () = repUpdate(opcode_notBoolean, "notBoolean")
-        val () = repUpdate(opcode_isTagged, "isTagged")
-        val () = repUpdate(opcode_cellLength, "cellLength")
-        val () = repUpdate(opcode_cellFlags, "cellFlags")
-        val () = repUpdate(opcode_clearMutable, "clearMutable")
-        val () = repUpdate(opcode_atomicIncr, "atomicIncr")
-        val () = repUpdate(opcode_atomicDecr, "atomicDecr")
-        val () = repUpdate(opcode_atomicReset, "atomicReset")
-        val () = repUpdate(opcode_longWToTagged, "longWToTagged")
-        val () = repUpdate(opcode_signedToLongW, "signedToLongW")
-        val () = repUpdate(opcode_unsignedToLongW, "unsignedToLongW")
-        val () = repUpdate(opcode_realAbs, "realAbs")
-        val () = repUpdate(opcode_realNeg, "realNeg")
-        val () = repUpdate(opcode_fixedIntToReal, "fixedIntToReal")
-
-        val () = repUpdate(opcode_equalWord, "equalWord")
-        val () = repUpdate(opcode_lessSigned, "lessSigned")
-        val () = repUpdate(opcode_lessUnsigned, "lessUnsigned")
-        val () = repUpdate(opcode_lessEqSigned, "lessEqSigned")
-        val () = repUpdate(opcode_lessEqUnsigned, "lessEqUnsigned")
-        val () = repUpdate(opcode_greaterSigned, "greaterSigned")
-        val () = repUpdate(opcode_greaterUnsigned, "greaterUnsigned")
-        val () = repUpdate(opcode_greaterEqSigned, "greaterEqSigned")
-        val () = repUpdate(opcode_greaterEqUnsigned, "greaterEqUnsigned")
-
-        val () = repUpdate(opcode_fixedAdd, "fixedAdd")
-        val () = repUpdate(opcode_fixedSub, "fixedSub")
-        val () = repUpdate(opcode_fixedMult, "fixedMult")
-        val () = repUpdate(opcode_fixedQuot, "fixedQuot")
-        val () = repUpdate(opcode_fixedRem, "fixedRem")
-        val () = repUpdate(opcode_fixedDiv, "fixedDiv")
-        val () = repUpdate(opcode_fixedMod, "fixedMod")
-        val () = repUpdate(opcode_wordAdd, "wordAdd")
-        val () = repUpdate(opcode_wordSub, "wordSub")
-        val () = repUpdate(opcode_wordMult, "wordMult")
-        val () = repUpdate(opcode_wordDiv, "wordDiv")
-        val () = repUpdate(opcode_wordMod, "wordMod")
-        val () = repUpdate(opcode_wordAnd, "wordAnd")
-        val () = repUpdate(opcode_wordOr, "wordOr")
-        val () = repUpdate(opcode_wordXor, "wordXor")
-        val () = repUpdate(opcode_wordShiftLeft, "wordShiftLeft")
-        val () = repUpdate(opcode_wordShiftRLog, "wordShiftRLog")
-        val () = repUpdate(opcode_wordShiftRArith, "wordShiftRArith")
-        val () = repUpdate(opcode_allocByteMem, "allocByteMem")
-        val () = repUpdate(opcode_lgWordEqual, "lgWordEqual")
-        val () = repUpdate(opcode_lgWordLess, "lgWordLess")
-        val () = repUpdate(opcode_lgWordLessEq, "lgWordLessEq")
-        val () = repUpdate(opcode_lgWordGreater, "lgWordGreater")
-        val () = repUpdate(opcode_lgWordGreaterEq, "lgWordGreaterEq")
-        val () = repUpdate(opcode_lgWordAdd, "lgWordAdd")
-        val () = repUpdate(opcode_lgWordSub, "lgWordSub")
-        val () = repUpdate(opcode_lgWordMult, "lgWordMult")
-        val () = repUpdate(opcode_lgWordDiv, "lgWordDiv")
-        val () = repUpdate(opcode_lgWordMod, "lgWordMod")
-        val () = repUpdate(opcode_lgWordAnd, "lgWordAnd")
-        val () = repUpdate(opcode_lgWordOr, "lgWordOr")
-        val () = repUpdate(opcode_lgWordXor, "lgWordXor")
-        val () = repUpdate(opcode_lgWordShiftLeft, "lgWordShiftLeft")
-        val () = repUpdate(opcode_lgWordShiftRLog, "lgWordShiftRLog")
-        val () = repUpdate(opcode_lgWordShiftRArith, "lgWordShiftRArith")
-        val () = repUpdate(opcode_realEqual, "realEqual")
-        val () = repUpdate(opcode_realLess, "realLess")
-        val () = repUpdate(opcode_realLessEq, "realLessEq")
-        val () = repUpdate(opcode_realGreater, "realGreater")
-        val () = repUpdate(opcode_realGreaterEq, "realGreaterEq")
-        val () = repUpdate(opcode_realAdd, "realAdd")
-        val () = repUpdate(opcode_realSub, "realSub")
-        val () = repUpdate(opcode_realMult, "realMult")
-        val () = repUpdate(opcode_realDiv, "realDiv")
-        val () = repUpdate(opcode_getThreadId, "getThreadId")
-        val () = repUpdate(opcode_allocWordMemory, "allocWordMemory")
-        val () = repUpdate(opcode_loadMLWord, "loadMLWord")
-        val () = repUpdate(opcode_loadMLByte, "loadMLByte")
-        val () = repUpdate(opcode_loadC8, "loadC8")
-        val () = repUpdate(opcode_loadC16, "loadC16")
-        val () = repUpdate(opcode_loadC32, "loadC32")
-        val () = repUpdate(opcode_loadC64, "loadC64")
-        val () = repUpdate(opcode_loadCFloat, "loadCFloat")
-        val () = repUpdate(opcode_loadCDouble, "loadCDouble")
-        val () = repUpdate(opcode_storeMLWord, "storeMLWord")
-        val () = repUpdate(opcode_storeMLByte, "storeMLByte")
-        val () = repUpdate(opcode_storeC8, "storeC8")
-        val () = repUpdate(opcode_storeC16, "storeC16")
-        val () = repUpdate(opcode_storeC32, "storeC32")
-        val () = repUpdate(opcode_storeC64, "storeC64")
-        val () = repUpdate(opcode_storeCFloat, "storeCFloat")
-        val () = repUpdate(opcode_storeCDouble, "storeCDouble")
-        val () = repUpdate(opcode_blockMoveWord, "blockMoveWord")
-        val () = repUpdate(opcode_blockMoveByte, "blockMoveByte")
-        val () = repUpdate(opcode_blockEqualByte, "blockEqualByte")
-        val () = repUpdate(opcode_blockCompareByte, "blockCompareByte")
-        val () = repUpdate(opcode_loadUntagged, "loadUntagged")
-        val () = repUpdate(opcode_deleteHandler, "deleteHandler")
-        val () = repUpdate(opcode_jump32,       "jump32")
-        val () = repUpdate(opcode_jump32False,  "jump32False")
-        val () = repUpdate(opcode_constAddr32,  "constAddr32")
-        val () = repUpdate(opcode_setHandler32, "setHandler32")
-        val () = repUpdate(opcode_jump16,       "jump16")
-        val () = repUpdate(opcode_case32,       "case32")
-        val () = repUpdate(opcode_jump16False,  "jump16false")
-        val () = repUpdate(opcode_setHandler16, "setHandler16")
-        val () = repUpdate(opcode_constAddr8,   "constAddr8")
-        val () = repUpdate(opcode_stackSize8,   "stackSize8")
-        val () = repUpdate(opcode_stackSize16,  "stackSize16")
-    in
-        fun repr n : string = Array.sub (repArray, Word8.toInt n);
-    end;
-
-
-    local
-        val sizeArray : int Array.array = Array.array (256, 1);
-
-        fun sizeUpdate (n, s) = Array.update (sizeArray, Word8.toInt n, s);
-
-        val () = sizeUpdate(opcode_enterInt    , 2);
-        val () = sizeUpdate(opcode_jump        , 2);
-        val () = sizeUpdate(opcode_jumpFalse   , 2);
-        val () = sizeUpdate(opcode_delHandler  , 2);
-        val () = sizeUpdate(opcode_case16      , 3);
-        val () = sizeUpdate(opcode_returnW     , 3);
-        val () = sizeUpdate(opcode_getStoreW   , 3);
-        val () = sizeUpdate(opcode_localW      , 3);
-        val () = sizeUpdate(opcode_indirectW   , 3);
-        val () = sizeUpdate(opcode_moveToVecW  , 3);
-        val () = sizeUpdate(opcode_setStackValW, 3);
-        val () = sizeUpdate(opcode_resetW      , 3);
-        val () = sizeUpdate(opcode_resetR_w    , 3);
-        val () = sizeUpdate(opcode_constAddr16  , 3);
-        val () = sizeUpdate(opcode_constIntW   , 3);
-        val () = sizeUpdate(opcode_jumpBack8   , 2);
-        val () = sizeUpdate(opcode_returnB     , 2);
-        val () = sizeUpdate(opcode_jumpBack16  , 3);
-        val () = sizeUpdate(opcode_getStoreB   , 2);
-        val () = sizeUpdate(opcode_localB      , 2);
-        val () = sizeUpdate(opcode_indirectB   , 2);
-        val () = sizeUpdate(opcode_moveToVecB  , 2);
-        val () = sizeUpdate(opcode_setStackValB, 2);
-        val () = sizeUpdate(opcode_resetB      , 2);
-        val () = sizeUpdate(opcode_resetRB     , 2);
-        val () = sizeUpdate(opcode_constIntB   , 2);
-        val () = sizeUpdate(opcode_tupleW      , 3);
-        val () = sizeUpdate(opcode_tupleB      , 2);
-        val () = sizeUpdate(opcode_setHandler  , 2);
-        val () = sizeUpdate(opcode_tailbb      , 3);
-        val () = sizeUpdate(opcode_tail        , 5);
-        val () = sizeUpdate(opcode_tail3b      , 2);
-        val () = sizeUpdate(opcode_tail4b      , 2);
-        val () = sizeUpdate(opcode_case32      , 3);
-        val () = sizeUpdate(opcode_jump32,       5)
-        val () = sizeUpdate(opcode_jump32False,  5)
-        val () = sizeUpdate(opcode_constAddr32,  5)
-        val () = sizeUpdate(opcode_setHandler32, 5)
-        val () = sizeUpdate(opcode_constAddr8  , 2);
-        val () = sizeUpdate(opcode_stackSize8  , 2);
-        val () = sizeUpdate(opcode_stackSize16 , 3);
-        val () = sizeUpdate(opcode_realToFloat , 2);
-        val () = sizeUpdate(opcode_realToInt,    2);
-        val () = sizeUpdate(opcode_floatToInt,   2);
-    in
-        fun size n = Array.sub (sizeArray, Word8.toInt n);
-    end
-
-    (* A Label is a ref that is later set to the location. *)
-    type labels = {destination: Word.word ref }
+    (* A Label is a ref that is later set to the location.
+       Several labels can be linked together so that they are only set
+       at a single point.
+       Only forward jumps are linked so when we come to finally set the
+       label we will have the full list. *)
+    type labels = Word.word ref list ref
 
     (* Used for jump, jumpFalse, setHandler and delHandler. *)
-    datatype jumpTypes = Jump | JumpFalse | SetHandler
+    datatype jumpTypes = Jump | JumpBack | JumpFalse | JumpTrue | SetHandler
 
     datatype opcode =
         SimpleCode of Word8.word list           (* Bytes that don't need any special treatment *)
-    |   LabelCode of labels                     (* A label - forwards or backwards. *)
-    |   JumpInstruction of { label: labels, jumpType: jumpTypes, size : jumpSize ref }   (* Jumps or SetHandler. *)
-    |   PushConstant of { constNum: int, size : jumpSize ref }
+    |   LabelCode of labels            (* A label - forwards or backwards. *)
+    |   JumpInstruction of { label: labels, jumpType: jumpTypes, size: jumpSize ref }   (* Jumps or SetHandler. *)
+    |   PushConstant of { constNum: int, size : jumpSize ref, isCall: bool }
+    |   PushShort of Word.word
     |   IndexedCase of { labels: labels list, size : jumpSize ref }
+    |   LoadLocal of Word8.word (* Locals - simplifies peephole optimisation. *)
+    |   IndirectLocal of { localAddr: Word8.word, indirect: Word8.word } (* Ditto *)
+    |   UncondTransfer of Word8.word list (* Raisex, return and tail. *)
+    |   IsTaggedLocalB of Word8.word
+    |   JumpOnIsTaggedLocalB of { label: labels, size: jumpSize ref, localAddr: Word8.word }
+    |   JumpNotEqualLocalInd0BB of { label: labels, size: jumpSize ref, localAddr: Word8.word, const: Word8.word }
+    |   JumpNotEqualLocalConstBB of { label: labels, size: jumpSize ref, localAddr: Word8.word, const: Word8.word }
     
     and jumpSize = Size8 | Size16 | Size32
 
@@ -647,24 +361,7 @@ struct
         fun printHex (v) = printStream(Word.fmt StringCvt.HEX v);
  
         val ptr = ref 0w0;
- 
-        (* To make sure we do not print branch extensions as though they
-           were instructions we keep a list of all indirect forward references
-           and print values at those addresses as addresses.
-           This list is sorted with the lowest address first. *)
- 
-        val indirections = ref [];
- 
-        local
-            fun addL (n, []) = [n]
-            |   addL (n, l as (x :: xs)) =
-                    if n < x then n :: l
-                    else if n = x then l
-                    else x :: addL (n, xs)
-        in
-            fun addInd (ind) = indirections := addL (ind, !indirections)
-        end
-        
+
         (* Gets "length" bytes from locations "addr", "addr"+1...
            Returns an unsigned number. *)
         fun getB (0, _, _) = 0w0
@@ -672,10 +369,9 @@ struct
                 (getB (length - 1, addr + 0w1, seg) << 0w8) + word8ToWord (codeVecGet (seg, addr))
 
         (* Prints a relative address. *)
-        fun printDisp (len, spacer: string, addToList: bool) =
+        fun printDisp (len, spacer: string) =
         let
             val ad = getB(len, !ptr, seg) + !ptr + Word.fromInt len
-            val () = if addToList then addInd ad else ();
             val () = printStream spacer;
             val () = printHex ad;
         in
@@ -698,114 +394,357 @@ struct
         in
             printHex addr; (* The address. *)
 
-            if (case !indirections of v :: _ => v = addr | [] => false)
-            then
-            let (* It's an address. *)
-                val () = printDisp (2, "\t", false);
-            in
-                case !indirections of
-                    _ :: vs => indirections := vs
-                |   _       => raise InternalError "printCode: indirection list confused"
-            end
-      
-            else
             let (* It's an instruction. *)
-                val ()  = printStream "\t";
+                val ()  = printStream "\t"
                 val opc = codeVecGet (seg, !ptr) (* opcode *)
-                val ()  = ptr := !ptr + 0w1;
-                val ()  = printStream (repr opc);
-
-                val sz = size opc;
+                val ()  = ptr := !ptr + 0w1
             in
-                if sz = 1 then ()
-    
-                else if opc = opcode_jump orelse
-                     opc = opcode_jumpFalse orelse
-                     opc = opcode_setHandler orelse
-                     opc = opcode_delHandler orelse
-                     opc = opcode_constAddr16 orelse
-                     opc = opcode_jump32 orelse
-                     opc = opcode_jump32False orelse
-                     opc = opcode_setHandler32 orelse
-                     opc = opcode_constAddr8 orelse
-                     opc = opcode_constAddr32
-                then printDisp (sz - 1, "\t", false)
-      
-                else if opc = opcode_jumpBack8 (* Should be negative *)
-                then
-                (
-                    printStream "\t";
-                    printHex((!ptr - 0w1) - getB(1, !ptr, seg));
-                    ptr := !ptr + 0w1
-                )
-
-                else if opc = opcode_jumpBack16 (* Should be negative *)
-                then
-                (
-                    printStream "\t";
-                    printHex((!ptr - 0w1) - getB(2, !ptr, seg));
-                    ptr := !ptr + 0w2
-                )
-
-                else if opc = opcode_case16
-                then
-                let
-                    (* Have to find out how many items there are. *)
-                    val limit = getB (2, !ptr, seg);
-                    val () = printOp (2, "\t");
-                    val base = !ptr;
+                case opc of
+                    0wx02 => (printStream "jump"; printDisp (1, "\t\t"))
+                |   0wx03 => (printStream "jumpFalse"; printDisp (1, "\t"))
+                |   0wx04 => printStream "loadMLWord"
+                |   0wx05 => printStream "storeMLWord"
+                |   0wx06 => printStream "alloc_ref"
+                |   0wx07 => printStream "blockMoveWord"
+                |   0wx08 => printStream "loadUntagged"
+                |   0wx09 => printStream "storeUntagged"
+                |   0wx0a =>
+                    let
+                        (* Have to find out how many items there are. *)
+                        val limit = getB (2, !ptr, seg);
+                        val () = printOp (2, "case16\t");
+                        val base = !ptr;
         
-                    fun printEntry _ = (printStream "\n\t"; printHex(base + getB(2, !ptr, seg)); ptr := !ptr + 0w2)
+                        fun printEntry _ = (printStream "\n\t"; printHex(base + getB(2, !ptr, seg)); ptr := !ptr + 0w2)
         
-                    fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 0w1) n)
-                in
-                    forLoop printEntry 0w0 limit
-                end
-         
-                else if opc = opcode_tail
-                then (printOp (2, "\t"); printOp (2, ","))
-         
-                else if opc = opcode_tailbb
-                then (printOp (1, "\t"); printOp (1, ","))
+                        fun forLoop f i n = if i >= n then () else (f i; forLoop f (i + 0w1) n)
+                    in
+                        forLoop printEntry 0w0 limit
+                    end
+                |   0wx0c => printStream "callClosure"
+                |   0wx0d => printOp(2, "returnW\t")
+                |   0wx0e => printStream "containerB"
+                |   0wx10 => printStream "raiseEx"
+                |   0wx11 => printDisp (2, "callConstAddr16\t")
+                |   0wx12 => printDisp (1, "callConstAddr8\t")
+                |   0wx13 => printOp(2, "localW\t")
+                |   0wx16 => printOp(1, "callLocalB\t")
+                |   0wx1a => (printStream "constAddr16"; printDisp (2, "\t"))
+                |   0wx1b => printOp(2, "constIntW\t")
+                |   0wx1e =>
+                    ((* Should be negative *)
+                        printStream "jumpBack8\t";
+                        printHex((!ptr - 0w1) - getB(1, !ptr, seg));
+                        ptr := !ptr + 0w1
+                    )
+                |   0wx1f => printOp(1, "returnB\t")
+                |   0wx20 =>
+                    (
+                        printStream "jumpBack16\t";
+                        printHex((!ptr - 0w1) - getB(2, !ptr, seg));
+                        ptr := !ptr + 0w2
+                    )
+                |   0wx21 => (printOp(1, "indirectLocalBB\t"); printOp(1, ","))
+                |   0wx22 => printOp(1, "localB\t")
+                |   0wx23 => printOp(1, "indirectB\t")
+                |   0wx24 => printOp(1, "moveToVecB\t")
+                |   0wx25 => printOp(1, "setStackValB\t")
+                |   0wx26 => printOp(1, "resetB\t")
+                |   0wx27 => printOp(1, "resetRB\t")
+                |   0wx28 => printOp(1, "constIntB\t")
+                |   0wx29 => printStream "local_0"
+                |   0wx2a => printStream "local_1"
+                |   0wx2b => printStream "local_2"
+                |   0wx2c => printStream "local_3"
+                |   0wx2d => printStream "local_4"
+                |   0wx2e => printStream "local_5"
+                |   0wx2f => printStream "local_6"
+                |   0wx30 => printStream "local_7"
+                |   0wx31 => printStream "local_8"
+                |   0wx32 => printStream "local_9"
+                |   0wx33 => printStream "local_10"
+                |   0wx34 => printStream "local_11"
+                |   0wx35 => printStream "indirect_0"
+                |   0wx36 => printStream "indirect_1"
+                |   0wx37 => printStream "indirect_2"
+                |   0wx38 => printStream "indirect_3"
+                |   0wx39 => printStream "indirect_4"
+                |   0wx3a => printStream "indirect_5"
+                |   0wx3b => printStream "const_0"
+                |   0wx3c => printStream "const_1"
+                |   0wx3d => printStream "const_2"
+                |   0wx3e => printStream "const_3"
+                |   0wx3f => printStream "const_4"
+                |   0wx40 => printStream "const_10"
+                |   0wx41 => printStream "return_0"
+                |   0wx42 => printStream "return_1"
+                |   0wx43 => printStream "return_2"
+                |   0wx44 => printStream "return_3"
+                |   0wx45 => printStream "local_12"
+                |   0wx46 => (printStream "jumpTrue"; printDisp (1, "\t"))
+                |   0wx47 => (printStream "jumpTrue"; printDisp (2, "\t"))
+                |   0wx50 => printStream "reset_1"
+                |   0wx51 => printStream "reset_2"
+                |   0wx52 => printStream "getStore_2"
+                |   0wx53 => printStream "getStore_3"
+                |   0wx54 => printStream "getStore_4"
+                |   0wx64 => printStream "resetR_1"
+                |   0wx65 => printStream "resetR_2"
+                |   0wx66 => printStream "resetR_3"
+                |   0wx68 => printOp(1, "tupleB\t")
+                |   0wx69 => printStream "tuple_2"
+                |   0wx6a => printStream "tuple_3"
+                |   0wx6b => printStream "tuple_4"
+                |   0wx6c => printStream "lock"
+                |   0wx6d => printStream "ldexc"
+                |   0wx78 => printStream "pushHandler"
+                |   0wx7b => (printOp (1, "tailbb\t"); printOp (1, ","))
+                |   0wx7d => printOp(1, "tail3b\t")
+                |   0wx7e => printOp(1, "tail4b\t")
+                |   0wx7f => printStream "tail3_2"
+                |   0wx80 => printStream "tail3_3"
+                |   0wx81 => (printStream "setHandler"; printDisp (1, "\t"))
+                |   0wx83 => printStream "callFastRTS0"
+                |   0wx84 => printStream "callFastRTS1"
+                |   0wx85 => printStream "callFastRTS2"
+                |   0wx86 => printStream "callFastRTS3"
+                |   0wx87 => printStream "callFastRTS4"
+                |   0wx88 => printStream "callFastRTS5"
+                |   0wx89 => printStream "callFullRTS0"
+                |   0wx8a => printStream "callFullRTS1"
+                |   0wx8b => printStream "callFullRTS2"
+                |   0wx8c => printStream "callFullRTS3"
+                |   0wx8d => printStream "callFullRTS4"
+                |   0wx8e => printStream "callFullRTS5"
+                |   0wx91 => printStream "notBoolean"
+                |   0wx92 => printStream "isTagged"
+                |   0wx93 => printStream "cellLength"
+                |   0wx94 => printStream "cellFlags"
+                |   0wx95 => printStream "clearMutable"
+                |   0wx97 => printStream "atomicIncr"
+                |   0wx98 => printStream "atomicDecr"
+                |   0wxa0 => printStream "equalWord"
+                |   0wxa1 => printOp(1, "equalWordConstB\t")
+                |   0wxa2 => printStream "lessSigned"
+                |   0wxa3 => printStream "lessUnsigned"
+                |   0wxa4 => printStream "lessEqSigned"
+                |   0wxa5 => printStream "lessEqUnsigned"
+                |   0wxa6 => printStream "greaterSigned"
+                |   0wxa7 => printStream "greaterUnsigned"
+                |   0wxa8 => printStream "greaterEqSigned"
+                |   0wxa9 => printStream "greaterEqUnsigned"
+                |   0wxaa => printStream "fixedAdd"
+                |   0wxab => printStream "fixedSub"
+                |   0wxac => printStream "fixedMult"
+                |   0wxad => printStream "fixedQuot"
+                |   0wxae => printStream "fixedRem"
+                |   0wxb1 => printStream "wordAdd"
+                |   0wxb2 => printStream "wordSub"
+                |   0wxb3 => printStream "wordMult"
+                |   0wxb4 => printStream "wordDiv"
+                |   0wxb5 => printStream "wordMod"
+                |   0wxb7 => printStream "wordAnd"
+                |   0wxb8 => printStream "wordOr"
+                |   0wxb9 => printStream "wordXor"
+                |   0wxba => printStream "wordShiftLeft"
+                |   0wxbb => printStream "wordShiftRLog"
+                |   0wxbd => printStream "allocByteMem"
+                |   0wxc1 => printOp(1, "indirectLocalB1\t")
+                |   0wxc2 => printOp(1, "isTaggedLocalB\t")
+                |   0wxc3 => (printOp(1, "jumpNEqLocalInd\t"); printOp(1, ","); printOp(1, ","); printDisp(1, "\t"))
+                |   0wxc4 => (printOp(1, "jumpTaggedLocal\t"); printDisp(1, "\t"))
+                |   0wxc5 => (printOp(1, "jumpNEqLocal\t"); printOp(1, ","); printOp(1, ","); printDisp(1, "\t"))
+                |   0wxc6 => printStream "indirect0Local0"
+                |   0wxc7 => printOp(1, "indirectLocalB0\t")
+                |   0wxd9 => printStream "getThreadId"
+                |   0wxda => printStream "allocWordMemory"
+                |   0wxdc => printStream "loadMLByte"
+                |   0wxe4 => printStream "storeMLByte"
+                |   0wxec => printStream "blockMoveByte"
+                |   0wxed => printStream "blockEqualByte"
+                |   0wxee => printStream "blockCompareByte"
+                |   0wxf1 => printStream "deleteHandler"
+                |   0wxf7 => printStream "jump16"
+                |   0wxf8 => printStream "jump16False"
+                |   0wxf9 => printStream "setHandler16"
+                |   0wxfa => printDisp (1, "constAddr8\t")
+                |   0wxfb => printOp(1, "stackSize8\t")
+                |   0wxfc => printOp(2, "stackSize16\t")
+                |   0wxff => printStream "enterIntX86"
                 
-                else printOp (sz - 1, "\t")
+                |   0wxfe =>
+                    (
+                        case codeVecGet (seg, !ptr) before ptr := !ptr + 0w1 of
+                            0wx0b => printStream "containerW"
+                        |   0wx0f => printDisp (4, "callConstAddr32\t")
+                        |   0wx14 => printOp(2, "indirectW\t")
+                        |   0wx15 => printOp(2, "moveToVecW\t")
+                        |   0wx17 => printOp(2, "setStackValW\t")
+                        |   0wx18 => printOp(2, "resetW\t")
+                        |   0wx19 => printOp(2, "resetR_w\t")
+                        |   0wx1c => printStream "callFastRTSRRtoR"
+                        |   0wx1d => printStream "callFastRTSRGtoR"
+                        |   0wx48 => (printStream "jumpTrue"; printDisp (4, "\t"))
+                        |   0wx56 => printStream "floatAbs"
+                        |   0wx57 => printStream "floatNeg"
+                        |   0wx58 => printStream "fixedIntToFloat"
+                        |   0wx59 => printStream "floatToReal"
+                        |   0wx5a => printOp(1, "realToFloat\t")
+                        |   0wx5b => printStream "floatEqual"
+                        |   0wx5c => printStream "floatLess"
+                        |   0wx5d => printStream "floatLessEq"
+                        |   0wx5e => printStream "floatGreater"
+                        |   0wx5f => printStream "floatGreaterEq"
+                        |   0wx60 => printStream "floatAdd"
+                        |   0wx61 => printStream "floatSub"
+                        |   0wx62 => printStream "floatMult"
+                        |   0wx63 => printStream "floatDiv"
+                        |   0wx67 => printOp(2, "tupleW\t")
+                        |   0wx6e => printOp(1, "realToInt\t")
+                        |   0wx6f => printOp(1, "floatToInt\t")
+                        |   0wx70 => printStream "callFastRTSFtoF"
+                        |   0wx71 => printStream "callFastRTSGtoF"
+                        |   0wx72 => printStream "callFastRTSFFtoF"
+                        |   0wx73 => printStream "callFastRTSFGtoF"
+                        |   0wx79 => printStream "realUnordered"
+                        |   0wx7a => printStream "floatUnordered"
+                        |   0wx7c => (printOp (2, "tail\t"); printOp (2, ","))
+                        |   0wx8f => printStream "callFastRTSRtoR"
+                        |   0wx90 => printStream "callFastRTSGtoR"
+                        |   0wx99 => printStream "atomicReset"
+                        |   0wx9a => printStream "longWToTagged"
+                        |   0wx9b => printStream "signedToLongW"
+                        |   0wx9c => printStream "unsignedToLongW"
+                        |   0wx9d => printStream "realAbs"
+                        |   0wx9e => printStream "realNeg"
+                        |   0wx9f => printStream "fixedIntToReal"
+                        |   0wxaf => printStream "fixedDiv"
+                        |   0wxb0 => printStream "fixedMod"
+                        |   0wxbc => printStream "wordShiftRArith"
+                        |   0wxbe => printStream "lgWordEqual"
+                        |   0wxc0 => printStream "lgWordLess"
+                        |   0wxc1 => printStream "lgWordLessEq"
+                        |   0wxc2 => printStream "lgWordGreater"
+                        |   0wxc3 => printStream "lgWordGreaterEq"
+                        |   0wxc4 => printStream "lgWordAdd"
+                        |   0wxc5 => printStream "lgWordSub"
+                        |   0wxc6 => printStream "lgWordMult"
+                        |   0wxc7 => printStream "lgWordDiv"
+                        |   0wxc8 => printStream "lgWordMod"
+                        |   0wxc9 => printStream "lgWordAnd"
+                        |   0wxca => printStream "lgWordOr"
+                        |   0wxcb => printStream "lgWordXor"
+                        |   0wxcc => printStream "lgWordShiftLeft"
+                        |   0wxcd => printStream "lgWordShiftRLog"
+                        |   0wxce => printStream "lgWordShiftRArith"
+                        |   0wxcf => printStream "realEqual"
+                        |   0wxd1 => printStream "realLess"
+                        |   0wxd2 => printStream "realLessEq"
+                        |   0wxd3 => printStream "realGreater"
+                        |   0wxd4 => printStream "realGreaterEq"
+                        |   0wxd5 => printStream "realAdd"
+                        |   0wxd6 => printStream "realSub"
+                        |   0wxd7 => printStream "realMult"
+                        |   0wxd8 => printStream "realDiv"
+                        |   0wxdd => printStream "loadC8"
+                        |   0wxde => printStream "loadC16"
+                        |   0wxdf => printStream "loadC32"
+                        |   0wxe0 => printStream "loadC64"
+                        |   0wxe1 => printStream "loadCFloat"
+                        |   0wxe2 => printStream "loadCDouble"
+                        |   0wxe5 => printStream "storeC8"
+                        |   0wxe6 => printStream "storeC16"
+                        |   0wxe7 => printStream "storeC32"
+                        |   0wxe8 => printStream "storeC64"
+                        |   0wxe9 => printStream "storeCFloat"
+                        |   0wxea => printStream "storeCDouble"
+                        |   0wxf2 => printDisp (4, "jump32\t")
+                        |   0wxf3 => printDisp (4, "jump32False\t")
+                        |   0wxf4 => printDisp (4, "constAddr32\t")
+                        |   0wxf5 => printDisp (4, "setHandler32\t")
+                        |   0wxf6 =>
+                            let
+                                (* Have to find out how many items there are. *)
+                                val limit = getB (2, !ptr, seg);
+                                val () = printOp (2, "case32\t");
+                                val base = !ptr;
+        
+                                fun printEntry _ = (printStream "\n\t"; printHex(base + getB(4, !ptr, seg)); ptr := !ptr + 0w4)
+        
+                                fun forLoop f i n = if i >= n then () else (f i; forLoop f (i + 0w1) n)
+                            in
+                                forLoop printEntry 0w0 limit
+                            end
+                        |  _ => printStream ("unknown:0xfe 0x" ^ Word8.toString opc)
+                    )
+
+                |   opc => printStream("unknown:0x" ^ Word8.toString opc)
+
             end; (* an instruction. *)
 
             printStream "\n"
         end (* main loop *)
     end (* printCode *)
-    
+
     fun codeSize (SimpleCode l) = List.length l
     |   codeSize (LabelCode _) = 0
     |   codeSize (JumpInstruction{size=ref Size8, ...}) = 2
     |   codeSize (JumpInstruction{size=ref Size16, ...}) = 3
-    |   codeSize (JumpInstruction{size=ref Size32, ...}) = 5
+    |   codeSize (JumpInstruction{size=ref Size32, ...}) = 6
     |   codeSize (PushConstant{size=ref Size8, ...}) = 2
     |   codeSize (PushConstant{size=ref Size16, ...}) = 3
-    |   codeSize (PushConstant{size=ref Size32, ...}) = 5
-    |   codeSize (IndexedCase{labels, size=ref Size32, ...}) = 3 + List.length labels * 4 
+    |   codeSize (PushConstant{size=ref Size32, isCall=false, ...}) = 6
+    |   codeSize (PushConstant{size=ref Size32, isCall=true, ...}) = 7
+    |   codeSize (PushShort value) =
+            if value <= 0w4 orelse value = 0w10 then 1
+            else if value < 0w256 then 2 else 3
+    |   codeSize (IndexedCase{labels, size=ref Size32, ...}) = 4 + List.length labels * 4 
     |   codeSize (IndexedCase{labels, size=ref Size16, ...}) = 3 + List.length labels * 2 
     |   codeSize (IndexedCase{labels=_, size=ref Size8, ...}) = raise InternalError "codeSize"
-   
+    |   codeSize (LoadLocal w) = if w <= 0w12 then 1 else 2
+    |   codeSize (IndirectLocal{indirect=0w0, localAddr=0w0}) = 1
+    |   codeSize (IndirectLocal{indirect=0w0, ...}) = 2
+    |   codeSize (IndirectLocal{indirect=0w1, ...}) = 2
+    |   codeSize (IndirectLocal _) = 3
+    |   codeSize (UncondTransfer l) = List.length l
+    |   codeSize (IsTaggedLocalB _) = 2
+    |   codeSize (JumpOnIsTaggedLocalB{size=ref Size8, ...}) = 3
+    |   codeSize (JumpOnIsTaggedLocalB{size=ref Size16, ...}) = 5
+    |   codeSize (JumpOnIsTaggedLocalB{size=ref Size32, ...}) = 8
+
+    |   codeSize (JumpNotEqualLocalInd0BB{size=ref Size8, ...}) = 4
+    |   codeSize (JumpNotEqualLocalInd0BB{label, size, localAddr, const}) =
+            codeSize(IndirectLocal{localAddr=localAddr, indirect=0w0}) +
+                codeSize(PushShort(word8ToWord const)) + 1 +
+                codeSize(JumpInstruction{jumpType=JumpFalse, label=label, size=size})
+
+    |   codeSize (JumpNotEqualLocalConstBB{size=ref Size8, ...}) = 4
+    |   codeSize (JumpNotEqualLocalConstBB {label, size, localAddr, const}) =
+            codeSize(LoadLocal localAddr) + codeSize(PushShort(word8ToWord const)) + 1 +
+                codeSize(JumpInstruction{jumpType=JumpFalse, label=label, size=size})
+
     (* General function to process the code.  ic is the byte counter within the original code. *)
-    fun foldCode foldFn n ops =
+    fun foldCode startIc foldFn ops =
     let
-        fun doFold(oper :: operList, ic, acc) =
-            doFold(operList, ic + Word.fromInt(codeSize oper),
-                foldFn(oper, ic, acc))
-        |   doFold(_, _, n) = n
+        fun doFold(oper :: operList, ic) =
+            doFold(operList,
+                (* Get the size BEFORE any possible change. *)
+                ic + Word.fromInt(codeSize oper) before foldFn(oper, ic))
+        |   doFold(_, ic) = ic
     in
-        doFold(ops, 0w0, n)
+        doFold(ops, startIc)
     end
 
-    (* Process the code, setting the destination of any labels.  Return the length of the code. *)    
-    fun setLabels(LabelCode{destination, ...} :: ops, ic) = (destination := ic; setLabels(ops, ic))
+    (* Process the code, setting the destination of any labels.  Return the length of the code. *)
+    fun setLabels(LabelCode(ref labs) :: ops, ic) = (List.app(fn d => d := ic) labs; setLabels(ops, ic))
     |   setLabels(oper :: ops, ic) = setLabels(ops, ic + Word.fromInt(codeSize oper))
     |   setLabels([], ic) = ic
-    
+
     (* Set the sizes of branches depending on the distance to the destination. *)
     fun setLabelsAndSizes ops =
     let
+        val wordLength = wordSize
+
         (* Set the labels and adjust the sizes, repeating until it never gets smaller*)
         fun setLabAndSize(ops, lastSize) =
         let
@@ -817,12 +756,13 @@ struct
                instruction and the target could actually increase. *)
             val alignment = wordLength - 0w1
         
-            fun adjust(JumpInstruction{size as ref Size32, label={destination=ref dest}, ...}, ic, _) =
+            fun adjust(JumpInstruction{size as ref Size32, label=ref lab, ...}, ic) =
                 let
+                    val dest = !(hd lab)
                     val diff =
                         if dest <= ic (* N.B. Include infinite loops as backwards. *)
                         then ic - dest (* Backwards - Counts from start of instruction. *)
-                        else dest - (ic + 0w5) (* Forwards - Relative to the current end. *)
+                        else dest - (ic + 0w6) (* Forwards - Relative to the current end. *)
                 in
                     if diff < 0wx100
                     then size := Size8
@@ -831,34 +771,42 @@ struct
                     else ()
                 end
 
-            |   adjust(JumpInstruction{size as ref Size16, label={destination=ref dest}, ...}, ic, _) =
-                if dest <= ic
-                then if ic - dest < 0wx100 then size := Size8 else ()
-                else if dest - (ic + 0w3)  < 0wx100 then size := Size8 else ()
-        
-            |   adjust(IndexedCase{size as ref Size32, labels}, ic, _) =
+            |   adjust(JumpInstruction{size as ref Size16, label=ref lab, ...}, ic) =
                 let
-                    val startAddr = ic+0w3
+                    val dest = !(hd lab)
+                in
+                    if dest <= ic
+                    then if ic - dest < 0wx100 then size := Size8 else ()
+                    else if dest - (ic + 0w3)  < 0wx100 then size := Size8 else ()
+                end
+
+            |   adjust(IndexedCase{size as ref Size32, labels}, ic) =
+                let
+                    val startAddr = ic+0w4
                     (* Use 16-bit case if all the offsets are 16-bits. *)
-                    fun is16bit{destination=ref dest} =
+                    fun is16bit(ref lab) =
+                    let
+                        val dest = !(hd lab)
+                    in
                         dest > startAddr andalso dest < startAddr+0wx10000
+                    end
                 in
                     if List.all is16bit labels
                     then size := Size16
                     else ()
                 end
 
-            |   adjust(PushConstant{size as ref Size32, constNum, ...}, ic, _) =
+            |   adjust(PushConstant{size as ref Size32, constNum, ...}, ic) =
                 let
                     val constAddr = firstConstant + Word.fromInt constNum * wordLength
-                    val offset = constAddr - (ic + 0w5)
+                    val offset = constAddr - (ic + 0w6)
                 in
                     if offset < 0wx100-alignment then size := Size8
                     else if offset < 0wx10000-alignment then size := Size16
                     else ()
                 end
 
-            |   adjust(PushConstant{size as ref Size16, constNum, ...}, ic, _) =
+            |   adjust(PushConstant{size as ref Size16, constNum, ...}, ic) =
                 let
                     val constAddr = firstConstant + Word.fromInt constNum * wordLength
                     val offset = constAddr - (ic + 0w3)
@@ -867,9 +815,66 @@ struct
                     else ()
                 end
 
+            |   adjust(JumpOnIsTaggedLocalB{size as ref Size32, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                    val diff = dest - (ic + 0w8)
+                in
+                    if diff < 0wx100
+                    then size := Size8
+                    else if diff < 0wx10000
+                    then size := Size16
+                    else ()
+                end
+
+            |   adjust(JumpOnIsTaggedLocalB{size as ref Size16, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                in
+                    if dest - (ic + 0w5)  < 0wx100 then size := Size8 else ()
+                end
+
+            |   adjust(j as JumpNotEqualLocalInd0BB{size as ref Size32, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                    val diff = dest - (ic + Word.fromInt(codeSize j))
+                in
+                    if diff < 0wx100
+                    then size := Size8
+                    else if diff < 0wx10000
+                    then size := Size16
+                    else ()
+                end
+
+            |   adjust(j as JumpNotEqualLocalInd0BB{size as ref Size16, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                in
+                    if dest - (ic + Word.fromInt(codeSize j))  < 0wx100 then size := Size8 else ()
+                end
+
+            |   adjust(j as JumpNotEqualLocalConstBB{size as ref Size32, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                    val diff = dest - (ic + Word.fromInt(codeSize j))
+                in
+                    if diff < 0wx100
+                    then size := Size8
+                    else if diff < 0wx10000
+                    then size := Size16
+                    else ()
+                end
+
+            |   adjust(j as JumpNotEqualLocalConstBB{size as ref Size16, label=ref lab, ...}, ic) =
+                let
+                    val dest = !(hd lab)
+                in
+                    if dest - (ic + Word.fromInt(codeSize j))  < 0wx100 then size := Size8 else ()
+                end
+
             |   adjust _ = ()
 
-            val () = foldCode adjust () ops
+            val _ = foldCode 0w0 adjust ops
             val nextSize = setLabels(ops, 0w0)
         in
             if nextSize < lastSize then setLabAndSize(ops, nextSize)
@@ -884,10 +889,12 @@ struct
     let
         (* First pass - set the labels. *)
         val codeSize = setLabelsAndSizes ops
+        val wordSize = wordSize
         (* Align to wordLength. *)
-        val endIC = Word.andb(codeSize + wordLength - 0w1, ~ wordLength)
-        val endOfCode = endIC div wordLength
-        val firstConstant = endIC + wordLength * 0w3 (* Add 3 for fn name, unused and profile count. *)
+        val endIC = Word.andb(codeSize + wordSize - 0w1, ~ wordSize)
+        val paddingBytes = List.tabulate(Word.toInt(endIC - codeSize), fn _ => SimpleCode[opcode_const_0])
+        val endOfCode = endIC div wordSize
+        val firstConstant = endIC + wordSize * 0w3 (* Add 3 for fn name, unused and profile count. *)
         val segSize   = endOfCode + Word.fromInt(List.length(! constVec)) + 0w4
         val codeVec = byteVecMake segSize
 
@@ -895,22 +902,28 @@ struct
         
         fun genByte b = byteVecSet(codeVec, !ic, b) before ic := !ic + 0w1
 
-        fun genByteCode(SimpleCode bytes, _, _) =
+        fun genByteCode(SimpleCode bytes, _) =
             (* Simple code - just generate the bytes. *)
                 List.app genByte bytes
 
-        |   genByteCode(LabelCode _, _, _) = ()
+        |   genByteCode(UncondTransfer bytes, _) = List.app genByte bytes
 
-        |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size32, ...}, ic, _) =
+        |   genByteCode(LabelCode _, _) = ()
+
+        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size32, ...}, ic) =
             let
-                val opc =
+                val dest = !(hd labs)
+                val extOpc =
                     case jumpType of
-                        SetHandler => opcode_setHandler32
-                    |   JumpFalse => opcode_jump32False
-                    |   Jump => opcode_jump32
-                val diff = dest - (ic + 0w5)
+                        SetHandler => ext_opcode_setHandler32
+                    |   JumpFalse => ext_opcode_jump32False
+                    |   JumpTrue => ext_opcode_jump32True
+                    |   Jump => ext_opcode_jump32
+                    |   JumpBack => ext_opcode_jump32
+                val diff = dest - (ic + 0w6)
             in
-                genByte opc;
+                genByte opcode_escape;
+                genByte extOpc;
                 genByte(wordToWord8 diff);
                 (* This may be negative so we must use an arithmetic shift. *)
                 genByte(wordToWord8(diff ~>> 0w8));
@@ -918,102 +931,134 @@ struct
                 genByte(wordToWord8(diff ~>> 0w24))
             end
 
-        |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size16, ...}, ic, _) =
-            if dest <= ic
-            then (* Jump back. *)
+        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size16, ...}, ic) =
             let
-                val _ = jumpType = Jump orelse raise InternalError "genByteCode - back jump"
-                val diff = ic - dest
-                val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
+                val dest = !(hd labs)
             in
-                genByte opcode_jumpBack16;
-                genByte(wordToWord8 diff);
-                genByte(wordToWord8(diff >> 0w8))
-            end
-            else
-            let
-                val opc =
-                    case jumpType of
-                        SetHandler => opcode_setHandler16
-                    |   JumpFalse => opcode_jump16False
-                    |   Jump => opcode_jump16
-                val diff = dest - (ic + 0w3)
-                val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
-            in
-                genByte opc;
-                genByte(wordToWord8 diff);
-                genByte(wordToWord8(diff >> 0w8))
-            end
-
-        |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size8, ...}, ic, _) =
-            if dest <= ic
-            then (* Jump back. *)
-            let
-                val _ = jumpType = Jump orelse raise InternalError "genByteCode - back jump"
-                val diff = ic - dest
-                val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
-            in
-                genByte opcode_jumpBack8;
-                genByte(wordToWord8 diff)
-            end
-            else
-            let
-                val opc =
-                    case jumpType of
-                        SetHandler => opcode_setHandler
-                    |   JumpFalse => opcode_jumpFalse
-                    |   Jump => opcode_jump
-                val diff = dest - (ic + 0w2)
-                val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
-            in
-                genByte opc;
-                genByte(wordToWord8 diff)
+                if dest <= ic
+                then (* Jump back. *)
+                let
+                    val _ = jumpType = JumpBack orelse raise InternalError "genByteCode - back jump"
+                    val diff = ic - dest
+                    val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
+                in
+                    genByte opcode_jumpBack16;
+                    genByte(wordToWord8 diff);
+                    genByte(wordToWord8(diff >> 0w8))
+                end
+                else
+                let
+                    val opc =
+                        case jumpType of
+                            SetHandler => opcode_setHandler16
+                        |   JumpFalse => opcode_jump16False
+                        |   JumpTrue => opcode_jump16True
+                        |   Jump => opcode_jump16
+                        |   JumpBack => raise InternalError "genByteCode: JumpBack goes forward"
+                    val diff = dest - (ic + 0w3)
+                    val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
+                in
+                    genByte opc;
+                    genByte(wordToWord8 diff);
+                    genByte(wordToWord8(diff >> 0w8))
+                end
             end
 
-        |   genByteCode(PushConstant{ constNum, size=ref Size32, ... }, ic, _) =
+        |   genByteCode(JumpInstruction{label=ref labs, jumpType, size=ref Size8, ...}, ic) =
             let
-                val constAddr = firstConstant + Word.fromInt constNum * wordLength
+                val dest = !(hd labs)
+            in
+                if dest <= ic
+                then (* Jump back. *)
+                let
+                    val _ = jumpType = JumpBack orelse raise InternalError "genByteCode - back jump"
+                    val diff = ic - dest
+                    val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
+                in
+                    genByte opcode_jumpBack8;
+                    genByte(wordToWord8 diff)
+                end
+                else
+                let
+                    val opc =
+                        case jumpType of
+                            SetHandler => opcode_setHandler
+                        |   JumpFalse => opcode_jumpFalse
+                        |   JumpTrue => opcode_jumpTrue
+                        |   Jump => opcode_jump
+                        |   JumpBack => raise InternalError "genByteCode: JumpBack goes forward"
+                    val diff = dest - (ic + 0w2)
+                    val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
+                in
+                    genByte opc;
+                    genByte(wordToWord8 diff)
+                end
+            end
+
+        |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=false, ... }, ic) =
+            let
+                val constAddr = firstConstant + Word.fromInt constNum * wordSize
                 (* Offsets are calculated from the END of the instruction *)
-                val offset = constAddr - (ic + 0w5)
+                val offset = constAddr - (ic + 0w6)
             in
-                genByte(opcode_constAddr32);
+                genByte opcode_escape;
+                genByte ext_opcode_constAddr32;
                 genByte(wordToWord8 offset);
                 genByte(wordToWord8(offset >> 0w8));
                 genByte(wordToWord8(offset >> 0w16));
                 genByte(wordToWord8(offset >> 0w24))
             end
 
-        |   genByteCode(PushConstant{ constNum, size=ref Size16, ... }, ic, _) =
+        |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=true, ... }, ic) =
+            (
+                (* Turn this back into a push of a constant and call-closure. *)
+                genByteCode(PushConstant{ constNum=constNum, size=ref Size32, isCall=false }, ic);
+                genByte opcode_callClosure
+            )
+
+        |   genByteCode(PushConstant{ constNum, size=ref Size16, isCall, ... }, ic) =
             let
-                val constAddr = firstConstant + Word.fromInt constNum * wordLength
+                val constAddr = firstConstant + Word.fromInt constNum * wordSize
                 val offset = constAddr - (ic + 0w3)
                 val _ = offset < 0wx10000 orelse raise InternalError "genByteCode - constant range"
             in
-                genByte(opcode_constAddr16);
+                genByte(if isCall then opcode_callConstAddr16 else opcode_constAddr16);
                 genByte(wordToWord8 offset);
                 genByte(wordToWord8(offset >> 0w8))
             end
 
-        |   genByteCode(PushConstant{ constNum, size=ref Size8, ... }, ic, _) =
+        |   genByteCode(PushConstant{ constNum, size=ref Size8, isCall, ... }, ic) =
             let
-                val constAddr = firstConstant + Word.fromInt constNum * wordLength
+                val constAddr = firstConstant + Word.fromInt constNum * wordSize
                 val offset = constAddr - (ic + 0w2)
                 val _ = offset < 0wx100 orelse raise InternalError "genByteCode - constant range"
             in
-                genByte(opcode_constAddr8);
+                genByte(if isCall then opcode_callConstAddr8 else opcode_constAddr8);
                 genByte(wordToWord8 offset)
             end
-        
-        |   genByteCode(IndexedCase{labels, size=ref Size32, ...}, ic, _) =
+
+        |   genByteCode(PushShort 0w0, _) = genByte opcode_const_0
+        |   genByteCode(PushShort 0w1, _) = genByte opcode_const_1
+        |   genByteCode(PushShort 0w2, _) = genByte opcode_const_2
+        |   genByteCode(PushShort 0w3, _) = genByte opcode_const_3
+        |   genByteCode(PushShort 0w4, _) = genByte opcode_const_4
+        |   genByteCode(PushShort 0w10, _) = genByte opcode_const_10
+        |   genByteCode(PushShort value, _) =
+            if value < 0w256 then (genByte opcode_constIntB; genByte(wordToWord8 value))
+            else (genByte opcode_constIntW; genByte(wordToWord8 value); genByte(wordToWord8(value >> 0w8)))
+
+        |   genByteCode(IndexedCase{labels, size=ref Size32, ...}, ic) =
             let
                 val nCases = List.length labels
-                val () = genByte(opcode_case32)
+                val () = genByte opcode_escape
+                val () = genByte ext_opcode_case32
                 val () = genByte(Word8.fromInt nCases)
                 val () = genByte(Word8.fromInt (nCases div 256))
-                val startOffset = ic+0w3 (* Offsets are relative to here. *)
+                val startOffset = ic+0w4 (* Offsets are relative to here. *)
 
-                fun putLabel{destination=ref dest} =
+                fun putLabel(ref labs) =
                 let
+                    val dest = !(hd labs)
                     val diff = dest - startOffset
                     val _ = dest > startOffset orelse raise InternalError "genByteCode - indexed case"
                 in
@@ -1026,7 +1071,7 @@ struct
                 List.app putLabel labels
             end
         
-        |   genByteCode(IndexedCase{labels, size=ref Size16, ...}, ic, _) =
+        |   genByteCode(IndexedCase{labels, size=ref Size16, ...}, ic) =
             let
                 val nCases = List.length labels
                 val () = genByte(opcode_case16)
@@ -1034,8 +1079,9 @@ struct
                 val () = genByte(Word8.fromInt (nCases div 256))
                 val startOffset = ic+0w3 (* Offsets are relative to here. *)
 
-                fun putLabel{destination=ref dest} =
+                fun putLabel(ref labs) =
                 let
+                    val dest = !(hd labs)
                     val diff = dest - startOffset
                     val _ = dest > startOffset orelse raise InternalError "genByteCode - indexed case"
                     val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - indexed case"
@@ -1047,25 +1093,182 @@ struct
                 List.app putLabel labels
             end
         
-        |   genByteCode(IndexedCase{size=ref Size8, ...}, _, _) = raise InternalError "genByteCode - IndexedCase byte"
+        |   genByteCode(IndexedCase{size=ref Size8, ...}, _) = raise InternalError "genByteCode - IndexedCase byte"
+        
+        |   genByteCode(LoadLocal 0w0, _) = genByte opcode_local_0
+        |   genByteCode(LoadLocal 0w1, _) = genByte opcode_local_1
+        |   genByteCode(LoadLocal 0w2, _) = genByte opcode_local_2
+        |   genByteCode(LoadLocal 0w3, _) = genByte opcode_local_3
+        |   genByteCode(LoadLocal 0w4, _) = genByte opcode_local_4
+        |   genByteCode(LoadLocal 0w5, _) = genByte opcode_local_5
+        |   genByteCode(LoadLocal 0w6, _) = genByte opcode_local_6
+        |   genByteCode(LoadLocal 0w7, _) = genByte opcode_local_7
+        |   genByteCode(LoadLocal 0w8, _) = genByte opcode_local_8
+        |   genByteCode(LoadLocal 0w9, _) = genByte opcode_local_9
+        |   genByteCode(LoadLocal 0w10, _) = genByte opcode_local_10
+        |   genByteCode(LoadLocal 0w11, _) = genByte opcode_local_11
+        |   genByteCode(LoadLocal 0w12, _) = genByte opcode_local_12
+        |   genByteCode(LoadLocal w, _) = (genByte opcode_localB; genByte w)
+
+        |   genByteCode(IndirectLocal{localAddr=0w0, indirect=0w0}, _) = genByte opcode_indirect0Local0
+        |   genByteCode(IndirectLocal{localAddr, indirect=0w0}, _) =
+                (genByte opcode_indirectLocalB0; genByte localAddr)
+        |   genByteCode(IndirectLocal{localAddr, indirect=0w1}, _) =
+                (genByte opcode_indirectLocalB1; genByte localAddr)
+        |   genByteCode(IndirectLocal{localAddr, indirect}, _) =
+                (genByte opcode_indirectLocalBB; genByte localAddr; genByte indirect)
+
+        |   genByteCode(IsTaggedLocalB addr, _) =
+                (genByte opcode_isTaggedLocalB; genByte addr)
+
+        |   genByteCode(JumpOnIsTaggedLocalB {label=ref labs, size=ref Size8, localAddr}, ic) =
+            let
+                val dest = !(hd labs)
+                val diff = dest - (ic + 0w3)
+            in
+                genByte opcode_jumpTaggedLocal;
+                genByte localAddr;
+                genByte(wordToWord8 diff)
+            end
+
+        |   genByteCode(JumpOnIsTaggedLocalB {label, size, localAddr}, ic) =
+            (
+                (* Turn this back into the original sequence. *)
+                genByteCode(IsTaggedLocalB localAddr, ic);
+                genByteCode(JumpInstruction{jumpType=JumpTrue, label=label, size=size}, ic+0w2)
+            )
+
+        |   genByteCode(JumpNotEqualLocalInd0BB {label=ref labs, size=ref Size8, localAddr, const}, ic) =
+            let
+                val dest = !(hd labs)
+                val diff = dest - (ic + 0w4)
+            in
+                genByte opcode_jumpNEqLocalInd;
+                genByte localAddr; genByte const;
+                genByte(wordToWord8 diff)
+            end
+
+        |   genByteCode(JumpNotEqualLocalInd0BB {label, size, localAddr, const}, ic) =
+                (* Turn this back into the original sequence. *)
+                (foldCode ic genByteCode
+                    [IndirectLocal{localAddr=localAddr, indirect=0w0}, PushShort(word8ToWord const),
+                     SimpleCode[opcode_equalWord],
+                     JumpInstruction{jumpType=JumpFalse, label=label, size=size}]; ())
+
+        |   genByteCode(JumpNotEqualLocalConstBB {label=ref labs, size=ref Size8, localAddr, const}, ic) =
+            let
+                val dest = !(hd labs)
+                val diff = dest - (ic + 0w4)
+            in
+                genByte opcode_jumpNEqLocal;
+                genByte localAddr; genByte const;
+                genByte(wordToWord8 diff)
+            end
+
+        |   genByteCode(JumpNotEqualLocalConstBB {label, size, localAddr, const}, ic) =
+                (* Turn this back into the original sequence. *)
+                (foldCode ic genByteCode
+                    [LoadLocal localAddr, PushShort(word8ToWord const), 
+                     SimpleCode[opcode_equalWord],
+                     JumpInstruction{jumpType=JumpFalse, label=label, size=size}]; ())
     in
-        foldCode genByteCode () ops;
+        foldCode 0w0 genByteCode (ops @ paddingBytes);
         (codeVec (* Return the completed code. *), endIC (* And the size. *))
     end
 
     fun setLong (value, addrs, seg) =
     let
+        val wordLength = wordSize
+        
         fun putBytes(value, a, seg, i) =
         if i = wordLength then ()
         else
         (
             byteVecSet(seg,
-                if littleEndian() then a+i else a+wordLength-i-0w1,
+                if not isBigEndian then a+i else a+wordLength-i-0w1,
                 Word8.fromInt(value mod 256));
             putBytes(value div 256, a, seg, i+0w1)
         )
     in
         putBytes(value, addrs, seg, 0w0)
+    end
+
+    (* Peephole optimisation. *)
+    local
+        fun peepHole([], _, output) = List.rev output
+        
+        |   peepHole(LabelCode lab1 :: (instrs as LabelCode lab2 :: _), exited, output) =
+            (
+                (* Consecutive labels.  Merge these, discarding the first. *)
+                lab2 := !lab1 @ !lab2;
+                peepHole(instrs, exited, output)
+            )
+
+            (* A label followed by an unconditional branch.  Forward the original label.
+               Although JumpBack is also unconditional we don't forward those because
+               we don't have a conditional backwards jump. *)
+        |   peepHole((LabelCode lab1)  ::
+                     (jump as JumpInstruction{jumpType=Jump, label=lab2, ...}) :: tl,
+                     exited, output) =
+            (
+                lab2 := !lab1 @ !lab2;
+                (* Leave the jump in the stream and leave "exited" unchanged.
+                   This will now be unreachable if we had previously exited but
+                   we need to take the jump if we hadn't. *)
+                peepHole(jump :: tl, exited, output)
+            )
+
+           (* Discard everything after an unconditional transfer until the next label. *)
+        |   peepHole((label as LabelCode _) :: tl, _, output) =
+                peepHole(tl, false, label::output)
+        
+        |   peepHole(_ :: tl, true, output) = peepHole(tl, true, output)
+
+        |   peepHole((jump as JumpInstruction{jumpType=Jump, ...}) :: tl, _, output) =
+                peepHole(tl, true, jump :: output)
+                
+            (* Return, raise-exception and tail-call. *)
+        |   peepHole((uncond as UncondTransfer _) :: tl, _, output) =
+                peepHole(tl, true, uncond :: output)
+
+            (* A conditional branch round an unconditional branch.  Replace by a
+               conditional branch with the sense reversed. *)
+        |   peepHole((cond as JumpInstruction{jumpType=JumpFalse, label=lab1, ...}) ::
+                (uncond as JumpInstruction{jumpType=Jump, label=lab2, size}) ::
+                (tail as LabelCode lab3 :: _), _, output) =
+                if lab1 = lab3
+                then peepHole(tail, false, JumpInstruction{jumpType=JumpTrue, label=lab2, size=size} :: output)
+                else peepHole(uncond :: tail, false, cond :: output)
+
+        |   peepHole((cond as JumpInstruction{jumpType=JumpTrue, label=lab1, ...}) ::
+                (uncond as JumpInstruction{jumpType=Jump, label=lab2, size}) ::
+                (tail as LabelCode lab3 :: _), _, output) =
+                if lab1 = lab3
+                then peepHole(tail, false, JumpInstruction{jumpType=JumpFalse, label=lab2, size=size} :: output)
+                else peepHole(uncond :: tail, false, cond :: output)
+
+        |   peepHole(IsTaggedLocalB addr :: JumpInstruction{jumpType=JumpTrue, label, size} :: tail, _, output) =
+                peepHole(tail, false, JumpOnIsTaggedLocalB {label=label, size=size, localAddr=addr} :: output)
+
+        |   peepHole((indLocal as IndirectLocal{localAddr, indirect=0w0}) ::
+                       (instrs as PushShort const :: SimpleCode[0wxa0(*opcode_equalWord*)]  ::
+                            JumpInstruction{jumpType=JumpFalse, label, size} :: tail), _, output) =
+                if const < 0w256
+                then peepHole(tail, false,
+                        JumpNotEqualLocalInd0BB {label=label, size=size, localAddr=localAddr, const=wordToWord8 const} :: output)
+                else peepHole(instrs, false, indLocal :: output)
+
+        |   peepHole((load as LoadLocal localAddr) ::
+                       (instrs as PushShort const :: SimpleCode[0wxa0(*opcode_equalWord*)]  ::
+                            JumpInstruction{jumpType=JumpFalse, label, size} :: tail), _, output) =
+                if const < 0w256
+                then peepHole(tail, false,
+                        JumpNotEqualLocalConstBB {label=label, size=size, localAddr=localAddr, const=wordToWord8 const} :: output)
+                else peepHole(instrs, false, load :: output)
+
+        |   peepHole(hd::tl, exited, output) = peepHole(tl, exited, hd::output)
+    in
+        fun optimise code = peepHole(code, false, [])
     end
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
@@ -1074,16 +1277,18 @@ struct
                            procName, constVec, stage1Code, ...}, maxStack, resultClosure) =
     let
         local
-            val revCode = List.rev(!stage1Code)
-            (* Add a stack check. *)
-            val stackCheck =
-                if maxStack < 256
-                then SimpleCode[opcode_stackSize8, Word8.fromInt maxStack]
-                else SimpleCode[opcode_stackSize16, Word8.fromInt maxStack, Word8.fromInt(maxStack div 256)]
+            val revCode = optimise(List.rev(!stage1Code))
+            (* Add a stack check.  This is only needed if the
+               function needs more than 128 words since the call and tail functions
+               check for this much. *)
         in
-            val codeList = stackCheck :: revCode
+            val codeList =
+                if maxStack < 128
+                then revCode
+                else SimpleCode[opcode_stackSize16, Word8.fromInt maxStack, Word8.fromInt(maxStack div 256)] :: revCode
         end
         val (byteVec, endIC) = genCode(codeList, cvec)
+        val wordLength = wordSize
   
         (* +3 for profile count, function name and constants count *)
         val numOfConst = List.length(! constVec)
@@ -1116,7 +1321,7 @@ struct
             val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
             fun clear 0w0 = ()
             |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
-            val () = clear wordSize
+            val () = clear(wordSize)
         in
             val () = codeVecPutWord (codeVec, endOfCode+0w2, toMachineWord v)
         end
@@ -1150,13 +1355,23 @@ struct
 
     fun setLabel(label, cvec) = addItemToList(LabelCode label, cvec)
     
-    fun createLabel () = { destination=ref 0w0 }
+    fun createLabel () = ref [ref 0w0]
     
     local
         fun genOpc(opc, cvec) = addItemToList(SimpleCode [opc], cvec)
-        and genOpcByte(opc, arg1, cvec) = addItemToList(SimpleCode [opc, Word8.fromInt arg1], cvec)
-        and genOpcWord(opc, arg1, cvec) =
-            addItemToList(SimpleCode[opc, Word8.fromInt arg1, Word8.fromInt (arg1 div 256)], cvec)
+        and genExtOpc(opc, cvec) = addItemToList(SimpleCode [opcode_escape, opc], cvec)
+        and genOpcByte(opc, arg1, cvec) =
+            if 0 <= arg1 andalso arg1 < 256
+            then addItemToList(SimpleCode [opc, Word8.fromInt arg1], cvec)
+            else raise InternalError "genOpcByte"
+        and genExtOpcByte(opc, arg1, cvec) = 
+            if 0 <= arg1 andalso arg1 < 256
+            then addItemToList(SimpleCode [opcode_escape, opc, Word8.fromInt arg1], cvec)
+            else raise InternalError "genExtOpcByte"
+        and genExtOpcWord(opc, arg1, cvec) =
+            if 0 <= arg1 andalso arg1 < 65536
+            then addItemToList(SimpleCode[opcode_escape, opc, Word8.fromInt arg1, Word8.fromInt (arg1 div 256)], cvec)
+            else raise InternalError "genExtOpcWord"
         
         open IEEEReal
         
@@ -1165,7 +1380,7 @@ struct
         |   encodeRound TO_POSINF = 2
         |   encodeRound TO_ZERO = 3
     in
-        fun genRaiseEx cvec = genOpc (opcode_raiseEx, cvec)
+        fun genRaiseEx cvec = addItemToList(UncondTransfer [opcode_raiseEx], cvec)
         fun genLock cvec = genOpc (opcode_lock, cvec)
         fun genLdexc cvec = genOpc (opcode_ldexc, cvec)
         fun genPushHandler cvec = genOpc (opcode_pushHandler, cvec)
@@ -1186,8 +1401,10 @@ struct
         |   genRTSCallFull(5, cvec) = genOpc (opcode_callFullRTS5, cvec)
         |   genRTSCallFull(_, _) = raise InternalError "genRTSCallFull"
 
-        fun genContainer (size, cvec) = genOpcWord(opcode_containerW, size, cvec)
-        and genTupleFromContainer (size, cvec) = genOpcWord(opcode_tuple_containerW, size, cvec)
+        fun genContainer (size, cvec) =
+            if size < 256
+            then genOpcByte(opcode_containerB, size, cvec)
+            else genExtOpcWord(ext_opcode_containerW, size, cvec)
 
         fun genCase (nCases, cvec) =
         let
@@ -1200,143 +1417,148 @@ struct
         (* For the moment don't try to merge stack resets. *)
         fun resetStack(0, _, _) = ()
 
+        |   resetStack(1, true, cvec) =
+                addItemToList(SimpleCode[opcode_resetR_1], cvec)
+        |   resetStack(2, true, cvec) =
+                addItemToList(SimpleCode[opcode_resetR_2], cvec)
+        |   resetStack(3, true, cvec) =
+                addItemToList(SimpleCode[opcode_resetR_3], cvec)
+
         |   resetStack(offset, true, cvec) =
             if offset < 0 then raise InternalError "resetStack"
             else if offset > 255
-            then genOpcWord(opcode_resetR_w, offset, cvec)
-            else if offset > 3 then genOpcByte(opcode_resetRB, offset, cvec)
-            else addItemToList(SimpleCode[opcode_resetR_1 + Word8.fromInt(offset - 1)], cvec)
+            then genExtOpcWord(ext_opcode_resetR_w, offset, cvec)
+            else genOpcByte(opcode_resetRB, offset, cvec)
             
+        |   resetStack(1, false, cvec) =
+                addItemToList(SimpleCode[opcode_reset_1], cvec)
+        |   resetStack(2, false, cvec) =
+                addItemToList(SimpleCode[opcode_reset_2], cvec)
+        
         |   resetStack(offset, false, cvec) =
             if offset < 0 then raise InternalError "resetStack"
             else if offset > 255
-            then genOpcWord(opcode_resetW, offset, cvec)
-            else if offset > 2 then genOpcByte(opcode_resetB, offset, cvec)
-            else addItemToList(SimpleCode[opcode_reset_1 + Word8.fromInt(offset - 1)], cvec)
+            then genExtOpcWord(ext_opcode_resetW, offset, cvec)
+            else genOpcByte(opcode_resetB, offset, cvec)
 
-        fun genCallClosure cvec = genOpc (opcode_callClosure, cvec)
-    
+        fun genCallClosure(Code{stage1Code as ref(PushConstant{constNum, size, isCall=false} :: tail), ...}) =
+            stage1Code := PushConstant{constNum=constNum, size=size, isCall=true} :: tail
+        
+        |   genCallClosure(Code{stage1Code as ref(LoadLocal w :: tail), ...}) =
+            stage1Code := SimpleCode [opcode_callLocalB, w] :: tail
+
+        |   genCallClosure(Code{stage1Code, ...}) =
+            stage1Code := SimpleCode [opcode_callClosure] :: !stage1Code
+
         fun genTailCall (toslide, slideby, cvec) =
         if toslide < 256 andalso slideby < 256
-        then case (toslide, slideby) of
-            (3, 2) => genOpc (opcode_tail3_2, cvec)
-        |   (3, 3) => genOpc (opcode_tail3_3, cvec)
-        |   (3, _) => genOpcByte(opcode_tail3b, slideby, cvec)
-        |   (4, _) => genOpcByte(opcode_tail4b, slideby, cvec)
-        |   (_, _) => (* General byte case *)
-                addItemToList(SimpleCode[opcode_tailbb, Word8.fromInt toslide, Word8.fromInt slideby], cvec)          
+        then (* General byte case *)
+            addItemToList(UncondTransfer[opcode_tailbb, Word8.fromInt toslide, Word8.fromInt slideby], cvec)          
         else (* General case. *)
                 addItemToList(
-                    SimpleCode[opcode_tail, Word8.fromInt toslide, Word8.fromInt(toslide div 256),
+                    UncondTransfer[opcode_escape, ext_opcode_tail, Word8.fromInt toslide, Word8.fromInt(toslide div 256),
                                Word8.fromInt slideby, Word8.fromInt (slideby div 256)], cvec)
 
         fun pushConst (value : machineWord, cvec) =
             if isShort value andalso toShort value < 0w32768
-            then
-            let
-                val iVal = Word.toInt (toShort value);
-            in
-                if iVal = 10
-                then genOpc (opcode_const_10, cvec)
-      
-                else if iVal <= 4
-                then genOpc (opcode_const_0 + Word8.fromInt iVal, cvec)
-  
-                else if iVal < 256
-                then genOpcByte (opcode_constIntB, iVal, cvec)
-      
-                else genOpcWord (opcode_constIntW, iVal, cvec)
-            end
-
+            then addItemToList(PushShort(toShort value), cvec)
             else (* address or large short *)
-                addItemToList(PushConstant{constNum = addConstToVec(value, cvec), size=ref Size32}, cvec)
+                addItemToList(PushConstant{constNum = addConstToVec(value, cvec), size=ref Size32, isCall=false}, cvec)
 
-        fun genRTSCallFastRealtoReal cvec = genOpc (opcode_callFastRTSRtoR, cvec)
-        and genRTSCallFastRealRealtoReal cvec = genOpc (opcode_callFastRTSRRtoR, cvec)
-        and genRTSCallFastGeneraltoReal cvec = genOpc (opcode_callFastRTSGtoR, cvec)
-        and genRTSCallFastRealGeneraltoReal cvec = genOpc (opcode_callFastRTSRGtoR, cvec)
+        fun genRTSCallFastRealtoReal cvec = genExtOpc (ext_opcode_callFastRTSRtoR, cvec)
+        and genRTSCallFastRealRealtoReal cvec = genExtOpc (ext_opcode_callFastRTSRRtoR, cvec)
+        and genRTSCallFastGeneraltoReal cvec = genExtOpc (ext_opcode_callFastRTSGtoR, cvec)
+        and genRTSCallFastRealGeneraltoReal cvec = genExtOpc (ext_opcode_callFastRTSRGtoR, cvec)
         
-        and genRTSCallFastFloattoFloat cvec = genOpc (opcode_callFastRTSFtoF, cvec)
-        and genRTSCallFastFloatFloattoFloat cvec = genOpc (opcode_callFastRTSFFtoF, cvec)
-        and genRTSCallFastGeneraltoFloat cvec = genOpc (opcode_callFastRTSGtoF, cvec)
-        and genRTSCallFastFloatGeneraltoFloat cvec = genOpc (opcode_callFastRTSFGtoF, cvec)
+        and genRTSCallFastFloattoFloat cvec = genExtOpc (ext_opcode_callFastRTSFtoF, cvec)
+        and genRTSCallFastFloatFloattoFloat cvec = genExtOpc (ext_opcode_callFastRTSFFtoF, cvec)
+        and genRTSCallFastGeneraltoFloat cvec = genOpc (ext_opcode_callFastRTSGtoF, cvec)
+        and genRTSCallFastFloatGeneraltoFloat cvec = genExtOpc (ext_opcode_callFastRTSFGtoF, cvec)
         
-        fun genDoubleToFloat(SOME rnding, cvec) = genOpcByte(opcode_realToFloat, encodeRound rnding, cvec)
-        |   genDoubleToFloat(NONE, cvec) = genOpcByte(opcode_realToFloat, 5, cvec)
+        fun genDoubleToFloat(SOME rnding, cvec) = genExtOpcByte(ext_opcode_realToFloat, encodeRound rnding, cvec)
+        |   genDoubleToFloat(NONE, cvec) = genExtOpcByte(ext_opcode_realToFloat, 5, cvec)
 
-        and genRealToInt(rnding, cvec) = genOpcByte(opcode_realToInt, encodeRound rnding, cvec)
-        and genFloatToInt(rnding, cvec) = genOpcByte(opcode_floatToInt, encodeRound rnding, cvec)
-    end
-    
-    local
-        fun gen1 (opW, opB, opF, first, arg1, cvec) =
-            if first <= arg1 andalso arg1 < first+List.length opF
-            then addItemToList(SimpleCode[List.nth(opF, arg1 - first)], cvec)
+        and genRealToInt(rnding, cvec) = genExtOpcByte(ext_opcode_realToInt, encodeRound rnding, cvec)
+        and genFloatToInt(rnding, cvec) = genExtOpcByte(ext_opcode_floatToInt, encodeRound rnding, cvec)
+        
+        fun genEqualWordConst(w, cvec) =
+            (pushConst(toMachineWord w, cvec); genOpc(opcode_equalWord, cvec))
+       
+        fun genIsTagged(Code{stage1Code as ref(LoadLocal addr :: tail), ...}) =
+                stage1Code := IsTaggedLocalB addr :: tail
+        |   genIsTagged cvec = genOpc(opcode_isTagged, cvec)
 
-            else if 0 <= arg1 andalso arg1 <= 255
-            then addItemToList(SimpleCode [opB, Word8.fromInt arg1], cvec)
-
-            else addItemToList(
-                SimpleCode [opW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)], cvec)
-    in
-        fun genReturn (arg1, cvec) =
-        let
-            val ops = [opcode_return_0, opcode_return_1, opcode_return_2, opcode_return_3]
-        in
-            gen1 (opcode_returnW, opcode_returnB, ops, 0, arg1, cvec)
-        end
-
-        fun genLocal (arg1, cvec) =
-        let
-            val ops = [opcode_local_0, opcode_local_1, opcode_local_2, opcode_local_3, opcode_local_4,
-                       opcode_local_5, opcode_local_6, opcode_local_7, opcode_local_8, opcode_local_9,
-                       opcode_local_10, opcode_local_11]
-        in
-            gen1 (opcode_localW, opcode_localB, ops, 0, arg1, cvec)
-        end
-
-        fun genIndirect (arg1, cvec) =
-        let
-            val ops = [opcode_indirect_0, opcode_indirect_1, opcode_indirect_2, opcode_indirect_3,
-                       opcode_indirect_4, opcode_indirect_5]
-        in
-            gen1 (opcode_indirectW, opcode_indirectB, ops, 0, arg1, cvec)
-        end
+        fun genIndirectSimple(0, cvec) = genOpc(opcode_indirect_0, cvec)
+        |   genIndirectSimple(1, cvec) = genOpc(opcode_indirect_1, cvec)
+        |   genIndirectSimple(2, cvec) = genOpc(opcode_indirect_2, cvec)
+        |   genIndirectSimple(3, cvec) = genOpc(opcode_indirect_3, cvec)
+        |   genIndirectSimple(4, cvec) = genOpc(opcode_indirect_4, cvec)
+        |   genIndirectSimple(5, cvec) = genOpc(opcode_indirect_5, cvec)
+        |   genIndirectSimple(arg1, cvec) =
+                if arg1 < 256
+                then genOpcByte(opcode_indirectB, arg1, cvec)
+                else genExtOpcWord(ext_opcode_indirectW, arg1, cvec)
 
         (* genMoveToVec is now only used for mutually recursive closures. *)
         fun genMoveToVec (arg1, cvec) =
-            gen1 (opcode_moveToVecW, opcode_moveToVecB, [], 0, arg1, cvec)
-
+            if arg1 < 256
+            then genOpcByte(opcode_moveToVecB, arg1, cvec)
+            else genExtOpcWord(ext_opcode_moveToVecW, arg1, cvec)
+        
         fun genSetStackVal (arg1, cvec) =
-            gen1 (opcode_setStackValW, opcode_setStackValB, [], 0, arg1, cvec)
+            if arg1 < 256
+            then genOpcByte(opcode_setStackValB, arg1, cvec)
+            else genExtOpcWord(ext_opcode_setStackValW, arg1, cvec)
 
-        fun genTuple (arg1, cvec) =
-        let
-            val ops = [opcode_tuple_2, opcode_tuple_3, opcode_tuple_4]
-        in
-            gen1 (opcode_tupleW, opcode_tupleB, ops, 2, arg1, cvec)
-        end
+        fun genTuple (2, cvec) = genOpc(opcode_tuple_2, cvec)
+        |   genTuple (3, cvec) = genOpc(opcode_tuple_3, cvec)
+        |   genTuple (4, cvec) = genOpc(opcode_tuple_4, cvec)
+        |   genTuple (arg1, cvec) =
+                if arg1 < 256
+                then genOpcByte(opcode_tupleB, arg1, cvec)
+                else genExtOpcWord(ext_opcode_tupleW, arg1, cvec)
     end
+    
+    fun genReturn(1, cvec) = addItemToList(UncondTransfer[opcode_return_1], cvec)
+    |   genReturn(2, cvec) = addItemToList(UncondTransfer[opcode_return_2], cvec)
+    |   genReturn(3, cvec) = addItemToList(UncondTransfer[opcode_return_3], cvec)
+    |   genReturn(arg1, cvec) =
+            addItemToList(UncondTransfer(
+                if 0 <= arg1 andalso arg1 <= 255
+                then [opcode_returnB, Word8.fromInt arg1]
+                else [opcode_returnW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)]),
+                cvec)
+
+    fun genLocal (arg1, cvec) =
+        if 0 <= arg1 andalso arg1 < 256 then addItemToList(LoadLocal(Word8.fromInt arg1), cvec)
+        else addItemToList(SimpleCode[opcode_localW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)], cvec)
+    
+    fun genIndirect (arg1, cvec as Code{stage1Code as ref(LoadLocal w :: tail), ...}) =
+        if 0 <= arg1 andalso arg1 <= 255
+        then stage1Code := IndirectLocal{localAddr=w, indirect=Word8.fromInt arg1} :: tail
+        else genIndirectSimple(arg1, cvec)
+
+    |   genIndirect (arg1, cvec) = genIndirectSimple(arg1, cvec)
+
     
     fun genEnterIntCatch _ = ()
     and genEnterIntCall _ = ()
 
     val opcode_notBoolean       = SimpleCode [opcode_notBoolean]
-    val opcode_isTagged         = SimpleCode [opcode_isTagged]
-    and opcode_cellLength       = SimpleCode [opcode_cellLength]
+    val opcode_cellLength       = SimpleCode [opcode_cellLength]
     and opcode_cellFlags        = SimpleCode [opcode_cellFlags]
     and opcode_clearMutable     = SimpleCode [opcode_clearMutable]
     and opcode_atomicIncr       = SimpleCode [opcode_atomicIncr]
     and opcode_atomicDecr       = SimpleCode [opcode_atomicDecr]
-    and opcode_atomicReset      = SimpleCode [opcode_atomicReset]
-    and opcode_longWToTagged    = SimpleCode [opcode_longWToTagged]
-    and opcode_signedToLongW    = SimpleCode [opcode_signedToLongW]
-    and opcode_unsignedToLongW  = SimpleCode [opcode_unsignedToLongW]
-    and opcode_realAbs          = SimpleCode [opcode_realAbs]
-    and opcode_realNeg          = SimpleCode [opcode_realNeg]
-    and opcode_fixedIntToReal   = SimpleCode [opcode_fixedIntToReal]
-    and opcode_fixedIntToFloat  = SimpleCode [opcode_fixedIntToFloat]
-    and opcode_floatToReal      = SimpleCode [opcode_floatToReal]
+    and opcode_atomicReset      = SimpleCode [opcode_escape, ext_opcode_atomicReset]
+    and opcode_longWToTagged    = SimpleCode [opcode_escape, ext_opcode_longWToTagged]
+    and opcode_signedToLongW    = SimpleCode [opcode_escape, ext_opcode_signedToLongW]
+    and opcode_unsignedToLongW  = SimpleCode [opcode_escape, ext_opcode_unsignedToLongW]
+    and opcode_realAbs          = SimpleCode [opcode_escape, ext_opcode_realAbs]
+    and opcode_realNeg          = SimpleCode [opcode_escape, ext_opcode_realNeg]
+    and opcode_fixedIntToReal   = SimpleCode [opcode_escape, ext_opcode_fixedIntToReal]
+    and opcode_fixedIntToFloat  = SimpleCode [opcode_escape, ext_opcode_fixedIntToFloat]
+    and opcode_floatToReal      = SimpleCode [opcode_escape, ext_opcode_floatToReal]
     
     val opcode_equalWord        = SimpleCode [opcode_equalWord]
     and opcode_lessSigned       = SimpleCode [opcode_lessSigned]
@@ -1353,8 +1575,8 @@ struct
     val opcode_fixedMult        = SimpleCode [opcode_fixedMult]
     val opcode_fixedQuot        = SimpleCode [opcode_fixedQuot]
     val opcode_fixedRem         = SimpleCode [opcode_fixedRem]
-    val opcode_fixedDiv         = SimpleCode [opcode_fixedDiv]
-    val opcode_fixedMod         = SimpleCode [opcode_fixedMod]
+    val opcode_fixedDiv         = SimpleCode [opcode_escape, ext_opcode_fixedDiv]
+    val opcode_fixedMod         = SimpleCode [opcode_escape, ext_opcode_fixedMod]
     val opcode_wordAdd          = SimpleCode [opcode_wordAdd]
     val opcode_wordSub          = SimpleCode [opcode_wordSub]
     val opcode_wordMult         = SimpleCode [opcode_wordMult]
@@ -1365,66 +1587,66 @@ struct
     val opcode_wordXor          = SimpleCode [opcode_wordXor]
     val opcode_wordShiftLeft    = SimpleCode [opcode_wordShiftLeft]
     val opcode_wordShiftRLog    = SimpleCode [opcode_wordShiftRLog]
-    val opcode_wordShiftRArith  = SimpleCode [opcode_wordShiftRArith]
+    val opcode_wordShiftRArith  = SimpleCode [opcode_escape, ext_opcode_wordShiftRArith]
     val opcode_allocByteMem     = SimpleCode [opcode_allocByteMem]
-    val opcode_lgWordEqual      = SimpleCode [opcode_lgWordEqual]
-    val opcode_lgWordLess       = SimpleCode [opcode_lgWordLess]
-    val opcode_lgWordLessEq     = SimpleCode [opcode_lgWordLessEq]
-    val opcode_lgWordGreater    = SimpleCode [opcode_lgWordGreater]
-    val opcode_lgWordGreaterEq  = SimpleCode [opcode_lgWordGreaterEq]
-    val opcode_lgWordAdd        = SimpleCode [opcode_lgWordAdd]
-    val opcode_lgWordSub        = SimpleCode [opcode_lgWordSub]
-    val opcode_lgWordMult       = SimpleCode [opcode_lgWordMult]
-    val opcode_lgWordDiv        = SimpleCode [opcode_lgWordDiv]
-    val opcode_lgWordMod        = SimpleCode [opcode_lgWordMod]
-    val opcode_lgWordAnd        = SimpleCode [opcode_lgWordAnd]
-    val opcode_lgWordOr         = SimpleCode [opcode_lgWordOr]
-    val opcode_lgWordXor        = SimpleCode [opcode_lgWordXor]
-    val opcode_lgWordShiftLeft  = SimpleCode [opcode_lgWordShiftLeft]
-    val opcode_lgWordShiftRLog  = SimpleCode [opcode_lgWordShiftRLog]
-    val opcode_lgWordShiftRArith = SimpleCode [opcode_lgWordShiftRArith]
-    val opcode_realEqual        = SimpleCode [opcode_realEqual]
-    val opcode_realLess         = SimpleCode [opcode_realLess]
-    val opcode_realLessEq       = SimpleCode [opcode_realLessEq]
-    val opcode_realGreater      = SimpleCode [opcode_realGreater]
-    val opcode_realGreaterEq    = SimpleCode [opcode_realGreaterEq]
-    val opcode_realUnordered    = SimpleCode [opcode_realUnordered]
-    val opcode_realAdd          = SimpleCode [opcode_realAdd]
-    val opcode_realSub          = SimpleCode [opcode_realSub]
-    val opcode_realMult         = SimpleCode [opcode_realMult]
-    val opcode_realDiv          = SimpleCode [opcode_realDiv]
-    and opcode_floatAbs         = SimpleCode [opcode_floatAbs]
-    and opcode_floatNeg         = SimpleCode [opcode_floatNeg]
-    val opcode_floatEqual       = SimpleCode [opcode_floatEqual]
-    val opcode_floatLess        = SimpleCode [opcode_floatLess]
-    val opcode_floatLessEq      = SimpleCode [opcode_floatLessEq]
-    val opcode_floatGreater     = SimpleCode [opcode_floatGreater]
-    val opcode_floatGreaterEq   = SimpleCode [opcode_floatGreaterEq]
-    val opcode_floatUnordered   = SimpleCode [opcode_floatUnordered]
-    val opcode_floatAdd         = SimpleCode [opcode_floatAdd]
-    val opcode_floatSub         = SimpleCode [opcode_floatSub]
-    val opcode_floatMult        = SimpleCode [opcode_floatMult]
-    val opcode_floatDiv         = SimpleCode [opcode_floatDiv]
+    val opcode_lgWordEqual      = SimpleCode [opcode_escape, ext_opcode_lgWordEqual]
+    val opcode_lgWordLess       = SimpleCode [opcode_escape, ext_opcode_lgWordLess]
+    val opcode_lgWordLessEq     = SimpleCode [opcode_escape, ext_opcode_lgWordLessEq]
+    val opcode_lgWordGreater    = SimpleCode [opcode_escape, ext_opcode_lgWordGreater]
+    val opcode_lgWordGreaterEq  = SimpleCode [opcode_escape, ext_opcode_lgWordGreaterEq]
+    val opcode_lgWordAdd        = SimpleCode [opcode_escape, ext_opcode_lgWordAdd]
+    val opcode_lgWordSub        = SimpleCode [opcode_escape, ext_opcode_lgWordSub]
+    val opcode_lgWordMult       = SimpleCode [opcode_escape, ext_opcode_lgWordMult]
+    val opcode_lgWordDiv        = SimpleCode [opcode_escape, ext_opcode_lgWordDiv]
+    val opcode_lgWordMod        = SimpleCode [opcode_escape, ext_opcode_lgWordMod]
+    val opcode_lgWordAnd        = SimpleCode [opcode_escape, ext_opcode_lgWordAnd]
+    val opcode_lgWordOr         = SimpleCode [opcode_escape, ext_opcode_lgWordOr]
+    val opcode_lgWordXor        = SimpleCode [opcode_escape, ext_opcode_lgWordXor]
+    val opcode_lgWordShiftLeft  = SimpleCode [opcode_escape, ext_opcode_lgWordShiftLeft]
+    val opcode_lgWordShiftRLog  = SimpleCode [opcode_escape, ext_opcode_lgWordShiftRLog]
+    val opcode_lgWordShiftRArith = SimpleCode [opcode_escape, ext_opcode_lgWordShiftRArith]
+    val opcode_realEqual        = SimpleCode [opcode_escape, ext_opcode_realEqual]
+    val opcode_realLess         = SimpleCode [opcode_escape, ext_opcode_realLess]
+    val opcode_realLessEq       = SimpleCode [opcode_escape, ext_opcode_realLessEq]
+    val opcode_realGreater      = SimpleCode [opcode_escape, ext_opcode_realGreater]
+    val opcode_realGreaterEq    = SimpleCode [opcode_escape, ext_opcode_realGreaterEq]
+    val opcode_realUnordered    = SimpleCode [opcode_escape, ext_opcode_realUnordered]
+    val opcode_realAdd          = SimpleCode [opcode_escape, ext_opcode_realAdd]
+    val opcode_realSub          = SimpleCode [opcode_escape, ext_opcode_realSub]
+    val opcode_realMult         = SimpleCode [opcode_escape, ext_opcode_realMult]
+    val opcode_realDiv          = SimpleCode [opcode_escape, ext_opcode_realDiv]
+    and opcode_floatAbs         = SimpleCode [opcode_escape, ext_opcode_floatAbs]
+    and opcode_floatNeg         = SimpleCode [opcode_escape, ext_opcode_floatNeg]
+    val opcode_floatEqual       = SimpleCode [opcode_escape, ext_opcode_floatEqual]
+    val opcode_floatLess        = SimpleCode [opcode_escape, ext_opcode_floatLess]
+    val opcode_floatLessEq      = SimpleCode [opcode_escape, ext_opcode_floatLessEq]
+    val opcode_floatGreater     = SimpleCode [opcode_escape, ext_opcode_floatGreater]
+    val opcode_floatGreaterEq   = SimpleCode [opcode_escape, ext_opcode_floatGreaterEq]
+    val opcode_floatUnordered   = SimpleCode [opcode_escape, ext_opcode_floatUnordered]
+    val opcode_floatAdd         = SimpleCode [opcode_escape, ext_opcode_floatAdd]
+    val opcode_floatSub         = SimpleCode [opcode_escape, ext_opcode_floatSub]
+    val opcode_floatMult        = SimpleCode [opcode_escape, ext_opcode_floatMult]
+    val opcode_floatDiv         = SimpleCode [opcode_escape, ext_opcode_floatDiv]
     val opcode_getThreadId      = SimpleCode [opcode_getThreadId]
     val opcode_allocWordMemory  = SimpleCode [opcode_allocWordMemory]
     val opcode_alloc_ref        = SimpleCode [opcode_alloc_ref]
     val opcode_loadMLWord       = SimpleCode [opcode_loadMLWord]
     val opcode_loadMLByte       = SimpleCode [opcode_loadMLByte]
-    val opcode_loadC8           = SimpleCode [opcode_loadC8]
-    val opcode_loadC16          = SimpleCode [opcode_loadC16]
-    val opcode_loadC32          = SimpleCode [opcode_loadC32]
-    val opcode_loadC64          = SimpleCode [opcode_loadC64]
-    val opcode_loadCFloat       = SimpleCode [opcode_loadCFloat]
-    val opcode_loadCDouble      = SimpleCode [opcode_loadCDouble]
+    val opcode_loadC8           = SimpleCode [opcode_escape, ext_opcode_loadC8]
+    val opcode_loadC16          = SimpleCode [opcode_escape, ext_opcode_loadC16]
+    val opcode_loadC32          = SimpleCode [opcode_escape, ext_opcode_loadC32]
+    val opcode_loadC64          = SimpleCode [opcode_escape, ext_opcode_loadC64]
+    val opcode_loadCFloat       = SimpleCode [opcode_escape, ext_opcode_loadCFloat]
+    val opcode_loadCDouble      = SimpleCode [opcode_escape, ext_opcode_loadCDouble]
     val opcode_loadUntagged     = SimpleCode [opcode_loadUntagged]
     val opcode_storeMLWord      = SimpleCode [opcode_storeMLWord]
     val opcode_storeMLByte      = SimpleCode [opcode_storeMLByte]
-    val opcode_storeC8          = SimpleCode [opcode_storeC8]
-    val opcode_storeC16         = SimpleCode [opcode_storeC16]
-    val opcode_storeC32         = SimpleCode [opcode_storeC32]
-    val opcode_storeC64         = SimpleCode [opcode_storeC64]
-    val opcode_storeCFloat      = SimpleCode [opcode_storeCFloat]
-    val opcode_storeCDouble     = SimpleCode [opcode_storeCDouble]
+    val opcode_storeC8          = SimpleCode [opcode_escape, ext_opcode_storeC8]
+    val opcode_storeC16         = SimpleCode [opcode_escape, ext_opcode_storeC16]
+    val opcode_storeC32         = SimpleCode [opcode_escape, ext_opcode_storeC32]
+    val opcode_storeC64         = SimpleCode [opcode_escape, ext_opcode_storeC64]
+    val opcode_storeCFloat      = SimpleCode [opcode_escape, ext_opcode_storeCFloat]
+    val opcode_storeCDouble     = SimpleCode [opcode_escape, ext_opcode_storeCDouble]
     val opcode_storeUntagged    = SimpleCode [opcode_storeUntagged]
     val opcode_blockMoveWord    = SimpleCode [opcode_blockMoveWord]
     val opcode_blockMoveByte    = SimpleCode [opcode_blockMoveByte]

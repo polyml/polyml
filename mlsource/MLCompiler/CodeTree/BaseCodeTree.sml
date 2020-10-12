@@ -176,7 +176,7 @@ struct
         recUse        : codeUse list
     }
 
-    and codeAddress = {base: codetree, index: codetree option, offset: word}
+    and codeAddress = {base: codetree, index: codetree option, offset: int}
 
     structure CodeTags =
     struct
@@ -251,7 +251,7 @@ struct
                     PrettyBreak (0, 0), PrettyString ",", PrettyBreak (1, 0), 
                     case index of NONE => PrettyString "-" | SOME i => pretty i,
                     PrettyBreak (0, 0), PrettyString ",", PrettyBreak (1, 0),
-                    PrettyString(Word.toString offset), PrettyBreak (0, 0), PrettyString "]"
+                    PrettyString(Int.toString offset), PrettyBreak (0, 0), PrettyString "]"
                 ])
         end
     in

@@ -1,7 +1,7 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019
+    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -673,7 +673,7 @@ local
         end
     end
 
-    val suffixes = ref ["", ".ML", ".sml"]
+    val suffixes = ref ["", ".ML", ".sml", ".sig"]
  
 
     (*****************************************************************************)
@@ -808,8 +808,12 @@ local
                 case kind of
                     NONE => [archSuffix, versionSuffix, ""]
                 |   SOME k => ["." ^ k ^ archSuffix, "." ^ k ^ versionSuffix, "." ^ k, archSuffix, versionSuffix, ""]
+            val standardSuffixes =
+                case kind of
+                    SOME "signature" => ".sig" :: ! suffixes
+                |   _ => !suffixes
             val addedSuffixes =
-                List.foldr(fn (i, l) => (List.map (fn s => s ^ i) extraSuffixes) @ l) [] (!suffixes)
+                List.foldr(fn (i, l) => (List.map (fn s => s ^ i) extraSuffixes) @ l) [] standardSuffixes
         in
             (* For each of the suffixes in the list try it. *)
             findFileTuple (directory, object) addedSuffixes

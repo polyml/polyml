@@ -432,14 +432,14 @@ struct
     end
 
     fun mkLoadOperation(oper, base, index) =
-        LoadOperation{kind=oper, address={base=base, index=SOME index, offset=0w0}}
+        LoadOperation{kind=oper, address={base=base, index=SOME index, offset=0}}
 
     fun mkLoadOperationFn oper =
         mkInlproc(mkLoadOperation(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)), 1,
             "loadOperation()", [], 0)
 
     fun mkStoreOperation(oper, base, index, value) =
-        StoreOperation{kind=oper, address={base=base, index=SOME index, offset=0w0}, value=value}
+        StoreOperation{kind=oper, address={base=base, index=SOME index, offset=0}, value=value}
 
     fun mkStoreOperationFn oper =
         mkInlproc(mkStoreOperation(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0), mkInd(2, mkLoadArgument 0)), 1,
@@ -447,8 +447,8 @@ struct
 
     fun mkBlockOperation {kind, leftBase, leftIndex, rightBase, rightIndex, length } =
         BlockOperation { kind = kind,
-            sourceLeft={base=leftBase, index=SOME leftIndex, offset=0w0},
-            destRight={base=rightBase, index=SOME rightIndex, offset=0w0}, length=length}
+            sourceLeft={base=leftBase, index=SOME leftIndex, offset=0},
+            destRight={base=rightBase, index=SOME rightIndex, offset=0}, length=length}
 
     (* Construct a function that takes five arguments.  The order is left-base, right-base, left-index, right-index, length. *)
     fun mkBlockOperationFn kind =

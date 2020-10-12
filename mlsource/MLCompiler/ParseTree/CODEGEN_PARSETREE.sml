@@ -37,7 +37,7 @@ functor CODEGEN_PARSETREE (
     structure MATCHCOMPILER: MatchCompilerSig
     structure LEX : LEXSIG
     structure CODETREE : CODETREESIG
-    structure DEBUGGER : DEBUGGERSIG
+    structure DEBUGGER : DEBUGGER
     structure TYPETREE : TYPETREESIG
     structure TYPEIDCODE: TYPEIDCODESIG
     structure STRUCTVALS : STRUCTVALSIG

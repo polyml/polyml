@@ -123,24 +123,27 @@ struct
     val toFix: machineWord -> FixedInt.int = FixedInt.fromInt o Word.toIntX o toShort
 
     local
-        val ffiSizeFloat: unit -> word = RunCall.rtsCallFast1 "PolySizeFloat"
-        and ffiSizeDouble: unit -> word = RunCall.rtsCallFast1 "PolySizeDouble"
+        val ffiSizeFloat: unit -> int = RunCall.rtsCallFast1 "PolySizeFloat"
+        and ffiSizeDouble: unit -> int = RunCall.rtsCallFast1 "PolySizeDouble"
     in
         (* If we have a constant index value we convert that into a byte offset. We need
            to know the size of the item on this platform.  We have to make this check
            when we actually compile the code because the interpreted version will
            generally be run on a platform different from the one the pre-built
            compiler was compiled on. The ML word length will be the same because
-           we have separate pre-built compilers for 32 and 64-bit. *)
-        fun getMultiplier (LoadStoreMLWord _)   = RunCall.bytesPerWord
-        |   getMultiplier (LoadStoreMLByte _)   = 0w1
-        |   getMultiplier LoadStoreC8           = 0w1
-        |   getMultiplier LoadStoreC16          = 0w2
-        |   getMultiplier LoadStoreC32          = 0w4
-        |   getMultiplier LoadStoreC64          = 0w8
-        |   getMultiplier LoadStoreCFloat       = ffiSizeFloat()
-        |   getMultiplier LoadStoreCDouble      = ffiSizeDouble()
-        |   getMultiplier LoadStoreUntaggedUnsigned = RunCall.bytesPerWord
+           we have separate pre-built compilers for 32 and 64-bit.
+           Loads from C memory use signed offsets.  Loads from ML memory never
+           have a negative offset and are limited by the maximum size of a cell
+           so can always be unsigned. *)
+        fun getMultiplier (LoadStoreMLWord _)   = (Word.toInt RunCall.bytesPerWord, false (* unsigned *))
+        |   getMultiplier (LoadStoreMLByte _)   = (1, false)
+        |   getMultiplier LoadStoreC8           = (1, true (* signed *) )
+        |   getMultiplier LoadStoreC16          = (2, true (* signed *) )
+        |   getMultiplier LoadStoreC32          = (4, true (* signed *) )
+        |   getMultiplier LoadStoreC64          = (8, true (* signed *) )
+        |   getMultiplier LoadStoreCFloat       = (ffiSizeFloat(), true (* signed *) )
+        |   getMultiplier LoadStoreCDouble      = (ffiSizeDouble(), true (* signed *) )
+        |   getMultiplier LoadStoreUntaggedUnsigned = (Word.toInt RunCall.bytesPerWord, false (* unsigned *))
     end
 
     fun simplify(c, s) = mapCodetree (simpGeneral s) c
@@ -328,7 +331,7 @@ struct
                            The code for Vector.sub, for example, raises an exception if the index
                            is out of range but still generates the (unreachable) indexing code. *)
                         val addr = toAddress baseAddr
-                        val wordOffset = offset div RunCall.bytesPerWord
+                        val wordOffset = Word.fromInt offset div RunCall.bytesPerWord
                     in
                         if isMutable addr orelse not(isWords addr) orelse wordOffset >= length addr
                         then LoadOperation{kind=kind, address=genAddress}
@@ -341,11 +344,11 @@ struct
                     else
                     let
                         val addr = toAddress baseAddr
-                        val wordOffset = offset div RunCall.bytesPerWord
+                        val wordOffset = Word.fromInt offset div RunCall.bytesPerWord
                     in
                         if isMutable addr orelse not(isBytes addr) orelse wordOffset >= length addr
                         then LoadOperation{kind=kind, address=genAddress}
-                        else Constnt(toMachineWord(loadByte(addr, offset)), [])
+                        else Constnt(toMachineWord(loadByte(addr, Word.fromInt offset)), [])
                     end
 
                 |   ({base=Constnt(baseAddr, _), index=NONE, offset}, LoadStoreUntaggedUnsigned) =>
@@ -357,7 +360,7 @@ struct
                         (* We don't currently have loadWordUntagged in Address but it's only ever
                            used to load the string length word so we can use that. *)
                     in
-                        if isMutable addr orelse not(isBytes addr) orelse offset <> 0w0
+                        if isMutable addr orelse not(isBytes addr) orelse offset <> 0
                         then LoadOperation{kind=kind, address=genAddress}
                         else Constnt(toMachineWord(String.size(RunCall.unsafeCast addr)), [])
                     end
@@ -379,12 +382,12 @@ struct
         let
             val multiplier =
                 case kind of
-                    BlockOpMove{isByteMove=false} => RunCall.bytesPerWord
-                |   BlockOpMove{isByteMove=true} => 0w1
-                |   BlockOpEqualByte => 0w1
-                |   BlockOpCompareByte => 0w1
-            val (genSrcAddress, RevList decSrcAddress) = simpAddress(sourceLeft, multiplier, context)
-            val (genDstAddress, RevList decDstAddress) = simpAddress(destRight, multiplier, context)
+                    BlockOpMove{isByteMove=false} => Word.toInt RunCall.bytesPerWord
+                |   BlockOpMove{isByteMove=true} => 1
+                |   BlockOpEqualByte => 1
+                |   BlockOpCompareByte => 1
+            val (genSrcAddress, RevList decSrcAddress) = simpAddress(sourceLeft, (multiplier, false), context)
+            val (genDstAddress, RevList decDstAddress) = simpAddress(destRight, (multiplier, false), context)
             val (genLength, RevList decLength, _) = simpSpecial(length, context, RevList [])
             (* If we have a short length move we're better doing it as a sequence of loads and stores.
                This is particularly useful with string concatenation.  Small here means three or less.
@@ -407,15 +410,15 @@ struct
                         val moveKind =
                             if isByteMove then LoadStoreMLByte{isImmutable=false} else LoadStoreMLWord{isImmutable=false}
                         fun makeMoves offset =
-                        if offset = length
+                        if offset = Word.toInt length
                         then []
                         else NullBinding(
                                 StoreOperation{kind=moveKind,
                                     address={base=baseDst, index=indexDst, offset=offsetDst+offset*multiplier},
                                     value=LoadOperation{kind=moveKind, address={base=baseSrc, index=indexSrc, offset=offsetSrc+offset*multiplier}}}) ::
-                                makeMoves(offset+0w1)
+                                makeMoves(offset+1)
                     in
-                        mkEnv(combinedDecs @ makeMoves 0w0, CodeZero (* unit result *))
+                        mkEnv(combinedDecs @ makeMoves 0, CodeZero (* unit result *))
                     end
 
                 |   (SOME length, BlockOpEqualByte) => (* Comparing with the null string and up to 3 characters. *)
@@ -426,16 +429,16 @@ struct
                         
                         (* Build andalso tree to check each byte.  For the null string this simply returns "true". *)
                         fun makeComparison offset =
-                        if offset = length
+                        if offset = Word.toInt length
                         then CodeTrue
                         else Cond(
                                 Binary{oper=WordComparison{test=TestEqual, isSigned=false},
                                     arg1=LoadOperation{kind=moveKind, address={base=baseSrc, index=indexSrc, offset=offsetSrc+offset*multiplier}},
                                     arg2=LoadOperation{kind=moveKind, address={base=baseDst, index=indexDst, offset=offsetDst+offset*multiplier}}},
-                                makeComparison(offset+0w1),
+                                makeComparison(offset+1),
                                 CodeFalse)
                     in
-                        mkEnv(combinedDecs, makeComparison 0w0)
+                        mkEnv(combinedDecs, makeComparison 0)
                     end
 
                 |   _ =>
@@ -763,6 +766,20 @@ struct
                 then newCode
                 else REMOVE_REDUNDANT.cleanProc(newCode, [UseExport], LoadClosure, localCount)
 
+            (* The optimiser checks the size of a function and decides whether it can be inlined.
+               However if we have expanded some other inlines inside the body it may now be too
+               big.  In some cases we can get exponential blow-up.  We check here that the
+               body is still small enough before allowing it to be used inline.
+               The limit is set to 10 times the optimiser's limit because it seems that
+               otherwise significant functions are not inlined. *)
+            val stillInline =
+                case isNowInline of
+                    SmallInline =>
+                        if evaluateInlining(cleanBody, List.length argTypes, maxInlineSize*10) <> TooBig
+                        then SmallInline
+                        else DontInline
+                |   inl => inl
+
             val copiedLambda: lambdaForm =
                 {
                     body          = cleanBody,
@@ -780,9 +797,7 @@ struct
                big.  In some cases we can get exponential blow-up.  We check here that the
                body is still small enough before allowing it to be used inline. *)
             val inlineCode =
-                if isInline = InlineAlways orelse
-                    (isNowInline = SmallInline andalso
-                         evaluateInlining(cleanBody, List.length argTypes, maxInlineSize) <> TooBig)
+                if stillInline <> DontInline
                 then EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
                 else EnvSpecNone
          in
@@ -1286,7 +1301,7 @@ struct
             ({base=genBase, index=NONE, offset=offset}, decBase)
         end
 
-    |   simpAddress({base, index=SOME index, offset}, multiplier, context) =
+    |   simpAddress({base, index=SOME index, offset: int}, (multiplier: int, isSigned), context) =
         let
             val (genBase, RevList decBase, _) = simpSpecial(base, context, RevList[])
             val (genIndex, RevList decIndex, _ (* specIndex *)) = simpSpecial(index, context, RevList[])
@@ -1296,8 +1311,15 @@ struct
                         (* Convert small, positive offsets but leave large values as
                            indexes.  We could have silly index values here which will
                            never be executed because of a range check but should still compile. *)
-                        if isShort indexOffset andalso toShort indexOffset < 0w1000
-                        then (NONE, offset + toShort indexOffset * multiplier)
+                        if isShort indexOffset
+                        then
+                        let
+                            val indexOffsetW = toShort indexOffset
+                        in
+                            if indexOffsetW < 0w1000 orelse isSigned andalso indexOffsetW > ~ 0w1000
+                            then (NONE, offset + (if isSigned then Word.toIntX else Word.toInt)indexOffsetW * multiplier)
+                            else (SOME genIndex, offset)
+                        end
                         else (SOME genIndex, offset)
                 |   _ => (SOME genIndex, offset)
         in

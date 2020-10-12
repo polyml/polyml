@@ -328,7 +328,13 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
     }
 
     // Calculate the paging threshold.
-    if (pagingLimitSize != 0 || majorGCPageFaults != 0)
+    if (pagingLimitSize != 0 && majorGCPageFaults == 0)
+    {
+        if (debugOptions & DEBUG_HEAPSIZE)
+            Log("No paging seen so resetting pageLimitSize\n");
+        pagingLimitSize = 0;
+    }
+    else if (pagingLimitSize != 0 || majorGCPageFaults != 0)
     {
         if (majorGCPageFaults == 0) majorGCPageFaults = 1; // Less than one
         // Some paging detected.  The expression here is the inverse of the one used to

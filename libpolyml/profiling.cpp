@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development copyright (c) David C.J. Matthews 2011, 2015
+    Further development copyright (c) David C.J. Matthews 2011, 2015, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -62,7 +62,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyProfiling(FirstArgument threadId, PolyWord mode);
 }
 
-static POLYUNSIGNED mainThreadCounts[MTP_MAXENTRY];
+static long mainThreadCounts[MTP_MAXENTRY];
 static const char* const mainThreadText[MTP_MAXENTRY] =
 {
     "UNKNOWN",
@@ -111,6 +111,38 @@ static PolyWord psRTSString[MTP_MAXENTRY], psExtraStrings[EST_MAX_ENTRY], psGCTo
 ProfileMode profileMode;
 // If we are just profiling a single thread, this is the thread data.
 static TaskData *singleThreadProfile = 0;
+
+// The queue is processed every 400ms and an entry can be
+// added every ms of CPU time by each thread.
+#define PCQUEUESIZE 4000
+
+static long queuePtr = 0;
+static POLYCODEPTR pcQueue[PCQUEUESIZE];
+
+// Increment, returning the original value.
+static int incrAtomically(long & p)
+{
+#if (defined(HAVE_SYNC_FETCH))
+    return __sync_fetch_and_add(&p, 1);
+#elif (defined(_WIN32))
+    long newValue = InterlockedIncrement(&p);
+    return newValue - 1;
+#else
+    return p++;
+#endif
+}
+
+// Decrement and return new value.
+static int decrAtomically(long & p)
+{
+#if (defined(HAVE_SYNC_FETCH))
+     return __sync_sub_and_fetch(&p, 1);
+#elif (defined(_WIN32))
+    return InterlockedDecrement(&p);
+#else
+    return --p;
+#endif
+}
 
 typedef struct _PROFENTRY
 {
@@ -175,8 +207,7 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
 
 // Adds incr to the profile count for the function pointed at by
 // pc or by one of its callers.
-// This is called from a signal handler in the case of time profiling.
-void add_count(TaskData *taskData, POLYCODEPTR fpc, POLYUNSIGNED incr)
+void addSynchronousCount(POLYCODEPTR fpc, POLYUNSIGNED incr)
 {
     // Check that the pc value is within the heap.  It could be
     // in the assembly code.
@@ -192,7 +223,7 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, POLYUNSIGNED incr)
     // Didn't find it.
     {
         PLocker locker(&countLock);
-        mainThreadCounts[MTP_USER_CODE] += incr;
+        incrAtomically(mainThreadCounts[MTP_USER_CODE]);
     }
 }
 
@@ -340,6 +371,32 @@ Handle ProfileRequest::extractAsList(TaskData *taskData)
     return list;
 }
 
+// We have had an asynchronous interrupt and found a potential PC but
+// we're in a signal handler.
+void incrementCountAsynch(POLYCODEPTR pc)
+{
+    int q = incrAtomically(queuePtr);
+    if (q < PCQUEUESIZE) pcQueue[q] = pc;
+}
+
+// Called by the main thread to process the queue of PC values
+void processProfileQueue()
+{
+    if (queuePtr == 0) return;
+    while (1)
+    {
+        int q = queuePtr;
+        if (q >= PCQUEUESIZE)
+            incrAtomically(mainThreadCounts[MTP_USER_CODE]);
+        else addSynchronousCount(pcQueue[q], 1);
+        if (decrAtomically(queuePtr) == 0) break;
+    }
+}
+
+// Handle a SIGVTALRM or the simulated equivalent in Windows.  This may be called
+// at any time so we have to be careful.  In particular in Linux this may be
+// executed by a thread while holding a mutex so we must not do anything, such
+// calling malloc, that could require locking.
 void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
 {
     if (singleThreadProfile != 0 && singleThreadProfile != taskData)
@@ -350,11 +407,11 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
     if (mainThreadPhase == MTP_USER_CODE)
     {
         if (taskData == 0 || ! taskData->AddTimeProfileCount(context))
-            mainThreadCounts[MTP_USER_CODE]++;
+            incrAtomically(mainThreadCounts[MTP_USER_CODE]);
         // On Mac OS X all virtual timer interrupts seem to be directed to the root thread
         // so all the counts will be "unknown".
     }
-    else mainThreadCounts[mainThreadPhase]++;
+    else incrAtomically(mainThreadCounts[mainThreadPhase]);
 }
 
 // Called from the GC when allocation profiling is on.
