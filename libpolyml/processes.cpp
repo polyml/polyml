@@ -1501,6 +1501,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         // threads in case a thread has allocated some more.
         freeSpace += gMem.GetFreeAllocSpace();
         globalStats.updatePeriodicStats(freeSpace, threadsInML);
+
+        // Process the profile queue if necessary.
+        processProfileQueue();
     }
     schedLock.Unlock();
     finish(exitResult); // Close everything down and exit.
@@ -1767,11 +1770,6 @@ void Processes::RequestProcessExit(int n)
     initialThreadWait.Signal(); // Wake it if it's sleeping.
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      catchVTALRM - handler for alarm-clock signal                          */
-/*                                                                            */
-/******************************************************************************/
 #if !defined(HAVE_WINDOWS_H)
 // N.B. This may be called either by an ML thread or by the main thread.
 // On the main thread taskData will be null.

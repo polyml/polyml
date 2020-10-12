@@ -385,6 +385,12 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
         PushToStack(obj); // Can't check this because it may have forwarding ptrs.
     else
     {
+        // Normally a root but this can happen if we're following constants in code.
+        // In that case we want to make sure that we don't recurse too deeply and
+        // overflow the C stack.  Push the address to the stack before calling
+        // ScanAddressesInObject so that if we come back here msp will be non-zero.
+        // ScanAddressesInObject will empty the stack.
+        PushToStack(obj);
         MTGCProcessMarkPointers::ScanAddressesInObject(obj, L);
         // We can only check after we've processed it because if we
         // have addresses left over from an incomplete partial GC they
@@ -439,9 +445,8 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
         else if (OBJ_IS_CODE_OBJECT(lengthWord))
         {
-            // Legacy: The code-generator now uses PolyCopyByteVecToClosure to allocate mutable
-            // code cells in the code area.  Previously they were allocated in the heap and copied
-            // into the code area only when they were locked.
+            // Code addresses in the native code versions.
+            // Closure cells are normal (word) objects and code addresses are normal addresses.
             // It's better to process the whole code object in one go.
             ScanAddress::ScanAddressesInObject(obj, lengthWord);
             endWord = baseAddr; // Finished
@@ -449,6 +454,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
         else if (OBJ_IS_CLOSURE_OBJECT(lengthWord))
         {
+            // Closure cells in 32-in-64.
             // The first word is the absolute address of the code ...
             PolyObject *codeAddr = *(PolyObject**)obj;
             // except that it is possible we haven't yet set it.

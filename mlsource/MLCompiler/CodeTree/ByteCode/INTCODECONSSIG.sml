@@ -25,8 +25,7 @@ sig
     type closureRef
 
     val opcode_notBoolean: opcode
-    val opcode_isTagged: opcode
-    and opcode_cellLength: opcode
+    val opcode_cellLength: opcode
     and opcode_cellFlags: opcode
     and opcode_clearMutable: opcode
     and opcode_atomicIncr: opcode
@@ -188,15 +187,12 @@ sig
    (* Create a container on the stack *)
    val genContainer : int * code -> unit
 
-   (* Create a tuple from a container. *)
-   val genTupleFromContainer : int * code -> unit
-      
    (* copyCode - Finish up after compiling a function. *)
    val copyCode : code * int * closureRef -> unit
    
    (* putBranchInstruction puts in an instruction which involves
       a forward reference. *)
-   datatype jumpTypes = Jump | JumpFalse | SetHandler
+   datatype jumpTypes = Jump | JumpBack | JumpFalse | JumpTrue | SetHandler
    val putBranchInstruction: jumpTypes * labels * code -> unit
    
    val createLabel: unit -> labels
@@ -205,6 +201,9 @@ sig
    val setLabel: labels * code -> unit
    
    val resetStack: int * bool * code -> unit (* Set a pending reset *)
+   
+    val genEqualWordConst: word * code -> unit
+    val genIsTagged: code -> unit
    
     structure Sharing:
     sig

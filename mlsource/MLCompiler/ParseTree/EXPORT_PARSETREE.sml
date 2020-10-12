@@ -38,7 +38,7 @@ functor EXPORT_PARSETREE (
     structure STRUCTVALS : STRUCTVALSIG
     structure EXPORTTREE: EXPORTTREESIG
     structure TYPETREE : TYPETREESIG
-    structure DEBUGGER : DEBUGGERSIG
+    structure DEBUGGER : DEBUGGER
 
     sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing
            = EXPORTTREE.Sharing = BASEPARSETREE.Sharing = PRINTTREE.Sharing

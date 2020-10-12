@@ -1,7 +1,7 @@
 (*
     Title:      Source level debugger for Poly/ML
     Author:     David Matthews
-    Copyright  (c)   David Matthews 2000, 2014, 2015
+    Copyright  (c)   David Matthews 2000, 2014, 2015, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -37,7 +37,7 @@ functor DEBUGGER_ (
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = COPIER.Sharing =
         TYPEIDCODE.Sharing = CODETREE.Sharing = ADDRESS = LEX.Sharing
 )
-: DEBUGGERSIG
+: DEBUGGER
 =
 struct
     open STRUCTVALS VALUEOPS CODETREE COPIER TYPETREE DEBUG

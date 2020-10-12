@@ -2,7 +2,7 @@
     Title:     Export and import memory in a portable format
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006-7, 2015-8 David C. J. Matthews
+    Copyright (c) 2006-7, 2015-8, 2020 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -132,51 +132,60 @@ void PExport::printObject(PolyObject *p)
             // This is either an entry point or a weak ref used in the FFI.
             // Clear the first word
             if (p->Length() == 1)
-                p->Set(0, PolyWord::FromSigned(0)); // Weak ref
+                putc('K', exportFile); // Weak ref
             else if (p->Length() > 1)
-                *(uintptr_t*)p = 0; // Entry point
-        }
-        /* May be a string, a long format arbitrary precision
-           number or a real number. */
-        PolyStringObject* ps = (PolyStringObject*)p;
-        /* This is not infallible but it seems to be good enough
-           to detect the strings. */
-        POLYUNSIGNED bytes = length * sizeof(PolyWord);
-        if (length >= 2 &&
-            ps->length <= bytes - sizeof(POLYUNSIGNED) &&
-            ps->length > bytes - 2 * sizeof(POLYUNSIGNED))
-        {
-            /* Looks like a string. */
-            fprintf(exportFile, "S%" POLYUFMT "|", ps->length);
-            for (unsigned i = 0; i < ps->length; i++)
             {
-                char ch = ps->chars[i];
-                fprintf(exportFile, "%02x", ch & 0xff);
+                // Entry point - C null-terminated string.
+                putc('E', exportFile);
+                const char* name = (char*)p + sizeof(uintptr_t);
+                fprintf(exportFile, "%" PRI_SIZET "|%s", strlen(name), name);
+                *(uintptr_t*)p = 0; // Entry point
             }
         }
         else
         {
-            /* Not a string. May be an arbitrary precision integer.
-               If the source and destination word lengths differ we
-               could find that some long-format arbitrary precision
-               numbers could be represented in the tagged short form
-               or vice-versa.  The former case might give rise to
-               errors because when comparing two arbitrary precision
-               numbers for equality we assume that they are not equal
-               if they have different representation.  The latter
-               case could be a problem because we wouldn't know whether
-               to convert the tagged form to long form, which would be
-               correct if the value has type "int" or to truncate it
-               which would be correct for "word".
-               It could also be a real number but that doesn't matter
-               if we recompile everything on the new machine.
-            */
-            byte *u = (byte*)p;
-            putc('B', exportFile);
-            fprintf(exportFile, "%" PRI_SIZET "|", length*sizeof(PolyWord));
-            for (unsigned i = 0; i < (unsigned)(length*sizeof(PolyWord)); i++)
+            /* May be a string, a long format arbitrary precision
+               number or a real number. */
+            PolyStringObject* ps = (PolyStringObject*)p;
+            /* This is not infallible but it seems to be good enough
+               to detect the strings. */
+            POLYUNSIGNED bytes = length * sizeof(PolyWord);
+            if (length >= 2 &&
+                ps->length <= bytes - sizeof(POLYUNSIGNED) &&
+                ps->length > bytes - 2 * sizeof(POLYUNSIGNED))
             {
-                fprintf(exportFile, "%02x", u[i]);
+                /* Looks like a string. */
+                fprintf(exportFile, "S%" POLYUFMT "|", ps->length);
+                for (unsigned i = 0; i < ps->length; i++)
+                {
+                    char ch = ps->chars[i];
+                    fprintf(exportFile, "%02x", ch & 0xff);
+                }
+            }
+            else
+            {
+                /* Not a string. May be an arbitrary precision integer.
+                   If the source and destination word lengths differ we
+                   could find that some long-format arbitrary precision
+                   numbers could be represented in the tagged short form
+                   or vice-versa.  The former case might give rise to
+                   errors because when comparing two arbitrary precision
+                   numbers for equality we assume that they are not equal
+                   if they have different representation.  The latter
+                   case could be a problem because we wouldn't know whether
+                   to convert the tagged form to long form, which would be
+                   correct if the value has type "int" or to truncate it
+                   which would be correct for "word".
+                   It could also be a real number but that doesn't matter
+                   if we recompile everything on the new machine.
+                */
+                byte* u = (byte*)p;
+                putc('B', exportFile);
+                fprintf(exportFile, "%" PRI_SIZET "|", length * sizeof(PolyWord));
+                for (unsigned i = 0; i < (unsigned)(length * sizeof(PolyWord)); i++)
+                {
+                    fprintf(exportFile, "%02x", u[i]);
+                }
             }
         }
     }
@@ -574,6 +583,19 @@ bool PImport::DoImport()
             fscanf(f, "%" POLYUFMT, &nWords);
             break;
 
+        case 'K': // Single weak reference
+            nWords = sizeof(uintptr_t)/sizeof(PolyWord);
+            objBits |= F_BYTE_OBJ;
+            break;
+
+        case 'E': // Entry point - address followed by string
+            objBits |= F_BYTE_OBJ;
+            // The length is the length of the string but it must be null-terminated
+            fscanf(f, "%" POLYUFMT, &nBytes);
+            // Add one uintptr_t plus one plus padding to an integral number of words.
+            nWords = (nBytes + sizeof(uintptr_t) + sizeof(PolyWord)) / sizeof(PolyWord);
+            break;
+
         default:
             fprintf(polyStderr, "Invalid object type\n");
             return false;
@@ -678,8 +700,7 @@ bool PImport::DoImport()
                 }
                 ch = getc(f);
                 ASSERT(ch == '\n');
-                // If this is an entry point object set its value.
-                //if (p->IsMutable() && p->IsWeakRefObject() && p->Length() > 2 && p->Get(2).AsUnsigned() != 0)
+                // Legacy: If this is an entry point object set its value.
                 if (p->IsMutable() && p->IsWeakRefObject() && p->Length() > sizeof(uintptr_t)/sizeof(PolyWord))
                 {
                     bool loadEntryPt = setEntryPoint(p);
@@ -727,7 +748,6 @@ bool PImport::DoImport()
                     fscanf(f, "%02x", &n);
                     u[i] = n;
                 }
-                machineDependent->FlushInstructionCache(p, nBytes);
                 ch = getc(f);
                 ASSERT(ch == '|');
                 /* Set the constant count. */
@@ -786,6 +806,33 @@ bool PImport::DoImport()
                 }
                 // Clear the mutable bit
                 wr->SetLengthWord(p->Length(), F_CODE_OBJ);
+                break;
+            }
+
+        case 'K':
+            // Weak reference - must be zeroed
+            *(uintptr_t*)p = 0;
+            break;
+
+        case 'E':
+            // Entry point - address followed by string
+            {
+                // The length is the number of characters.
+                *(uintptr_t*)p = 0;
+                char* b = (char*)p + sizeof(uintptr_t);
+                POLYUNSIGNED nBytes;
+                fscanf(f, "%" POLYUFMT, &nBytes);
+                ch = getc(f); ASSERT(ch == '|');
+                for (POLYUNSIGNED i = 0; i < nBytes; i++)
+                {
+                    ch = getc(f);
+                    *b++ = ch;
+                }
+                *b = 0;
+                ch = getc(f);
+                ASSERT(ch == '\n');
+                bool loadEntryPt = setEntryPoint(p);
+                ASSERT(loadEntryPt);
                 break;
             }
 

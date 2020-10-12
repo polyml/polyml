@@ -4700,36 +4700,6 @@ static void InsertWidgetTimeout
     *tail = newp;
 }
 
-// Test whether input is available and block if it is not.
-// N.B.  There may be a GC while in here.
-// This was previously in basicio.cpp but has been moved here
-// since this is the only place it's used now.
-static void process_may_block(TaskData *taskData, int fd)
-{
-#ifdef __CYGWIN__
-      static struct timeval poll = {0,1};
-#else
-      static struct timeval poll = {0,0};
-#endif
-      fd_set read_fds;
-      int selRes;
-
-      while (1)
-      {
-  
-          FD_ZERO(&read_fds);
-          FD_SET(fd,&read_fds);
-
-          /* If there is something there we can return. */
-          selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
-          if (selRes > 0) return; /* Something waiting. */
-          else if (selRes < 0 && errno != EINTR) // Maybe another thread closed descr
-              raise_syscall(taskData, "select failed", errno);
-          WaitInputFD waiter(fd);
-          processes->ThreadPauseForIO(taskData, &waiter);
-      }
-}
-
 static Handle NextEvent(TaskData *taskData, Handle dsHandle /* handle to (X_Display_Object *) */)
 {
     for (;;)
@@ -4794,7 +4764,8 @@ static Handle NextEvent(TaskData *taskData, Handle dsHandle /* handle to (X_Disp
             
             if (pending == 0)
             {
-                process_may_block(taskData, display->fd);
+                WaitInputFD waiter(display->fd);
+                processes->ThreadPauseForIO(taskData, &waiter);
             }
             else /* X Event arrived */
             {
@@ -4818,7 +4789,8 @@ static Handle NextEvent(TaskData *taskData, Handle dsHandle /* handle to (X_Disp
             
             if (pending == 0)
             {
-                process_may_block(taskData, DEREFDISPLAYHANDLE(dsHandle)->display->fd);
+                WaitInputFD waiter(DEREFDISPLAYHANDLE(dsHandle)->display->fd);
+                processes->ThreadPauseForIO(taskData, &waiter);
             }
             else
             {

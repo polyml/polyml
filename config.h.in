@@ -319,6 +319,9 @@
 /* Define to 1 if `__ss' is a member of `struct __darwin_mcontext'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT___SS
 
+/* Define to 1 if the compiler supports __sync_fetch_and_add. */
+#undef HAVE_SYNC_FETCH
+
 /* Define to 1 if you have the `sysctl' function. */
 #undef HAVE_SYSCTL
 

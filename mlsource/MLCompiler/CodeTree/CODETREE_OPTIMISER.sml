@@ -1,5 +1,6 @@
 (*
-    Copyright (c) 2012,13,15,17-19 David C.J. Matthews
+
+    Copyright (c) 2012,13,15,17,19-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public

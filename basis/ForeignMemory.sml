@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: memory operations
     Author:     David Matthews
-    Copyright   David Matthews 2015, 2017, 2019
+    Copyright   David Matthews 2015, 2017, 2019-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -30,6 +30,8 @@ structure ForeignMemory :>
         val sysWord2VoidStar: SysWord.word -> voidStar
         val null: voidStar
         
+        (* Helper functions to add a word value to an address.
+           From 5.8.2 the word value is treated as signed. *)
         val ++ : voidStar * word -> voidStar
         val -- : voidStar * word -> voidStar
         
@@ -48,6 +50,8 @@ structure ForeignMemory :>
            The memory is deallocated when the function returns or raises and exception. *)
         val alloca: word * (voidStar -> 'a) -> 'a
 
+        (* Load and store a value.  From 5.8.2 the offset is
+           treated as signed. *)
         val get8:  voidStar * Word.word -> Word8.word
         val get16: voidStar * Word.word -> Word.word
         val get32: voidStar * Word.word -> Word32.word
@@ -114,8 +118,11 @@ struct
     val null: voidStar = 0w0
         
     infix 6 ++ --
-    fun s ++ w = s + SysWord.fromLarge(Word.toLarge w)
-    and s -- w = s - SysWord.fromLarge(Word.toLarge w)
+    (* Helper operations to add a constant to an address.
+       These now treat the offset as signed so that adding ~1 is
+       the same as subtracting 1. *)
+    fun s ++ w = s + SysWord.fromLarge(Word.toLargeX w)
+    and s -- w = s - SysWord.fromLarge(Word.toLargeX w)
 
     fun 'a memoise(f: 'a -> voidStar) (a: 'a) : unit -> voidStar =
     let

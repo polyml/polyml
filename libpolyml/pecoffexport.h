@@ -49,6 +49,7 @@ private:
     PolyWord createRelocation(PolyWord p, void *relocAddr);
     void writeSymbol(const char *symbolName, __int32 value, int section, bool isExtern, int symType=0);
 
+    void writeRelocation(const IMAGE_RELOCATION* reloc);
     unsigned relocationCount;
 
     ExportStringTable stringTable;
@@ -56,6 +57,10 @@ private:
     // Table and count for external references.
     ExportStringTable externTable;
     unsigned symbolNum;
+
+    // Copy of the first relocation in case we
+    // have to overwrite it.
+    IMAGE_RELOCATION firstRelocation;
 };
 
 #endif

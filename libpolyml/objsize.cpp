@@ -92,7 +92,7 @@ public:
     ProcessVisitAddresses(bool show);
     ~ProcessVisitAddresses();
 
-    VisitBitmap *FindBitmap(PolyWord p);
+    VisitBitmap *FindBitmap(PolyObject *p);
     void ShowBytes(PolyObject *start);
     void ShowCode(PolyObject *start);
     void ShowWords(PolyObject *start);
@@ -157,12 +157,12 @@ ProcessVisitAddresses::~ProcessVisitAddresses()
 }
 
 // Return the bitmap corresponding to the address or NULL if it isn't there.
-VisitBitmap *ProcessVisitAddresses::FindBitmap(PolyWord p)
+VisitBitmap *ProcessVisitAddresses::FindBitmap(PolyObject *p)
 {
     for (unsigned i = 0; i < nBitmaps; i++)
     {
         VisitBitmap *bm = bitmaps[i];
-        if (bm->InRange(p.AsStackAddr())) return bm;
+        if (bm->InRange((PolyWord*)p)) return bm;
     }
     return 0;
 }

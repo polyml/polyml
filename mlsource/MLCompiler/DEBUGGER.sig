@@ -1,7 +1,7 @@
 (*
     Title:      Source level debugger for Poly/ML
     Author:     David Matthews
-    Copyright  (c)   David Matthews 2000, 2009, 2014-15
+    Copyright  (c)   David Matthews 2000, 2009, 2014-15, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature DEBUGGERSIG =
+signature DEBUGGER =
 sig
     type types
     type values

@@ -292,8 +292,6 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, P
             raise_fail(taskData, "Not mutable code area");
         POLYUNSIGNED segLength = codeObj->Length();
         gMem.SpaceForAddress(codeObj)->writeAble(codeObj)->SetLengthWord(segLength, F_CODE_OBJ);
-        // This is really a legacy of the PPC code-generator.
-        machineDependent->FlushInstructionCache(codeObj, segLength * sizeof(PolyWord));
         // In the future it may be necessary to return a different address here.
         // N.B.  The code area should only have execute permission in the native
         // code version, not the interpreted version.

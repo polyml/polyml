@@ -294,7 +294,7 @@ struct
            address if this is to/from ML memory or a (boxed) SysWord.word if it is
            to/from C memory.  The index is a value in units of the size of the item
            being loaded/stored and the offset is always in bytes. *)
-        {base: backendIC, index: backendIC option, offset: word}
+        {base: backendIC, index: backendIC option, offset: int}
 
     structure CodeTags =
     struct
@@ -390,7 +390,7 @@ struct
                     PrettyBreak (0, 0), PrettyString ",", PrettyBreak (1, 0), 
                     case index of NONE => PrettyString "-" | SOME i => pretty i,
                     PrettyBreak (0, 0), PrettyString ",", PrettyBreak (1, 0),
-                    PrettyString(Word.toString offset), PrettyBreak (0, 0), PrettyString "]"
+                    PrettyString(Int.toString offset), PrettyBreak (0, 0), PrettyString "]"
                 ])
         end
 

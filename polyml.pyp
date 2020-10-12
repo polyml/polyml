@@ -14,8 +14,8 @@
 	<source name="basis\build.sml" />
 	<source name="basis\Byte.sml" />
 	<source name="basis\CommandLine.sml" />
+	<source name="basis\DATE.sig" />
 	<source name="basis\Date.sml" />
-	<source name="basis\DateSignature.sml" />
 	<source name="basis\ExnPrinter.sml" />
 	<source name="basis\FinalPolyML.sml" />
 	<source name="basis\Foreign.sml" />
@@ -75,6 +75,7 @@
 	<source name="basis\Text.sml" />
 	<source name="basis\TextIO.sml" />
 	<source name="basis\Thread.sml" />
+	<source name="basis\ThreadLib.sml" />
 	<source name="basis\Time.sml" />
 	<source name="basis\Timer.sml" />
 	<source name="basis\TopLevelPolyML.sml" />
@@ -154,9 +155,9 @@
 	<source name="mlsource\MLCompiler\DatatypeRep.ML" />
 	<source name="mlsource\MLCompiler\DATATYPEREPSIG.sml" />
 	<source name="mlsource\MLCompiler\Debug.ML" />
+	<source name="mlsource\MLCompiler\DEBUGGER.sig" />
 	<source name="mlsource\MLCompiler\Debugger.sml" />
 	<source name="mlsource\MLCompiler\DEBUGGER_.sml" />
-	<source name="mlsource\MLCompiler\DEBUGGERSIG.sml" />
 	<source name="mlsource\MLCompiler\DEBUGSIG.ML" />
 	<source name="mlsource\MLCompiler\ExportTree.sml" />
 	<source name="mlsource\MLCompiler\EXPORTTREESIG.sml" />

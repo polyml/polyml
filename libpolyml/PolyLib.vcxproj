@@ -692,6 +692,14 @@ ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">$(IntDir)%(Filename).obj</Outputs>
     </CustomBuild>
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="libffi\libffi.vcxproj">
+      <Project>{6d86bc6f-e74e-40c5-9881-f8bb606bca78}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="cpp.hint" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

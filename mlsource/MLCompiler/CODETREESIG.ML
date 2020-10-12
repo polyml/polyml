@@ -1,5 +1,4 @@
 (*
-
     Copyright (c) 2012,13,15-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
