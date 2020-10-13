@@ -253,7 +253,7 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cd ..
-$(OutDir)PolyImport.exe --intIsIntInf -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
+$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">cd ..
 $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; exportPoly.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Int32in64Debug|x64'">cd ..
