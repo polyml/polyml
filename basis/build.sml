@@ -112,7 +112,6 @@ val () = Bootstrap.use "basis/NetServDB.sml";
 val () = Bootstrap.use "basis/Socket.sml";
 val () = Bootstrap.use "basis/GenericSock.sml";
 val () = Bootstrap.use "basis/INetSock.sml";
-val () = Bootstrap.use "basis/UnixSock.sml";
 val () = Bootstrap.use "basis/PackRealBig.sml"; (* also declares PackRealLittle *)
 val () = Bootstrap.use "basis/PackWord8Big.sml"; (* also declares Pack8Little. ...*)
 val () = Bootstrap.use "basis/Array2Signature.sml";
@@ -131,7 +130,12 @@ local
 in
     val () =
     if getOS = 0
-    then ( Bootstrap.use "basis/Posix.sml"; Bootstrap.use "basis/Unix.sml")
+    then 
+    (
+        Bootstrap.use "basis/Posix.sml";
+        Bootstrap.use "basis/Unix.sml";
+        Bootstrap.use "basis/UnixSock.sml"
+    )
     else if getOS = 1 then (Bootstrap.use "basis/Windows.sml")
     else ()
 end;
