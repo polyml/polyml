@@ -2056,8 +2056,9 @@ int IntTaskData::SwitchToPoly()
             {
                 // This is similar to loadMLByte except that the base address is a boxed large-word.
                 // Also the index is SIGNED.
+                POLYSIGNED offset = UNTAGGED(*sp++);
                 POLYSIGNED index = UNTAGGED(*sp++);
-                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr()));
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
                 *sp = TAGGED(p[index]); // Have to tag the result
                 break;
             }
@@ -2136,12 +2137,14 @@ int IntTaskData::SwitchToPoly()
                 *sp = (PolyWord)t;
                 break;
             }
+
             case EXTINSTR_storeC8:
             {
                 // Similar to storeMLByte except that the base address is a boxed large-word.
                 POLYUNSIGNED toStore = UNTAGGED(*sp++);
+                POLYSIGNED offset = UNTAGGED(*sp++);
                 POLYSIGNED index = UNTAGGED(*sp++);
-                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr()));
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
                 p[index] = (byte)toStore;
                 *sp = Zero;
                 break;
