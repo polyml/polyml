@@ -525,18 +525,18 @@ struct
     structure Mutex =
     struct
         type mutex = Word.word ref
-        fun mutex() = nvref 0w1; (* Initially unlocked. *)
+        fun mutex() = nvref 0w0 (* Initially unlocked. *)
         open Thread  (* atomicIncr, atomicDecr and atomicReset are set up by Initialise. *)
         
         val threadMutexBlock: mutex -> unit = RunCall.rtsCallFull1 "PolyThreadMutexBlock"
         val threadMutexUnlock: mutex -> unit = RunCall.rtsCallFull1 "PolyThreadMutexUnlock"
 
-        (* A mutex is implemented as a Word.word ref.  It is initially set to 1 and locked
-           by atomically decrementing it.  If it was previously unlocked the result will
-           by zero but if it was already locked it will be some negative value.  When it
-           is unlocked it is atomically incremented.  If there was no contention the result
-           will again be 1 but if some other thread tried to lock it the result will be
-           zero or negative.  In that case the unlocking thread needs to call in to the
+        (* A mutex is implemented as a Word.word ref.  It is initially set to 0 and locked
+           by atomically incrementing it.  If it was previously unlocked the result will
+           by one but if it was already locked it will be some positive value.  When it
+           is unlocked it is atomically decremented.  If there was no contention the result
+           will again be 0 but if some other thread tried to lock it the result will be
+           one or positive.  In that case the unlocking thread needs to call in to the
            RTS to wake up the blocked thread.
 
            The cost of contention on the lock is very high.  To try to avoid this we
@@ -544,16 +544,16 @@ struct
 
         val spin_cycle = 20000
         fun spin (m: mutex, c: int) =
-           if ! m = 0w1 then ()
+           if ! m = 0w0 then ()
            else if c = spin_cycle then ()
            else spin(m, c+1);
 
         fun lock (m: mutex): unit =
         let
             val () = spin(m, 0)
-            val newValue = atomicDecr m
+            val newValue = atomicIncr m
         in
-            if newValue = 0w0
+            if newValue = 0w1
             then () (* We've acquired the lock. *)
             else (* It's locked.  We return when we have the lock. *)
             (
@@ -564,9 +564,9 @@ struct
 
         fun unlock (m: mutex): unit =
         let
-            val newValue = atomicIncr m
+            val newValue = atomicDecr m
         in
-            if newValue = 0w1
+            if newValue = 0w0
             then () (* No contention. *)
             else
                 (* Another thread has blocked and we have to release it.  We can safely
@@ -591,14 +591,14 @@ struct
         (* Try to lock the mutex.  If it was previously unlocked then lock it and
            return true otherwise return false.  Because we don't block here there is
            the possibility that the thread that has locked it could release the lock
-           shortly afterwards.  The check for !m = 0w1 is an optimisation and nearly
-           all the time it avoids the call to atomicDecr setting m to a negative value.
+           shortly afterwards.  The check for !m = 0w0 is an optimisation and nearly
+           all the time it avoids the call to atomicIncr setting m to a value > 1.
            There is a small chance that another thread could lock the mutex between the
-           test for !m = 0w1 and the atomicDecr.  In that case the atomicDecr would
-           return a negative value and the function that locked the mutex will have to
+           test for !m = 0w0 and the atomicIncr.  In that case the atomicIncr would
+           return a value > 1 and the function that locked the mutex will have to
            call into the RTS to reset it when it is unlocked.  *)
         fun trylock (m: mutex): bool =
-            if !m = 0w1 andalso atomicDecr m = 0w0
+            if !m = 0w0 andalso atomicIncr m = 0w1
             then true (* We've acquired the lock. *)
             else false (* The lock was taken. *)
     end

@@ -2,7 +2,7 @@
     Title:      Thread functions
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007,2008,2013-15, 2017, 2019 David C.J. Matthews
+    Copyright (c) 2007,2008,2013-15, 2017, 2019, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -431,9 +431,9 @@ void Processes::MutexBlock(TaskData *taskData, Handle hMutex)
     PLocker lock(&schedLock);
     // We have to check the value again with schedLock held rather than
     // simply waiting because otherwise the unlocking thread could have
-    // set the variable back to 1 (unlocked) and signalled any waiters
+    // set the variable back to 0 (unlocked) and signalled any waiters
     // before we actually got to wait.  
-    if (UNTAGGED(DEREFHANDLE(hMutex)->Get(0)) < 0)
+    if (UNTAGGED(DEREFHANDLE(hMutex)->Get(0)) > 0)
     {
         // Set this so we can see what we're blocked on.
         taskData->blockMutex = DEREFHANDLE(hMutex);
@@ -469,7 +469,7 @@ void Processes::MutexBlock(TaskData *taskData, Handle hMutex)
     // immediately.  Perhaps we do that whenever we exit from the RTS.
 }
 
-/* Unlock a mutex.  Called after incrementing the count and discovering
+/* Unlock a mutex.  Called after decrementing the count and discovering
    that at least one other thread has tried to lock it.  We may need
    to wake up threads that are blocked. */
 void Processes::MutexUnlock(TaskData *taskData, Handle hMutex)
@@ -545,8 +545,8 @@ void Processes::WaitInfinite(TaskData *taskData, Handle hMutex)
     PLocker lock(&schedLock);
     // Atomically release the mutex.  This is atomic because we hold schedLock
     // so no other thread can call signal or broadcast.
-    Handle decrResult = taskData->AtomicIncrement(hMutex);
-    if (UNTAGGED(decrResult->Word()) != 1)
+    Handle decrResult = taskData->AtomicDecrement(hMutex);
+    if (UNTAGGED(decrResult->Word()) != 0)
     {
         taskData->AtomicReset(hMutex);
         // The mutex was locked so we have to release any waiters.
@@ -595,8 +595,8 @@ void Processes::WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hWakeTim
     PLocker lock(&schedLock);
     // Atomically release the mutex.  This is atomic because we hold schedLock
     // so no other thread can call signal or broadcast.
-    Handle decrResult = taskData->AtomicIncrement(hMutex);
-    if (UNTAGGED(decrResult->Word()) != 1)
+    Handle decrResult = taskData->AtomicDecrement(hMutex);
+    if (UNTAGGED(decrResult->Word()) != 0)
     {
         taskData->AtomicReset(hMutex);
         // The mutex was locked so we have to release any waiters.

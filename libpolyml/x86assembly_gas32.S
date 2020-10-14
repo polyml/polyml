@@ -189,17 +189,17 @@ INLINE_ROUTINE(X86AsmCallbackReturn)
 INLINE_ROUTINE(X86AsmCallbackException)
     CALL_EXTRA(RETURN_CALLBACK_EXCEPTION)
 
-# This implements atomic addition in the same way as atomic_increment
-INLINE_ROUTINE(X86AsmAtomicIncrement)
+# This implements atomic subtraction in the same way as atomic_decrement
+INLINE_ROUTINE(X86AsmAtomicDecrement)
 #ifndef HOSTARCHITECTURE_X86_64
     movl    4(%esp),%eax
 #else
     movl    %edi,%eax   # On X86_64 the argument is passed in %edi
 #endif
 # Use %ecx and %eax because they are volatile (unlike %ebx on X86/64/Unix)
-    movl    $2,%ecx
+    movl    $-2,%ecx
     lock; xaddl %ecx,(%eax)
-    addl    $2,%ecx
+    subl    $2,%ecx
     movl    %ecx,%eax
     ret
 

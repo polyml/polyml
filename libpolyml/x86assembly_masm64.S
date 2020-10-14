@@ -1,7 +1,7 @@
 ;
 ;  Title:  Assembly code routines for the poly system.
 ;  Author:    David Matthews
-;  Copyright (c) David C. J. Matthews 2000-2019
+;  Copyright (c) David C. J. Matthews 2000-2020
 ;
 ;  This library is free software; you can redistribute it and/or
 ;  modify it under the terms of the GNU Lesser General Public
@@ -233,18 +233,18 @@ PUBLIC  X86AsmCallbackException
 X86AsmCallbackException:
     CALL_EXTRA RETURN_CALLBACK_EXCEPTION
 
-; This implements atomic addition in the same way as atomic_increment
-PUBLIC  X86AsmAtomicIncrement
-X86AsmAtomicIncrement:
+; This implements atomic subtraction in the same way as atomic_decrement
+PUBLIC  X86AsmAtomicDecrement
+X86AsmAtomicDecrement:
     mov     rax,rcx
 ; Use rcx and rax because they are volatile (unlike rbx on X86/64/Unix)
-    mov     rcx,2
+    mov     rcx,-2
 #ifdef  POLYML32IN64
     lock xadd [rax],ecx     ;# Rax is an absolute address but this is only a word
 #else
     lock xadd [rax],rcx
 #endif
-    add     rcx,2
+    sub     rcx,2
     mov     rax,rcx
     ret
 

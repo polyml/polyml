@@ -229,7 +229,7 @@ public:
     virtual void SetException(poly_exn *exc);
 
     // Release a mutex in exactly the same way as compiler code
-    virtual Handle AtomicIncrement(Handle mutexp);
+    virtual Handle AtomicDecrement(Handle mutexp);
     virtual void AtomicReset(Handle mutexp);
 
     // Return the minimum space occupied by the stack.  Used when setting a limit.
@@ -337,7 +337,6 @@ extern "C" {
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
 
-    POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
 };
 
@@ -1420,18 +1419,18 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 }
 
 // Increment the value contained in the first word of the mutex.
-Handle X86TaskData::AtomicIncrement(Handle mutexp)
+Handle X86TaskData::AtomicDecrement(Handle mutexp)
 {
     PolyObject *p = DEREFHANDLE(mutexp);
-    POLYUNSIGNED result = X86AsmAtomicIncrement(p);
+    POLYUNSIGNED result = X86AsmAtomicDecrement(p);
     return this->saveVec.push(PolyWord::FromUnsigned(result));
 }
 
 // Release a mutex.  Because the atomic increment and decrement
-// use the hardware LOCK prefix we can simply set this to one.
+// use the hardware LOCK prefix we can simply set this to zero.
 void X86TaskData::AtomicReset(Handle mutexp)
 {
-    DEREFHANDLE(mutexp)->Set(0, TAGGED(1));
+    DEREFHANDLE(mutexp)->Set(0, TAGGED(0));
 }
 
 static X86Dependent x86Dependent;

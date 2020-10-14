@@ -1,7 +1,7 @@
 ;
 ;  Title:  Assembly code routines for the poly system.
 ;  Author:    David Matthews
-;  Copyright (c) David C. J. Matthews 2000-2019
+;  Copyright (c) David C. J. Matthews 2000-2020
 ;
 ;  This library is free software; you can redistribute it and/or
 ;  modify it under the terms of the GNU Lesser General Public
@@ -166,15 +166,15 @@ PUBLIC  X86AsmCallbackException
 X86AsmCallbackException:
     CALL_EXTRA RETURN_CALLBACK_EXCEPTION
 
-; This implements atomic addition in the same way as atomic_increment
+; This implements atomic subtraction in the same way as atomic_decrement
 ; N.B. It is called from the RTS so uses C linkage conventions.
-PUBLIC  X86AsmAtomicIncrement
-X86AsmAtomicIncrement:
+PUBLIC  X86AsmAtomicDecrement
+X86AsmAtomicDecrement:
     mov     eax,4[esp]
 ; Use ecx and eax because they are volatile (unlike ebx on X86/64/Unix)
-    mov     ecx,2
+    mov     ecx,-2
     lock xadd [eax],ecx
-    add     ecx,2
+    sub     ecx,2
     mov     eax,ecx
     ret
 
