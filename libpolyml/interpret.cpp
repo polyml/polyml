@@ -494,17 +494,7 @@ int IntTaskData::SwitchToPoly()
            tailCount = *pc;
            tailPtr = sp + tailCount;
            sp = tailPtr + pc[1];
-           goto TAIL_CALL;
-
-        case INSTR_tail:
-           /* Tail recursive call. */
-           /* Move items up the stack. */
-           /* There may be an overlap if the function we are calling
-              has more args than this one. */
-           tailCount = arg1;
-           tailPtr = sp + tailCount;
-           sp = tailPtr + arg2;
-           TAIL_CALL: /* For general case. */
+       TAIL_CALL: /* For general case. */
            if (tailCount < 2) Crash("Invalid argument\n");
            for (; tailCount > 0; tailCount--) *(--sp) = *(--tailPtr);
            pc = (*sp++).AsCodePtr(); /* Pop the original return address. */
@@ -2321,6 +2311,16 @@ int IntTaskData::SwitchToPoly()
                 pc += 4;
                 break;
             }
+
+            case EXTINSTR_tail:
+                /* Tail recursive call. */
+                /* Move items up the stack. */
+                /* There may be an overlap if the function we are calling
+                   has more args than this one. */
+                tailCount = arg1;
+                tailPtr = sp + tailCount;
+                sp = tailPtr + arg2;
+                goto TAIL_CALL;
 
             default: Crash("Unknown extended instruction %x\n", pc[-1]);
             }
