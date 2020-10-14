@@ -1810,9 +1810,9 @@ struct
                    mutex to interlock clearing a mutex.  On the X86 we use hardware locking and
                    the hardware guarantees that an assignment of a word will be atomic. *)
                 val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
-                (* Store tagged 1 in the mutex.  This is the unlocked value. *)
+                (* Store tagged 0 in the mutex.  This is the unlocked value. *)
                 val code =
-                    BlockSimple(StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=memIndexOrObject, offset=0, kind=movePolyWord, isMutable=true})
+                    BlockSimple(StoreArgument{source=IntegerConstant(tag 0), base=addrReg, index=memIndexOrObject, offset=0, kind=movePolyWord, isMutable=true})
                         :: argCode
             in
                 moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
