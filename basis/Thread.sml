@@ -570,9 +570,9 @@ struct
             then () (* No contention. *)
             else
                 (* Another thread has blocked and we have to release it.  We can safely
-                   set the value to 1 here to release the lock.  If another thread
+                   set the value to 0 here to release the lock.  If another thread
                    acquires it before we have woken up the other threads that's fine.
-                   Equally, if another thread decremented the count and saw it was
+                   Equally, if another thread incremented the count and saw it was
                    still locked it will enter the RTS and try to acquire the lock
                    there.
                    It's probably better to reset it here rather than within the RTS
