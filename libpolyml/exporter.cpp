@@ -429,6 +429,12 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 
     if (isNoOverwrite && isMutableObj && !isByteObj)
     {
+        ASSERT(0);
+        // There's a problem with this.  We'd like to clear this on export to avoid
+        // exporting the open file list but when we create a saved state we use
+        // the exported version as our local copy for the rest of the session.
+
+
         // These are not exported. They are used for special values e.g. mutexes
         // that should be set to 0/nil/NONE at start-up.
         // Weak+No-overwrite byte objects are used for entry points and volatiles
