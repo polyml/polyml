@@ -1,7 +1,7 @@
 (*
     Title:      Thread package for ML.
     Author:     David C. J. Matthews
-    Copyright (c) 2007-2014, 2018
+    Copyright (c) 2007-2014, 2018, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -274,12 +274,7 @@ end;
 structure Thread :> THREAD =
 struct
     exception Thread = RunCall.Thread
-    
-    (* Create non-overwritable mutables for mutexes and condition variables.
-       A non-overwritable mutable in the executable or a saved state is not
-       overwritten when a saved state further down the hierarchy is loaded. *)
-    val nvref = LibrarySupport.noOverwriteRef
-    
+
     structure Thread =
     struct
         open Thread (* Created in INITIALISE with thread type and self function. *)
@@ -525,7 +520,7 @@ struct
     structure Mutex =
     struct
         type mutex = Word.word ref
-        fun mutex() = nvref 0w0 (* Initially unlocked. *)
+        val mutex = LibrarySupport.volatileWordRef (* Initially 0=unlocked. *)
         open Thread  (* atomicIncr, atomicDecr and atomicReset are set up by Initialise. *)
         
         val threadMutexBlock: mutex -> unit = RunCall.rtsCallFull1 "PolyThreadMutexBlock"
@@ -610,7 +605,7 @@ struct
         (* A condition variable contains a lock and a list of suspended threads. *)
         type conditionVar = { lock: Mutex.mutex, threads: thread list ref }
         fun conditionVar(): conditionVar =
-            { lock = Mutex.mutex(), threads = nvref nil }
+            { lock = Mutex.mutex(), threads = LibrarySupport.volatileListRef() }
 
         local
             val threadCondVarWait: Mutex.mutex -> unit = RunCall.rtsCallFull1 "PolyThreadCondVarWait"

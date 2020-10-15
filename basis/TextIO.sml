@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Text IO
-    Copyright   David C.J. Matthews 2000, 2005, 2016, 2018
+    Copyright   David C.J. Matthews 2000, 2005, 2016, 2018, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -329,10 +329,8 @@ structure TextIO :> TEXT_IO = struct
            able to lock the stream while reading the line.  This ensures that
            if multiple threads are reading lines from a stream each thread
            will get a complete line. *)
-        fun inputLine' fStream =
-        let
-            val f = ! fStream
-        in
+        fun inputLine' (fStream as ref(SOME f)) =
+        (
             case StreamIO.inputLine f of
                 NONE =>
                     let
@@ -340,11 +338,12 @@ structure TextIO :> TEXT_IO = struct
                            temporary EOF. *)
                         val (_, f') = StreamIO.input f
                     in
-                        fStream := f';
+                        fStream := SOME f';
                         NONE
                     end
-            |   SOME (s, f') => ( fStream := f'; SOME s )
-        end
+            |   SOME (s, f') => ( fStream := SOME f'; SOME s )
+        )
+        |   inputLine' _ = NONE
     in
         fun inputLine s = ImpIO.protect s inputLine'
     end

@@ -1135,29 +1135,47 @@ struct
         end
         
         local
-            val doCall: int*(unit->unit) -> unit
-                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
+            val atExitList = LibrarySupport.volatileListRef()
+            val atExitMutex = Thread.Mutex.mutex()
+            val exitResult = ref NONE (* Set to the exit result. *)
+            
+            val reallyExit: int -> unit = RunCall.rtsCallFull1 "PolyFinish"
         in
-            (* Register a function to be run at exit. *)
-            fun atExit f = doCall(18, f)
-        end
-
-        local
-            (* exit - supply result code and close down all threads. *)
-            val doExit: int -> unit = RunCall.rtsCallFull1 "PolyFinish"
-            val doCall: int*unit -> (unit->unit) =
-                RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        in
+            (* Register a function to be run at exit.  If we are already exiting
+               this has no effect. *)
+            val atExit = ThreadLib.protect atExitMutex
+                (fn f => case exitResult of ref(SOME _) => atExitList := f :: !atExitList | ref NONE => ())
+            
+            (* Exit.  Run the atExit functions and then exit with the result code.
+               There are a few complications.  If a second thread calls exit after
+               the first one it mustn't start the exit process again.  If one of the
+               atExit functions calls exit recursively it is defined to never return.
+               We just need to pick up the next atExit function and carry on. *)
             fun exit (n: int) =
             let
-                (* Get a function from the atExit list.  If that list
-                   is empty it will raise an exception and we've finished. *)
-                val exitFun =
-                    doCall(19, ()) handle _ => (doExit n; fn () => ())
+                open Thread
+                open Mutex Thread
+                (* Turn off further interrupts *)
+                val () = setAttributes[InterruptState InterruptDefer]
+                val () = lock atExitMutex
+                val () =
+                    case !exitResult of
+                        SOME threadId =>
+                            if threadId = self()
+                            then ()
+                            else (unlock atExitMutex; Thread.exit())
+                    |   NONE => exitResult := SOME(self())
+                val () = unlock atExitMutex
+                (* This is now the only thread here.
+                   Take an item off the list and update the list with the
+                   tail in case we recursively call "exit". *)
+                fun runExit () =
+                    case !atExitList of
+                        [] => reallyExit n
+                    |   (hd::tl) => (atExitList := tl; hd() handle _ => (); runExit())
             in
-                (* Run the function and then repeat. *)
-                exitFun() handle _ => (); (* Ignore exceptions in the function. *)
-                exit(n)
+                runExit();
+                raise Match (* Never reached but gives the 'a result. *)
             end
         end
 

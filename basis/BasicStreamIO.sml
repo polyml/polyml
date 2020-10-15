@@ -463,9 +463,9 @@ struct
     (* In order to be able to flush and close the streams when we exit
        we need to keep a list of the output streams. *)
     val ostreamLock = Thread.Mutex.mutex()
-    (* Use a no-overwrite ref for the list of streams.  This ensures that
-       the ref will not be overwritten if we load a saved state. *)
-    val outputStreamList: outstream list ref = LibrarySupport.noOverwriteRef nil;
+    (* We use a volatile ref so that the list is always reset
+       at the start of a program. *)
+    val outputStreamList: outstream list ref = LibrarySupport.volatileListRef()
 
     fun protectOut f (outs as OutStream{locker, ...}) = LibraryIOSupport.protect locker f outs
 
