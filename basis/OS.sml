@@ -1137,14 +1137,14 @@ struct
         local
             val atExitList = LibrarySupport.volatileListRef()
             val atExitMutex = Thread.Mutex.mutex()
-            val exitResult = ref NONE (* Set to the exit result. *)
+            val exitResult = LibrarySupport.volatileOptionRef() (* Set to the exit result. *)
             
             val reallyExit: int -> unit = RunCall.rtsCallFull1 "PolyFinish"
         in
             (* Register a function to be run at exit.  If we are already exiting
                this has no effect. *)
             val atExit = ThreadLib.protect atExitMutex
-                (fn f => case exitResult of ref(SOME _) => atExitList := f :: !atExitList | ref NONE => ())
+                (fn f => case exitResult of ref NONE => atExitList := f :: !atExitList | _ => ())
             
             (* Exit.  Run the atExit functions and then exit with the result code.
                There are a few complications.  If a second thread calls exit after
