@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: main part
     Author:     David Matthews
-    Copyright   David Matthews 2015-16, 2018-19
+    Copyright   David Matthews 2015-16, 2018-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -196,37 +196,63 @@ sig
     type 'a closure
     
     val cFunction: ('a->'b) closure conversion
+    
+    (** Build a callback (closure).  The first application creates a piece of code that handles type
+        conversion; the second captures an ML function.  The second application is relatively light-weight
+        but still involves generating a small piece of code.  Callbacks are garbage-collected if they
+        are not referenced from ML.  If necessary call touchClosure at the end of any possible use
+        to ensure that it cannot be garbage-collected earlier.  **)
+    val buildCallback0withAbi: LowLevel.abi * unit * 'a conversion -> (unit -> 'a) -> (unit -> 'a) closure
+    val buildCallback0: unit * 'a conversion -> (unit -> 'a) -> (unit -> 'a) closure
+    val buildCallback1withAbi: LowLevel.abi * 'a conversion * 'b conversion -> ('a -> 'b) -> ('a -> 'b) closure
+    val buildCallback1: 'a conversion * 'b conversion -> ('a -> 'b) -> ('a -> 'b) closure
+    val buildCallback2withAbi:
+         LowLevel.abi * ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) -> ('a * 'b -> 'c) closure
+    val buildCallback2: ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) -> ('a * 'b -> 'c) closure
+    val buildCallback3withAbi:
+         LowLevel.abi * ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
+            ('a * 'b *'c -> 'd) -> ('a * 'b *'c -> 'd) closure
+    val buildCallback3: ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
+            ('a * 'b *'c -> 'd) -> ('a * 'b *'c -> 'd) closure
+    val buildCallback4withAbi:
+         LowLevel.abi * ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
+            ('a * 'b * 'c  * 'd -> 'e) -> ('a * 'b * 'c * 'd -> 'e) closure
+    val buildCallback4:
+        ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
+            ('a * 'b * 'c  * 'd -> 'e) -> ('a * 'b * 'c * 'd -> 'e) closure
+    val buildCallback5withAbi:
+        LowLevel.abi * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
+            ('a * 'b * 'c * 'd * 'e -> 'f) -> ('a * 'b * 'c * 'd * 'e -> 'f) closure
+    val buildCallback5:
+        ('a conversion * 'b conversion * 'c conversion* 'd conversion * 'e conversion) * 'f conversion ->
+            ('a * 'b * 'c * 'd * 'e -> 'f) -> ('a * 'b * 'c * 'd * 'e -> 'f) closure
+    val buildCallback6withAbi:
+        LowLevel.abi *
+            ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) * 'g conversion ->
+            ('a * 'b * 'c * 'd * 'e * 'f -> 'g) -> ('a * 'b * 'c * 'd * 'e * 'f -> 'g) closure
+    val buildCallback6:
+        ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) * 'g conversion ->
+            ('a * 'b * 'c * 'd * 'e * 'f -> 'g) ->
+            ('a * 'b * 'c * 'd * 'e * 'f -> 'g) closure
+    
+    (** This ensures that a value can be referenced at the point it is called.  It has no
+        other effect. **)
+    val touchClosure: 'a -> unit
 
-    val buildClosure0withAbi: (unit -> 'a) * LowLevel.abi * unit * 'a conversion -> (unit -> 'a) closure
+    (** Closure functions provided for backwards compatibility.  These are not garbage-collected and
+        once created will persist until the end of the session.  **)
     val buildClosure0: (unit -> 'a) * unit * 'a conversion -> (unit -> 'a) closure
-    val buildClosure1withAbi: ('a -> 'b) * LowLevel.abi * 'a conversion * 'b conversion -> ('a -> 'b) closure
     val buildClosure1:  ('a -> 'b) * 'a conversion * 'b conversion -> ('a -> 'b) closure
-    val buildClosure2withAbi:
-         ('a * 'b -> 'c) * LowLevel.abi * ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) closure
     val buildClosure2: ('a * 'b -> 'c) * ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) closure
-    val buildClosure3withAbi:
-         ('a * 'b *'c -> 'd) * LowLevel.abi * ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
-            ('a * 'b *'c -> 'd) closure
     val buildClosure3: ('a * 'b *'c -> 'd) * ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
             ('a * 'b *'c -> 'd) closure
-    val buildClosure4withAbi:
-         ('a * 'b * 'c  * 'd -> 'e) * LowLevel.abi * ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
-            ('a * 'b * 'c * 'd -> 'e) closure
     val buildClosure4:
         ('a * 'b * 'c  * 'd -> 'e) * ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
             ('a * 'b * 'c * 'd -> 'e) closure
-    val buildClosure5withAbi:
-        ('a * 'b * 'c * 'd * 'e -> 'f) *
-            LowLevel.abi * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
-            ('a * 'b * 'c * 'd * 'e -> 'f) closure
     val buildClosure5:
         ('a * 'b * 'c * 'd * 'e -> 'f) *
         ('a conversion * 'b conversion * 'c conversion* 'd conversion * 'e conversion) * 'f conversion ->
             ('a * 'b * 'c * 'd * 'e -> 'f) closure
-    val buildClosure6withAbi:
-        ('a * 'b * 'c * 'd * 'e * 'f -> 'g) * LowLevel.abi *
-            ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) * 'g conversion ->
-            ('a * 'b * 'c * 'd * 'e * 'f -> 'g) closure
     val buildClosure6:
         ('a * 'b * 'c * 'd * 'e * 'f -> 'g) *
             ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) * 'g conversion ->
@@ -2641,11 +2667,13 @@ struct
         val cFunction: ('a->'b) closure conversion =
             makeConversion { load=load, store=store, ctype = LowLevel.cTypePointer }
     end
+    
+    val touchClosure = RunCall.touch
 
     local
         open Memory LowLevel
     in
-        fun buildClosure0withAbi(f: unit-> 'a, abi: abi, (), resConv: 'a conversion): (unit->'a) closure =
+        fun buildCallback0withAbi(abi: abi, (), resConv: 'a conversion): (unit-> 'a) -> (unit->'a) closure =
         let
             fun callback (f: unit -> 'a) (_: voidStar, res: voidStar): unit =
                 ignore(#store resConv (res, f ()))
@@ -2655,12 +2683,13 @@ struct
 
             val makeCallback = cFunctionWithAbi abi [] (#ctype resConv)
         in
-            makeCallback(callback f)
+            fn f => makeCallback(callback f)
         end
 
-        fun buildClosure0(f, argConv, resConv) = buildClosure0withAbi(f, abiDefault, argConv, resConv)
+        fun buildCallback0(argConv, resConv) = buildCallback0withAbi(abiDefault, argConv, resConv)
 
-        fun buildClosure1withAbi (f: 'a -> 'b, abi: abi, argConv: 'a conversion, resConv: 'b conversion) : ('a -> 'b) closure =
+        fun buildCallback1withAbi (abi: abi, argConv: 'a conversion, resConv: 'b conversion) :
+                ('a -> 'b) -> ('a -> 'b) closure =
         let
             fun callback (f: 'a -> 'b) (args: voidStar, res: voidStar): unit =
             let
@@ -2673,14 +2702,14 @@ struct
 
             val makeCallback = cFunctionWithAbi abi [#ctype argConv] (#ctype resConv)
         in
-            makeCallback(callback f)
+            fn f => makeCallback(callback f)
         end
    
-        fun buildClosure1(f, argConv, resConv) = buildClosure1withAbi(f, abiDefault, argConv, resConv)
+        fun buildCallback1(argConv, resConv) = buildCallback1withAbi(abiDefault, argConv, resConv)
 
-        fun buildClosure2withAbi
-            (f: 'a * 'b -> 'c, abi: abi, (arg1Conv: 'a conversion, arg2Conv: 'b conversion), resConv: 'c conversion) :
-                ('a * 'b -> 'c) closure =
+        fun buildCallback2withAbi
+            (abi: abi, (arg1Conv: 'a conversion, arg2Conv: 'b conversion), resConv: 'c conversion) :
+                ('a * 'b -> 'c) -> ('a * 'b -> 'c) closure =
         let
             val { load=loadArgs, updateC=updateArgs, ...} = cStruct2(arg1Conv, arg2Conv)
 
@@ -2698,13 +2727,13 @@ struct
 
             val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            makeCallback(callback f)
+            fn f => makeCallback(callback f)
         end
 
-        fun buildClosure2(f, argConv, resConv) = buildClosure2withAbi(f, abiDefault, argConv, resConv)
+        fun buildCallback2(argConv, resConv) = buildCallback2withAbi(abiDefault, argConv, resConv)
 
-        fun buildClosure3withAbi
-            (f, abi, (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion), resConv: 'd conversion) =
+        fun buildCallback3withAbi
+            (abi, (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion), resConv: 'd conversion) =
         let
             val { load=loadArgs, updateC=updateArgs, ...} = cStruct3(arg1Conv, arg2Conv, arg3Conv)
 
@@ -2723,13 +2752,13 @@ struct
 
             val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            makeCallback(callback f)
+            fn f => makeCallback(callback f)
         end
 
-        fun buildClosure3(f, argConv, resConv) = buildClosure3withAbi(f, abiDefault, argConv, resConv)
+        fun buildCallback3(argConv, resConv) = buildCallback3withAbi(abiDefault, argConv, resConv)
 
-        fun buildClosure4withAbi
-            (f, abi,
+        fun buildCallback4withAbi
+            (abi,
                 (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion, arg4Conv: 'd conversion),
              resConv: 'e conversion) =
         let
@@ -2750,13 +2779,13 @@ struct
 
             val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            makeCallback(callback f)
+            fn f => makeCallback(callback f)
         end
 
-        fun buildClosure4(f, argConv, resConv) = buildClosure4withAbi(f, abiDefault, argConv, resConv)
+        fun buildCallback4(argConv, resConv) = buildCallback4withAbi(abiDefault, argConv, resConv)
 
-        fun buildClosure5withAbi
-            (f, abi,
+        fun buildCallback5withAbi
+            (abi,
                 (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
                  arg4Conv: 'd conversion, arg5Conv: 'e conversion),
              resConv: 'f conversion) =
@@ -2780,13 +2809,13 @@ struct
 
             val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            makeCallback(callback f)
+            fn f => makeCallback(callback f)
         end
 
-        fun buildClosure5(f, argConv, resConv) = buildClosure5withAbi(f, abiDefault, argConv, resConv)
+        fun buildCallback5(argConv, resConv) = buildCallback5withAbi(abiDefault, argConv, resConv)
 
-        fun buildClosure6withAbi
-            (f, abi,
+        fun buildCallback6withAbi
+            (abi,
                 (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
                  arg4Conv: 'd conversion, arg5Conv: 'e conversion, arg6Conv: 'f conversion),
              resConv: 'g conversion) =
@@ -2810,10 +2839,36 @@ struct
 
             val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            makeCallback(callback f)
+            fn f => makeCallback(callback f)
         end
 
-        fun buildClosure6(f, argConv, resConv) = buildClosure6withAbi(f, abiDefault, argConv, resConv)
-
+        fun buildCallback6(argConv, resConv) = buildCallback6withAbi(abiDefault, argConv, resConv)
     end
+    
+    local
+        (* Backwards compatibility.  Closures were never garbage collected so to
+           ensure that any closure created by these we put them in a list
+           and touch them on exit. *)
+        val closures = LibrarySupport.noOverwriteRef nil
+        val closureLock = Thread.Mutex.mutex ()
+        fun touchAll () = List.app (fn f => f()) (! closures)
+(*        val () = PolyML.onEntry(fn () => OS.Process.atExit touchAll) *)
+        fun buildClosure buildCallback (f, a, b) =
+        let
+            val c = buildCallback(a, b) f
+            fun touch () = touchClosure c
+            val () = ThreadLib.protect closureLock (fn () => closures := touch :: !closures) ()
+        in
+            c
+        end
+    in
+        fun buildClosure0(f, a, b) = buildClosure buildCallback0(f, a, b)
+        and buildClosure1(f, a, b) = buildClosure buildCallback1(f, a, b)
+        and buildClosure2(f, a, b) = buildClosure buildCallback2(f, a, b)
+        and buildClosure3(f, a, b) = buildClosure buildCallback3(f, a, b)
+        and buildClosure4(f, a, b) = buildClosure buildCallback4(f, a, b)
+        and buildClosure5(f, a, b) = buildClosure buildCallback5(f, a, b)
+        and buildClosure6(f, a, b) = buildClosure buildCallback6(f, a, b)
+    end
+    
 end;
