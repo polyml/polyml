@@ -127,13 +127,13 @@ void PExport::printObject(PolyObject *p)
 
     if (p->IsByteObject())
     {
-        if (p->IsMutable() && p->IsWeakRefObject())
+        if (p->IsMutable() && p->IsWeakRefObject() && p->Length() >= sizeof(uintptr_t) / sizeof(PolyWord))
         {
             // This is either an entry point or a weak ref used in the FFI.
             // Clear the first word
-            if (p->Length() == 1)
+            if (p->Length() == sizeof(uintptr_t)/sizeof(PolyWord))
                 putc('K', exportFile); // Weak ref
-            else if (p->Length() > 1)
+            else if (p->Length() > sizeof(uintptr_t) / sizeof(PolyWord))
             {
                 // Entry point - C null-terminated string.
                 putc('E', exportFile);

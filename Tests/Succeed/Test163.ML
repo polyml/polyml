@@ -40,10 +40,10 @@ check get16 (m, !r) 0wx1221;
 check get16 (e, !r - 0w16) 0wx1221;
 
 checkEx get64 (m, 0w1) 0w0;
-checkEx get64 (e, ~ 0w7) 0w0;
+checkEx get64 (e, ~ 0w3) 0w0;
 r := 0w1;
 checkEx get64 (m, !r) 0w0;
-checkEx get64 (e, !r - 0w8) 0w0;
+checkEx get64 (e, !r - 0w4) 0w0;
 
 check get8 (m, 0w24) 0wxab;
 check get8 (e, ~ 0w8) 0wxab;

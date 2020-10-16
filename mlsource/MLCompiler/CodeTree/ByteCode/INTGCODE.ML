@@ -660,7 +660,7 @@ struct
             (
                 genCAddress address;
                 genOpcode(opcode_loadC8, cvec);
-                decsp()
+                decsp(); decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreC16, address} =>
@@ -727,7 +727,7 @@ struct
                 genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeC8, cvec);
-                decsp(); decsp()
+                decsp(); decsp(); decsp()
             )
 
         |   BICStoreOperation { kind=LoadStoreC16, address, value} =>

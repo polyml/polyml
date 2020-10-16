@@ -1475,7 +1475,7 @@ struct
         
         and genRTSCallFastFloattoFloat cvec = genExtOpc (ext_opcode_callFastRTSFtoF, cvec)
         and genRTSCallFastFloatFloattoFloat cvec = genExtOpc (ext_opcode_callFastRTSFFtoF, cvec)
-        and genRTSCallFastGeneraltoFloat cvec = genOpc (ext_opcode_callFastRTSGtoF, cvec)
+        and genRTSCallFastGeneraltoFloat cvec = genExtOpc (ext_opcode_callFastRTSGtoF, cvec)
         and genRTSCallFastFloatGeneraltoFloat cvec = genExtOpc (ext_opcode_callFastRTSFGtoF, cvec)
         
         fun genDoubleToFloat(SOME rnding, cvec) = genExtOpcByte(ext_opcode_realToFloat, encodeRound rnding, cvec)

@@ -96,7 +96,6 @@
 #define INSTR_ldexc         0x6d
 #define INSTR_push_handler  0x78
 #define INSTR_tail_b_b      0x7b
-#define INSTR_tail          0x7c
 #define INSTR_tail_3_bLegacy        0x7d
 #define INSTR_tail_4_bLegacy        0x7e
 #define INSTR_tail_3_2Legacy        0x7f
@@ -208,6 +207,7 @@
 #define EXTINSTR_callFastFGtoF      0x73
 #define EXTINSTR_realUnordered      0x79
 #define EXTINSTR_floatUnordered     0x7a
+#define EXTINSTR_tail               0x7c
 #define EXTINSTR_callFastRtoR       0x8f
 #define EXTINSTR_callFastGtoR       0x90
 #define EXTINSTR_atomicReset        0x99
