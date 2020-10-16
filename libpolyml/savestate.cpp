@@ -844,22 +844,36 @@ void StateLoader::Perform(void)
     }
 }
 
-class ClearWeakByteRef: public ScanAddress
+class ClearVolatile: public ScanAddress
 {
 public:
-    ClearWeakByteRef() {}
+    ClearVolatile() {}
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
     virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
 };
 
 // Set the values of external references and clear the values of other weak byte refs.
-void ClearWeakByteRef::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
+void ClearVolatile::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
 {
-    if (OBJ_IS_MUTABLE_OBJECT(lengthWord) && OBJ_IS_BYTE_OBJECT(lengthWord) && OBJ_IS_WEAKREF_OBJECT(lengthWord))
+    if (OBJ_IS_MUTABLE_OBJECT(lengthWord) && OBJ_IS_NO_OVERWRITE(lengthWord))
     {
-        POLYUNSIGNED len = OBJ_OBJECT_LENGTH(lengthWord);
-        if (len > 0) base->Set(0, PolyWord::FromSigned(0));
-        setEntryPoint(base);
+        if (OBJ_IS_BYTE_OBJECT(lengthWord))
+        {
+            if (OBJ_IS_WEAKREF_OBJECT(lengthWord))
+            {
+                POLYUNSIGNED len = OBJ_OBJECT_LENGTH(lengthWord);
+                if (len >= sizeof(uintptr_t) / sizeof(PolyWord))
+                    *((uintptr_t*)base) = 0;
+                setEntryPoint(base);
+            }
+        }
+        else
+        {
+            // Clear volatile refs
+            POLYUNSIGNED len = OBJ_OBJECT_LENGTH(lengthWord);
+            for (POLYUNSIGNED i = 0; i < len; i++)
+                base->Set(i, TAGGED(0));
+        }
     }
 }
 
@@ -1269,9 +1283,9 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             // Leave it writable until we've done the relocations.
 
             relocate.targetAddresses[descr->segmentIndex] = mem;
-            if (newSpace->isMutable && newSpace->byteOnly)
+            if (newSpace->noOverwrite)
             {
-                ClearWeakByteRef cwbr;
+                ClearVolatile cwbr;
                 cwbr.ScanAddressesInRegion(newSpace->bottom, newSpace->topPointer);
             }
         }
@@ -1954,7 +1968,7 @@ void ModuleLoader::Perform()
             relocate.targetAddresses[descr->segmentIndex] = space->bottom;
             if (space->isMutable && (descr->segmentFlags & SSF_BYTES) != 0)
             {
-                ClearWeakByteRef cwbr;
+                ClearVolatile cwbr;
                 cwbr.ScanAddressesInRegion(space->bottom, (PolyWord*)((byte*)space->bottom + descr->segmentSize));
             }
         }

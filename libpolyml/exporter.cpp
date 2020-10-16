@@ -427,18 +427,15 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 
     writeAble->SetLengthWord(lengthWord); // copy length word
 
-    if (isNoOverwrite && isMutableObj && !isByteObj)
+    if (hierarchy == 0 /* Exporting object module */ && isNoOverwrite && isMutableObj && !isByteObj)
     {
-        ASSERT(0);
-        // There's a problem with this.  We'd like to clear this on export to avoid
-        // exporting the open file list but when we create a saved state we use
-        // the exported version as our local copy for the rest of the session.
-
-
         // These are not exported. They are used for special values e.g. mutexes
         // that should be set to 0/nil/NONE at start-up.
         // Weak+No-overwrite byte objects are used for entry points and volatiles
         // in the foreign-function interface and have to be treated specially.
+
+        // Note: this must not be done when exporting a saved state because the
+        // copied version is used as the local data for the rest of the session.
         for (POLYUNSIGNED i = 0; i < words; i++)
             writeAble->Set(i, TAGGED(0));
     }
