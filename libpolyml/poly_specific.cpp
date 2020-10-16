@@ -228,7 +228,7 @@ POLYUNSIGNED PolyCopyByteVecToClosure(PolyObject *threadId, PolyWord byteVec, Po
                 if (!QuickGC(taskData, pushedByteVec->WordP()->Length()))
                     raise_fail(taskData, "Insufficient memory");
             }
-            else memcpy(result, initCell, requiredSize * sizeof(PolyWord));
+            else memcpy(gMem.SpaceForAddress(result)->writeAble((byte*)result), initCell, requiredSize * sizeof(PolyWord));
         } while (result == 0);
     }
     catch (...) {} // If an ML exception is raised
@@ -289,7 +289,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(PolyObject * threadId, Po
         if (!codeObj->IsCodeObject() || !codeObj->IsMutable())
             raise_fail(taskData, "Not mutable code area");
         POLYUNSIGNED segLength = codeObj->Length();
-        codeObj->SetLengthWord(segLength, F_CODE_OBJ);
+        gMem.SpaceForAddress(codeObj)->writeAble(codeObj)->SetLengthWord(segLength, F_CODE_OBJ);
         // This is really a legacy of the PPC code-generator.
         machineDependent->FlushInstructionCache(codeObj, segLength * sizeof(PolyWord));
         // In the future it may be necessary to return a different address here.
@@ -319,6 +319,7 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
     // c will usually be an address.
     // offset is a byte offset
     pointer += offset.UnTaggedUnsigned();
+    byte* writeable = gMem.SpaceForAddress(pointer)->writeAble(pointer);
     switch (UNTAGGED(flags))
     {
         case 0: // Absolute constant - size PolyWord
@@ -329,13 +330,13 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
             // on the interpreted version. 
             for (unsigned i = sizeof(PolyWord); i > 0; i--)
             {
-                pointer[i-1] = (byte)(c & 255);
+                writeable[i-1] = (byte)(c & 255);
                 c >>= 8;
             }
 #else
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
             {
-                pointer[i] = (byte)(c & 255);
+                writeable[i] = (byte)(c & 255);
                 c >>= 8;
             }
 #endif
@@ -353,7 +354,7 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
             size_t c = target - pointer - 4;
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
             {
-                pointer[i] = (byte)(c & 255);
+                writeable[i] = (byte)(c & 255);
                 c >>= 8;
             }
             break;
@@ -366,7 +367,8 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
 POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(PolyWord closure, PolyWord offset, PolyWord cWord)
 {
     byte *pointer = *(POLYCODEPTR*)(closure.AsObjPtr());
-    pointer[UNTAGGED_UNSIGNED(offset)] = (byte)UNTAGGED_UNSIGNED(cWord);
+    byte* writable = gMem.SpaceForAddress(pointer)->writeAble(pointer);
+    writable[UNTAGGED_UNSIGNED(offset)] = (byte)UNTAGGED_UNSIGNED(cWord);
     return TAGGED(0).AsUnsigned();
 }
 

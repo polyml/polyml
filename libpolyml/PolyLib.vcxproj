@@ -603,6 +603,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="gc_progress.cpp" />
+    <ClCompile Include="osmemwin.cpp" />
     <ClCompile Include="winbasicio.cpp" />
     <ClCompile Include="bitmap.cpp" />
     <ClCompile Include="check_objects.cpp" />
@@ -641,7 +642,6 @@
     <ClCompile Include="mpoly.cpp" />
     <ClCompile Include="network.cpp" />
     <ClCompile Include="objsize.cpp" />
-    <ClCompile Include="osmem.cpp" />
     <ClCompile Include="pecoffexport.cpp" />
     <ClCompile Include="pexport.cpp" />
     <ClCompile Include="polyffi.cpp" />
@@ -886,6 +886,9 @@ ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
     <ProjectReference Include="libffi\libffi.vcxproj">
       <Project>{6d86bc6f-e74e-40c5-9881-f8bb606bca78}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="cpp.hint" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

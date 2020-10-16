@@ -240,7 +240,7 @@ public:
 
     // Increment the profile count for an allocation.  Also now used for mutex contention.
     virtual void addProfileCount(POLYUNSIGNED words)
-    { add_count(this, assemblyInterface.stackPtr[0].codeAddr, words); }
+    { addSynchronousCount(assemblyInterface.stackPtr[0].codeAddr, words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
     virtual void PreRTSCall(void) { TaskData::PreRTSCall();  SaveMemRegisters(); }
@@ -663,7 +663,8 @@ void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
     // build a small code segment which jumps to the code.
     unsigned requiredSize = 8; // 8 words i.e. 32 bytes
     PolyObject *result = gMem.AllocCodeSpace(requiredSize);
-    byte *p = (byte*)result;
+    PolyObject* writeAble = gMem.SpaceForAddress(result)->writeAble(result);
+    byte *p = (byte*)writeAble;
     *p++ = 0x48; // rex.w
     *p++ = 0x8b; // Movl
     *p++ = 0x0d; // rcx, pc relative
@@ -685,7 +686,7 @@ void X86TaskData::MakeTrampoline(byte **pointer, byte *entryPt)
     // of address constants to zero.
     for (unsigned i = 0; i < 8; i++)
         *p++ = 0;
-    result->SetLengthWord(requiredSize, F_CODE_OBJ);
+    writeAble->SetLengthWord(requiredSize, F_CODE_OBJ);
     *pointer = (byte*)result;
 #else
     *pointer = entryPt; // Can go there directly
@@ -757,6 +758,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
 
 // Get the PC and SP(stack) from a signal context.  This is needed for profiling.
 // This version gets the actual sp and pc if we are in ML.
+// N.B. This must not call malloc since we're in a signal handler.
 bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 {
     stackItem * sp = 0;
@@ -830,7 +832,7 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, pc, 1);
+            incrementCountAsynch(pc);
             return true;
         }
     }
@@ -842,7 +844,7 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, pc, 1);
+            incrementCountAsynch(pc);
             return true;
         }
     }
@@ -857,7 +859,7 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, pc, 1);
+            incrementCountAsynch(pc);
             return true;
         }
     }
@@ -1297,9 +1299,10 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                         // We have to correct the displacement for the new location and store
                         // that away before we call ScanConstant.
                         size_t newDisp = absAddr - pt - 4;
+                        byte* wr = gMem.SpaceForAddress(pt)->writeAble(pt);
                         for (unsigned i = 0; i < 4; i++)
                         {
-                            pt[i] = (byte)(newDisp & 0xff);
+                            wr[i] = (byte)(newDisp & 0xff);
                             newDisp >>= 8;
                         }
                     }

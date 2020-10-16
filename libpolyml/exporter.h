@@ -1,7 +1,7 @@
 /*
     Title:  exporter.h - Export a function as an object or C file
 
-    Copyright (c) 2006, 2015-17 David C.J. Matthews
+    Copyright (c) 2006, 2015-17, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -51,7 +51,7 @@ protected:
     virtual PolyWord createRelocation(PolyWord p, void *relocAddr) = 0;
     void relocateValue(PolyWord *pt);
     void relocateObject(PolyObject *p);
-    void createRelocation(PolyWord *pt) { *pt = createRelocation(*pt, pt); }
+    void createRelocation(PolyWord *pt);
     unsigned findArea(void *p); // Find index of area that address is in.
     virtual void addExternalReference(void *p, const char *entryPoint, bool isFuncPtr) {}
 

@@ -80,7 +80,9 @@ public:
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
     OSMem           *allocator; // Used to free the area.  May be null.
-    
+
+    PolyWord        *shadowSpace; // Extra writable area for code if necessary
+
     uintptr_t spaceSize(void)const { return top-bottom; } // No of words
 
     // These next two are used in the GC to limit scanning for
@@ -89,6 +91,23 @@ public:
 
     // Used when printing debugging info
     virtual const char *spaceTypeString() { return isMutable ? "mutable" : "immutable"; }
+
+    // Return the writeable address if this is in read-only code.
+    byte* writeAble(byte* p) {
+        if (shadowSpace != 0)
+            return (p - (byte*)bottom + (byte*)shadowSpace);
+        else return p;
+    }
+
+    PolyWord* writeAble(PolyWord* p) {
+        if (shadowSpace != 0)
+            return (p - bottom + shadowSpace);
+        else return p;
+    }
+
+    PolyObject* writeAble(PolyObject* p) {
+        return (PolyObject*)writeAble((PolyWord *) p);
+    }
 
     friend class MemMgr;
 };
@@ -202,7 +221,7 @@ public:
 class CodeSpace: public MarkableSpace
 {
     public:
-        CodeSpace(PolyWord *start, uintptr_t spaceSize, OSMem *alloc);
+    CodeSpace(PolyWord *start, PolyWord *shadow, uintptr_t spaceSize, OSMem *alloc);
 
     Bitmap  headerMap; // Map to find the headers during GC or profiling.
     uintptr_t largestFree; // The largest free space in the area

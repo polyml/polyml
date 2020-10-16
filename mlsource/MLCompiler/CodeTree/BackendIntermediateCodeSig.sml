@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-18 David C.J. Matthews
+    Copyright (c) 2012, 2016-18, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -151,8 +151,10 @@ sig
         (* Address form used in loads, store and block operations.  The base is an ML
            address if this is to/from ML memory or a (boxed) SysWord.word if it is
            to/from C memory.  The index is a value in units of the size of the item
-           being loaded/stored and the offset is always in bytes. *)
-        {base: backendIC, index: backendIC option, offset: word}
+           being loaded/stored and the offset is always in bytes.
+           For ML memory accesses the index and offset are unsigned; for C values
+           they are signed. *)
+        {base: backendIC, index: backendIC option, offset: int}
 
     type pretty
     val pretty : backendIC -> pretty

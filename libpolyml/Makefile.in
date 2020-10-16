@@ -144,16 +144,16 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp bitmap.cpp check_objects.cpp \
 	gc_check_weak_ref.cpp gc_copy_phase.cpp gc_mark_phase.cpp \
 	gc_progress.cpp gc_share_phase.cpp gc_update_phase.cpp \
 	gctaskfarm.cpp heapsizing.cpp locking.cpp memmgr.cpp mpoly.cpp \
-	network.cpp objsize.cpp osmem.cpp pexport.cpp \
-	poly_specific.cpp polyffi.cpp polystring.cpp process_env.cpp \
-	processes.cpp profiling.cpp quick_gc.cpp realconv.cpp \
-	reals.cpp rts_module.cpp rtsentry.cpp run_time.cpp \
-	save_vec.cpp savestate.cpp scanaddrs.cpp sharedata.cpp \
-	sighandler.cpp statistics.cpp timing.cpp xwindows.cpp \
-	x86_dep.cpp x86assembly_gas64.S interpret.cpp \
-	x86assembly_gas32.S machoexport.cpp elfexport.cpp \
-	pecoffexport.cpp basicio.cpp unix_specific.cpp winstartup.cpp \
-	winbasicio.cpp winguiconsole.cpp windows_specific.cpp
+	network.cpp objsize.cpp pexport.cpp poly_specific.cpp \
+	polyffi.cpp polystring.cpp process_env.cpp processes.cpp \
+	profiling.cpp quick_gc.cpp realconv.cpp reals.cpp \
+	rts_module.cpp rtsentry.cpp run_time.cpp save_vec.cpp \
+	savestate.cpp scanaddrs.cpp sharedata.cpp sighandler.cpp \
+	statistics.cpp timing.cpp xwindows.cpp x86_dep.cpp \
+	x86assembly_gas64.S interpret.cpp x86assembly_gas32.S \
+	machoexport.cpp elfexport.cpp pecoffexport.cpp basicio.cpp \
+	unix_specific.cpp osmemunix.cpp winstartup.cpp winbasicio.cpp \
+	winguiconsole.cpp windows_specific.cpp osmemwin.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@am__objects_1 = x86_dep.lo \
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@	x86assembly_gas64.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
@@ -165,19 +165,21 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp bitmap.cpp check_objects.cpp \
 @EXPELF_FALSE@@EXPMACHO_TRUE@@EXPPECOFF_FALSE@	machoexport.lo
 @EXPELF_TRUE@@EXPPECOFF_FALSE@am__objects_2 = elfexport.lo
 @EXPPECOFF_TRUE@am__objects_2 = pecoffexport.lo
-@NATIVE_WINDOWS_FALSE@am__objects_3 = basicio.lo unix_specific.lo
+@NATIVE_WINDOWS_FALSE@am__objects_3 = basicio.lo unix_specific.lo \
+@NATIVE_WINDOWS_FALSE@	osmemunix.lo
 @NATIVE_WINDOWS_TRUE@am__objects_3 = winstartup.lo winbasicio.lo \
-@NATIVE_WINDOWS_TRUE@	winguiconsole.lo windows_specific.lo
+@NATIVE_WINDOWS_TRUE@	winguiconsole.lo windows_specific.lo \
+@NATIVE_WINDOWS_TRUE@	osmemwin.lo
 am_libpolyml_la_OBJECTS = arb.lo bitmap.lo check_objects.lo \
 	diagnostics.lo errors.lo exporter.lo gc.lo \
 	gc_check_weak_ref.lo gc_copy_phase.lo gc_mark_phase.lo \
 	gc_progress.lo gc_share_phase.lo gc_update_phase.lo \
 	gctaskfarm.lo heapsizing.lo locking.lo memmgr.lo mpoly.lo \
-	network.lo objsize.lo osmem.lo pexport.lo poly_specific.lo \
-	polyffi.lo polystring.lo process_env.lo processes.lo \
-	profiling.lo quick_gc.lo realconv.lo reals.lo rts_module.lo \
-	rtsentry.lo run_time.lo save_vec.lo savestate.lo scanaddrs.lo \
-	sharedata.lo sighandler.lo statistics.lo timing.lo xwindows.lo \
+	network.lo objsize.lo pexport.lo poly_specific.lo polyffi.lo \
+	polystring.lo process_env.lo processes.lo profiling.lo \
+	quick_gc.lo realconv.lo reals.lo rts_module.lo rtsentry.lo \
+	run_time.lo save_vec.lo savestate.lo scanaddrs.lo sharedata.lo \
+	sighandler.lo statistics.lo timing.lo xwindows.lo \
 	$(am__objects_1) $(am__objects_2) $(am__objects_3)
 libpolyml_la_OBJECTS = $(am_libpolyml_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
@@ -214,21 +216,21 @@ am__depfiles_remade = ./$(DEPDIR)/arb.Plo ./$(DEPDIR)/basicio.Plo \
 	./$(DEPDIR)/locking.Plo ./$(DEPDIR)/machoexport.Plo \
 	./$(DEPDIR)/memmgr.Plo ./$(DEPDIR)/mpoly.Plo \
 	./$(DEPDIR)/network.Plo ./$(DEPDIR)/objsize.Plo \
-	./$(DEPDIR)/osmem.Plo ./$(DEPDIR)/pecoffexport.Plo \
-	./$(DEPDIR)/pexport.Plo ./$(DEPDIR)/poly_specific.Plo \
-	./$(DEPDIR)/polyffi.Plo ./$(DEPDIR)/polystring.Plo \
-	./$(DEPDIR)/process_env.Plo ./$(DEPDIR)/processes.Plo \
-	./$(DEPDIR)/profiling.Plo ./$(DEPDIR)/quick_gc.Plo \
-	./$(DEPDIR)/realconv.Plo ./$(DEPDIR)/reals.Plo \
-	./$(DEPDIR)/rts_module.Plo ./$(DEPDIR)/rtsentry.Plo \
-	./$(DEPDIR)/run_time.Plo ./$(DEPDIR)/save_vec.Plo \
-	./$(DEPDIR)/savestate.Plo ./$(DEPDIR)/scanaddrs.Plo \
-	./$(DEPDIR)/sharedata.Plo ./$(DEPDIR)/sighandler.Plo \
-	./$(DEPDIR)/statistics.Plo ./$(DEPDIR)/timing.Plo \
-	./$(DEPDIR)/unix_specific.Plo ./$(DEPDIR)/winbasicio.Plo \
-	./$(DEPDIR)/windows_specific.Plo ./$(DEPDIR)/winguiconsole.Plo \
-	./$(DEPDIR)/winstartup.Plo ./$(DEPDIR)/x86_dep.Plo \
-	./$(DEPDIR)/x86assembly_gas32.Plo \
+	./$(DEPDIR)/osmemunix.Plo ./$(DEPDIR)/osmemwin.Plo \
+	./$(DEPDIR)/pecoffexport.Plo ./$(DEPDIR)/pexport.Plo \
+	./$(DEPDIR)/poly_specific.Plo ./$(DEPDIR)/polyffi.Plo \
+	./$(DEPDIR)/polystring.Plo ./$(DEPDIR)/process_env.Plo \
+	./$(DEPDIR)/processes.Plo ./$(DEPDIR)/profiling.Plo \
+	./$(DEPDIR)/quick_gc.Plo ./$(DEPDIR)/realconv.Plo \
+	./$(DEPDIR)/reals.Plo ./$(DEPDIR)/rts_module.Plo \
+	./$(DEPDIR)/rtsentry.Plo ./$(DEPDIR)/run_time.Plo \
+	./$(DEPDIR)/save_vec.Plo ./$(DEPDIR)/savestate.Plo \
+	./$(DEPDIR)/scanaddrs.Plo ./$(DEPDIR)/sharedata.Plo \
+	./$(DEPDIR)/sighandler.Plo ./$(DEPDIR)/statistics.Plo \
+	./$(DEPDIR)/timing.Plo ./$(DEPDIR)/unix_specific.Plo \
+	./$(DEPDIR)/winbasicio.Plo ./$(DEPDIR)/windows_specific.Plo \
+	./$(DEPDIR)/winguiconsole.Plo ./$(DEPDIR)/winstartup.Plo \
+	./$(DEPDIR)/x86_dep.Plo ./$(DEPDIR)/x86assembly_gas32.Plo \
 	./$(DEPDIR)/x86assembly_gas64.Plo ./$(DEPDIR)/xwindows.Plo
 am__mv = mv -f
 CPPASCOMPILE = $(CCAS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
@@ -514,8 +516,8 @@ DIST_SUBDIRS = libffi
 
 # Select the object-format-specific modules
 @EXPPECOFF_TRUE@EXPORTSOURCE = pecoffexport.cpp
-@NATIVE_WINDOWS_FALSE@OSSOURCE = basicio.cpp unix_specific.cpp
-@NATIVE_WINDOWS_TRUE@OSSOURCE = winstartup.cpp winbasicio.cpp winguiconsole.cpp windows_specific.cpp
+@NATIVE_WINDOWS_FALSE@OSSOURCE = basicio.cpp unix_specific.cpp osmemunix.cpp
+@NATIVE_WINDOWS_TRUE@OSSOURCE = winstartup.cpp winbasicio.cpp winguiconsole.cpp windows_specific.cpp osmemwin.cpp
 noinst_HEADERS = \
 	arb.h \
 	basicio.h \
@@ -591,7 +593,6 @@ libpolyml_la_SOURCES = \
     mpoly.cpp \
     network.cpp \
     objsize.cpp \
-    osmem.cpp \
     pexport.cpp \
     poly_specific.cpp \
     polyffi.cpp \
@@ -721,7 +722,8 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mpoly.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/network.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/objsize.Plo@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/osmem.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/osmemunix.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/osmemwin.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pecoffexport.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pexport.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/poly_specific.Plo@am__quote@ # am--include-marker
@@ -1053,7 +1055,8 @@ distclean: distclean-recursive
 	-rm -f ./$(DEPDIR)/mpoly.Plo
 	-rm -f ./$(DEPDIR)/network.Plo
 	-rm -f ./$(DEPDIR)/objsize.Plo
-	-rm -f ./$(DEPDIR)/osmem.Plo
+	-rm -f ./$(DEPDIR)/osmemunix.Plo
+	-rm -f ./$(DEPDIR)/osmemwin.Plo
 	-rm -f ./$(DEPDIR)/pecoffexport.Plo
 	-rm -f ./$(DEPDIR)/pexport.Plo
 	-rm -f ./$(DEPDIR)/poly_specific.Plo
@@ -1153,7 +1156,8 @@ maintainer-clean: maintainer-clean-recursive
 	-rm -f ./$(DEPDIR)/mpoly.Plo
 	-rm -f ./$(DEPDIR)/network.Plo
 	-rm -f ./$(DEPDIR)/objsize.Plo
-	-rm -f ./$(DEPDIR)/osmem.Plo
+	-rm -f ./$(DEPDIR)/osmemunix.Plo
+	-rm -f ./$(DEPDIR)/osmemwin.Plo
 	-rm -f ./$(DEPDIR)/pecoffexport.Plo
 	-rm -f ./$(DEPDIR)/pexport.Plo
 	-rm -f ./$(DEPDIR)/poly_specific.Plo

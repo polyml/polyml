@@ -176,7 +176,10 @@ sig
         recUse        : codeUse list        (* Recursive use of the function *)
     }
 
-    and codeAddress = {base: codetree, index: codetree option, offset: word}
+    (* Code address.  The base is either a Poly address or a SysWord value for C
+       loads and stores.  For Poly addresses the index and offset are unsigned
+       values; for C operations they are signed. *)
+    and codeAddress = {base: codetree, index: codetree option, offset: int}
 
     type pretty
     val pretty : codetree -> pretty

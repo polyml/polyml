@@ -1,7 +1,7 @@
 /*
    Title:  Assembly code routines for the poly system.
    Author:    David Matthews
-   Copyright (c) David C. J. Matthews 2000-2019
+   Copyright (c) David C. J. Matthews 2000-2020
  
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -118,7 +118,7 @@ EXTNAME(id):
 #define RETURN_KILL_SELF            9
 
 # Mark the stack as non-executable when supported
-#ifdef HAVE_GNU_STACK
+#if (defined(__linux__) && defined(__ELF__))
 .section .note.GNU-stack, "", @progbits
 #endif
 

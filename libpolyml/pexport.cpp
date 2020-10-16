@@ -2,7 +2,7 @@
     Title:     Export and import memory in a portable format
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006-7, 2015-8 David C. J. Matthews
+    Copyright (c) 2006-7, 2015-8, 2020 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -127,56 +127,65 @@ void PExport::printObject(PolyObject *p)
 
     if (p->IsByteObject())
     {
-        if (p->IsMutable() && p->IsWeakRefObject())
+        if (p->IsMutable() && p->IsWeakRefObject() && p->Length() >= sizeof(uintptr_t) / sizeof(PolyWord))
         {
             // This is either an entry point or a weak ref used in the FFI.
             // Clear the first word
-            if (p->Length() == 1)
-                p->Set(0, PolyWord::FromSigned(0)); // Weak ref
-            else if (p->Length() > 1)
-                *(uintptr_t*)p = 0; // Entry point
-        }
-        /* May be a string, a long format arbitrary precision
-           number or a real number. */
-        PolyStringObject* ps = (PolyStringObject*)p;
-        /* This is not infallible but it seems to be good enough
-           to detect the strings. */
-        POLYUNSIGNED bytes = length * sizeof(PolyWord);
-        if (length >= 2 &&
-            ps->length <= bytes - sizeof(POLYUNSIGNED) &&
-            ps->length > bytes - 2 * sizeof(POLYUNSIGNED))
-        {
-            /* Looks like a string. */
-            fprintf(exportFile, "S%" POLYUFMT "|", ps->length);
-            for (unsigned i = 0; i < ps->length; i++)
+            if (p->Length() == sizeof(uintptr_t)/sizeof(PolyWord))
+                putc('K', exportFile); // Weak ref
+            else if (p->Length() > sizeof(uintptr_t) / sizeof(PolyWord))
             {
-                char ch = ps->chars[i];
-                fprintf(exportFile, "%02x", ch & 0xff);
+                // Entry point - C null-terminated string.
+                putc('E', exportFile);
+                const char* name = (char*)p + sizeof(uintptr_t);
+                fprintf(exportFile, "%" PRI_SIZET "|%s", strlen(name), name);
+                *(uintptr_t*)p = 0; // Entry point
             }
         }
         else
         {
-            /* Not a string. May be an arbitrary precision integer.
-               If the source and destination word lengths differ we
-               could find that some long-format arbitrary precision
-               numbers could be represented in the tagged short form
-               or vice-versa.  The former case might give rise to
-               errors because when comparing two arbitrary precision
-               numbers for equality we assume that they are not equal
-               if they have different representation.  The latter
-               case could be a problem because we wouldn't know whether
-               to convert the tagged form to long form, which would be
-               correct if the value has type "int" or to truncate it
-               which would be correct for "word".
-               It could also be a real number but that doesn't matter
-               if we recompile everything on the new machine.
-            */
-            byte *u = (byte*)p;
-            putc('B', exportFile);
-            fprintf(exportFile, "%" PRI_SIZET "|", length*sizeof(PolyWord));
-            for (unsigned i = 0; i < (unsigned)(length*sizeof(PolyWord)); i++)
+            /* May be a string, a long format arbitrary precision
+               number or a real number. */
+            PolyStringObject* ps = (PolyStringObject*)p;
+            /* This is not infallible but it seems to be good enough
+               to detect the strings. */
+            POLYUNSIGNED bytes = length * sizeof(PolyWord);
+            if (length >= 2 &&
+                ps->length <= bytes - sizeof(POLYUNSIGNED) &&
+                ps->length > bytes - 2 * sizeof(POLYUNSIGNED))
             {
-                fprintf(exportFile, "%02x", u[i]);
+                /* Looks like a string. */
+                fprintf(exportFile, "S%" POLYUFMT "|", ps->length);
+                for (unsigned i = 0; i < ps->length; i++)
+                {
+                    char ch = ps->chars[i];
+                    fprintf(exportFile, "%02x", ch & 0xff);
+                }
+            }
+            else
+            {
+                /* Not a string. May be an arbitrary precision integer.
+                   If the source and destination word lengths differ we
+                   could find that some long-format arbitrary precision
+                   numbers could be represented in the tagged short form
+                   or vice-versa.  The former case might give rise to
+                   errors because when comparing two arbitrary precision
+                   numbers for equality we assume that they are not equal
+                   if they have different representation.  The latter
+                   case could be a problem because we wouldn't know whether
+                   to convert the tagged form to long form, which would be
+                   correct if the value has type "int" or to truncate it
+                   which would be correct for "word".
+                   It could also be a real number but that doesn't matter
+                   if we recompile everything on the new machine.
+                */
+                byte* u = (byte*)p;
+                putc('B', exportFile);
+                fprintf(exportFile, "%" PRI_SIZET "|", length * sizeof(PolyWord));
+                for (unsigned i = 0; i < (unsigned)(length * sizeof(PolyWord)); i++)
+                {
+                    fprintf(exportFile, "%02x", u[i]);
+                }
             }
         }
     }
@@ -391,11 +400,11 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
             fprintf(stderr, "Unable to allocate memory\n");
             return 0;
         }
-        memSpace->bottom[0] = PolyWord::FromUnsigned(0);
+        memSpace->writeAble(memSpace->bottom)[0] = PolyWord::FromUnsigned(0);
         used = 1;
     }
     PolyObject *newObj = (PolyObject*)(memSpace->bottom + used + 1);
-    if (rounded != objWords) newObj->Set(objWords, PolyWord::FromUnsigned(0));
+    if (rounded != objWords) memSpace->writeAble(newObj)->Set(objWords, PolyWord::FromUnsigned(0));
     used += rounded + 1;
     ASSERT(((uintptr_t)newObj & 0x7) == 0);
     return newObj;
@@ -574,22 +583,36 @@ bool PImport::DoImport()
             fscanf(f, "%" POLYUFMT, &nWords);
             break;
 
+        case 'K': // Single weak reference
+            nWords = sizeof(uintptr_t)/sizeof(PolyWord);
+            objBits |= F_BYTE_OBJ;
+            break;
+
+        case 'E': // Entry point - address followed by string
+            objBits |= F_BYTE_OBJ;
+            // The length is the length of the string but it must be null-terminated
+            fscanf(f, "%" POLYUFMT, &nBytes);
+            // Add one uintptr_t plus one plus padding to an integral number of words.
+            nWords = (nBytes + sizeof(uintptr_t) + sizeof(PolyWord)) / sizeof(PolyWord);
+            break;
+
         default:
             fprintf(polyStderr, "Invalid object type\n");
             return false;
         }
 
-        PolyObject  *p;
+        SpaceAlloc* alloc;
         if (objBits & F_MUTABLE_BIT)
-            p = mutSpace.NewObj(nWords);
+            alloc = &mutSpace;
         else if ((objBits & 3) == F_CODE_OBJ)
-            p = codeSpace.NewObj(nWords);
-        else p = immutSpace.NewObj(nWords);
+            alloc = &codeSpace;
+        else alloc = &immutSpace;
+        PolyObject* p = alloc->NewObj(nWords);
         if (p == 0)
             return false;
         objMap[objNo] = p;
         /* Put in length PolyWord and flag bits. */
-        p->SetLengthWord(nWords, objBits);
+        alloc->memSpace->writeAble(p)->SetLengthWord(nWords, objBits);
 
         /* Skip the object contents. */
         while (getc(f) != '\n') ;
@@ -677,8 +700,7 @@ bool PImport::DoImport()
                 }
                 ch = getc(f);
                 ASSERT(ch == '\n');
-                // If this is an entry point object set its value.
-                //if (p->IsMutable() && p->IsWeakRefObject() && p->Length() > 2 && p->Get(2).AsUnsigned() != 0)
+                // Legacy: If this is an entry point object set its value.
                 if (p->IsMutable() && p->IsWeakRefObject() && p->Length() > sizeof(uintptr_t)/sizeof(PolyWord))
                 {
                     bool loadEntryPt = setEntryPoint(p);
@@ -710,9 +732,11 @@ bool PImport::DoImport()
         case 'D':
             {
                 bool oldForm = ch == 'C';
-                byte *u = (byte*)p;
                 POLYUNSIGNED length = p->Length();
                 POLYUNSIGNED nWords, nBytes;
+                MemSpace* space = gMem.SpaceForAddress(p);
+                PolyObject *wr = space->writeAble(p);
+                byte* u = (byte*)wr;
                 /* Read the number of bytes of code and the number of words
                    for constants. */
                 fscanf(f, "%" POLYUFMT ",%" POLYUFMT, &nWords, &nBytes);
@@ -724,23 +748,23 @@ bool PImport::DoImport()
                     fscanf(f, "%02x", &n);
                     u[i] = n;
                 }
-                machineDependent->FlushInstructionCache(u, nBytes);
+                machineDependent->FlushInstructionCache(p, nBytes);
                 ch = getc(f);
                 ASSERT(ch == '|');
                 /* Set the constant count. */
-                p->Set(length-1, PolyWord::FromUnsigned(nWords));
+                wr->Set(length-1, PolyWord::FromUnsigned(nWords));
                 if (oldForm)
                 {
-                    p->Set(length-1-nWords-1, PolyWord::FromUnsigned(0)); /* Profile count. */
-                    p->Set(length-1-nWords-3, PolyWord::FromUnsigned(0)); /* Marker word. */
-                    p->Set(length-1-nWords-2, PolyWord::FromUnsigned((length-1-nWords-2)*sizeof(PolyWord)));
+                    wr->Set(length-1-nWords-1, PolyWord::FromUnsigned(0)); /* Profile count. */
+                    wr->Set(length-1-nWords-3, PolyWord::FromUnsigned(0)); /* Marker word. */
+                    wr->Set(length-1-nWords-2, PolyWord::FromUnsigned((length-1-nWords-2)*sizeof(PolyWord)));
                     /* Check - the code should end at the marker word. */
                     ASSERT(nBytes == ((length-1-nWords-3)*sizeof(PolyWord)));
                 }
                 /* Read in the constants. */
                 for (POLYUNSIGNED i = 0; i < nWords; i++)
                 {
-                    if (! ReadValue(p, i+length-nWords-1))
+                    if (! ReadValue(wr, i+length-nWords-1))
                         return false;
                     ch = getc(f);
                     ASSERT((ch == ',' && i < nWords-1) ||
@@ -766,7 +790,7 @@ bool PImport::DoImport()
                             fscanf(f, "%" POLYUFMT, &obj);
                             ASSERT(obj < nObjects);
                             PolyObject *addr = objMap[obj];
-                            byte *toPatch = (byte*)p + offset;
+                            byte *toPatch = (byte*)p + offset; // Pass the execute address here.
                             ScanAddress::SetConstantValue(toPatch, addr, (ScanRelocationKind)code);
                         }
                         else
@@ -782,7 +806,34 @@ bool PImport::DoImport()
                     }
                 }
                 // Clear the mutable bit
-                p->SetLengthWord(p->Length(), F_CODE_OBJ);
+                wr->SetLengthWord(p->Length(), F_CODE_OBJ);
+                break;
+            }
+
+        case 'K':
+            // Weak reference - must be zeroed
+            *(uintptr_t*)p = 0;
+            break;
+
+        case 'E':
+            // Entry point - address followed by string
+            {
+                // The length is the number of characters.
+                *(uintptr_t*)p = 0;
+                char* b = (char*)p + sizeof(uintptr_t);
+                POLYUNSIGNED nBytes;
+                fscanf(f, "%" POLYUFMT, &nBytes);
+                ch = getc(f); ASSERT(ch == '|');
+                for (POLYUNSIGNED i = 0; i < nBytes; i++)
+                {
+                    ch = getc(f);
+                    *b++ = ch;
+                }
+                *b = 0;
+                ch = getc(f);
+                ASSERT(ch == '\n');
+                bool loadEntryPt = setEntryPoint(p);
+                ASSERT(loadEntryPt);
                 break;
             }
 

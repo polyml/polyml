@@ -20317,6 +20317,25 @@ fi
 fi
 
 
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether the compiler supports __sync_add_and_fetch" >&5
+$as_echo_n "checking whether the compiler supports __sync_add_and_fetch... " >&6; }
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+int main(void) { long i=0; return __sync_fetch_and_add(&i, 0) + __sync_sub_and_fetch(&i, 0); }
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+$as_echo "#define HAVE_SYNC_FETCH 1" >>confdefs.h
+
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+
+
  if test "$polyexport" = pecoff; then
   EXPPECOFF_TRUE=
   EXPPECOFF_FALSE='#'
@@ -22325,35 +22344,6 @@ if test "x$with_portable" = "xno" ; then
     if test "x$polyarch" = "xinterpret" ; then
         as_fn_error $? "--enable-native-codegeneration was given but native code is not supported on this platform" "$LINENO" 5
     fi
-fi
-
-if test "x$polyarch" != "xinterpret" ; then
-# Check for .note.GNU-stack support, used for marking the stack as non-executable.
-# Only do this check if we're using the native X86 versions.  We don't need this if
-# we're using the interpreter and the assembler on other architectures may choke.
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether as supports .note.GNU-stack" >&5
-$as_echo_n "checking whether as supports .note.GNU-stack... " >&6; }
-    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-__asm__(".section .note.GNU-stack,\"\",@progbits");
-int
-main ()
-{
-
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_compile "$LINENO"; then :
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-$as_echo "yes" >&6; }
-$as_echo "#define HAVE_GNU_STACK 1" >>confdefs.h
-
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
 fi
 
 # Build 32-bit in 64-bits.  This is only allowed when building on native 64-bit X86.

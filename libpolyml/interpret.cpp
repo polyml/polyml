@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2015-18.
+    Further development Copyright David C.J. Matthews 2015-18, 2020.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -117,7 +117,8 @@ union flt { float fl; int32_t i; };
 
 class IntTaskData: public TaskData {
 public:
-    IntTaskData(): interrupt_requested(false), overflowPacket(0), dividePacket(0) {}
+    IntTaskData();
+    ~IntTaskData();
 
     virtual void GarbageCollect(ScanAddress *process);
     void ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack);
@@ -145,7 +146,7 @@ public:
     // Return the minimum space occupied by the stack.   Used when setting a limit.
     virtual uintptr_t currentStackSpace(void) const { return (this->stack->top - this->taskSp) + OVERFLOW_STACK_SIZE; }
 
-    virtual void addProfileCount(POLYUNSIGNED words) { add_count(this, taskPc, words); }
+    virtual void addProfileCount(POLYUNSIGNED words) { addSynchronousCount(taskPc, words); }
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
@@ -266,6 +267,14 @@ public:
     PolyObject      *overflowPacket, *dividePacket;
 };
 
+IntTaskData::IntTaskData() : interrupt_requested(false), overflowPacket(0), dividePacket(0)
+{
+}
+
+IntTaskData::~IntTaskData()
+{
+}
+
 // This lock is used to synchronise all atomic operations.
 // It is not needed in the X86 version because that can use a global
 // memory lock.
@@ -281,6 +290,9 @@ public:
     // Create a task data object.
     virtual TaskData *CreateTaskData(void) { return new IntTaskData(); }
     virtual Architectures MachineArchitecture(void) { return MA_Interpreted; }
+    // The interpreted version does not need the code to have execute
+    // permission because it's not actually executed.
+    virtual bool CodeMustBeExecutable(void) { return false; }
 };
 
 void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
@@ -354,18 +366,10 @@ void IntTaskData::SetException(poly_exn *exc)
 int IntTaskData::SwitchToPoly()
 /* (Re)-enter the Poly code from C. */
 {
-    // These are temporary values used where one instruction jumps to
-    // common code.
-    POLYUNSIGNED    tailCount;
-    PolyWord        *tailPtr;
-    POLYUNSIGNED    returnCount;
-    POLYUNSIGNED    storeWords;
-    POLYUNSIGNED    stackCheck;
     // Local values.  These are copies of member variables but are used so frequently that
     // it is important that access should be fast.
     POLYCODEPTR     pc;
     PolyWord        *sp;
-    double          dv;
 
     LoadInterpreterState(pc, sp);
 
@@ -379,18 +383,39 @@ int IntTaskData::SwitchToPoly()
 //        sprintf(buff, "addr = %p sp=%p instr=%02x *sp=%p\n", pc, sp, *pc, (*sp).AsStackAddr());
 //        OutputDebugStringA(buff);
 
+        // These are temporary values used where one instruction jumps to
+        // common code.
+        POLYUNSIGNED    tailCount;
+        PolyWord*       tailPtr;
+        POLYUNSIGNED    returnCount;
+        POLYUNSIGNED    storeWords;
+        POLYUNSIGNED    stackCheck;
+        PolyObject      *closure;
+        double          dv;
+
         switch(*pc++) {
 
-        case INSTR_enter_int: pc++; /* Skip the argument. */ break;
-
         case INSTR_jump8false:
-            {
-                PolyWord u = *sp++; /* Pop argument */
-                if (u == True) { pc += 1; break; }
-                /* else - false - take the jump */
-            }
+        {
+            PolyWord u = *sp++;
+            if (u == True) pc += 1;
+            else pc += *pc + 1;
+            break;
+        }
 
         case INSTR_jump8: pc += *pc + 1; break;
+
+        case INSTR_jump8True:
+        {
+            PolyWord u = *sp++;
+            if (u == False) pc += 1;
+            else pc += *pc + 1;
+            break;
+        }
+
+        case INSTR_jump16True:
+            // Invert the sense of the test and fall through.
+            *sp = ((*sp) == True) ? False : True;
 
         case INSTR_jump16false:
         {
@@ -402,24 +427,6 @@ int IntTaskData::SwitchToPoly()
         case INSTR_jump16:
             pc += arg1 + 2; break;
 
-        case INSTR_jump32False:
-        {
-            PolyWord u = *sp++; /* Pop argument */
-            if (u == True) { pc += 4; break; }
-            /* else - false - take the jump */
-        }
-
-        case INSTR_jump32:
-        {
-            // This is a 32-bit signed quantity on both 64-bits and 32-bits.
-            POLYSIGNED offset = pc[3] & 0x80 ? -1 : 0;
-            offset = (offset << 8) | pc[3];
-            offset = (offset << 8) | pc[2];
-            offset = (offset << 8) | pc[1];
-            offset = (offset << 8) | pc[0];
-            pc += offset + 4;
-            break;
-        }
 
         case INSTR_push_handler: /* Save the old handler value. */
             *(--sp) = PolyWord::FromStackAddr(this->hr); /* Push old handler */
@@ -437,15 +444,6 @@ int IntTaskData::SwitchToPoly()
             pc += 2;
             break;
 
-        case INSTR_setHandler32: /* Set up a handler */
-        {
-            POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
-            *(--sp) = PolyWord::FromCodePtr(pc + offset + 4); /* Address of handler */
-            this->hr = sp;
-            pc += 4;
-            break;
-        }
-
         case INSTR_deleteHandler: /* Delete handler retaining the result. */
         {
             PolyWord u = *sp++;
@@ -460,47 +458,33 @@ int IntTaskData::SwitchToPoly()
             {
                 // arg1 is the largest value that is in the range
                 POLYSIGNED u = UNTAGGED(*sp++); /* Get the value */
-                if (u > arg1 || u < 0) pc += (arg1+2)*2; /* Out of range */
+                if (u >= arg1 || u < 0) pc += 2 + arg1*2; /* Out of range */
                 else {
                     pc += 2;
                     pc += /* Index */pc[u*2]+pc[u*2 + 1]*256; }
                 break;
             }
 
-        case INSTR_case32:
-        {
-            // arg1 is the number of cases i.e. one more than the largest value
-            // This is followed by that number of 32-bit offsets.
-            // If the value is out of range the default case is immediately after the table.
-            POLYSIGNED u = UNTAGGED(*sp++); /* Get the value */
-            if (u >= arg1 || u < 0) pc += 2 + arg1 * 4; /* Out of range */
-            else
-            {
-                pc += 2;
-                pc += /* Index */pc[u*4] + (pc[u*4+1] << 8) + (pc[u*4+2] << 16) + (pc[u*4+3] << 24);
-            }
-            break;
-        }
 
-        case INSTR_tail_3_b:
+        case INSTR_tail_3_bLegacy:
            tailCount = 3;
            tailPtr = sp + tailCount;
            sp = tailPtr + *pc;
            goto TAIL_CALL;
 
-        case INSTR_tail_3_2:
+        case INSTR_tail_3_2Legacy:
            tailCount = 3;
            tailPtr = sp + tailCount;
            sp = tailPtr + 2;
            goto TAIL_CALL;
 
-        case INSTR_tail_3_3:
+        case INSTR_tail_3_3Legacy:
            tailCount = 3;
            tailPtr = sp + tailCount;
            sp = tailPtr + 3;
            goto TAIL_CALL;
 
-        case INSTR_tail_4_b:
+        case INSTR_tail_4_bLegacy:
            tailCount = 4;
            tailPtr = sp + tailCount;
            sp = tailPtr + *pc;
@@ -510,31 +494,37 @@ int IntTaskData::SwitchToPoly()
            tailCount = *pc;
            tailPtr = sp + tailCount;
            sp = tailPtr + pc[1];
-           goto TAIL_CALL;
-
-        case INSTR_tail:
-           /* Tail recursive call. */
-           /* Move items up the stack. */
-           /* There may be an overlap if the function we are calling
-              has more args than this one. */
-           tailCount = arg1;
-           tailPtr = sp + tailCount;
-           sp = tailPtr + arg2;
-           TAIL_CALL: /* For general case. */
+       TAIL_CALL: /* For general case. */
            if (tailCount < 2) Crash("Invalid argument\n");
            for (; tailCount > 0; tailCount--) *(--sp) = *(--tailPtr);
            pc = (*sp++).AsCodePtr(); /* Pop the original return address. */
-           /* And drop through. */
+           closure = (*sp++).AsObjPtr();
+           goto CALL_CLOSURE; /* And drop through. */
 
         case INSTR_call_closure: /* Closure call. */
         {
-            POLYCODEPTR newPc = (*sp).AsObjPtr()->Get(0).AsCodePtr();
-            sp--;
-            *sp = sp[1];      /* Move closure up. */
-            sp[1] = PolyWord::FromCodePtr(pc); /* Save return address. */
-            pc = newPc;    /* Get entry point. */
+            closure = (*sp++).AsObjPtr();
+            CALL_CLOSURE:
+            *(--sp) = PolyWord::FromCodePtr(pc); /* Save return address. */
+            *(--sp) = closure;
+            pc = closure->Get(0).AsCodePtr();    /* Get entry point. */
             this->taskPc = pc; // Update in case we're profiling
-            break;
+            // Check that there at least 128 words on the stack
+            stackCheck = 128;
+            goto STACKCHECK;
+        }
+
+        case INSTR_callConstAddr8:
+            closure = (*(PolyWord*)(pc + pc[0] + 1)).AsObjPtr(); pc += 1; goto CALL_CLOSURE;
+
+        case INSTR_callConstAddr16:
+            closure = (*(PolyWord*)(pc + arg1 + 2)).AsObjPtr(); pc += 2; goto CALL_CLOSURE;
+
+
+        case INSTR_callLocalB:
+        {
+            closure = (sp[*pc++]).AsObjPtr();
+            goto CALL_CLOSURE;
         }
 
         case INSTR_return_w:
@@ -554,12 +544,12 @@ int IntTaskData::SwitchToPoly()
             break;
 
         case INSTR_return_b: returnCount = *pc; goto RETURN;
-        case INSTR_return_0: returnCount = 0; goto RETURN;
+        case INSTR_return_0Legacy: returnCount = 0; goto RETURN;
         case INSTR_return_1: returnCount = 1; goto RETURN;
         case INSTR_return_2: returnCount = 2; goto RETURN;
         case INSTR_return_3: returnCount = 3; goto RETURN;
 
-        case INSTR_stackSize8:
+        case INSTR_stackSize8Legacy:
             stackCheck = *pc++;
             goto STACKCHECK;
 
@@ -587,8 +577,6 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_pad: /* No-op */ break;
-
         case INSTR_raise_ex:
         {
             RAISE_EXCEPTION:
@@ -600,38 +588,6 @@ int IntTaskData::SwitchToPoly()
                 exitThread(this);  // Default handler for thread.
             pc = (*sp++).AsCodePtr();
             this->hr = (*sp++).AsStackAddr();
-            break;
-        }
-
-        case INSTR_get_store_w:
-        // Get_store is now only used for mutually recursive closures.  It allocates mutable store
-        // initialised to zero.
-        {
-            storeWords = arg1;
-            pc += 2;
-            GET_STORE:
-            PolyObject *p = this->allocateMemory(storeWords, pc, sp);
-            if (p == 0) goto RAISE_EXCEPTION;
-            p->SetLengthWord(storeWords, F_MUTABLE_BIT);
-            for(; storeWords > 0; ) p->Set(--storeWords, TAGGED(0)); /* Must initialise store! */
-            *(--sp) = (PolyWord)p;
-            break;
-        }
-
-        case INSTR_get_store_2: storeWords = 2; goto GET_STORE;
-        case INSTR_get_store_3: storeWords = 3; goto GET_STORE;
-        case INSTR_get_store_4: storeWords = 4; goto GET_STORE;
-        case INSTR_get_store_b: storeWords = *pc; pc++; goto GET_STORE;
-
-        case INSTR_tuple_w:
-        {
-            storeWords = arg1; pc += 2;
-        TUPLE: /* Common code for tupling. */
-            PolyObject *p = this->allocateMemory(storeWords, pc, sp);
-            if (p == 0) goto RAISE_EXCEPTION; // Exception
-            p->SetLengthWord(storeWords, 0);
-            for(; storeWords > 0; ) p->Set(--storeWords, *sp++);
-            *(--sp) = (PolyWord)p;
             break;
         }
 
@@ -648,49 +604,11 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_indirect_w:
-            *sp = (*sp).AsObjPtr()->Get(arg1); pc += 2; break;
-
-        case INSTR_move_to_vec_w:
-            {
-                PolyWord u = *sp++;
-                (*sp).AsObjPtr()->Set(arg1, u);
-                pc += 2;
-                break;
-            }
-
-        case INSTR_set_stack_val_w:
-            {
-                PolyWord u = *sp++;
-                sp[arg1-1] = u;
-                pc += 2;
-                break;
-            }
-
-        case INSTR_reset_w: sp += arg1; pc += 2; break;
-
-        case INSTR_reset_r_w:
-            {
-                PolyWord u = *sp;
-                sp += arg1;
-                *sp = u;
-                pc += 2;
-                break;
-            }
-
         case INSTR_constAddr8:
             *(--sp) = *(PolyWord*)(pc + pc[0] + 1); pc += 1; break;
 
         case INSTR_constAddr16:
             *(--sp) = *(PolyWord*)(pc + arg1 + 2); pc += 2; break;
-
-        case INSTR_constAddr32:
-        {
-            POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
-            *(--sp) = *(PolyWord*)(pc + offset + 4);
-            pc += 4;
-            break;
-        }
 
         case INSTR_const_int_w: *(--sp) = TAGGED(arg1); pc += 2; break;
 
@@ -730,6 +648,18 @@ int IntTaskData::SwitchToPoly()
         case INSTR_indirect_b:
             *sp = (*sp).AsObjPtr()->Get(*pc); pc += 1; break;
 
+        case INSTR_indirectLocalBB:
+        { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(*pc++); break; }
+
+        case INSTR_indirectLocalB0:
+        { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(0); break; }
+
+        case INSTR_indirect0Local0:
+        { PolyWord u = sp[0]; *(--sp) = u.AsObjPtr()->Get(0); break; }
+
+        case INSTR_indirectLocalB1:
+        { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(1); break; }
+
         case INSTR_move_to_vec_b:
             { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(*pc, u); pc += 1; break; }
 
@@ -755,6 +685,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_local_9: { PolyWord u = sp[9]; *(--sp) = u; break; }
         case INSTR_local_10: { PolyWord u = sp[10]; *(--sp) = u; break; }
         case INSTR_local_11: { PolyWord u = sp[11]; *(--sp) = u; break; }
+        case INSTR_local_12: { PolyWord u = sp[12]; *(--sp) = u; break; }
 
         case INSTR_indirect_0:
             *sp = (*sp).AsObjPtr()->Get(0); break;
@@ -788,16 +719,16 @@ int IntTaskData::SwitchToPoly()
         case INSTR_reset_1: sp += 1; break;
         case INSTR_reset_2: sp += 2; break;
 
-        case INSTR_stack_container:
+        case INSTR_stack_containerB:
         {
-            POLYUNSIGNED words = arg1; pc += 2;
+            POLYUNSIGNED words = *pc++;
             while (words-- > 0) *(--sp) = Zero;
             sp--;
             *sp = PolyWord::FromStackAddr(sp + 1);
             break;
         }
 
-        case INSTR_tuple_container: /* Create a tuple from a container. */
+        case INSTR_tuple_containerLegacy: /* Create a tuple from a container. */
             {
                 storeWords = arg1;
                 PolyObject *t = this->allocateMemory(storeWords, pc, sp);
@@ -934,130 +865,6 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_callFastRtoR:
-            {
-                // Floating point call.  The call itself does not allocate but we
-                // need to put the result into a "box".
-                callRTSRtoR doCall = *(callRTSRtoR*)(*sp++).AsObjPtr();
-                PolyWord rtsArg1 = *sp++;
-                double argument = unboxDouble(rtsArg1);
-                // Allocate memory for the result.
-                double result = doCall(argument);
-                PolyObject *t = boxDouble(result, pc, sp);
-                if (t == 0) goto RAISE_EXCEPTION;
-                *(--sp) = (PolyWord)t;
-                break;
-            }
-
-        case INSTR_callFastRRtoR:
-        {
-            // Floating point call.
-            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
-            PolyWord rtsArg2 = *sp++;
-            PolyWord rtsArg1 = *sp++;
-            callRTSRRtoR doCall = (callRTSRRtoR)rtsCall.AsCodePtr();
-            double argument1 = unboxDouble(rtsArg1);
-            double argument2 = unboxDouble(rtsArg2);
-            // Allocate memory for the result.
-            double result = doCall(argument1, argument2);
-            PolyObject *t = boxDouble(result, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *(--sp) = t;
-            break;
-        }
-
-        case INSTR_callFastGtoR:
-            {
-                // Call that takes a POLYUNSIGNED argument and returns a double.
-                callRTSGtoR doCall = *(callRTSGtoR*)(*sp++).AsObjPtr();
-                intptr_t rtsArg1 = (*sp++).AsSigned();
-                // Allocate memory for the result.
-                double result = doCall(rtsArg1);
-                PolyObject *t = boxDouble(result, pc, sp);
-                if (t == 0) goto RAISE_EXCEPTION;
-                *(--sp) = (PolyWord)t;
-                break;
-            }
-
-        case INSTR_callFastRGtoR:
-        {
-            // Call that takes a POLYUNSIGNED argument and returns a double.
-            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
-            intptr_t rtsArg2 = (*sp++).AsSigned();
-            PolyWord rtsArg1 = *sp++;
-            callRTSRGtoR doCall = (callRTSRGtoR)rtsCall.AsCodePtr();
-            double argument1 = unboxDouble(rtsArg1);
-            // Allocate memory for the result.
-            double result = doCall(argument1, rtsArg2);
-            PolyObject *t = boxDouble(result, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *(--sp) = t;
-            break;
-        }
-
-        case INSTR_callFastFtoF:
-        {
-            // Floating point call.  The call itself does not allocate but we
-            // need to put the result into a "box".
-            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
-            PolyWord rtsArg1 = *sp++;
-            callRTSFtoF doCall = (callRTSFtoF)rtsCall.AsCodePtr();
-            float argument = unboxFloat(rtsArg1);
-            // Allocate memory for the result.
-            float result = doCall(argument);
-            PolyObject *t = boxFloat(result, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *(--sp) = t;
-            break;
-        }
-
-        case INSTR_callFastFFtoF:
-        {
-            // Floating point call.
-            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
-            PolyWord rtsArg2 = *sp++;
-            PolyWord rtsArg1 = *sp++;
-            callRTSFFtoF doCall = (callRTSFFtoF)rtsCall.AsCodePtr();
-            float argument1 = unboxFloat(rtsArg1);
-            float argument2 = unboxFloat(rtsArg2);
-            // Allocate memory for the result.
-            float result = doCall(argument1, argument2);
-            PolyObject *t = boxFloat(result, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *(--sp) = t;
-            break;
-        }
-
-        case INSTR_callFastGtoF:
-        {
-            // Call that takes a POLYUNSIGNED argument and returns a double.
-            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
-            intptr_t rtsArg1 = (*sp++).AsSigned();
-            callRTSGtoF doCall = (callRTSGtoF)rtsCall.AsCodePtr();
-            // Allocate memory for the result.
-            float result = doCall(rtsArg1);
-            PolyObject *t = boxFloat(result, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *(--sp) = t;
-            break;
-        }
-
-        case INSTR_callFastFGtoF:
-        {
-            // Call that takes a POLYUNSIGNED argument and returns a double.
-            PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
-            intptr_t rtsArg2 = (*sp++).AsSigned();
-            PolyWord rtsArg1 = *sp++;
-            callRTSFGtoF doCall = (callRTSFGtoF)rtsCall.AsCodePtr();
-            float argument1 = unboxFloat(rtsArg1);
-            // Allocate memory for the result.
-            float result = doCall(argument1, rtsArg2);
-            PolyObject *t = boxFloat(result, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *(--sp) = t;
-            break;
-        }
-
         case INSTR_notBoolean:
             *sp = ((*sp) == True) ? False : True; break;
 
@@ -1087,9 +894,9 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_stringLength: // Now replaced by loadUntagged
-            *sp = TAGGED(((PolyStringObject*)(*sp).AsObjPtr())->length);
-            break;
+//        case INSTR_stringLength: // Now replaced by loadUntagged
+//            *sp = TAGGED(((PolyStringObject*)(*sp).AsObjPtr())->length);
+//            break;
 
         case INSTR_atomicIncr:
         {
@@ -1111,115 +918,48 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_atomicReset:
-        {
-            // This is needed in the interpreted version otherwise there
-            // is a chance that we could set the value to zero while another
-            // thread is between getting the old value and setting it to the new value.
-            PLocker l(&mutexLock);
-            PolyObject *p = (*sp).AsObjPtr();
-            p->Set(0, TAGGED(1)); // Set this to released.
-            *sp = TAGGED(0); // Push the unit result
-            break;
-        }
-
-        case INSTR_longWToTagged:
-        {
-            // Extract the first word and return it as a tagged value.  This loses the top-bit
-            POLYUNSIGNED wx = (*sp).AsObjPtr()->Get(0).AsUnsigned();
-            *sp = TAGGED(wx);
-            break;
-        }
-
-        case INSTR_signedToLongW:
-        {
-            // Shift the tagged value to remove the tag and put it into the first word.
-            // The original sign bit is copied in the shift.
-            intptr_t wx = (*sp).UnTagged();
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(intptr_t*)t = wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_unsignedToLongW:
-        {
-            // As with the above except the value is treated as an unsigned
-            // value and the top bit is zero.
-            uintptr_t wx = (*sp).UnTaggedUnsigned();
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_realAbs:
-        {
-            PolyObject *t = this->boxDouble(fabs(unboxDouble(*sp)), pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_realNeg:
-        {
-            PolyObject *t = this->boxDouble(-(unboxDouble(*sp)), pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_floatAbs:
-        {
-            PolyObject *t = this->boxFloat(fabs(unboxFloat(*sp)), pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = t;
-            break;
-        }
-
-        case INSTR_floatNeg:
-        {
-            PolyObject *t = this->boxFloat(-(unboxFloat(*sp)), pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = t;
-            break;
-        }
-
-        case INSTR_fixedIntToReal:
-        {
-            POLYSIGNED u = UNTAGGED(*sp);
-            PolyObject *t = this->boxDouble((double)u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_fixedIntToFloat:
-        {
-            POLYSIGNED u = UNTAGGED(*sp);
-            PolyObject *t = this->boxFloat((float)u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = t;
-            break;
-        }
-
-        case INSTR_floatToReal:
-        {
-            float u = unboxFloat(*sp);
-            PolyObject *t = this->boxDouble((double)u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = t;
-            break;
-        }
-
         case INSTR_equalWord:
         {
             PolyWord u = *sp++;
             *sp = u == (*sp) ? True : False;
+            break;
+        }
+
+        case INSTR_jumpNEqLocal:
+        {
+            // Compare a local with a constant and jump if not equal.
+            PolyWord u = sp[pc[0]];
+            if (u.IsTagged() && u.UnTagged() == pc[1])
+                pc += 3;
+            else pc += pc[2] + 3;
+            break;
+        }
+
+        case INSTR_jumpNEqLocalInd:
+        {
+            // Test the union tag value in the first word of a tuple.
+            PolyWord u = sp[pc[0]];
+            u = u.AsObjPtr()->Get(0);
+            if (u.IsTagged() && u.UnTagged() == pc[1])
+                pc += 3;
+            else pc += pc[2] + 3;
+            break;
+        }
+
+        case INSTR_isTaggedLocalB:
+        {
+            PolyWord u = sp[*pc++];
+            *(--sp) = u.IsTagged() ? True : False;
+            break;
+        }
+
+        case INSTR_jumpTaggedLocal:
+        {
+            PolyWord u = sp[*pc];
+            // Jump if the value is tagged.
+            if (u.IsTagged())
+                pc += pc[1] + 2;
+            else pc += 2;
             break;
         }
 
@@ -1417,16 +1157,6 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_wordShiftRArith:
-        {
-            PolyWord u = *sp++;
-            // Strictly speaking, C does not require that this uses
-            // arithmetic shifting so we really ought to set the
-            // high-order bits explicitly.
-            *sp = TAGGED(UNTAGGED(*sp) >> UNTAGGED(u));
-            break;
-        }
-
         case INSTR_allocByteMem:
         {
             // Allocate byte segment.  This does not need to be initialised.
@@ -1436,412 +1166,6 @@ int IntTaskData::SwitchToPoly()
             if (t == 0) goto RAISE_EXCEPTION; // Exception
             t->SetLengthWord(length, (byte)flags);
             *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordEqual:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            *sp = wx == wy ? True : False;
-            break;
-        }
-
-        case INSTR_lgWordLess:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            *sp = (wy < wx) ? True : False;
-            break;
-        }
-
-        case INSTR_lgWordLessEq:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            *sp = (wy <= wx) ? True : False;
-            break;
-        }
-
-        case INSTR_lgWordGreater:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            *sp = (wy > wx) ? True : False;
-            break;
-        }
-
-        case INSTR_lgWordGreaterEq:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            *sp = (wy >= wx) ? True : False;
-            break;
-        }
-
-        case INSTR_lgWordAdd:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wy+wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordSub:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wy-wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordMult:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wy*wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordDiv:
-         {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wy/wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordMod:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wy%wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordAnd:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wy&wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordOr:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wy|wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordXor:
-        {
-            uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wy^wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordShiftLeft:
-        {
-            // The shift amount is a tagged word not a boxed large word
-            POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wy << wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordShiftRLog:
-        {
-            // The shift amount is a tagged word not a boxed large word
-            POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
-            uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = wy >> wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_lgWordShiftRArith:
-        {
-            // The shift amount is a tagged word not a boxed large word
-            POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
-            intptr_t wy = *(intptr_t*)((*sp).AsObjPtr());
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(intptr_t*)t = wy >> wx;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_realEqual:
-        {
-            double u = unboxDouble(*sp++);
-            *sp = u == unboxDouble(*sp) ? True: False;
-            break;
-        }
-
-        case INSTR_realLess:
-        {
-            double u = unboxDouble(*sp++);
-            *sp =  unboxDouble(*sp) < u ? True: False;
-            break;
-        }
-
-        case INSTR_realLessEq:
-        {
-            double u = unboxDouble(*sp++);
-            *sp =  unboxDouble(*sp) <= u ? True: False;
-            break;
-        }
-
-        case INSTR_realGreater:
-        {
-            double u = unboxDouble(*sp++);
-            *sp =  unboxDouble(*sp) > u ? True: False;
-            break;
-        }
-
-        case INSTR_realGreaterEq:
-        {
-            double u = unboxDouble(*sp++);
-            *sp =  unboxDouble(*sp) >= u ? True: False;
-            break;
-        }
-
-        case INSTR_realUnordered:
-        {
-            double u = unboxDouble(*sp++);
-            double v = unboxDouble(*sp);
-            *sp = (std::isnan(u) || std::isnan(v)) ? True : False;
-            break;
-        }
-
-        case INSTR_realAdd:
-        {
-            double u = unboxDouble(*sp++);
-            double v = unboxDouble(*sp);
-            PolyObject *t = this->boxDouble(v+u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_realSub:
-        {
-            double u = unboxDouble(*sp++);
-            double v = unboxDouble(*sp);
-            PolyObject *t = this->boxDouble(v-u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_realMult:
-        {
-            double u = unboxDouble(*sp++);
-            double v = unboxDouble(*sp);
-            PolyObject *t = this->boxDouble(v*u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_realDiv:
-        {
-            double u = unboxDouble(*sp++);
-            double v = unboxDouble(*sp);
-            PolyObject *t = this->boxDouble(v/u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_floatEqual:
-        {
-            float u = unboxFloat(*sp++);
-            *sp = u == unboxFloat(*sp) ? True : False;
-            break;
-        }
-
-        case INSTR_floatLess:
-        {
-            float u = unboxFloat(*sp++);
-            *sp = unboxFloat(*sp) < u ? True : False;
-            break;
-        }
-
-        case INSTR_floatLessEq:
-        {
-            float u = unboxFloat(*sp++);
-            *sp = unboxFloat(*sp) <= u ? True : False;
-            break;
-        }
-
-        case INSTR_floatGreater:
-        {
-            float u = unboxFloat(*sp++);
-            *sp = unboxFloat(*sp) > u ? True : False;
-            break;
-        }
-
-        case INSTR_floatGreaterEq:
-        {
-            float u = unboxFloat(*sp++);
-            *sp = unboxFloat(*sp) >= u ? True : False;
-            break;
-        }
-
-        case INSTR_floatUnordered:
-        {
-            float u = unboxFloat(*sp++);
-            float v = unboxFloat(*sp);
-            *sp = (std::isnan(u) || std::isnan(v)) ? True : False;
-            break;
-        }
-
-        case INSTR_floatAdd:
-        {
-            float u = unboxFloat(*sp++);
-            float v = unboxFloat(*sp);
-            PolyObject *t = this->boxFloat(v + u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = t;
-            break;
-        }
-
-        case INSTR_floatSub:
-        {
-            float u = unboxFloat(*sp++);
-            float v = unboxFloat(*sp);
-            PolyObject *t = this->boxFloat(v - u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = t;
-            break;
-        }
-
-        case INSTR_floatMult:
-        {
-            float u = unboxFloat(*sp++);
-            float v = unboxFloat(*sp);
-            PolyObject *t = this->boxFloat(v*u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = t;
-            break;
-        }
-
-        case INSTR_floatDiv:
-        {
-            float u = unboxFloat(*sp++);
-            float v = unboxFloat(*sp);
-            PolyObject *t = this->boxFloat(v / u, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = t;
-            break;
-        }
-
-        case INSTR_realToFloat:
-        {
-            // Convert a double to a float.  It's complicated because it depends on the rounding mode.
-            int rMode = *pc++;
-            int current = getrounding();
-            // If the rounding is 4 it means "use current rounding".
-            // Don't call unboxDouble until we're set the rounding.  GCC seems to convert it
-            // before the actual float cast.
-            if (rMode < 4) setrounding(rMode);
-            double d = unboxDouble(*sp);
-            float v = (float)d; // Convert with the appropriate rounding.
-            setrounding(current);
-            PolyObject *t = this->boxFloat(v, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = t;
-            break;
-        }
-
-        case INSTR_realToInt:
-            dv = unboxDouble(*sp);
-            goto realtoint;
-
-        case INSTR_floatToInt:
-            dv = (double)unboxFloat(*sp);
-            realtoint:
-        {
-            // Convert a double or a float to a tagged integer.
-            int rMode = *pc++;
-            // We mustn't try converting a value that will overflow the conversion
-            // but we need to be careful that we don't raise overflow incorrectly due
-            // to rounding.
-            if (dv > (double)(MAXTAGGED + MAXTAGGED / 2) ||
-                dv < -(double)(MAXTAGGED + MAXTAGGED / 2))
-            {
-                *(--sp) = overflowPacket;
-                goto RAISE_EXCEPTION;
-            }
-            POLYSIGNED p;
-            switch (rMode)
-            {
-            case POLY_ROUND_TONEAREST:
-                p = (POLYSIGNED)round(dv);
-                break;
-            case POLY_ROUND_DOWNWARD:
-                p = (POLYSIGNED)floor(dv);
-                break;
-            case POLY_ROUND_UPWARD:
-                p = (POLYSIGNED)ceil(dv);
-                break;
-            case POLY_ROUND_TOZERO:
-            default:
-                // Truncation is the default for C.
-                p = (POLYSIGNED)dv;
-            }
-
-            // Check that the value can be tagged.
-            if (p > MAXTAGGED || p < -MAXTAGGED - 1)
-            {
-                *(--sp) = overflowPacket;
-                goto RAISE_EXCEPTION;
-            }
-            *sp = TAGGED(p);
             break;
         }
 
@@ -1877,12 +1201,20 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_loadMLWord:
+        case INSTR_loadMLWordLegacy:
         {
             // The values on the stack are base, index and offset.
             POLYUNSIGNED offset = UNTAGGED(*sp++);
             POLYUNSIGNED index = UNTAGGED(*sp++);
             PolyObject *p = (PolyObject*)((*sp).AsCodePtr() + offset);
+            *sp = p->Get(index);
+            break;
+        }
+
+        case INSTR_loadMLWord:
+        {
+            POLYUNSIGNED index = UNTAGGED(*sp++);
+            PolyObject* p = (PolyObject*)((*sp).AsCodePtr());
             *sp = p->Get(index);
             break;
         }
@@ -1896,92 +1228,7 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_loadC8:
-        {
-            // This is similar to loadMLByte except that the base address is a boxed large-word.
-            // Also the index is SIGNED.
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr()));
-            *sp = TAGGED(p[index]); // Have to tag the result
-            break;
-        }
-
-        case INSTR_loadC16:
-        {
-            // This and the other loads are similar to loadMLWord with separate
-            // index and offset values.
-            POLYSIGNED offset = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr())) + offset;
-            POLYUNSIGNED r = ((uint16_t*)p)[index];
-            *sp = TAGGED(r);
-            break;
-        }
-
-        case INSTR_loadC32:
-        {
-            POLYSIGNED offset = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr())) + offset;
-            uintptr_t r = ((uint32_t*)p)[index];
-#ifdef IS64BITS
-            // This is tagged in 64-bit mode
-            *sp = TAGGED(r);
-#else
-            // But boxed in 32-bit mode.
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = r;
-            *sp = (PolyWord)t;
-#endif
-            break;
-        }
-
-#if (defined(IS64BITS))
-        case INSTR_loadC64:
-        {
-            POLYSIGNED offset = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr())) + offset;
-            uintptr_t r = ((uint64_t*)p)[index];
-            // This must be boxed.
-            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
-            *(uintptr_t*)t = r;
-            *sp = (PolyWord)t;
-            break;
-        }
-#endif
-
-        case INSTR_loadCFloat:
-        {
-            POLYSIGNED offset = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr())) + offset;
-            double r = ((float*)p)[index];
-            // This must be boxed.
-            PolyObject *t = this->boxDouble(r, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_loadCDouble:
-        {
-            POLYSIGNED offset = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr())) + offset;
-            double r = ((double*)p)[index];
-            // This must be boxed.
-            PolyObject *t = this->boxDouble(r, pc, sp);
-            if (t == 0) goto RAISE_EXCEPTION;
-            *sp = (PolyWord)t;
-            break;
-        }
-
-        case INSTR_loadUntagged:
+        case INSTR_loadUntaggedLegacy:
         {
             // The values on the stack are base, index and offset.
             POLYUNSIGNED offset = UNTAGGED(*sp++);
@@ -1991,12 +1238,30 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_storeMLWord: 
+        case INSTR_loadUntagged:
+        {
+            POLYUNSIGNED index = UNTAGGED(*sp++);
+            PolyObject* p = (PolyObject*)((*sp).AsCodePtr());
+            *sp = TAGGED(p->Get(index).AsUnsigned());
+            break;
+        }
+
+        case INSTR_storeMLWordLegacy: 
         {
             PolyWord toStore = *sp++;
             POLYUNSIGNED offset = UNTAGGED(*sp++);
             POLYUNSIGNED index = UNTAGGED(*sp++);
             PolyObject *p = (PolyObject*)((*sp).AsCodePtr() + offset);
+            p->Set(index, toStore);
+            *sp = Zero;
+            break;
+        }
+
+        case INSTR_storeMLWord:
+        {
+            PolyWord toStore = *sp++;
+            POLYUNSIGNED index = UNTAGGED(*sp++);
+            PolyObject* p = (PolyObject*)((*sp).AsCodePtr());
             p->Set(index, toStore);
             *sp = Zero;
             break;
@@ -2012,84 +1277,7 @@ int IntTaskData::SwitchToPoly()
             break; 
         }
 
-        case INSTR_storeC8: 
-        {
-            // Similar to storeMLByte except that the base address is a boxed large-word.
-            POLYUNSIGNED toStore = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr()));
-            p[index] = (byte)toStore;
-            *sp = Zero;
-            break; 
-        }
-
-        case INSTR_storeC16:
-        {
-            uint16_t toStore = (uint16_t)UNTAGGED(*sp++);
-            POLYSIGNED offset = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr())) + offset;
-            ((uint16_t*)p)[index] = toStore;
-            *sp = Zero;
-            break;
-        }
-
-        case INSTR_storeC32:
-        {
-#ifdef IS64BITS
-            // This is a tagged value in 64-bit mode.
-            uint32_t toStore = (uint32_t)UNTAGGED(*sp++);
-#else
-            // but a boxed value in 32-bit mode.
-            uint32_t toStore = (uint32_t)(*(uintptr_t*)((*sp++).AsObjPtr()));
-#endif
-            POLYSIGNED offset = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr())) + offset;
-            ((uint32_t*)p)[index] = toStore;
-            *sp = Zero;
-            break;
-        }
-
-#if (defined(IS64BITS))
-        case INSTR_storeC64:
-        {
-            // This is a boxed value.
-            uint64_t toStore = *(uintptr_t*)((*sp++).AsObjPtr());
-            POLYSIGNED offset = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr())) + offset;
-            ((uint64_t*)p)[index] = toStore;
-            *sp = Zero;
-            break;
-        }
-#endif
-
-        case INSTR_storeCFloat:
-        {
-            // This is a boxed value.
-            float toStore = (float)unboxDouble(*sp++);
-            POLYSIGNED offset = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr())) + offset;
-            ((float*)p)[index] = toStore;
-            *sp = Zero;
-            break;
-        }
-
-        case INSTR_storeCDouble:
-        {
-            // This is a boxed value.
-            double toStore = unboxDouble(*sp++);
-            POLYSIGNED offset = UNTAGGED(*sp++);
-            POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = *((byte **)((*sp).AsObjPtr())) + offset;
-            ((double*)p)[index] = toStore;
-            *sp = Zero;
-            break;
-        }
-
-        case INSTR_storeUntagged: 
+        case INSTR_storeUntaggedLegacy: 
         {
             PolyWord toStore = PolyWord::FromUnsigned(UNTAGGED_UNSIGNED(*sp++));
             POLYUNSIGNED offset = UNTAGGED(*sp++);
@@ -2100,7 +1288,17 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_blockMoveWord:
+        case INSTR_storeUntagged:
+        {
+            PolyWord toStore = PolyWord::FromUnsigned(UNTAGGED_UNSIGNED(*sp++));
+            POLYUNSIGNED index = UNTAGGED(*sp++);
+            PolyObject* p = (PolyObject*)((*sp).AsCodePtr());
+            p->Set(index, toStore);
+            *sp = Zero;
+            break;
+        }
+
+        case INSTR_blockMoveWordLegacy:
         {
             // The offsets are byte counts but the the indexes are in words.
             POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
@@ -2111,6 +1309,18 @@ int IntTaskData::SwitchToPoly()
             POLYUNSIGNED srcIndex = UNTAGGED_UNSIGNED(*sp++);
             PolyObject *src = (PolyObject*)((*sp).AsCodePtr() + srcOffset);
             for (POLYUNSIGNED u = 0; u < length; u++) dest->Set(destIndex+u, src->Get(srcIndex+u));
+            *sp = Zero;
+            break;
+        }
+
+        case INSTR_blockMoveWord:
+        {
+            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
+            POLYUNSIGNED destIndex = UNTAGGED_UNSIGNED(*sp++);
+            PolyObject* dest = (PolyObject*)((*sp++).AsCodePtr());
+            POLYUNSIGNED srcIndex = UNTAGGED_UNSIGNED(*sp++);
+            PolyObject* src = (PolyObject*)((*sp).AsCodePtr());
+            for (POLYUNSIGNED u = 0; u < length; u++) dest->Set(destIndex + u, src->Get(srcIndex + u));
             *sp = Zero;
             break;
         }
@@ -2147,6 +1357,974 @@ int IntTaskData::SwitchToPoly()
             POLYCODEPTR arg1Ptr = (*sp).AsCodePtr();
             int result = memcmp(arg1Ptr+arg1Offset, arg2Ptr+arg2Offset, length);
             *sp = result == 0 ? TAGGED(0) : result < 0 ? TAGGED(-1) : TAGGED(1);
+            break;
+        }
+
+        // Backwards compatibility.
+        // These are either used in the current compiler or compiled by it
+        // while building the basis library.
+        case EXTINSTR_stack_containerW:
+        case EXTINSTR_reset_r_w:
+        case EXTINSTR_tuple_w:
+        case EXTINSTR_unsignedToLongW:
+        case EXTINSTR_signedToLongW:
+        case EXTINSTR_longWToTagged:
+        case EXTINSTR_lgWordShiftLeft:
+        case EXTINSTR_fixedIntToReal:
+        case EXTINSTR_callFastRtoR:
+        case EXTINSTR_realMult:
+        case EXTINSTR_realDiv:
+        case EXTINSTR_realNeg:
+        case EXTINSTR_realAbs:
+        case EXTINSTR_realToFloat:
+        case EXTINSTR_floatDiv:
+        case EXTINSTR_floatNeg:
+        case EXTINSTR_floatAbs:
+        case EXTINSTR_callFastFtoF:
+        case EXTINSTR_floatMult:
+        case EXTINSTR_callFastGtoR:
+        case EXTINSTR_realUnordered:
+        case EXTINSTR_realEqual:
+        case EXTINSTR_lgWordEqual:
+        case EXTINSTR_lgWordOr:
+        case EXTINSTR_wordShiftRArith:
+        case EXTINSTR_lgWordLess:
+            // Back up and handle them as though they were escaped.
+            pc--;
+
+        case INSTR_escape:
+        {
+            switch (*pc++) {
+
+            case EXTINSTR_callFastRRtoR:
+            {
+                // Floating point call.
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg2 = *sp++;
+                PolyWord rtsArg1 = *sp++;
+                callRTSRRtoR doCall = (callRTSRRtoR)rtsCall.AsCodePtr();
+                double argument1 = unboxDouble(rtsArg1);
+                double argument2 = unboxDouble(rtsArg2);
+                // Allocate memory for the result.
+                double result = doCall(argument1, argument2);
+                PolyObject* t = boxDouble(result, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *(--sp) = t;
+                break;
+            }
+
+            case EXTINSTR_callFastRGtoR:
+            {
+                // Call that takes a POLYUNSIGNED argument and returns a double.
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                intptr_t rtsArg2 = (*sp++).AsSigned();
+                PolyWord rtsArg1 = *sp++;
+                callRTSRGtoR doCall = (callRTSRGtoR)rtsCall.AsCodePtr();
+                double argument1 = unboxDouble(rtsArg1);
+                // Allocate memory for the result.
+                double result = doCall(argument1, rtsArg2);
+                PolyObject* t = boxDouble(result, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *(--sp) = t;
+                break;
+            }
+
+            case EXTINSTR_callFastGtoR:
+            {
+                // Call that takes a POLYUNSIGNED argument and returns a double.
+                callRTSGtoR doCall = *(callRTSGtoR*)(*sp++).AsObjPtr();
+                intptr_t rtsArg1 = (*sp++).AsSigned();
+                // Allocate memory for the result.
+                double result = doCall(rtsArg1);
+                PolyObject* t = boxDouble(result, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *(--sp) = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_callFastFtoF:
+            {
+                // Floating point call.  The call itself does not allocate but we
+                // need to put the result into a "box".
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg1 = *sp++;
+                callRTSFtoF doCall = (callRTSFtoF)rtsCall.AsCodePtr();
+                float argument = unboxFloat(rtsArg1);
+                // Allocate memory for the result.
+                float result = doCall(argument);
+                PolyObject* t = boxFloat(result, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *(--sp) = t;
+                break;
+            }
+
+            case EXTINSTR_callFastFFtoF:
+            {
+                // Floating point call.
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg2 = *sp++;
+                PolyWord rtsArg1 = *sp++;
+                callRTSFFtoF doCall = (callRTSFFtoF)rtsCall.AsCodePtr();
+                float argument1 = unboxFloat(rtsArg1);
+                float argument2 = unboxFloat(rtsArg2);
+                // Allocate memory for the result.
+                float result = doCall(argument1, argument2);
+                PolyObject* t = boxFloat(result, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *(--sp) = t;
+                break;
+            }
+
+            case EXTINSTR_callFastGtoF:
+            {
+                // Call that takes a POLYUNSIGNED argument and returns a double.
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                intptr_t rtsArg1 = (*sp++).AsSigned();
+                callRTSGtoF doCall = (callRTSGtoF)rtsCall.AsCodePtr();
+                // Allocate memory for the result.
+                float result = doCall(rtsArg1);
+                PolyObject* t = boxFloat(result, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *(--sp) = t;
+                break;
+            }
+
+            case EXTINSTR_callFastFGtoF:
+            {
+                // Call that takes a POLYUNSIGNED argument and returns a double.
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                intptr_t rtsArg2 = (*sp++).AsSigned();
+                PolyWord rtsArg1 = *sp++;
+                callRTSFGtoF doCall = (callRTSFGtoF)rtsCall.AsCodePtr();
+                float argument1 = unboxFloat(rtsArg1);
+                // Allocate memory for the result.
+                float result = doCall(argument1, rtsArg2);
+                PolyObject* t = boxFloat(result, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *(--sp) = t;
+                break;
+            }
+
+            case EXTINSTR_callFastRtoR:
+            {
+                // Floating point call.  The call itself does not allocate but we
+                // need to put the result into a "box".
+                callRTSRtoR doCall = *(callRTSRtoR*)(*sp++).AsObjPtr();
+                PolyWord rtsArg1 = *sp++;
+                double argument = unboxDouble(rtsArg1);
+                // Allocate memory for the result.
+                double result = doCall(argument);
+                PolyObject* t = boxDouble(result, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *(--sp) = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_atomicReset:
+            {
+                // This is needed in the interpreted version otherwise there
+                // is a chance that we could set the value to zero while another
+                // thread is between getting the old value and setting it to the new value.
+                PLocker l(&mutexLock);
+                PolyObject* p = (*sp).AsObjPtr();
+                p->Set(0, TAGGED(1)); // Set this to released.
+                *sp = TAGGED(0); // Push the unit result
+                break;
+            }
+
+            case EXTINSTR_longWToTagged:
+            {
+                // Extract the first word and return it as a tagged value.  This loses the top-bit
+                POLYUNSIGNED wx = (*sp).AsObjPtr()->Get(0).AsUnsigned();
+                *sp = TAGGED(wx);
+                break;
+            }
+
+            case EXTINSTR_signedToLongW:
+            {
+                // Shift the tagged value to remove the tag and put it into the first word.
+                // The original sign bit is copied in the shift.
+                intptr_t wx = (*sp).UnTagged();
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(intptr_t*)t = wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_unsignedToLongW:
+            {
+                // As with the above except the value is treated as an unsigned
+                // value and the top bit is zero.
+                uintptr_t wx = (*sp).UnTaggedUnsigned();
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_realAbs:
+            {
+                PolyObject* t = this->boxDouble(fabs(unboxDouble(*sp)), pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_realNeg:
+            {
+                PolyObject* t = this->boxDouble(-(unboxDouble(*sp)), pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_floatAbs:
+            {
+                PolyObject* t = this->boxFloat(fabs(unboxFloat(*sp)), pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = t;
+                break;
+            }
+
+            case EXTINSTR_floatNeg:
+            {
+                PolyObject* t = this->boxFloat(-(unboxFloat(*sp)), pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = t;
+                break;
+            }
+
+            case EXTINSTR_fixedIntToReal:
+            {
+                POLYSIGNED u = UNTAGGED(*sp);
+                PolyObject* t = this->boxDouble((double)u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_fixedIntToFloat:
+            {
+                POLYSIGNED u = UNTAGGED(*sp);
+                PolyObject* t = this->boxFloat((float)u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = t;
+                break;
+            }
+
+            case EXTINSTR_floatToReal:
+            {
+                float u = unboxFloat(*sp);
+                PolyObject* t = this->boxDouble((double)u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = t;
+                break;
+            }
+
+            case EXTINSTR_wordShiftRArith:
+            {
+                PolyWord u = *sp++;
+                // Strictly speaking, C does not require that this uses
+                // arithmetic shifting so we really ought to set the
+                // high-order bits explicitly.
+                *sp = TAGGED(UNTAGGED(*sp) >> UNTAGGED(u));
+                break;
+            }
+
+
+            case EXTINSTR_lgWordEqual:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                *sp = wx == wy ? True : False;
+                break;
+            }
+
+            case EXTINSTR_lgWordLess:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                *sp = (wy < wx) ? True : False;
+                break;
+            }
+
+            case EXTINSTR_lgWordLessEq:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                *sp = (wy <= wx) ? True : False;
+                break;
+            }
+
+            case EXTINSTR_lgWordGreater:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                *sp = (wy > wx) ? True : False;
+                break;
+            }
+
+            case EXTINSTR_lgWordGreaterEq:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                *sp = (wy >= wx) ? True : False;
+                break;
+            }
+
+            case EXTINSTR_lgWordAdd:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wy + wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lgWordSub:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wy - wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lgWordMult:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wy * wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lgWordDiv:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wy / wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lgWordMod:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wy % wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lgWordAnd:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wy & wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lgWordOr:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wy | wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lgWordXor:
+            {
+                uintptr_t wx = *(uintptr_t*)((*sp++).AsObjPtr());
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wy ^ wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lgWordShiftLeft:
+            {
+                // The shift amount is a tagged word not a boxed large word
+                POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wy << wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lgWordShiftRLog:
+            {
+                // The shift amount is a tagged word not a boxed large word
+                POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
+                uintptr_t wy = *(uintptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = wy >> wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lgWordShiftRArith:
+            {
+                // The shift amount is a tagged word not a boxed large word
+                POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
+                intptr_t wy = *(intptr_t*)((*sp).AsObjPtr());
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(intptr_t*)t = wy >> wx;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_realEqual:
+            {
+                double u = unboxDouble(*sp++);
+                *sp = u == unboxDouble(*sp) ? True : False;
+                break;
+            }
+
+            case EXTINSTR_realLess:
+            {
+                double u = unboxDouble(*sp++);
+                *sp = unboxDouble(*sp) < u ? True : False;
+                break;
+            }
+
+            case EXTINSTR_realLessEq:
+            {
+                double u = unboxDouble(*sp++);
+                *sp = unboxDouble(*sp) <= u ? True : False;
+                break;
+            }
+
+            case EXTINSTR_realGreater:
+            {
+                double u = unboxDouble(*sp++);
+                *sp = unboxDouble(*sp) > u ? True : False;
+                break;
+            }
+
+            case EXTINSTR_realGreaterEq:
+            {
+                double u = unboxDouble(*sp++);
+                *sp = unboxDouble(*sp) >= u ? True : False;
+                break;
+            }
+
+            case EXTINSTR_realUnordered:
+            {
+                double u = unboxDouble(*sp++);
+                double v = unboxDouble(*sp);
+                *sp = (std::isnan(u) || std::isnan(v)) ? True : False;
+                break;
+            }
+
+            case EXTINSTR_realAdd:
+            {
+                double u = unboxDouble(*sp++);
+                double v = unboxDouble(*sp);
+                PolyObject* t = this->boxDouble(v + u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_realSub:
+            {
+                double u = unboxDouble(*sp++);
+                double v = unboxDouble(*sp);
+                PolyObject* t = this->boxDouble(v - u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_realMult:
+            {
+                double u = unboxDouble(*sp++);
+                double v = unboxDouble(*sp);
+                PolyObject* t = this->boxDouble(v * u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_realDiv:
+            {
+                double u = unboxDouble(*sp++);
+                double v = unboxDouble(*sp);
+                PolyObject* t = this->boxDouble(v / u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_floatEqual:
+            {
+                float u = unboxFloat(*sp++);
+                *sp = u == unboxFloat(*sp) ? True : False;
+                break;
+            }
+
+            case EXTINSTR_floatLess:
+            {
+                float u = unboxFloat(*sp++);
+                *sp = unboxFloat(*sp) < u ? True : False;
+                break;
+            }
+
+            case EXTINSTR_floatLessEq:
+            {
+                float u = unboxFloat(*sp++);
+                *sp = unboxFloat(*sp) <= u ? True : False;
+                break;
+            }
+
+            case EXTINSTR_floatGreater:
+            {
+                float u = unboxFloat(*sp++);
+                *sp = unboxFloat(*sp) > u ? True : False;
+                break;
+            }
+
+            case EXTINSTR_floatGreaterEq:
+            {
+                float u = unboxFloat(*sp++);
+                *sp = unboxFloat(*sp) >= u ? True : False;
+                break;
+            }
+
+            case EXTINSTR_floatUnordered:
+            {
+                float u = unboxFloat(*sp++);
+                float v = unboxFloat(*sp);
+                *sp = (std::isnan(u) || std::isnan(v)) ? True : False;
+                break;
+            }
+
+            case EXTINSTR_floatAdd:
+            {
+                float u = unboxFloat(*sp++);
+                float v = unboxFloat(*sp);
+                PolyObject* t = this->boxFloat(v + u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = t;
+                break;
+            }
+
+            case EXTINSTR_floatSub:
+            {
+                float u = unboxFloat(*sp++);
+                float v = unboxFloat(*sp);
+                PolyObject* t = this->boxFloat(v - u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = t;
+                break;
+            }
+
+            case EXTINSTR_floatMult:
+            {
+                float u = unboxFloat(*sp++);
+                float v = unboxFloat(*sp);
+                PolyObject* t = this->boxFloat(v * u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = t;
+                break;
+            }
+
+            case EXTINSTR_floatDiv:
+            {
+                float u = unboxFloat(*sp++);
+                float v = unboxFloat(*sp);
+                PolyObject* t = this->boxFloat(v / u, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = t;
+                break;
+            }
+
+            case EXTINSTR_realToFloat:
+            {
+                // Convert a double to a float.  It's complicated because it depends on the rounding mode.
+                int rMode = *pc++;
+                int current = getrounding();
+                // If the rounding is 4 it means "use current rounding".
+                // Don't call unboxDouble until we're set the rounding.  GCC seems to convert it
+                // before the actual float cast.
+                if (rMode < 4) setrounding(rMode);
+                double d = unboxDouble(*sp);
+                float v = (float)d; // Convert with the appropriate rounding.
+                setrounding(current);
+                PolyObject* t = this->boxFloat(v, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = t;
+                break;
+            }
+
+            case EXTINSTR_realToInt:
+                dv = unboxDouble(*sp);
+                goto realtoint;
+
+            case EXTINSTR_floatToInt:
+                dv = (double)unboxFloat(*sp);
+            realtoint:
+                {
+                    // Convert a double or a float to a tagged integer.
+                    int rMode = *pc++;
+                    // We mustn't try converting a value that will overflow the conversion
+                    // but we need to be careful that we don't raise overflow incorrectly due
+                    // to rounding.
+                    if (dv > (double)(MAXTAGGED + MAXTAGGED / 2) ||
+                        dv < -(double)(MAXTAGGED + MAXTAGGED / 2))
+                    {
+                        *(--sp) = overflowPacket;
+                        goto RAISE_EXCEPTION;
+                    }
+                    POLYSIGNED p;
+                    switch (rMode)
+                    {
+                    case POLY_ROUND_TONEAREST:
+                        p = (POLYSIGNED)round(dv);
+                        break;
+                    case POLY_ROUND_DOWNWARD:
+                        p = (POLYSIGNED)floor(dv);
+                        break;
+                    case POLY_ROUND_UPWARD:
+                        p = (POLYSIGNED)ceil(dv);
+                        break;
+                    case POLY_ROUND_TOZERO:
+                    default:
+                        // Truncation is the default for C.
+                        p = (POLYSIGNED)dv;
+                    }
+
+                    // Check that the value can be tagged.
+                    if (p > MAXTAGGED || p < -MAXTAGGED - 1)
+                    {
+                        *(--sp) = overflowPacket;
+                        goto RAISE_EXCEPTION;
+                    }
+                    *sp = TAGGED(p);
+                    break;
+                }
+
+            case EXTINSTR_loadC8:
+            {
+                // This is similar to loadMLByte except that the base address is a boxed large-word.
+                // Also the index is SIGNED.
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                *sp = TAGGED(p[index]); // Have to tag the result
+                break;
+            }
+
+            case EXTINSTR_loadC16:
+            {
+                // This and the other loads are similar to loadMLWord with separate
+                // index and offset values.
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                POLYUNSIGNED r = ((uint16_t*)p)[index];
+                *sp = TAGGED(r);
+                break;
+            }
+
+            case EXTINSTR_loadC32:
+            {
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                uintptr_t r = ((uint32_t*)p)[index];
+#ifdef IS64BITS
+                // This is tagged in 64-bit mode
+                * sp = TAGGED(r);
+#else
+                // But boxed in 32-bit mode.
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = r;
+                *sp = (PolyWord)t;
+#endif
+                break;
+            }
+
+#if (defined(IS64BITS))
+            case EXTINSTR_loadC64:
+            {
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                uintptr_t r = ((uint64_t*)p)[index];
+                // This must be boxed.
+                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = r;
+                *sp = (PolyWord)t;
+                break;
+            }
+#endif
+
+            case EXTINSTR_loadCFloat:
+            {
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                double r = ((float*)p)[index];
+                // This must be boxed.
+                PolyObject* t = this->boxDouble(r, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_loadCDouble:
+            {
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                double r = ((double*)p)[index];
+                // This must be boxed.
+                PolyObject* t = this->boxDouble(r, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_storeC8:
+            {
+                // Similar to storeMLByte except that the base address is a boxed large-word.
+                POLYUNSIGNED toStore = UNTAGGED(*sp++);
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                p[index] = (byte)toStore;
+                *sp = Zero;
+                break;
+            }
+
+            case EXTINSTR_storeC16:
+            {
+                uint16_t toStore = (uint16_t)UNTAGGED(*sp++);
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                ((uint16_t*)p)[index] = toStore;
+                *sp = Zero;
+                break;
+            }
+
+            case EXTINSTR_storeC32:
+            {
+#ifdef IS64BITS
+                // This is a tagged value in 64-bit mode.
+                uint32_t toStore = (uint32_t)UNTAGGED(*sp++);
+#else
+                // but a boxed value in 32-bit mode.
+                uint32_t toStore = (uint32_t)(*(uintptr_t*)((*sp++).AsObjPtr()));
+#endif
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                ((uint32_t*)p)[index] = toStore;
+                *sp = Zero;
+                break;
+        }
+
+#if (defined(IS64BITS))
+            case EXTINSTR_storeC64:
+            {
+                // This is a boxed value.
+                uint64_t toStore = *(uintptr_t*)((*sp++).AsObjPtr());
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                ((uint64_t*)p)[index] = toStore;
+                *sp = Zero;
+                break;
+            }
+#endif
+
+            case EXTINSTR_storeCFloat:
+            {
+                // This is a boxed value.
+                float toStore = (float)unboxDouble(*sp++);
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                ((float*)p)[index] = toStore;
+                *sp = Zero;
+                break;
+            }
+
+            case EXTINSTR_storeCDouble:
+            {
+                // This is a boxed value.
+                double toStore = unboxDouble(*sp++);
+                POLYSIGNED offset = UNTAGGED(*sp++);
+                POLYSIGNED index = UNTAGGED(*sp++);
+                POLYCODEPTR p = *((byte**)((*sp).AsObjPtr())) + offset;
+                ((double*)p)[index] = toStore;
+                *sp = Zero;
+                break;
+            }
+
+            case EXTINSTR_jump32True:
+                // Invert the sense of the test and fall through.
+                *sp = ((*sp) == True) ? False : True;
+
+            case EXTINSTR_jump32False:
+            {
+                PolyWord u = *sp++; /* Pop argument */
+                if (u == True) { pc += 4; break; }
+                /* else - false - take the jump */
+            }
+
+            case EXTINSTR_jump32:
+            {
+                // This is a 32-bit signed quantity on both 64-bits and 32-bits.
+                POLYSIGNED offset = pc[3] & 0x80 ? -1 : 0;
+                offset = (offset << 8) | pc[3];
+                offset = (offset << 8) | pc[2];
+                offset = (offset << 8) | pc[1];
+                offset = (offset << 8) | pc[0];
+                pc += offset + 4;
+                break;
+            }
+
+            case EXTINSTR_setHandler32: /* Set up a handler */
+            {
+                POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
+                *(--sp) = PolyWord::FromCodePtr(pc + offset + 4); /* Address of handler */
+                this->hr = sp;
+                pc += 4;
+                break;
+            }
+
+            case EXTINSTR_case32:
+            {
+                // arg1 is the number of cases i.e. one more than the largest value
+                // This is followed by that number of 32-bit offsets.
+                // If the value is out of range the default case is immediately after the table.
+                POLYSIGNED u = UNTAGGED(*sp++); /* Get the value */
+                if (u >= arg1 || u < 0) pc += 2 + arg1 * 4; /* Out of range */
+                else
+                {
+                    pc += 2;
+                    pc += /* Index */pc[u * 4] + (pc[u * 4 + 1] << 8) + (pc[u * 4 + 2] << 16) + (pc[u * 4 + 3] << 24);
+                }
+                break;
+            }
+
+            case EXTINSTR_tuple_w:
+            {
+                storeWords = arg1; pc += 2;
+            TUPLE: /* Common code for tupling. */
+                PolyObject* p = this->allocateMemory(storeWords, pc, sp);
+                if (p == 0) goto RAISE_EXCEPTION; // Exception
+                p->SetLengthWord(storeWords, 0);
+                for (; storeWords > 0; ) p->Set(--storeWords, *sp++);
+                *(--sp) = (PolyWord)p;
+                break;
+            }
+
+            case EXTINSTR_indirect_w:
+                *sp = (*sp).AsObjPtr()->Get(arg1); pc += 2; break;
+
+            case EXTINSTR_move_to_vec_w:
+            {
+                PolyWord u = *sp++;
+                (*sp).AsObjPtr()->Set(arg1, u);
+                pc += 2;
+                break;
+            }
+
+            case EXTINSTR_set_stack_val_w:
+            {
+                PolyWord u = *sp++;
+                sp[arg1 - 1] = u;
+                pc += 2;
+                break;
+            }
+
+            case EXTINSTR_reset_w: sp += arg1; pc += 2; break;
+
+            case EXTINSTR_reset_r_w:
+            {
+                PolyWord u = *sp;
+                sp += arg1;
+                *sp = u;
+                pc += 2;
+                break;
+            }
+
+            case EXTINSTR_stack_containerW:
+            {
+                POLYUNSIGNED words = arg1; pc += 2;
+                while (words-- > 0) *(--sp) = Zero;
+                sp--;
+                *sp = PolyWord::FromStackAddr(sp + 1);
+                break;
+            }
+
+            case EXTINSTR_constAddr32:
+            {
+                POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
+                *(--sp) = *(PolyWord*)(pc + offset + 4);
+                pc += 4;
+                break;
+            }
+
+            case EXTINSTR_tail:
+                /* Tail recursive call. */
+                /* Move items up the stack. */
+                /* There may be an overlap if the function we are calling
+                   has more args than this one. */
+                tailCount = arg1;
+                tailPtr = sp + tailCount;
+                sp = tailPtr + arg2;
+                goto TAIL_CALL;
+
+            default: Crash("Unknown extended instruction %x\n", pc[-1]);
+            }
+
             break;
         }
 
@@ -2318,7 +2496,7 @@ bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         MemSpace *space = gMem.SpaceForAddress(taskPc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            add_count(this, taskPc, 1);
+            incrementCountAsynch(taskPc);
             return true;
         }
     }

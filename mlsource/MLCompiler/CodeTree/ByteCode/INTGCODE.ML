@@ -82,8 +82,6 @@ struct
         
         (* Maximum size of the stack. *)
         val maxStack = ref 1
-        (* Exited - set to true if we have jumped out. *)
-        val exited = ref false;
 
         (* Push a value onto the stack. *)
         fun incsp () =
@@ -127,23 +125,22 @@ struct
      (* Save the stack pointer value here. We may want to reset the stack. *)
      val oldsp = !realstackptr;
 
-        (* Load the address and index value for byte operations.
-           For ML memory operations the base is the address of an ML heap cell
-           whereas for C operations it is a large-word box containing an
-           address in C memory.  That doesn't affect this code but the interpreter
-           has to deal with these differently. *)
-        fun genByteAddress{base, index, offset} =
+        (* Operations on ML memory always have the base as an ML address.
+           Word operations are always word aligned.  The higher level will
+           have extracted any constant offset and scaled it if necessary.
+           That's helpful for the X86 but not for the interpreter.  We
+           have to turn them back into indexes. *)
+        fun genMLAddress({base, index, offset}, scale) =
         (
             gencde (base, ToStack, NotEnd, loopAddr);
-            (* Because the index and offset are both byte counts we can just add
-               them if we need both. *)
-            case (index, offset) of
-                (NONE, offset) => (pushConst (toMachineWord offset, cvec); incsp())
-            |   (SOME indexVal, 0w0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
-            |   (SOME indexVal, offset) =>
+            offset mod scale = 0 orelse raise InternalError "genMLAddress";
+            case (index, offset div scale) of
+                (NONE, soffset) => (pushConst (toMachineWord soffset, cvec); incsp())
+            |   (SOME indexVal, 0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
+            |   (SOME indexVal, soffset) =>
                 (
                     gencde (indexVal, ToStack, NotEnd, loopAddr);
-                    pushConst (toMachineWord offset, cvec);
+                    pushConst (toMachineWord soffset, cvec);
                     genOpcode(opcode_wordAdd, cvec)
                 )
        )
@@ -151,7 +148,7 @@ struct
        (* Load the address, index value and offset for non-byte operations.
           Because the offset has already been scaled by the size of the operand
           we have to load the index and offset separately. *)
-       fun genNonByteAddress{base, index, offset} =
+       fun genCAddress{base, index, offset} =
         (
             gencde (base, ToStack, NotEnd, loopAddr);
             case index of
@@ -279,16 +276,14 @@ struct
                 else ();
             
                 (* Jump back to the start of the loop. *)
-                putBranchInstruction(Jump, startLoop, cvec)
+                putBranchInstruction(JumpBack, startLoop, cvec)
             end
   
         |   BICRaise exp =>
-            let
-                val () = gencde (exp, ToStack, NotEnd, loopAddr)
-                val () = genRaiseEx cvec;
-            in
-                exited := true
-            end
+            (
+                gencde (exp, ToStack, NotEnd, loopAddr);
+                genRaiseEx cvec
+            )
   
         |   BICHandle {exp, handler, exPacketAddr} =>
             let
@@ -316,7 +311,6 @@ struct
                    optimisation either. SPF 6/1/97
                 *)
                 val () = realstackptr := oldsp
-                val () = exited := false
                 val () = setLabel (handlerLabel, cvec)
                 (* If we were executing machine code we must re-enter the interpreter. *)
                 val () = genEnterIntCatch cvec
@@ -332,7 +326,7 @@ struct
                 (* Finally fix-up the jump around the handler *)
                 val () = setLabel (skipHandler, cvec)
             in
-                exited := false
+                ()
             end
   
         |   BICCase ({cases, test, default, firstIndex, ...}) =>
@@ -365,18 +359,15 @@ struct
                 end
                 val () = gencde (default, whereto, tailKind, loopAddr);
 
-                val () = exited := false;
-                
                 fun genCases(SOME body, label) =
                     (
                         (* First exit from the previous case or the default if
                            this is the first. *)
-                        if !exited then () else putBranchInstruction(Jump, exitJump, cvec);
+                        putBranchInstruction(Jump, exitJump, cvec);
                         (* Remove the result - the last case will leave it. *)
                         case whereto of ToStack => decsp () | NoResult => ();
                         (* Fix up the jump to come here. *)
                         setLabel(label, cvec);
-                        exited := false;
                         gencde (body, whereto, tailKind, loopAddr)
                     )
                 |   genCases(NONE, _) = ()
@@ -386,7 +377,7 @@ struct
                 (* Finally set the exit jump to come here. *)
                 val () = setLabel (exitJump, cvec)
             in
-                exited := false
+                ()
             end
   
         |   BICTuple recList =>
@@ -458,10 +449,8 @@ struct
 
         |   BICTagTest { test, tag, ... } =>
             (
-                (* Convert this into a simple equality function. *)
                 gencde (test, ToStack, NotEnd, loopAddr);
-                pushConst (toMachineWord tag, cvec);
-                genOpcode(opcode_equalWord, cvec)
+                genEqualWordConst(tag, cvec)
             )
 
         |   BICGetThreadId =>
@@ -477,7 +466,7 @@ struct
             in
                 case oper of
                     NotBoolean => genOpcode(opcode_notBoolean, cvec)
-                |   IsTaggedValue => genOpcode(opcode_isTagged, cvec)
+                |   IsTaggedValue => genIsTagged cvec
                 |   MemoryCellLength => genOpcode(opcode_cellLength, cvec)
                 |   MemoryCellFlags => genOpcode(opcode_cellFlags, cvec)
                 |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
@@ -498,6 +487,20 @@ struct
                 |   RealToInt (PrecDouble, rnding) => genRealToInt(rnding, cvec)
                 |   RealToInt (PrecSingle, rnding) => genFloatToInt(rnding, cvec)
                 |   TouchAddress => resetStack(1, false, cvec) (* Discard this *)
+            end
+
+        |   BICBinary { oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1, arg2=BICConstnt(w, _) } =>
+            let
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+            in
+                genEqualWordConst(toShort w, cvec)
+            end
+
+        |   BICBinary { oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1=BICConstnt(w, _), arg2 } =>
+            let
+                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+            in
+                genEqualWordConst(toShort w, cvec)
             end
 
         |   BICBinary { oper, arg1, arg2 } =>
@@ -628,45 +631,41 @@ struct
                    The offset is a byte count so has to be divided by the word size but
                    it should always be an exact multiple. *)
                 gencde (base, ToStack, NotEnd, loopAddr);
-                offset mod wordSize = 0w0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
-                genIndirect (Word.toInt(offset div wordSize), cvec)
+                offset mod Word.toInt wordSize = 0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
+                genIndirect (offset div Word.toInt wordSize, cvec)
             )
 
-        |   BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}} =>
-            let
-                (* Variable index. *)
-                val () = gencde (base, ToStack, NotEnd, loopAddr)
-                val () = gencde (indexVal, ToStack, NotEnd, loopAddr)
-                val () = (pushConst (toMachineWord offset, cvec); incsp())
-            in
+        |   BICLoadOperation { kind=LoadStoreMLWord _, address} =>
+            (
+                genMLAddress(address, Word.toInt wordSize);
                 genOpcode(opcode_loadMLWord, cvec);
-                decsp(); decsp()
-            end
+                decsp()
+            )
 
         |   BICLoadOperation { kind=LoadStoreMLByte _, address} =>
             (
-                genByteAddress address;
+                genMLAddress(address, 1);
                 genOpcode(opcode_loadMLByte, cvec);
                 decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreC8, address} =>
             (
-                genByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadC8, cvec);
-                decsp()
+                decsp(); decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreC16, address} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadC16, cvec);
                 decsp(); decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreC32, address} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadC32, cvec);
                 decsp(); decsp()
             )
@@ -674,63 +673,43 @@ struct
         |   BICLoadOperation { kind=LoadStoreC64, address} =>
             (
                 wordSize = 0w8 orelse raise InternalError "LoadStoreC64 but not 64-bit mode";
-                genNonByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadC64, cvec);
                 decsp(); decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreCFloat, address} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadCFloat, cvec);
                 decsp(); decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreCDouble, address} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 genOpcode(opcode_loadCDouble, cvec);
                 decsp(); decsp()
             )
 
         |   BICLoadOperation { kind=LoadStoreUntaggedUnsigned, address} =>
             (
-                genNonByteAddress address;
+                genMLAddress(address, Word.toInt wordSize);
                 genOpcode(opcode_loadUntagged, cvec);
+                decsp()
+            )
+
+        |   BICStoreOperation { kind=LoadStoreMLWord _, address, value } =>
+            (
+                genMLAddress(address, Word.toInt wordSize);
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storeMLWord, cvec);
                 decsp(); decsp()
             )
 
-        |   BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}, value } =>
-            let
-                (* No index.  We could almost use move_to_vec here except that it leaves
-                   the destination address on the stack instead of replacing it with "unit". *)
-                val () = gencde (base, ToStack, NotEnd, loopAddr)
-                val () = pushConst (toMachineWord 0, cvec)
-                val () = incsp()
-                val () = pushConst (toMachineWord offset, cvec)
-                val () = incsp()
-                val () = gencde (value, ToStack, NotEnd, loopAddr)
-            in
-                genOpcode(opcode_storeMLWord, cvec);
-                decsp(); decsp(); decsp()
-            end
-
-        |   BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}, value } =>
-            let
-                (* Variable index *)
-                val () = gencde (base, ToStack, NotEnd, loopAddr)
-                val () = gencde (indexVal, ToStack, NotEnd, loopAddr)
-                val () = pushConst (toMachineWord offset, cvec)
-                val () = incsp()
-                val () = gencde (value, ToStack, NotEnd, loopAddr)
-            in
-                genOpcode(opcode_storeMLWord, cvec);
-                decsp(); decsp(); decsp()
-            end
-
         |   BICStoreOperation { kind=LoadStoreMLByte _, address, value } =>
             (
-                genByteAddress address;
+                genMLAddress(address, 1);
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeMLByte, cvec);
                 decsp(); decsp()
@@ -738,15 +717,15 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreC8, address, value} =>
             (
-                genByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeC8, cvec);
-                decsp(); decsp()
+                decsp(); decsp(); decsp()
             )
 
         |   BICStoreOperation { kind=LoadStoreC16, address, value} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeC16, cvec);
                 decsp(); decsp(); decsp()
@@ -754,7 +733,7 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreC32, address, value} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeC32, cvec);
                 decsp(); decsp(); decsp()
@@ -762,7 +741,7 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreC64, address, value} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeC64, cvec);
                 decsp(); decsp(); decsp()
@@ -770,7 +749,7 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreCFloat, address, value} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeCFloat, cvec);
                 decsp(); decsp(); decsp()
@@ -778,7 +757,7 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreCDouble, address, value} =>
             (
-                genNonByteAddress address;
+                genCAddress address;
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeCDouble, cvec);
                 decsp(); decsp(); decsp()
@@ -786,16 +765,16 @@ struct
 
         |   BICStoreOperation { kind=LoadStoreUntaggedUnsigned, address, value} =>
             (
-                genNonByteAddress address;
+                genMLAddress(address, Word.toInt wordSize);
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeUntagged, cvec);
-                decsp(); decsp(); decsp()
+                decsp(); decsp()
             )
 
         |   BICBlockOperation { kind=BlockOpMove{isByteMove=true}, sourceLeft, destRight, length } =>
             (
-                genByteAddress sourceLeft;
-                genByteAddress destRight;
+                genMLAddress(sourceLeft, 1);
+                genMLAddress(destRight, 1);
                 gencde (length, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_blockMoveByte, cvec);
                 decsp(); decsp(); decsp(); decsp()
@@ -803,17 +782,17 @@ struct
 
         |   BICBlockOperation { kind=BlockOpMove{isByteMove=false}, sourceLeft, destRight, length } =>
             (
-                genNonByteAddress sourceLeft;
-                genNonByteAddress destRight;
+                genMLAddress(sourceLeft, Word.toInt wordSize);
+                genMLAddress(destRight, Word.toInt wordSize);
                 gencde (length, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_blockMoveWord, cvec);
-                decsp(); decsp(); decsp(); decsp(); decsp(); decsp()
+                decsp(); decsp(); decsp(); decsp()
             )
 
         |   BICBlockOperation { kind=BlockOpEqualByte, sourceLeft, destRight, length } =>
             (
-                genByteAddress sourceLeft;
-                genByteAddress destRight;
+                genMLAddress(sourceLeft, 1);
+                genMLAddress(destRight, 1);
                 gencde (length, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_blockEqualByte, cvec);
                 decsp(); decsp(); decsp(); decsp()
@@ -821,8 +800,8 @@ struct
 
         |   BICBlockOperation { kind=BlockOpCompareByte, sourceLeft, destRight, length } =>
             (
-                genByteAddress sourceLeft;
-                genByteAddress destRight;
+                genMLAddress(sourceLeft, 1);
+                genMLAddress(destRight, 1);
                 gencde (length, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_blockCompareByte, cvec);
                 decsp(); decsp(); decsp(); decsp()
@@ -860,7 +839,7 @@ struct
                 val adjustment = !realstackptr - newsp
 
                 val () =
-                    if !exited orelse adjustment = 0
+                    if adjustment = 0
                     then ()
                     else if adjustment < ~1
                     then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
@@ -877,7 +856,7 @@ struct
                 val adjustment = !realstackptr - oldsp
 
                 val () =
-                    if !exited orelse adjustment = 0
+                    if adjustment = 0
                     then ()
                     else if adjustment < 0
                     then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
@@ -972,29 +951,54 @@ struct
 
     and genCond (testCode, thenCode, elseCode, whereto, tailKind, loopAddr) =
     let
-        val () = gencde (testCode, ToStack, NotEnd, loopAddr)
+        (* andalso and orelse are turned into conditionals with constants.
+           Convert this into a series of tests. *)
+        fun genTest(BICConstnt(w, _), jumpOn, targetLabel) =
+            let
+                val cVal = case toShort w of 0w0 => false | 0w1 => true | _ => raise InternalError "genTest"
+            in
+                if cVal = jumpOn
+                then putBranchInstruction (Jump, targetLabel, cvec)
+                else ()
+            end
+
+        |   genTest(BICUnary { oper=BuiltIns.NotBoolean, arg1 }, jumpOn, targetLabel) =
+                genTest(arg1, not jumpOn, targetLabel)
+
+        |   genTest(BICCond (testPart, thenPart, elsePart), jumpOn, targetLabel) =
+            let
+                val toElse = createLabel() and exitJump = createLabel()
+            in
+                genTest(testPart, false, toElse);
+                genTest(thenPart, jumpOn, targetLabel);
+                putBranchInstruction (Jump, exitJump, cvec);
+                setLabel (toElse, cvec);
+                genTest(elsePart, jumpOn, targetLabel);
+                setLabel (exitJump, cvec)
+            end
+
+        |   genTest(testCode, jumpOn, targetLabel) =
+            (
+                gencde (testCode, ToStack, NotEnd, loopAddr);
+                putBranchInstruction(if jumpOn then JumpTrue else JumpFalse, targetLabel, cvec);
+                decsp() (* conditional branch pops a value. *)
+            )
+
         val toElse = createLabel() and exitJump = createLabel()
-        val () = putBranchInstruction(JumpFalse, toElse, cvec)
-        val () = decsp()
+        val () = genTest(testCode, false, toElse)
         val () = gencde (thenCode, whereto, tailKind, loopAddr)
         (* Get rid of the result from the stack. If there is a result then the
         ``else-part'' will push it. *)
         val () = case whereto of ToStack => decsp () | NoResult => ()
 
-        val thenExited = !exited
-
-        val () = if thenExited then () else putBranchInstruction (Jump, exitJump, cvec)
+        val () = putBranchInstruction (Jump, exitJump, cvec)
 
         (* start of "else part" *)
         val () = setLabel (toElse, cvec)
-        val () = exited := false
         val () = gencde (elseCode, whereto, tailKind, loopAddr)
-
-        val elseExited = !exited
-
         val () = setLabel (exitJump, cvec)
     in
-        exited := (thenExited andalso elseExited) (* Only exited if both sides did. *)
+        ()
     end (* genCond *)
 
     and genEval (eval, tailKind : tail) : unit =
@@ -1030,7 +1034,7 @@ struct
                         (* It's "-1" not "-2", because we didn't bump the realstackptr
                            when we pushed the return address. SPF 3/1/97 *)
                 in
-                    exited := true
+                    ()
                 end
 
         (* Have to guarantee that the expression to return the function
@@ -1083,7 +1087,7 @@ struct
       caller wants a result (e.g. the identity function). *)
     val () = gencde (pt, ToStack, EndOfProc, NONE)
 
-    val () = if !exited then () else genReturn (numOfArgs, cvec);
+    val () = genReturn (numOfArgs, cvec);
     in (* body of codegen *)
        (* Having code-generated the body of the function, it is copied
           into a new data segment. *)
