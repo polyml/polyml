@@ -2849,10 +2849,10 @@ struct
         (* Backwards compatibility.  Closures were never garbage collected so to
            ensure that any closure created by these we put them in a list
            and touch them on exit. *)
-        val closures = LibrarySupport.noOverwriteRef nil
+        val closures = LibrarySupport.volatileListRef ()
         val closureLock = Thread.Mutex.mutex ()
         fun touchAll () = List.app (fn f => f()) (! closures)
-        val () = LibrarySupport.addOnEntry(fn () => LibrarySupport.addAtExit touchAll) *)
+        val () = LibrarySupport.addOnEntry(fn () => LibrarySupport.addAtExit touchAll)
         fun buildClosure buildCallback (f, a, b) =
         let
             val c = buildCallback(a, b) f
