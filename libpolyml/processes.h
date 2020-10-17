@@ -2,7 +2,7 @@
     Title:      Lightweight process library
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007-8, 2012, 2015, 2017, 2019 David C.J. Matthews
+    Copyright (c) 2007-8, 2012, 2015, 2017, 2019, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -119,10 +119,10 @@ public:
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg) = 0;
     virtual void SetException(poly_exn *exc) = 0;
 
-    // The scheduler needs versions of atomic increment and atomic reset that
+    // The scheduler needs versions of atomic decrement and atomic reset that
     // work in exactly the same way as the code-generated versions (if any).
     // Atomic decrement isn't needed since it only ever releases a mutex.
-    virtual Handle AtomicIncrement(Handle mutexp) = 0;
+    virtual Handle AtomicDecrement(Handle mutexp) = 0;
     // Reset a mutex to one.  This needs to be atomic with respect to the
     // atomic increment and decrement instructions.
     virtual void AtomicReset(Handle mutexp) = 0;
@@ -341,9 +341,6 @@ public:
     // woken up by the signal detection thread.
     virtual bool WaitForSignal(TaskData *taskData, PLock *sigLock) = 0;
     virtual void SignalArrived(void) = 0;
-
-    // After a Unix fork we only have a single thread in the new process.
-    virtual void SetSingleThreaded(void) = 0;
 
     virtual poly_exn* GetInterrupt(void) = 0;
 };

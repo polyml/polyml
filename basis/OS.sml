@@ -1115,29 +1115,48 @@ struct
         val system: string -> status = RunCall.rtsCallFull1 "PolyProcessEnvSystem"
         
         local
-            val locker = Thread.Mutex.mutex()
-            val exitFns: (unit -> unit) list ref = ref []
-            (* exit - supply result code and close down all threads. *)
+            val atExitList = LibrarySupport.volatileListRef()
+            val atExitMutex = Thread.Mutex.mutex()
+            val exitResult = LibrarySupport.volatileOptionRef() (* Set to the exit result. *)
+            
             val reallyExit: int -> unit = RunCall.rtsCallFull1 "PolyFinish"
-            (* The definition says that if any of the exit functions call
-               "exit" then they do not return but subsequent atExit functions
-               are executed.  A call to exit takes a single function off the
-               atExit list so any exit calls within an atExit "take over"
-               the exit process. *)
-            fun nextExit n  =
-                case !exitFns of
-                    [] => (fn () => reallyExit n)
-                |   (hd :: tl) => (exitFns := tl; hd)
         in
+            (* Register a function to be run at exit.  If we are already exiting
+               this has no effect. *)
+            val atExit = ThreadLib.protect atExitMutex
+                (fn f => case exitResult of ref NONE => atExitList := f :: !atExitList | _ => ())
+            
+            (* Exit.  Run the atExit functions and then exit with the result code.
+               There are a few complications.  If a second thread calls exit after
+               the first one it mustn't start the exit process again.  If one of the
+               atExit functions calls exit recursively it is defined to never return.
+               We just need to pick up the next atExit function and carry on. *)
             fun exit (n: int) =
-            (
-                ThreadLib.protect locker nextExit n () handle _ => ();
-                exit n
-            )
-
-            (* Add an exit function to the list.  Functions are executed in reverse
-               order of registration. *)
-            val atExit = ThreadLib.protect locker (fn f => exitFns := f :: !exitFns)
+            let
+                open Thread
+                open Mutex Thread
+                (* Turn off further interrupts *)
+                val () = setAttributes[InterruptState InterruptDefer]
+                val () = lock atExitMutex
+                val () =
+                    case !exitResult of
+                        SOME threadId =>
+                            if threadId = self()
+                            then ()
+                            else (unlock atExitMutex; Thread.exit())
+                    |   NONE => exitResult := SOME(self())
+                val () = unlock atExitMutex
+                (* This is now the only thread here.
+                   Take an item off the list and update the list with the
+                   tail in case we recursively call "exit". *)
+                fun runExit () =
+                    case !atExitList of
+                        [] => reallyExit n
+                    |   (hd::tl) => (atExitList := tl; hd() handle _ => (); runExit())
+            in
+                runExit();
+                raise Match (* Never reached but gives the 'a result. *)
+            end
         end
 
         (* Terminate without running the atExit list or flushing the

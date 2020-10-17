@@ -1,7 +1,7 @@
 /*
     Title:      Operating Specific functions: Unix version.
 
-    Copyright (c) 2000-8, 2016-17, 2019 David C. J. Matthews
+    Copyright (c) 2000-8, 2016-17, 2019, 2020 David C. J. Matthews
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
 
@@ -411,12 +411,9 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             pid_t pid = fork();
             if (pid < 0) raise_syscall(taskData, "fork failed", errno);
+            // Have to clean up the RTS in the child.  It's single threaded among other things.
             if (pid == 0)
-            {
-                // In the child process the only thread is this one.
-                processes->SetSingleThreaded();
-                GCSetSingleThreadAfterFork();
-            }
+                ForkChildModules();
             return Make_fixed_precision(taskData, pid);
         }
 

@@ -153,9 +153,7 @@ struct
            itself.  For the moment we don't do that.
            The free list is the list of chunks ordered by increasing
            address.  That allows us to merge adjacent free blocks. *)
-        val freeList: {address: SysWord.word, size: word} list ref = LibrarySupport.noOverwriteRef nil
-        (* Clear it once on entry. *)
-        val () = LibrarySupport.addOnEntry (fn _ => freeList := nil)
+        val freeList: {address: SysWord.word, size: word} list ref = LibrarySupport.volatileListRef()
 
         (* Assume that if we align to the maximum of these we're all right. *)
         val maxAlign = Word.max(#align saDouble, Word.max(LibrarySupport.sysWordSize(*#align saPointer*), 0w8(*#align saSint64*)))

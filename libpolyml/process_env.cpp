@@ -144,14 +144,6 @@ extern "C" {
 extern char **environ;
 #endif
 
-/* Functions registered with atExit are added to this list. */
-static PolyWord at_exit_list = TAGGED(0);
-/* Once "exit" is called this flag is set and no further
-   calls to atExit are allowed. */
-static bool exiting = false;
-
-static PLock atExitLock; // Thread lock for above.
-
 #ifdef __CYGWIN__
 // Cygwin requires spawnvp to avoid the significant overhead of vfork
 // but it doesn't seem to be thread-safe.  Run it on the main thread
@@ -180,34 +172,8 @@ static Handle process_env_dispatch_c(TaskData *taskData, Handle args, Handle cod
     switch (c)
     {
     case 1: /* Return the argument list. */
+        // This is used in the pre-built compilers.
         return convert_string_list(taskData, userOptions.user_arg_count, userOptions.user_arg_strings);
-
-    case 18: /* Register function to run at exit. */
-        {
-            PLocker locker(&atExitLock);
-            if (! exiting)
-            {
-                PolyObject *cell = alloc(taskData, 2);
-                cell->Set(0, at_exit_list);
-                cell->Set(1, args->Word());
-                at_exit_list = cell;
-            }
-            return Make_fixed_precision(taskData, 0);
-        }
-
-    case 19: /* Return the next function in the atExit list and set the
-                "exiting" flag to true. */
-        {
-            PLocker locker(&atExitLock);
-            Handle res;
-            exiting = true; /* Ignore further calls to atExit. */
-            if (at_exit_list == TAGGED(0))
-                raise_syscall(taskData, "List is empty", 0);
-            PolyObject *cell = at_exit_list.AsObjPtr();
-            res = SAVE(cell->Get(1));
-            at_exit_list = cell->Get(0);
-            return res;
-        }
 
     default:
         {
@@ -701,23 +667,3 @@ struct _entrypts processEnvEPT[] =
 
     { NULL, NULL} // End of list.
 };
-
-class ProcessEnvModule: public RtsModule
-{
-public:
-    void GarbageCollect(ScanAddress *process);
-};
-
-// Declare this.  It will be automatically added to the table.
-static ProcessEnvModule processModule;
-
-void ProcessEnvModule::GarbageCollect(ScanAddress *process)
-/* Ensures that all the objects are retained and their addresses updated. */
-{
-    if (at_exit_list.IsDataPtr())
-    {
-        PolyObject *obj = at_exit_list.AsObjPtr();
-        process->ScanRuntimeAddress(&obj, ScanAddress::STRENGTH_STRONG);
-        at_exit_list = obj;
-    }
-}

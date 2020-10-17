@@ -137,8 +137,8 @@ public:
 
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
-    virtual Handle AtomicIncrement(Handle mutexp);
-    // Set a mutex to one.
+    virtual Handle AtomicDecrement(Handle mutexp);
+    // Set a mutex to zero.
     virtual void AtomicReset(Handle mutexp);
 
     // Return the minimum space occupied by the stack.   Used when setting a limit.
@@ -1555,7 +1555,7 @@ int IntTaskData::SwitchToPoly()
                 // thread is between getting the old value and setting it to the new value.
                 PLocker l(&mutexLock);
                 PolyObject* p = (*sp).AsObjPtr();
-                p->Set(0, TAGGED(1)); // Set this to released.
+                p->Set(0, TAGGED(0)); // Set this to released.
                 *sp = TAGGED(0); // Push the unit result
                 break;
             }
@@ -2505,12 +2505,12 @@ void IntTaskData::EnterPolyCode()
 // code to do it.  These are defaults that are used where there is no
 // machine-specific code.
 
-static Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
+static Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp)
 {
     PLocker l(&mutexLock);
     PolyObject *p = DEREFHANDLE(mutexp);
     // A thread can only call this once so the values will be short
-    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))+1);
+    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
     p->Set(0, newValue);
     return taskData->saveVec.push(newValue);
 }
@@ -2521,13 +2521,13 @@ static Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
 static Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
 {
     PLocker l(&mutexLock);
-    DEREFHANDLE(mutexp)->Set(0, TAGGED(1)); // Set this to released.
+    DEREFHANDLE(mutexp)->Set(0, TAGGED(0)); // Set this to released.
     return taskData->saveVec.push(TAGGED(0)); // Push the unit result
 }
 
-Handle IntTaskData::AtomicIncrement(Handle mutexp)
+Handle IntTaskData::AtomicDecrement(Handle mutexp)
 {
-    return ProcessAtomicIncrement(this, mutexp);
+    return ProcessAtomicDecrement(this, mutexp);
 }
 
 void IntTaskData::AtomicReset(Handle mutexp)

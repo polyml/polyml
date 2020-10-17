@@ -427,7 +427,19 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 
     writeAble->SetLengthWord(lengthWord); // copy length word
 
-    memcpy(writeAble, obj, words * sizeof(PolyWord));
+    if (hierarchy == 0 /* Exporting object module */ && isNoOverwrite && isMutableObj && !isByteObj)
+    {
+        // These are not exported. They are used for special values e.g. mutexes
+        // that should be set to 0/nil/NONE at start-up.
+        // Weak+No-overwrite byte objects are used for entry points and volatiles
+        // in the foreign-function interface and have to be treated specially.
+
+        // Note: this must not be done when exporting a saved state because the
+        // copied version is used as the local data for the rest of the session.
+        for (POLYUNSIGNED i = 0; i < words; i++)
+            writeAble->Set(i, TAGGED(0));
+    }
+    else memcpy(writeAble, obj, words * sizeof(PolyWord));
 
     if (space->spaceType == ST_PERMANENT && !space->isMutable && ((PermanentMemSpace*)space)->hierarchy == 0)
     {
