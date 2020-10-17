@@ -405,7 +405,7 @@ void Processes::MutexBlock(TaskData *taskData, Handle hMutex)
     // simply waiting because otherwise the unlocking thread could have
     // set the variable back to 0 (unlocked) and signalled any waiters
     // before we actually got to wait.  
-    if (UNTAGGED(DEREFHANDLE(hMutex)->Get(0)) > 0)
+    if (UNTAGGED(DEREFHANDLE(hMutex)->Get(0)) > 1)
     {
         // Set this so we can see what we're blocked on.
         taskData->blockMutex = DEREFHANDLE(hMutex);
