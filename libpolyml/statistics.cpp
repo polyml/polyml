@@ -134,9 +134,9 @@
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetUserStatsCount();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(PolyObject *threadId, PolyWord index, PolyWord value);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(PolyObject *threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(PolyObject *threadId, PolyWord procId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(FirstArgument threadId, PolyWord index, PolyWord value);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(FirstArgument threadId, PolyWord procId);
 }
 
 #define STATS_SPACE 4096 // Enough for all the statistics
@@ -812,7 +812,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetUserStatsCount()
     return TAGGED(N_PS_USER).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(PolyObject *threadId, PolyWord indexVal, PolyWord valueVal)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(FirstArgument threadId, PolyWord indexVal, PolyWord valueVal)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -834,7 +834,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(PolyObject *threadId, PolyWord i
     return TAGGED(0).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(PolyObject *threadId)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(FirstArgument threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -854,7 +854,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(PolyObject *threadId)
     else return result->Word().AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(PolyObject *threadId, PolyWord procId)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(FirstArgument threadId, PolyWord procId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
