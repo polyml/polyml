@@ -67,8 +67,12 @@ sig
     val syserrorToWord: syserror -> LargeWord.word
     val syserrorFromWord : LargeWord.word -> syserror
     exception SysErr of (string * syserror option)
+    
     val onEntryList: (unit->unit) list ref (* This is picked up by InitialPolyML *)
     val addOnEntry: (unit->unit) -> unit
+    val atExitList: (unit->unit) list ref (* This is picked up by OS.Process *)
+    val addAtExit: (unit->unit) -> unit
+    
     val volatileListRef: unit -> 'a list ref
     val volatileWordRef: unit -> word ref
     val volatileOptionRef: unit -> 'a option ref
@@ -220,5 +224,10 @@ struct
     (* The onEntry list.  PolyML.onEntry adds a mutex here. *)
     val onEntryList: (unit->unit) list ref = ref[]
     fun addOnEntry f = onEntryList := f :: !onEntryList
+    
+    (* The atExit list - This is a volatile since it should be reset
+       at the start, unlike the onEntry list. *)
+    val atExitList = volatileListRef()
+    fun addAtExit f = atExitList := f :: !atExitList
 end;
 

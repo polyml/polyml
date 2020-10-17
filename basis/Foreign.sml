@@ -2852,7 +2852,7 @@ struct
         val closures = LibrarySupport.noOverwriteRef nil
         val closureLock = Thread.Mutex.mutex ()
         fun touchAll () = List.app (fn f => f()) (! closures)
-(*        val () = PolyML.onEntry(fn () => OS.Process.atExit touchAll) *)
+        val () = LibrarySupport.addOnEntry(fn () => LibrarySupport.addAtExit touchAll) *)
         fun buildClosure buildCallback (f, a, b) =
         let
             val c = buildCallback(a, b) f
