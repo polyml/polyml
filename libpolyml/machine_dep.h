@@ -55,11 +55,7 @@ public:
         { ScanConstantsWithinCode(addr, addr, addr->Length(), process); } // Common case
 
     virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes) {}
-    virtual Architectures MachineArchitecture(void) = 0; 
-
-    // The interpreted version does not need the code to have execute
-    // permission because it's not actually executed.
-    virtual bool CodeMustBeExecutable(void) { return true; }
+    virtual Architectures MachineArchitecture(void) = 0;
 };
 
 extern MachineDependent *machineDependent;

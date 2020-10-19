@@ -56,6 +56,15 @@ PolyWord *globalHeapBase, *globalCodeBase;
 // heap resizing policy option requested on command line
 unsigned heapsizingOption = 0;
 
+// If we are building for the interpreted version we don't need or want the
+// code to be executable.
+static const enum OSMem::_MemUsage executableCodeWhereNecessary =
+#ifdef CODEISNOTEXECUTABLE
+    OSMem::UsageData;
+#else
+    OSMem::UsageExecutableCode;
+#endif
+
 MemSpace::MemSpace(OSMem *alloc): SpaceTree(true)
 {
     spaceType = ST_PERMANENT;
@@ -160,14 +169,14 @@ bool MemMgr::Initialise()
 
     // Allocate a 2G area for the code.
     void *codeBase;
-    if (!osCodeAlloc.Initialise(machineDependent->CodeMustBeExecutable() ? OSMem::UsageExecutableCode : OSMem::UsageData,
+    if (!osCodeAlloc.Initialise(executableCodeWhereNecessary,
             (size_t)2 * 1024 * 1024 * 1024, &codeBase))
         return false;
     globalCodeBase = (PolyWord*)codeBase;
     return true;
 #else
     return osHeapAlloc.Initialise(OSMem::UsageData) && osStackAlloc.Initialise(OSMem::UsageStack) &&
-        osCodeAlloc.Initialise(machineDependent->CodeMustBeExecutable() ? OSMem::UsageExecutableCode : OSMem::UsageData);
+        osCodeAlloc.Initialise(executableCodeWhereNecessary);
 #endif
 }
 

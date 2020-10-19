@@ -243,12 +243,15 @@ void PECOFFExport::exportStore(void)
             strcpy((char*)sections[i].Name, ".data");
             sections[i].Characteristics |= IMAGE_SCN_MEM_WRITE | IMAGE_SCN_CNT_INITIALIZED_DATA;
         }
+#ifndef CODEISNOTEXECUTABLE
+        // Not if we're building the interpreted version.
         else if (memTable[i].mtFlags & MTF_EXECUTABLE)
         {
             // Immutable data areas are marked as executable.
             strcpy((char*)sections[i].Name, ".text");
             sections[i].Characteristics |= IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_CNT_CODE;
         }
+#endif
         else
         {
             // Immutable data areas are marked as executable.

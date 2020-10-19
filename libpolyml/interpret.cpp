@@ -288,9 +288,6 @@ public:
     // Create a task data object.
     virtual TaskData *CreateTaskData(void) { return new IntTaskData(); }
     virtual Architectures MachineArchitecture(void) { return MA_Interpreted; }
-    // The interpreted version does not need the code to have execute
-    // permission because it's not actually executed.
-    virtual bool CodeMustBeExecutable(void) { return false; }
 };
 
 void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)

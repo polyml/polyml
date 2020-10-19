@@ -2,8 +2,8 @@ AUTOMAKE_OPTIONS=foreign
 
 moduledir = @moduledir@
 
-AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall -DMODULEDIR=\"$(moduledir)\"
-AM_CFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall -fno-strict-aliasing
+AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) $(NOEXECFLAG) $(GIT_VERSION) -Wall -DMODULEDIR=\"$(moduledir)\"
+AM_CFLAGS = $(CFLAGS) $(OSFLAG) $(NOEXECFLAG) $(GIT_VERSION) -Wall -fno-strict-aliasing
 AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 

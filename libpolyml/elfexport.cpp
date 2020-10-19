@@ -571,6 +571,8 @@ void ELFExport::exportStore(void)
             sections[s].sh_flags = SHF_WRITE | SHF_ALLOC;
             sections[s+1].sh_name = dataRelName; // Name of relocation section
         }
+#ifndef CODEISNOTEXECUTABLE
+        // Not if we're building the interpreted version.
         else if (memTable[i].mtFlags & MTF_EXECUTABLE)
         {
             // Code areas are marked as executable.
@@ -578,6 +580,7 @@ void ELFExport::exportStore(void)
             sections[s].sh_flags = SHF_ALLOC | SHF_EXECINSTR;
             sections[s+1].sh_name = textRelName; // Name of relocation section
         }
+#endif
         else
         {
             // Non-code immutable areas

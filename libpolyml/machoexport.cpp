@@ -2,7 +2,7 @@
     Title:     Write out a database as a Mach object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011-2, 2016-18 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-2, 2016-18, 2020 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -335,12 +335,15 @@ void MachoExport::exportStore(void)
             sprintf(sections[i].segname, "__DATA");
             sections[i].flags = S_ATTR_LOC_RELOC | S_REGULAR;
         }
+#ifndef CODEISNOTEXECUTABLE
+        // Not if we're building the interpreted version.
         else if (memTable[i].mtFlags & MTF_EXECUTABLE)
         {
             sprintf(sections[i].sectname, "__text");
             sprintf(sections[i].segname, "__TEXT");
             sections[i].flags = S_ATTR_LOC_RELOC | S_ATTR_SOME_INSTRUCTIONS | S_REGULAR;
         }
+#endif
         else
         {
             sprintf(sections[i].sectname, "__const");

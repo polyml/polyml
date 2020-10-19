@@ -536,6 +536,13 @@ AM_CONDITIONAL([WINDOWSGUI], [test x$poly_windows_enablegui = xtrue])
 
 AM_CONDITIONAL([MACOSLDOPTS], [test "$poly_need_macosopt" = yes ])
 
+# Set this flag if we're building for the interpreter.
+if test "$polyarch" = interpret; then
+    AC_SUBST([NOEXECFLAG], [-DCODEISNOTEXECUTABLE])
+else
+    AC_SUBST([NOEXECFLAG], [])
+fi
+
 # If we're building only the static version of libpolyml
 # then polyc and polyml.pc have to include the dependent libraries.
 dependentlibs=""
