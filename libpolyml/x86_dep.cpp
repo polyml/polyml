@@ -578,7 +578,10 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     StackSpace *space = this->stack;
     StackObject * newStack = space->stack();
     uintptr_t stack_size     = space->spaceSize() * sizeof(PolyWord) / sizeof(stackItem);
-    uintptr_t topStack = stack_size;
+    // Set the top of the stack inside the stack rather than at the end.  This wastes
+    // a word but if sp is actually at the end OpenBSD segfaults because it isn't in
+    // a MAP_STACK area.
+    uintptr_t topStack = stack_size - sizeof(uintptr_t);
     stackItem *stackTop = (stackItem*)newStack + topStack;
     assemblyInterface.stackPtr = stackTop;
     assemblyInterface.stackLimit = (stackItem*)space->bottom + OVERFLOW_STACK_SIZE;
