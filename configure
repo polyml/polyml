@@ -642,7 +642,6 @@ polyc_CFLAGS
 GIT_VERSION
 gitinstalled
 dependentlibs
-NOEXECFLAG
 MACOSLDOPTS_FALSE
 MACOSLDOPTS_TRUE
 WINDOWSGUI_FALSE
@@ -22305,10 +22304,11 @@ else
 fi
 
 
-# Set this flag if we're building for the interpreter.
-if test "$polyarch" = interpret; then
-    NOEXECFLAG=-DCODEISNOTEXECUTABLE
-
+# If we're building only the static version of libpolyml
+# then polyc and polyml.pc have to include the dependent libraries.
+dependentlibs=""
+if test "${enable_shared}" != yes; then
+    dependentlibs=${LIBS}
 fi
 
 dependentlibs="$dependentlibs"
