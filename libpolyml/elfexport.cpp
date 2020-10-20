@@ -552,10 +552,14 @@ void ELFExport::exportStore(void)
 
     unsigned long dataName = makeStringTableEntry(".data", &sectionStrings);
     unsigned long dataRelName = makeStringTableEntry(USE_RELA ? ".rela.data" : ".rel.data", &sectionStrings);
+#ifndef CODEISNOTEXECUTABLE
     unsigned long textName = makeStringTableEntry(".text", &sectionStrings);
     unsigned long textRelName = makeStringTableEntry(USE_RELA ? ".rela.text" : ".rel.text", &sectionStrings);
-    unsigned long rodataName = makeStringTableEntry(".rodata", &sectionStrings);
-    unsigned long rodataRelName = makeStringTableEntry(USE_RELA ? ".rela.rodata" : ".rel.rodata", &sectionStrings);
+#endif
+    // The Linux linker does not like relocations in the .rodata section and marks the executable
+    // as containing text relocations.  Putting the data in a .data.rel.ro section seems to work.
+    unsigned long rodataName = makeStringTableEntry(".data.rel.ro", &sectionStrings);
+    unsigned long rodataRelName = makeStringTableEntry(USE_RELA ? ".rela.data.ro" : ".rel.data.ro", &sectionStrings);
 
     // Main data sections.  Each one has a relocation section.
     for (i=0; i < memTableEntries; i++)
