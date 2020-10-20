@@ -541,13 +541,6 @@ if test "$polyarch" = interpret; then
     AC_SUBST([NOEXECFLAG], [-DCODEISNOTEXECUTABLE])
 fi
 
-# If we're building only the static version of libpolyml
-# then polyc and polyml.pc have to include the dependent libraries.
-dependentlibs=""
-if test "${enable_shared}" != yes; then
-    dependentlibs=${LIBS}
-fi
-
 AC_SUBST([dependentlibs], ["$dependentlibs"])
 
 # Test whether this is a git directory and set the version if possible

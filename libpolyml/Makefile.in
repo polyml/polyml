@@ -93,6 +93,8 @@ host_triplet = @host@
 
 # Force all references to be defined to build the DLL.
 @NO_UNDEFINED_TRUE@am__append_1 = -no-undefined
+@ARCHI386_FALSE@@ARCHINTERPRET_TRUE@am__append_2 = -DCODEISNOTEXECUTABLE
+@ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@am__append_3 = -DCODEISNOTEXECUTABLE
 subdir = libpolyml
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
@@ -451,8 +453,9 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign
-AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) $(NOEXECFLAG) $(GIT_VERSION) -Wall -DMODULEDIR=\"$(moduledir)\"
-AM_CFLAGS = $(CFLAGS) $(OSFLAG) $(NOEXECFLAG) $(GIT_VERSION) -Wall -fno-strict-aliasing
+AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall \
+	-DMODULEDIR=\"$(moduledir)\" $(am__append_2) $(am__append_3)
+AM_CFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall -fno-strict-aliasing
 AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 lib_LTLIBRARIES = libpolyml.la

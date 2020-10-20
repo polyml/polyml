@@ -2,8 +2,8 @@ AUTOMAKE_OPTIONS=foreign
 
 moduledir = @moduledir@
 
-AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) $(NOEXECFLAG) $(GIT_VERSION) -Wall -DMODULEDIR=\"$(moduledir)\"
-AM_CFLAGS = $(CFLAGS) $(OSFLAG) $(NOEXECFLAG) $(GIT_VERSION) -Wall -fno-strict-aliasing
+AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall -DMODULEDIR=\"$(moduledir)\"
+AM_CFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall -fno-strict-aliasing
 AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 
@@ -21,9 +21,11 @@ ARCHSOURCE = x86_dep.cpp x86assembly_gas32.S
 else
 if ARCHINTERPRET
 ARCHSOURCE = interpret.cpp
+AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
 else
 if ARCHINTERPRET64
 ARCHSOURCE = interpret.cpp
+AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
 else
 if ARCHX86_64
 ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
