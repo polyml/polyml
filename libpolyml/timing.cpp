@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development copyright David C.J. Matthews 2011,12,16,19
+    Further development copyright David C.J. Matthews 2011,12,16,19-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -60,14 +60,6 @@
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
-#endif
-
-#ifdef HAVE_SYS_STAT_H
-#include <sys/stat.h>
-#endif
-
-#ifdef HAVE_SYS_SIGNAL_H
-#include <sys/signal.h>
 #endif
 
 #ifdef HAVE_ERRNO_H
