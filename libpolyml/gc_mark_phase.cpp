@@ -516,7 +516,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             // Mark it now because we will process it.
             PolyObject* writeAble = secondWord;
             if (secondWord->IsCodeObject())
-                writeAble = gMem.SpaceForAddress(secondWord)->writeAble(secondWord);
+                writeAble = gMem.SpaceForObjectAddress(secondWord)->writeAble(secondWord);
             writeAble->SetLengthWord(secondWord->LengthWord() | _OBJ_GC_MARK);
             // Put this on the stack.  If this is a list node we will be
             // pushing the tail.
@@ -528,7 +528,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             // Mark it and process it immediately.
             PolyObject* writeAble = firstWord;
             if (firstWord->IsCodeObject())
-                writeAble = gMem.SpaceForAddress(firstWord)->writeAble(firstWord);
+                writeAble = gMem.SpaceForObjectAddress(firstWord)->writeAble(firstWord);
             writeAble->SetLengthWord(firstWord->LengthWord() | _OBJ_GC_MARK);
             obj = firstWord;
         }

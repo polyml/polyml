@@ -476,7 +476,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         gMem.SpaceForAddress(obj)->writeAble(obj)->SetLengthWord(ll);
     }
 #else
-        gMem.SpaceForAddress(obj)->writeAble(obj)->SetForwardingPtr(newObj);
+        gMem.SpaceForObjectAddress(obj)->writeAble(obj)->SetForwardingPtr(newObj);
 #endif
     else obj->SetForwardingPtr(newObj); // Put forwarding pointer in old object.
 
@@ -543,7 +543,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
         POLYUNSIGNED length = GetObjLength(forwardedTo);
         MemSpace *space = gMem.SpaceForAddress((PolyWord*)forwardedTo-1);
         if (space->spaceType == ST_EXPORT)
-            gMem.SpaceForAddress(obj)->writeAble(obj)->SetLengthWord(length);
+            gMem.SpaceForObjectAddress(obj)->writeAble(obj)->SetLengthWord(length);
         return length;
     }
     else {

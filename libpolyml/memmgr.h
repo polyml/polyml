@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006-8, 2010-12, 2016-18 David C. J. Matthews
+    Copyright (c) 2006-8, 2010-12, 2016-18, 2020 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -318,6 +318,16 @@ public:
         return 0;
     }
 
+    // SpaceForAddress must NOT be applied to a PolyObject *.  That's because
+    // it works nearly all the time except when a zero-sized object is placed
+    // at the end of page.  Then the base address will be the start of the
+    // next page.
+    void SpaceForAddress(PolyObject *pt) {}
+
+    // Use this instead.
+    MemSpace* SpaceForObjectAddress(PolyObject* pt)
+        { return SpaceForAddress(((PolyWord*)pt) - 1); }
+
     // Find a local address for a space.
     // N.B.  The argument should generally be the length word.  See
     // comment on SpaceForAddress.
@@ -328,6 +338,13 @@ public:
             return (LocalMemSpace*)s;
         else return 0;
     }
+
+    // LocalSpaceForAddress must NOT be applied to PolyObject*.
+    // See comment on SpaceForAddress above.
+    void LocalSpaceForAddress(PolyObject* pt) {}
+
+    LocalMemSpace* LocalSpaceForObjectAddress(PolyObject* pt)
+        { return LocalSpaceForAddress(((PolyWord*)pt) - 1); }
 
     void SetReservation(uintptr_t words) { reservedSpace = words; }
 

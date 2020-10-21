@@ -230,7 +230,7 @@ POLYUNSIGNED PolyCopyByteVecToClosure(FirstArgument threadId, PolyWord byteVec, 
                 if (!QuickGC(taskData, pushedByteVec->WordP()->Length()))
                     raise_fail(taskData, "Insufficient memory");
             }
-            else memcpy(gMem.SpaceForAddress(result)->writeAble((byte*)result), initCell, requiredSize * sizeof(PolyWord));
+            else memcpy(gMem.SpaceForObjectAddress(result)->writeAble((byte*)result), initCell, requiredSize * sizeof(PolyWord));
         } while (result == 0);
     }
     catch (...) {} // If an ML exception is raised
@@ -291,7 +291,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, P
         if (!codeObj->IsCodeObject() || !codeObj->IsMutable())
             raise_fail(taskData, "Not mutable code area");
         POLYUNSIGNED segLength = codeObj->Length();
-        gMem.SpaceForAddress(codeObj)->writeAble(codeObj)->SetLengthWord(segLength, F_CODE_OBJ);
+        gMem.SpaceForObjectAddress(codeObj)->writeAble(codeObj)->SetLengthWord(segLength, F_CODE_OBJ);
         // In the future it may be necessary to return a different address here.
         // N.B.  The code area should only have execute permission in the native
         // code version, not the interpreted version.

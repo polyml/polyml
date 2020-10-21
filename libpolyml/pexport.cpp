@@ -734,7 +734,7 @@ bool PImport::DoImport()
                 bool oldForm = ch == 'C';
                 POLYUNSIGNED length = p->Length();
                 POLYUNSIGNED nWords, nBytes;
-                MemSpace* space = gMem.SpaceForAddress(p);
+                MemSpace* space = gMem.SpaceForObjectAddress(p);
                 PolyObject *wr = space->writeAble(p);
                 byte* u = (byte*)wr;
                 /* Read the number of bytes of code and the number of words
