@@ -411,7 +411,7 @@ PolyObject *QuickGCScanner::ScanObjectAddress(PolyObject *base)
 #ifdef POLYML32IN64
     // If this is a code address we can't turn it into a PolyWord.
     // Check that it's a local address.
-    MemSpace *space = gMem.SpaceForAddress((PolyWord*)base - 1);
+    MemSpace *space = gMem.SpaceForObjectAddress(base);
     ASSERT(space != 0);
     if (space->spaceType != ST_LOCAL)
         return base;

@@ -455,7 +455,7 @@ void SaveFixupAddress::ScanCodeSpace(CodeSpace *space)
         PolyObject *dest = obj;
         while (dest->ContainsForwardingPtr())
         {
-            MemSpace *space = gMem.SpaceForAddress((PolyWord*)dest - 1);
+            MemSpace *space = gMem.SpaceForObjectAddress(dest);
             if (space->isCode)
                 dest = (PolyObject*)(globalCodeBase + ((dest->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
             else dest = dest->GetForwardingPtr();

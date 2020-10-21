@@ -342,6 +342,7 @@ void X86TaskData::GarbageCollect(ScanAddress *process)
 
     if (stack != 0)
     {
+        ASSERT(assemblyInterface.stackPtr >= (stackItem*)stack->bottom && assemblyInterface.stackPtr <= (stackItem*)stack->top);
         // Now the values on the stack.
         for (stackItem *q = assemblyInterface.stackPtr; q < (stackItem*)stack->top; q++)
             ScanStackAddress(process, *q, stack);
