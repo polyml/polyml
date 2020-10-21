@@ -241,8 +241,10 @@ void* OSMem::AllocateDataArea(size_t& space)
     }
     int prot = PROT_READ | PROT_WRITE;
     int flags = MAP_FIXED | MAP_PRIVATE | MAP_ANON;
-#ifdef MAP_STACK
-    if (memUsage == UsageStack) flags |= MAP_STACK; // OpenBSD seems to require this
+#if defined(MAP_STACK) && defined(__OpenBSD__)
+    // On OpenBSD the stack must be mapped with MAP_STACK otherwise it
+    // segfaults.  On FreeBSD, though, this isn't necessary and causes problems.
+    if (memUsage == UsageStack) flags |= MAP_STACK;
 #endif
     if (mmap(baseAddr, space, prot, flags, -1, 0) == MAP_FAILED)
         return 0;
@@ -403,8 +405,10 @@ void *OSMem::AllocateDataArea(size_t &space)
     space = (space + pageSize-1) & ~(pageSize-1);
     int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
     int flags = MAP_PRIVATE | MAP_ANON;
-#ifdef MAP_STACK
-    if (memUsage == UsageStack) flags |= MAP_STACK; // OpenBSD seems to require this
+#if defined(MAP_STACK) && defined(__OpenBSD__)
+    // On OpenBSD the stack must be mapped with MAP_STACK otherwise it
+    // segfaults.  On FreeBSD, though, this isn't necessary and causes problems.
+    if (memUsage == UsageStack) flags |= MAP_STACK;
 #endif
     void *result = mmap(0, space, PROT_READ|PROT_WRITE, flags, fd, 0);
     // Convert MAP_FAILED (-1) into NULL
