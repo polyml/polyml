@@ -264,8 +264,6 @@ public:
 
     PolyObject      *overflowPacket, *dividePacket;
 
-#define PROFILEOPCODES 1
-
 #ifdef PROFILEOPCODES
     unsigned frequency[256], arg1Value[256], arg2Value[256];
 #endif
