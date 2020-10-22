@@ -880,14 +880,7 @@ void Exporter::relocateObject(PolyObject *p)
         for (POLYUNSIGNED i = 0; i < constCount; i++) relocateValue(&(cp[i]));
 
     }
-    else if (p->IsClosureObject())
-    {
-#ifndef POLYML32IN64
-        ASSERT(0);
-#endif
-        // This should only be used in 32-in-64 where we don't use relocations.
-    }
-    else /* Ordinary objects, essentially tuples. */
+    else // Closure and ordinary objects
     {
         POLYUNSIGNED length = p->Length();
         for (POLYUNSIGNED i = 0; i < length; i++) relocateValue(p->Offset(i));
