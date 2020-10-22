@@ -263,14 +263,57 @@ public:
     PolyWord        *sl; /* Stack limit register. */
 
     PolyObject      *overflowPacket, *dividePacket;
+
+#define PROFILEOPCODES 1
+
+#ifdef PROFILEOPCODES
+    unsigned frequency[256], arg1Value[256], arg2Value[256];
+#endif
 };
 
 IntTaskData::IntTaskData() : interrupt_requested(false), overflowPacket(0), dividePacket(0)
 {
+#ifdef PROFILEOPCODES
+    memset(frequency, 0, sizeof(frequency));
+    memset(arg1Value, 0, sizeof(arg1Value));
+    memset(arg2Value, 0, sizeof(arg2Value));
+#endif
 }
 
 IntTaskData::~IntTaskData()
 {
+#ifdef PROFILEOPCODES
+    OutputDebugStringA("Frequency\n");
+    for (unsigned i = 0; i < 256; i++)
+    {
+        if (frequency[i] != 0)
+        {
+            char buffer[100];
+            sprintf(buffer, "%02X: %u\n", i, frequency[i]);
+            OutputDebugStringA(buffer);
+        }
+    }
+    OutputDebugStringA("Arg1\n");
+    for (unsigned i = 0; i < 256; i++)
+    {
+        if (arg1Value[i] != 0)
+        {
+            char buffer[100];
+            sprintf(buffer, "%02X: %u\n", i, arg1Value[i]);
+            OutputDebugStringA(buffer);
+        }
+    }
+    OutputDebugStringA("Arg2\n");
+    for (unsigned i = 0; i < 256; i++)
+    {
+        if (arg2Value[i] != 0)
+        {
+            char buffer[100];
+            sprintf(buffer, "%02X: %u\n", i, arg2Value[i]);
+            OutputDebugStringA(buffer);
+        }
+    }
+#endif
 }
 
 // This lock is used to synchronise all atomic operations.
@@ -388,6 +431,9 @@ int IntTaskData::SwitchToPoly()
         PolyObject      *closure;
         double          dv;
 
+#ifdef PROFILEOPCODES
+        frequency[*pc]++;
+#endif
         switch(*pc++) {
 
         case INSTR_jump8false:
@@ -658,6 +704,28 @@ int IntTaskData::SwitchToPoly()
         case INSTR_moveToContainerB:
             { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(*pc, u); pc += 1; break; }
 
+        case INSTR_moveToMutClosureB:
+        {
+            PolyWord u = *sp++;
+            (*sp).AsObjPtr()->Set(*pc++ + sizeof(uintptr_t) / sizeof(PolyWord), u);
+            break;
+        }
+
+        case INSTR_indirectContainerB:
+            *sp = (*sp).AsObjPtr()->Get(*pc); pc += 1; break;
+
+        case INSTR_indirectClosureBB:
+        { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(*pc++ + sizeof(uintptr_t) / sizeof(PolyWord)); break; }
+
+        case INSTR_indirectClosureB0:
+        { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(sizeof(uintptr_t) / sizeof(PolyWord)); break; }
+
+        case INSTR_indirectClosureB1:
+        { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(sizeof(uintptr_t) / sizeof(PolyWord) + 1); break; }
+
+        case INSTR_indirectClosureB2:
+        { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(sizeof(uintptr_t) / sizeof(PolyWord) + 2); break; }
+
         case INSTR_set_stack_val_b:
             { PolyWord u = *sp++; sp[*pc-1] = u; pc += 1; break; }
 
@@ -681,6 +749,9 @@ int IntTaskData::SwitchToPoly()
         case INSTR_local_10: { PolyWord u = sp[10]; *(--sp) = u; break; }
         case INSTR_local_11: { PolyWord u = sp[11]; *(--sp) = u; break; }
         case INSTR_local_12: { PolyWord u = sp[12]; *(--sp) = u; break; }
+        case INSTR_local_13: { PolyWord u = sp[13]; *(--sp) = u; break; }
+        case INSTR_local_14: { PolyWord u = sp[14]; *(--sp) = u; break; }
+        case INSTR_local_15: { PolyWord u = sp[15]; *(--sp) = u; break; }
 
         case INSTR_indirect_0:
             *sp = (*sp).AsObjPtr()->Get(0); break;
@@ -1223,6 +1294,19 @@ int IntTaskData::SwitchToPoly()
             t->SetLengthWord(1, F_MUTABLE_BIT);
             t->Set(0, initialiser);
             *sp = (PolyWord)t;
+            break;
+        }
+
+        case INSTR_allocMutClosureB:
+        {
+            // Allocate memory for a mutable closure and copy in the code address.
+            POLYUNSIGNED length = *pc++ + sizeof(uintptr_t) / sizeof(PolyWord);
+            PolyObject* t = this->allocateMemory(length, pc, sp);
+            if (t == 0) goto RAISE_EXCEPTION;
+            t->SetLengthWord(length, F_CLOSURE_OBJ | F_MUTABLE_BIT);
+            PolyObject* srcClosure = (*sp).AsObjPtr();
+            *(uintptr_t*)t = *(uintptr_t*)srcClosure;
+            *sp = t;
             break;
         }
 

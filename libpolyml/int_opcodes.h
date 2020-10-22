@@ -82,8 +82,12 @@
 #define INSTR_local_12      0x45
 #define INSTR_jump8True     0x46
 #define INSTR_jump16True    0x47
+#define INSTR_local_13              0x49
+#define INSTR_local_14              0x4a
+#define INSTR_local_15              0x4b
 #define INSTR_reset_1       0x50
 #define INSTR_reset_2       0x51
+#define INSTR_indirectClosureBB     0x54
 #define INSTR_tuple_containerLegacy 0x55
 #define INSTR_reset_r_1     0x64
 #define INSTR_reset_r_2     0x65
@@ -94,8 +98,14 @@
 #define INSTR_tuple_4       0x6b
 #define INSTR_lock          0x6c
 #define INSTR_ldexc         0x6d
+#define INSTR_indirectContainerB    0x74
+#define INSTR_moveToMutClosureB     0x75
+#define INSTR_allocMutClosureB      0x76
+#define INSTR_indirectClosureB0     0x77
 #define INSTR_push_handler  0x78
+#define INSTR_indirectClosureB1     0x7a
 #define INSTR_tail_b_b      0x7b
+#define INSTR_indirectClosureB2     0x7c
 #define INSTR_tail_3_bLegacy        0x7d
 #define INSTR_tail_4_bLegacy        0x7e
 #define INSTR_tail_3_2Legacy        0x7f

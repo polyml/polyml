@@ -109,8 +109,12 @@ struct
     and opcode_local_12          = 0wx45
     and opcode_jumpTrue          = 0wx46
     and opcode_jump16True        = 0wx47
+    and opcode_local_13          = 0wx49
+    and opcode_local_14          = 0wx4a
+    and opcode_local_15          = 0wx4b
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
+    and opcode_indirectClosureBB = 0wx54
     and opcode_resetR_1          = 0wx64
     and opcode_resetR_2          = 0wx65
     and opcode_resetR_3          = 0wx66
@@ -120,8 +124,14 @@ struct
     and opcode_tuple_4           = 0wx6b
     and opcode_lock              = 0wx6c
     and opcode_ldexc             = 0wx6d
+    and opcode_indirectContainerB= 0wx74
+    and opcode_moveToMutClosureB = 0wx75
+    and opcode_allocMutClosureB  = 0wx76
+    and opcode_indirectClosureB0 = 0wx77
     and opcode_pushHandler       = 0wx78
+    and opcode_indirectClosureB1 = 0wx7a
     and opcode_tailbb            = 0wx7b
+    and opcode_indirectClosureB2 = 0wx7c
     and opcode_setHandler        = 0wx81
     and opcode_callFastRTS0      = 0wx83
     and opcode_callFastRTS1      = 0wx84
@@ -489,11 +499,12 @@ struct
                 |   0wx45 => printStream "local_12"
                 |   0wx46 => (printStream "jumpTrue"; printDisp (1, "\t"))
                 |   0wx47 => (printStream "jumpTrue"; printDisp (2, "\t"))
+                |   0wx49 => printStream "local_13"
+                |   0wx4a => printStream "local_14"
+                |   0wx4b => printStream "local_15"
                 |   0wx50 => printStream "reset_1"
                 |   0wx51 => printStream "reset_2"
-                |   0wx52 => printStream "getStore_2"
-                |   0wx53 => printStream "getStore_3"
-                |   0wx54 => printStream "getStore_4"
+                |   0wx54 => (printOp(1, "indirectClosureBB\t"); printOp(1, ", "))
                 |   0wx64 => printStream "resetR_1"
                 |   0wx65 => printStream "resetR_2"
                 |   0wx66 => printStream "resetR_3"
@@ -503,8 +514,14 @@ struct
                 |   0wx6b => printStream "tuple_4"
                 |   0wx6c => printStream "lock"
                 |   0wx6d => printStream "ldexc"
+                |   0wx74 => printOp(1, "indirectContainerB\t")
+                |   0wx75 => printOp(1, "moveToMutClosureB\t")
+                |   0wx76 => printOp(1, "allocMutClosureB\t")
+                |   0wx77 => printOp(1, "indirectClosureB0\t")
                 |   0wx78 => printStream "pushHandler"
+                |   0wx7a => printOp(1, "indirectClosureB1\t")
                 |   0wx7b => (printOp (1, "tailbb\t"); printOp (1, ","))
+                |   0wx7c => printOp(1, "indirectClosureB2\t")
                 |   0wx7d => printOp(1, "tail3b\t")
                 |   0wx7e => printOp(1, "tail4b\t")
                 |   0wx7f => printStream "tail3_2"
@@ -705,7 +722,7 @@ struct
     |   codeSize (IndexedCase{labels, size=ref Size32, ...}) = 4 + List.length labels * 4 
     |   codeSize (IndexedCase{labels, size=ref Size16, ...}) = 3 + List.length labels * 2 
     |   codeSize (IndexedCase{labels=_, size=ref Size8, ...}) = raise InternalError "codeSize"
-    |   codeSize (LoadLocal w) = if w <= 0w12 then 1 else 2
+    |   codeSize (LoadLocal w) = if w <= 0w15 then 1 else 2
     |   codeSize (IndirectLocal{indirect=0w0, localAddr=0w0}) = 1
     |   codeSize (IndirectLocal{indirect=0w0, ...}) = 2
     |   codeSize (IndirectLocal{indirect=0w1, ...}) = 2
@@ -1112,6 +1129,9 @@ struct
         |   genByteCode(LoadLocal 0w10, _) = genByte opcode_local_10
         |   genByteCode(LoadLocal 0w11, _) = genByte opcode_local_11
         |   genByteCode(LoadLocal 0w12, _) = genByte opcode_local_12
+        |   genByteCode(LoadLocal 0w13, _) = genByte opcode_local_13
+        |   genByteCode(LoadLocal 0w14, _) = genByte opcode_local_14
+        |   genByteCode(LoadLocal 0w15, _) = genByte opcode_local_15
         |   genByteCode(LoadLocal w, _) = (genByte opcode_localB; genByte w)
 
         |   genByteCode(IndirectLocal{localAddr=0w0, indirect=0w0}, _) = genByte opcode_indirect0Local0
@@ -1496,7 +1516,9 @@ struct
                 else genExtOpcWord(ext_opcode_indirectW, arg1, cvec)
         
         fun genIndirectContainer(arg1, cvec) =
-            genExtOpcWord(ext_opcode_indirectContainerW, arg1, cvec)
+            if arg1 < 256
+            then genOpcByte(opcode_indirectContainerB, arg1, cvec)
+            else genExtOpcWord(ext_opcode_indirectContainerW, arg1, cvec)
 
         fun genMoveToContainer (arg1, cvec) =
             if arg1 < 256
@@ -1504,7 +1526,9 @@ struct
             else genExtOpcWord(ext_opcode_moveToContainerW, arg1, cvec)
 
         fun genMoveToMutClosure (arg1, cvec) =
-            genExtOpcWord(ext_opcode_moveToMutClosureW, arg1, cvec)
+            if arg1 < 256
+            then genOpcByte(opcode_moveToMutClosureB, arg1, cvec)
+            else genExtOpcWord(ext_opcode_moveToMutClosureW, arg1, cvec)
         
         fun genSetStackVal (arg1, cvec) =
             if arg1 < 256
@@ -1520,7 +1544,30 @@ struct
                 else genExtOpcWord(ext_opcode_tupleW, arg1, cvec)
  
         fun genAllocMutableClosure(closureSize, cvec) =
-            genExtOpcWord(ext_opcode_allocMutClosureW, closureSize, cvec)
+            if closureSize < 256
+            then genOpcByte(opcode_allocMutClosureB, closureSize, cvec)
+            else genExtOpcWord(ext_opcode_allocMutClosureW, closureSize, cvec)
+
+        fun genLocal (arg1, cvec) =
+            if 0 <= arg1 andalso arg1 < 256 then addItemToList(LoadLocal(Word8.fromInt arg1), cvec)
+            else addItemToList(SimpleCode[opcode_localW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)], cvec)
+
+        fun genIndirectClosure{ addr, item, code=cvec } =
+        if addr < 256 andalso item < 256
+        then
+        (
+            case item of
+                0 => genOpcByte(opcode_indirectClosureB0, addr, cvec)
+            |   1 => genOpcByte(opcode_indirectClosureB1, addr, cvec)
+            |   2 => genOpcByte(opcode_indirectClosureB2, addr, cvec)
+            |   _ => addItemToList(SimpleCode[opcode_indirectClosureBB, Word8.fromInt addr, Word8.fromInt item], cvec)
+        )
+        else
+        (
+            genLocal (addr, cvec);
+            addItemToList(SimpleCode[opcode_escape, ext_opcode_indirectClosureW,
+                Word8.fromInt item, Word8.fromInt (item div 256)], cvec)
+        )
     end
     
     fun genReturn(1, cvec) = addItemToList(UncondTransfer[opcode_return_1], cvec)
@@ -1532,10 +1579,6 @@ struct
                 then [opcode_returnB, Word8.fromInt arg1]
                 else [opcode_returnW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)]),
                 cvec)
-
-    fun genLocal (arg1, cvec) =
-        if 0 <= arg1 andalso arg1 < 256 then addItemToList(LoadLocal(Word8.fromInt arg1), cvec)
-        else addItemToList(SimpleCode[opcode_localW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)], cvec)
     
     fun genIndirect (arg1, cvec as Code{stage1Code as ref(LoadLocal w :: tail), ...}) =
         if 0 <= arg1 andalso arg1 <= 255
@@ -1543,14 +1586,7 @@ struct
         else genIndirectSimple(arg1, cvec)
 
     |   genIndirect (arg1, cvec) = genIndirectSimple(arg1, cvec)
- 
-    fun genIndirectClosure{ addr, item, code=cvec } =
-    (
-        genLocal (addr, cvec);
-        addItemToList(SimpleCode[opcode_escape, ext_opcode_indirectClosureW,
-            Word8.fromInt item, Word8.fromInt (item div 256)], cvec)
-    )
-   
+
     fun genEnterIntCatch _ = ()
     and genEnterIntCall _ = ()
 
