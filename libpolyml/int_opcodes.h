@@ -46,7 +46,7 @@
 #define INSTR_indirectLocalBB       0x21
 #define INSTR_local_b               0x22
 #define INSTR_indirect_b    0x23
-#define INSTR_move_to_vec_b 0x24
+#define INSTR_moveToContainerB      0x24
 #define INSTR_set_stack_val_b   0x25
 #define INSTR_reset_b       0x26
 #define INSTR_reset_r_b     0x27
@@ -176,8 +176,12 @@
 
 // Extended opcodes - preceded by escape
 #define EXTINSTR_stack_containerW   0x0b
+#define EXTINSTR_allocMutClosureW   0x0f
+#define EXTINSTR_indirectClosureW   0x10
+#define EXTINSTR_indirectContainerW 0x11
 #define EXTINSTR_indirect_w         0x14
-#define EXTINSTR_move_to_vec_w      0x15
+#define EXTINSTR_moveToContainerW   0x15
+#define EXTINSTR_moveToMutClosureW  0x16
 #define EXTINSTR_set_stack_val_w    0x17
 #define EXTINSTR_reset_w            0x18
 #define EXTINSTR_reset_r_w          0x19

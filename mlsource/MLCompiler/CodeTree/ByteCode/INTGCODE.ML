@@ -112,8 +112,8 @@ struct
 
         |   locaddr(BICLoadClosure locn) = (* closure-pointer relative *)
             (
-                pushLocalStackValue ~1; (* The closure itself. *)
-                genIndirect (locn+1, cvec) (* The value in the closure. +1 because first item is code addr. *)
+                genIndirectClosure{addr = !realstackptr-1, item=locn, code=cvec};
+                incsp()
             )
 
         |   locaddr BICLoadRecursive =
@@ -170,7 +170,7 @@ struct
                 (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
 
         |   BICLoadContainer {base, offset} =>
-                (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
+                (gencde (base, ToStack, NotEnd, loopAddr); genIndirectContainer (offset, cvec))
        
         |   BICLambda lam => genProc (lam, false, fn () => ())
            
@@ -411,7 +411,7 @@ struct
                                 gencde (v, ToStack, NotEnd, loopAddr);
                                 (* Move the entry into the container. This instruction
                                    pops the value to be moved but not the destination. *)
-                                genMoveToVec(destOffset, cvec);
+                                genMoveToContainer(destOffset, cvec);
                                 decsp();
                                 setValues(tl, sourceOffset+1, destOffset+1)
                             )
@@ -435,7 +435,7 @@ struct
                                 (* Duplicate the tuple address . *)
                                 genLocal(1, cvec);
                                 genIndirect(sourceOffset, cvec);
-                                genMoveToVec(destOffset, cvec);
+                                genMoveToContainer(destOffset, cvec);
                                 if sourceOffset = last
                                 then ()
                                 else copy (sourceOffset+1, destOffset+1)
@@ -904,16 +904,9 @@ struct
             if mutualDecs
             then
             let (* Have to make the closure now and fill it in later. *)
-                (* This previously used genGetStore which at one time was widely used. *)
-                val () = pushConst(toMachineWord sizeOfClosure, cvec) (* Length *)
-                val () = pushConst(toMachineWord F_mutable, cvec) (* Flags *)
-                val () = pushConst(toMachineWord 0, cvec) (* Initialise to zero. *)
-                val () = genOpcode(opcode_allocWordMemory, cvec) (* Allocate the memory. *)
+                val () = pushConst(toMachineWord resClosure, cvec)
+                val () = genAllocMutableClosure(List.length closure, cvec)
                 val () = incsp ()
-           
-                (* Put code address into closure *) 
-                val () = pushConst(codeAddressFromClosure resClosure, cvec) 
-                val () = genMoveToVec(0, cvec)
            
                 val entryAddr : int = !realstackptr
 
@@ -927,15 +920,16 @@ struct
                 fun loadItems ([], _) = ()
                 |   loadItems (v :: vs, addr : int) =
                 let
-                    (* Generate an item and move it into the vector *)
+                    (* Generate an item and move it into the clsoure *)
                     val () = gencde (BICExtract v, ToStack, NotEnd, NONE)
-                    val () = genMoveToVec(addr, cvec)
+                    (* The closure "address" excludes the code address. *)
+                    val () = genMoveToMutClosure(addr, cvec)
                     val () = decsp ()
                 in
                     loadItems (vs, addr + 1)
                 end
              
-                val () = loadItems (closure, 1)
+                val () = loadItems (closure, 0)
                 val () = genLock cvec (* Lock it. *)
            
                 (* Remove the extra reference. *)
@@ -1204,9 +1198,9 @@ struct
                 closureAsAddress closure
             end
             
-            fun buildCallBack(abi, argTypes, resultType) =
+            fun buildCallBack((*abi*) _, (*argTypes*) _, (*resultType*)_) =
             let
-                fun buildClosure (mlFun: LargeWord.word*LargeWord.word -> unit) =
+                fun buildClosure ((*mlFun*)_: LargeWord.word*LargeWord.word -> unit) =
                     (* The result is the SysWord.word holding the C function. *)
                     raise Foreign.Foreign "foreignCall not implemented"
             in

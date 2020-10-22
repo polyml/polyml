@@ -151,15 +151,21 @@ sig
    val genReturn      : int * code -> unit
    val genLocal       : int * code -> unit
    val genIndirect    : int * code -> unit
-   val genMoveToVec   : int * code -> unit
    val genSetStackVal : int * code -> unit
    val genCase        : int * code -> labels list
    val genTuple       : int * code -> unit
    val genTailCall    : int * int * code -> unit
    
+   val genIndirectClosure:      { addr: int, item: int, code: code } -> unit
+   and genIndirectContainer:    int * code -> unit
+   and genMoveToContainer:      int * code -> unit
+   and genMoveToMutClosure:     int * code -> unit
+   
    val genDoubleToFloat: IEEEReal.rounding_mode option * code -> unit
    and genRealToInt:   IEEEReal.rounding_mode * code -> unit
    and genFloatToInt:  IEEEReal.rounding_mode * code -> unit
+   
+   val genAllocMutableClosure: int * code -> unit
 
    val genRTSCallFast:    int * code -> unit
    val genRTSCallFastRealtoReal: code -> unit

@@ -74,7 +74,7 @@ struct
     and opcode_indirectLocalBB   = 0wx21
     and opcode_localB            = 0wx22
     and opcode_indirectB         = 0wx23
-    and opcode_moveToVecB        = 0wx24
+    and opcode_moveToContainerB  = 0wx24
     and opcode_setStackValB      = 0wx25
     and opcode_resetB            = 0wx26
     and opcode_resetRB           = 0wx27
@@ -129,12 +129,12 @@ struct
     and opcode_callFastRTS3      = 0wx86
     and opcode_callFastRTS4      = 0wx87
     and opcode_callFastRTS5      = 0wx88
-    and opcode_callFullRTS0      = 0wx89 (* Legacy *)
+    (*and opcode_callFullRTS0      = 0wx89 (* Legacy *)
     and opcode_callFullRTS1      = 0wx8a
     and opcode_callFullRTS2      = 0wx8b
     and opcode_callFullRTS3      = 0wx8c
     and opcode_callFullRTS4      = 0wx8d
-    and opcode_callFullRTS5      = 0wx8e
+    and opcode_callFullRTS5      = 0wx8e*)
     and opcode_notBoolean        = 0wx91
     and opcode_isTagged          = 0wx92
     and opcode_cellLength        = 0wx93
@@ -193,8 +193,12 @@ struct
 
     (* Extended opcodes - preceded by 0xfe escape *)
     val ext_opcode_containerW        = 0wx0b
+    and ext_opcode_allocMutClosureW  = 0wx0f    (* Allocate a mutable closure for mutual recursion *)
+    and ext_opcode_indirectClosureW  = 0wx10
+    and ext_opcode_indirectContainerW= 0wx11
     and ext_opcode_indirectW         = 0wx14
-    and ext_opcode_moveToVecW        = 0wx15
+    and ext_opcode_moveToContainerW  = 0wx15
+    and ext_opcode_moveToMutClosureW = 0wx16
     and ext_opcode_setStackValW      = 0wx17
     and ext_opcode_resetW            = 0wx18
     and ext_opcode_resetR_w          = 0wx19
@@ -425,6 +429,7 @@ struct
                 |   0wx0c => printStream "callClosure"
                 |   0wx0d => printOp(2, "returnW\t")
                 |   0wx0e => printStream "containerB"
+                |   0wx0f => printOp(2, "allocMutClosure")
                 |   0wx10 => printStream "raiseEx"
                 |   0wx11 => printDisp (2, "callConstAddr16\t")
                 |   0wx12 => printDisp (1, "callConstAddr8\t")
@@ -448,7 +453,7 @@ struct
                 |   0wx21 => (printOp(1, "indirectLocalBB\t"); printOp(1, ","))
                 |   0wx22 => printOp(1, "localB\t")
                 |   0wx23 => printOp(1, "indirectB\t")
-                |   0wx24 => printOp(1, "moveToVecB\t")
+                |   0wx24 => printOp(1, "moveToContainerB\t")
                 |   0wx25 => printOp(1, "setStackValB\t")
                 |   0wx26 => printOp(1, "resetB\t")
                 |   0wx27 => printOp(1, "resetRB\t")
@@ -511,12 +516,6 @@ struct
                 |   0wx86 => printStream "callFastRTS3"
                 |   0wx87 => printStream "callFastRTS4"
                 |   0wx88 => printStream "callFastRTS5"
-                |   0wx89 => printStream "callFullRTS0"
-                |   0wx8a => printStream "callFullRTS1"
-                |   0wx8b => printStream "callFullRTS2"
-                |   0wx8c => printStream "callFullRTS3"
-                |   0wx8d => printStream "callFullRTS4"
-                |   0wx8e => printStream "callFullRTS5"
                 |   0wx91 => printStream "notBoolean"
                 |   0wx92 => printStream "isTagged"
                 |   0wx93 => printStream "cellLength"
@@ -577,9 +576,11 @@ struct
                     (
                         case codeVecGet (seg, !ptr) before ptr := !ptr + 0w1 of
                             0wx0b => printStream "containerW"
-                        |   0wx0f => printDisp (4, "callConstAddr32\t")
+                        |   0wx10 => printOp(2, "indirectClosureW\t")
+                        |   0wx11 => printOp(2, "indirectContainerW\t")
                         |   0wx14 => printOp(2, "indirectW\t")
-                        |   0wx15 => printOp(2, "moveToVecW\t")
+                        |   0wx15 => printOp(2, "moveToContainerW\t")
+                        |   0wx16 => printOp(2, "moveToMutClosureW\t")
                         |   0wx17 => printOp(2, "setStackValW\t")
                         |   0wx18 => printOp(2, "resetW\t")
                         |   0wx19 => printOp(2, "resetR_w\t")
@@ -1396,14 +1397,6 @@ struct
         |   genRTSCallFast(5, cvec) = genOpc (opcode_callFastRTS5, cvec)
         |   genRTSCallFast(_, _) = raise InternalError "genRTSFastCall"
 
-(*        fun genRTSCallFull(0, cvec) = genOpc (opcode_callFullRTS0, cvec)
-        |   genRTSCallFull(1, cvec) = genOpc (opcode_callFullRTS1, cvec)
-        |   genRTSCallFull(2, cvec) = genOpc (opcode_callFullRTS2, cvec)
-        |   genRTSCallFull(3, cvec) = genOpc (opcode_callFullRTS3, cvec)
-        |   genRTSCallFull(4, cvec) = genOpc (opcode_callFullRTS4, cvec)
-        |   genRTSCallFull(5, cvec) = genOpc (opcode_callFullRTS5, cvec)
-        |   genRTSCallFull(_, _) = raise InternalError "genRTSCallFull"*)
-
         fun genContainer (size, cvec) =
             if size < 256
             then genOpcByte(opcode_containerB, size, cvec)
@@ -1501,12 +1494,17 @@ struct
                 if arg1 < 256
                 then genOpcByte(opcode_indirectB, arg1, cvec)
                 else genExtOpcWord(ext_opcode_indirectW, arg1, cvec)
+        
+        fun genIndirectContainer(arg1, cvec) =
+            genExtOpcWord(ext_opcode_indirectContainerW, arg1, cvec)
 
-        (* genMoveToVec is now only used for mutually recursive closures. *)
-        fun genMoveToVec (arg1, cvec) =
+        fun genMoveToContainer (arg1, cvec) =
             if arg1 < 256
-            then genOpcByte(opcode_moveToVecB, arg1, cvec)
-            else genExtOpcWord(ext_opcode_moveToVecW, arg1, cvec)
+            then genOpcByte(opcode_moveToContainerB, arg1, cvec)
+            else genExtOpcWord(ext_opcode_moveToContainerW, arg1, cvec)
+
+        fun genMoveToMutClosure (arg1, cvec) =
+            genExtOpcWord(ext_opcode_moveToMutClosureW, arg1, cvec)
         
         fun genSetStackVal (arg1, cvec) =
             if arg1 < 256
@@ -1520,6 +1518,9 @@ struct
                 if arg1 < 256
                 then genOpcByte(opcode_tupleB, arg1, cvec)
                 else genExtOpcWord(ext_opcode_tupleW, arg1, cvec)
+ 
+        fun genAllocMutableClosure(closureSize, cvec) =
+            genExtOpcWord(ext_opcode_allocMutClosureW, closureSize, cvec)
     end
     
     fun genReturn(1, cvec) = addItemToList(UncondTransfer[opcode_return_1], cvec)
@@ -1542,8 +1543,14 @@ struct
         else genIndirectSimple(arg1, cvec)
 
     |   genIndirect (arg1, cvec) = genIndirectSimple(arg1, cvec)
-
-    
+ 
+    fun genIndirectClosure{ addr, item, code=cvec } =
+    (
+        genLocal (addr, cvec);
+        addItemToList(SimpleCode[opcode_escape, ext_opcode_indirectClosureW,
+            Word8.fromInt item, Word8.fromInt (item div 256)], cvec)
+    )
+   
     fun genEnterIntCatch _ = ()
     and genEnterIntCall _ = ()
 

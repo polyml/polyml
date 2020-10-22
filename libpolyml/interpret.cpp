@@ -655,7 +655,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_indirectLocalB1:
         { PolyWord u = sp[*pc++]; *(--sp) = u.AsObjPtr()->Get(1); break; }
 
-        case INSTR_move_to_vec_b:
+        case INSTR_moveToContainerB:
             { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(*pc, u); pc += 1; break; }
 
         case INSTR_set_stack_val_b:
@@ -2293,13 +2293,27 @@ int IntTaskData::SwitchToPoly()
             case EXTINSTR_indirect_w:
                 *sp = (*sp).AsObjPtr()->Get(arg1); pc += 2; break;
 
-            case EXTINSTR_move_to_vec_w:
+            case EXTINSTR_moveToContainerW:
             {
                 PolyWord u = *sp++;
                 (*sp).AsObjPtr()->Set(arg1, u);
                 pc += 2;
                 break;
             }
+
+            case EXTINSTR_moveToMutClosureW:
+            {
+               PolyWord u = *sp++;
+                (*sp).AsObjPtr()->Set(arg1 + sizeof(uintptr_t)/sizeof(PolyWord), u);
+                pc += 2;
+                break;
+            }
+
+            case EXTINSTR_indirectContainerW:
+                *sp = (*sp).AsObjPtr()->Get(arg1); pc += 2; break;
+
+            case EXTINSTR_indirectClosureW:
+                *sp = (*sp).AsObjPtr()->Get(arg1+sizeof(uintptr_t)/sizeof(PolyWord)); pc += 2; break;
 
             case EXTINSTR_set_stack_val_w:
             {
@@ -2365,6 +2379,21 @@ int IntTaskData::SwitchToPoly()
                 tailPtr = sp + tailCount;
                 sp = tailPtr + arg2;
                 goto TAIL_CALL;
+
+
+            case EXTINSTR_allocMutClosureW:
+            {
+                // Allocate memory for a mutable closure and copy in the code address.
+                POLYUNSIGNED length = arg1 + sizeof(uintptr_t) / sizeof(PolyWord);
+                pc += 2;
+                PolyObject* t = this->allocateMemory(length, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(length, F_CLOSURE_OBJ | F_MUTABLE_BIT);
+                PolyObject* srcClosure = (*sp).AsObjPtr();
+                *(uintptr_t*)t = *(uintptr_t*)srcClosure;
+                *sp = t;
+                break;
+            }
 
             default: Crash("Unknown extended instruction %x\n", pc[-1]);
             }
