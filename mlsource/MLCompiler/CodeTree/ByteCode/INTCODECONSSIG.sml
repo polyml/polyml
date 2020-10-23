@@ -193,8 +193,8 @@ sig
    (* Create a container on the stack *)
    val genContainer : int * code -> unit
 
-   (* copyCode - Finish up after compiling a function. *)
-   val copyCode : code * int * closureRef -> unit
+    (* copyCode - Finish up after compiling a function. *)
+    val copyCode : {code: code, maxStack: int, numberOfArguments: int, resultClosure: closureRef } -> unit
    
    (* putBranchInstruction puts in an instruction which involves
       a forward reference. *)

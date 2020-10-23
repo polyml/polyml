@@ -2483,6 +2483,10 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_enterIntX86:
+            // This is a no-op if we are already interpreting.
+            pc += 3; break;
+
         default: Crash("Unknown instruction %x\n", pc[-1]);
 
         } /* switch */
@@ -2662,6 +2666,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedEnterIntMode();
 }
 
 // FFI
@@ -2933,6 +2938,13 @@ POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId)
     else return result->Word().AsUnsigned();
 }
 
+// Do we require EnterInt instructions and if so for which architecture?
+// 0 = > None; 1 => X86_32, 2 => X86_64. 3 => X86_32_in_64.
+POLYUNSIGNED PolyInterpretedEnterIntMode()
+{
+    return TAGGED(0).AsUnsigned();
+}
+
 static Interpreter interpreterObject;
 
 MachineDependent *machineDependent = &interpreterObject;
@@ -2943,5 +2955,6 @@ struct _entrypts machineSpecificEPT[] =
     { "PolyInterpretedGetAbiList",           (polyRTSFunction)&PolyInterpretedGetAbiList },
     { "PolyInterpretedCreateCIF",            (polyRTSFunction)&PolyInterpretedCreateCIF },
     { "PolyInterpretedCallFunction",         (polyRTSFunction)&PolyInterpretedCallFunction },
-    { NULL, NULL} // End of list.
+    { "PolyInterpretedEnterIntMode",         (polyRTSFunction)&PolyInterpretedEnterIntMode },
+   { NULL, NULL} // End of list.
 };

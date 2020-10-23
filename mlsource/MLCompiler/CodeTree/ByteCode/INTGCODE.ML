@@ -1092,7 +1092,7 @@ struct
     in (* body of codegen *)
        (* Having code-generated the body of the function, it is copied
           into a new data segment. *)
-        copyCode(cvec, !maxStack, resultClosure)
+        copyCode{code = cvec, maxStack = !maxStack, resultClosure=resultClosure, numberOfArguments=numOfArgs}
     end (* codegen *);
 
     fun gencodeLambda({ name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
@@ -1124,7 +1124,8 @@ struct
             val () = genReturn (numOfArgs, cvec)
             val closure = makeConstantClosure()
         
-            val () = copyCode(cvec, numOfArgs+1, closure)
+            val () =
+                copyCode{code=cvec, maxStack=numOfArgs+1, numberOfArguments=numOfArgs, resultClosure=closure}
         in
             closureAsAddress closure
         end

@@ -329,13 +329,16 @@ struct
         procName:       string,         (* Name of the procedure. *)
         printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
         printStream:    string->unit,    (* The stream to use *)
-        stage1Code:     opcode list ref
+        stage1Code:     opcode list ref,
+        enterIntMode:   int (* 0 => None, 1 => X86. *)
     }
+    
+    val getEnterIntMode: unit -> int = RunCall.rtsCallFast0 "PolyInterpretedEnterIntMode"
 
     (* create and initialise a code segment *)
     fun codeCreate (name : string, parameters) = 
     let
-        val printStream = PRETTY.getSimplePrinter(parameters, []);
+        val printStream = PRETTY.getSimplePrinter(parameters, [])
     in
         Code
         { 
@@ -343,7 +346,8 @@ struct
             procName         = name,
             printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
             printStream    = printStream,
-            stage1Code       = ref []
+            stage1Code       = ref [],
+            enterIntMode     = getEnterIntMode()
         }
     end
 
@@ -1295,11 +1299,21 @@ struct
         fun optimise code = peepHole(code, false, [])
     end
 
+    (* Generate the code sequence to enter the interpreter when this code is called or
+       returned to or an exception is raised.   This is only required when bootstrapping
+       a native code compiler. *)
+    fun genEnterInt(_, Code { enterIntMode = 0 (* None *), ...}) = []
+    |   genEnterInt(b, Code { enterIntMode = 1 (* X86_32 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx24, b]]
+    |   genEnterInt(b, Code { enterIntMode = 2 (* X86_64 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx48, b]]
+    |   genEnterInt(b, Code { enterIntMode = 3 (* X86_32_64 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx48, b]]
+    |   genEnterInt _ = raise InternalError "genEnterInt: unknown architecture value"
+
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun copyCode (cvec as
+    fun copyCode {code as
                     Code{ printAssemblyCode, printStream,
-                           procName, constVec, stage1Code, ...}, maxStack, resultClosure) =
+                           procName, constVec, stage1Code, ...}, maxStack, numberOfArguments, resultClosure} =
     let
+        val cvec = code
         local
             val revCode = optimise(List.rev(!stage1Code))
             (* Add a stack check.  This is only needed if the
@@ -1311,7 +1325,10 @@ struct
                 then revCode
                 else SimpleCode[opcode_stackSize16, Word8.fromInt maxStack, Word8.fromInt(maxStack div 256)] :: revCode
         end
-        val (byteVec, endIC) = genCode(codeList, cvec)
+        (* Add an enterInt if necessary *)
+        (* If we need enter-int code it must go first. *)
+        val enterInt = genEnterInt(Word8.fromInt numberOfArguments + 0wx80, cvec)
+        val (byteVec, endIC) = genCode(enterInt @ codeList, cvec)
         val wordLength = wordSize
   
         (* +3 for profile count, function name and constants count *)
@@ -1587,8 +1604,10 @@ struct
 
     |   genIndirect (arg1, cvec) = genIndirectSimple(arg1, cvec)
 
-    fun genEnterIntCatch _ = ()
-    and genEnterIntCall _ = ()
+    fun genEnterIntCatch(code as Code{stage1Code, ...}) =
+        stage1Code := genEnterInt(0wxff, code) @ !stage1Code
+    and genEnterIntCall(code as Code{stage1Code, ...}, args) =
+        stage1Code := genEnterInt(Word8.fromInt args, code) @ !stage1Code
 
     val opcode_notBoolean       = SimpleCode [opcode_notBoolean]
     val opcode_cellLength       = SimpleCode [opcode_cellLength]
