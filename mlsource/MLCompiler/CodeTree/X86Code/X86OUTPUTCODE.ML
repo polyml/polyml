@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-19
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-20
     
     Based on original code:    
     Copyright (c) 2000
@@ -34,7 +34,7 @@
  *)
 
 functor X86OUTPUTCODE (
-structure DEBUG: DEBUGSIG
+structure DEBUG: DEBUG
 structure PRETTY: PRETTYSIG (* for compilerOutTag *)
 structure CODE_ARRAY: CODEARRAYSIG
 

@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008, 2015.
+    Modified David C.J. Matthews 2008, 2015, 2020.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -58,7 +58,7 @@ sig
     { enterFix:  string * fixStatus -> unit, lookupFix: string -> fixStatus option } -> program
 end;
 
-structure DEBUG: DEBUGSIG
+structure DEBUG: DEBUG
 
 structure UTILITIES :
 sig

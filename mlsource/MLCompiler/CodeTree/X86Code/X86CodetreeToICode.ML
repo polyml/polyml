@@ -18,7 +18,7 @@
 functor X86CodetreeToICode(
     structure BACKENDTREE: BackendIntermediateCodeSig
     structure ICODE: ICodeSig
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
     structure X86FOREIGN: FOREIGNCALLSIG
     structure ICODETRANSFORM: X86ICODETRANSFORMSIG
     structure CODE_ARRAY: CODEARRAYSIG

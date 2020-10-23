@@ -19,7 +19,7 @@
 *)
 
 functor INTCODECONS (
-structure DEBUG: DEBUGSIG
+structure DEBUG: DEBUG
 
 structure PRETTY: PRETTYSIG
 

@@ -17,7 +17,7 @@
 
 functor CODETREE (
 
-structure DEBUG: DEBUGSIG
+structure DEBUG: DEBUG
 structure PRETTY : PRETTYSIG
 structure BASECODETREE: BaseCodeTreeSig
 structure CODETREE_FUNCTIONS: CodetreeFunctionsSig

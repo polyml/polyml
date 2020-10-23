@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2015 David C.J. Matthews
+    Copyright (c) 2013-2015, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,9 +21,6 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development:
-    Copyright (c) 2000-13 David C.J. Matthews
-
     Title:      Parse Tree Structure and Operations.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
     Copyright   Cambridge University 1985
@@ -43,7 +40,7 @@ functor CODEGEN_PARSETREE (
     structure STRUCTVALS : STRUCTVALSIG
     structure VALUEOPS : VALUEOPSSIG
     structure DATATYPEREP: DATATYPEREPSIG
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
 
     structure MISC :
     sig

@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008, 2013, 2015-16.
+    Modified David C.J. Matthews 2008, 2013, 2015-16, 2020.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -18,7 +18,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure Debug: DEBUGSIG =
+structure Debug: DEBUG =
 struct
     local
         open Universal

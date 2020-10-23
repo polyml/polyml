@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified D.C.J. Matthews 2001-2015
+    Modified D.C.J. Matthews 2001-2015, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -48,7 +48,7 @@ functor SIGNATURES (
         val univFold:   univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
     end;
 
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
 
     structure UTILITIES :
     sig

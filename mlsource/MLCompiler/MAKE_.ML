@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008-9, 2015-16.
+    Modified David C.J. Matthews 2008-9, 2015-16, 2020.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -47,7 +47,7 @@ sig
 end;
 
 structure STRUCTVALS : STRUCTVALSIG;
-structure DEBUG: DEBUGSIG
+structure DEBUG: DEBUG
 structure PRETTY: PRETTYSIG (* For compilerOutputTag *)
 structure LEX: LEXSIG (* For errorMessageProcTag *)
 

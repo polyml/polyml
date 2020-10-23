@@ -20,7 +20,7 @@ functor TYPEIDCODE (
     structure CODETREE : CODETREESIG
     structure TYPETREE : TYPETREESIG
     structure STRUCTVALS : STRUCTVALSIG
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
     structure PRETTY : PRETTYSIG
     structure ADDRESS : AddressSig
     

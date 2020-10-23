@@ -37,7 +37,7 @@ functor X86FOREIGNCALL(
         end
     end
 
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
     
     structure CODE_ARRAY: CODEARRAYSIG
 

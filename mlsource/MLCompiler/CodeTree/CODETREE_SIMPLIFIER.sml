@@ -38,7 +38,7 @@ functor CODETREE_SIMPLIFIER(
         structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
     end
 
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
 
     sharing
         BASECODETREE.Sharing

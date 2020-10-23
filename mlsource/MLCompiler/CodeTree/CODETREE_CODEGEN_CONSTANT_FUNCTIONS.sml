@@ -25,7 +25,7 @@ functor CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
     structure BASECODETREE: BaseCodeTreeSig
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
     structure BACKEND: CodegenTreeSig
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
     structure PRETTY : PRETTYSIG
     structure CODE_ARRAY: CODEARRAYSIG
 

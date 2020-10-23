@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-19 David C.J. Matthews
+    Copyright (c) 2016-20 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
 
 functor X86ICodeIdentifyReferences(
     structure ICODE: ICodeSig
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
     structure INTSET: INTSETSIG
 ): X86IDENTIFYREFSSIG =
 struct

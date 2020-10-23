@@ -31,7 +31,7 @@ use "mlsource/MLCompiler/PRETTYSIG.sml";
 use "mlsource/MLCompiler/LEXSIG.sml";
 use "mlsource/MLCompiler/SymbolsSig.sml";
 use "mlsource/MLCompiler/COMPILERBODYSIG.sml";
-use "mlsource/MLCompiler/DEBUGSIG.ML";
+use "mlsource/MLCompiler/DEBUG.sig";
 use "mlsource/MLCompiler/MAKESIG.sml";
 use "mlsource/MLCompiler/MAKE_.ML";
 use "mlsource/MLCompiler/FOREIGNCALLSIG.sml";

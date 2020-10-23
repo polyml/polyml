@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-17, 2020
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
 
 functor X86ICodeTransform(
     structure ICODE: ICodeSig
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
     structure CODEGEN: X86ICODEGENERATESIG
     structure ALLOCATE: X86ALLOCATEREGISTERSSIG
     structure IDENTIFY: X86IDENTIFYREFSSIG

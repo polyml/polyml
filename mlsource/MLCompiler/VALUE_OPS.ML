@@ -39,7 +39,7 @@ sig
     val app: (string * universal -> unit) -> univTable -> unit
 end;
 
-structure DEBUG : DEBUGSIG
+structure DEBUG : DEBUG
 
 structure MISC :
 sig

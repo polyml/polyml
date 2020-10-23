@@ -27,7 +27,7 @@ functor DEBUGGER_ (
     structure COPIER: COPIERSIG
     structure TYPEIDCODE: TYPEIDCODESIG
     structure LEX : LEXSIG
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
 
     structure UTILITIES :
     sig

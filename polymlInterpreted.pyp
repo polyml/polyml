@@ -133,10 +133,10 @@
 	<source name="mlsource\MLCompiler\DatatypeRep.ML" />
 	<source name="mlsource\MLCompiler\DATATYPEREPSIG.sml" />
 	<source name="mlsource\MLCompiler\Debug.ML" />
+	<source name="mlsource\MLCompiler\DEBUG.sig" />
 	<source name="mlsource\MLCompiler\DEBUGGER.sig" />
 	<source name="mlsource\MLCompiler\Debugger.sml" />
 	<source name="mlsource\MLCompiler\DEBUGGER_.sml" />
-	<source name="mlsource\MLCompiler\DEBUGSIG.ML" />
 	<source name="mlsource\MLCompiler\ExportTree.sml" />
 	<source name="mlsource\MLCompiler\EXPORTTREESIG.sml" />
 	<source name="mlsource\MLCompiler\ExportTreeStruct.sml" />

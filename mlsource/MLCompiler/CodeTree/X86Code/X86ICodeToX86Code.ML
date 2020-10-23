@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-19
+    Copyright David C. J. Matthews 2016-20
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -36,7 +36,7 @@ functor X86ICodeToX86Code(
         end
     end
 
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
     
     structure ICODE: ICodeSig
     structure IDENTIFY: X86IDENTIFYREFSSIG

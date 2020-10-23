@@ -35,7 +35,7 @@ functor CODETREE_LAMBDA_LIFT (
     structure BASECODETREE: BaseCodeTreeSig
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
     structure BACKEND: CodegenTreeSig
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
     structure PRETTY : PRETTYSIG
     structure CODE_ARRAY: CODEARRAYSIG
 

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2016 David C.J. Matthews
+    Copyright (c) 2013-2016, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,7 +16,7 @@
 *)
 
 (* Signature for debugging flags *)
-signature DEBUGSIG =
+signature DEBUG =
 sig
     val assemblyCodeTag : bool Universal.tag
     val bindingCounterTag : (unit -> FixedInt.int) Universal.tag

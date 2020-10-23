@@ -31,7 +31,7 @@ functor TYPE_TREE (
     structure PRETTY : PRETTYSIG
     structure CODETREE : CODETREESIG where type machineWord = Address.machineWord
     structure EXPORTTREE: EXPORTTREESIG;
-    structure DEBUG: DEBUGSIG
+    structure DEBUG: DEBUG
 
     structure UTILITIES :
     sig
