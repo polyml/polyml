@@ -56,6 +56,8 @@ public:
 
     virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes) {}
     virtual Architectures MachineArchitecture(void) = 0;
+
+    virtual void SetBootArchitecture(char arch, unsigned wordLength) {}
 };
 
 extern MachineDependent *machineDependent;

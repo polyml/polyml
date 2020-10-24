@@ -297,7 +297,15 @@ void PExport::exportStore(void)
 
     /* Start writing the information. */
     fprintf(exportFile, "Objects\t%" PRI_SIZET "\n", pMap.size());
-    fprintf(exportFile, "Root\t%" PRI_SIZET "\n", getIndex(rootFunction));
+    char arch = '?';
+    switch (machineDependent->MachineArchitecture())
+    {
+    case MA_Interpreted:
+        arch = 'I'; break;
+    case MA_I386: case MA_X86_64: case MA_X86_64_32:
+        arch = 'X'; break;
+    }
+    fprintf(exportFile, "Root\t%" PRI_SIZET " %c %u\n", getIndex(rootFunction), arch, (unsigned)sizeof(PolyWord));
 
     // Generate each of the areas.
     for (size_t i = 0; i < memTableEntries; i++)
@@ -517,6 +525,19 @@ bool PImport::DoImport()
     ASSERT(ch == 'R'); /* Root object number. */
     while (getc(f) != '\t') ;
     fscanf(f, "%" POLYUFMT, &nRoot);
+    do { ch = getc(f); } while (ch == ' ' || ch == '\t');
+    // Older versions did not have the architecture and word length.
+    if (ch != '\r' && ch != '\n')
+    {
+        unsigned wordLength;
+        while (ch == ' ' || ch == '\t') ch = getc(f);
+        char arch = ch;
+        ch = getc(f);
+        fscanf(f, "%u", &wordLength);
+        // If we're booting a native code version from interpreted
+        // code we have to interpret.
+        machineDependent->SetBootArchitecture(arch, wordLength);
+    }
 
     /* Now the objects themselves. */
     while (1)
