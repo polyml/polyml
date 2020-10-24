@@ -224,7 +224,12 @@ void PExport::printObject(PolyObject *p)
     }
     else // Ordinary objects, essentially tuples, or closures.
     {
-        fprintf(exportFile, "%c%" POLYUFMT "|", p->IsClosureObject() ? 'L' : 'O', length);
+        if (p->IsClosureObject())
+        {
+            POLYUNSIGNED nItems = length - sizeof(PolyObject*) / sizeof(PolyWord) + 1;
+            fprintf(exportFile, "C%" POLYUFMT "|", nItems); // Number of items
+        }
+        else fprintf(exportFile, "O%" POLYUFMT "|", length);
         if (p->IsClosureObject())
         {
             // The first word is always a code address.
@@ -588,7 +593,6 @@ bool PImport::DoImport()
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord) + 1;
             break;
 
-        case 'C': /* Code segment (old form). */
         case 'D': /* Code segment (new form). */
             objBits |= F_CODE_OBJ;
             /* Read the number of bytes of code and the number of words
@@ -599,9 +603,15 @@ bool PImport::DoImport()
             nWords += (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
             break;
 
-        case 'L': // Closure
+        case 'C': // Closure
             objBits |= F_CLOSURE_OBJ;
-            fscanf(f, "%" POLYUFMT, &nWords);
+            fscanf(f, "%" POLYUFMT, &nWords); // This is the number of items.
+            nWords += sizeof(PolyObject*) / sizeof(PolyWord) - 1;
+            break;
+
+        case 'L': // Legacy closure
+            objBits |= F_CLOSURE_OBJ;
+            fscanf(f, "%" POLYUFMT, &nWords); // This was the number of words.
             break;
 
         case 'K': // Single weak reference
@@ -671,11 +681,13 @@ bool PImport::DoImport()
         switch (ch)
         {
         case 'O': /* Simple object. */
-        case 'L': // Closure
+        case 'C': // Closure
+        case 'L': // Legacy closure
         {
             POLYUNSIGNED nWords;
-            bool isClosure = ch == 'L';
+            bool isClosure = ch == 'C' || ch == 'L';
             fscanf(f, "%" POLYUFMT, &nWords);
+            if (ch == 'C') nWords += sizeof(PolyObject*) / sizeof(PolyWord) - 1;
             ch = getc(f);
             ASSERT(ch == '|');
             ASSERT(nWords == p->Length());
@@ -749,7 +761,6 @@ bool PImport::DoImport()
                 break;
             }
 
-        case 'C': /* Code segment. */
         case 'D':
             {
                 bool oldForm = ch == 'C';
