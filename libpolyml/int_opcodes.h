@@ -162,6 +162,7 @@
 #define INSTR_jumpNEqLocal          0xc5
 #define INSTR_indirect0Local0       0xc6
 #define INSTR_indirectLocalB0       0xc7
+#define INSTR_closureB              0xd0
 #define INSTR_getThreadId       0xd9
 #define INSTR_allocWordMemory   0xda
 #define INSTR_loadMLWordLegacy        0xdb
@@ -251,6 +252,7 @@
 #define EXTINSTR_lgWordShiftRLog    0xcd
 #define EXTINSTR_lgWordShiftRArith  0xce
 #define EXTINSTR_realEqual          0xcf
+#define EXTINSTR_closureW           0xd0
 #define EXTINSTR_realLess           0xd1
 #define EXTINSTR_realLessEq         0xd2
 #define EXTINSTR_realGreater        0xd3

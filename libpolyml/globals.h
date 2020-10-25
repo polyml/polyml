@@ -2,12 +2,10 @@
     Title:  Globals for the system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright David C. J. Matthews 2017-19
+    Copyright David C. J. Matthews 2017-20
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-
-     Further work copyright David C.J. Matthews 2006-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -358,6 +356,21 @@ public:
         else return this;
     }
 };
+
+// Stacks are native-words size even in 32-in-64.
+union stackItem
+{
+    stackItem(PolyWord v) { argValue = v.AsUnsigned(); }
+    stackItem() { argValue = TAGGED(0).AsUnsigned(); }
+
+    // These return the low order word.
+    PolyWord w()const { return PolyWord::FromUnsigned((POLYUNSIGNED)argValue); }
+    operator PolyWord () { return PolyWord::FromUnsigned((POLYUNSIGNED)argValue); }
+    POLYCODEPTR codeAddr; // Return addresses
+    stackItem* stackAddr; // Stack addresses
+    uintptr_t argValue; // Treat an address as an int
+};
+
 
 /* There was a problem with version 2.95 on Sparc/Solaris at least.  The PolyObject
    class has no members so classes derived from it e.g. ML_Cons_Cell should begin at

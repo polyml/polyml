@@ -136,31 +136,6 @@ struct fpSaveArea {
 #define OVERFLOW_STACK_SIZE 50
 #endif
 
-union stackItem
-{
-/*
-#ifndef POLYML32IN64
-    stackItem(PolyWord v) { words[0] = v.AsUnsigned(); };
-    stackItem() { words[0] = TAGGED(0).AsUnsigned(); }
-    POLYUNSIGNED words[1];
-#else
-    // In 32-in-64 we need to clear the second PolyWord.  This assumes little-endian.
-    stackItem(PolyWord v) { words[0] = v.AsUnsigned(); words[1] = 0; };
-    stackItem() { words[0]  = TAGGED(0).AsUnsigned(); words[1] = 0; }
-    POLYUNSIGNED words[2];
-#endif
-   */
-    stackItem(PolyWord v) { argValue = v.AsUnsigned(); }
-    stackItem() { argValue = TAGGED(0).AsUnsigned(); }
-
-    // These return the low order word.
-    PolyWord w()const { return PolyWord::FromUnsigned((POLYUNSIGNED)argValue); }
-    operator PolyWord () { return PolyWord::FromUnsigned((POLYUNSIGNED)argValue); }
-    POLYCODEPTR codeAddr; // Return addresses
-    stackItem *stackAddr; // Stack addresses
-    uintptr_t argValue; // Treat an address as an int
-};
-
 class X86TaskData;
 
 // This is passed as the argument vector to X86AsmSwitchToPoly.
