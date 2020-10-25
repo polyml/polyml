@@ -160,6 +160,7 @@ sig
    and genIndirectContainer:    int * code -> unit
    and genMoveToContainer:      int * code -> unit
    and genMoveToMutClosure:     int * code -> unit
+   and genClosure:              int * code -> unit
    
    val genDoubleToFloat: IEEEReal.rounding_mode option * code -> unit
    and genRealToInt:   IEEEReal.rounding_mode * code -> unit

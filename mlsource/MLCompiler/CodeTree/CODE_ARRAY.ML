@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2017, 2019 David C.J. Matthews
+    Copyright (c) 2017, 2019, 2020 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -38,10 +38,14 @@ struct
     fun makeConstantClosure (): closureRef =
     let
         open Address
+        (* This is used during the bootstrap on the interpreted version so
+           we need to get the native word size when the code is run.
+           The compiler does not (currently) treated the ! ref as an identity
+           operation. *)
+        val wordsPerNativeWord =
+            length(toAddress(toMachineWord(LargeWord.fromInt(!(ref 0)))))
     in
-        if nativeWordSize <> wordSize
-        then (* 32-in-64 *) allocWordData(nativeWordSize div wordSize, Word8.orb(F_mutable, F_closure), toMachineWord 0w0)
-        else allocWordData(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w0)
+        allocWordData(wordsPerNativeWord, Word8.orb(F_mutable, F_closure), toMachineWord 0w0)
     end
 
     fun codeAddressFromClosure closure =

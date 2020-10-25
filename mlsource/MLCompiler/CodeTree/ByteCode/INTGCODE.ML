@@ -679,7 +679,6 @@ struct
 
         |   BICLoadOperation { kind=LoadStoreC64, address} =>
             (
-                wordSize = 0w8 orelse raise InternalError "LoadStoreC64 but not 64-bit mode";
                 genCAddress address;
                 genOpcode(opcode_loadC64, cvec);
                 decsp(); decsp()
@@ -899,13 +898,13 @@ struct
             val newCode = codeCreate (name, parameters)
             (* Code-gen function. *)
             val () = codegen (body, newCode, resClosure, List.length argTypes, localCount, parameters)
-            val sizeOfClosure = List.length closure + 1;
+            val closureVars = List.length closure (* Size excluding the code address *)
         in
             if mutualDecs
             then
             let (* Have to make the closure now and fill it in later. *)
                 val () = pushConst(toMachineWord resClosure, cvec)
-                val () = genAllocMutableClosure(List.length closure, cvec)
+                val () = genAllocMutableClosure(closureVars, cvec)
                 val () = incsp ()
            
                 val entryAddr : int = !realstackptr
@@ -941,12 +940,12 @@ struct
             else
             let
                 (* Put it on the stack. *)
-                val () = pushConst (codeAddressFromClosure resClosure, cvec)
+                val () = pushConst (toMachineWord resClosure, cvec)
                 val () = incsp ()
                 val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
-                val () = genTuple (sizeOfClosure, cvec)
+                val () = genClosure (closureVars, cvec)
             in
-                realstackptr := !realstackptr - (sizeOfClosure - 1)
+                realstackptr := !realstackptr - closureVars
             end
         end
 

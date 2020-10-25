@@ -184,6 +184,7 @@ struct
     and opcode_jumpNEqLocal      = 0wxc5
     and opcode_indirect0Local0   = 0wxc6
     and opcode_indirectLocalB0   = 0wxc7
+    and opcode_closureB          = 0wxd0
     and opcode_getThreadId       = 0wxd9
     and opcode_allocWordMemory   = 0wxda
     and opcode_loadMLByte        = 0wxdc
@@ -268,6 +269,7 @@ struct
     and ext_opcode_lgWordShiftRLog   = 0wxcd
     and ext_opcode_lgWordShiftRArith = 0wxce
     and ext_opcode_realEqual         = 0wxcf
+    and ext_opcode_closureW          = 0wxd0
     and ext_opcode_realLess          = 0wxd1
     and ext_opcode_realLessEq        = 0wxd2
     and ext_opcode_realGreater       = 0wxd3
@@ -577,6 +579,7 @@ struct
                 |   0wxc5 => (printOp(1, "jumpNEqLocal\t"); printOp(1, ","); printOp(1, ","); printDisp(1, "\t"))
                 |   0wxc6 => printStream "indirect0Local0"
                 |   0wxc7 => printOp(1, "indirectLocalB0\t")
+                |   0wxd0 => printOp(1, "closureB\t")
                 |   0wxd9 => printStream "getThreadId"
                 |   0wxda => printStream "allocWordMemory"
                 |   0wxdc => printStream "loadMLByte"
@@ -661,6 +664,7 @@ struct
                         |   0wxcd => printStream "lgWordShiftRLog"
                         |   0wxce => printStream "lgWordShiftRArith"
                         |   0wxcf => printStream "realEqual"
+                        |   0wxd0 => printOp(2, "closureW\t")
                         |   0wxd1 => printStream "realLess"
                         |   0wxd2 => printStream "realLessEq"
                         |   0wxd3 => printStream "realGreater"
@@ -1546,7 +1550,7 @@ struct
             if arg1 < 256
             then genOpcByte(opcode_moveToMutClosureB, arg1, cvec)
             else genExtOpcWord(ext_opcode_moveToMutClosureW, arg1, cvec)
-        
+
         fun genSetStackVal (arg1, cvec) =
             if arg1 < 256
             then genOpcByte(opcode_setStackValB, arg1, cvec)
@@ -1564,6 +1568,11 @@ struct
             if closureSize < 256
             then genOpcByte(opcode_allocMutClosureB, closureSize, cvec)
             else genExtOpcWord(ext_opcode_allocMutClosureW, closureSize, cvec)
+
+        fun genClosure (arg1, cvec) =
+            if arg1 < 256
+            then genOpcByte(opcode_closureB, arg1, cvec)
+            else genExtOpcWord(ext_opcode_closureW, arg1, cvec)
 
         fun genLocal (arg1, cvec) =
             if 0 <= arg1 andalso arg1 < 256 then addItemToList(LoadLocal(Word8.fromInt arg1), cvec)
