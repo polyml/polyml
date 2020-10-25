@@ -602,7 +602,18 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="bytecode.cpp" />
     <ClCompile Include="gc_progress.cpp" />
+    <ClCompile Include="intepreter.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="osmemwin.cpp" />
     <ClCompile Include="winbasicio.cpp" />
     <ClCompile Include="bitmap.cpp" />
@@ -619,24 +630,6 @@
     <ClCompile Include="gc_share_phase.cpp" />
     <ClCompile Include="gc_update_phase.cpp" />
     <ClCompile Include="heapsizing.cpp" />
-    <ClCompile Include="interpret.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">false</ExcludedFromBuild>
-    </ClCompile>
     <ClCompile Include="locking.cpp" />
     <ClCompile Include="memmgr.cpp" />
     <ClCompile Include="mpoly.cpp" />
@@ -702,6 +695,7 @@
     <ClInclude Include="arb.h" />
     <ClInclude Include="basicio.h" />
     <ClInclude Include="bitmap.h" />
+    <ClInclude Include="bytecode.h" />
     <ClInclude Include="check_objects.h" />
     <ClInclude Include="gc_progress.h" />
     <ClInclude Include="winguiconsole.h" />

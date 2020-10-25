@@ -29,10 +29,11 @@
 #error "No configuration file"
 #endif
 
+/*
 #ifdef HAVE_STDIO_H
 #include <stdio.h>
 #endif
-
+*/
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x) assert(x)
@@ -40,6 +41,7 @@
 #define ASSERT(x) 0
 #endif
 
+/*
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
@@ -51,8 +53,9 @@
 #ifdef HAVE_MATH_H
 #include <math.h>
 #endif
-
+*/
 #include <cmath> // Currently just for isnan.
+
 
 #include "globals.h"
 #include "int_opcodes.h"
@@ -70,6 +73,7 @@
 #include "memmgr.h"
 #include "scanaddrs.h"
 #include "rtsentry.h"
+#include "bytecode.h"
 
 #if (SIZEOF_VOIDP == 8 && !defined(POLYML32IN64))
 #define IS64BITS 1
@@ -116,163 +120,7 @@ union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 
 union flt { float fl; int32_t i; };
 
-class IntTaskData: public TaskData {
-public:
-    IntTaskData();
-    ~IntTaskData();
-
-    virtual void GarbageCollect(ScanAddress *process);
-    void ScanStackAddress(ScanAddress *process, stackItem& val, StackSpace *stack);
-    virtual void EnterPolyCode(); // Start running ML
-
-    // Switch to Poly and return with the io function to call.
-    int SwitchToPoly();
-    virtual void SetException(poly_exn *exc);
-    virtual void InterruptCode();
-
-    // AddTimeProfileCount is used in time profiling.
-    virtual bool AddTimeProfileCount(SIGNALCONTEXT *context);
-
-    virtual void InitStackFrame(TaskData *newTask, Handle proc, Handle arg);
-
-    // Increment or decrement the first word of the object pointed to by the
-    // mutex argument and return the new value.
-    virtual Handle AtomicDecrement(Handle mutexp);
-    // Set a mutex to zero.
-    virtual void AtomicReset(Handle mutexp);
-
-    // Return the minimum space occupied by the stack.   Used when setting a limit.
-    virtual uintptr_t currentStackSpace(void) const { return ((stackItem*)this->stack->top - this->taskSp) + OVERFLOW_STACK_SIZE; }
-
-    virtual void addProfileCount(POLYUNSIGNED words) { addSynchronousCount(taskPc, words); }
-
-    virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
-
-    bool interrupt_requested;
-
-    // Allocate memory on the heap.  Returns with the address of the cell. Does not set the
-    // length word or any of the data.
-    PolyObject *allocateMemory(POLYUNSIGNED words, POLYCODEPTR &pc, stackItem *&sp)
-    {
-        words++; // Add the size of the length word.
-        // N.B. The allocation area may be empty so that both of these are zero.
-        if (this->allocPointer >= this->allocLimit + words + 1)
-        {
-#ifdef POLYML32IN64
-            if (words & 1) words++;
-#endif
-            this->allocPointer -= words;
-            return (PolyObject *)(this->allocPointer+1);
-        }
-        // Insufficient space.
-        SaveInterpreterState(pc, sp);
-        // Find some space to allocate in. Returns a pointer to the newly allocated space.
-        // N.B. This may return zero if the heap is exhausted and it has set this
-        // up for an exception.  Generally it allocates by decrementing allocPointer
-        // but if the required memory is large it may allocate in a separate area.
-        PolyWord *space = processes->FindAllocationSpace(this, words, true);
-        LoadInterpreterState(pc, sp);
-        if (space == 0) return 0;
-        return (PolyObject *)(space+1);
-    }
-
-    // Put a real result in a "box"
-    PolyObject *boxDouble(double d, POLYCODEPTR &pc, stackItem*&sp)
-    {
-        PolyObject *mem = this->allocateMemory(DOUBLESIZE, pc, sp);
-        if (mem == 0) return 0;
-        mem->SetLengthWord(DOUBLESIZE, F_BYTE_OBJ);
-        union realdb uniondb;
-        uniondb.dble = d;
-        // Copy the words.  Depending on the word length this may copy one or more words.
-        for (unsigned i = 0; i < DOUBLESIZE; i++)
-            mem->Set(i, PolyWord::FromUnsigned(uniondb.puns[i]));
-        return mem;
-    }
-
-    // Extract a double value from a box.
-    double unboxDouble(PolyWord p)
-    {
-        union realdb uniondb;
-        for (unsigned i = 0; i < DOUBLESIZE; i++)
-            uniondb.puns[i] = p.AsObjPtr()->Get(i).AsUnsigned();
-        return uniondb.dble;
-    }
-
-    // Largely copied from reals.cpp
-
-#if (SIZEOF_FLOAT < SIZEOF_POLYWORD)
-
-    // Typically for 64-bit mode.  Use a tagged representation.
-    // The code-generator on the X86/64 assumes the float is in the
-    // high order word.
-#define FLT_SHIFT ((SIZEOF_POLYWORD-SIZEOF_FLOAT)*8)
-    float unboxFloat(PolyWord p)
-    {
-        union flt argx;
-        argx.i = p.AsSigned() >> FLT_SHIFT;
-        return argx.fl;
-    }
-
-    PolyObject *boxFloat(float f, POLYCODEPTR &pc, stackItem*&sp)
-    {
-        union flt argx;
-        argx.fl = f;
-        PolyWord p = PolyWord::FromSigned(((POLYSIGNED)argx.i << FLT_SHIFT) + 1);
-        return p.AsObjPtr(); // Temporarily cast it to this even though it isn't really
-    }
-#else
-    // Typically for 32-bit mode.  Use a boxed representation.
-    PolyObject *boxFloat(float f, POLYCODEPTR &pc, stackItem*&sp)
-    {
-        PolyObject *mem = this->allocateMemory(1, pc, sp);
-        if (mem == 0) return 0;
-        mem->SetLengthWord(1, F_BYTE_OBJ);
-        union flt argx;
-        argx.fl = f;
-        mem->Set(0, PolyWord::FromSigned(argx.i));
-        return mem;
-    }
-
-    // Extract a double value from a box.
-    float unboxFloat(PolyWord p)
-    {
-        union flt argx;
-        argx.i = (int32_t)p.AsObjPtr()->Get(0).AsSigned();
-        return argx.fl;
-    }
-
-#endif
-
-    // Update the copies in the task object
-    void SaveInterpreterState(POLYCODEPTR pc, stackItem*sp)
-    {
-        taskPc = pc;
-        taskSp = sp;
-    }
-
-    // Update the local state
-    void LoadInterpreterState(POLYCODEPTR &pc, stackItem*&sp)
-    {
-        pc = taskPc;
-        sp = taskSp;
-    }
-
-    POLYCODEPTR     taskPc; /* Program counter. */
-    stackItem       *taskSp; /* Stack pointer. */
-    stackItem       *hr;
-    stackItem       exception_arg;
-    bool            raiseException;
-    stackItem       *sl; /* Stack limit register. */
-
-    PolyObject      *overflowPacket, *dividePacket;
-
-#ifdef PROFILEOPCODES
-    unsigned frequency[256], arg1Value[256], arg2Value[256];
-#endif
-};
-
-IntTaskData::IntTaskData() : interrupt_requested(false), overflowPacket(0), dividePacket(0)
+ByteCodeInterpreter::ByteCodeInterpreter() : overflowPacket(0), dividePacket(0)
 {
 #ifdef PROFILEOPCODES
     memset(frequency, 0, sizeof(frequency));
@@ -281,7 +129,7 @@ IntTaskData::IntTaskData() : interrupt_requested(false), overflowPacket(0), divi
 #endif
 }
 
-IntTaskData::~IntTaskData()
+ByteCodeInterpreter::~ByteCodeInterpreter()
 {
 #ifdef PROFILEOPCODES
     OutputDebugStringA("Frequency\n");
@@ -325,45 +173,6 @@ static PLock mutexLock;
 // Special value for return address.
 #define SPECIAL_PC_END_THREAD           ((POLYCODEPTR)0)
 
-class Interpreter : public MachineDependent {
-public:
-    Interpreter() {}
-
-    // Create a task data object.
-    virtual TaskData *CreateTaskData(void) { return new IntTaskData(); }
-    virtual Architectures MachineArchitecture(void) { return MA_Interpreted; }
-};
-
-void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
-/* Initialise stack frame. */
-{
-    StackSpace *space = this->stack;
-    StackObject *stack = (StackObject *)space->stack();
-    PolyObject *closure = DEREFWORDHANDLE(proc);
-    uintptr_t stack_size = space->spaceSize() * sizeof(PolyWord) / sizeof(stackItem);
-    this->taskPc = *(POLYCODEPTR*)closure;
-
-    this->exception_arg = TAGGED(0); /* Used for exception argument. */
-    this->taskSp = (stackItem*)stack + stack_size;
-    this->raiseException = false;
-
-    /* Set up exception handler */
-    /* No previous handler so point it at itself. */
-    this->taskSp--;
-    this->taskSp->stackAddr = this->taskSp;
-    (--this->taskSp)->codeAddr = SPECIAL_PC_END_THREAD; /* Default return address. */
-    this->hr = this->taskSp;
-
-    /* If this function takes an argument store it on the stack. */
-    if (arg != 0) *(--this->taskSp) = DEREFWORD(arg);
-
-    (*(--this->taskSp)).codeAddr = SPECIAL_PC_END_THREAD; /* Return address. */
-    *(--this->taskSp) = (PolyWord)closure; /* Closure address */
-
-    // Make packets for exceptions.             
-    overflowPacket = makeExceptionPacket(parentTask, EXC_overflow);
-    dividePacket = makeExceptionPacket(parentTask, EXC_divide);
-}
 
 extern "C" {
     typedef POLYUNSIGNED(*callFastRts0)();
@@ -386,25 +195,111 @@ extern "C" {
     typedef float(*callRTSFGtoF) (float, intptr_t);
 }
 
-void IntTaskData::InterruptCode()
-/* Stop the Poly code at a suitable place. */
-/* We may get an asynchronous interrupt at any time. */
+
+// Allocate memory on the heap.  Returns with the address of the cell. Does not set the
+// length word or any of the data.
+PolyObject* ByteCodeInterpreter::allocateMemory(TaskData * taskData, POLYUNSIGNED words, POLYCODEPTR& pc, stackItem*& sp)
 {
-    IntTaskData *itd = (IntTaskData *)this;
-    itd->interrupt_requested = true;
+    words++; // Add the size of the length word.
+    // N.B. The allocation area may be empty so that both of these are zero.
+    if (taskData->allocPointer >= taskData->allocLimit + words + 1)
+    {
+#ifdef POLYML32IN64
+        if (words & 1) words++;
+#endif
+        taskData->allocPointer -= words;
+        return (PolyObject*)(taskData->allocPointer + 1);
+    }
+    // Insufficient space.
+    SaveInterpreterState(pc, sp);
+    // Find some space to allocate in. Returns a pointer to the newly allocated space.
+    // N.B. This may return zero if the heap is exhausted and it has set this
+    // up for an exception.  Generally it allocates by decrementing allocPointer
+    // but if the required memory is large it may allocate in a separate area.
+    PolyWord* space = processes->FindAllocationSpace(taskData, words, true);
+    LoadInterpreterState(pc, sp);
+    if (space == 0) return 0;
+    return (PolyObject*)(space + 1);
 }
 
-
-void IntTaskData::SetException(poly_exn *exc)
-/* Set up the stack of a process to raise an exception. */
+// Put a real result in a "box"
+PolyObject* ByteCodeInterpreter::boxDouble(TaskData* taskData, double d, POLYCODEPTR& pc, stackItem*& sp)
 {
-    this->raiseException = true;
-    *(--this->taskSp) = (PolyWord)exc; /* push exception data */
+    PolyObject* mem = this->allocateMemory(taskData, DOUBLESIZE, pc, sp);
+    if (mem == 0) return 0;
+    mem->SetLengthWord(DOUBLESIZE, F_BYTE_OBJ);
+    union realdb uniondb;
+    uniondb.dble = d;
+    // Copy the words.  Depending on the word length this may copy one or more words.
+    for (unsigned i = 0; i < DOUBLESIZE; i++)
+        mem->Set(i, PolyWord::FromUnsigned(uniondb.puns[i]));
+    return mem;
 }
 
-int IntTaskData::SwitchToPoly()
+// Extract a double value from a box.
+double ByteCodeInterpreter::unboxDouble(PolyWord p)
+{
+    union realdb uniondb;
+    for (unsigned i = 0; i < DOUBLESIZE; i++)
+        uniondb.puns[i] = p.AsObjPtr()->Get(i).AsUnsigned();
+    return uniondb.dble;
+}
+
+// Largely copied from reals.cpp
+
+#if (SIZEOF_FLOAT < SIZEOF_POLYWORD)
+
+    // Typically for 64-bit mode.  Use a tagged representation.
+    // The code-generator on the X86/64 assumes the float is in the
+    // high order word.
+#define FLT_SHIFT ((SIZEOF_POLYWORD-SIZEOF_FLOAT)*8)
+float ByteCodeInterpreter::unboxFloat(PolyWord p)
+{
+    union flt argx;
+    argx.i = p.AsSigned() >> FLT_SHIFT;
+    return argx.fl;
+}
+
+PolyObject* ByteCodeInterpreter::boxFloat(TaskData* taskData, float f, POLYCODEPTR& pc, stackItem*& sp)
+{
+    union flt argx;
+    argx.fl = f;
+    PolyWord p = PolyWord::FromSigned(((POLYSIGNED)argx.i << FLT_SHIFT) + 1);
+    return p.AsObjPtr(); // Temporarily cast it to this even though it isn't really
+}
+#else
+    // Typically for 32-bit mode.  Use a boxed representation.
+PolyObject* ByteCodeInterpreter::boxFloat(TaskData* taskData, float f, POLYCODEPTR& pc, stackItem*& sp)
+{
+    PolyObject* mem = this->allocateMemory(taskData, 1, pc, sp);
+    if (mem == 0) return 0;
+    mem->SetLengthWord(1, F_BYTE_OBJ);
+    union flt argx;
+    argx.fl = f;
+    mem->Set(0, PolyWord::FromSigned(argx.i));
+    return mem;
+}
+
+// Extract a double value from a box.
+float ByteCodeInterpreter::unboxFloat(PolyWord p)
+{
+    union flt argx;
+    argx.i = (int32_t)p.AsObjPtr()->Get(0).AsSigned();
+    return argx.fl;
+}
+
+#endif
+
+
+int ByteCodeInterpreter::RunInterpreter(TaskData *taskData)
 /* (Re)-enter the Poly code from C. */
 {
+    // Make packets for exceptions. 
+    if (overflowPacket == 0)
+        overflowPacket = makeExceptionPacket(taskData, EXC_overflow);
+    if (dividePacket == 0)
+        dividePacket = makeExceptionPacket(taskData, EXC_divide);
+
     // Local values.  These are copies of member variables but are used so frequently that
     // it is important that access should be fast.
     POLYCODEPTR     pc;
@@ -412,10 +307,8 @@ int IntTaskData::SwitchToPoly()
 
     LoadInterpreterState(pc, sp);
 
-    sl = (stackItem*)((PolyWord*)this->stack->stack() + OVERFLOW_STACK_SIZE);
-
     // We may have taken an interrupt which has set an exception.
-    if (this->raiseException) goto RAISE_EXCEPTION;
+    if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
 
     for(;;){ /* Each instruction */
 #if (0)
@@ -471,27 +364,27 @@ int IntTaskData::SwitchToPoly()
             pc += arg1 + 2; break;
 
         case INSTR_push_handler: /* Save the old handler value. */
-            (*(--sp)).stackAddr = this->hr; /* Push old handler */
+            (*(--sp)).stackAddr = GetHandlerRegister(); /* Push old handler */
             break;
 
         case INSTR_setHandler8: /* Set up a handler */
             (*(--sp)).codeAddr = pc + *pc + 1; /* Address of handler */
-            this->hr = sp;
+            SetHandlerRegister(sp);
             pc += 1;
             break;
 
         case INSTR_setHandler16: /* Set up a handler */
             (*(--sp)).codeAddr = pc + arg1 + 2; /* Address of handler */
-            this->hr = sp;
+            SetHandlerRegister(sp);
             pc += 2;
             break;
 
         case INSTR_deleteHandler: /* Delete handler retaining the result. */
         {
             stackItem u = *sp++;
-            sp = this->hr;
+            sp = GetHandlerRegister();
             sp++; // Remove handler entry point
-            this->hr = (*sp).stackAddr; // Restore old handler
+            SetHandlerRegister((*sp).stackAddr); // Restore old handler
             *sp = u; // Put back the result
             break;
         }
@@ -550,7 +443,7 @@ int IntTaskData::SwitchToPoly()
             (--sp)->codeAddr = pc; /* Save return address. */
             *(--sp) = (PolyWord)closure;
             pc = *(POLYCODEPTR*)closure;    /* Get entry point. */
-            this->taskPc = pc; // Update in case we're profiling
+            SaveInterpreterState(pc, sp); // Update in case we're profiling
             // Check that there at least 128 words on the stack
             stackCheck = 128;
             goto STACKCHECK;
@@ -578,9 +471,9 @@ int IntTaskData::SwitchToPoly()
                 pc = (*sp++).codeAddr; /* Return address */
                 sp += returnCount; /* Add on number of args. */
                 if (pc == SPECIAL_PC_END_THREAD)
-                    exitThread(this); // This thread is exiting.
+                    exitThread(taskData); // This thread is exiting.
                 *(--sp) = result; /* Result */
-                this->taskPc = pc; // Update in case we're profiling
+                SaveInterpreterState(pc, sp); // Update in case we're profiling
             }
             break;
 
@@ -599,19 +492,15 @@ int IntTaskData::SwitchToPoly()
             stackCheck = arg1; pc += 2;
         STACKCHECK:
             // Check there is space on the stack
-            if (sp - stackCheck < sl)
+            if (sp - stackCheck < StackLimit())
             {
-                uintptr_t min_size = (this->stack->top - (PolyWord*)sp) + OVERFLOW_STACK_SIZE + stackCheck;
                 SaveInterpreterState(pc, sp);
-                CheckAndGrowStack(this, min_size);
+                GrowStack(stackCheck);
                 LoadInterpreterState(pc, sp);
-                sl = (stackItem*)this->stack->stack() + OVERFLOW_STACK_SIZE;
             }
             // Also check for interrupts
-            if (this->interrupt_requested)
+            if (WasInterrupted())
             {
-                // Check for interrupts
-                this->interrupt_requested = false;
                 SaveInterpreterState(pc, sp);
                 return -1;
             }
@@ -620,15 +509,14 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_raise_ex:
         {
-            RAISE_EXCEPTION:
-            this->raiseException = false;
             PolyException *exn = (PolyException*)((*sp).w().AsObjPtr());
-            this->exception_arg = (PolyWord)exn; /* Get exception data */
-            sp = this->hr;
+            taskData->SetException(exn);
+        RAISE_EXCEPTION:
+            sp = GetHandlerRegister();
             pc = (*sp++).codeAddr;
             if (pc == SPECIAL_PC_END_THREAD)
-                exitThread(this);  // Default handler for thread.
-            this->hr = (*sp++).stackAddr;
+                exitThread(taskData);  // Default handler for thread.
+            SetHandlerRegister((*sp++).stackAddr);
             break;
         }
 
@@ -660,10 +548,9 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_jump_back8:
             pc -= *pc + 1;
-            if (this->interrupt_requested)
+            if (WasInterrupted())
             {
                 // Check for interrupt in case we're in a loop
-                this->interrupt_requested = false;
                 SaveInterpreterState(pc, sp);
                 return -1;
             }
@@ -671,10 +558,9 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_jump_back16:
             pc -= arg1 + 1;
-            if (this->interrupt_requested)
+            if (WasInterrupted())
             {
                 // Check for interrupt in case we're in a loop
-                this->interrupt_requested = false;
                 SaveInterpreterState(pc, sp);
                 return -1;
             }
@@ -687,7 +573,7 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_ldexc: *(--sp) = this->exception_arg; break;
+        case INSTR_ldexc: *(--sp) = GetExceptionPacket(); break;
 
         case INSTR_local_b: { stackItem u = sp[*pc]; *(--sp) = u; pc += 1; break; }
 
@@ -802,7 +688,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_tuple_containerLegacy: /* Create a tuple from a container. */
             {
                 storeWords = arg1;
-                PolyObject *t = this->allocateMemory(storeWords, pc, sp);
+                PolyObject *t = this->allocateMemory(taskData, storeWords, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(storeWords, 0);
                 for(; storeWords > 0; )
@@ -818,12 +704,12 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFastRTS0:
             {
                 callFastRts0 doCall = *(callFastRts0*)(*sp++).w().AsObjPtr();
-                this->raiseException = false;
+                ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall();
                 LoadInterpreterState(pc, sp);
                 // If this raised an exception 
-                if (this->raiseException) goto RAISE_EXCEPTION;
+                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -832,12 +718,12 @@ int IntTaskData::SwitchToPoly()
             {
                 callFastRts1 doCall = *(callFastRts1*)(*sp++).w().AsObjPtr();
                 intptr_t rtsArg1 = (*sp++).argValue;
-                this->raiseException = false;
+                ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1);
                 LoadInterpreterState(pc, sp);
                 // If this raised an exception 
-                if (this->raiseException) goto RAISE_EXCEPTION;
+                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -847,12 +733,12 @@ int IntTaskData::SwitchToPoly()
                 callFastRts2 doCall = *(callFastRts2*)(*sp++).w().AsObjPtr();
                 intptr_t rtsArg2 = (*sp++).argValue; // Pop off the args, last arg first.
                 intptr_t rtsArg1 = (*sp++).argValue;
-                this->raiseException = false;
+                ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2);
                 LoadInterpreterState(pc, sp);
                 // If this raised an exception 
-                if (this->raiseException) goto RAISE_EXCEPTION;
+                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -863,12 +749,12 @@ int IntTaskData::SwitchToPoly()
                 intptr_t rtsArg3 = (*sp++).argValue; // Pop off the args, last arg first.
                 intptr_t rtsArg2 = (*sp++).argValue;
                 intptr_t rtsArg1 = (*sp++).argValue;
-                this->raiseException = false;
+                ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3);
                 LoadInterpreterState(pc, sp);
                 // If this raised an exception 
-                if (this->raiseException) goto RAISE_EXCEPTION;
+                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -880,12 +766,12 @@ int IntTaskData::SwitchToPoly()
                 intptr_t rtsArg3 = (*sp++).argValue;
                 intptr_t rtsArg2 = (*sp++).argValue;
                 intptr_t rtsArg1 = (*sp++).argValue;
-                this->raiseException = false;
+                ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4);
                 LoadInterpreterState(pc, sp);
                 // If this raised an exception 
-                if (this->raiseException) goto RAISE_EXCEPTION;
+                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -898,12 +784,12 @@ int IntTaskData::SwitchToPoly()
                 intptr_t rtsArg3 = (*sp++).argValue;
                 intptr_t rtsArg2 = (*sp++).argValue;
                 intptr_t rtsArg1 = (*sp++).argValue;
-                this->raiseException = false;
+                ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4, rtsArg5);
                 LoadInterpreterState(pc, sp);
                 // If this raised an exception 
-                if (this->raiseException) goto RAISE_EXCEPTION;
+                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -911,12 +797,12 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFullRTS0:
             {
                 callFullRts0 doCall = *(callFullRts0*)(*sp++).w().AsObjPtr();
-                this->raiseException = false;
+                ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
-                POLYUNSIGNED result = doCall(this->threadObject);
+                POLYUNSIGNED result = doCall(taskData->threadObject);
                 LoadInterpreterState(pc, sp);
                 // If this raised an exception 
-                if (this->raiseException) goto RAISE_EXCEPTION;
+                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
                 *(--sp)= PolyWord::FromUnsigned(result);
                 break;
             }
@@ -925,12 +811,12 @@ int IntTaskData::SwitchToPoly()
             {
                 callFullRts1 doCall = *(callFullRts1*)(*sp++).w().AsObjPtr();
                 intptr_t rtsArg1 = (*sp++).argValue;
-                this->raiseException = false;
+                ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
-                POLYUNSIGNED result = doCall(this->threadObject, rtsArg1);
+                POLYUNSIGNED result = doCall(taskData->threadObject, rtsArg1);
                 LoadInterpreterState(pc, sp);
                 // If this raised an exception 
-                if (this->raiseException) goto RAISE_EXCEPTION;
+                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -940,12 +826,12 @@ int IntTaskData::SwitchToPoly()
                 callFullRts2 doCall = *(callFullRts2*)(*sp++).w().AsObjPtr();
                 intptr_t rtsArg2 = (*sp++).argValue; // Pop off the args, last arg first.
                 intptr_t rtsArg1 = (*sp++).argValue;
-                this->raiseException = false;
+                ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
-                POLYUNSIGNED result = doCall(this->threadObject, rtsArg1, rtsArg2);
+                POLYUNSIGNED result = doCall(taskData->threadObject, rtsArg1, rtsArg2);
                 LoadInterpreterState(pc, sp);
                 // If this raised an exception 
-                if (this->raiseException) goto RAISE_EXCEPTION;
+                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -956,12 +842,12 @@ int IntTaskData::SwitchToPoly()
                 intptr_t rtsArg3 = (*sp++).argValue; // Pop off the args, last arg first.
                 intptr_t rtsArg2 = (*sp++).argValue;
                 intptr_t rtsArg1 = (*sp++).argValue;
-                this->raiseException = false;
+                ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
-                POLYUNSIGNED result = doCall(this->threadObject, rtsArg1, rtsArg2, rtsArg3);
+                POLYUNSIGNED result = doCall(taskData->threadObject, rtsArg1, rtsArg2, rtsArg3);
                 LoadInterpreterState(pc, sp);
                 // If this raised an exception 
-                if (this->raiseException) goto RAISE_EXCEPTION;
+                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -1263,7 +1149,7 @@ int IntTaskData::SwitchToPoly()
             // Allocate byte segment.  This does not need to be initialised.
             POLYUNSIGNED flags = UNTAGGED_UNSIGNED(*sp++);
             POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp);
-            PolyObject *t = this->allocateMemory(length, pc, sp);
+            PolyObject *t = this->allocateMemory(taskData, length, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION; // Exception
             t->SetLengthWord(length, (byte)flags);
             *sp = (PolyWord)t;
@@ -1271,7 +1157,7 @@ int IntTaskData::SwitchToPoly()
         }
 
         case INSTR_getThreadId:
-            *(--sp) = (PolyWord)this->threadObject;
+            *(--sp) = (PolyWord)taskData->threadObject;
             break;
 
         case INSTR_allocWordMemory:
@@ -1279,7 +1165,7 @@ int IntTaskData::SwitchToPoly()
             // Allocate word segment.  This must be initialised.
             // We mustn't pop the initialiser until after any potential GC.
             POLYUNSIGNED length = UNTAGGED_UNSIGNED(sp[2]);
-            PolyObject *t = this->allocateMemory(length, pc, sp);
+            PolyObject *t = this->allocateMemory(taskData, length, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
             PolyWord initialiser = *sp++;
             POLYUNSIGNED flags = UNTAGGED_UNSIGNED(*sp++);
@@ -1293,7 +1179,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_alloc_ref:
         {
             // Allocate a single word mutable cell.  This is more common than allocWordMemory on its own.
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            PolyObject *t = this->allocateMemory(taskData, 1, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
             PolyWord initialiser = (*sp);
             t->SetLengthWord(1, F_MUTABLE_BIT);
@@ -1306,7 +1192,7 @@ int IntTaskData::SwitchToPoly()
         {
             // Allocate memory for a mutable closure and copy in the code address.
             POLYUNSIGNED length = *pc++ + sizeof(uintptr_t) / sizeof(PolyWord);
-            PolyObject* t = this->allocateMemory(length, pc, sp);
+            PolyObject* t = this->allocateMemory(taskData, length, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
             t->SetLengthWord(length, F_CLOSURE_OBJ | F_MUTABLE_BIT);
             PolyObject* srcClosure = (*sp).w().AsObjPtr();
@@ -1520,7 +1406,7 @@ int IntTaskData::SwitchToPoly()
                 double argument2 = unboxDouble(rtsArg2);
                 // Allocate memory for the result.
                 double result = doCall(argument1, argument2);
-                PolyObject* t = boxDouble(result, pc, sp);
+                PolyObject* t = boxDouble(taskData, result, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *(--sp) = (PolyWord)t;
                 break;
@@ -1535,7 +1421,7 @@ int IntTaskData::SwitchToPoly()
                 double argument1 = unboxDouble(rtsArg1);
                 // Allocate memory for the result.
                 double result = doCall(argument1, rtsArg2);
-                PolyObject* t = boxDouble(result, pc, sp);
+                PolyObject* t = boxDouble(taskData, result, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *(--sp) = (PolyWord)t;
                 break;
@@ -1548,7 +1434,7 @@ int IntTaskData::SwitchToPoly()
                 intptr_t rtsArg1 = (*sp++).w().AsSigned();
                 // Allocate memory for the result.
                 double result = doCall(rtsArg1);
-                PolyObject* t = boxDouble(result, pc, sp);
+                PolyObject* t = boxDouble(taskData, result, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *(--sp) = (PolyWord)t;
                 break;
@@ -1563,7 +1449,7 @@ int IntTaskData::SwitchToPoly()
                 float argument = unboxFloat(rtsArg1);
                 // Allocate memory for the result.
                 float result = doCall(argument);
-                PolyObject* t = boxFloat(result, pc, sp);
+                PolyObject* t = boxFloat(taskData, result, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *(--sp) = (PolyWord)t;
                 break;
@@ -1579,7 +1465,7 @@ int IntTaskData::SwitchToPoly()
                 float argument2 = unboxFloat(rtsArg2);
                 // Allocate memory for the result.
                 float result = doCall(argument1, argument2);
-                PolyObject* t = boxFloat(result, pc, sp);
+                PolyObject* t = boxFloat(taskData, result, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *(--sp) = (PolyWord)t;
                 break;
@@ -1592,7 +1478,7 @@ int IntTaskData::SwitchToPoly()
                 intptr_t rtsArg1 = (*sp++).w().AsSigned();
                 // Allocate memory for the result.
                 float result = doCall(rtsArg1);
-                PolyObject* t = boxFloat(result, pc, sp);
+                PolyObject* t = boxFloat(taskData, result, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *(--sp) = (PolyWord)t;
                 break;
@@ -1607,7 +1493,7 @@ int IntTaskData::SwitchToPoly()
                 float argument1 = unboxFloat(rtsArg1);
                 // Allocate memory for the result.
                 float result = doCall(argument1, rtsArg2);
-                PolyObject* t = boxFloat(result, pc, sp);
+                PolyObject* t = boxFloat(taskData, result, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *(--sp) = (PolyWord)t;
                 break;
@@ -1622,7 +1508,7 @@ int IntTaskData::SwitchToPoly()
                 double argument = unboxDouble(rtsArg1);
                 // Allocate memory for the result.
                 double result = doCall(argument);
-                PolyObject* t = boxDouble(result, pc, sp);
+                PolyObject* t = boxDouble(taskData, result, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *(--sp) = (PolyWord)t;
                 break;
@@ -1653,7 +1539,7 @@ int IntTaskData::SwitchToPoly()
                 // Shift the tagged value to remove the tag and put it into the first word.
                 // The original sign bit is copied in the shift.
                 intptr_t wx = (*sp).w().UnTagged();
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(intptr_t*)t = wx;
@@ -1666,7 +1552,7 @@ int IntTaskData::SwitchToPoly()
                 // As with the above except the value is treated as an unsigned
                 // value and the top bit is zero.
                 uintptr_t wx = (*sp).w().UnTaggedUnsigned();
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wx;
@@ -1676,7 +1562,7 @@ int IntTaskData::SwitchToPoly()
 
             case EXTINSTR_realAbs:
             {
-                PolyObject* t = this->boxDouble(fabs(unboxDouble(*sp)), pc, sp);
+                PolyObject* t = this->boxDouble(taskData, fabs(unboxDouble(*sp)), pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -1684,7 +1570,7 @@ int IntTaskData::SwitchToPoly()
 
             case EXTINSTR_realNeg:
             {
-                PolyObject* t = this->boxDouble(-(unboxDouble(*sp)), pc, sp);
+                PolyObject* t = this->boxDouble(taskData, -(unboxDouble(*sp)), pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -1692,7 +1578,7 @@ int IntTaskData::SwitchToPoly()
 
             case EXTINSTR_floatAbs:
             {
-                PolyObject* t = this->boxFloat(fabs(unboxFloat(*sp)), pc, sp);
+                PolyObject* t = this->boxFloat(taskData, fabs(unboxFloat(*sp)), pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -1700,7 +1586,7 @@ int IntTaskData::SwitchToPoly()
 
             case EXTINSTR_floatNeg:
             {
-                PolyObject* t = this->boxFloat(-(unboxFloat(*sp)), pc, sp);
+                PolyObject* t = this->boxFloat(taskData, -(unboxFloat(*sp)), pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -1709,7 +1595,7 @@ int IntTaskData::SwitchToPoly()
             case EXTINSTR_fixedIntToReal:
             {
                 POLYSIGNED u = UNTAGGED(*sp);
-                PolyObject* t = this->boxDouble((double)u, pc, sp);
+                PolyObject* t = this->boxDouble(taskData, (double)u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -1718,7 +1604,7 @@ int IntTaskData::SwitchToPoly()
             case EXTINSTR_fixedIntToFloat:
             {
                 POLYSIGNED u = UNTAGGED(*sp);
-                PolyObject* t = this->boxFloat((float)u, pc, sp);
+                PolyObject* t = this->boxFloat(taskData, (float)u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -1727,7 +1613,7 @@ int IntTaskData::SwitchToPoly()
             case EXTINSTR_floatToReal:
             {
                 float u = unboxFloat(*sp);
-                PolyObject* t = this->boxDouble((double)u, pc, sp);
+                PolyObject* t = this->boxDouble(taskData, (double)u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -1788,7 +1674,7 @@ int IntTaskData::SwitchToPoly()
             {
                 uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
                 uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wy + wx;
@@ -1800,7 +1686,7 @@ int IntTaskData::SwitchToPoly()
             {
                 uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
                 uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wy - wx;
@@ -1812,7 +1698,7 @@ int IntTaskData::SwitchToPoly()
             {
                 uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
                 uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wy * wx;
@@ -1824,7 +1710,7 @@ int IntTaskData::SwitchToPoly()
             {
                 uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
                 uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wy / wx;
@@ -1836,7 +1722,7 @@ int IntTaskData::SwitchToPoly()
             {
                 uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
                 uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wy % wx;
@@ -1848,7 +1734,7 @@ int IntTaskData::SwitchToPoly()
             {
                 uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
                 uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wy & wx;
@@ -1860,7 +1746,7 @@ int IntTaskData::SwitchToPoly()
             {
                 uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
                 uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wy | wx;
@@ -1872,7 +1758,7 @@ int IntTaskData::SwitchToPoly()
             {
                 uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
                 uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wy ^ wx;
@@ -1885,7 +1771,7 @@ int IntTaskData::SwitchToPoly()
                 // The shift amount is a tagged word not a boxed large word
                 POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
                 uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wy << wx;
@@ -1898,7 +1784,7 @@ int IntTaskData::SwitchToPoly()
                 // The shift amount is a tagged word not a boxed large word
                 POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
                 uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = wy >> wx;
@@ -1911,7 +1797,7 @@ int IntTaskData::SwitchToPoly()
                 // The shift amount is a tagged word not a boxed large word
                 POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
                 intptr_t wy = *(intptr_t*)((*sp).w().AsObjPtr());
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(intptr_t*)t = wy >> wx;
@@ -1966,7 +1852,7 @@ int IntTaskData::SwitchToPoly()
             {
                 double u = unboxDouble(*sp++);
                 double v = unboxDouble(*sp);
-                PolyObject* t = this->boxDouble(v + u, pc, sp);
+                PolyObject* t = this->boxDouble(taskData, v + u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -1976,7 +1862,7 @@ int IntTaskData::SwitchToPoly()
             {
                 double u = unboxDouble(*sp++);
                 double v = unboxDouble(*sp);
-                PolyObject* t = this->boxDouble(v - u, pc, sp);
+                PolyObject* t = this->boxDouble(taskData, v - u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -1986,7 +1872,7 @@ int IntTaskData::SwitchToPoly()
             {
                 double u = unboxDouble(*sp++);
                 double v = unboxDouble(*sp);
-                PolyObject* t = this->boxDouble(v * u, pc, sp);
+                PolyObject* t = this->boxDouble(taskData, v * u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -1996,7 +1882,7 @@ int IntTaskData::SwitchToPoly()
             {
                 double u = unboxDouble(*sp++);
                 double v = unboxDouble(*sp);
-                PolyObject* t = this->boxDouble(v / u, pc, sp);
+                PolyObject* t = this->boxDouble(taskData, v / u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -2049,7 +1935,7 @@ int IntTaskData::SwitchToPoly()
             {
                 float u = unboxFloat(*sp++);
                 float v = unboxFloat(*sp);
-                PolyObject* t = this->boxFloat(v + u, pc, sp);
+                PolyObject* t = this->boxFloat(taskData, v + u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -2059,7 +1945,7 @@ int IntTaskData::SwitchToPoly()
             {
                 float u = unboxFloat(*sp++);
                 float v = unboxFloat(*sp);
-                PolyObject* t = this->boxFloat(v - u, pc, sp);
+                PolyObject* t = this->boxFloat(taskData, v - u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -2069,7 +1955,7 @@ int IntTaskData::SwitchToPoly()
             {
                 float u = unboxFloat(*sp++);
                 float v = unboxFloat(*sp);
-                PolyObject* t = this->boxFloat(v * u, pc, sp);
+                PolyObject* t = this->boxFloat(taskData, v * u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -2079,7 +1965,7 @@ int IntTaskData::SwitchToPoly()
             {
                 float u = unboxFloat(*sp++);
                 float v = unboxFloat(*sp);
-                PolyObject* t = this->boxFloat(v / u, pc, sp);
+                PolyObject* t = this->boxFloat(taskData, v / u, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -2097,7 +1983,7 @@ int IntTaskData::SwitchToPoly()
                 double d = unboxDouble(*sp);
                 float v = (float)d; // Convert with the appropriate rounding.
                 setrounding(current);
-                PolyObject* t = this->boxFloat(v, pc, sp);
+                PolyObject* t = this->boxFloat(taskData, v, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -2184,7 +2070,7 @@ int IntTaskData::SwitchToPoly()
                 * sp = TAGGED(r);
 #else
                 // But boxed in 32-bit mode.
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = r;
@@ -2201,7 +2087,7 @@ int IntTaskData::SwitchToPoly()
                 POLYCODEPTR p = *((byte**)((*sp).w().AsObjPtr())) + offset;
                 uintptr_t r = ((uint64_t*)p)[index];
                 // This must be boxed.
-                PolyObject* t = this->allocateMemory(LGWORDSIZE, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
                 *(uintptr_t*)t = r;
@@ -2217,7 +2103,7 @@ int IntTaskData::SwitchToPoly()
                 POLYCODEPTR p = *((byte**)((*sp).w().AsObjPtr())) + offset;
                 double r = ((float*)p)[index];
                 // This must be boxed.
-                PolyObject* t = this->boxDouble(r, pc, sp);
+                PolyObject* t = this->boxDouble(taskData, r, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -2230,7 +2116,7 @@ int IntTaskData::SwitchToPoly()
                 POLYCODEPTR p = *((byte**)((*sp).w().AsObjPtr())) + offset;
                 double r = ((double*)p)[index];
                 // This must be boxed.
-                PolyObject* t = this->boxDouble(r, pc, sp);
+                PolyObject* t = this->boxDouble(taskData, r, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *sp = (PolyWord)t;
                 break;
@@ -2341,7 +2227,7 @@ int IntTaskData::SwitchToPoly()
             {
                 POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
                 (--sp)->codeAddr = pc + offset + 4; /* Address of handler */
-                this->hr = sp;
+                SetHandlerRegister(sp);
                 pc += 4;
                 break;
             }
@@ -2365,7 +2251,7 @@ int IntTaskData::SwitchToPoly()
             {
                 storeWords = arg1; pc += 2;
             TUPLE: /* Common code for tupling. */
-                PolyObject* p = this->allocateMemory(storeWords, pc, sp);
+                PolyObject* p = this->allocateMemory(taskData, storeWords, pc, sp);
                 if (p == 0) goto RAISE_EXCEPTION; // Exception
                 p->SetLengthWord(storeWords, 0);
                 for (; storeWords > 0; ) p->Set(--storeWords, *sp++);
@@ -2439,7 +2325,7 @@ int IntTaskData::SwitchToPoly()
                 // Allocate this on the C heap.
                 POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp);
                 void* memory = malloc(length);
-                *sp = Make_sysword(this, (uintptr_t)memory)->Word();
+                *sp = Make_sysword(taskData, (uintptr_t)memory)->Word();
                 break;
             }
 
@@ -2469,7 +2355,7 @@ int IntTaskData::SwitchToPoly()
                 // Allocate memory for a mutable closure and copy in the code address.
                 POLYUNSIGNED length = arg1 + sizeof(uintptr_t) / sizeof(PolyWord);
                 pc += 2;
-                PolyObject* t = this->allocateMemory(length, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, length, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(length, F_CLOSURE_OBJ | F_MUTABLE_BIT);
                 PolyObject* srcClosure = (*sp).w().AsObjPtr();
@@ -2485,7 +2371,7 @@ int IntTaskData::SwitchToPoly()
             CREATE_CLOSURE:
                 // Allocate a closure.  storeWords is the number of non-locals.
                 POLYUNSIGNED length = storeWords + sizeof(uintptr_t) / sizeof(PolyWord);
-                PolyObject* t = this->allocateMemory(length, pc, sp);
+                PolyObject* t = this->allocateMemory(taskData, length, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 t->SetLengthWord(length, F_CLOSURE_OBJ);
                 for (; storeWords > 0; ) t->Set(--storeWords + sizeof(uintptr_t) / sizeof(PolyWord), *sp++);
@@ -2510,524 +2396,10 @@ int IntTaskData::SwitchToPoly()
         } /* switch */
      } /* for */
      return 0;
-} /* MD_switch_to_poly */
+}
 
-void IntTaskData::GarbageCollect(ScanAddress *process)
+void ByteCodeInterpreter::GarbageCollect(ScanAddress* process)
 {
-    TaskData::GarbageCollect(process);
-
     overflowPacket = process->ScanObjectAddress(overflowPacket);
     dividePacket = process->ScanObjectAddress(dividePacket);
-
-    if (stack != 0)
-    {
-        StackSpace *stackSpace = stack;
-        stackItem*stackPtr = this->taskSp;
-        // The exception arg if any
-        ScanStackAddress(process, this->exception_arg, stackSpace);
-
-        // Now the values on the stack.
-        for (stackItem* q = stackPtr; q < (stackItem*)stack->top; q++)
-            ScanStackAddress(process, *q, stack);
-    }
 }
-
-// Process a value within the stack.
-void IntTaskData::ScanStackAddress(ScanAddress *process, stackItem& stackItem, StackSpace *stack)
-{
-    // We may have return addresses on the stack which could look like
-// tagged values.  Check whether the value is in the code area before
-// checking whether it is untagged.
-    if (stackItem.codeAddr == SPECIAL_PC_END_THREAD/* 0 */)
-        return;
-#ifdef POLYML32IN64
-    // In 32-in-64 return addresses always have the top 32 bits non-zero. 
-    if (stackItem.argValue < ((uintptr_t)1 << 32))
-    {
-        // It's either a tagged integer or an object pointer.
-        if (stackItem.w().IsDataPtr())
-        {
-            PolyWord val = process->ScanObjectAddress(stackItem.w().AsObjPtr());
-            stackItem = val;
-        }
-    }
-    else
-    {
-        // Could be a code address or a stack address.
-        MemSpace* space = gMem.SpaceForAddress(stackItem.codeAddr - 1);
-        if (space == 0 || space->spaceType != ST_CODE) return;
-        PolyObject* obj = gMem.FindCodeObject(stackItem.codeAddr);
-        ASSERT(obj != 0);
-        // Process the address of the start.  Don't update anything.
-        process->ScanObjectAddress(obj);
-    }
-#else
-    // The -1 here is because we may have a zero-sized cell in the last
-    // word of a space.
-    MemSpace* space = gMem.SpaceForAddress(stackItem.codeAddr - 1);
-    if (space == 0) return; // In particular we may have one of the assembly code addresses.
-    if (space->spaceType == ST_CODE)
-    {
-        PolyObject* obj = gMem.FindCodeObject(stackItem.codeAddr);
-        // If it is actually an integer it might be outside a valid code object.
-        if (obj == 0)
-        {
-            ASSERT(stackItem.w().IsTagged()); // It must be an integer
-        }
-        else // Process the address of the start.  Don't update anything.
-            process->ScanObjectAddress(obj);
-    }
-    else if (space->spaceType == ST_LOCAL && stackItem.w().IsDataPtr())
-        // Local values must be word addresses.
-    {
-        PolyWord val = process->ScanObjectAddress(stackItem.w().AsObjPtr());
-        stackItem = val;
-    }
-#endif
-
-}
-
-
-// Copy a stack
-void IntTaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length)
-{
-#ifdef POLYML32IN64
-    old_length = old_length / 2;
-    new_length = new_length / 2;
-#endif
-    /* Moves a stack, updating all references within the stack */
-    stackItem*old_base = (stackItem*)old_stack;
-    stackItem*new_base = (stackItem*)new_stack;
-    stackItem*old_top = old_base + old_length;
-
-    /* Calculate the offset of the new stack from the old. If the frame is
-    being extended objects in the new frame will be further up the stack
-    than in the old one. */
-
-    uintptr_t offset = new_base - old_base + new_length - old_length;
-    stackItem *oldSp = this->taskSp;
-    this->taskSp = oldSp + offset;
-    this->hr = this->hr + offset;
-
-    /* Skip the unused part of the stack. */
-
-    uintptr_t i = oldSp - old_base;
-
-    ASSERT(i <= old_length);
-
-    i = old_length - i;
-
-    stackItem *old = oldSp;
-    stackItem *newp = this->taskSp;
-
-    while (i--)
-    {
-        stackItem old_word = *old++;
-        if (old_word.w().IsDataPtr() && old_word.stackAddr >= old_base && old_word.stackAddr <= old_top)
-            old_word.stackAddr = old_word.stackAddr + offset;
-        else if (old_word.w().IsDataPtr() && IsHeapAddress(old_word.stackAddr))
-        {
-            stackItem* addr = (stackItem*)old_word.w().AsStackAddr();
-            if (addr >= old_base && addr <= old_top)
-            {
-                addr += offset;
-                old_word = PolyWord::FromStackAddr((PolyWord*)addr);
-            }
-        }
-        *newp++ = old_word;
-    }
-    ASSERT(old == ((stackItem*)old_stack) + old_length);
-    ASSERT(newp == ((stackItem*)new_stack) + new_length);
-}
-
-void IntTaskData::EnterPolyCode()
-/* Called from "main" to enter the code. */
-{
-    Handle hOriginal = this->saveVec.mark(); // Set this up for the IO calls.
-    while (1)
-    {
-        this->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
-
-        // Run the ML code and return with the function to call.
-        this->inML = true;
-        int ioFunction = SwitchToPoly();
-        this->inML = false;
-
-        try {
-            switch (ioFunction)
-            {
-            case -1:
-                // We've been interrupted.  This usually involves simulating a
-                // stack overflow so we could come here because of a genuine
-                // stack overflow.
-                // Previously this code was executed on every RTS call but there
-                // were problems on Mac OS X at least with contention on schedLock.
-                // Process any asynchronous events i.e. interrupts or kill
-                processes->ProcessAsynchRequests(this);
-                // Release and re-acquire use of the ML memory to allow another thread
-                // to GC.
-                processes->ThreadReleaseMLMemory(this);
-                processes->ThreadUseMLMemory(this);
-                break;
-
-            case -2: // A callback has returned.
-                ASSERT(0); // Callbacks aren't implemented
-
-            default:
-                Crash("Unknown io operation %d\n", ioFunction);
-            }
-        }
-        catch (IOException &) {
-        }
-
-    }
-}
-
-// As far as possible we want locking and unlocking an ML mutex to be fast so
-// we try to implement the code in the assembly code using appropriate
-// interlocked instructions.  That does mean that if we need to lock and
-// unlock an ML mutex in this code we have to use the same, machine-dependent,
-// code to do it.  These are defaults that are used where there is no
-// machine-specific code.
-
-static Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp)
-{
-    PLocker l(&mutexLock);
-    PolyObject *p = DEREFHANDLE(mutexp);
-    // A thread can only call this once so the values will be short
-    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
-    p->Set(0, newValue);
-    return taskData->saveVec.push(newValue);
-}
-
-// Release a mutex.  We need to lock the mutex to ensure we don't
-// reset it in the time between one of atomic operations reading
-// and writing the mutex.
-static Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
-{
-    PLocker l(&mutexLock);
-    DEREFHANDLE(mutexp)->Set(0, TAGGED(0)); // Set this to released.
-    return taskData->saveVec.push(TAGGED(0)); // Push the unit result
-}
-
-Handle IntTaskData::AtomicDecrement(Handle mutexp)
-{
-    return ProcessAtomicDecrement(this, mutexp);
-}
-
-void IntTaskData::AtomicReset(Handle mutexp)
-{
-    (void)ProcessAtomicReset(this, mutexp);
-}
-
-bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
-{
-    if (taskPc != 0)
-    {
-        // See if the PC we've got is an ML code address.
-        MemSpace *space = gMem.SpaceForAddress(taskPc);
-        if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
-        {
-            incrementCountAsynch(taskPc);
-            return true;
-        }
-    }
-    return false;
-}
-
-extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedEnterIntMode();
-}
-
-// FFI
-#if (defined(HAVE_LIBFFI) && defined(HAVE_FFI_H))
-
-#ifdef HAVE_ERRNO_H
-#include <errno.h>
-#endif
-
-#include <ffi.h>
-
-static struct _abiTable { const char* abiName; ffi_abi abiCode; } abiTable[] =
-{
-    // Unfortunately the ABI entries are enums rather than #defines so we
-    // can't test individual entries.
-    #ifdef X86_WIN32
-        {"sysv", FFI_SYSV},
-        {"stdcall", FFI_STDCALL},
-        {"thiscall", FFI_THISCALL},
-        {"fastcall", FFI_FASTCALL},
-        {"ms_cdecl", FFI_MS_CDECL},
-    #elif defined(X86_WIN64)
-        {"win64", FFI_WIN64},
-    #elif defined(X86_64) || (defined (__x86_64__) && defined (X86_DARWIN))
-        {"unix64", FFI_UNIX64},
-    #elif defined(X86_ANY)
-        {"sysv", FFI_SYSV},
-    #endif
-        { "default", FFI_DEFAULT_ABI}
-};
-
-static Handle mkAbitab(TaskData* taskData, void*, char* p);
-
-static Handle toSysWord(TaskData* taskData, void* p)
-{
-    return Make_sysword(taskData, (uintptr_t)p);
-}
-
-// Convert the Poly type info into ffi_type values.
-/*
-    datatype cTypeForm =
-            CTypeFloatingPt | CTypePointer | CTypeSignedInt | CTypeUnsignedInt
-        |   CTypeStruct of cType list | CTypeVoid
-        withtype cType = { typeForm: cTypeForm, align: word, size: word }
-*/
-static ffi_type* decodeType(PolyWord pType)
-{
-    PolyWord typeForm = pType.AsObjPtr()->Get(2);
-    PolyWord typeSize = pType.AsObjPtr()->Get(0);
-
-    if (typeForm.IsDataPtr())
-    {
-        // Struct
-        size_t size = typeSize.UnTaggedUnsigned();
-        unsigned short align = (unsigned short)pType.AsObjPtr()->Get(1).UnTaggedUnsigned();
-        unsigned nElems = 0;
-        PolyWord listStart = typeForm.AsObjPtr()->Get(0);
-        for (PolyWord p = listStart; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
-            nElems++;
-        size_t space = sizeof(ffi_type);
-        // Add space for the elements plus one extra for the zero terminator.
-        space += (nElems + 1) * sizeof(ffi_type*);
-        ffi_type* result = (ffi_type*)calloc(1, space);
-        // Raise an exception rather than returning zero.
-        if (result == 0) return 0;
-        ffi_type** elem = (ffi_type**)(result + 1);
-        result->size = size;
-        result->alignment = align;
-        result->type = FFI_TYPE_STRUCT;
-        result->elements = elem;
-        if (elem != 0)
-        {
-            for (PolyWord p = listStart; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
-            {
-                PolyWord e = ((ML_Cons_Cell*)p.AsObjPtr())->h;
-                ffi_type* t = decodeType(e);
-                if (t == 0) return 0;
-                *elem++ = t;
-            }
-            *elem = 0; // Null terminator
-        }
-        return result;
-    }
-    else
-    {
-        switch (typeForm.UnTaggedUnsigned())
-        {
-        case 0:
-        {
-            // Floating point
-            if (typeSize.UnTaggedUnsigned() == ffi_type_float.size)
-                return &ffi_type_float;
-            else if (typeSize.UnTaggedUnsigned() == ffi_type_double.size)
-                return &ffi_type_double;
-            ASSERT(0);
-        }
-        case 1: // FFI type poiner
-            return &ffi_type_pointer;
-        case 2: // Signed integer.
-        {
-            switch (typeSize.UnTaggedUnsigned())
-            {
-            case 1: return &ffi_type_sint8;
-            case 2: return &ffi_type_sint16;
-            case 4: return &ffi_type_sint32;
-            case 8: return &ffi_type_sint64;
-            default: ASSERT(0);
-            }
-        }
-        case 3: // Unsigned integer.
-        {
-            switch (typeSize.UnTaggedUnsigned())
-            {
-            case 1: return &ffi_type_uint8;
-            case 2: return &ffi_type_uint16;
-            case 4: return &ffi_type_uint32;
-            case 8: return &ffi_type_uint64;
-            default: ASSERT(0);
-            }
-        }
-        case 4: // Void
-            return &ffi_type_void;
-        }
-        ASSERT(0);
-    }
-    return 0;
-}
-
-// Create a CIF.  This contains all the types and some extra information.
-// The arguments are the raw ML values.  That does make this dependent on the
-// representations used by the compiler.
-// This mallocs space for the CIF and the types.  The space is never freed.
-// 
-POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes)
-{
-    TaskData* taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle result = 0;
-    ffi_abi abi = (ffi_abi)get_C_ushort(taskData, abiValue);
-
-    try {
-        unsigned nArgs = 0;
-        for (PolyWord p = argTypes; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
-            nArgs++;
-        // Allocate space for the cif followed by the argument type vector
-        size_t space = sizeof(ffi_cif) + nArgs * sizeof(ffi_type*);
-        ffi_cif* cif = (ffi_cif*)malloc(space);
-        if (cif == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-        ffi_type* rtype = decodeType(resultType);
-        if (rtype == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-        ffi_type** atypes = (ffi_type**)(cif + 1);
-        // Copy the arguments types.
-        ffi_type** at = atypes;
-        for (PolyWord p = argTypes; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
-        {
-            PolyWord e = ((ML_Cons_Cell*)p.AsObjPtr())->h;
-            ffi_type *atype = decodeType(e);
-            if (atype == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-            *at++ = atype;
-        }
-        ffi_status status = ffi_prep_cif(cif, abi, nArgs, rtype, atypes);
-        if (status == FFI_BAD_TYPEDEF)
-            raise_exception_string(taskData, EXC_foreign, "Bad typedef in ffi_prep_cif");
-        else if (status == FFI_BAD_ABI)
-            raise_exception_string(taskData, EXC_foreign, "Bad ABI in ffi_prep_cif");
-        else if (status != FFI_OK)
-            raise_exception_string(taskData, EXC_foreign, "Error in ffi_prep_cif");
-        result = toSysWord(taskData, cif);
-    }
-    catch (...) {} // If an ML exception is raised
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
-}
-
-// Call a function.
-POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
-{
-    ffi_cif* cif = *(ffi_cif**)cifAddr.AsAddress();
-    void* f = *(void**)cFunAddr.AsAddress();
-    void* res = *(void**)resAddr.AsAddress();
-    void* arg = *(void**)argVec.AsAddress();
-    // Poly passes the arguments as values, effectively a single struct.
-    // Libffi wants a vector of addresses.
-    void** argVector = (void**)calloc(cif->nargs + 1, sizeof(void*));
-    unsigned n = 0;
-    uintptr_t p = (uintptr_t)arg;
-    while (n < cif->nargs)
-    {
-        uintptr_t align = cif->arg_types[n]->alignment;
-        p = (p + align - 1) & (0-align);
-        argVector[n] = (void*)p;
-        p += cif->arg_types[n]->size;
-        n++;
-    }
-    // The result area we have provided is only as big as required.
-    // Libffi may need a larger area.
-    if (cif->rtype->size < FFI_SIZEOF_ARG)
-    {
-        char result[FFI_SIZEOF_ARG];
-        ffi_call(cif, FFI_FN(f), &result, argVector);
-        if (cif->rtype->type != FFI_TYPE_VOID)
-            memcpy(res, result, cif->rtype->size);
-    }
-    else ffi_call(cif, FFI_FN(f), res, argVector);
-    free(argVector);
-    return TAGGED(0).AsUnsigned();
-}
-
-#else
-// Libffi is not present.
-
-// A basic table so that the Foreign structure will compile
-static struct _abiTable { const char* abiName; int abiCode; } abiTable[] =
-{
-        { "default", 0}
-};
-
-// Don't raise an exception at this point so we can build calls.
-POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes)
-{
-    return TAGGED(0).AsUnsigned();
-}
-
-POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
-{
-    TaskData* taskData = TaskData::FindTaskForId(threadId);
-    raise_exception_string(taskData, EXC_foreign, "Foreign function calling is not available.  Libffi is not installled.");
-    return TAGGED(0).AsUnsigned();
-}
-
-#endif
-
-// Construct an entry in the ABI table.
-static Handle mkAbitab(TaskData* taskData, void* arg, char* p)
-{
-    struct _abiTable* ab = (struct _abiTable*)p;
-    // Construct a pair of the string and the code
-    Handle name = taskData->saveVec.push(C_string_to_Poly(taskData, ab->abiName));
-    Handle code = Make_arbitrary_precision(taskData, ab->abiCode);
-    Handle result = alloc_and_save(taskData, 2);
-    result->WordP()->Set(0, name->Word());
-    result->WordP()->Set(1, code->Word());
-    return result;
-}
-
-// Get ABI list.  This is called once only before the basis library is built.
-POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId)
-{
-    TaskData* taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle result = 0;
-
-    try {
-        result = makeList(taskData, sizeof(abiTable) / sizeof(abiTable[0]),
-            (char*)abiTable, sizeof(abiTable[0]), 0, mkAbitab);
-    }
-    catch (...) {} // If an ML exception is raised
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
-}
-
-// Do we require EnterInt instructions and if so for which architecture?
-// 0 = > None; 1 => X86_32, 2 => X86_64. 3 => X86_32_in_64.
-POLYUNSIGNED PolyInterpretedEnterIntMode()
-{
-    return TAGGED(0).AsUnsigned();
-}
-
-static Interpreter interpreterObject;
-
-MachineDependent *machineDependent = &interpreterObject;
-
-// No machine-specific calls in the interpreter.
-struct _entrypts machineSpecificEPT[] =
-{
-    { "PolyInterpretedGetAbiList",           (polyRTSFunction)&PolyInterpretedGetAbiList },
-    { "PolyInterpretedCreateCIF",            (polyRTSFunction)&PolyInterpretedCreateCIF },
-    { "PolyInterpretedCallFunction",         (polyRTSFunction)&PolyInterpretedCallFunction },
-    { "PolyInterpretedEnterIntMode",         (polyRTSFunction)&PolyInterpretedEnterIntMode },
-   { NULL, NULL} // End of list.
-};
