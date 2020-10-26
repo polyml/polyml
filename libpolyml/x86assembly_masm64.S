@@ -216,22 +216,6 @@ raisexcept:
     mov     rcx,[ArgVector.HandlerRegister+rbp]
     jmp     qword ptr [rcx]
 
-
-; This implements atomic subtraction in the same way as atomic_decrement
-PUBLIC  X86AsmAtomicDecrement
-X86AsmAtomicDecrement:
-    mov     rax,rcx
-; Use rcx and rax because they are volatile (unlike rbx on X86/64/Unix)
-    mov     rcx,-2
-#ifdef  POLYML32IN64
-    lock xadd [rax],ecx     ;# Rax is an absolute address but this is only a word
-#else
-    lock xadd [rax],rcx
-#endif
-    sub     rcx,2
-    mov     rax,rcx
-    ret
-
 CREATE_EXTRA_CALL MACRO index
 PUBLIC  X86AsmCallExtra&index&
 X86AsmCallExtra&index&:

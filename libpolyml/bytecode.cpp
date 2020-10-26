@@ -29,11 +29,11 @@
 #error "No configuration file"
 #endif
 
-/*
+
 #ifdef HAVE_STDIO_H
 #include <stdio.h>
 #endif
-*/
+
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x) assert(x)
@@ -59,20 +59,14 @@
 
 #include "globals.h"
 #include "int_opcodes.h"
-#include "machine_dep.h"
 #include "sys.h"
 #include "profiling.h"
 #include "arb.h"
 #include "reals.h"
-#include "processes.h"
 #include "run_time.h"
 #include "gc.h"
 #include "diagnostics.h"
-#include "polystring.h"
-#include "save_vec.h"
-#include "memmgr.h"
 #include "scanaddrs.h"
-#include "rtsentry.h"
 #include "bytecode.h"
 
 #if (SIZEOF_VOIDP == 8 && !defined(POLYML32IN64))
@@ -86,24 +80,6 @@
 const PolyWord True = TAGGED(1);
 const PolyWord False = TAGGED(0);
 const PolyWord Zero = TAGGED(0);
-
-#define CHECKED_REGS 2
-#define UNCHECKED_REGS 0
-
-#define EXTRA_STACK 0 // Don't need any extra - signals aren't handled on the Poly stack.
-
-/* the amount of ML stack space to reserve for registers,
-   C exception handling etc. The compiler requires us to
-   reserve 2 stack-frames worth (2 * 20 words) plus whatever
-   we require for the register save area. We actually reserve
-   slightly more than this. SPF 3/3/97
-*/
-#define OVERFLOW_STACK_SIZE \
-  (50 + \
-   CHECKED_REGS + \
-   UNCHECKED_REGS + \
-   EXTRA_STACK)
-
 
 // This duplicates some code in reals.cpp but is now updated.
 #define DOUBLESIZE (sizeof(double)/sizeof(POLYUNSIGNED))
@@ -119,6 +95,8 @@ union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 #endif
 
 union flt { float fl; int32_t i; };
+
+const POLYCODEPTR ByteCodeInterpreter::endOfCodeMarker = 0;
 
 ByteCodeInterpreter::ByteCodeInterpreter() : overflowPacket(0), dividePacket(0)
 {
@@ -164,15 +142,6 @@ ByteCodeInterpreter::~ByteCodeInterpreter()
     }
 #endif
 }
-
-// This lock is used to synchronise all atomic operations.
-// It is not needed in the X86 version because that can use a global
-// memory lock.
-static PLock mutexLock;
-
-// Special value for return address.
-#define SPECIAL_PC_END_THREAD           ((POLYCODEPTR)0)
-
 
 extern "C" {
     typedef POLYUNSIGNED(*callFastRts0)();
@@ -470,8 +439,7 @@ int ByteCodeInterpreter::RunInterpreter(TaskData *taskData)
                 sp++; /* Remove the link/closure */
                 pc = (*sp++).codeAddr; /* Return address */
                 sp += returnCount; /* Add on number of args. */
-                if (pc == SPECIAL_PC_END_THREAD)
-                    exitThread(taskData); // This thread is exiting.
+                if (pc == endOfCodeMarker) return -1;
                 *(--sp) = result; /* Result */
                 SaveInterpreterState(pc, sp); // Update in case we're profiling
             }
@@ -491,19 +459,8 @@ int ByteCodeInterpreter::RunInterpreter(TaskData *taskData)
         {
             stackCheck = arg1; pc += 2;
         STACKCHECK:
-            // Check there is space on the stack
-            if (sp - stackCheck < StackLimit())
-            {
-                SaveInterpreterState(pc, sp);
-                GrowStack(stackCheck);
-                LoadInterpreterState(pc, sp);
-            }
-            // Also check for interrupts
-            if (WasInterrupted())
-            {
-                SaveInterpreterState(pc, sp);
-                return -1;
-            }
+            // Check stackl space.  This is combined with interrupts on the native code version.
+            CheckStackAndInterrupt(stackCheck, pc, sp);
             break;
         }
 
@@ -514,8 +471,7 @@ int ByteCodeInterpreter::RunInterpreter(TaskData *taskData)
         RAISE_EXCEPTION:
             sp = GetHandlerRegister();
             pc = (*sp++).codeAddr;
-            if (pc == SPECIAL_PC_END_THREAD)
-                exitThread(taskData);  // Default handler for thread.
+            if (pc == endOfCodeMarker) return -1;
             SetHandlerRegister((*sp++).stackAddr);
             break;
         }
@@ -548,22 +504,14 @@ int ByteCodeInterpreter::RunInterpreter(TaskData *taskData)
 
         case INSTR_jump_back8:
             pc -= *pc + 1;
-            if (WasInterrupted())
-            {
-                // Check for interrupt in case we're in a loop
-                SaveInterpreterState(pc, sp);
-                return -1;
-            }
+            // Check for interrupt in case we're in a loop
+            CheckStackAndInterrupt(0, pc, sp);
             break;
 
         case INSTR_jump_back16:
             pc -= arg1 + 1;
-            if (WasInterrupted())
-            {
-                // Check for interrupt in case we're in a loop
-                SaveInterpreterState(pc, sp);
-                return -1;
-            }
+            // Check for interrupt in case we're in a loop
+            CheckStackAndInterrupt(0, pc, sp);
             break;
 
         case INSTR_lock:
@@ -887,21 +835,17 @@ int ByteCodeInterpreter::RunInterpreter(TaskData *taskData)
 
         case INSTR_atomicIncr:
         {
-            PLocker l(&mutexLock);
-            PolyObject *p = (*sp).w().AsObjPtr();
-            PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))+1);
-            p->Set(0, newValue);
-            *sp = newValue;
+            PolyObject* p = (*sp).w().AsObjPtr();
+            POLYUNSIGNED newValue = taskData->AtomicIncrement(p);
+            *sp = PolyWord::FromUnsigned(newValue);
             break;
         }
 
         case INSTR_atomicDecr:
         {
-            PLocker l(&mutexLock);
             PolyObject *p = (*sp).w().AsObjPtr();
-            PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
-            p->Set(0, newValue);
-            *sp = newValue;
+            POLYUNSIGNED newValue = taskData->AtomicDecrement(p);
+            *sp = PolyWord::FromUnsigned(newValue);
             break;
         }
 
@@ -1519,9 +1463,8 @@ int ByteCodeInterpreter::RunInterpreter(TaskData *taskData)
                 // This is needed in the interpreted version otherwise there
                 // is a chance that we could set the value to zero while another
                 // thread is between getting the old value and setting it to the new value.
-                PLocker l(&mutexLock);
                 PolyObject* p = (*sp).w().AsObjPtr();
-                p->Set(0, TAGGED(0)); // Set this to released.
+                taskData->AtomicReset(p);
                 *sp = TAGGED(0); // Push the unit result
                 break;
             }

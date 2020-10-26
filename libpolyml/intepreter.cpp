@@ -87,13 +87,8 @@ public:
     void ScanStackAddress(ScanAddress *process, stackItem& val, StackSpace *stack);
     virtual void EnterPolyCode(); // Start running ML
 
-    // Switch to Poly and return with the io function to call.
-    int SwitchToPoly() {
-        sl = (stackItem*)((PolyWord*)this->stack->stack() + OVERFLOW_STACK_SIZE); 
-        return RunInterpreter(this);
-    }
     virtual void SetException(poly_exn *exc) { exception_arg = exc;  }
-    virtual void InterruptCode() { interrupt_requested = true; }
+    virtual void InterruptCode();
 
     // AddTimeProfileCount is used in time profiling.
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context);
@@ -102,9 +97,10 @@ public:
 
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
-    virtual Handle AtomicDecrement(Handle mutexp);
+    virtual POLYUNSIGNED AtomicDecrement(PolyObject* mutexp);
     // Set a mutex to zero.
-    virtual void AtomicReset(Handle mutexp);
+    virtual void AtomicReset(PolyObject* mutexp);
+    virtual POLYUNSIGNED AtomicIncrement(PolyObject* mutexp);
 
     // Return the minimum space occupied by the stack.   Used when setting a limit.
     virtual uintptr_t currentStackSpace(void) const { return ((stackItem*)this->stack->top - this->taskSp) + OVERFLOW_STACK_SIZE; }
@@ -113,6 +109,7 @@ public:
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
+    PLock interruptLock;
     bool interrupt_requested;
 
     // Update the copies in the task object
@@ -133,11 +130,8 @@ public:
     virtual PolyWord GetExceptionPacket() { return exception_arg; }
     virtual stackItem* GetHandlerRegister() { return hr; }
     virtual void SetHandlerRegister(stackItem* newHr) { hr = newHr;  }
-    virtual bool WasInterrupted() {
-        bool was = interrupt_requested; interrupt_requested = false; return was;
-    }
-    virtual stackItem* StackLimit() { return sl; }
-    virtual void GrowStack(POLYUNSIGNED checkSpace);
+    virtual void CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR &pc, stackItem* &sp);
+    bool WasInterrupted();
 
     POLYCODEPTR     taskPc; /* Program counter. */
     stackItem       *taskSp; /* Stack pointer. */
@@ -145,14 +139,6 @@ public:
     PolyWord        exception_arg;
     stackItem       *sl; /* Stack limit register. */
 };
-
-// This lock is used to synchronise all atomic operations.
-// It is not needed in the X86 version because that can use a global
-// memory lock.
-static PLock mutexLock;
-
-// Special value for return address.
-#define SPECIAL_PC_END_THREAD           ((POLYCODEPTR)0)
 
 class Interpreter : public MachineDependent {
 public:
@@ -179,21 +165,58 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
     /* No previous handler so point it at itself. */
     this->taskSp--;
     this->taskSp->stackAddr = this->taskSp;
-    (--this->taskSp)->codeAddr = SPECIAL_PC_END_THREAD; /* Default return address. */
+    (--this->taskSp)->codeAddr = endOfCodeMarker; /* Default return address. */
     this->hr = this->taskSp;
 
     /* If this function takes an argument store it on the stack. */
     if (arg != 0) *(--this->taskSp) = DEREFWORD(arg);
 
-    (*(--this->taskSp)).codeAddr = SPECIAL_PC_END_THREAD; /* Return address. */
+    (*(--this->taskSp)).codeAddr = endOfCodeMarker; /* Return address. */
     *(--this->taskSp) = (PolyWord)closure; /* Closure address */
 }
 
-void IntTaskData::GrowStack(POLYUNSIGNED checkSpace)
+void IntTaskData::CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR &pc, stackItem* &sp)
 {
-    uintptr_t min_size = (this->stack->top - (PolyWord*)taskSp) + OVERFLOW_STACK_SIZE + checkSpace;
-    CheckAndGrowStack(this, min_size);
-    sl = (stackItem*)this->stack->stack() + OVERFLOW_STACK_SIZE;
+    // Check there is space on the stack
+    if (sp - space < sl)
+    {
+        SaveInterpreterState(pc, sp);
+        uintptr_t min_size = (this->stack->top - (PolyWord*)taskSp) + OVERFLOW_STACK_SIZE + space;
+        CheckAndGrowStack(this, min_size);
+        sl = (stackItem*)this->stack->stack() + OVERFLOW_STACK_SIZE;
+        LoadInterpreterState(pc, sp);
+    }
+    // Also check for interrupts
+    if (WasInterrupted())
+    {
+        SaveInterpreterState(pc, sp);
+        try {
+            processes->ProcessAsynchRequests(this);
+            // Release and re-acquire use of the ML memory to allow another thread
+            // to GC.
+            processes->ThreadReleaseMLMemory(this);
+            processes->ThreadUseMLMemory(this);
+        }
+        catch (IOException&) {
+        }
+        LoadInterpreterState(pc, sp);
+    }
+}
+
+// This may be called on a different thread.
+void IntTaskData::InterruptCode()
+{
+    PLocker l(&interruptLock);
+    interrupt_requested = true;
+}
+
+// Check and clear the "interrupt".
+bool IntTaskData::WasInterrupted()
+{
+    PLocker l(&interruptLock);
+    bool was = interrupt_requested;
+    interrupt_requested = false;
+    return was;
 }
 
 extern "C" {
@@ -245,7 +268,7 @@ void IntTaskData::ScanStackAddress(ScanAddress *process, stackItem& stackItem, S
     // We may have return addresses on the stack which could look like
 // tagged values.  Check whether the value is in the code area before
 // checking whether it is untagged.
-    if (stackItem.codeAddr == SPECIAL_PC_END_THREAD/* 0 */)
+    if (stackItem.codeAddr == endOfCodeMarker/* 0 */)
         return;
 #ifdef POLYML32IN64
     // In 32-in-64 return addresses always have the top 32 bits non-zero. 
@@ -293,7 +316,6 @@ void IntTaskData::ScanStackAddress(ScanAddress *process, stackItem& stackItem, S
 #endif
 
 }
-
 
 // Copy a stack
 void IntTaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length)
@@ -350,44 +372,13 @@ void IntTaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length, S
 void IntTaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
-    Handle hOriginal = this->saveVec.mark(); // Set this up for the IO calls.
-    while (1)
-    {
-        this->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
-
-        // Run the ML code and return with the function to call.
-        this->inML = true;
-        int ioFunction = SwitchToPoly();
-        this->inML = false;
-
-        try {
-            switch (ioFunction)
-            {
-            case -1:
-                // We've been interrupted.  This usually involves simulating a
-                // stack overflow so we could come here because of a genuine
-                // stack overflow.
-                // Previously this code was executed on every RTS call but there
-                // were problems on Mac OS X at least with contention on schedLock.
-                // Process any asynchronous events i.e. interrupts or kill
-                processes->ProcessAsynchRequests(this);
-                // Release and re-acquire use of the ML memory to allow another thread
-                // to GC.
-                processes->ThreadReleaseMLMemory(this);
-                processes->ThreadUseMLMemory(this);
-                break;
-
-            case -2: // A callback has returned.
-                ASSERT(0); // Callbacks aren't implemented
-
-            default:
-                Crash("Unknown io operation %d\n", ioFunction);
-            }
-        }
-        catch (IOException &) {
-        }
-
-    }
+    sl = (stackItem*)((PolyWord*)this->stack->stack() + OVERFLOW_STACK_SIZE);
+    // Run the interpreter.  Currently this can never return.
+    // Callbacks are not currently implemented which is the only case that could
+    // occur in the pure interpreted version.
+    (void)RunInterpreter(this);
+    exitThread(this); // This thread is exiting.
+    ASSERT(0); // We should never get here.
 }
 
 // As far as possible we want locking and unlocking an ML mutex to be fast so
@@ -397,34 +388,36 @@ void IntTaskData::EnterPolyCode()
 // code to do it.  These are defaults that are used where there is no
 // machine-specific code.
 
-static Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp)
+// This lock is used to synchronise all atomic operations.
+// It is not needed in the X86 version because that can use a global
+// memory lock.
+static PLock mutexLock;
+
+POLYUNSIGNED IntTaskData::AtomicIncrement(PolyObject* mutexp)
 {
     PLocker l(&mutexLock);
-    PolyObject *p = DEREFHANDLE(mutexp);
     // A thread can only call this once so the values will be short
-    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
-    p->Set(0, newValue);
-    return taskData->saveVec.push(newValue);
+    PolyWord newValue = TAGGED(UNTAGGED(mutexp->Get(0)) + 1);
+    mutexp->Set(0, newValue);
+    return newValue.AsUnsigned();
+}
+
+POLYUNSIGNED IntTaskData::AtomicDecrement(PolyObject* mutexp)
+{
+    PLocker l(&mutexLock);
+    // A thread can only call this once so the values will be short
+    PolyWord newValue = TAGGED(UNTAGGED(mutexp->Get(0)) - 1);
+    mutexp->Set(0, newValue);
+    return newValue.AsUnsigned();
 }
 
 // Release a mutex.  We need to lock the mutex to ensure we don't
 // reset it in the time between one of atomic operations reading
 // and writing the mutex.
-static Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
+void IntTaskData::AtomicReset(PolyObject* mutexp)
 {
     PLocker l(&mutexLock);
-    DEREFHANDLE(mutexp)->Set(0, TAGGED(0)); // Set this to released.
-    return taskData->saveVec.push(TAGGED(0)); // Push the unit result
-}
-
-Handle IntTaskData::AtomicDecrement(Handle mutexp)
-{
-    return ProcessAtomicDecrement(this, mutexp);
-}
-
-void IntTaskData::AtomicReset(Handle mutexp)
-{
-    (void)ProcessAtomicReset(this, mutexp);
+    mutexp->Set(0, TAGGED(0)); // Set this to released.
 }
 
 bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)

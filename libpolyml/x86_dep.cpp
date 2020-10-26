@@ -68,6 +68,7 @@
 #include "scanaddrs.h"
 #include "memmgr.h"
 #include "rtsentry.h"
+#include "bytecode.h"
 
 #include "sys.h" // Temporary
 
@@ -186,7 +187,7 @@ union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 
 #define LGWORDSIZE (sizeof(uintptr_t) / sizeof(PolyWord))
 
-class X86TaskData: public TaskData {
+class X86TaskData: public TaskData, ByteCodeInterpreter {
 public:
     X86TaskData();
     unsigned allocReg; // The register to take the allocated space.
@@ -203,8 +204,12 @@ public:
     virtual void SetException(poly_exn *exc);
 
     // Release a mutex in exactly the same way as compiler code
-    virtual Handle AtomicDecrement(Handle mutexp);
-    virtual void AtomicReset(Handle mutexp);
+    virtual POLYUNSIGNED AtomicDecrement(PolyObject* mutexp);
+    // Reset a mutex to one.  This needs to be atomic with respect to the
+    // atomic increment and decrement instructions.
+    virtual void AtomicReset(PolyObject* mutexp);
+    // This is actually only used in the interpreter.
+    virtual POLYUNSIGNED AtomicIncrement(PolyObject* mutexp);
 
     // Return the minimum space occupied by the stack.  Used when setting a limit.
     // N.B. This is PolyWords not native words.
@@ -225,12 +230,32 @@ public:
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
     void HeapOverflowTrap(byte *pcPtr);
+    void StackOverflowTrap(uintptr_t space);
 
     void SetMemRegisters();
     void SaveMemRegisters();
     void SetRegisterMask();
 
     void HandleTrap();
+
+    // ByteCode overrides.  The interpreter and native code states need to be in sync.
+    // The interpreter is only used during the initial bootstrap.
+    virtual void SaveInterpreterState(POLYCODEPTR pc, stackItem* sp) {
+        interpreterPc = pc;
+        assemblyInterface.stackPtr = sp;
+    }
+    virtual void LoadInterpreterState(POLYCODEPTR& pc, stackItem*& sp) {
+        sp = assemblyInterface.stackPtr;
+        pc = interpreterPc;
+    }
+    virtual void ClearExceptionPacket() { assemblyInterface.exceptionPacket = TAGGED(0); }
+    virtual PolyWord GetExceptionPacket() { return assemblyInterface.exceptionPacket;  }
+    virtual stackItem* GetHandlerRegister() { return assemblyInterface.handlerRegister; }
+    virtual void SetHandlerRegister(stackItem* hr) { assemblyInterface.handlerRegister = hr; }
+    // Check and grow the stack if necessary.  Process any interupts.
+    virtual void CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR &pc, stackItem* &sp);
+
+    POLYCODEPTR     interpreterPc;
 
     PLock interruptLock;
 
@@ -293,11 +318,9 @@ extern "C" {
 
     // These are declared in the assembly code segment.
     void X86AsmSwitchToPoly(void *);
-    extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
-    extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
-    extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
-
-    POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
+    int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
+    int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
+    int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
 
     void X86TrapHandler(PolyWord threadId);
 };
@@ -510,35 +533,7 @@ void X86TaskData::HandleTrap()
             min_size = (this->stack->top - (PolyWord*)stackP) +
                 OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
         }
-        try {
-            // The stack check has failed.  This may either be because we really have
-            // overflowed the stack or because the stack limit value has been adjusted
-            // to result in a call here.
-            CheckAndGrowStack(this, min_size);
-        }
-        catch (IOException&) {
-            // We may get an exception while handling this if we run out of store
-        }
-        {
-            PLocker l(&interruptLock);
-            // Set the stack limit.  This clears any interrupt and also sets the
-            // correct value if we've grown the stack.
-            this->assemblyInterface.stackLimit = (stackItem*)this->stack->bottom + OVERFLOW_STACK_SIZE;
-        }
-        // We're in a safe state to handle any interrupts.
-        try {
-            // Process any asynchronous events i.e. interrupts or kill
-            processes->ProcessAsynchRequests(this);
-            // Release and re-acquire use of the ML memory to allow another thread to GC.
-            processes->ThreadReleaseMLMemory(this);
-            processes->ThreadUseMLMemory(this);
-        }
-        catch (IOException&) {
-            // If this resulted in an ML exception it will also raise a C++ exception.
-        }
-        catch (KillException&) {
-            processes->ThreadExit(this);
-        }
+        StackOverflowTrap(min_size);
         break;
     }
 
@@ -547,6 +542,48 @@ void X86TaskData::HandleTrap()
     }
     SetMemRegisters();
 }
+
+void X86TaskData::CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR& pc, stackItem*& sp)
+{
+    // Check there is space on the stack.  This may also be used to signal for an interrupt.
+    if (sp - space < assemblyInterface.stackLimit)
+    {
+        SaveInterpreterState(pc, sp);
+        StackOverflowTrap(space);
+        LoadInterpreterState(pc, sp);
+    }
+}
+
+void X86TaskData::StackOverflowTrap(uintptr_t space)
+{
+    uintptr_t min_size = (this->stack->top - (PolyWord*)assemblyInterface.stackPtr) + OVERFLOW_STACK_SIZE + space;
+    try {
+        // The stack check has failed.  This may either be because we really have
+        // overflowed the stack or because the stack limit value has been adjusted
+        // to result in a call here.
+        CheckAndGrowStack(this, min_size);
+    }
+    catch (IOException&) {
+        // We may get an exception while handling this if we run out of store
+    }
+    {
+        PLocker l(&interruptLock);
+        // Set the stack limit.  This clears any interrupt and also sets the
+        // correct value if we've grown the stack.
+        assemblyInterface.stackLimit = (stackItem*)this->stack->bottom + OVERFLOW_STACK_SIZE;
+    }
+
+    try {
+        processes->ProcessAsynchRequests(this);
+        // Release and re-acquire use of the ML memory to allow another thread
+        // to GC.
+        processes->ThreadReleaseMLMemory(this);
+        processes->ThreadUseMLMemory(this);
+    }
+    catch (IOException&) {
+    }
+}
+
 
 void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle arg)
 /* Initialise stack frame. */
@@ -1218,19 +1255,42 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
     }
 }
 
-// Increment the value contained in the first word of the mutex.
-Handle X86TaskData::AtomicDecrement(Handle mutexp)
+#if defined(_MSC_VER)
+// This saves having to define it in the MASM assembly code.
+static POLYUNSIGNED X86AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED addend)
 {
-    PolyObject *p = DEREFHANDLE(mutexp);
-    POLYUNSIGNED result = X86AsmAtomicDecrement(p);
-    return this->saveVec.push(PolyWord::FromUnsigned(result));
+#   if (SIZEOF_VOIDP == 8)
+    return InterlockedExchangeAdd64((LONG64*)mutexp, addend);
+#   else
+    return InterlockedExchangeAdd((LONG*)mutexp, addend);
+#  endif
+}
+
+#else
+extern "C" {
+    // This is only defined in the GAS assembly code
+    POLYUNSIGNED X86AsmAtomicExchangeAndAdd(PolyObject*, POLYSIGNED);
+}
+#endif
+
+// Decrement the value contained in the first word of the mutex.
+// The addend is TAGGED(+/-1) - 1
+POLYUNSIGNED X86TaskData::AtomicDecrement(PolyObject *mutexp)
+{
+    return X86AsmAtomicExchangeAndAdd(mutexp, -2) - 2;
+}
+
+// Increment the value contained in the first word of the mutex.
+POLYUNSIGNED X86TaskData::AtomicIncrement(PolyObject* mutexp)
+{
+    return X86AsmAtomicExchangeAndAdd(mutexp, 2) + 2;
 }
 
 // Release a mutex.  Because the atomic increment and decrement
 // use the hardware LOCK prefix we can simply set this to zero.
-void X86TaskData::AtomicReset(Handle mutexp)
+void X86TaskData::AtomicReset(PolyObject* mutexp)
 {
-    DEREFHANDLE(mutexp)->Set(0, TAGGED(0));
+    mutexp->Set(0, TAGGED(0));
 }
 
 static X86Dependent x86Dependent;

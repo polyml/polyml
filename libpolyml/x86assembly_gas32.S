@@ -168,17 +168,11 @@ INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
 
 # Additional assembly code routines
 
-# This implements atomic addition in the same way as atomic_increment
-INLINE_ROUTINE(X86AsmAtomicDecrement)
-#ifndef HOSTARCHITECTURE_X86_64
-    movl    4(%esp),%eax
-#else
-    movl    %edi,%eax   # On X86_64 the argument is passed in %edi
-#endif
+# Fallback exchange and add if we can't use inline.
+INLINE_ROUTINE(X86AsmAtomicExchangeAndAdd)
 # Use %ecx and %eax because they are volatile (unlike %ebx on X86/64/Unix)
-    movl    $-2,%ecx
-    lock; xaddl %ecx,(%eax)
-    subl    $2,%ecx
-    movl    %ecx,%eax
+    movl    4(%esp),%ecx
+    movl    8(%esp),%eax
+    lock; xaddl %eax,(%ecx)
     ret
 

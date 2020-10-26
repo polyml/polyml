@@ -263,21 +263,24 @@ INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
 INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
     CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
 
-# This implements atomic subtraction in the same way as atomic_decrement
-INLINE_ROUTINE(X86AsmAtomicDecrement)
+# Fallback exchange and add if we can't use inline.
+INLINE_ROUTINE(X86AsmAtomicExchangeAndAdd)
 #ifdef _WIN32
-    movq    %rcx,%rax       # On Windows the argument is passed in %rcx
-#else
-    movq    %rdi,%rax   # On X86_64 the argument is passed in %rdi
-#endif
-# Use %rcx and %rax because they are volatile (unlike %rbx on X86/64/Unix)
-    movq    $-2,%rcx
+#  Windows calling conventions rcx,rdx
+    movq    %rdx,%rax
 #ifdef POLYML32IN64
-    lock xaddl %ecx,(%rax)      # Rax is an absolute address but this is only a word
+    lock xaddl %eax,(%rcx)      # rax is an absolute address but this is only a word
 #else
-    lock xaddq %rcx,(%rax)
+    lock xaddq %rax,(%rcx)
 #endif
-    subq    $2,%rcx
-    movq    %rcx,%rax
-    ret
+# Unix calling conventions rdi,rsi
+#else
+    movq    %rsi,%rax
+#ifdef POLYML32IN64
+    lock xaddl %eax,(%rdi)      # rax is an absolute address but this is only a word
+#else
+    lock xaddq %rax,(%rdi)
+#endif
 
+#endif
+    ret

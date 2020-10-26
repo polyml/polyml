@@ -517,10 +517,10 @@ void Processes::WaitInfinite(TaskData *taskData, Handle hMutex)
     PLocker lock(&schedLock);
     // Atomically release the mutex.  This is atomic because we hold schedLock
     // so no other thread can call signal or broadcast.
-    Handle decrResult = taskData->AtomicDecrement(hMutex);
+    Handle decrResult = taskData->saveVec.push(PolyWord::FromUnsigned(taskData->AtomicDecrement(hMutex->WordP())));
     if (UNTAGGED(decrResult->Word()) != 0)
     {
-        taskData->AtomicReset(hMutex);
+        taskData->AtomicReset(hMutex->WordP());
         // The mutex was locked so we have to release any waiters.
         // Unlock any waiters.
         for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
@@ -567,10 +567,10 @@ void Processes::WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hWakeTim
     PLocker lock(&schedLock);
     // Atomically release the mutex.  This is atomic because we hold schedLock
     // so no other thread can call signal or broadcast.
-    Handle decrResult = taskData->AtomicDecrement(hMutex);
+    Handle decrResult = taskData->saveVec.push(PolyWord::FromUnsigned(taskData->AtomicDecrement(hMutex->WordP())));
     if (UNTAGGED(decrResult->Word()) != 0)
     {
-        taskData->AtomicReset(hMutex);
+        taskData->AtomicReset(hMutex->WordP());
         // The mutex was locked so we have to release any waiters.
         // Unlock any waiters.
         for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
@@ -779,7 +779,7 @@ void TaskData::FillUnusedSpace(void)
 
 TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
         stack(0), threadObject(0), signalStack(0),
-        inML(false), requests(kRequestNone), blockMutex(0), inMLHeap(false),
+        requests(kRequestNone), blockMutex(0), inMLHeap(false),
         runningProfileTimer(false)
 {
 #ifdef HAVE_WINDOWS_H
@@ -1494,7 +1494,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                 PolyWord *limit = taskData->allocLimit, *ptr = taskData->allocPointer;
                 if (limit < ptr && (uintptr_t)(ptr-limit) < taskData->allocSize)
                     freeSpace += ptr-limit;
-                if (taskData->inML) threadsInML++;
+                if (taskData->inMLHeap) threadsInML++;
             }
         }
         // Add the space in the allocation areas after calculating the sizes for the

@@ -144,18 +144,6 @@ CALL_EXTRA  MACRO   index
     jmp     CallTrapHandler
 ENDM
 
-; This implements atomic addition in the same way as atomic_increment
-; N.B. It is called from the RTS so uses C linkage conventions.
-PUBLIC  X86AsmAtomicDecrement
-X86AsmAtomicDecrement:
-    mov     eax,4[esp]
-; Use ecx and eax because they are volatile (unlike ebx on X86/64/Unix)
-    mov     ecx,-2
-    lock xadd [eax],ecx
-    sub     ecx,2
-    mov     eax,ecx
-    ret
-
 CREATE_EXTRA_CALL MACRO index
 PUBLIC  X86AsmCallExtra&index&
 X86AsmCallExtra&index&:

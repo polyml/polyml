@@ -122,10 +122,12 @@ public:
     // The scheduler needs versions of atomic decrement and atomic reset that
     // work in exactly the same way as the code-generated versions (if any).
     // Atomic decrement isn't needed since it only ever releases a mutex.
-    virtual Handle AtomicDecrement(Handle mutexp) = 0;
+    virtual POLYUNSIGNED AtomicDecrement(PolyObject *mutexp) = 0;
     // Reset a mutex to one.  This needs to be atomic with respect to the
     // atomic increment and decrement instructions.
-    virtual void AtomicReset(Handle mutexp) = 0;
+    virtual void AtomicReset(PolyObject* mutexp) = 0;
+    // This is actually only used in the interpreter.
+    virtual POLYUNSIGNED AtomicIncrement(PolyObject* mutexp) = 0;
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length,
                                 StackObject *new_stack, uintptr_t new_length) = 0;
@@ -136,8 +138,8 @@ public:
     virtual void addProfileCount(POLYUNSIGNED words) = 0;
 
     // Functions called before and after an RTS call.
-    virtual void PreRTSCall(void) { inML = false; }
-    virtual void PostRTSCall(void) { inML = true; }
+    virtual void PreRTSCall(void) {}
+    virtual void PostRTSCall(void) {}
 
     SaveVec     saveVec;
     PolyWord    *allocPointer;  // Allocation pointer - decremented towards...
@@ -148,7 +150,6 @@ public:
     ThreadObject *threadObject;  // Pointer to the thread object.
     int         lastError;      // Last error from foreign code.
     void        *signalStack;  // Stack to handle interrupts (Unix only)
-    bool        inML;          // True when this is in ML, false in the RTS
 
     // Get a TaskData pointer given the ML taskId.
     // This is called at the start of every RTS function that may allocate memory.
