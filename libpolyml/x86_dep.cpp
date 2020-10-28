@@ -156,8 +156,8 @@ public:
     uintptr_t       saveCStack;         // Saved C stack frame.
     PolyWord        threadId;           // My thread id.  Saves having to call into RTS for it.
     stackItem       *stackPtr;          // Current stack pointer
-    byte            *noLongerUsed;      // Now removed
-    byte            *heapOverFlowCall;  // These are filled in with the functions.
+    byte            *enterInterpreter;  // These are filled in with the functions.
+    byte            *heapOverFlowCall; 
     byte            *stackOverFlowCall;
     byte            *stackOverFlowCallEx;
     // Saved registers, where applicable.
@@ -200,7 +200,7 @@ public:
     virtual void EnterPolyCode(); // Start running ML
     virtual void InterruptCode();
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context);
-    virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg);
+    virtual void InitStackFrame(TaskData *parentTask, Handle proc);
     virtual void SetException(poly_exn *exc);
 
     // Release a mutex in exactly the same way as compiler code
@@ -255,6 +255,9 @@ public:
     // Check and grow the stack if necessary.  Process any interupts.
     virtual void CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR &pc, stackItem* &sp);
 
+    void Interpret();
+    void EndBootStrap() { mixedCode = true; }
+
     POLYCODEPTR     interpreterPc;
 
     PLock interruptLock;
@@ -288,7 +291,7 @@ public:
 
 class X86Dependent: public MachineDependent {
 public:
-    X86Dependent() {}
+    X86Dependent(): mustInterpret(false) {}
 
     // Create a task data object.
     virtual TaskData *CreateTaskData(void) { return new X86TaskData(); }
@@ -297,27 +300,51 @@ public:
     virtual unsigned InitialStackSize(void) { return (128+OVERFLOW_STACK_SIZE) * sizeof(uintptr_t) / sizeof(PolyWord); }
     virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process);
 
-    virtual Architectures MachineArchitecture(void)
-#ifndef HOSTARCHITECTURE_X86_64
-         { return MA_I386; }
-#elif defined(POLYML32IN64)
-        { return MA_X86_64_32; }
-#else
-         { return MA_X86_64; }
-#endif
+    virtual void SetBootArchitecture(char arch, unsigned wordLength);
+
+    virtual Architectures MachineArchitecture(void);
+
+    // During the first bootstrap phase this is interpreted.
+    bool mustInterpret;
 };
+
+static X86Dependent x86Dependent;
+
+MachineDependent* machineDependent = &x86Dependent;
+
+Architectures X86Dependent::MachineArchitecture(void)
+{
+    if (mustInterpret) return MA_Interpreted;
+#ifndef HOSTARCHITECTURE_X86_64
+        return MA_I386;
+#elif defined(POLYML32IN64)
+    return MA_X86_64_32;
+#else
+    return MA_X86_64;
+#endif
+}
+
+void X86Dependent::SetBootArchitecture(char arch, unsigned wordLength)
+{
+    if (arch == 'I')
+        mustInterpret = true;
+    else if (arch != 'X')
+        Crash("Boot file has unexpected architecture code: %c", arch);
+}
 
 // Values for the returnReason byte
 enum RETURN_REASON {
     RETURN_HEAP_OVERFLOW = 1,
     RETURN_STACK_OVERFLOW = 2,
     RETURN_STACK_OVERFLOWEX = 3,
+    RETURN_ENTER_INTERPRETER = 4
 };
 
 extern "C" {
 
     // These are declared in the assembly code segment.
     void X86AsmSwitchToPoly(void *);
+    int X86AsmCallExtraRETURN_ENTER_INTERPRETER(void);
     int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
     int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
     int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
@@ -327,15 +354,19 @@ extern "C" {
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
 {
+    assemblyInterface.enterInterpreter = (byte*)X86AsmCallExtraRETURN_ENTER_INTERPRETER;
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
     savedErrno = 0;
+    interpreterPc = 0;
+    mixedCode = !x86Dependent.mustInterpret;
 }
 
 void X86TaskData::GarbageCollect(ScanAddress *process)
 {
     TaskData::GarbageCollect(process); // Process the parent first
+    ByteCodeInterpreter::GarbageCollect(process);
     assemblyInterface.threadId = threadObject;
 
     if (stack != 0)
@@ -487,12 +518,74 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length, S
 void X86TaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
+    if (x86Dependent.mustInterpret)
+    {
+        PolyWord closure = assemblyInterface.p_rdx;
+        *(--assemblyInterface.stackPtr) = closure; /* Closure address */
+        interpreterPc = *(POLYCODEPTR*)closure.AsObjPtr();
+        Interpret();
+        ASSERT(0); // Should never return
+    }
     SetMemRegisters();
     // Enter the ML code.
     X86AsmSwitchToPoly(&this->assemblyInterface);
     // This should never return
     ASSERT(0);
  }
+
+void X86TaskData::Interpret()
+{
+    while (true)
+    {
+        switch (RunInterpreter(this))
+        {
+        case ReturnCall:
+            // After the call there will be an enter-int instruction so that when this
+            // returns we will re-enter the interpreter.  The number of arguments for
+            // this call is after that.
+            ASSERT(interpreterPc[0] == 0xff);
+            numTailArguments = interpreterPc[3];
+
+        case ReturnTailCall:
+        {
+            ClearExceptionPacket();
+            // Pop the closure.
+            PolyWord closureWord = *assemblyInterface.stackPtr++;
+            PolyObject* closure = closureWord.AsObjPtr();
+            interpreterPc = *(POLYCODEPTR*)closure;
+            if (interpreterPc[0] == 0xff && interpreterPc[1] == 0x55 && (interpreterPc[2] == 0x48 || interpreterPc[2] == 0x24))
+            {
+                // If the code we're going to is interpreted push back the closure and
+                // continue.
+                assemblyInterface.stackPtr--;
+                continue;
+            }
+            assemblyInterface.p_rdx = closureWord; // Put closure in the closure reg.
+            // Pop the return address.
+            POLYCODEPTR originalReturn = (assemblyInterface.stackPtr++)->codeAddr;
+            // Because of the way the build process works we only ever call functions with a single argument.
+            ASSERT(numTailArguments == 1);
+            assemblyInterface.p_rax = *(assemblyInterface.stackPtr++);
+            (*(--assemblyInterface.stackPtr)).codeAddr = originalReturn; // Push return address to caller
+            (*(--assemblyInterface.stackPtr)).codeAddr = *(POLYCODEPTR*)closure; // Entry point to callee
+            interpreterPc = 0; // No longer in the interpreter (See SaveMemRegs)
+            return;
+        }
+        case ReturnReturn:
+        {
+            ClearExceptionPacket();
+            if (interpreterPc[0] == 0xff && interpreterPc[1] == 0x55 && (interpreterPc[2] == 0x48 || interpreterPc[2] == 0x24))
+                continue;
+            // Get the return value from the stack and replace it by the
+            // address we're going to.
+            assemblyInterface.p_rax = assemblyInterface.stackPtr[0];
+            assemblyInterface.stackPtr[0].codeAddr = interpreterPc;
+            interpreterPc = 0; // No longer in the interpreter (See SaveMemRegs)
+            return;
+        }
+        }
+    }
+}
 
 // Called from the assembly code as a result of a trap i.e. a request for
 // a GC or to extend the stack.
@@ -534,6 +627,62 @@ void X86TaskData::HandleTrap()
                 OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
         }
         StackOverflowTrap(min_size);
+        break;
+    }
+
+    case RETURN_ENTER_INTERPRETER:
+    {
+        interpreterPc = assemblyInterface.stackPtr[0].codeAddr;
+        assemblyInterface.stackPtr++; // Pop return address.
+        byte reasonCode = *interpreterPc++;
+        // Sort out arguments.
+        assemblyInterface.exceptionPacket = TAGGED(0);
+        if (reasonCode == 0xff)
+        {
+            // Exception handler.
+            ASSERT(0); // Not used
+            assemblyInterface.exceptionPacket = assemblyInterface.p_rax; // Get the exception packet
+            // We're already in the exception handler but we still have to
+            // adjust the stack pointer and pop the current exception handler.
+            assemblyInterface.stackPtr = assemblyInterface.handlerRegister;
+            assemblyInterface.stackPtr++;
+            assemblyInterface.handlerRegister = (assemblyInterface.stackPtr++)[0].stackAddr;
+        }
+        else if (reasonCode >= 128)
+        {
+            // Start of function.
+            unsigned numArgs = reasonCode - 128;
+            // We need the stack to contain:
+            // The closure, the return address, the arguments.
+            // First pop the original return address.
+            POLYCODEPTR returnAddr = (assemblyInterface.stackPtr++)[0].codeAddr;
+            // Push the register args.
+            ASSERT(numArgs == 1); // We only ever call functions with one argument.
+#ifdef HOSTARCHITECTURE_X86_64
+            ASSERT(numArgs <= 5);
+            if (numArgs >= 1) *(--assemblyInterface.stackPtr) = assemblyInterface.p_rax;
+#ifdef POLYML32IN64
+            if (numArgs >= 2) *(--assemblyInterface.stackPtr) = assemblyInterface.p_rsi;
+#else
+            if (numArgs >= 2) *(--assemblyInterface.stackPtr) = assemblyInterface.p_rbx;
+#endif
+            if (numArgs >= 3) *(--assemblyInterface.stackPtr) = assemblyInterface.p_r8;
+            if (numArgs >= 4) *(--assemblyInterface.stackPtr) = assemblyInterface.p_r9;
+            if (numArgs >= 5) *(--assemblyInterface.stackPtr) = assemblyInterface.p_r10;
+#else
+            ASSERT(numArgs <= 2);
+            if (numArgs >= 1) *(--assemblyInterface.stackPtr) = assemblyInterface.p_rax;
+            if (numArgs >= 2) *(--assemblyInterface.stackPtr) = assemblyInterface.p_rbx;
+#endif
+            (--assemblyInterface.stackPtr)[0].codeAddr = returnAddr;
+            *(--assemblyInterface.stackPtr) = assemblyInterface.p_rdx; // Closure
+        }
+        else
+        {
+            // Return from call. Push RAX
+            *(--assemblyInterface.stackPtr) = assemblyInterface.p_rax;
+        }
+        Interpret();
         break;
     }
 
@@ -585,7 +734,7 @@ void X86TaskData::StackOverflowTrap(uintptr_t space)
 }
 
 
-void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle arg)
+void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc)
 /* Initialise stack frame. */
 {
     StackSpace *space = this->stack;
@@ -610,7 +759,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
 #endif
     // Store the argument and the closure.
     assemblyInterface.p_rdx = proc->Word(); // Closure
-    assemblyInterface.p_rax = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
+    assemblyInterface.p_rax = TAGGED(0); // Argument
     // Have to set the register mask in case we get a GC before the thread starts.
     saveRegisterMask = (1 << 2) | 1; // Rdx and rax
 
@@ -813,7 +962,8 @@ void X86TaskData::SetMemRegisters()
 // This is called whenever we have returned from ML to C.
 void X86TaskData::SaveMemRegisters()
 {
-    this->allocPointer = this->assemblyInterface.localMpointer - 1;
+    if (interpreterPc == 0) // Not if we're already in the interpreter
+        this->allocPointer = this->assemblyInterface.localMpointer - 1;
     this->allocWords = 0;
     this->assemblyInterface.exceptionPacket = TAGGED(0);
     this->saveRegisterMask = 0;
@@ -998,10 +1148,8 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 {
     byte *pt = (byte*)addr;
     PolyWord *end = addr->Offset(length - 1);
-#ifdef POLYML32IN64
     // If this begins with enter-int it's interpreted code - ignore
-    if (pt[0] == 0xff && pt[1] == 0x55 && pt[2] == 0x48) return;
-#endif
+    if (pt[0] == 0xff && pt[1] == 0x55 && (pt[2] == 0x48 || pt[2] == 0x24)) return;
 
     while (true)
     {
@@ -1259,7 +1407,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 // This saves having to define it in the MASM assembly code.
 static POLYUNSIGNED X86AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED addend)
 {
-#   if (SIZEOF_VOIDP == 8)
+#   if (SIZEOF_POLYWORD == 8)
     return InterlockedExchangeAdd64((LONG64*)mutexp, addend);
 #   else
     return InterlockedExchangeAdd((LONG*)mutexp, addend);
@@ -1293,12 +1441,10 @@ void X86TaskData::AtomicReset(PolyObject* mutexp)
     mutexp->Set(0, TAGGED(0));
 }
 
-static X86Dependent x86Dependent;
-
-MachineDependent *machineDependent = &x86Dependent;
-
 extern "C" {
     POLYEXTERNALSYMBOL void *PolyX86GetThreadData();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedEnterIntMode();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function);
 }
 
 // Return the address of assembly data for the current thread.  This is normally in
@@ -1312,7 +1458,7 @@ void *PolyX86GetThreadData()
     if (taskData == 0)
     {
         try {
-            taskData = processes->CreateNewTaskData(0, 0, 0, TAGGED(0));
+            taskData = processes->CreateNewTaskData();
         }
         catch (std::bad_alloc&) {
             ::Exit("Unable to create thread data - insufficient memory");
@@ -1324,9 +1470,40 @@ void *PolyX86GetThreadData()
     return &((X86TaskData*)taskData)->assemblyInterface;
 }
 
+// Do we require EnterInt instructions and if so for which architecture?
+// 0 = > None; 1 => X86_32, 2 => X86_64. 3 => X86_32_in_64.
+POLYUNSIGNED PolyInterpretedEnterIntMode()
+{
+#ifdef POLYML32IN64
+    return TAGGED(3).AsUnsigned();
+#elif defined(HOSTARCHITECTURE_X86_64)
+    return TAGGED(2).AsUnsigned();
+#else
+    return TAGGED(1).AsUnsigned();
+#endif
+}
+
+// End bootstrap mode and run a new function.
+POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle pushedFunction = taskData->saveVec.push(function);
+    x86Dependent.mustInterpret = false;
+    ((X86TaskData*)taskData)->EndBootStrap();
+    taskData->InitStackFrame(taskData, pushedFunction);
+    taskData->EnterPolyCode();
+    // Should never return.
+    ASSERT(0);
+    return TAGGED(0).AsUnsigned();
+}
+
 struct _entrypts machineSpecificEPT[] =
 {
-    { "PolyX86GetThreadData",           (polyRTSFunction)& PolyX86GetThreadData },
+    { "PolyX86GetThreadData",           (polyRTSFunction)&PolyX86GetThreadData },
+    { "PolyInterpretedEnterIntMode",    (polyRTSFunction)&PolyInterpretedEnterIntMode },
+    { "PolyEndBootstrapMode",           (polyRTSFunction)&PolyEndBootstrapMode },
 
     { NULL, NULL} // End of list.
 };
