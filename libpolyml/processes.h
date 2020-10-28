@@ -116,7 +116,7 @@ public:
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context) = 0;
     // Initialise the stack for a new thread.  The parent task object is passed in because any
     // allocation that needs to be made must be made in the parent.
-    virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg) = 0;
+    virtual void InitStackFrame(TaskData *parentTask, Handle proc) = 0;
     virtual void SetException(poly_exn *exc) = 0;
 
     // The scheduler needs versions of atomic decrement and atomic reset that
@@ -290,8 +290,7 @@ public:
     virtual ~ProcessExternal() {} // Defined to suppress a warning from GCC
 
     virtual TaskData *GetTaskDataForThread(void) = 0;
-    virtual TaskData *CreateNewTaskData(Handle threadId, Handle threadFunction,
-                           Handle args, PolyWord flags) = 0;
+    virtual TaskData *CreateNewTaskData() = 0;
     // Request all ML threads to exit and set the result code.  Does not cause
     // the calling thread itself to exit since this may be called on the GUI thread.
     virtual void RequestProcessExit(int n) = 0;
@@ -325,9 +324,6 @@ public:
     // Process any events, synchronous or asynchronous.
     virtual void TestAnyEvents(TaskData *taskData) = 0;
     
-    // ForkFromRTS.  Creates a new thread from within the RTS.
-    virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg) = 0;
-
     // Profiling control.
     virtual void StartProfiling(void) = 0;
     virtual void StopProfiling(void) = 0;
