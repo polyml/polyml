@@ -41,11 +41,11 @@
 #define ASSERT(x) 0
 #endif
 
-/*
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
 
+/*
 #ifdef HAVE_FLOAT_H
 #include <float.h>
 #endif
@@ -98,7 +98,7 @@ union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 
 union flt { float fl; int32_t i; };
 
-ByteCodeInterpreter::ByteCodeInterpreter() : overflowPacket(0), dividePacket(0), mixedCode(false)
+ByteCodeInterpreter::ByteCodeInterpreter() : mixedCode(false), overflowPacket(0), dividePacket(0)
 {
 #ifdef PROFILEOPCODES
     memset(frequency, 0, sizeof(frequency));
@@ -425,7 +425,6 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             *(--sp) = (PolyWord)closure;
             if (mixedCode)
             {
-                POLYCODEPTR newPc = *(POLYCODEPTR*)closure;
                 SaveInterpreterState(pc, sp);
                 return ReturnCall; // Caller must look at enter-int to determine number of args
             }
@@ -485,8 +484,10 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
 
         case INSTR_raise_ex:
         {
-            PolyException *exn = (PolyException*)((*sp).w().AsObjPtr());
-            taskData->SetException(exn);
+            {
+                PolyException *exn = (PolyException*)((*sp).w().AsObjPtr());
+                taskData->SetException(exn);
+            }
         RAISE_EXCEPTION:
             sp = GetHandlerRegister();
             pc = (*sp++).codeAddr;

@@ -101,11 +101,11 @@ dist-hook:
 	    -exec cp -pf {} $(distdir)/{} \;
 
 # Unix.
-polyexport.o: polyimport exportPoly.sml $(POLYIMPORT)
+polyexport.o: polyimport bootstrap/Stage1.sml $(POLYIMPORT)
 	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) -I $(srcdir) < $(srcdir)/bootstrap/Stage1.sml
 
 # Windows.  When building on Windows make sure that we provide both stdin and stdout to suppress the GUI.
-polyexport.obj: polyimport$(EXEEXT) exportPoly.sml $(POLYIMPORT)
+polyexport.obj: polyimport$(EXEEXT) bootstrap/Stage1.sml $(POLYIMPORT)
 	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) -I $(srcdir) < $(srcdir)/bootstrap/Stage1.sml | cat
 
 polyresource.o: PolyML.rc poly.ico

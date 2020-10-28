@@ -55,10 +55,10 @@ private:
 
 private:
     inline PolyObject* allocateMemory(TaskData* taskData, POLYUNSIGNED words, POLYCODEPTR& pc, stackItem*& sp);
-    inline PolyObject* ByteCodeInterpreter::boxDouble(TaskData* taskData, double d, POLYCODEPTR& pc, stackItem*& sp);
-    inline double ByteCodeInterpreter::unboxDouble(PolyWord p);
-    inline float ByteCodeInterpreter::unboxFloat(PolyWord p);
-    inline PolyObject* ByteCodeInterpreter::boxFloat(TaskData* taskData, float f, POLYCODEPTR& pc, stackItem*& sp);
+    inline PolyObject* boxDouble(TaskData* taskData, double d, POLYCODEPTR& pc, stackItem*& sp);
+    inline double unboxDouble(PolyWord p);
+    inline float unboxFloat(PolyWord p);
+    inline PolyObject* boxFloat(TaskData* taskData, float f, POLYCODEPTR& pc, stackItem*& sp);
 
 #ifdef PROFILEOPCODES
     unsigned frequency[256], arg1Value[256], arg2Value[256];
