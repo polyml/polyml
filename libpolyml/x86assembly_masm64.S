@@ -61,6 +61,7 @@ UnusedProgramCtr    QWORD   ?
 HeapOverFlowCall    QWORD   ?
 StackOverFlowCall   QWORD   ?
 StackOverFlowCallEx QWORD   ?
+TrapHandlerEntry    QWORD   ?
 SaveRAX             QWORD   ?
 SaveRBX             QWORD   ?
 SaveRCX             QWORD   ?
@@ -182,7 +183,7 @@ CallTrapHandler:
     mov     rsp,[ArgVector.SaveCStack+rbp]          ; Restore C stack pointer
     sub     rsp,32                          ; Create Windows save area
     mov     rcx,[ArgVector.ThreadId+rbp]
-    call    X86TrapHandler
+    call    [ArgVector.TrapHandlerEntry+rbp]
     add     rsp,32
     mov     r15,[ArgVector.LocalMpointer+rbp]
     mov     rsp,[ArgVector.StackPtr+rbp]
