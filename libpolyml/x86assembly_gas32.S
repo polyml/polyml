@@ -138,7 +138,7 @@ CallTrapHandler:
     movl    Arg_SaveCStack(%ebp),%esp       # Restore C stack pointer
     subl    $12,%esp                        # Align stack ptr - GCC prefers this
     pushl   Arg_ThreadId(%ebp)
-    call    Arg_TrapHandlerEntry(%ebp)
+    calll   *Arg_TrapHandlerEntry(%ebp)
     addl    $16,%esp
     movl    Arg_StackPtr(%ebp),%esp
     movl    Arg_ExceptionPacket(%ebp),%eax

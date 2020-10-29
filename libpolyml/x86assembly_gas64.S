@@ -221,7 +221,7 @@ CallTrapHandler:
 #else
     movq    Arg_ThreadId(%rbp),%rdi
 #endif
-    call    Arg_TrapHandlerEntry(%rbp)
+    callq   *Arg_TrapHandlerEntry(%rbp)
 #ifdef _WIN32
     addq    $32,%rsp
 #endif
