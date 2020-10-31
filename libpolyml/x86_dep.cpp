@@ -160,6 +160,7 @@ public:
     byte            *heapOverFlowCall; 
     byte            *stackOverFlowCall;
     byte            *stackOverFlowCallEx;
+    byte            *trapHandlerEntry;
     // Saved registers, where applicable.
     stackItem       p_rax;
     stackItem       p_rbx;
@@ -358,6 +359,7 @@ X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
+    assemblyInterface.trapHandlerEntry = (byte*)X86TrapHandler;
     savedErrno = 0;
     interpreterPc = 0;
     mixedCode = !x86Dependent.mustInterpret;

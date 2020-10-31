@@ -74,13 +74,14 @@ EXTNAME(id):
 #define Arg_SaveCStack          0x18  /* Save C Stack pointer */
 #define Arg_ThreadId            0x1c  /* My thread id */
 #define Arg_StackPtr            0x20  /* Stack Pointer */
-#define Arg_SaveRAX             0x34
-#define Arg_SaveRBX             0x38
-#define Arg_SaveRCX             0x3c
-#define Arg_SaveRDX             0x40
-#define Arg_SaveRSI             0x44
-#define Arg_SaveRDI             0x48
-#define Arg_SaveFP              0x4c
+#define Arg_TrapHandlerEntry    0x34
+#define Arg_SaveRAX             0x38
+#define Arg_SaveRBX             0x3c
+#define Arg_SaveRCX             0x40
+#define Arg_SaveRDX             0x44
+#define Arg_SaveRSI             0x48
+#define Arg_SaveRDI             0x4c
+#define Arg_SaveFP              0x50
 
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
@@ -138,7 +139,7 @@ CallTrapHandler:
     movl    Arg_SaveCStack(%ebp),%esp       # Restore C stack pointer
     subl    $12,%esp                        # Align stack ptr - GCC prefers this
     pushl   Arg_ThreadId(%ebp)
-    call    X86TrapHandler
+    calll   *Arg_TrapHandlerEntry(%ebp)
     addl    $16,%esp
     movl    Arg_StackPtr(%ebp),%esp
     movl    Arg_ExceptionPacket(%ebp),%eax

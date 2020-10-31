@@ -54,6 +54,7 @@ UnusedProgramCtr    DWORD   ?
 HeapOverFlowCall    DWORD   ?
 StackOverFlowCall   DWORD   ?
 StackOverFlowCallEx DWORD   ?
+TrapHandlerEntry    DWORD   ?
 SaveRAX             DWORD   ?
 SaveRBX             DWORD   ?
 SaveRCX             DWORD   ?
@@ -117,7 +118,7 @@ CallTrapHandler:
     sub     esp,12                          ; Align stack ptr - GCC prefers this
     push    [ArgVector.ThreadId+ebp]
 
-    call    X86TrapHandler
+    call    [ArgVector.TrapHandlerEntry+ebp]
     add     esp,16
 	mov     esp,[ArgVector.StackPtr+ebp]
     mov     eax,[ArgVector.ExceptionPacket+ebp]

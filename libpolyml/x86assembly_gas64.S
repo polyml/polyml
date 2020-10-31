@@ -84,26 +84,27 @@ EXTNAME(id):
 #define Arg_SaveCStack          0x30  /* Current stack base */
 #define Arg_ThreadId            0x38  /* My thread id */
 #define Arg_StackPtr            0x40  /* Stack Pointer */
-#define Arg_SaveRAX             0x68
-#define Arg_SaveRBX             0x70
-#define Arg_SaveRCX             0x78
-#define Arg_SaveRDX             0x80
-#define Arg_SaveRSI             0x88
-#define Arg_SaveRDI             0x90
-#define Arg_SaveR8              0x98
-#define Arg_SaveR9              0xa0
-#define Arg_SaveR10             0xa8
-#define Arg_SaveR11             0xb0
-#define Arg_SaveR12             0xb8
-#define Arg_SaveR13             0xc0
-#define Arg_SaveR14             0xc8
-#define Arg_SaveXMM0            0xd0
-#define Arg_SaveXMM1            0xd8
-#define Arg_SaveXMM2            0xe0
-#define Arg_SaveXMM3            0xe8
-#define Arg_SaveXMM4            0xf0
-#define Arg_SaveXMM5            0xf8
-#define Arg_SaveXMM6            0x100
+#define Arg_TrapHandlerEntry    0x68
+#define Arg_SaveRAX             0x70
+#define Arg_SaveRBX             0x78
+#define Arg_SaveRCX             0x80
+#define Arg_SaveRDX             0x88
+#define Arg_SaveRSI             0x90
+#define Arg_SaveRDI             0x98
+#define Arg_SaveR8              0xa0
+#define Arg_SaveR9              0xa8
+#define Arg_SaveR10             0xb0
+#define Arg_SaveR11             0xb8
+#define Arg_SaveR12             0xc0
+#define Arg_SaveR13             0xc8
+#define Arg_SaveR14             0xd0
+#define Arg_SaveXMM0            0xd8
+#define Arg_SaveXMM1            0xe0
+#define Arg_SaveXMM2            0xe8
+#define Arg_SaveXMM3            0xf0
+#define Arg_SaveXMM4            0xf8
+#define Arg_SaveXMM5            0x100
+#define Arg_SaveXMM6            0x108
 
 /* IO function numbers.  These are functions that are called
    to handle special cases in this code */
@@ -220,7 +221,7 @@ CallTrapHandler:
 #else
     movq    Arg_ThreadId(%rbp),%rdi
 #endif
-    call    X86TrapHandler@plt
+    callq   *Arg_TrapHandlerEntry(%rbp)
 #ifdef _WIN32
     addq    $32,%rsp
 #endif
