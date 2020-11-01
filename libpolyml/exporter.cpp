@@ -347,16 +347,13 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     POLYUNSIGNED words = OBJ_OBJECT_LENGTH(lengthWord);
 
     PolyObject *newObj = 0;
-    PolyObject* writeAble = 0;
+    PolyObject* writAble = 0;
     bool isMutableObj = obj->IsMutable();
     bool isNoOverwrite = false;
-    bool isByteObj = false;
+    bool isByteObj = obj->IsByteObject();
     bool isCodeObj = false;
     if (isMutableObj)
-    {
         isNoOverwrite = obj->IsNoOverwriteObject();
-        isByteObj = obj->IsByteObject();
-    }
     else isCodeObj = obj->IsCodeObject();
     // Allocate a new address for the object.
     for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
@@ -372,7 +369,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
             if (spaceLeft > words)
             {
                 newObj = (PolyObject*)(space->topPointer + 1);
-                writeAble = space->writeAble(newObj);
+                writAble = space->writeAble(newObj);
                 space->topPointer += words + 1;
 #ifdef POLYML32IN64
                 // Maintain the odd-word alignment of topPointer
@@ -412,7 +409,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
             throw MemoryException();
         }
         newObj = (PolyObject*)(space->topPointer + 1);
-        writeAble = space->writeAble(newObj);
+        writAble = space->writeAble(newObj);
         space->topPointer += words + 1;
 #ifdef POLYML32IN64
         // Maintain the odd-word alignment of topPointer
@@ -425,7 +422,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         ASSERT(space->topPointer <= space->top && space->topPointer >= space->bottom);
     }
 
-    writeAble->SetLengthWord(lengthWord); // copy length word
+    writAble->SetLengthWord(lengthWord); // copy length word
 
     if (hierarchy == 0 /* Exporting object module */ && isNoOverwrite && isMutableObj && !isByteObj)
     {
@@ -437,9 +434,9 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         // Note: this must not be done when exporting a saved state because the
         // copied version is used as the local data for the rest of the session.
         for (POLYUNSIGNED i = 0; i < words; i++)
-            writeAble->Set(i, TAGGED(0));
+            writAble->Set(i, TAGGED(0));
     }
-    else memcpy(writeAble, obj, words * sizeof(PolyWord));
+    else memcpy(writAble, obj, words * sizeof(PolyWord));
 
     if (space->spaceType == ST_PERMANENT && !space->isMutable && ((PermanentMemSpace*)space)->hierarchy == 0)
     {

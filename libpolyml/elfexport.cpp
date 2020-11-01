@@ -479,11 +479,16 @@ void ELFExport::exportStore(void)
 #else
     unsigned extraSections = 0;
 #endif
-    unsigned numSections = 6 + 2*memTableEntries /*- 1*/ + extraSections;
-    // The symbol table comes at the end.
-    unsigned sect_symtab = sect_data + 2*memTableEntries + 2/* - 1*/;
-    
-    unsigned i;
+    unsigned numSections = 0;
+    for (unsigned j = 0; j < memTableEntries; j++)
+    {
+        if ((memTable[j].mtFlags & (MTF_BYTES|MTF_WRITEABLE)) == MTF_BYTES)
+            numSections += 1;
+        else numSections += 2;
+    }
+        // The symbol table comes at the end.
+    unsigned sect_symtab = sect_data + numSections + 2;
+    numSections += 6 + extraSections;
     
     // External symbols start after the memory table entries and "poly_exports".
     symbolNum = EXTRA_SYMBOLS+memTableEntries+1;
@@ -558,13 +563,15 @@ void ELFExport::exportStore(void)
 #endif
     // The Linux linker does not like relocations in the .rodata section and marks the executable
     // as containing text relocations.  Putting the data in a .data.rel.ro section seems to work.
-    unsigned long rodataName = makeStringTableEntry(".data.rel.ro", &sectionStrings);
-    unsigned long rodataRelName = makeStringTableEntry(USE_RELA ? ".rela.data.ro" : ".rel.data.ro", &sectionStrings);
+    unsigned long relDataName = makeStringTableEntry(".data.rel.ro", &sectionStrings);
+    unsigned long relDataRelName = makeStringTableEntry(USE_RELA ? ".rela.data.rel.ro" : ".rel.data.rel.ro", &sectionStrings);
+    // Byte and other leaf data that do not require relocation can go in the .rodata section
+    unsigned long nRelDataName = makeStringTableEntry(".rodata", &sectionStrings);
 
     // Main data sections.  Each one has a relocation section.
-    for (i=0; i < memTableEntries; i++)
+    unsigned s = sect_data;
+    for (unsigned i=0; i < memTableEntries; i++)
     {
-        unsigned s = sect_data + i*2;
         sections[s].sh_addralign = 8; // 8-byte alignment
         sections[s].sh_type = SHT_PROGBITS;
         if (memTable[i].mtFlags & MTF_WRITEABLE)
@@ -573,7 +580,9 @@ void ELFExport::exportStore(void)
             ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
             sections[s].sh_name = dataName;
             sections[s].sh_flags = SHF_WRITE | SHF_ALLOC;
-            sections[s+1].sh_name = dataRelName; // Name of relocation section
+            s++;
+            // Mutable byte areas can contain external references so need relocation
+            sections[s].sh_name = dataRelName; // Name of relocation section
         }
 #ifndef CODEISNOTEXECUTABLE
         // Not if we're building the interpreted version.
@@ -582,34 +591,46 @@ void ELFExport::exportStore(void)
             // Code areas are marked as executable.
             sections[s].sh_name = textName;
             sections[s].sh_flags = SHF_ALLOC | SHF_EXECINSTR;
-            sections[s+1].sh_name = textRelName; // Name of relocation section
+            s++;
+            sections[s].sh_name = textRelName; // Name of relocation section
         }
 #endif
+        else if (memTable[i].mtFlags & MTF_BYTES)
+        {
+            // Data that does not require relocation.
+            // Non-code immutable areas
+            sections[s].sh_name = nRelDataName;
+            sections[s].sh_flags = SHF_ALLOC;
+            s++;
+            continue; // Skip the relocation section for this
+        }
         else
         {
             // Non-code immutable areas
-            sections[s].sh_name = rodataName;
+            sections[s].sh_name = relDataName;
             // The .data.rel.ro has to be writable in order to be relocated.
             // It is set to read-only after relocation.
             sections[s].sh_flags = SHF_WRITE | SHF_ALLOC;
-            sections[s+1].sh_name = rodataRelName; // Name of relocation section
+            s++;
+            sections[s].sh_name = relDataRelName; // Name of relocation section
         }
         // sections[s].sh_size is set later
         // sections[s].sh_offset is set later.
         // sections[s].sh_size is set later.
 
         // Relocation section
-        sections[s+1].sh_type = USE_RELA ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
-        sections[s+1].sh_link = sect_symtab; // Index to symbol table
-        sections[s+1].sh_info = s; // Applies to the data section
-        sections[s+1].sh_addralign = sizeof(long); // Align to a word
-        sections[s+1].sh_entsize = USE_RELA ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
+        sections[s].sh_type = USE_RELA ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
+        sections[s].sh_link = sect_symtab; // Index to symbol table
+        sections[s].sh_info = s-1; // Applies to the data section
+        sections[s].sh_addralign = sizeof(long); // Align to a word
+        sections[s].sh_entsize = USE_RELA ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
+        s++;
         // sections[s+1].sh_offset is set later.
         // sections[s+1].sh_size is set later.
     }
 
     // Table data - Poly tables that describe the memory layout.
-    unsigned sect_table_data = sect_data + 2*memTableEntries;
+    unsigned sect_table_data = s;
 
     sections[sect_table_data].sh_name = dataName;
     sections[sect_table_data].sh_type = SHT_PROGBITS;
@@ -640,10 +661,12 @@ void ELFExport::exportStore(void)
 #endif
 
     // Write the relocations.
-
-    for (i = 0; i < memTableEntries; i++)
+    unsigned relocSection = sect_data;
+    for (unsigned i = 0; i < memTableEntries; i++)
     {
-        unsigned relocSection = sect_data + i*2 + 1;
+        relocSection++;
+        if ((memTable[i].mtFlags & (MTF_BYTES|MTF_WRITEABLE)) == MTF_BYTES)
+            continue;
         alignFile(sections[relocSection].sh_addralign);
         sections[relocSection].sh_offset = ftell(exportFile);
         relocationCount = 0;
@@ -664,6 +687,7 @@ void ELFExport::exportStore(void)
         }
         sections[relocSection].sh_size =
             relocationCount * (USE_RELA ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel));
+        relocSection++;
     }
 
     // Relocations for "exports" and "memTable";
@@ -672,7 +696,7 @@ void ELFExport::exportStore(void)
     relocationCount = 0;
     // TODO: This won't be needed if we put these in a separate section.
     POLYUNSIGNED areaSpace = 0;
-    for (i = 0; i < memTableEntries; i++)
+    for (unsigned i = 0; i < memTableEntries; i++)
         areaSpace += memTable[i].mtLength;
 
     // Address of "memTable" within "exports". We can't use createRelocation because
@@ -686,7 +710,7 @@ void ELFExport::exportStore(void)
     createStructsRelocation(AreaToSym(rootAddrArea), offsetof(exportDescription, rootFunction), rootOffset);
 
     // Addresses of the areas within memtable.
-    for (i = 0; i < memTableEntries; i++)
+    for (unsigned i = 0; i < memTableEntries; i++)
     {
         createStructsRelocation(AreaToSym(i),
             sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtCurrentAddr),
@@ -704,12 +728,15 @@ void ELFExport::exportStore(void)
     writeSymbol("", 0, 0, STB_LOCAL, STT_SECTION, sect_data); // .data section
 
     // Create symbols for the address areas.  AreaToSym assumes these come first.
-    for (i = 0; i < memTableEntries; i++)
+    s = sect_data;
+    for (unsigned i = 0; i < memTableEntries; i++)
     {
-        unsigned s = sect_data + i*2;
         char buff[50];
         sprintf(buff, "area%1u", i);
         writeSymbol(buff, 0, 0, STB_LOCAL, STT_OBJECT, s);
+        if ((memTable[i].mtFlags & (MTF_BYTES|MTF_WRITEABLE)) == MTF_BYTES)
+            s += 1;
+        else s += 2;
     }
 
     // Global symbols - Exported symbol for table.
@@ -725,13 +752,16 @@ void ELFExport::exportStore(void)
     sections[sect_symtab].sh_size = sizeof(ElfXX_Sym) * symbolNum;
 
     // Now the binary data.
-    for (i = 0; i < memTableEntries; i++)
+    unsigned dataSection = sect_data;
+    for (unsigned i = 0; i < memTableEntries; i++)
     {
-        unsigned dataSection = sect_data + i*2;
         sections[dataSection].sh_size = memTable[i].mtLength;
         alignFile(sections[dataSection].sh_addralign);
         sections[dataSection].sh_offset = ftell(exportFile);
         fwrite(memTable[i].mtOriginalAddr, 1, memTable[i].mtLength, exportFile);
+        if ((memTable[i].mtFlags & (MTF_BYTES|MTF_WRITEABLE)) == MTF_BYTES)
+            dataSection += 1;
+        else dataSection += 2;
     }
 
     exportDescription exports;
@@ -754,7 +784,7 @@ void ELFExport::exportStore(void)
 
     // Set the address values to zero before we write.  They will always
     // be relative to their base symbol.
-    for (i = 0; i < memTableEntries; i++)
+    for (unsigned i = 0; i < memTableEntries; i++)
         memTable[i].mtCurrentAddr = 0;
 
     // Now the binary data.
