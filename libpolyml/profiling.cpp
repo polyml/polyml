@@ -198,8 +198,8 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
     PolyWord *consts;
     POLYUNSIGNED constCount;
     code->GetConstSegmentForCode(consts, constCount);
-    if (constCount < 3 || ! consts[2].IsDataPtr()) return 0;
-    PolyObject *profObject = consts[2].AsObjPtr();
+    if (constCount < 2 || consts[1].AsUnsigned() == 0 || ! consts[1].IsDataPtr()) return 0;
+    PolyObject *profObject = consts[1].AsObjPtr();
     if (profObject->IsMutable() && profObject->IsByteObject() && profObject->Length() == 1)
         return profObject;
     else return 0;

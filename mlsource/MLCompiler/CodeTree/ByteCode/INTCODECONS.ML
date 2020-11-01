@@ -923,7 +923,7 @@ struct
         val endIC = Word.andb(codeSize + wordSize - 0w1, ~ wordSize)
         val paddingBytes = List.tabulate(Word.toInt(endIC - codeSize), fn _ => SimpleCode[opcode_const_0])
         val endOfCode = endIC div wordSize
-        val firstConstant = endIC + wordSize * 0w3 (* Add 3 for fn name, unused and profile count. *)
+        val firstConstant = endIC + wordSize * 0w3 (* Add 3 for no of consts, fn name and profile count. *)
         val segSize   = endOfCode + Word.fromInt(List.length(! constVec)) + 0w4
         val codeVec = byteVecMake segSize
 
@@ -1339,14 +1339,17 @@ struct
         val numOfConst = List.length(! constVec)
         val endOfCode = endIC div wordLength
         val segSize   = endOfCode + Word.fromInt numOfConst + 0w4
-        val firstConstant = endIC + wordLength * 0w3 (* Add 3 for fn name, unused and profile count. *)
+        val firstConstant = endIC + wordLength * 0w3 (* Add 3 for no of consts, fn name and profile count. *)
     
         (* Put in the number of constants. This must go in before
            we actually put in any constants. *)
         local
-            val addr = ((segSize - 0w1) * wordLength)
+            val lastWord = (segSize - 0w1) * wordLength
         in
-            val () = setLong (numOfConst + 3, addr, byteVec) 
+            val () = setLong(numOfConst + 2, endIC, byteVec)
+            (* Set the last word of the code to the (negative) byte offset of the start of the code area
+               from the end of this word. *)
+            val () = setLong((numOfConst + 3) * ~ (Word.toInt wordLength), lastWord, byteVec) 
         end
 
         (* Now we've filled in all the size info we need to convert the segment
@@ -1357,10 +1360,8 @@ struct
             val name     : string = procName
             val nameWord : machineWord = toMachineWord name
         in
-            val () = codeVecPutWord (codeVec, endOfCode, nameWord)
+            val () = codeVecPutWord (codeVec, endOfCode+0w1, nameWord)
         end
-        (* This used to be used on X86 for the register mask. *)
-        val () = codeVecPutWord (codeVec, endOfCode+0w1, toMachineWord 1)
         (* Profile ref.  A byte ref used by the profiler in the RTS. *)
         local
             val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
