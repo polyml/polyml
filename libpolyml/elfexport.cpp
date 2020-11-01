@@ -589,7 +589,9 @@ void ELFExport::exportStore(void)
         {
             // Non-code immutable areas
             sections[s].sh_name = rodataName;
-            sections[s].sh_flags = SHF_ALLOC;
+            // The .data.rel.ro has to be writable in order to be relocated.
+            // It is set to read-only after relocation.
+            sections[s].sh_flags = SHF_WRITE | SHF_ALLOC;
             sections[s+1].sh_name = rodataRelName; // Name of relocation section
         }
         // sections[s].sh_size is set later
