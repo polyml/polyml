@@ -2,7 +2,7 @@
     Title:     Export memory as a PE/COFF object
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006, 2013, 2016 David C. J. Matthews
+    Copyright (c) 2006, 2013, 2016, 2020 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -43,6 +43,10 @@ private:
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
     void alignFile(int align);
     virtual void addExternalReference(void *addr, const char *name, bool isFuncPtr);
+    virtual void RelocateOnly(PolyObject* base, byte* addressOfConstant, ScanRelocationKind code)
+    {
+        ScanConstant(base, addressOfConstant, code);
+    }
 
 private:
     void setRelocationAddress(void *p, DWORD *reloc);

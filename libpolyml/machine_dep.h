@@ -50,9 +50,19 @@ public:
     // Must be > 40 (i.e. 2*min_stack_check) + base area in each stack frame
 
     /* ScanConstantsWithinCode - update addresses within a code segment.*/
-    virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process) {}
-    void  ScanConstantsWithinCode(PolyObject *addr, ScanAddress *process)
-        { ScanConstantsWithinCode(addr, addr, addr->Length(), process); } // Common case
+    virtual void ScanConstantsWithinCode(PolyObject* addr, PolyObject* old, POLYUNSIGNED length,
+        PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress* process) {}
+
+    void ScanConstantsWithinCode(PolyObject* addr, POLYUNSIGNED length, ScanAddress* process)
+    {
+        PolyWord* constAddr;
+        POLYUNSIGNED count;
+        addr->GetConstSegmentForCode(length, constAddr, count);
+        ScanConstantsWithinCode(addr, addr, length, constAddr, constAddr, count, process);
+    }
+
+    void ScanConstantsWithinCode(PolyObject* addr, ScanAddress* process)
+        { ScanConstantsWithinCode(addr, addr->Length(), process); } // Common case
 
     virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes) {}
     virtual Architectures MachineArchitecture(void) = 0;

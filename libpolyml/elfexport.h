@@ -2,7 +2,7 @@
     Title:     Export memory as an ELF object file
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006, 2016-17 David C. J. Matthews
+    Copyright (c) 2006, 2016-17, 2020 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -106,6 +106,10 @@ private:
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
     virtual void addExternalReference(void *addr, const char *name, bool isFuncPtr);
+    virtual void RelocateOnly(PolyObject* base, byte* addressOfConstant, ScanRelocationKind code)
+    {
+        ScanConstant(base, addressOfConstant, code);
+    }
 
 private:
     void setRelocationAddress(void *p, ElfXX_Addr *reloc);

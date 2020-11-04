@@ -79,8 +79,7 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
         if (OBJ_IS_CODE_OBJECT(lengthWord))
         {
             // Scan constants within the code.
-            machineDependent->ScanConstantsWithinCode(obj, obj, length, this);
-        
+            machineDependent->ScanConstantsWithinCode(obj, length, this);
             // Skip to the constants and get ready to scan them.
             obj->GetConstSegmentForCode(length, baseAddr, length);
             // Adjust to the read-write area if necessary.

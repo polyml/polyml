@@ -89,6 +89,10 @@ public:
 
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
 
+    // Create a relocation but don't adjust the address.  This is used for offsets from the
+    // code area to the constant area.
+    virtual void RelocateOnly(PolyObject* base, byte* addressOfConstant, ScanRelocationKind code) {}
+
     // Extract a constant from the code.
 #ifdef POLYML32IN64
     static PolyObject *GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, PolyWord *base = globalHeapBase);

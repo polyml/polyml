@@ -1043,10 +1043,7 @@ void LoadRelocate::RelocateObject(PolyObject *p)
         // We can't use them when loading object files in 32-in-64 so have to process the
         // constants here.
         if (processCodeConstants)
-        {
-            POLYUNSIGNED length = p->Length();
-            machineDependent->ScanConstantsWithinCode(p, p, length, this);
-        }
+            machineDependent->ScanConstantsWithinCode(p, this);
     }
     else if (p->IsClosureObject())
     {

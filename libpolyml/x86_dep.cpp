@@ -271,7 +271,8 @@ public:
 
     // Initial size of stack in PolyWords
     virtual unsigned InitialStackSize(void) { return (128+OVERFLOW_STACK_SIZE) * sizeof(uintptr_t) / sizeof(PolyWord); }
-    virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process);
+    virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length,
+        PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress *process);
 
     virtual Architectures MachineArchitecture(void)
 #ifndef HOSTARCHITECTURE_X86_64
@@ -910,9 +911,10 @@ void X86TaskData::SetException(poly_exn *exc)
 // to decode it to work out where the next instruction starts.
 // If this is an lea instruction any addresses are just constants
 // so must not be treated as addresses.
-static void skipea(PolyObject *base, byte **pt, ScanAddress *process, bool lea)
+static void skipea(PolyObject *base, byte *&pt, ScanAddress *process, bool lea, PolyWord* oldConstAddr,
+    POLYUNSIGNED numCodeWords, POLYSIGNED constAdjustment)
 {
-    unsigned int modrm = *((*pt)++);
+    unsigned int modrm = *(pt++);
     unsigned int md = modrm >> 6;
     unsigned int rm = modrm & 7;
 
@@ -920,37 +922,77 @@ static void skipea(PolyObject *base, byte **pt, ScanAddress *process, bool lea)
     else if (rm == 4)
     {
         /* s-i-b present. */
-        unsigned int sib = *((*pt)++);
+        unsigned int sib = *(pt++);
 
         if (md == 0)
         {
             if ((sib & 7) == 5) 
             {
-                if (! lea) {
-#ifndef HOSTARCHITECTURE_X86_64
-                    process->ScanConstant(base, *pt, PROCESS_RELOC_DIRECT);
+                // Absolute address on X86, PC-relative on X64
+                if (! lea)
+                {
+#ifdef HOSTARCHITECTURE_X86_64
+                    if (constAdjustment != 0)
+                    {
+                        POLYSIGNED disp = (pt[3] & 0x80) ? -1 : 0; // Set the sign just in case.
+                        for (unsigned i = 4; i > 0; i--)
+                            disp = (disp << 8) | pt[i - 1];
+                        if (pt + disp > (byte*)base + numCodeWords * sizeof(PolyWord))
+                        {
+                            disp += constAdjustment;
+                            byte* wr = gMem.SpaceForAddress(pt)->writeAble(pt);
+                            for (unsigned i = 0; i < 4; i++)
+                            {
+                                wr[i] = (byte)(disp & 0xff);
+                                disp >>= 8;
+                            }
+                        }
+                    }
+                    process->RelocateOnly(base, pt, PROCESS_RELOC_I386RELATIVE);
+#else
+                    process->ScanConstant(base, pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
                 }
-                (*pt) += 4;
+                pt += 4;
             }
         }
-        else if (md == 1) (*pt)++;
-        else if (md == 2) (*pt) += 4;
+        else if (md == 1) pt++;
+        else if (md == 2) pt += 4;
     }
     else if (md == 0 && rm == 5)
     {
-        if (!lea) {
-#ifndef HOSTARCHITECTURE_X86_64
-            /* Absolute address. */
-            process->ScanConstant(base, *pt, PROCESS_RELOC_DIRECT);
+        // Absolute address on X86, PC-relative on X64
+        if (!lea)
+        {
+#ifdef HOSTARCHITECTURE_X86_64
+
+            if (constAdjustment != 0)
+            {
+                POLYSIGNED disp = (pt[3] & 0x80) ? -1 : 0; // Set the sign just in case.
+                for (unsigned i = 4; i > 0; i--)
+                    disp = (disp << 8) | pt[i - 1];
+                if (pt + disp > (byte*)base + numCodeWords * sizeof(PolyWord))
+                {
+                    disp += constAdjustment;
+                    byte* wr = gMem.SpaceForAddress(pt)->writeAble(pt);
+                    for (unsigned i = 0; i < 4; i++)
+                    {
+                        wr[i] = (byte)(disp & 0xff);
+                        disp >>= 8;
+                    }
+                }
+            }
+            process->RelocateOnly(base, pt, PROCESS_RELOC_I386RELATIVE);
+#else
+            process->ScanConstant(base, pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
         }
-        *pt += 4;
+        pt += 4;
     }
     else
     {
-        if (md == 1) *pt += 1;
-        else if (md == 2) *pt += 4;
+        if (md == 1) pt += 1;
+        else if (md == 2) pt += 4;
     }
 }
 
@@ -959,10 +1001,28 @@ static void skipea(PolyObject *base, byte **pt, ScanAddress *process, bool lea)
    area is still needed for the function name.
    DCJM 2/1/2001 
 */
-void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, POLYUNSIGNED length, ScanAddress *process)
+void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, POLYUNSIGNED length, PolyWord* newConstAddr, PolyWord* oldConstAddr,
+            POLYUNSIGNED numConsts, ScanAddress *process)
 {
     byte *pt = (byte*)addr;
     PolyWord *end = addr->Offset(length - 1);
+    // If we have constants and code in separate areas then we will have to
+    // adjust the offsets of constants in the constant area.
+    // There are also offsets to non-address constants and these must
+    // not be altered.
+    POLYUNSIGNED numCodeWords = length - 1;
+    if (oldConstAddr > (PolyWord*)old && oldConstAddr < ((PolyWord*)old) + length)
+        numCodeWords -= numConsts;
+    POLYSIGNED constAdjustment =
+        (byte*)newConstAddr - (byte*)addr - ((byte*)oldConstAddr - (byte*)old);
+#ifdef HOSTARCHITECTURE_X86_64
+    // Put in a relocation for the offset itself if necessary.
+    process->RelocateOnly(addr, (byte*)end, PROCESS_RELOC_I386RELATIVE);
+    // There's a problem if the code and constant areas are allocated too
+    // far apart that the offsets exceeed 32-bits.  For testing just
+    // include this assertion.
+    ASSERT(constAdjustment >= -(POLYSIGNED)0x80000000 && constAdjustment <= 0x7fffffff);
+#endif
 #ifdef POLYML32IN64
     // If this begins with enter-int it's interpreted code - ignore
     if (pt[0] == 0xff && pt[1] == 0x55 && pt[2] == 0x48) return;
@@ -1013,7 +1073,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             pt += 3; break;
 
         case 0x8d: /* leal. */
-            pt++; skipea(addr, &pt, process, true); break;
+            pt++; skipea(addr, pt, process, true, oldConstAddr, numCodeWords, constAdjustment); break;
 
         case 0x03: case 0x0b: case 0x13: case 0x1b:
         case 0x23: case 0x2b: case 0x33: case 0x3b: /* Add r,ea etc. */
@@ -1026,7 +1086,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xd3: /* Group2_CL_A */
         case 0x87: // XCHNG
         case 0x63: // MOVSXD
-            pt++; skipea(addr, &pt, process, false); break;
+            pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); break;
 
         case 0xf6: /* Group3_a */
             {
@@ -1034,7 +1094,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 pt++;
                 /* The test instruction has an immediate operand. */
                 if ((*pt & 0x38) == 0) isTest = 1;
-                skipea(addr, &pt, process, false);
+                skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment);
                 if (isTest) pt++;
                 break;
             }
@@ -1045,7 +1105,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 pt++;
                 /* The test instruction has an immediate operand. */
                 if ((*pt & 0x38) == 0) isTest = 1;
-                skipea(addr, &pt, process, false);
+                skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment);
                 if (isTest) pt += 4;
                 break;
             }
@@ -1055,10 +1115,10 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x83: /* Group1_8_A */
         case 0x80: /* Group1_8_a */
         case 0x6b: // IMUL Ev,Ib
-            pt++; skipea(addr, &pt, process, false); pt++; break;
+            pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); pt++; break;
 
         case 0x69: // IMUL Ev,Iv
-            pt++; skipea(addr, &pt, process, false); pt += 4; break;
+            pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); pt += 4; break;
 
         case 0x81: /* Group1_32_A */
             {
@@ -1066,7 +1126,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 #ifndef HOSTARCHITECTURE_X86_64
                 unsigned opCode = *pt;
 #endif
-                skipea(addr, &pt, process, false);
+                skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment);
                 // Only check the 32 bit constant if this is a comparison.
                 // For other operations this may be untagged and shouldn't be an address.
 #ifndef HOSTARCHITECTURE_X86_64
@@ -1127,7 +1187,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 }
                 else
                 {
-                    skipea(addr, &pt, process, false);
+                    skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment);
 #ifndef HOSTARCHITECTURE_X86_64
                     // This isn't used for addresses even in 32-in-64
                     process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
@@ -1176,7 +1236,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x46: case 0x47:
                 case 0x48: case 0x49: case 0x4a: case 0x4b: case 0x4c: case 0x4d: case 0x4e: case 0x4f:
                     // cmov
-                    pt++; skipea(addr, &pt, process, false); break;
+                    pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); break;
 
                 case 0x80: case 0x81: case 0x82: case 0x83:
                 case 0x84: case 0x85: case 0x86: case 0x87:
@@ -1190,16 +1250,16 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 case 0x98: case 0x99: case 0x9a: case 0x9b:
                 case 0x9c: case 0x9d: case 0x9e: case 0x9f:
                     /* SetCC. */
-                    pt++; skipea(addr, &pt, process, false); break;
+                    pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); break;
 
                 // These are SSE2 instructions
                 case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
                 case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a: case 0x6e:
                 case 0x7e: case 0x2c: case 0x2d:
-                    pt++; skipea(addr, &pt, process, false); break;
+                    pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); break;
 
                 case 0x73: // PSRLDQ - EA,imm
-                    pt++; skipea(addr, &pt, process, false); pt++;  break;
+                    pt++; skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment); pt++;  break;
 
                 default: Crash("Unknown opcode %d at %p\n", *pt, pt);
                 }
@@ -1211,7 +1271,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             {
                 pt++;
                 if ((*pt & 0xe0) == 0xe0) pt++;
-                else skipea(addr, &pt, process, false);
+                else skipea(addr, pt, process, false, oldConstAddr, numCodeWords, constAdjustment);
                 break;
             }
 

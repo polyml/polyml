@@ -103,6 +103,9 @@ protected:
     // Have to follow pointers from closures into code.
     virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt);
     POLYUNSIGNED ScanAddress(PolyObject **pt);
+private:
+    PolyObject* newAddressForObject(POLYUNSIGNED words, bool isMutableObj,
+        bool isNoOverwrite, bool isByteObj, bool isCodeObj);
 
 public:
     virtual PolyObject *ScanObjectAddress(PolyObject *base);

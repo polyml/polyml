@@ -118,7 +118,7 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
         /* We flush the instruction cache here in case we change any of the
           instructions when we update addresses. */
         machineDependent->FlushInstructionCache(pt, (n + 1) * sizeof(PolyWord));
-        machineDependent->ScanConstantsWithinCode((PolyObject *)base, (PolyObject *)base, n, &checkAddr);
+        machineDependent->ScanConstantsWithinCode((PolyObject *)base, n, &checkAddr);
         /* Skip to the constants. */
         base->GetConstSegmentForCode(n, pt, n);
     }
