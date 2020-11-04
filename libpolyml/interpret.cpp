@@ -2782,7 +2782,9 @@ POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue,
 POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
-    raise_exception_string(taskData, EXC_foreign, "Foreign function calling is not available.  Libffi is not installled.");
+    try {
+        raise_exception_string(taskData, EXC_foreign, "Foreign function calling is not available.  Libffi is not installled.");
+    } catch (...) {} // Handle the IOException
     return TAGGED(0).AsUnsigned();
 }
 
