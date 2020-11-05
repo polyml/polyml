@@ -1166,7 +1166,7 @@ struct
             val abiList: unit -> (string * abi) list =
                 RunCall.rtsCallFull0 "PolyInterpretedGetAbiList"
 
-            type cif = LargeWord.word
+            type cif = Foreign.Memory.voidStar
             val createCIF: abi * cType * cType list -> cif=
                 RunCall.rtsCallFull3 "PolyInterpretedCreateCIF"
             val callCFunction: cif * LargeWord.word * LargeWord.word * LargeWord.word -> unit =
@@ -1175,7 +1175,7 @@ struct
             (* foreignCall returns a function that actually calls the foreign function. *)
             fun foreignCall(abi, argTypes, resultType) =
             let
-                val cif = createCIF(abi, resultType, argTypes)
+                val memocif = Foreign.Memory.memoise (fn () => createCIF(abi, resultType, argTypes)) ()
                 val closure = makeConstantClosure()
                 (* For compatibility with the native code version we have to
                    construct a function that takes three arguments rather than
@@ -1184,7 +1184,11 @@ struct
                     BICEval{function=BICConstnt(toMachineWord callCFunction, []),
                         argList=[
                             (BICTuple[
-                                BICConstnt(toMachineWord cif, []),
+                                BICEval{
+                                    function=BICConstnt(toMachineWord memocif, []),
+                                    argList=[(BICConstnt(toMachineWord 0, []), GeneralType)], (* Unit. *)
+                                    resultType=GeneralType
+                                },
                                 BICExtract(BICLoadArgument 0),
                                 BICExtract(BICLoadArgument 2),
                                 BICExtract(BICLoadArgument 1)], GeneralType)
