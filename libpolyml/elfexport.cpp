@@ -118,6 +118,8 @@
 #include "version.h"
 #include "polystring.h"
 #include "timing.h"
+#include "memmgr.h"
+
 
 #define sym_last_local_sym sym_data_section
 
@@ -395,14 +397,15 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
 #endif
             setRelocationAddress(addr, &reloc.r_offset);
             reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PC_RELATIVE);
+            byte *writAble = gMem.SpaceForAddress(addr)->writeAble(addr);
 #if USE_RELA
             // Clear the field.  Even though it's not supposed to be used with Rela the
             // Linux linker at least seems to add the value in here sometimes.
-            memset(addr, 0, 4);
+            memset(writAble, 0, 4);
 #else
             for (unsigned i = 0; i < 4; i++)
             {
-                addr[i] = (byte)(offset & 0xff);
+                writAble[i] = (byte)(offset & 0xff);
                 offset >>= 8;
             }
 #endif

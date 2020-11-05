@@ -363,7 +363,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         POLYUNSIGNED numConsts;
         obj->GetConstSegmentForCode(constPtr, numConsts);
         newObj = newAddressForObject(words, false, false, false, true);
-        PolyObject* writable = space->writeAble(newObj);
+        PolyObject* writable = gMem.SpaceForObjectAddress(newObj)->writeAble(newObj);
         writable->SetLengthWord(words, F_CODE_OBJ); // set length word
         memcpy(writable, obj, words * sizeof(PolyWord));
         PolyObject* newConsts = newAddressForObject(numConsts, false, false , false, false);
@@ -388,7 +388,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #endif
     {
         newObj = newAddressForObject(words, isMutableObj, isNoOverwrite, isByteObj, isCodeObj);
-        PolyObject* writAble = space->writeAble(newObj);
+        PolyObject* writAble = gMem.SpaceForObjectAddress(newObj)->writeAble(newObj);
         writAble->SetLengthWord(lengthWord); // copy length word
 
         if (hierarchy == 0 /* Exporting object module */ && isNoOverwrite && isMutableObj && !isByteObj)
