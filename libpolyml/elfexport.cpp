@@ -385,6 +385,8 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
 #endif
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
+            // We seem to need to subtract 4 bytes to get the correct offset in ELF
+            offset -= 4;
 #if USE_RELA
             ElfXX_Rela reloc;
             reloc.r_addend = offset;
@@ -392,8 +394,6 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
             ElfXX_Rel reloc;
 #endif
             setRelocationAddress(addr, &reloc.r_offset);
-            // We seem to need to subtract 4 bytes to get the correct offset in ELF
-            offset -= 4;
             reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PC_RELATIVE);
 #if USE_RELA
             // Clear the field.  Even though it's not supposed to be used with Rela the
