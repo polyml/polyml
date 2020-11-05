@@ -191,7 +191,7 @@ void PExport::printObject(PolyObject *p)
     }
     else if (p->IsCodeObject())
     {
-        POLYUNSIGNED constCount, i;
+        POLYUNSIGNED constCount;
         PolyWord *cp;
         ASSERT(! p->IsMutable() );
         /* Work out the number of bytes in the code and the
@@ -202,17 +202,27 @@ void PExport::printObject(PolyObject *p)
            It includes the marker word, byte count, profile count
            and, on the X86/64 at least, any non-address constants.
            These are actually word values. */
-        POLYUNSIGNED byteCount = (length - constCount - 2) * sizeof(PolyWord);
-        fprintf(exportFile, "F%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
+        PolyWord* last_word = p->Offset(length - 1);
+        POLYUNSIGNED byteCount = (length - constCount - 1) * sizeof(PolyWord);
+        if (last_word->AsSigned() < 0)
+        {
+            byteCount -= sizeof(PolyWord);
+            fprintf(exportFile, "F%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
+        }
+        else
+        {
+            // Old format
+            fprintf(exportFile, "D%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
+        }
 
         // First the code.
         byte *u = (byte*)p;
-        for (i = 0; i < byteCount; i++)
+        for (POLYUNSIGNED i = 0; i < byteCount; i++)
             fprintf(exportFile, "%02x", u[i]);
 
         putc('|', exportFile);
         // Now the constants.
-        for (i = 0; i < constCount; i++)
+        for (POLYUNSIGNED i = 0; i < constCount; i++)
         {
             printValue(cp[i]);
             if (i < constCount-1)
