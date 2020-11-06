@@ -203,17 +203,8 @@ void PExport::printObject(PolyObject *p)
            and, on the X86/64 at least, any non-address constants.
            These are actually word values. */
         PolyWord* last_word = p->Offset(length - 1);
-        POLYUNSIGNED byteCount = (length - constCount - 1) * sizeof(PolyWord);
-        if (last_word->AsSigned() < 0)
-        {
-            byteCount -= sizeof(PolyWord);
-            fprintf(exportFile, "F%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
-        }
-        else
-        {
-            // Old format
-            fprintf(exportFile, "D%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
-        }
+        POLYUNSIGNED byteCount = (length - constCount - 2) * sizeof(PolyWord);
+        fprintf(exportFile, "F%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
 
         // First the code.
         byte *u = (byte*)p;
@@ -603,13 +594,12 @@ bool PImport::DoImport()
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord) + 1;
             break;
 
-        case 'D': // Code segment.
         case 'F':
             objBits |= F_CODE_OBJ;
             /* Read the number of bytes of code and the number of words
                for constants. */
             fscanf(f, "%" POLYUFMT ",%" POLYUFMT, &nWords, &nBytes);
-            nWords += ch == 'F' ? 2 : 1; // Add one or two words for no of consts + offset.
+            nWords += 2; // Add two words for no of consts + offset.
             /* Add in the size of the code itself. */
             nWords += (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
             break;
