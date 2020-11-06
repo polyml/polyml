@@ -1,6 +1,8 @@
 /*
     Architecture independent wrapper for the byte-code interpreter.
 
+    Copyright David C.J. Matthews 2020.
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License version 2.1 as published by the Free Software Foundation.
@@ -242,7 +244,6 @@ void IntTaskData::GarbageCollect(ScanAddress *process)
 
     if (stack != 0)
     {
-        StackSpace *stackSpace = stack;
         stackItem*stackPtr = this->taskSp;
         // Now the values on the stack.
         for (stackItem* q = stackPtr; q < (stackItem*)stack->top; q++)
