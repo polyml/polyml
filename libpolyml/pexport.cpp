@@ -202,7 +202,6 @@ void PExport::printObject(PolyObject *p)
            It includes the marker word, byte count, profile count
            and, on the X86/64 at least, any non-address constants.
            These are actually word values. */
-        PolyWord* last_word = p->Offset(length - 1);
         POLYUNSIGNED byteCount = (length - constCount - 2) * sizeof(PolyWord);
         fprintf(exportFile, "F%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
 
