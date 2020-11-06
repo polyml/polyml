@@ -604,7 +604,7 @@
     </ClCompile>
     <ClCompile Include="bytecode.cpp" />
     <ClCompile Include="gc_progress.cpp" />
-    <ClCompile Include="intepreter.cpp">
+    <ClCompile Include="interpreter.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
