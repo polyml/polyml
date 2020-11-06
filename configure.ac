@@ -488,7 +488,13 @@ if test "x$with_portable" = "xno" ; then
     fi
 fi
 
-# Build 32-bit in 64-bits.  This is only allowed when building on native 64-bit X86.
+if test  X"$ac_cv_sizeof_voidp" = X8 ; then
+    bootstrap64="yes"
+else
+    bootstrap64="no"
+fi
+
+# Build 32-bit in 64-bits.
 AC_ARG_ENABLE([compact32bit],
         [AS_HELP_STRING([--enable-compact32bit],
             [use 32-bit values rather than native 64-bits.])])
@@ -496,10 +502,10 @@ AC_ARG_ENABLE([compact32bit],
 if test "x$enable_compact32bit" = "xyes"; then
     if test X"$ac_cv_sizeof_voidp" = X8 ; then
         AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
-        polyarch=x86_32in64
+        bootstrap64="no"
     else
         AC_MSG_ERROR([--enable-compact32bit is only available on a 64-bit architecture])
-   fi
+    fi
 fi
 
 # Put this test at the end where it's less likely to be missed.
@@ -523,9 +529,9 @@ fi
 
 AM_CONDITIONAL([ARCHI386], [test "$polyarch" = i386])
 AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
-AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X4])
-AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X8])
-AM_CONDITIONAL([ARCHX8632IN64], [test "$polyarch" = x86_32in64])
+AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret])
+# Are we bootstrapping from the 32-bit or 64-bit pre-built compiler?
+AM_CONDITIONAL([BOOT64], [test "$bootstrap64" = yes])
 # If we are targeting Windows rather than *nix we need the pre=built compiler with Windows conventions.
 AM_CONDITIONAL([WINDOWSCALLCONV], [test "$poly_use_windowscc" = yes])
 

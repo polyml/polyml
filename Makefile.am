@@ -20,25 +20,10 @@ dist_bin_SCRIPTS = polyc
 man_MANS = poly.1 polyimport.1 polyc.1
 
 # Select the pre-built compiler
-if ARCHI386
-POLYIMPORT = $(srcdir)/bootstrap/bootstrap32.txt
-else
-if ARCHINTERPRET
-POLYIMPORT = $(srcdir)/bootstrap/bootstrap32.txt
-else
-if ARCHINTERPRET64
+if BOOT64
 POLYIMPORT = $(srcdir)/bootstrap/bootstrap64.txt
 else
-if ARCHX86_64
-POLYIMPORT = $(srcdir)/bootstrap/bootstrap64.txt
-else
-if ARCHX8632IN64
 POLYIMPORT = $(srcdir)/bootstrap/bootstrap32.txt
-else
-endif
-endif
-endif
-endif
 endif
 
 noinst_HEADERS = polyexports.h
@@ -49,18 +34,10 @@ POLYRESOURCES=
 EXTRALDFLAGS=
 
 if NATIVE_WINDOWS
-if ARCHINTERPRET64
-EXTRALDFLAGS += -Wl,-u,WinMain
-else
-if ARCHX86_64
-EXTRALDFLAGS += -Wl,-u,WinMain
-else
-if ARCHX8632IN64
-EXTRALDFLAGS += -Wl,-u,WinMain
-else
+if ARCHI386
 EXTRALDFLAGS += -Wl,-u,_WinMain@16 -Wl,--large-address-aware
-endif
-endif
+else
+EXTRALDFLAGS += -Wl,-u,WinMain
 endif
 
 if WINDOWSGUI

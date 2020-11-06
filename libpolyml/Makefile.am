@@ -19,23 +19,11 @@ endif
 if ARCHI386
 ARCHSOURCE = x86_dep.cpp x86assembly_gas32.S
 else
-if ARCHINTERPRET
-ARCHSOURCE = interpreter.cpp
-AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
-else
-if ARCHINTERPRET64
-ARCHSOURCE = interpreter.cpp
-AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
-else
 if ARCHX86_64
 ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 else
-if ARCHX8632IN64
-ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
-else
-endif
-endif
-endif
+ARCHSOURCE = interpreter.cpp
+AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
 endif
 endif
 
