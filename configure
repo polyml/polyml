@@ -22190,13 +22190,13 @@ fi
 
 
 if test "x$enable_compact32bit" = "xyes"; then
-    if test X"$polyarch" = "Xx86_64" ; then
+    if test X"$ac_cv_sizeof_voidp" = X8 ; then
 
 $as_echo "#define POLYML32IN64 1" >>confdefs.h
 
         polyarch=x86_32in64
     else
-        as_fn_error $? "--enable-compact32bit is only available on X86/64" "$LINENO" 5
+        as_fn_error $? "--enable-compact32bit is only available on a 64-bit architecture" "$LINENO" 5
    fi
 fi
 

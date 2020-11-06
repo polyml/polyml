@@ -494,11 +494,11 @@ AC_ARG_ENABLE([compact32bit],
             [use 32-bit values rather than native 64-bits.])])
 
 if test "x$enable_compact32bit" = "xyes"; then
-    if test X"$polyarch" = "Xx86_64" ; then
+    if test X"$ac_cv_sizeof_voidp" = X8 ; then
         AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
         polyarch=x86_32in64
     else
-        AC_MSG_ERROR([--enable-compact32bit is only available on X86/64])
+        AC_MSG_ERROR([--enable-compact32bit is only available on a 64-bit architecture])
    fi
 fi
 
