@@ -3872,7 +3872,7 @@ struct
             val intSize = 0w8 div wordSize
         in
             val endOfByteArea = endOfCode + numOfNonAddrWords * intSize
-            (* +4 for function name, register mask (no longer used), profile object and count of constants. *)
+            (* +4 for no of consts. function name, profile object and offset to start of consts. *)
             val segSize = endOfByteArea + Word.fromInt constsInConstArea + 0w4
         end
 
@@ -3913,11 +3913,11 @@ struct
         val _ = bytesToWords(! ic) = endOfByteArea orelse raise InternalError "mismatch"
         
         (* Put in the number of constants. This must go in before we actually put
-           in any constants.  In 32-bit mode there are only three constants: the 
-           function name and the register mask, now unused and the profile object.
+           in any constants.  In 32-bit mode there are only two constants: the 
+           function name and the profile object.
            All other constants are in the code. *)
         local
-            val addr = wordsToBytes(endOfByteArea + 0w3 + Word.fromInt constsInConstArea)
+            val lastWord = wordsToBytes(endOfByteArea + 0w3 + Word.fromInt constsInConstArea)
 
             fun setBytes(_, _, 0) = ()
             |   setBytes(ival, offset, count) =
@@ -3926,7 +3926,10 @@ struct
                     setBytes(ival div 256, offset+0w1, count-1)
                 )
         in
-            val () = setBytes(LargeInt.fromInt(3 + constsInConstArea), addr, Word.toInt wordSize)
+            val () = setBytes(LargeInt.fromInt(2 + constsInConstArea), wordsToBytes endOfByteArea, Word.toInt wordSize)
+            (* Set the last word of the code to the (negative) byte offset of the start of the code area
+               from the end of this word. *)
+            val () = setBytes(Word.toLargeIntX(wordsToBytes endOfByteArea - lastWord), lastWord, Word.toInt wordSize)
         end;
 
         (* We've put in all the byte data so it is safe to convert this to a mutable code
@@ -3934,11 +3937,9 @@ struct
         val codeSeg = byteVecToCodeVec(byteVec, resultClosure)
 
         (* Various RTS functions assume that the first constant is the function name.
-           The profiler assumes that the third word is the address of the mutable that
-           contains the profile count.  The second word used to be used for the register
-           mask but is no longer used. *)
-        val () = codeVecPutWord (codeSeg, endOfByteArea, toMachineWord procName)
-        val () = codeVecPutWord (codeSeg, endOfByteArea + 0w1, toMachineWord 1 (* No longer used. *))
+           The profiler assumes that the second word is the address of the mutable that
+           contains the profile count. *)
+        val () = codeVecPutWord (codeSeg, endOfByteArea + 0w1, toMachineWord procName)
         (* Next the profile object. *)
         val () = codeVecPutWord (codeSeg, endOfByteArea + 0w2, profileObject)
     in

@@ -191,7 +191,7 @@ void PExport::printObject(PolyObject *p)
     }
     else if (p->IsCodeObject())
     {
-        POLYUNSIGNED constCount, i;
+        POLYUNSIGNED constCount;
         PolyWord *cp;
         ASSERT(! p->IsMutable() );
         /* Work out the number of bytes in the code and the
@@ -202,17 +202,27 @@ void PExport::printObject(PolyObject *p)
            It includes the marker word, byte count, profile count
            and, on the X86/64 at least, any non-address constants.
            These are actually word values. */
+        PolyWord* last_word = p->Offset(length - 1);
         POLYUNSIGNED byteCount = (length - constCount - 1) * sizeof(PolyWord);
-        fprintf(exportFile, "D%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
+        if (last_word->AsSigned() < 0)
+        {
+            byteCount -= sizeof(PolyWord);
+            fprintf(exportFile, "F%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
+        }
+        else
+        {
+            // Old format
+            fprintf(exportFile, "D%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
+        }
 
         // First the code.
         byte *u = (byte*)p;
-        for (i = 0; i < byteCount; i++)
+        for (POLYUNSIGNED i = 0; i < byteCount; i++)
             fprintf(exportFile, "%02x", u[i]);
 
         putc('|', exportFile);
         // Now the constants.
-        for (i = 0; i < constCount; i++)
+        for (POLYUNSIGNED i = 0; i < constCount; i++)
         {
             printValue(cp[i]);
             if (i < constCount-1)
@@ -593,12 +603,13 @@ bool PImport::DoImport()
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord) + 1;
             break;
 
-        case 'D': /* Code segment (new form). */
+        case 'D': // Code segment.
+        case 'F':
             objBits |= F_CODE_OBJ;
             /* Read the number of bytes of code and the number of words
                for constants. */
             fscanf(f, "%" POLYUFMT ",%" POLYUFMT, &nWords, &nBytes);
-            nWords += ch == 'C' ? 4 : 1; /* Add words for extras. */
+            nWords += ch == 'F' ? 2 : 1; // Add one or two words for no of consts + offset.
             /* Add in the size of the code itself. */
             nWords += (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
             break;
@@ -762,8 +773,9 @@ bool PImport::DoImport()
             }
 
         case 'D':
+        case 'F':
             {
-                bool oldForm = ch == 'C';
+                bool newForm = ch == 'F';
                 POLYUNSIGNED length = p->Length();
                 POLYUNSIGNED nWords, nBytes;
                 MemSpace* space = gMem.SpaceForObjectAddress(p);
@@ -782,16 +794,12 @@ bool PImport::DoImport()
                 }
                 ch = getc(f);
                 ASSERT(ch == '|');
-                /* Set the constant count. */
-                wr->Set(length-1, PolyWord::FromUnsigned(nWords));
-                if (oldForm)
+                if (newForm)
                 {
-                    wr->Set(length-1-nWords-1, PolyWord::FromUnsigned(0)); /* Profile count. */
-                    wr->Set(length-1-nWords-3, PolyWord::FromUnsigned(0)); /* Marker word. */
-                    wr->Set(length-1-nWords-2, PolyWord::FromUnsigned((length-1-nWords-2)*sizeof(PolyWord)));
-                    /* Check - the code should end at the marker word. */
-                    ASSERT(nBytes == ((length-1-nWords-3)*sizeof(PolyWord)));
+                    wr->Set(length - nWords - 2, PolyWord::FromUnsigned(nWords));
+                    wr->Set(length - 1, PolyWord::FromSigned((0-nWords-1)*sizeof(PolyWord)));
                 }
+                else wr->Set(length-1, PolyWord::FromUnsigned(nWords));
                 /* Read in the constants. */
                 for (POLYUNSIGNED i = 0; i < nWords; i++)
                 {

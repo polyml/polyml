@@ -335,8 +335,16 @@ public:
     void GetConstSegmentForCode(POLYUNSIGNED obj_length, PolyWord * &cp, POLYUNSIGNED &count) const
     {
         PolyWord *last_word  = Offset(obj_length - 1); // Last word in the code
-        count = last_word->AsUnsigned(); // This is the number of consts
-        cp = last_word - count;
+        if (last_word->AsSigned() < 0)
+        {
+            cp = last_word + 1 + last_word->AsSigned() / sizeof(PolyWord);
+            count = cp[-1].AsUnsigned();
+        }
+        else
+        {
+            count = last_word->AsUnsigned(); // This is the number of consts
+            cp = last_word - count;
+        }
     }
     void GetConstSegmentForCode(PolyWord * &cp, POLYUNSIGNED &count) const
     {
