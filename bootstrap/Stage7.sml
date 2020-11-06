@@ -58,4 +58,4 @@ in
 end;
 
 (* And terminate. *)
-OS.Process.exit OS.Process.success;
+OS.Process.exit OS.Process.success : unit;
