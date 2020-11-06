@@ -18,6 +18,11 @@
 
 val () = Bootstrap.use "basis/build.sml";
 
-
+val args = CommandLine.arguments()
+fun getPath [] = "." (* Default path *)
+|   getPath ("-I" :: path :: _) = path
+|   getPath (_::tl) = getPath tl
+val path = OS.Path.concat(getPath args,  "bootstrap/Stage6.sml");
 (* We've now set up the new name space.  Compile the compiler. *)
-PolyML.use "bootstrap/Stage6.sml";
+PolyML.use path;
+
