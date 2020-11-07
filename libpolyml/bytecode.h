@@ -44,7 +44,8 @@ protected:
     virtual PolyWord GetExceptionPacket() = 0; // Exception packet is set via TaskData::SetException
     virtual stackItem* GetHandlerRegister() = 0;
     virtual void SetHandlerRegister(stackItem* hr) = 0;
-    virtual void CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR& pc, stackItem*& sp) = 0;
+    virtual void CheckStackAndInterrupt(POLYUNSIGNED space) = 0;
+    virtual bool TestInterrupt() = 0;
 
     void GarbageCollect(ScanAddress* process);
     bool mixedCode;

@@ -476,8 +476,10 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         {
             stackCheck = arg1; pc += 2;
         STACKCHECK:
-            // Check stackl space.  This is combined with interrupts on the native code version.
-            CheckStackAndInterrupt(stackCheck, pc, sp);
+            // Check stack space.  This is combined with interrupts on the native code version.
+            SaveInterpreterState(pc, sp);
+            CheckStackAndInterrupt(stackCheck);
+            LoadInterpreterState(pc, sp);
             break;
         }
 
@@ -526,13 +528,23 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         case INSTR_jump_back8:
             pc -= *pc + 1;
             // Check for interrupt in case we're in a loop
-            CheckStackAndInterrupt(0, pc, sp);
+            if (TestInterrupt())
+            {
+                SaveInterpreterState(pc, sp);
+                CheckStackAndInterrupt(0);
+                LoadInterpreterState(pc, sp);
+            }
             break;
 
         case INSTR_jump_back16:
             pc -= arg1 + 1;
             // Check for interrupt in case we're in a loop
-            CheckStackAndInterrupt(0, pc, sp);
+            if (TestInterrupt())
+            {
+                SaveInterpreterState(pc, sp);
+                CheckStackAndInterrupt(stackCheck);
+                LoadInterpreterState(pc, sp);
+            }
             break;
 
         case INSTR_lock:

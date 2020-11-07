@@ -132,7 +132,8 @@ public:
     virtual PolyWord GetExceptionPacket() { return exception_arg; }
     virtual stackItem* GetHandlerRegister() { return hr; }
     virtual void SetHandlerRegister(stackItem* newHr) { hr = newHr;  }
-    virtual void CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR &pc, stackItem* &sp);
+    virtual void CheckStackAndInterrupt(POLYUNSIGNED space);
+    virtual bool TestInterrupt() { return interrupt_requested; }
     bool WasInterrupted();
 
     POLYCODEPTR     taskPc; /* Program counter. */
@@ -165,21 +166,21 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc)
     this->exception_arg = TAGGED(0); /* Used for exception argument. */
 }
 
-void IntTaskData::CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR &pc, stackItem* &sp)
+void IntTaskData::CheckStackAndInterrupt(POLYUNSIGNED space)
 {
     // Check there is space on the stack
-    if (sp - space < sl)
+    if (taskSp - space < sl)
     {
-        SaveInterpreterState(pc, sp);
         uintptr_t min_size = (this->stack->top - (PolyWord*)taskSp) + OVERFLOW_STACK_SIZE + space;
         CheckAndGrowStack(this, min_size);
         sl = (stackItem*)this->stack->stack() + OVERFLOW_STACK_SIZE;
-        LoadInterpreterState(pc, sp);
     }
-    // Also check for interrupts
-    if (WasInterrupted())
+    // Also check for interrupts.
+    // Check interrupt_requested first before getting the lock and
+    // checking it again.  We may delay seeing an interrupt but taking
+    // the lock seems to be expensive.
+    if (interrupt_requested && WasInterrupted())
     {
-        SaveInterpreterState(pc, sp);
         try {
             processes->ProcessAsynchRequests(this);
             // Release and re-acquire use of the ML memory to allow another thread
@@ -189,7 +190,6 @@ void IntTaskData::CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR &pc, st
         }
         catch (IOException&) {
         }
-        LoadInterpreterState(pc, sp);
     }
 }
 

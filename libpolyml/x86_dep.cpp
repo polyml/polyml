@@ -254,7 +254,9 @@ public:
     virtual stackItem* GetHandlerRegister() { return assemblyInterface.handlerRegister; }
     virtual void SetHandlerRegister(stackItem* hr) { assemblyInterface.handlerRegister = hr; }
     // Check and grow the stack if necessary.  Process any interupts.
-    virtual void CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR &pc, stackItem* &sp);
+    virtual void CheckStackAndInterrupt(POLYUNSIGNED space);
+    // The stack limit register is modified if there is an interrupt
+    virtual bool TestInterrupt() { return assemblyInterface.stackPtr < assemblyInterface.stackLimit; }
 
     void Interpret();
     void EndBootStrap() { mixedCode = true; }
@@ -694,14 +696,12 @@ void X86TaskData::HandleTrap()
     SetMemRegisters();
 }
 
-void X86TaskData::CheckStackAndInterrupt(POLYUNSIGNED space, POLYCODEPTR& pc, stackItem*& sp)
+void X86TaskData::CheckStackAndInterrupt(POLYUNSIGNED space)
 {
     // Check there is space on the stack.  This may also be used to signal for an interrupt.
-    if (sp - space < assemblyInterface.stackLimit)
+    if (assemblyInterface.stackPtr - space < assemblyInterface.stackLimit)
     {
-        SaveInterpreterState(pc, sp);
         StackOverflowTrap(space);
-        LoadInterpreterState(pc, sp);
     }
 }
 
