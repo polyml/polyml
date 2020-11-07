@@ -542,7 +542,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             if (TestInterrupt())
             {
                 SaveInterpreterState(pc, sp);
-                CheckStackAndInterrupt(stackCheck);
+                CheckStackAndInterrupt(0);
                 LoadInterpreterState(pc, sp);
             }
             break;
