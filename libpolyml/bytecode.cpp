@@ -285,7 +285,6 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         sprintf(buff, "addr = %p sp=%p instr=%02x *sp=%p\n", pc, sp, *pc, (*sp).stackAddr);
         OutputDebugStringA(buff);
 #endif
-        ASSERT(sp[0].argValue != 2);
         // These are temporary values used where one instruction jumps to
         // common code.
         POLYUNSIGNED    tailCount;
@@ -835,7 +834,6 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
 
         case INSTR_cellFlags:
         {
-            SaveInterpreterState(pc, sp);
             PolyObject *p = (*sp).w().AsObjPtr();
             POLYUNSIGNED f = (p->LengthWord()) >> OBJ_PRIVATE_FLAGS_SHIFT;
             *sp = TAGGED(f);
