@@ -209,27 +209,6 @@ bool IntTaskData::WasInterrupted()
     return was;
 }
 
-extern "C" {
-    typedef POLYUNSIGNED(*callFastRts0)();
-    typedef POLYUNSIGNED(*callFastRts1)(intptr_t);
-    typedef POLYUNSIGNED(*callFastRts2)(intptr_t, intptr_t);
-    typedef POLYUNSIGNED(*callFastRts3)(intptr_t, intptr_t, intptr_t);
-    typedef POLYUNSIGNED(*callFastRts4)(intptr_t, intptr_t, intptr_t, intptr_t);
-    typedef POLYUNSIGNED(*callFastRts5)(intptr_t, intptr_t, intptr_t, intptr_t, intptr_t);
-    typedef POLYUNSIGNED(*callFullRts0)(PolyObject *);
-    typedef POLYUNSIGNED(*callFullRts1)(PolyObject *, intptr_t);
-    typedef POLYUNSIGNED(*callFullRts2)(PolyObject *, intptr_t, intptr_t);
-    typedef POLYUNSIGNED(*callFullRts3)(PolyObject *, intptr_t, intptr_t, intptr_t);
-    typedef double (*callRTSRtoR) (double);
-    typedef double (*callRTSRRtoR) (double, double);
-    typedef double (*callRTSGtoR) (intptr_t);
-    typedef double (*callRTSRGtoR) (double, intptr_t);
-    typedef float(*callRTSFtoF) (float);
-    typedef float(*callRTSFFtoF) (float, float);
-    typedef float(*callRTSGtoF) (intptr_t);
-    typedef float(*callRTSFGtoF) (float, intptr_t);
-}
-
 void IntTaskData::GarbageCollect(ScanAddress *process)
 {
     TaskData::GarbageCollect(process);
