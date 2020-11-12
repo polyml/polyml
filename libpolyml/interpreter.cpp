@@ -82,7 +82,7 @@ union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 
 class IntTaskData: public TaskData, ByteCodeInterpreter {
 public:
-    IntTaskData() : interrupt_requested(false) {}
+    IntTaskData() : ByteCodeInterpreter(&taskSp), interrupt_requested(false) {}
     ~IntTaskData() {}
 
     virtual void GarbageCollect(ScanAddress *process);
@@ -107,26 +107,12 @@ public:
     // Return the minimum space occupied by the stack.   Used when setting a limit.
     virtual uintptr_t currentStackSpace(void) const { return ((stackItem*)this->stack->top - this->taskSp) + OVERFLOW_STACK_SIZE; }
 
-    virtual void addProfileCount(POLYUNSIGNED words) { addSynchronousCount(taskPc, words); }
+    virtual void addProfileCount(POLYUNSIGNED words) { addSynchronousCount(interpreterPc, words); }
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
     PLock interruptLock;
     bool interrupt_requested;
-
-    // Update the copies in the task object
-    virtual void SaveInterpreterState(POLYCODEPTR pc, stackItem*sp)
-    {
-        taskPc = pc;
-        taskSp = sp;
-    }
-
-    // Update the local state
-    virtual void LoadInterpreterState(POLYCODEPTR &pc, stackItem*&sp)
-    {
-        pc = taskPc;
-        sp = taskSp;
-    }
 
     virtual void ClearExceptionPacket() { exception_arg = TAGGED(0); }
     virtual PolyWord GetExceptionPacket() { return exception_arg; }
@@ -136,7 +122,6 @@ public:
     virtual bool TestInterrupt() { return interrupt_requested; }
     bool WasInterrupted();
 
-    POLYCODEPTR     taskPc; /* Program counter. */
     stackItem       *taskSp; /* Stack pointer. */
     stackItem       *hr;
     PolyWord        exception_arg;
@@ -162,7 +147,7 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc)
     this->taskSp = (stackItem*)stack + stack_size;
     this->hr = this->taskSp;
     *(--this->taskSp) = (PolyWord)closure; /* Closure address */
-    this->taskPc = *(POLYCODEPTR*)closure;
+    this->interpreterPc = *(POLYCODEPTR*)closure;
     this->exception_arg = TAGGED(0); /* Used for exception argument. */
 }
 
@@ -388,13 +373,13 @@ void IntTaskData::AtomicReset(PolyObject* mutexp)
 
 bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 {
-    if (taskPc != 0)
+    if (interpreterPc != 0)
     {
         // See if the PC we've got is an ML code address.
-        MemSpace *space = gMem.SpaceForAddress(taskPc);
+        MemSpace *space = gMem.SpaceForAddress(interpreterPc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            incrementCountAsynch(taskPc);
+            incrementCountAsynch(interpreterPc);
             return true;
         }
     }

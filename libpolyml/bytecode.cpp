@@ -98,7 +98,8 @@ union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 
 union flt { float fl; int32_t i; };
 
-ByteCodeInterpreter::ByteCodeInterpreter() : mixedCode(false), overflowPacket(0), dividePacket(0)
+ByteCodeInterpreter::ByteCodeInterpreter(stackItem** spAddr) : mixedCode(false),
+    stackPointerAddress(spAddr), overflowPacket(0), dividePacket(0)
 {
 #ifdef PROFILEOPCODES
     memset(frequency, 0, sizeof(frequency));

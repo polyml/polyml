@@ -241,14 +241,6 @@ public:
 
     // ByteCode overrides.  The interpreter and native code states need to be in sync.
     // The interpreter is only used during the initial bootstrap.
-    virtual void SaveInterpreterState(POLYCODEPTR pc, stackItem* sp) {
-        interpreterPc = pc;
-        assemblyInterface.stackPtr = sp;
-    }
-    virtual void LoadInterpreterState(POLYCODEPTR& pc, stackItem*& sp) {
-        sp = assemblyInterface.stackPtr;
-        pc = interpreterPc;
-    }
     virtual void ClearExceptionPacket() { assemblyInterface.exceptionPacket = TAGGED(0); }
     virtual PolyWord GetExceptionPacket() { return assemblyInterface.exceptionPacket;  }
     virtual stackItem* GetHandlerRegister() { return assemblyInterface.handlerRegister; }
@@ -260,8 +252,6 @@ public:
 
     void Interpret();
     void EndBootStrap() { mixedCode = true; }
-
-    POLYCODEPTR     interpreterPc;
 
     PLock interruptLock;
 
@@ -355,7 +345,7 @@ extern "C" {
     void X86TrapHandler(PolyWord threadId);
 };
 
-X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
+X86TaskData::X86TaskData(): ByteCodeInterpreter(&assemblyInterface.stackPtr), allocReg(0), allocWords(0), saveRegisterMask(0)
 {
     assemblyInterface.enterInterpreter = (byte*)X86AsmCallExtraRETURN_ENTER_INTERPRETER;
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;

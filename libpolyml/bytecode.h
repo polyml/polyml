@@ -28,7 +28,7 @@ class TaskData;
 class ByteCodeInterpreter
 {
 protected:
-    ByteCodeInterpreter();
+    ByteCodeInterpreter(stackItem **spAddr);
     ~ByteCodeInterpreter();
 
     enum _returnValue {
@@ -38,8 +38,6 @@ protected:
     };
     enum _returnValue RunInterpreter(TaskData* taskData);
 
-    virtual void SaveInterpreterState(POLYCODEPTR pc, stackItem* sp) = 0;
-    virtual void LoadInterpreterState(POLYCODEPTR& pc, stackItem*& sp) = 0;
     virtual void ClearExceptionPacket() = 0;
     virtual PolyWord GetExceptionPacket() = 0; // Exception packet is set via TaskData::SetException
     virtual stackItem* GetHandlerRegister() = 0;
@@ -50,10 +48,25 @@ protected:
     void GarbageCollect(ScanAddress* process);
     bool mixedCode;
     int numTailArguments;
+    POLYCODEPTR     interpreterPc;
+    stackItem       **stackPointerAddress;
 
 private:
     PolyObject *overflowPacket, *dividePacket;
 
+    // Update the copies in the task object
+    virtual void SaveInterpreterState(POLYCODEPTR pc, stackItem* sp)
+    {
+        interpreterPc = pc;
+        *stackPointerAddress = sp;
+    }
+
+    // Update the local state
+    virtual void LoadInterpreterState(POLYCODEPTR& pc, stackItem*& sp)
+    {
+        pc = interpreterPc;
+        sp = *stackPointerAddress;
+    }
 private:
     inline PolyObject* allocateMemory(TaskData* taskData, POLYUNSIGNED words, POLYCODEPTR& pc, stackItem*& sp);
     inline PolyObject* boxDouble(TaskData* taskData, double d, POLYCODEPTR& pc, stackItem*& sp);
