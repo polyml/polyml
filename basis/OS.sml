@@ -107,11 +107,11 @@ signature OS_PROCESS =
 
 signature OS_IO =
   sig
-    eqtype  iodesc
+    eqtype iodesc
     val hash : iodesc -> word
     val compare : (iodesc * iodesc) -> General.order
     
-    eqtype  iodesc_kind
+    eqtype iodesc_kind
     val kind : iodesc -> iodesc_kind
     
     structure Kind:
@@ -912,9 +912,7 @@ struct
     structure IO :> OS_IO =
     struct
         datatype iodesc = 
-            IODESC of int (* Actually abstract.  This isn't
-                            the file descriptor itself, rather
-                            a pointer into the io table. *)
+            IODESC of word ref (* This is currently a volatile ref.  We MUST use pointer equality. *)
         local
             val doIo: int*iodesc*unit -> int
                  = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
