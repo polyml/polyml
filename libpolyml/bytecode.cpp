@@ -535,7 +535,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             if (sp < *stackLimitAddress)
             {
                 SaveInterpreterState(pc, sp);
-                HandleStackOverflow(stackCheck);
+                HandleStackOverflow(0);
                 LoadInterpreterState(pc, sp);
             }
             break;
@@ -546,7 +546,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             if (sp < *stackLimitAddress)
             {
                 SaveInterpreterState(pc, sp);
-                HandleStackOverflow(stackCheck);
+                HandleStackOverflow(0);
                 LoadInterpreterState(pc, sp);
             }
             break;
