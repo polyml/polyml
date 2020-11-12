@@ -28,7 +28,7 @@ class TaskData;
 class ByteCodeInterpreter
 {
 protected:
-    ByteCodeInterpreter(stackItem **spAddr);
+    ByteCodeInterpreter(stackItem **spAddr, stackItem **slAddr);
     ~ByteCodeInterpreter();
 
     enum _returnValue {
@@ -42,14 +42,13 @@ protected:
     virtual PolyWord GetExceptionPacket() = 0; // Exception packet is set via TaskData::SetException
     virtual stackItem* GetHandlerRegister() = 0;
     virtual void SetHandlerRegister(stackItem* hr) = 0;
-    virtual void CheckStackAndInterrupt(POLYUNSIGNED space) = 0;
-    virtual bool TestInterrupt() = 0;
+    virtual void HandleStackOverflow(uintptr_t space) = 0;
 
     void GarbageCollect(ScanAddress* process);
     bool mixedCode;
     int numTailArguments;
     POLYCODEPTR     interpreterPc;
-    stackItem       **stackPointerAddress;
+    stackItem       **stackPointerAddress, **stackLimitAddress;
 
 private:
     PolyObject *overflowPacket, *dividePacket;

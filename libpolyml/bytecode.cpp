@@ -98,8 +98,8 @@ union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 
 union flt { float fl; int32_t i; };
 
-ByteCodeInterpreter::ByteCodeInterpreter(stackItem** spAddr) : mixedCode(false),
-    stackPointerAddress(spAddr), overflowPacket(0), dividePacket(0)
+ByteCodeInterpreter::ByteCodeInterpreter(stackItem** spAddr, stackItem** slAddr) : mixedCode(false),
+    stackPointerAddress(spAddr), stackLimitAddress(slAddr), overflowPacket(0), dividePacket(0)
 {
 #ifdef PROFILEOPCODES
     memset(frequency, 0, sizeof(frequency));
@@ -478,9 +478,12 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             stackCheck = arg1; pc += 2;
         STACKCHECK:
             // Check stack space.  This is combined with interrupts on the native code version.
-            SaveInterpreterState(pc, sp);
-            CheckStackAndInterrupt(stackCheck);
-            LoadInterpreterState(pc, sp);
+            if (sp - stackCheck < *stackLimitAddress)
+            {
+                SaveInterpreterState(pc, sp);
+                HandleStackOverflow(stackCheck);
+                LoadInterpreterState(pc, sp);
+            }
             break;
         }
 
@@ -529,10 +532,10 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         case INSTR_jump_back8:
             pc -= *pc + 1;
             // Check for interrupt in case we're in a loop
-            if (TestInterrupt())
+            if (sp < *stackLimitAddress)
             {
                 SaveInterpreterState(pc, sp);
-                CheckStackAndInterrupt(0);
+                HandleStackOverflow(stackCheck);
                 LoadInterpreterState(pc, sp);
             }
             break;
@@ -540,10 +543,10 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         case INSTR_jump_back16:
             pc -= arg1 + 1;
             // Check for interrupt in case we're in a loop
-            if (TestInterrupt())
+            if (sp < *stackLimitAddress)
             {
                 SaveInterpreterState(pc, sp);
-                CheckStackAndInterrupt(0);
+                HandleStackOverflow(stackCheck);
                 LoadInterpreterState(pc, sp);
             }
             break;

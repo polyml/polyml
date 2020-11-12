@@ -246,9 +246,7 @@ public:
     virtual stackItem* GetHandlerRegister() { return assemblyInterface.handlerRegister; }
     virtual void SetHandlerRegister(stackItem* hr) { assemblyInterface.handlerRegister = hr; }
     // Check and grow the stack if necessary.  Process any interupts.
-    virtual void CheckStackAndInterrupt(POLYUNSIGNED space);
-    // The stack limit register is modified if there is an interrupt
-    virtual bool TestInterrupt() { return assemblyInterface.stackPtr < assemblyInterface.stackLimit; }
+    virtual void HandleStackOverflow(uintptr_t space) { StackOverflowTrap(space); }
 
     void Interpret();
     void EndBootStrap() { mixedCode = true; }
@@ -345,7 +343,8 @@ extern "C" {
     void X86TrapHandler(PolyWord threadId);
 };
 
-X86TaskData::X86TaskData(): ByteCodeInterpreter(&assemblyInterface.stackPtr), allocReg(0), allocWords(0), saveRegisterMask(0)
+X86TaskData::X86TaskData(): ByteCodeInterpreter(&assemblyInterface.stackPtr, &assemblyInterface.stackLimit),
+    allocReg(0), allocWords(0), saveRegisterMask(0)
 {
     assemblyInterface.enterInterpreter = (byte*)X86AsmCallExtraRETURN_ENTER_INTERPRETER;
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
@@ -684,15 +683,6 @@ void X86TaskData::HandleTrap()
         Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
     }
     SetMemRegisters();
-}
-
-void X86TaskData::CheckStackAndInterrupt(POLYUNSIGNED space)
-{
-    // Check there is space on the stack.  This may also be used to signal for an interrupt.
-    if (assemblyInterface.stackPtr - space < assemblyInterface.stackLimit)
-    {
-        StackOverflowTrap(space);
-    }
 }
 
 void X86TaskData::StackOverflowTrap(uintptr_t space)

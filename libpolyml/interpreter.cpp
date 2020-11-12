@@ -82,7 +82,7 @@ union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 
 class IntTaskData: public TaskData, ByteCodeInterpreter {
 public:
-    IntTaskData() : ByteCodeInterpreter(&taskSp), interrupt_requested(false) {}
+    IntTaskData() : ByteCodeInterpreter(&taskSp, &sl) {}
     ~IntTaskData() {}
 
     virtual void GarbageCollect(ScanAddress *process);
@@ -112,15 +112,12 @@ public:
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
     PLock interruptLock;
-    bool interrupt_requested;
 
     virtual void ClearExceptionPacket() { exception_arg = TAGGED(0); }
     virtual PolyWord GetExceptionPacket() { return exception_arg; }
     virtual stackItem* GetHandlerRegister() { return hr; }
     virtual void SetHandlerRegister(stackItem* newHr) { hr = newHr;  }
-    virtual void CheckStackAndInterrupt(POLYUNSIGNED space);
-    virtual bool TestInterrupt() { return interrupt_requested; }
-    bool WasInterrupted();
+    virtual void HandleStackOverflow(uintptr_t space);
 
     stackItem       *taskSp; /* Stack pointer. */
     stackItem       *hr;
@@ -151,47 +148,35 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc)
     this->exception_arg = TAGGED(0); /* Used for exception argument. */
 }
 
-void IntTaskData::CheckStackAndInterrupt(POLYUNSIGNED space)
+void IntTaskData::HandleStackOverflow(POLYUNSIGNED space)
 {
-    // Check there is space on the stack
-    if (taskSp - space < sl)
-    {
-        uintptr_t min_size = (this->stack->top - (PolyWord*)taskSp) + OVERFLOW_STACK_SIZE + space;
+    uintptr_t min_size = (this->stack->top - (PolyWord*)taskSp) + OVERFLOW_STACK_SIZE + space;
+    try {
+        // The stack check has failed.  This may either be because we really have
+        // overflowed the stack or because the stack limit value has been adjusted
+        // to result in a call here.
         CheckAndGrowStack(this, min_size);
-        sl = (stackItem*)this->stack->stack() + OVERFLOW_STACK_SIZE;
     }
-    // Also check for interrupts.
-    // Check interrupt_requested first before getting the lock and
-    // checking it again.  We may delay seeing an interrupt but taking
-    // the lock seems to be expensive.
-    if (interrupt_requested && WasInterrupted())
+    catch (IOException&) {
+        // We may get an exception while handling this if we run out of store
+    }
     {
-        try {
-            processes->ProcessAsynchRequests(this);
-            // Release and re-acquire use of the ML memory to allow another thread
-            // to GC.
-            processes->ThreadReleaseMLMemory(this);
-            processes->ThreadUseMLMemory(this);
-        }
-        catch (IOException&) {
-        }
+        PLocker l(&interruptLock);
+        // Set the stack limit.  This clears any interrupt and also sets the
+        // correct value if we've grown the stack.
+        sl = (stackItem*)stack->bottom + OVERFLOW_STACK_SIZE;
     }
-}
 
-// This may be called on a different thread.
-void IntTaskData::InterruptCode()
-{
-    PLocker l(&interruptLock);
-    interrupt_requested = true;
-}
+    try {
+        processes->ProcessAsynchRequests(this);
+        // Release and re-acquire use of the ML memory to allow another thread
+        // to GC.
+        processes->ThreadReleaseMLMemory(this);
+        processes->ThreadUseMLMemory(this);
+    }
+    catch (IOException&) {
+    }
 
-// Check and clear the "interrupt".
-bool IntTaskData::WasInterrupted()
-{
-    PLocker l(&interruptLock);
-    bool was = interrupt_requested;
-    interrupt_requested = false;
-    return was;
 }
 
 void IntTaskData::GarbageCollect(ScanAddress *process)
@@ -330,6 +315,18 @@ void IntTaskData::EnterPolyCode()
     (void)RunInterpreter(this);
     exitThread(this); // This thread is exiting.
     ASSERT(0); // We should never get here.
+}
+
+// This is called from a different thread so we have to be careful.
+void IntTaskData::InterruptCode()
+{
+    PLocker l(&interruptLock);
+    // Set the stack limit pointer to the top of the stack to cause
+    // a trap when we next check for stack overflow.
+    // We use a lock here to ensure that we always use the current value of the
+    // stack.  The thread we're interrupting could be growing the stack at this point.
+    if (stack != 0)
+        sl = (stackItem*)(stack->top - 1);
 }
 
 // As far as possible we want locking and unlocking an ML mutex to be fast so
