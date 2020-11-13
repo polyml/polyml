@@ -54,19 +54,19 @@ private:
     PolyObject *overflowPacket, *dividePacket;
 
     // Update the copies in the task object
-    virtual void SaveInterpreterState(POLYCODEPTR pc, stackItem* sp)
+    void SaveInterpreterState(POLYCODEPTR pc, stackItem* sp)
     {
         interpreterPc = pc;
         *stackPointerAddress = sp;
     }
 
     // Update the local state
-    virtual void LoadInterpreterState(POLYCODEPTR& pc, stackItem*& sp)
+    void LoadInterpreterState(POLYCODEPTR& pc, stackItem*& sp)
     {
         pc = interpreterPc;
         sp = *stackPointerAddress;
     }
-private:
+
     inline PolyObject* allocateMemory(TaskData* taskData, POLYUNSIGNED words, POLYCODEPTR& pc, stackItem*& sp);
     inline PolyObject* boxDouble(TaskData* taskData, double d, POLYCODEPTR& pc, stackItem*& sp);
     inline double unboxDouble(PolyWord p);
