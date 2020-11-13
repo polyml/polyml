@@ -93,10 +93,27 @@ sig
     
     type library
     type symbol
+    (** Provide the path to a library.  The library will only be opened when a symbol is actually
+        used to call a function.  If the library cannot be found the Foreign exception will be
+        raised. **)
     val loadLibrary: string -> library
+    (** Load a library.  The path to the library is provided by a function that is called when
+        the library is actually accessed.  Normally this will be the first time that a foreign
+        function is used from the library in the session. **)
+    val loadLibraryIndirect: (unit->string) -> library
     val loadExecutable: unit -> library
-    val getSymbol: library -> string  -> symbol
+    (** Provide a symbol to be looked up in a library.  This will only actually look up the
+        symbol when the symbol is used, typically in a call to a foreign function. **)
+    val getSymbol: library -> string -> symbol
+    (** Get the address of a symbol.  If the symbol is in a library the library will actually
+        be loaded and the symbol looked up. **)
     val symbolAsAddress: symbol -> Memory.voidStar
+    (** Create an external reference and return the value as a symbol.  This is only useful
+        when the code is to be exported as an object file using `PolyML.export`.  When used
+        with the buildCall functions it can be used to call a function in a library that
+        will be linked with the object file.  On most platforms `externalFunctionSymbol`
+        and `externalDataSymbol` can be used interchangeably however there are a few
+        platforms that treat external references to code and data differently.  **)
     val externalFunctionSymbol: string -> symbol
     and externalDataSymbol: string -> symbol
 
@@ -140,6 +157,11 @@ sig
             abi -> cType list -> cType -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
         val cFunction:
             cType list -> cType -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
+        
+        (** Create a symbol value from a function that returns an address.  The function will
+            be called each time the address is required.  Often this will use `Memory.memoise` to
+            remember the value so that it can be reused.  **)
+        val symbolFromAddress: (unit -> Memory.voidStar) -> symbol
     end
 
     type 'a conversion
@@ -495,7 +517,8 @@ struct
        there is an error we get the error immediately. *)
     fun loadLibrary (name: string): library = Memory.memoise System.loadLibrary name
     and loadExecutable (): library  = Memory.memoise System.loadExecutable ()
-    
+    and loadLibraryIndirect(getName: unit->string) = Memory.memoise (fn () => System.loadLibrary(getName())) ()
+
     (* To get a symbol we memoise a function that forces a library load if necessary
        and then gets the symbol. *)
     fun getSymbol(lib: library) (name: string): symbol =
@@ -521,6 +544,8 @@ struct
 
     structure LowLevel =
     struct
+        fun symbolFromAddress s = s 
+    
         (* This must match the type in ForeignCall. *)
         datatype cTypeForm =
             CTypeFloatingPt | CTypePointer | CTypeSignedInt | CTypeUnsignedInt
