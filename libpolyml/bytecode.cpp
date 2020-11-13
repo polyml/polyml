@@ -370,31 +370,6 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                 break;
             }
 
-
-        case INSTR_tail_3_bLegacy:
-           tailCount = 3;
-           tailPtr = sp + tailCount;
-           sp = tailPtr + *pc;
-           goto TAIL_CALL;
-
-        case INSTR_tail_3_2Legacy:
-           tailCount = 3;
-           tailPtr = sp + tailCount;
-           sp = tailPtr + 2;
-           goto TAIL_CALL;
-
-        case INSTR_tail_3_3Legacy:
-           tailCount = 3;
-           tailPtr = sp + tailCount;
-           sp = tailPtr + 3;
-           goto TAIL_CALL;
-
-        case INSTR_tail_4_bLegacy:
-           tailCount = 4;
-           tailPtr = sp + tailCount;
-           sp = tailPtr + *pc;
-           goto TAIL_CALL;
-
         case INSTR_tail_b_b:
            tailCount = *pc;
            tailPtr = sp + tailCount;
@@ -464,14 +439,9 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             break;
 
         case INSTR_return_b: returnCount = *pc; goto RETURN;
-        case INSTR_return_0Legacy: returnCount = 0; goto RETURN;
         case INSTR_return_1: returnCount = 1; goto RETURN;
         case INSTR_return_2: returnCount = 2; goto RETURN;
         case INSTR_return_3: returnCount = 3; goto RETURN;
-
-        case INSTR_stackSize8Legacy:
-            stackCheck = *pc++;
-            goto STACKCHECK;
 
         case INSTR_stackSize16:
         {
@@ -670,22 +640,6 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             break;
         }
 
-        case INSTR_tuple_containerLegacy: /* Create a tuple from a container. */
-            {
-                storeWords = arg1;
-                PolyObject *t = this->allocateMemory(taskData, storeWords, pc, sp);
-                if (t == 0) goto RAISE_EXCEPTION;
-                t->SetLengthWord(storeWords, 0);
-                for(; storeWords > 0; )
-                {
-                    storeWords--;
-                    t->Set(storeWords, (*sp).stackAddr[storeWords]);
-                }
-                *sp = (PolyWord)t;
-                pc += 2;
-                break;
-            }
-
         case INSTR_callFastRTS0:
             {
                 callFastRts0 doCall = *(callFastRts0*)(*sp++).w().AsObjPtr();
@@ -779,64 +733,6 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                 break;
             }
 
-        case INSTR_callFullRTS0:
-            {
-                callFullRts0 doCall = *(callFullRts0*)(*sp++).w().AsObjPtr();
-                ClearExceptionPacket();
-                SaveInterpreterState(pc, sp);
-                POLYUNSIGNED result = doCall(taskData->threadObject);
-                LoadInterpreterState(pc, sp);
-                // If this raised an exception 
-                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
-                *(--sp)= PolyWord::FromUnsigned(result);
-                break;
-            }
-
-        case INSTR_callFullRTS1:
-            {
-                callFullRts1 doCall = *(callFullRts1*)(*sp++).w().AsObjPtr();
-                intptr_t rtsArg1 = (*sp++).argValue;
-                ClearExceptionPacket();
-                SaveInterpreterState(pc, sp);
-                POLYUNSIGNED result = doCall(taskData->threadObject, rtsArg1);
-                LoadInterpreterState(pc, sp);
-                // If this raised an exception 
-                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
-                *(--sp) = PolyWord::FromUnsigned(result);
-                break;
-            }
-
-        case INSTR_callFullRTS2:
-            {
-                callFullRts2 doCall = *(callFullRts2*)(*sp++).w().AsObjPtr();
-                intptr_t rtsArg2 = (*sp++).argValue; // Pop off the args, last arg first.
-                intptr_t rtsArg1 = (*sp++).argValue;
-                ClearExceptionPacket();
-                SaveInterpreterState(pc, sp);
-                POLYUNSIGNED result = doCall(taskData->threadObject, rtsArg1, rtsArg2);
-                LoadInterpreterState(pc, sp);
-                // If this raised an exception 
-                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
-                *(--sp) = PolyWord::FromUnsigned(result);
-                break;
-            }
-
-        case INSTR_callFullRTS3:
-            {
-                callFullRts3 doCall = *(callFullRts3*)(*sp++).w().AsObjPtr();
-                intptr_t rtsArg3 = (*sp++).argValue; // Pop off the args, last arg first.
-                intptr_t rtsArg2 = (*sp++).argValue;
-                intptr_t rtsArg1 = (*sp++).argValue;
-                ClearExceptionPacket();
-                SaveInterpreterState(pc, sp);
-                POLYUNSIGNED result = doCall(taskData->threadObject, rtsArg1, rtsArg2, rtsArg3);
-                LoadInterpreterState(pc, sp);
-                // If this raised an exception 
-                if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
-                *(--sp) = PolyWord::FromUnsigned(result);
-                break;
-            }
-
         case INSTR_notBoolean:
             *sp = ((*sp).w() == True) ? False : True; break;
 
@@ -865,10 +761,6 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             *sp = Zero;
             break;
         }
-
-//        case INSTR_stringLength: // Now replaced by loadUntagged
-//            *sp = TAGGED(((PolyStringObject*)(*sp).AsObjPtr())->length);
-//            break;
 
         case INSTR_atomicIncr:
         {
@@ -1182,16 +1074,6 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             break;
         }
 
-        case INSTR_loadMLWordLegacy:
-        {
-            // The values on the stack are base, index and offset.
-            POLYUNSIGNED offset = UNTAGGED(*sp++);
-            POLYUNSIGNED index = UNTAGGED(*sp++);
-            PolyObject *p = (PolyObject*)((*sp).w().AsCodePtr() + offset);
-            *sp = p->Get(index);
-            break;
-        }
-
         case INSTR_loadMLWord:
         {
             POLYUNSIGNED index = UNTAGGED(*sp++);
@@ -1209,32 +1091,11 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             break;
         }
 
-        case INSTR_loadUntaggedLegacy:
-        {
-            // The values on the stack are base, index and offset.
-            POLYUNSIGNED offset = UNTAGGED(*sp++);
-            POLYUNSIGNED index = UNTAGGED(*sp++);
-            PolyObject *p = (PolyObject*)((*sp).w().AsCodePtr() + offset);
-            *sp = TAGGED(p->Get(index).AsUnsigned());
-            break;
-        }
-
         case INSTR_loadUntagged:
         {
             POLYUNSIGNED index = UNTAGGED(*sp++);
             PolyObject* p = (PolyObject*)((*sp).w().AsCodePtr());
             *sp = TAGGED(p->Get(index).AsUnsigned());
-            break;
-        }
-
-        case INSTR_storeMLWordLegacy: 
-        {
-            PolyWord toStore = *sp++;
-            POLYUNSIGNED offset = UNTAGGED(*sp++);
-            POLYUNSIGNED index = UNTAGGED(*sp++);
-            PolyObject *p = (PolyObject*)((*sp).w().AsCodePtr() + offset);
-            p->Set(index, toStore);
-            *sp = Zero;
             break;
         }
 
@@ -1258,38 +1119,12 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             break; 
         }
 
-        case INSTR_storeUntaggedLegacy: 
-        {
-            PolyWord toStore = PolyWord::FromUnsigned(UNTAGGED_UNSIGNED(*sp++));
-            POLYUNSIGNED offset = UNTAGGED(*sp++);
-            POLYUNSIGNED index = UNTAGGED(*sp++);
-            PolyObject *p = (PolyObject*)((*sp).w().AsCodePtr() + offset);
-            p->Set(index, toStore);
-            *sp = Zero;
-            break;
-        }
-
         case INSTR_storeUntagged:
         {
             PolyWord toStore = PolyWord::FromUnsigned(UNTAGGED_UNSIGNED(*sp++));
             POLYUNSIGNED index = UNTAGGED(*sp++);
             PolyObject* p = (PolyObject*)((*sp).w().AsCodePtr());
             p->Set(index, toStore);
-            *sp = Zero;
-            break;
-        }
-
-        case INSTR_blockMoveWordLegacy:
-        {
-            // The offsets are byte counts but the the indexes are in words.
-            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp++);
-            POLYUNSIGNED destOffset = UNTAGGED_UNSIGNED(*sp++);
-            POLYUNSIGNED destIndex = UNTAGGED_UNSIGNED(*sp++);
-            PolyObject *dest = (PolyObject*)((*sp++).w().AsCodePtr() + destOffset);
-            POLYUNSIGNED srcOffset = UNTAGGED_UNSIGNED(*sp++);
-            POLYUNSIGNED srcIndex = UNTAGGED_UNSIGNED(*sp++);
-            PolyObject *src = (PolyObject*)((*sp).w().AsCodePtr() + srcOffset);
-            for (POLYUNSIGNED u = 0; u < length; u++) dest->Set(destIndex+u, src->Get(srcIndex+u));
             *sp = Zero;
             break;
         }
@@ -1340,38 +1175,6 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             *sp = result == 0 ? TAGGED(0) : result < 0 ? TAGGED(-1) : TAGGED(1);
             break;
         }
-
-        // Backwards compatibility.
-        // These are either used in the current compiler or compiled by it
-        // while building the basis library.
-        case EXTINSTR_stack_containerW:
-        case EXTINSTR_reset_r_w:
-        case EXTINSTR_tuple_w:
-        case EXTINSTR_unsignedToLongW:
-        case EXTINSTR_signedToLongW:
-        case EXTINSTR_longWToTagged:
-        case EXTINSTR_lgWordShiftLeft:
-        case EXTINSTR_fixedIntToReal:
-        case EXTINSTR_callFastRtoR:
-        case EXTINSTR_realMult:
-        case EXTINSTR_realDiv:
-        case EXTINSTR_realNeg:
-        case EXTINSTR_realAbs:
-        case EXTINSTR_realToFloat:
-        case EXTINSTR_floatDiv:
-        case EXTINSTR_floatNeg:
-        case EXTINSTR_floatAbs:
-        case EXTINSTR_callFastFtoF:
-        case EXTINSTR_floatMult:
-        case EXTINSTR_callFastGtoR:
-        case EXTINSTR_realUnordered:
-        case EXTINSTR_realEqual:
-        case EXTINSTR_lgWordEqual:
-        case EXTINSTR_lgWordOr:
-        case EXTINSTR_wordShiftRArith:
-        case EXTINSTR_lgWordLess:
-            // Back up and handle them as though they were escaped.
-            pc--;
 
         case INSTR_escape:
         {
