@@ -148,7 +148,7 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc)
     this->exception_arg = TAGGED(0); /* Used for exception argument. */
 }
 
-void IntTaskData::HandleStackOverflow(POLYUNSIGNED space)
+void IntTaskData::HandleStackOverflow(uintptr_t space)
 {
     uintptr_t min_size = (this->stack->top - (PolyWord*)taskSp) + OVERFLOW_STACK_SIZE + space;
     try {
