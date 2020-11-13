@@ -813,11 +813,19 @@ struct
                 decsp(); decsp(); decsp(); decsp()
             )
        
-       |    BICArbitrary { longCall, ... } =>
-                (* Just use the long-precision case in the interpreted version. *)
-            (
-                gencde (longCall, whereto, tailKind, loopAddr)
-            )
+       |    BICArbitrary { oper, arg1, arg2, ... } =>
+            let
+                open BuiltIns
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+            in
+                case oper of
+                    ArithAdd  => genOpcode(opcode_arbAdd, cvec)
+                |   ArithSub  => genOpcode(opcode_arbSubtract, cvec)
+                |   ArithMult => genOpcode(opcode_arbMultiply, cvec)
+                |   _ => raise InternalError "Unknown arbitrary precision operation";
+                decsp() (* Removes one item from the stack. *)
+            end
 
     in (* body of gencde *) 
 

@@ -112,6 +112,9 @@ struct
     and opcode_local_13          = 0wx49
     and opcode_local_14          = 0wx4a
     and opcode_local_15          = 0wx4b
+    and opcode_arbAdd            = 0wx4c
+    and opcode_arbSubtract       = 0wx4d
+    and opcode_arbMultiply       = 0wx4e
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
     and opcode_indirectClosureBB = 0wx54
@@ -139,12 +142,6 @@ struct
     and opcode_callFastRTS3      = 0wx86
     and opcode_callFastRTS4      = 0wx87
     and opcode_callFastRTS5      = 0wx88
-    (*and opcode_callFullRTS0      = 0wx89 (* Legacy *)
-    and opcode_callFullRTS1      = 0wx8a
-    and opcode_callFullRTS2      = 0wx8b
-    and opcode_callFullRTS3      = 0wx8c
-    and opcode_callFullRTS4      = 0wx8d
-    and opcode_callFullRTS5      = 0wx8e*)
     and opcode_notBoolean        = 0wx91
     and opcode_isTagged          = 0wx92
     and opcode_cellLength        = 0wx93
@@ -508,6 +505,9 @@ struct
                 |   0wx49 => printStream "local_13"
                 |   0wx4a => printStream "local_14"
                 |   0wx4b => printStream "local_15"
+                |   0wx4c => printStream "arbAdd"
+                |   0wx4d => printStream "arbSubtract"
+                |   0wx4e => printStream "arbMultiply"
                 |   0wx50 => printStream "reset_1"
                 |   0wx51 => printStream "reset_2"
                 |   0wx54 => (printOp(1, "indirectClosureBB\t"); printOp(1, ", "))
@@ -1730,6 +1730,9 @@ struct
     val opcode_deleteHandler    = SimpleCode [opcode_deleteHandler]
     val opcode_allocCSpace      = SimpleCode [opcode_escape, ext_opcode_allocCSpace]
     val opcode_freeCSpace       = SimpleCode [opcode_escape, ext_opcode_freeCSpace]
+    val opcode_arbAdd           = SimpleCode [opcode_arbAdd]
+    val opcode_arbSubtract      = SimpleCode [opcode_arbSubtract]
+    val opcode_arbMultiply      = SimpleCode [opcode_arbMultiply]
 
     structure Sharing =
     struct

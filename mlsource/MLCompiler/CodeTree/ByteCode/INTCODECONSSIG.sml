@@ -135,6 +135,9 @@ sig
     val opcode_deleteHandler: opcode
     val opcode_allocCSpace: opcode
     val opcode_freeCSpace: opcode
+    val opcode_arbAdd: opcode
+    val opcode_arbSubtract: opcode
+    val opcode_arbMultiply: opcode
 
     val codeCreate: string * Universal.universal list -> code  (* makes the initial segment. *)
 

@@ -1017,6 +1017,94 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             break;
         }
 
+        case INSTR_arbAdd:
+        {
+            PolyWord x = *sp++;
+            PolyWord y = (*sp);
+            if (x.IsTagged() && y.IsTagged())
+            {
+                POLYSIGNED t = UNTAGGED(x) + UNTAGGED(y);
+                if (t <= MAXTAGGED && t >= -MAXTAGGED - 1)
+                {
+                    *sp = TAGGED(t);
+                    break;
+                }
+            }
+            // One argument was untagged or there was an overflow
+            try {
+                Handle mark = taskData->saveVec.mark();
+                SaveInterpreterState(pc, sp);
+                Handle result = add_longc(taskData, taskData->saveVec.push(x), taskData->saveVec.push(y));
+                LoadInterpreterState(pc, sp);
+                *sp = result->Word();
+                taskData->saveVec.reset(mark);
+            }
+            catch (IOException&) {
+                // We could run out of store
+                goto RAISE_EXCEPTION;
+            }
+            break;
+        }
+
+        case INSTR_arbSubtract:
+        {
+            PolyWord x = *sp++;
+            PolyWord y = (*sp);
+            if (x.IsTagged() && y.IsTagged())
+            {
+                POLYSIGNED t = UNTAGGED(y) - UNTAGGED(x);
+                if (t <= MAXTAGGED && t >= -MAXTAGGED - 1)
+                {
+                    *sp = TAGGED(t);
+                    break;
+                }
+            }
+            // One argument was untagged or there was an overflow
+            try {
+                Handle mark = taskData->saveVec.mark();
+                SaveInterpreterState(pc, sp);
+                Handle result = sub_longc(taskData, taskData->saveVec.push(x), taskData->saveVec.push(y));
+                LoadInterpreterState(pc, sp);
+                *sp = result->Word();
+                taskData->saveVec.reset(mark);
+            }
+            catch (IOException&) {
+                // We could run out of store
+                goto RAISE_EXCEPTION;
+            }
+            break;
+        }
+
+        case INSTR_arbMultiply:
+        {
+            PolyWord x = *sp++;
+            PolyWord y = (*sp);
+            if (x.IsTagged() && y.IsTagged())
+            {
+                POLYSIGNED xv = UNTAGGED(x);
+                POLYSIGNED yv = y.AsSigned() - 1; // Just remove the tag
+                POLYSIGNED t = xv * yv;
+                if (xv == 0 || t / xv == yv)
+                {
+                    *sp = PolyWord::FromSigned(t + 1); // Add back the tag
+                    break;
+                }
+            }
+            try {
+                Handle mark = taskData->saveVec.mark();
+                SaveInterpreterState(pc, sp);
+                Handle result = mult_longc(taskData, taskData->saveVec.push(x), taskData->saveVec.push(y));
+                LoadInterpreterState(pc, sp);
+                *sp = result->Word();
+                taskData->saveVec.reset(mark);
+            }
+            catch (IOException&) {
+                // We could run out of store
+                goto RAISE_EXCEPTION;
+            }
+            break;
+        }
+
         case INSTR_allocByteMem:
         {
             // Allocate byte segment.  This does not need to be initialised.
