@@ -911,15 +911,28 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
 
         case INSTR_fixedMult:
         {
-            POLYSIGNED x = UNTAGGED(*sp++);
-            POLYSIGNED y = (*sp).w().AsSigned() - 1; // Just remove the tag
-            POLYSIGNED t = x * y;
-            if (x != 0 && t / x != y)
-            {
-                taskData->SetException((poly_exn*)overflowPacket);
+            // There's no simple way to detect signed overflow in multiplication.
+            // Unsigned multiplication is defined to wrap but signed is not and
+            // GCC optimised away the previous test we had here.
+            PolyWord x = *sp++;
+            PolyWord y = (*sp);
+            try {
+                Handle mark = taskData->saveVec.mark();
+                SaveInterpreterState(pc, sp);
+                Handle result = mult_longc(taskData, taskData->saveVec.push(x), taskData->saveVec.push(y));
+                LoadInterpreterState(pc, sp);
+                *sp = result->Word();
+                taskData->saveVec.reset(mark);
+                if ((*sp).w().IsDataPtr())
+                {
+                    taskData->SetException((poly_exn*)overflowPacket);
+                    goto RAISE_EXCEPTION;
+                }
+            }
+            catch (IOException&) {
+                // We could run out of store
                 goto RAISE_EXCEPTION;
             }
-            *sp = PolyWord::FromSigned(t+1); // Add back the tag
             break;
         }
 
@@ -1077,19 +1090,9 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
 
         case INSTR_arbMultiply:
         {
+            // See comment on fixedMultiply above
             PolyWord x = *sp++;
             PolyWord y = (*sp);
-            if (x.IsTagged() && y.IsTagged())
-            {
-                POLYSIGNED xv = UNTAGGED(x);
-                POLYSIGNED yv = y.AsSigned() - 1; // Just remove the tag
-                POLYSIGNED t = xv * yv;
-                if (xv == 0 || t / xv == yv)
-                {
-                    *sp = PolyWord::FromSigned(t + 1); // Add back the tag
-                    break;
-                }
-            }
             try {
                 Handle mark = taskData->saveVec.mark();
                 SaveInterpreterState(pc, sp);
