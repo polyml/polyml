@@ -888,7 +888,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                 *sp = TAGGED(t);
             else
             {
-                *(--sp) = (PolyWord)overflowPacket;
+                taskData->SetException((poly_exn*)overflowPacket);
                 goto RAISE_EXCEPTION;
             }
             break;
@@ -903,7 +903,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                 *sp = TAGGED(t);
             else
             {
-                *(--sp) = (PolyWord)overflowPacket;
+                taskData->SetException((poly_exn*)overflowPacket);
                 goto RAISE_EXCEPTION;
             }
             break;
@@ -916,7 +916,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             POLYSIGNED t = x * y;
             if (x != 0 && t / x != y)
             {
-                *(--sp) = (PolyWord)overflowPacket;
+                taskData->SetException((poly_exn*)overflowPacket);
                 goto RAISE_EXCEPTION;
             }
             *sp = PolyWord::FromSigned(t+1); // Add back the tag
