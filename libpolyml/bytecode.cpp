@@ -151,10 +151,6 @@ extern "C" {
     typedef POLYUNSIGNED(*callFastRts3)(intptr_t, intptr_t, intptr_t);
     typedef POLYUNSIGNED(*callFastRts4)(intptr_t, intptr_t, intptr_t, intptr_t);
     typedef POLYUNSIGNED(*callFastRts5)(intptr_t, intptr_t, intptr_t, intptr_t, intptr_t);
-    typedef POLYUNSIGNED(*callFullRts0)(PolyObject *);
-    typedef POLYUNSIGNED(*callFullRts1)(PolyObject *, intptr_t);
-    typedef POLYUNSIGNED(*callFullRts2)(PolyObject *, intptr_t, intptr_t);
-    typedef POLYUNSIGNED(*callFullRts3)(PolyObject *, intptr_t, intptr_t, intptr_t);
     typedef double (*callRTSRtoR) (double);
     typedef double (*callRTSRRtoR) (double, double);
     typedef double (*callRTSGtoR) (intptr_t);
