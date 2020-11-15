@@ -1311,6 +1311,8 @@ int IntTaskData::SwitchToPoly()
             t->SetLengthWord(length, F_CLOSURE_OBJ | F_MUTABLE_BIT);
             PolyObject* srcClosure = (*sp).w().AsObjPtr();
             *(uintptr_t*)t = *(uintptr_t*)srcClosure;
+            for (POLYUNSIGNED i = sizeof(uintptr_t) / sizeof(PolyWord); i < length; i++)
+                t->Set(i, TAGGED(0));
             *sp = (PolyWord)t;
             break;
         }
@@ -2474,6 +2476,8 @@ int IntTaskData::SwitchToPoly()
                 t->SetLengthWord(length, F_CLOSURE_OBJ | F_MUTABLE_BIT);
                 PolyObject* srcClosure = (*sp).w().AsObjPtr();
                 *(uintptr_t*)t = *(uintptr_t*)srcClosure;
+                for (POLYUNSIGNED i = sizeof(uintptr_t) / sizeof(PolyWord); i < length; i++)
+                    t->Set(i, TAGGED(0));
                 *sp = (PolyWord)t;
                 break;
             }
