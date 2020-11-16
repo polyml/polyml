@@ -202,14 +202,10 @@ public:
     // Return the task data for the current thread.
     virtual TaskData *GetTaskDataForThread(void);
     // Create a new task data object for the current thread.
-    virtual TaskData *CreateNewTaskData(Handle threadId, Handle threadFunction,
-                           Handle args, PolyWord flags);
-    // ForkFromRTS.  Creates a new thread from within the RTS.
-    virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg);
+    virtual TaskData *CreateNewTaskData();
     // Create a new thread.  The "args" argument is only used for threads
     // created in the RTS by the signal handler.
-    Handle ForkThread(TaskData *taskData, Handle threadFunction,
-                    Handle args, PolyWord flags, PolyWord stacksize);
+    Handle ForkThread(TaskData *taskData, Handle threadFunction, PolyWord flags, PolyWord stacksize);
     // Process general RTS requests from ML.
     Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 
@@ -517,10 +513,10 @@ void Processes::WaitInfinite(TaskData *taskData, Handle hMutex)
     PLocker lock(&schedLock);
     // Atomically release the mutex.  This is atomic because we hold schedLock
     // so no other thread can call signal or broadcast.
-    Handle decrResult = taskData->AtomicDecrement(hMutex);
+    Handle decrResult = taskData->saveVec.push(PolyWord::FromUnsigned(taskData->AtomicDecrement(hMutex->WordP())));
     if (UNTAGGED(decrResult->Word()) != 0)
     {
-        taskData->AtomicReset(hMutex);
+        taskData->AtomicReset(hMutex->WordP());
         // The mutex was locked so we have to release any waiters.
         // Unlock any waiters.
         for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
@@ -567,10 +563,10 @@ void Processes::WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hWakeTim
     PLocker lock(&schedLock);
     // Atomically release the mutex.  This is atomic because we hold schedLock
     // so no other thread can call signal or broadcast.
-    Handle decrResult = taskData->AtomicDecrement(hMutex);
+    Handle decrResult = taskData->saveVec.push(PolyWord::FromUnsigned(taskData->AtomicDecrement(hMutex->WordP())));
     if (UNTAGGED(decrResult->Word()) != 0)
     {
-        taskData->AtomicReset(hMutex);
+        taskData->AtomicReset(hMutex->WordP());
         // The mutex was locked so we have to release any waiters.
         // Unlock any waiters.
         for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
@@ -749,8 +745,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
         return SAVE(TAGGED(0));
 
     case 7: // Fork a new thread.  The arguments are the function to run and the attributes.
-            return ForkThread(ptaskData, SAVE(args->WordP()->Get(0)),
-                        (Handle)0, args->WordP()->Get(1),
+            return ForkThread(ptaskData, SAVE(args->WordP()->Get(0)), args->WordP()->Get(1),
                         // For backwards compatibility we check the length here
                         args->WordP()->Length() <= 2 ? TAGGED(0) : args->WordP()->Get(2));
 
@@ -779,7 +774,7 @@ void TaskData::FillUnusedSpace(void)
 
 TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
         stack(0), threadObject(0), signalStack(0),
-        inML(false), requests(kRequestNone), blockMutex(0), inMLHeap(false),
+        requests(kRequestNone), blockMutex(0), inMLHeap(false),
         runningProfileTimer(false)
 {
 #ifdef HAVE_WINDOWS_H
@@ -1171,8 +1166,7 @@ TaskData *Processes::GetTaskDataForThread(void)
 // Called to create a task data object in the current thread.
 // This is currently only used if a thread created in foreign code calls
 // a callback.
-TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
-                           Handle args, PolyWord flags)
+TaskData *Processes::CreateNewTaskData()
 {
     TaskData *taskData = machineDependent->CreateTaskData();
 #if defined(HAVE_WINDOWS_H)
@@ -1213,28 +1207,21 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
 
     // TODO:  Check that there isn't a problem if we try to allocate
     // memory here and result in a GC.
-    taskData->InitStackFrame(taskData, threadFunction, args);
+    taskData->InitStackFrame(taskData, 0);
 
     ThreadUseMLMemory(taskData);
 
-    // If the forking thread has created an ML thread object use that
-    // otherwise create a new one in the current context.
-    if (threadId != 0)
-        taskData->threadObject = (ThreadObject*)threadId->WordP();
-    else
-    {
-        // Make a thread reference to point to this taskData object.
-        Handle threadRef = MakeVolatileWord(taskData, taskData);
-        // Make a thread object.  Since it's in the thread table it can't be garbage collected.
-        taskData->threadObject = (ThreadObject*)alloc(taskData, sizeof(ThreadObject)/sizeof(PolyWord), F_MUTABLE_BIT);
-        taskData->threadObject->threadRef = threadRef->Word();
-        taskData->threadObject->flags = flags != TAGGED(0) ? TAGGED(PFLAG_SYNCH): flags;
-        taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
-        taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
-        taskData->threadObject->mlStackSize = TAGGED(0); // Unlimited stack size
-        for (unsigned i = 0; i < sizeof(taskData->threadObject->debuggerSlots)/sizeof(PolyWord); i++)
-            taskData->threadObject->debuggerSlots[i] = TAGGED(0);
-    }
+    // Make a thread reference to point to this taskData object.
+    Handle threadRef = MakeVolatileWord(taskData, taskData);
+    // Make a thread object.  Since it's in the thread table it can't be garbage collected.
+    taskData->threadObject = (ThreadObject*)alloc(taskData, sizeof(ThreadObject)/sizeof(PolyWord), F_MUTABLE_BIT);
+    taskData->threadObject->threadRef = threadRef->Word();
+    taskData->threadObject->flags = TAGGED(PFLAG_SYNCH);
+    taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
+    taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
+    taskData->threadObject->mlStackSize = TAGGED(0); // Unlimited stack size
+    for (unsigned i = 0; i < sizeof(taskData->threadObject->debuggerSlots)/sizeof(PolyWord); i++)
+        taskData->threadObject->debuggerSlots[i] = TAGGED(0);
 
 #if (!defined(_WIN32))
     initThreadSignals(taskData);
@@ -1337,7 +1324,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         if (taskData->stack == 0)
             ::Exit("Unable to create the initial thread - insufficient memory");
 
-        taskData->InitStackFrame(taskData, taskData->saveVec.push(rootFunction), (Handle)0);
+        taskData->InitStackFrame(taskData, taskData->saveVec.push(rootFunction));
 
         // Create a packet for the Interrupt exception once so that we don't have to
         // allocate when we need to raise it.
@@ -1494,7 +1481,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                 PolyWord *limit = taskData->allocLimit, *ptr = taskData->allocPointer;
                 if (limit < ptr && (uintptr_t)(ptr-limit) < taskData->allocSize)
                     freeSpace += ptr-limit;
-                if (taskData->inML) threadsInML++;
+                if (taskData->inMLHeap) threadsInML++;
             }
         }
         // Add the space in the allocation areas after calculating the sizes for the
@@ -1511,8 +1498,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 
 // Create a new thread.  Returns the ML thread identifier object if it succeeds.
 // May raise an exception.
-Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
-                           Handle args, PolyWord flags, PolyWord stacksize)
+Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction, PolyWord flags, PolyWord stacksize)
 {
     if (singleThreaded)
         raise_exception_string(taskData, EXC_thread, "Threads not available");
@@ -1574,7 +1560,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
 
         // Allocate anything needed for the new stack in the parent's heap.
         // The child still has inMLHeap set so mustn't GC.
-        newTaskData->InitStackFrame(taskData, threadFunction, args);
+        newTaskData->InitStackFrame(taskData, threadFunction);
 
         // Now actually fork the thread.
         bool success = false;
@@ -1610,20 +1596,6 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
     }
 }
 
-// ForkFromRTS.  Creates a new thread from within the RTS.  This is currently used
-// only to run a signal function.
-bool Processes::ForkFromRTS(TaskData *taskData, Handle proc, Handle arg)
-{
-    try {
-        (void)ForkThread(taskData, proc, arg, TAGGED(PFLAG_SYNCH), TAGGED(0));
-        return true;
-    } catch (IOException &)
-    {
-        // If it failed
-        return false;
-    }
-}
-
 POLYUNSIGNED PolyThreadForkThread(FirstArgument threadId, PolyWord function, PolyWord attrs, PolyWord stack)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
@@ -1634,7 +1606,7 @@ POLYUNSIGNED PolyThreadForkThread(FirstArgument threadId, PolyWord function, Pol
     Handle result = 0;
 
     try {
-        result = processesModule.ForkThread(taskData, pushedFunction, (Handle)0, attrs, stack);
+        result = processesModule.ForkThread(taskData, pushedFunction, attrs, stack);
     }
     catch (KillException &) {
         processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill

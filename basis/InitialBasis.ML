@@ -391,6 +391,8 @@ fun length l =
     len l 0
     end
 
+(* This is needed for the 5.8.2 bootstrap only because a
+   conversion function for char is not installed in Initialise. *)
 local
     (* Temporary conversion function for characters. This is replaced in
        the Char structure. *)

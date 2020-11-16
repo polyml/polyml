@@ -191,7 +191,7 @@ void PExport::printObject(PolyObject *p)
     }
     else if (p->IsCodeObject())
     {
-        POLYUNSIGNED constCount, i;
+        POLYUNSIGNED constCount;
         PolyWord *cp;
         ASSERT(! p->IsMutable() );
         /* Work out the number of bytes in the code and the
@@ -207,12 +207,12 @@ void PExport::printObject(PolyObject *p)
 
         // First the code.
         byte *u = (byte*)p;
-        for (i = 0; i < byteCount; i++)
+        for (POLYUNSIGNED i = 0; i < byteCount; i++)
             fprintf(exportFile, "%02x", u[i]);
 
         putc('|', exportFile);
         // Now the constants.
-        for (i = 0; i < constCount; i++)
+        for (POLYUNSIGNED i = 0; i < constCount; i++)
         {
             printValue(cp[i]);
             if (i < constCount-1)
@@ -593,13 +593,12 @@ bool PImport::DoImport()
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord) + 1;
             break;
 
-        case 'D': // Code segment.
         case 'F':
             objBits |= F_CODE_OBJ;
             /* Read the number of bytes of code and the number of words
                for constants. */
             fscanf(f, "%" POLYUFMT ",%" POLYUFMT, &nWords, &nBytes);
-            nWords += ch == 'F' ? 2 : 1; // Add one or two words for no of consts + offset.
+            nWords += 2; // Add two words for no of consts + offset.
             /* Add in the size of the code itself. */
             nWords += (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
             break;

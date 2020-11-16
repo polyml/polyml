@@ -45,15 +45,15 @@
 #define INSTR_jump_back16           0x20
 #define INSTR_indirectLocalBB       0x21
 #define INSTR_local_b               0x22
-#define INSTR_indirect_b    0x23
+#define INSTR_indirect_b            0x23
 #define INSTR_moveToContainerB      0x24
-#define INSTR_set_stack_val_b   0x25
-#define INSTR_reset_b       0x26
-#define INSTR_reset_r_b     0x27
-#define INSTR_const_int_b   0x28
-#define INSTR_local_0       0x29
-#define INSTR_local_1       0x2a
-#define INSTR_local_2       0x2b
+#define INSTR_set_stack_val_b       0x25
+#define INSTR_reset_b               0x26
+#define INSTR_reset_r_b             0x27
+#define INSTR_const_int_b           0x28
+#define INSTR_local_0               0x29
+#define INSTR_local_1               0x2a
+#define INSTR_local_2               0x2b
 #define INSTR_local_3       0x2c
 #define INSTR_local_4       0x2d
 #define INSTR_local_5       0x2e
@@ -75,7 +75,6 @@
 #define INSTR_const_3       0x3e
 #define INSTR_const_4       0x3f
 #define INSTR_const_10      0x40
-#define INSTR_return_0Legacy      0x41
 #define INSTR_return_1      0x42
 #define INSTR_return_2      0x43
 #define INSTR_return_3      0x44
@@ -85,10 +84,12 @@
 #define INSTR_local_13              0x49
 #define INSTR_local_14              0x4a
 #define INSTR_local_15              0x4b
+#define INSTR_arbAdd                0x4c
+#define INSTR_arbSubtract           0x4d
+#define INSTR_arbMultiply           0x4e
 #define INSTR_reset_1       0x50
 #define INSTR_reset_2       0x51
 #define INSTR_indirectClosureBB     0x54
-#define INSTR_tuple_containerLegacy 0x55
 #define INSTR_reset_r_1     0x64
 #define INSTR_reset_r_2     0x65
 #define INSTR_reset_r_3     0x66
@@ -106,10 +107,6 @@
 #define INSTR_indirectClosureB1     0x7a
 #define INSTR_tail_b_b      0x7b
 #define INSTR_indirectClosureB2     0x7c
-#define INSTR_tail_3_bLegacy        0x7d
-#define INSTR_tail_4_bLegacy        0x7e
-#define INSTR_tail_3_2Legacy        0x7f
-#define INSTR_tail_3_3Legacy        0x80
 #define INSTR_setHandler8   0x81
 #define INSTR_callFastRTS0      0x83
 #define INSTR_callFastRTS1      0x84
@@ -117,12 +114,6 @@
 #define INSTR_callFastRTS3      0x86
 #define INSTR_callFastRTS4      0x87
 #define INSTR_callFastRTS5      0x88
-#define INSTR_callFullRTS0      0x89 // Legacy
-#define INSTR_callFullRTS1      0x8a // Legacy
-#define INSTR_callFullRTS2      0x8b // Legacy
-#define INSTR_callFullRTS3      0x8c // Legacy
-#define INSTR_callFullRTS4      0x8d // Legacy
-#define INSTR_callFullRTS5      0x8e // Legacy
 #define INSTR_notBoolean        0x91
 #define INSTR_isTagged          0x92
 #define INSTR_cellLength        0x93
@@ -165,22 +156,16 @@
 #define INSTR_closureB              0xd0
 #define INSTR_getThreadId       0xd9
 #define INSTR_allocWordMemory   0xda
-#define INSTR_loadMLWordLegacy        0xdb
 #define INSTR_loadMLByte        0xdc
-#define INSTR_storeMLWordLegacy     0xe3
 #define INSTR_storeMLByte       0xe4
-#define INSTR_blockMoveWordLegacy   0xeb
 #define INSTR_blockMoveByte     0xec
 #define INSTR_blockEqualByte    0xed
 #define INSTR_blockCompareByte  0xee
-#define INSTR_loadUntaggedLegacy    0xef
-#define INSTR_storeUntaggedLegacy   0xf0
 #define INSTR_deleteHandler     0xf1
 #define INSTR_jump16            0xf7
 #define INSTR_jump16false       0xf8
 #define INSTR_setHandler16      0xf9
 #define INSTR_constAddr8        0xfa
-#define INSTR_stackSize8Legacy  0xfb
 #define INSTR_stackSize16       0xfc
 #define INSTR_escape            0xfe
 #define INSTR_enterIntX86       0xff

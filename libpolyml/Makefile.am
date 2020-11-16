@@ -19,23 +19,11 @@ endif
 if ARCHI386
 ARCHSOURCE = x86_dep.cpp x86assembly_gas32.S
 else
-if ARCHINTERPRET
-ARCHSOURCE = interpret.cpp
-AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
-else
-if ARCHINTERPRET64
-ARCHSOURCE = interpret.cpp
-AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
-else
 if ARCHX86_64
 ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 else
-if ARCHX8632IN64
-ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
-else
-endif
-endif
-endif
+ARCHSOURCE = interpreter.cpp
+AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
 endif
 endif
 
@@ -62,6 +50,7 @@ noinst_HEADERS = \
 	arb.h \
 	basicio.h \
 	bitmap.h \
+	bytecode.h \
 	check_objects.h \
 	diagnostics.h \
 	elfexport.h \
@@ -115,6 +104,7 @@ noinst_HEADERS = \
 libpolyml_la_SOURCES = \
     arb.cpp \
     bitmap.cpp \
+	bytecode.cpp \
     check_objects.cpp \
     diagnostics.cpp \
     errors.cpp \

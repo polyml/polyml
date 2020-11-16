@@ -91,17 +91,15 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT)
-@ARCHINTERPRET64_TRUE@@NATIVE_WINDOWS_TRUE@am__append_1 = -Wl,-u,WinMain
-@ARCHINTERPRET64_FALSE@@ARCHX86_64_TRUE@@NATIVE_WINDOWS_TRUE@am__append_2 = -Wl,-u,WinMain
-@ARCHINTERPRET64_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@@NATIVE_WINDOWS_TRUE@am__append_3 = -Wl,-u,WinMain
-@ARCHINTERPRET64_FALSE@@ARCHX8632IN64_FALSE@@ARCHX86_64_FALSE@@NATIVE_WINDOWS_TRUE@am__append_4 = -Wl,-u,_WinMain@16 -Wl,--large-address-aware
-@NATIVE_WINDOWS_TRUE@@WINDOWSGUI_TRUE@am__append_5 = -mwindows
-@NATIVE_WINDOWS_TRUE@@WINDOWSGUI_TRUE@am__append_6 = -mwindows
-@NATIVE_WINDOWS_TRUE@@WINDOWSGUI_FALSE@am__append_7 = -mconsole
-@NATIVE_WINDOWS_TRUE@@WINDOWSGUI_FALSE@am__append_8 = -mconsole
-@NATIVE_WINDOWS_TRUE@am__append_9 = $(EXTRALDFLAGS)
-@NATIVE_WINDOWS_TRUE@am__append_10 = polyresource.o
-@MACOSLDOPTS_TRUE@am__append_11 = -Wl,-no_pie
+@ARCHI386_TRUE@@NATIVE_WINDOWS_TRUE@am__append_1 = -Wl,-u,_WinMain@16 -Wl,--large-address-aware
+@ARCHI386_FALSE@@NATIVE_WINDOWS_TRUE@am__append_2 = -Wl,-u,WinMain
+@NATIVE_WINDOWS_TRUE@@WINDOWSGUI_TRUE@am__append_3 = -mwindows
+@NATIVE_WINDOWS_TRUE@@WINDOWSGUI_TRUE@am__append_4 = -mwindows
+@NATIVE_WINDOWS_TRUE@@WINDOWSGUI_FALSE@am__append_5 = -mconsole
+@NATIVE_WINDOWS_TRUE@@WINDOWSGUI_FALSE@am__append_6 = -mconsole
+@NATIVE_WINDOWS_TRUE@am__append_7 = $(EXTRALDFLAGS)
+@NATIVE_WINDOWS_TRUE@am__append_8 = polyresource.o
+@MACOSLDOPTS_TRUE@am__append_9 = -Wl,-no_pie
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
@@ -445,21 +443,16 @@ DIST_SUBDIRS = libpolyml libpolymain modules
 SUBDIRS = libpolyml libpolymain . modules
 dist_bin_SCRIPTS = polyc
 man_MANS = poly.1 polyimport.1 polyc.1
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@@WINDOWSCALLCONV_FALSE@POLYIMPORT = $(srcdir)/imports/polymlx64_32sysv.txt
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@@WINDOWSCALLCONV_TRUE@POLYIMPORT = $(srcdir)/imports/polymlx64_32win.txt
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@@WINDOWSCALLCONV_FALSE@POLYIMPORT = $(srcdir)/imports/polymlx86_64sysv.txt
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@@WINDOWSCALLCONV_TRUE@POLYIMPORT = $(srcdir)/imports/polymlx86_64win.txt
-@ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint64.txt
-@ARCHI386_FALSE@@ARCHINTERPRET_TRUE@POLYIMPORT = $(srcdir)/imports/polymlint.txt
+@BOOT64_FALSE@POLYIMPORT = $(srcdir)/bootstrap/bootstrap32.txt
 
-# Select the architecture-specific pre-built compiler
-@ARCHI386_TRUE@POLYIMPORT = $(srcdir)/imports/polymli386.txt
+# Select the pre-built compiler
+@BOOT64_TRUE@POLYIMPORT = $(srcdir)/bootstrap/bootstrap64.txt
 noinst_HEADERS = polyexports.h
-poly_LDFLAGS = $(am__append_9) $(am__append_11)
-polyimport_LDFLAGS = $(am__append_6) $(am__append_8)
-POLYRESOURCES = $(am__append_10)
+poly_LDFLAGS = $(am__append_7) $(am__append_9)
+polyimport_LDFLAGS = $(am__append_4) $(am__append_6)
+POLYRESOURCES = $(am__append_8)
 EXTRALDFLAGS = $(am__append_1) $(am__append_2) $(am__append_3) \
-	$(am__append_4) $(am__append_5) $(am__append_7)
+	$(am__append_5)
 @NATIVE_WINDOWS_FALSE@POLYOBJECTFILE = polyexport.o
 @NATIVE_WINDOWS_TRUE@POLYOBJECTFILE = polyexport.obj
 @NATIVE_WINDOWS_FALSE@OBJECTSUFFIX = o
@@ -469,15 +462,6 @@ poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpo
 polyimport_SOURCES = polyimport.c
 polyimport_LDADD = $(POLYRESOURCES) libpolyml/libpolyml.la
 EXTRA_DIST = \
-	imports/polymli386.txt \
-	imports/polymlint64.txt \
-	imports/polymlint.txt \
-	imports/polymlx86_64sysv.txt \
-	imports/polymlx86_64win.txt \
-	imports/polymlx64_32sysv.txt \
-	imports/polymlx64_32win.txt \
-	libpolyml/x86asm.asm \
-	exportPoly.sml \
 	poly.1 \
 	polyimport.1
 
@@ -1159,38 +1143,34 @@ uninstall-man: uninstall-man1
 
 
 dist-hook:
-	find {basis,mlsource}/ -type d -exec mkdir $(distdir)/{} \;
-	find {basis,mlsource}/ -type f -not -name .svn \
+	find {bootstrap,basis,mlsource}/ -type d -exec mkdir $(distdir)/{} \;
+	find {bootstrap,basis,mlsource}/ -type f -not -name .git \
 	    -exec cp -pf {} $(distdir)/{} \;
 
 # Unix.
-polyexport.o: polyimport exportPoly.sml polytemp.txt
-	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt -I $(srcdir) < $(srcdir)/exportPoly.sml
+polyexport.o: polyimport bootstrap/Stage1.sml $(POLYIMPORT)
+	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) -I $(srcdir) < $(srcdir)/bootstrap/Stage1.sml
 
 # Windows.  When building on Windows make sure that we provide both stdin and stdout to suppress the GUI.
-polyexport.obj: polyimport$(EXEEXT) exportPoly.sml polytemp.txt
-	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt -I $(srcdir) < $(srcdir)/exportPoly.sml | cat
+polyexport.obj: polyimport$(EXEEXT) bootstrap/Stage1.sml $(POLYIMPORT)
+	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) -I $(srcdir) < $(srcdir)/bootstrap/Stage1.sml | cat
 
 polyresource.o: PolyML.rc poly.ico
 	$(WINDRES) -o polyresource.o $(srcdir)/PolyML.rc
 
-polytemp.txt: $(POLYIMPORT)
-	cp $(POLYIMPORT) polytemp.txt
-
 #polyc: buildpolyc
 #	./buildpolyc LINK=\"$(CC)\" BINDIR=\"$(bindir)\" LIBDIR=\"$(libdir)\" LIBS=\"$(LIBS)\" EXTRALDFLAGS=\"$(EXTRALDFLAGS)\" SUFFIX=\"$(OBJECTSUFFIX)\"
 
-# This builds the compiler but does not update the files in the imports directory.
-# It then builds a version of poly containing the new compiler.
+# Recompiler the compiler using the last step of the bootstrap process.
 compiler: all
-	./poly $(BOOTSTRAP_OPTIONS) --error-exit < mlsource/BuildExport.sml
+	./poly $(BOOTSTRAP_OPTIONS) --error-exit < bootstrap/Stage6.sml
 	$(MAKE)
 
 reboot: compiler
-	cp polytemp.txt $(POLYIMPORT)
+	cp $(POLYIMPORT)
 
 clean-local:
-	rm -f *.obj polytemp.txt polyc
+	rm -f *.obj polyc
 
 # Run tests
 check-local: all

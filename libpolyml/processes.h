@@ -116,16 +116,18 @@ public:
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context) = 0;
     // Initialise the stack for a new thread.  The parent task object is passed in because any
     // allocation that needs to be made must be made in the parent.
-    virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg) = 0;
+    virtual void InitStackFrame(TaskData *parentTask, Handle proc) = 0;
     virtual void SetException(poly_exn *exc) = 0;
 
     // The scheduler needs versions of atomic decrement and atomic reset that
     // work in exactly the same way as the code-generated versions (if any).
     // Atomic decrement isn't needed since it only ever releases a mutex.
-    virtual Handle AtomicDecrement(Handle mutexp) = 0;
+    virtual POLYUNSIGNED AtomicDecrement(PolyObject *mutexp) = 0;
     // Reset a mutex to one.  This needs to be atomic with respect to the
     // atomic increment and decrement instructions.
-    virtual void AtomicReset(Handle mutexp) = 0;
+    virtual void AtomicReset(PolyObject* mutexp) = 0;
+    // This is actually only used in the interpreter.
+    virtual POLYUNSIGNED AtomicIncrement(PolyObject* mutexp) = 0;
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length,
                                 StackObject *new_stack, uintptr_t new_length) = 0;
@@ -136,8 +138,8 @@ public:
     virtual void addProfileCount(POLYUNSIGNED words) = 0;
 
     // Functions called before and after an RTS call.
-    virtual void PreRTSCall(void) { inML = false; }
-    virtual void PostRTSCall(void) { inML = true; }
+    virtual void PreRTSCall(void) {}
+    virtual void PostRTSCall(void) {}
 
     SaveVec     saveVec;
     PolyWord    *allocPointer;  // Allocation pointer - decremented towards...
@@ -148,7 +150,6 @@ public:
     ThreadObject *threadObject;  // Pointer to the thread object.
     int         lastError;      // Last error from foreign code.
     void        *signalStack;  // Stack to handle interrupts (Unix only)
-    bool        inML;          // True when this is in ML, false in the RTS
 
     // Get a TaskData pointer given the ML taskId.
     // This is called at the start of every RTS function that may allocate memory.
@@ -289,8 +290,7 @@ public:
     virtual ~ProcessExternal() {} // Defined to suppress a warning from GCC
 
     virtual TaskData *GetTaskDataForThread(void) = 0;
-    virtual TaskData *CreateNewTaskData(Handle threadId, Handle threadFunction,
-                           Handle args, PolyWord flags) = 0;
+    virtual TaskData *CreateNewTaskData() = 0;
     // Request all ML threads to exit and set the result code.  Does not cause
     // the calling thread itself to exit since this may be called on the GUI thread.
     virtual void RequestProcessExit(int n) = 0;
@@ -324,9 +324,6 @@ public:
     // Process any events, synchronous or asynchronous.
     virtual void TestAnyEvents(TaskData *taskData) = 0;
     
-    // ForkFromRTS.  Creates a new thread from within the RTS.
-    virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg) = 0;
-
     // Profiling control.
     virtual void StartProfiling(void) = 0;
     virtual void StopProfiling(void) = 0;

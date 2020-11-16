@@ -652,10 +652,8 @@ NATIVE_WINDOWS_FALSE
 NATIVE_WINDOWS_TRUE
 WINDOWSCALLCONV_FALSE
 WINDOWSCALLCONV_TRUE
-ARCHX8632IN64_FALSE
-ARCHX8632IN64_TRUE
-ARCHINTERPRET64_FALSE
-ARCHINTERPRET64_TRUE
+BOOT64_FALSE
+BOOT64_TRUE
 ARCHINTERPRET_FALSE
 ARCHINTERPRET_TRUE
 ARCHX86_64_FALSE
@@ -22182,7 +22180,13 @@ if test "x$with_portable" = "xno" ; then
     fi
 fi
 
-# Build 32-bit in 64-bits.  This is only allowed when building on native 64-bit X86.
+if test  X"$ac_cv_sizeof_voidp" = X8 ; then
+    bootstrap64="yes"
+else
+    bootstrap64="no"
+fi
+
+# Build 32-bit in 64-bits.
 # Check whether --enable-compact32bit was given.
 if test "${enable_compact32bit+set}" = set; then :
   enableval=$enable_compact32bit;
@@ -22190,14 +22194,14 @@ fi
 
 
 if test "x$enable_compact32bit" = "xyes"; then
-    if test X"$polyarch" = "Xx86_64" ; then
+    if test X"$ac_cv_sizeof_voidp" = X8 ; then
 
 $as_echo "#define POLYML32IN64 1" >>confdefs.h
 
-        polyarch=x86_32in64
+        bootstrap64="no"
     else
-        as_fn_error $? "--enable-compact32bit is only available on X86/64" "$LINENO" 5
-   fi
+        as_fn_error $? "--enable-compact32bit is only available on a 64-bit architecture" "$LINENO" 5
+    fi
 fi
 
 # Put this test at the end where it's less likely to be missed.
@@ -22235,7 +22239,7 @@ else
   ARCHX86_64_FALSE=
 fi
 
- if test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X4; then
+ if test "$polyarch" = interpret; then
   ARCHINTERPRET_TRUE=
   ARCHINTERPRET_FALSE='#'
 else
@@ -22243,20 +22247,13 @@ else
   ARCHINTERPRET_FALSE=
 fi
 
- if test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X8; then
-  ARCHINTERPRET64_TRUE=
-  ARCHINTERPRET64_FALSE='#'
+# Are we bootstrapping from the 32-bit or 64-bit pre-built compiler?
+ if test "$bootstrap64" = yes; then
+  BOOT64_TRUE=
+  BOOT64_FALSE='#'
 else
-  ARCHINTERPRET64_TRUE='#'
-  ARCHINTERPRET64_FALSE=
-fi
-
- if test "$polyarch" = x86_32in64; then
-  ARCHX8632IN64_TRUE=
-  ARCHX8632IN64_FALSE='#'
-else
-  ARCHX8632IN64_TRUE='#'
-  ARCHX8632IN64_FALSE=
+  BOOT64_TRUE='#'
+  BOOT64_FALSE=
 fi
 
 # If we are targeting Windows rather than *nix we need the pre=built compiler with Windows conventions.
@@ -22594,12 +22591,8 @@ if test -z "${ARCHINTERPRET_TRUE}" && test -z "${ARCHINTERPRET_FALSE}"; then
   as_fn_error $? "conditional \"ARCHINTERPRET\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
-if test -z "${ARCHINTERPRET64_TRUE}" && test -z "${ARCHINTERPRET64_FALSE}"; then
-  as_fn_error $? "conditional \"ARCHINTERPRET64\" was never defined.
-Usually this means the macro was only invoked conditionally." "$LINENO" 5
-fi
-if test -z "${ARCHX8632IN64_TRUE}" && test -z "${ARCHX8632IN64_FALSE}"; then
-  as_fn_error $? "conditional \"ARCHX8632IN64\" was never defined.
+if test -z "${BOOT64_TRUE}" && test -z "${BOOT64_FALSE}"; then
+  as_fn_error $? "conditional \"BOOT64\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${WINDOWSCALLCONV_TRUE}" && test -z "${WINDOWSCALLCONV_FALSE}"; then

@@ -71,7 +71,7 @@ RETURN_STACK_OVERFLOW       EQU 2
 RETURN_STACK_OVERFLOWEX     EQU 3
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
-RETURN_KILL_SELF            EQU 9
+RETURN_ENTER_INTERPRETER    EQU 4
 
 ;
 ; CODE STARTS HERE
@@ -145,18 +145,6 @@ CALL_EXTRA  MACRO   index
     jmp     CallTrapHandler
 ENDM
 
-; This implements atomic addition in the same way as atomic_increment
-; N.B. It is called from the RTS so uses C linkage conventions.
-PUBLIC  X86AsmAtomicDecrement
-X86AsmAtomicDecrement:
-    mov     eax,4[esp]
-; Use ecx and eax because they are volatile (unlike ebx on X86/64/Unix)
-    mov     ecx,-2
-    lock xadd [eax],ecx
-    sub     ecx,2
-    mov     eax,ecx
-    ret
-
 CREATE_EXTRA_CALL MACRO index
 PUBLIC  X86AsmCallExtra&index&
 X86AsmCallExtra&index&:
@@ -167,5 +155,6 @@ X86AsmCallExtra&index&:
 CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
+CREATE_EXTRA_CALL RETURN_ENTER_INTERPRETER
 
 END

@@ -68,6 +68,7 @@
 #include "exporter.h"
 #include "statistics.h"
 #include "savestate.h"
+#include "bytecode.h"
 
 extern struct _entrypts rtsCallEPT[];
 
@@ -94,6 +95,7 @@ static entrypts entryPointTable[] =
     statisticsEPT,
     savestateEPT,
     machineSpecificEPT,
+    byteCodeEPT,
     NULL
 };
 

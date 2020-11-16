@@ -1133,20 +1133,26 @@ struct
                       | SOME res => res
                 end
             
+            fun unescapeChar (s: string) : char =
+            let
+                fun rdr i =
+                    if i = size s then NONE
+                    else SOME(String.sub(s, i), i+1)
+            in
+                case Char.scan rdr 0 of
+                    NONE => (* Bad conversion *)
+                        raise Conversion "Invalid string constant"
+                |   SOME(res, _) => res
+            end
+            
             open PRINTTABLE
             
             val convstringCode = genCode(mkConst(toMachineWord unescapeString), [], 0) ()
             val convintCode = genCode(mkConst(toMachineWord intOfString), [], 0) ()
             val convwordCode = genCode(mkConst(toMachineWord wordOfString), [], 0) ()
+            val convcharCode = genCode(mkConst(toMachineWord unescapeChar), [], 0) ()
         in
-            (* Conversion overloads used to be set by the ML bootstrap code.  It's simpler
-               to do that here but to maintain compatibility with the 5.6 compiler we need
-               to define these.  Once we've rebuilt the compiler this can be removed
-               along with the code that uses it. *)
-            val () = addVal ("convStringName", "convString": string, String)
-            val () = addVal ("convInt", intOfString : string -> int, String ->> intInfType)
-            val () = addVal ("convWord", wordOfString : string -> word, String ->> Word)
-            (* Convert a string, recognising and converting the escape codes. *)
+            (* We need this for compatibility with the 5.8.2 bootstrap. *)
             val () = addVal ("convString", unescapeString: string -> string, String ->> String)
             (* Flag to indicate which version of Int to compile *)
             val () = addVal ("intIsArbitraryPrecision", intIsArbitraryPrecision, Bool)
@@ -1155,6 +1161,7 @@ struct
             val () = addOverload("convInt", fixedIntConstr, convintCode)
             val () = addOverload("convInt", intInfConstr, convintCode)
             val () = addOverload("convWord", wordConstr, convwordCode)
+            val () = addOverload("convChar", charConstr, convcharCode)
         end
 
     (* The only reason we have vector here is to get equality right.  We need

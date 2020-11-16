@@ -86,6 +86,7 @@ EXTNAME(id):
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
+#define RETURN_ENTER_INTERPRETER    4
 
 # Mark the stack as non-executable when supported
 #if (defined(__linux__) && defined(__ELF__))
@@ -166,20 +167,17 @@ INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
 
 INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
     CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
+    
+INLINE_ROUTINE(X86AsmCallExtraRETURN_ENTER_INTERPRETER)
+    CALL_EXTRA(RETURN_ENTER_INTERPRETER)
 
 # Additional assembly code routines
 
-# This implements atomic addition in the same way as atomic_increment
-INLINE_ROUTINE(X86AsmAtomicDecrement)
-#ifndef HOSTARCHITECTURE_X86_64
-    movl    4(%esp),%eax
-#else
-    movl    %edi,%eax   # On X86_64 the argument is passed in %edi
-#endif
+# Fallback exchange and add if we can't use inline.
+INLINE_ROUTINE(X86AsmAtomicExchangeAndAdd)
 # Use %ecx and %eax because they are volatile (unlike %ebx on X86/64/Unix)
-    movl    $-2,%ecx
-    lock; xaddl %ecx,(%eax)
-    subl    $2,%ecx
-    movl    %ecx,%eax
+    movl    4(%esp),%ecx
+    movl    8(%esp),%eax
+    lock; xaddl %eax,(%ecx)
     ret
 
