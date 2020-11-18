@@ -362,27 +362,24 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         PolyWord* constPtr;
         POLYUNSIGNED numConsts;
         obj->GetConstSegmentForCode(constPtr, numConsts);
-        newObj = newAddressForObject(words, false, false, false, true);
+        // Newly generated code will have the constants included with the code
+        // but if this is in the executable the constants will have been extracted before.
+        bool constsWereIncluded = constPtr > (PolyWord*)obj && constPtr < ((PolyWord*)obj) + words;
+        POLYUNSIGNED codeAreaSize = words;
+        if (constsWereIncluded)
+            codeAreaSize -= numConsts + 1;
+        newObj = newAddressForObject(codeAreaSize, false, false, false, true);
         PolyObject* writable = gMem.SpaceForObjectAddress(newObj)->writeAble(newObj);
-        writable->SetLengthWord(words, F_CODE_OBJ); // set length word
-        memcpy(writable, obj, words * sizeof(PolyWord));
-        PolyObject* newConsts = newAddressForObject(numConsts, false, false , false, false);
+        writable->SetLengthWord(codeAreaSize, F_CODE_OBJ); // set length word
+        lengthWord = newObj->LengthWord(); // Get the actual length word used
+        memcpy(writable, obj, codeAreaSize * sizeof(PolyWord));
+        PolyObject* newConsts = newAddressForObject(numConsts, false, false, false, false);
         newConsts->SetLengthWord(numConsts);
         memcpy(newConsts, constPtr, numConsts * sizeof(PolyWord));
-        // If the old constant area is part of the old code area...
-        if (constPtr > (PolyWord*)obj && constPtr < ((PolyWord*)obj) + words)
-        {
-            // It would be nicer to omit the constants from the new code area completely
-            // but it has to have the same size as the old area so the length word of the old
-            // area can be restored.  We need to clobber the constants though since they're
-            // not going to be scanned.
-            for (POLYUNSIGNED i = 0; i < numConsts; i++)
-                writable->Set(words - numConsts - 1 + i, TAGGED(0));
-        }
         // Set the last word of the new area to the offset of the constants from the end of
         // the code.
-        writable->Set(words - 1,
-            PolyWord::FromSigned((byte*)newConsts - (byte*)newObj - words * sizeof(PolyWord)));
+        writable->Set(codeAreaSize - 1,
+            PolyWord::FromSigned((byte*)newConsts - (byte*)newObj - codeAreaSize * sizeof(PolyWord)));
     }
     else
 #endif
@@ -582,7 +579,19 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
         POLYUNSIGNED length = GetObjLength(forwardedTo);
         MemSpace *space = gMem.SpaceForObjectAddress(forwardedTo);
         if (space->spaceType == ST_EXPORT)
+        {
+            // If this is a code object whose constant area has been split off we
+            // need to add the length of the constant area.
+            if (forwardedTo->IsCodeObject())
+            {
+                PolyWord* constPtr;
+                POLYUNSIGNED numConsts;
+                forwardedTo->GetConstSegmentForCode(constPtr, numConsts);
+                if (!(constPtr > (PolyWord*)forwardedTo && constPtr < ((PolyWord*)forwardedTo) + OBJ_OBJECT_LENGTH(length)))
+                    length += numConsts + 1;
+            }
             gMem.SpaceForObjectAddress(obj)->writeAble(obj)->SetLengthWord(length);
+        }
         return length;
     }
     else {
