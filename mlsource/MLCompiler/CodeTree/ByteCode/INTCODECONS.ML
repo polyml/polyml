@@ -122,6 +122,10 @@ struct
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
     and opcode_indirectClosureBB = 0wx54
+    and opcode_constAddr8_0      = 0wx55
+    and opcode_constAddr8_1      = 0wx56
+    and opcode_callConstAddr8_0  = 0wx57
+    and opcode_callConstAddr8_1  = 0wx58
     and opcode_resetR_1          = 0wx64
     and opcode_resetR_2          = 0wx65
     and opcode_resetR_3          = 0wx66
@@ -520,6 +524,10 @@ struct
                 |   0wx50 => printStream "reset_1"
                 |   0wx51 => printStream "reset_2"
                 |   0wx54 => (printOp(1, "indirectClosureBB\t"); printOp(1, ", "))
+                |   0wx55 => printDisp (1, "constAddr8_0\t")
+                |   0wx56 => printDisp (1, "constAddr8_1\t")
+                |   0wx57 => printDisp (1, "callConstAddr8_0\t")
+                |   0wx58 => printDisp (1, "callConstAddr8_1\t")
                 |   0wx64 => printStream "resetR_1"
                 |   0wx65 => printStream "resetR_2"
                 |   0wx66 => printStream "resetR_3"
@@ -730,7 +738,7 @@ struct
     |   codeSize (JumpInstruction{size=ref Size8, ...}) = 2
     |   codeSize (JumpInstruction{size=ref Size16, ...}) = 3
     |   codeSize (JumpInstruction{size=ref Size32, ...}) = 6
-    |   codeSize (PushConstant{size=ref Size8, ...}) = 3
+    |   codeSize (PushConstant{size=ref Size8, constNum, ...}) = if constNum <= 1 then 2 else 3
     |   codeSize (PushConstant{size=ref Size16, ...}) = 4
     |   codeSize (PushConstant{size=ref Size32, isCall=false, ...}) = 8
     |   codeSize (PushConstant{size=ref Size32, isCall=true, ...}) = 9
@@ -1067,6 +1075,23 @@ struct
             end
 
         |   genByteCode(PushConstant{ constNum, size=ref Size8, isCall, ... }, ic) =
+            if constNum <= 1
+            then
+            let
+                val offset = startOfConstants - (ic + 0w2)
+                val _ = offset < 0wx100 orelse raise InternalError "genByteCode - constant range"
+                val opCode =
+                    case (isCall, constNum) of
+                        (false, 0) => opcode_constAddr8_0
+                    |   (false, 1) => opcode_constAddr8_1
+                    |   (true,  0) => opcode_callConstAddr8_0
+                    |   (true,  1) => opcode_callConstAddr8_1
+                    |   _ => raise InternalError "genByteCode: constAddr"
+            in
+                genByte opCode;
+                genByte(wordToWord8 offset)
+            end
+            else
             let
                 val offset = startOfConstants - (ic + 0w3)
                 val _ = offset < 0wx100 orelse raise InternalError "genByteCode - constant range"

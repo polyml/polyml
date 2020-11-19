@@ -91,9 +91,13 @@
 #define INSTR_arbAdd                0x4c
 #define INSTR_arbSubtract           0x4d
 #define INSTR_arbMultiply           0x4e
-#define INSTR_reset_1       0x50
-#define INSTR_reset_2       0x51
+#define INSTR_reset_1               0x50
+#define INSTR_reset_2               0x51
 #define INSTR_indirectClosureBB     0x54
+#define INSTR_constAddr8_0          0x55
+#define INSTR_constAddr8_1          0x56
+#define INSTR_callConstAddr8_0      0x57
+#define INSTR_callConstAddr8_1      0x58
 #define INSTR_reset_r_1     0x64
 #define INSTR_reset_r_2     0x65
 #define INSTR_reset_r_3     0x66
