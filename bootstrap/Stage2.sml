@@ -17,6 +17,7 @@
 *)
 
 (* Compile the compiler with enter-interpreter instructions. *)
+print "******Bootstrap stage 2 of 7******\n";
 
 PolyML.print_depth 0;
 PolyML.make "mlsource/MLCompiler";

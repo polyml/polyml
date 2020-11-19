@@ -17,6 +17,8 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
+val () = Bootstrap.print "******Bootstrap stage 7 of 7******\n"
+
 (* Build the main basis library. *)
 val () = Bootstrap.use "basis/build.sml";
 
@@ -40,6 +42,8 @@ in
 end;
 
 val () = PolyML.print_depth 10;
+
+val () = print "******Writing object code******\n"
 
 (* Write out the result as an export file. *)
 local

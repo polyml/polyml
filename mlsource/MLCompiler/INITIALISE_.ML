@@ -1701,6 +1701,8 @@ struct
                     List Universal ->> String ->> Unit)            
             val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord (compiler: compilerType)), declInBasis));
             val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable: nameSpace)), nameSpaceType)
+            (* Add a print function so we can print a message at the start of a bootstrap phase. *)
+            val () = enterBootstrap("print", mkConst (toMachineWord TextIO.print), String ->> Unit)
         end;
         
         local
