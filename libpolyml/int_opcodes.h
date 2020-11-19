@@ -34,11 +34,15 @@
 #define INSTR_return_w              0x0d
 #define INSTR_stack_containerB      0x0e
 #define INSTR_raise_ex              0x10
-#define INSTR_callConstAddr16       0x11
-#define INSTR_callConstAddr8        0x12
+#define INSTR_callConstAddr16       0x11 // Legacy
+#define INSTR_callConstAddr8        0x12 // Legacy
 #define INSTR_local_w               0x13
+#define INSTR_constAddr16_8         0x14
+#define INSTR_constAddr8_8          0x15
 #define INSTR_callLocalB            0x16
-#define INSTR_constAddr16           0x1a
+#define INSTR_callConstAddr8_8      0x17
+#define INSTR_callConstAddr16_8     0x18
+#define INSTR_constAddr16           0x1a // Legacy
 #define INSTR_const_int_w           0x1b
 #define INSTR_jump_back8            0x1e
 #define INSTR_return_b              0x1f
@@ -165,7 +169,7 @@
 #define INSTR_jump16            0xf7
 #define INSTR_jump16false       0xf8
 #define INSTR_setHandler16      0xf9
-#define INSTR_constAddr8        0xfa
+#define INSTR_constAddr8        0xfa    // Legacy
 #define INSTR_stackSize16       0xfc
 #define INSTR_escape            0xfe
 #define INSTR_enterIntX86       0xff
@@ -258,9 +262,10 @@
 #define EXTINSTR_storeC64           0xe8
 #define EXTINSTR_storeCFloat        0xe9
 #define EXTINSTR_storeCDouble       0xea
+#define EXTINSTR_constAddr32_16     0xf0
 #define EXTINSTR_jump32            0xf2
 #define EXTINSTR_jump32False       0xf3
-#define EXTINSTR_constAddr32       0xf4
+#define EXTINSTR_constAddr32       0xf4 // Legacy
 #define EXTINSTR_setHandler32      0xf5
 #define EXTINSTR_case32            0xf6
 #define EXTINSTR_allocCSpace       0xfd
