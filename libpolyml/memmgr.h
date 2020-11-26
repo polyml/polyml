@@ -432,7 +432,11 @@ private:
     void AddTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
     void RemoveTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
 
-    OSMem osHeapAlloc, osStackAlloc, osCodeAlloc;
+#ifdef POLYML32IN64
+    OSMemInRegion osHeapAlloc, osStackAlloc, osCodeAlloc;
+#else
+    OSMemUnrestricted osHeapAlloc, osStackAlloc, osCodeAlloc;
+#endif
 };
 
 extern MemMgr gMem;
