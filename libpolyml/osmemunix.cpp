@@ -368,7 +368,7 @@ OSMemUnrestricted::~OSMemUnrestricted()
     if (shadowFd != -1) close(shadowFd);
 }
 
-bool OSMemUnrestricted::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBase /* = 0 */)
+bool OSMemUnrestricted::Initialise(enum _MemUsage usage)
 {
     memUsage = usage;
     pageSize = getpagesize();
