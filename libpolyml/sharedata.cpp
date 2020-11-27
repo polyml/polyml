@@ -659,6 +659,8 @@ public:
         { (void)AddPolyWordToDepthVectors(*pt); return 0; }
     virtual PolyObject *ScanObjectAddress(PolyObject *base)
         { (void)AddObjectToDepthVector(base); return base; }
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject** pt)
+        { *pt = ScanObjectAddress(*pt); return 0; }
 
     void ProcessRoot(PolyObject *root);
 
