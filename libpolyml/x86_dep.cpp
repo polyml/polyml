@@ -1255,9 +1255,6 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 // If the new address is within the current piece of code we don't do anything
                 if (absAddr >= (byte*)addr && absAddr < (byte*)end) {}
                 else {
-#ifdef HOSTARCHITECTURE_X86_64
-                    ASSERT(sizeof(PolyWord) == 4); // Should only be used internally on x64
-#endif /* HOSTARCHITECTURE_X86_64 */
                     if (addr != old)
                     {
                         // The old value of the displacement was relative to the old address before
@@ -1273,6 +1270,9 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                             wr[i] = (byte)(newDisp & 0xff);
                             newDisp >>= 8;
                         }
+#ifdef HOSTARCHITECTURE_X86_64
+                        ASSERT(newDisp == 0 || newDisp == -1);
+#endif
                     }
                     process->ScanConstant(addr, pt, PROCESS_RELOC_I386RELATIVE);
                 }

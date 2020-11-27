@@ -1466,8 +1466,8 @@ struct
             printStream "\n"
         )
         else ()
-    
-(*    val opLen = if isX64 then OpSize64 else OpSize32 *)
+
+    val isLocalCodeAddress: machineWord -> bool = RunCall.rtsCallFast1 "PolyX86IsLocalCode"
 
     (* Code generate a list of operations.  The list is in reverse order i.e. last instruction first. *)
     fun codeGenerate ops =
@@ -1961,8 +1961,8 @@ struct
         |   cgOp(CallAddress(NonAddressConstArg _)) = (* Call to the start of the code.  Offset is patched in later. *)
                 opCodeBytes (CALL_32, NONE) @ int32Signed 0
 
-        |   cgOp(CallAddress(AddressConstArg _)) =
-            if targetArch = Native64Bit
+        |   cgOp(CallAddress(AddressConstArg address)) =
+            if targetArch = Native64Bit andalso not (isLocalCodeAddress address)
             then
             let
                 val opc = opCodeBytes(Group5, NONE)
@@ -1985,8 +1985,8 @@ struct
                 (* Jump to the start of the current function.  Offset is patched in later. *)
                 opCodeBytes (JMP_32, NONE) @ int32Signed 0
 
-        |   cgOp(JumpAddress (AddressConstArg _)) =
-            if targetArch = Native64Bit
+        |   cgOp(JumpAddress (AddressConstArg address)) =
+            if targetArch = Native64Bit andalso not (isLocalCodeAddress address)
             then
             let
                 val opb = opCodeBytes (Group5, NONE)
@@ -2653,12 +2653,12 @@ struct
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress constnt) :: inl, addr, na)
 
         |   getConstant(CallAddress(AddressConstArg w), bytes, ic, (inl, addr, na)) =
-                if targetArch = Native64Bit
+                if targetArch = Native64Bit andalso not (isLocalCodeAddress w)
                 then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, w) :: addr, na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineRelativeAddress w) :: inl, addr, na)
 
         |   getConstant(JumpAddress(AddressConstArg w), bytes, ic, (inl, addr, na)) =
-                if targetArch = Native64Bit
+                if targetArch = Native64Bit andalso not (isLocalCodeAddress w)
                 then (inl, (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, w) :: addr, na)
                 else ((ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineRelativeAddress w) :: inl, addr, na)
 
