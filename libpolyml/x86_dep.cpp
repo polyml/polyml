@@ -1427,6 +1427,7 @@ extern "C" {
     POLYEXTERNALSYMBOL void *PolyX86GetThreadData();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedEnterIntMode();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyX86IsLocalCode(PolyObject* destination);
 }
 
 // Return the address of assembly data for the current thread.  This is normally in
@@ -1481,11 +1482,24 @@ POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function)
     return TAGGED(0).AsUnsigned();
 }
 
+// Test whether the target is within the local code area.  This is only used on
+// native 64-bits.  A call/jump to local code can use a 32-bit displacement
+// whereas a call/jump to a function in the executable will need to use an
+// indirect reference through the code area.
+POLYUNSIGNED PolyX86IsLocalCode(PolyObject* destination)
+{
+    MemSpace* space = gMem.SpaceForObjectAddress(destination);
+    if (space->spaceType == ST_CODE)
+        return TAGGED(1).AsUnsigned();
+    else return TAGGED(0).AsUnsigned();
+}
+
 struct _entrypts machineSpecificEPT[] =
 {
     { "PolyX86GetThreadData",           (polyRTSFunction)&PolyX86GetThreadData },
     { "PolyInterpretedEnterIntMode",    (polyRTSFunction)&PolyInterpretedEnterIntMode },
     { "PolyEndBootstrapMode",           (polyRTSFunction)&PolyEndBootstrapMode },
+    { "PolyX86IsLocalCode",             (polyRTSFunction)&PolyX86IsLocalCode },
 
     { NULL, NULL} // End of list.
 };

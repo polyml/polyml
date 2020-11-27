@@ -117,7 +117,7 @@ public:
     OSMemInRegion();
     virtual ~OSMemInRegion();
 
-    bool Initialise(enum _MemUsage usage, size_t space = 0, void** pBase = 0);
+    bool Initialise(enum _MemUsage usage, size_t space, void** pBase);
     virtual void* AllocateDataArea(size_t& bytes);
     virtual bool FreeDataArea(void* p, size_t space);
     virtual bool EnableWrite(bool enable, void* p, size_t space);

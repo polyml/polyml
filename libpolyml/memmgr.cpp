@@ -155,28 +155,32 @@ MemMgr::~MemMgr()
 bool MemMgr::Initialise()
 {
 #ifdef POLYML32IN64
-    // Allocate a single 16G area but with no access.
+    // Reserve a single 16G area but with no access.
     void *heapBase;
     if (!osHeapAlloc.Initialise(OSMem::UsageData, (size_t)16 * 1024 * 1024 * 1024, &heapBase))
         return false;
     globalHeapBase = (PolyWord*)heapBase;
-
     // Allocate a 4 gbyte area for the stacks.
     // It's important that the stack and code areas have addresses with
     // non-zero top 32-bits.
     if (!osStackAlloc.Initialise(OSMem::UsageStack, (size_t)4 * 1024 * 1024 * 1024))
         return false;
-
-    // Allocate a 2G area for the code.
-    void *codeBase;
-    if (!osCodeAlloc.Initialise(executableCodeWhereNecessary,
-            (size_t)2 * 1024 * 1024 * 1024, &codeBase))
+#else
+    if (!osHeapAlloc.Initialise(OSMem::UsageData) || !osStackAlloc.Initialise(OSMem::UsageStack))
         return false;
+#endif
+#if (defined(POLYML32IN64) || defined(HOSTARCHITECTURE_X86_64))
+    // Reserve a 2G area for the code.
+    void* codeBase;
+    if (!osCodeAlloc.Initialise(executableCodeWhereNecessary,
+        (size_t)2 * 1024 * 1024 * 1024, &codeBase))
+        return false;
+#ifdef POLYML32IN64
     globalCodeBase = (PolyWord*)codeBase;
+#endif
     return true;
 #else
-    return osHeapAlloc.Initialise(OSMem::UsageData) && osStackAlloc.Initialise(OSMem::UsageStack) &&
-        osCodeAlloc.Initialise(executableCodeWhereNecessary);
+    return osCodeAlloc.Initialise(executableCodeWhereNecessary);
 #endif
 }
 
@@ -330,7 +334,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
 PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, unsigned hierarchy)
 {
     try {
-        OSMem *alloc = flags & MTF_EXECUTABLE ? &osCodeAlloc : &osHeapAlloc;
+        OSMem *alloc = flags & MTF_EXECUTABLE ? (OSMem*)&osCodeAlloc : (OSMem*)&osHeapAlloc;
         PermanentMemSpace *space = new PermanentMemSpace(alloc);
         size_t actualSize = byteSize;
         PolyWord* base;
@@ -416,7 +420,7 @@ void MemMgr::RemoveEmptyLocals()
 PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, bool code)
 {
     try {
-        OSMem *alloc = code ? &osCodeAlloc : &osHeapAlloc;
+        OSMem *alloc = code ? (OSMem*)&osCodeAlloc : (OSMem*)&osHeapAlloc;
         PermanentMemSpace *space = new PermanentMemSpace(alloc);
         space->spaceType = ST_EXPORT;
         space->isMutable = mut;
