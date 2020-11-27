@@ -1254,28 +1254,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
                 // If the new address is within the current piece of code we don't do anything
                 if (absAddr >= (byte*)addr && absAddr < (byte*)end) {}
-                else {
-                    if (addr != old)
-                    {
-                        // The old value of the displacement was relative to the old address before
-                        // we copied this code segment.
-                        // We have to correct it back to the original address.
-                        absAddr = absAddr - (byte*)addr + (byte*)old;
-                        // We have to correct the displacement for the new location and store
-                        // that away before we call ScanConstant.
-                        size_t newDisp = absAddr - pt - 4;
-                        byte* wr = gMem.SpaceForAddress(pt)->writeAble(pt);
-                        for (unsigned i = 0; i < 4; i++)
-                        {
-                            wr[i] = (byte)(newDisp & 0xff);
-                            newDisp >>= 8;
-                        }
-#ifdef HOSTARCHITECTURE_X86_64
-                        ASSERT(newDisp == 0 || newDisp == -1);
-#endif
-                    }
-                    process->ScanConstant(addr, pt, PROCESS_RELOC_I386RELATIVE);
-                }
+                else process->ScanConstant(addr, pt, PROCESS_RELOC_I386RELATIVE, (byte*)old- (byte*)addr);
                 pt += 4;
                 break;
             }

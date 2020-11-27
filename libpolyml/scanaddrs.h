@@ -69,7 +69,9 @@ public:
     // Process a constant within the code.
     // The default action is to call the DEFAULT ScanAddressAt NOT the virtual which means that it calls
     // ScanObjectAddress for the base address of the object referred to.
-    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code);
+    // "displacement" is only used for relative addresses and is only non-zero when the code
+    // has been moved.
+    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement=0);
 
     // Scan the objects in the region and process their addresses.  Applies ScanAddressesInObject
     // to each of the objects.  The "region" argument points AT the first length word.
@@ -90,11 +92,8 @@ public:
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
 
     // Extract a constant from the code.
-#ifdef POLYML32IN64
-    static PolyObject *GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, PolyWord *base = globalHeapBase);
-#else
-    static PolyObject *GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, PolyWord *base = 0);
-#endif
+    static PolyObject *GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement);
+
     // Store a constant in the code.
     static void SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanRelocationKind code);
 };
