@@ -1314,28 +1314,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
                 // If the new address is within the current piece of code we don't do anything
                 if (absAddr >= (byte*)addr && absAddr < (byte*)end) {}
-                else {
-#ifdef HOSTARCHITECTURE_X86_64
-                    ASSERT(sizeof(PolyWord) == 4); // Should only be used internally on x64
-#endif /* HOSTARCHITECTURE_X86_64 */
-                    if (addr != old)
-                    {
-                        // The old value of the displacement was relative to the old address before
-                        // we copied this code segment.
-                        // We have to correct it back to the original address.
-                        absAddr = absAddr - (byte*)addr + (byte*)old;
-                        // We have to correct the displacement for the new location and store
-                        // that away before we call ScanConstant.
-                        size_t newDisp = absAddr - pt - 4;
-                        byte* wr = gMem.SpaceForAddress(pt)->writeAble(pt);
-                        for (unsigned i = 0; i < 4; i++)
-                        {
-                            wr[i] = (byte)(newDisp & 0xff);
-                            newDisp >>= 8;
-                        }
-                    }
-                    process->ScanConstant(addr, pt, PROCESS_RELOC_I386RELATIVE);
-                }
+                else process->ScanConstant(addr, pt, PROCESS_RELOC_I386RELATIVE, (byte*)old- (byte*)addr);
                 pt += 4;
                 break;
             }
@@ -1487,6 +1466,7 @@ extern "C" {
     POLYEXTERNALSYMBOL void *PolyX86GetThreadData();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedEnterIntMode();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyX86IsLocalCode(PolyObject* destination);
 }
 
 // Return the address of assembly data for the current thread.  This is normally in
@@ -1541,11 +1521,24 @@ POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function)
     return TAGGED(0).AsUnsigned();
 }
 
+// Test whether the target is within the local code area.  This is only used on
+// native 64-bits.  A call/jump to local code can use a 32-bit displacement
+// whereas a call/jump to a function in the executable will need to use an
+// indirect reference through the code area.
+POLYUNSIGNED PolyX86IsLocalCode(PolyObject* destination)
+{
+    MemSpace* space = gMem.SpaceForObjectAddress(destination);
+    if (space->spaceType == ST_CODE)
+        return TAGGED(1).AsUnsigned();
+    else return TAGGED(0).AsUnsigned();
+}
+
 struct _entrypts machineSpecificEPT[] =
 {
     { "PolyX86GetThreadData",           (polyRTSFunction)&PolyX86GetThreadData },
     { "PolyInterpretedEnterIntMode",    (polyRTSFunction)&PolyInterpretedEnterIntMode },
     { "PolyEndBootstrapMode",           (polyRTSFunction)&PolyEndBootstrapMode },
+    { "PolyX86IsLocalCode",             (polyRTSFunction)&PolyX86IsLocalCode },
 
     { NULL, NULL} // End of list.
 };

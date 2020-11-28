@@ -432,7 +432,19 @@ private:
     void AddTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
     void RemoveTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
 
-    OSMem osHeapAlloc, osStackAlloc, osCodeAlloc;
+#ifdef POLYML32IN64
+    OSMemInRegion osHeapAlloc, osStackAlloc, osCodeAlloc;
+#else
+    OSMemUnrestricted osHeapAlloc, osStackAlloc;
+#ifdef HOSTARCHITECTURE_X86_64
+    // For X86/64 put the code in a 2GB area so it is always
+    // possible to use 32-bit relative displacements.
+    OSMemInRegion osCodeAlloc;
+#else
+    OSMemUnrestricted osCodeAlloc;
+#endif
+
+#endif
 };
 
 extern MemMgr gMem;

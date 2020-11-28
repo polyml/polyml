@@ -16,6 +16,8 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
+val () = Bootstrap.print "******Bootstrap stage 5 of 7******\n"
+
 val () = Bootstrap.use "basis/build.sml";
 
 val args = CommandLine.arguments()

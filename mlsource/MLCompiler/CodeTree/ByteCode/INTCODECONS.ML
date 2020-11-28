@@ -62,11 +62,15 @@ struct
     and opcode_returnW           = 0wx0d
     and opcode_containerB        = 0wx0e
     and opcode_raiseEx           = 0wx10
-    and opcode_callConstAddr16   = 0wx11
-    and opcode_callConstAddr8    = 0wx12
+    (*and opcode_callConstAddr16   = 0wx11
+    and opcode_callConstAddr8    = 0wx12*)
     and opcode_localW            = 0wx13
+    and opcode_constAddr16_8     = 0wx14
+    and opcode_constAddr8_8      = 0wx15
     and opcode_callLocalB        = 0wx16
-    and opcode_constAddr16       = 0wx1a
+    and opcode_callConstAddr8_8  = 0wx17
+    and opcode_callConstAddr16_8 = 0wx18
+    (*and opcode_constAddr16       = 0wx1a *)
     and opcode_constIntW         = 0wx1b
     and opcode_jumpBack8         = 0wx1e   (* 8-bit unsigned jump backwards - relative to end of instr. *)
     and opcode_returnB           = 0wx1f
@@ -118,6 +122,10 @@ struct
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
     and opcode_indirectClosureBB = 0wx54
+    and opcode_constAddr8_0      = 0wx55
+    and opcode_constAddr8_1      = 0wx56
+    and opcode_callConstAddr8_0  = 0wx57
+    and opcode_callConstAddr8_1  = 0wx58
     and opcode_resetR_1          = 0wx64
     and opcode_resetR_2          = 0wx65
     and opcode_resetR_3          = 0wx66
@@ -193,7 +201,7 @@ struct
     and opcode_jump16            = 0wxf7
     and opcode_jump16False       = 0wxf8
     and opcode_setHandler16      = 0wxf9
-    and opcode_constAddr8        = 0wxfa
+    (*and opcode_constAddr8        = 0wxfa*)
     (*and opcode_stackSize8        = 0wxfb*)
     and opcode_stackSize16       = 0wxfc
     and opcode_escape            = 0wxfe (* For two-byte opcodes. *)
@@ -287,9 +295,10 @@ struct
     and ext_opcode_storeC64          = 0wxe8
     and ext_opcode_storeCFloat       = 0wxe9
     and ext_opcode_storeCDouble      = 0wxea
+    and ext_opcode_constAddr32_16    = 0wxf0 (* Followed by a 32-bit offset and a 16-bit constant number. *)
     and ext_opcode_jump32            = 0wxf2 (* 32-bit signed jump, forwards or backwards. *)
     and ext_opcode_jump32False       = 0wxf3 (* Test top item. Take 32-bit signed jump if false. *)
-    and ext_opcode_constAddr32       = 0wxf4 (* Followed by a 32-bit offset. Load a constant at that address. *)
+    (*and ext_opcode_constAddr32       = 0wxf4 *)
     and ext_opcode_setHandler32      = 0wxf5 (* Setup a handler whose address is given by the 32-bit signed offset. *)
     and ext_opcode_case32            = 0wxf6 (* Indexed case with 32-bit offsets *)
     and ext_opcode_allocCSpace       = 0wxfd
@@ -447,7 +456,11 @@ struct
                 |   0wx11 => printDisp (2, "callConstAddr16\t")
                 |   0wx12 => printDisp (1, "callConstAddr8\t")
                 |   0wx13 => printOp(2, "localW\t")
+                |   0wx14 => (printDisp (2, "constAddr16_8\t"); printOp(1, ","))
+                |   0wx15 => (printDisp (1, "constAddr8_8\t"); printOp(1, ","))
                 |   0wx16 => printOp(1, "callLocalB\t")
+                |   0wx17 => (printDisp (1, "callConstAddr8_8\t"); printOp(1, ","))
+                |   0wx18 => (printDisp (2, "callConstAddr16_8\t"); printOp(1, ","))
                 |   0wx1a => (printStream "constAddr16"; printDisp (2, "\t"))
                 |   0wx1b => printOp(2, "constIntW\t")
                 |   0wx1e =>
@@ -511,6 +524,10 @@ struct
                 |   0wx50 => printStream "reset_1"
                 |   0wx51 => printStream "reset_2"
                 |   0wx54 => (printOp(1, "indirectClosureBB\t"); printOp(1, ", "))
+                |   0wx55 => printDisp (1, "constAddr8_0\t")
+                |   0wx56 => printDisp (1, "constAddr8_1\t")
+                |   0wx57 => printDisp (1, "callConstAddr8_0\t")
+                |   0wx58 => printDisp (1, "callConstAddr8_1\t")
                 |   0wx64 => printStream "resetR_1"
                 |   0wx65 => printStream "resetR_2"
                 |   0wx66 => printStream "resetR_3"
@@ -685,6 +702,7 @@ struct
                         |   0wxe8 => printStream "storeC64"
                         |   0wxe9 => printStream "storeCFloat"
                         |   0wxea => printStream "storeCDouble"
+                        |   0wxf0 => (printDisp(4, "constAddr32_16\t"); printOp (2, ","))
                         |   0wxf2 => printDisp (4, "jump32\t")
                         |   0wxf3 => printDisp (4, "jump32False\t")
                         |   0wxf4 => printDisp (4, "constAddr32\t")
@@ -720,10 +738,10 @@ struct
     |   codeSize (JumpInstruction{size=ref Size8, ...}) = 2
     |   codeSize (JumpInstruction{size=ref Size16, ...}) = 3
     |   codeSize (JumpInstruction{size=ref Size32, ...}) = 6
-    |   codeSize (PushConstant{size=ref Size8, ...}) = 2
-    |   codeSize (PushConstant{size=ref Size16, ...}) = 3
-    |   codeSize (PushConstant{size=ref Size32, isCall=false, ...}) = 6
-    |   codeSize (PushConstant{size=ref Size32, isCall=true, ...}) = 7
+    |   codeSize (PushConstant{size=ref Size8, constNum, ...}) = if constNum <= 1 then 2 else 3
+    |   codeSize (PushConstant{size=ref Size16, ...}) = 4
+    |   codeSize (PushConstant{size=ref Size32, isCall=false, ...}) = 8
+    |   codeSize (PushConstant{size=ref Size32, isCall=true, ...}) = 9
     |   codeSize (PushShort value) =
             if value <= 0w4 orelse value = 0w10 then 1
             else if value < 0w256 then 2 else 3
@@ -772,18 +790,16 @@ struct
     (* Set the sizes of branches depending on the distance to the destination. *)
     fun setLabelsAndSizes ops =
     let
-        val wordLength = wordSize
-
         (* Set the labels and adjust the sizes, repeating until it never gets smaller*)
         fun setLabAndSize(ops, lastSize) =
         let
             (* Calculate offsets for constants. *)
-            val endIC = Word.andb(lastSize + wordLength - 0w1, ~ wordLength)
-            val firstConstant = endIC + wordLength * 0w3
-            (* Because the constant area is word aligned we have to allow for
+            val endIC = Word.andb(lastSize + 0w7, ~ 0w8)
+            val startOfConstants = endIC
+            (* Because the constant area is 8-byte aligned we have to allow for
                the possibility that the distance between a "load constant"
                instruction and the target could actually increase. *)
-            val alignment = wordLength - 0w1
+            val alignment = 0w7
         
             fun adjust(JumpInstruction{size as ref Size32, label=ref lab, ...}, ic) =
                 let
@@ -827,18 +843,18 @@ struct
 
             |   adjust(PushConstant{size as ref Size32, constNum, ...}, ic) =
                 let
-                    val constAddr = firstConstant + Word.fromInt constNum * wordLength
-                    val offset = constAddr - (ic + 0w6)
+                    val offset = startOfConstants - (ic + 0w8) (* 8 is ext+opcode+4+2 *)
                 in
-                    if offset < 0wx100-alignment then size := Size8
+                    if constNum >= 0x100 (* Constant numbers >= 256 require full opcode. *)
+                    then ()
+                    else if offset < 0wx100-alignment then size := Size8
                     else if offset < 0wx10000-alignment then size := Size16
                     else ()
                 end
 
-            |   adjust(PushConstant{size as ref Size16, constNum, ...}, ic) =
+            |   adjust(PushConstant{size as ref Size16, ...}, ic) =
                 let
-                    val constAddr = firstConstant + Word.fromInt constNum * wordLength
-                    val offset = constAddr - (ic + 0w3)
+                    val offset = startOfConstants - (ic + 0w4) (* 4 is opc+2+1 *)
                 in
                     if offset < 0wx100-alignment then size := Size8
                     else ()
@@ -919,11 +935,11 @@ struct
         (* First pass - set the labels. *)
         val codeSize = setLabelsAndSizes ops
         val wordSize = wordSize
-        (* Align to wordLength. *)
-        val endIC = Word.andb(codeSize + wordSize - 0w1, ~ wordSize)
+        (* Align to 8 bytes on both 32-bits and 64-bits. *)
+        val endIC = Word.andb(codeSize + 0w7, ~ 0w8)
         val paddingBytes = List.tabulate(Word.toInt(endIC - codeSize), fn _ => SimpleCode[opcode_const_0])
         val endOfCode = endIC div wordSize
-        val firstConstant = endIC + wordSize * 0w3 (* Add 3 for no of consts, fn name and profile count. *)
+        val startOfConstants = endIC
         val segSize   = endOfCode + Word.fromInt(List.length(! constVec)) + 0w4
         val codeVec = byteVecMake segSize
 
@@ -1026,16 +1042,18 @@ struct
 
         |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=false, ... }, ic) =
             let
-                val constAddr = firstConstant + Word.fromInt constNum * wordSize
                 (* Offsets are calculated from the END of the instruction *)
-                val offset = constAddr - (ic + 0w6)
+                val offset = startOfConstants - (ic + 0w8)
+                val constNumW = Word.fromInt constNum
             in
                 genByte opcode_escape;
-                genByte ext_opcode_constAddr32;
+                genByte ext_opcode_constAddr32_16;
                 genByte(wordToWord8 offset);
                 genByte(wordToWord8(offset >> 0w8));
                 genByte(wordToWord8(offset >> 0w16));
-                genByte(wordToWord8(offset >> 0w24))
+                genByte(wordToWord8(offset >> 0w24));
+                genByte(wordToWord8 constNumW);
+                genByte(wordToWord8(constNumW >> 0w8))
             end
 
         |   genByteCode(PushConstant{ constNum, size=ref Size32, isCall=true, ... }, ic) =
@@ -1047,23 +1065,40 @@ struct
 
         |   genByteCode(PushConstant{ constNum, size=ref Size16, isCall, ... }, ic) =
             let
-                val constAddr = firstConstant + Word.fromInt constNum * wordSize
-                val offset = constAddr - (ic + 0w3)
+                val offset = startOfConstants - (ic + 0w4)
                 val _ = offset < 0wx10000 orelse raise InternalError "genByteCode - constant range"
             in
-                genByte(if isCall then opcode_callConstAddr16 else opcode_constAddr16);
+                genByte(if isCall then opcode_callConstAddr16_8  else opcode_constAddr16_8);
                 genByte(wordToWord8 offset);
-                genByte(wordToWord8(offset >> 0w8))
+                genByte(wordToWord8(offset >> 0w8));
+                genByte(Word8.fromInt constNum)
             end
 
         |   genByteCode(PushConstant{ constNum, size=ref Size8, isCall, ... }, ic) =
+            if constNum <= 1
+            then
             let
-                val constAddr = firstConstant + Word.fromInt constNum * wordSize
-                val offset = constAddr - (ic + 0w2)
+                val offset = startOfConstants - (ic + 0w2)
+                val _ = offset < 0wx100 orelse raise InternalError "genByteCode - constant range"
+                val opCode =
+                    case (isCall, constNum) of
+                        (false, 0) => opcode_constAddr8_0
+                    |   (false, 1) => opcode_constAddr8_1
+                    |   (true,  0) => opcode_callConstAddr8_0
+                    |   (true,  1) => opcode_callConstAddr8_1
+                    |   _ => raise InternalError "genByteCode: constAddr"
+            in
+                genByte opCode;
+                genByte(wordToWord8 offset)
+            end
+            else
+            let
+                val offset = startOfConstants - (ic + 0w3)
                 val _ = offset < 0wx100 orelse raise InternalError "genByteCode - constant range"
             in
-                genByte(if isCall then opcode_callConstAddr8 else opcode_constAddr8);
-                genByte(wordToWord8 offset)
+                genByte(if isCall then opcode_callConstAddr8_8 else opcode_constAddr8_8);
+                genByte(wordToWord8 offset);
+                genByte(Word8.fromInt constNum)
             end
 
         |   genByteCode(PushShort 0w0, _) = genByte opcode_const_0

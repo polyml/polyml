@@ -17,6 +17,7 @@
 *)
 
 (* Compile the native code compiler under the native code compiler. *)
+print "******Bootstrap stage 6 of 7******\n";
 
 PolyML.print_depth 0;
 PolyML.make "mlsource/MLCompiler";

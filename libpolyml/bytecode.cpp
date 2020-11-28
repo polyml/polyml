@@ -412,6 +412,18 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         case INSTR_callConstAddr16:
             closure = (*(PolyWord*)(pc + arg1 + 2)).AsObjPtr(); pc += 2; goto CALL_CLOSURE;
 
+        case INSTR_callConstAddr8_8:
+            closure = ((PolyWord*)(pc + pc[0] + 2))[pc[1] + 3].AsObjPtr(); pc += 2; goto CALL_CLOSURE;
+
+        case INSTR_callConstAddr8_0:
+            closure = ((PolyWord*)(pc + pc[0] + 1))[3].AsObjPtr(); pc += 1; goto CALL_CLOSURE;
+
+        case INSTR_callConstAddr8_1:
+            closure = ((PolyWord*)(pc + pc[0] + 1))[4].AsObjPtr(); pc += 1; goto CALL_CLOSURE;
+
+        case INSTR_callConstAddr16_8:
+            closure = ((PolyWord*)(pc + arg1 + 3))[pc[2] + 3].AsObjPtr(); pc += 3; goto CALL_CLOSURE;
+
         case INSTR_callLocalB:
         {
             closure = (sp[*pc++]).w().AsObjPtr();
@@ -492,6 +504,18 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
 
         case INSTR_constAddr16:
             *(--sp) = *(PolyWord*)(pc + arg1 + 2); pc += 2; break;
+
+        case INSTR_constAddr8_8:
+            *(--sp) = ((PolyWord*)(pc + pc[0]+ 2))[pc[1] + 3]; pc += 2; break;
+
+        case INSTR_constAddr8_0:
+            *(--sp) = ((PolyWord*)(pc + pc[0] + 1))[3]; pc += 1; break;
+
+        case INSTR_constAddr8_1:
+            *(--sp) = ((PolyWord*)(pc + pc[0] + 1))[4]; pc += 1; break;
+
+        case INSTR_constAddr16_8:
+            *(--sp) = ((PolyWord*)(pc + arg1 + 3))[pc[2] + 3]; pc += 3; break;
 
         case INSTR_const_int_w: *(--sp) = TAGGED(arg1); pc += 2; break;
 
@@ -2189,6 +2213,16 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                 POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
                 *(--sp) = *(PolyWord*)(pc + offset + 4);
                 pc += 4;
+                break;
+            }
+
+            case EXTINSTR_constAddr32_16:
+            {
+                POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
+                POLYUNSIGNED cNum = pc[4] + (pc[5] << 8) + 3;
+                offset += cNum * sizeof(PolyWord);
+                *(--sp) = *(PolyWord*)(pc + offset + 6);
+                pc += 6;
                 break;
             }
 

@@ -31,10 +31,7 @@
 #include <stdlib.h>
 #endif
 
-#ifdef POLYML32IN64
 #include "bitmap.h"
-#endif
-
 #include "locking.h"
 
 
@@ -46,8 +43,8 @@
 class OSMem {
 
 public:
-    OSMem();
-    virtual ~OSMem();
+    OSMem() {}
+    virtual ~OSMem() {}
 
     enum _MemUsage {
         UsageData,          // Data or code in the interpreted version
@@ -55,36 +52,53 @@ public:
         UsageExecutableCode // Code in the native code versions.
     };
 
-    bool Initialise(enum _MemUsage usage, size_t space = 0, void** pBase = 0);
-
     // Allocate space and return a pointer to it.  The size is the minimum
     // size requested in bytes and it is updated with the actual space allocated.
     // Returns NULL if it cannot allocate the space.
-    void *AllocateDataArea(size_t& bytes);
+    virtual void *AllocateDataArea(size_t& bytes) = 0;
 
     // Release the space previously allocated.  This must free the whole of
     // the segment.  The space must be the size actually allocated.
-    bool FreeDataArea(void* p, size_t space);
+    virtual bool FreeDataArea(void* p, size_t space) = 0;
 
     // Enable/disable writing.  This must apply to the whole of a segment.
     // Only for data areas.
-    bool EnableWrite(bool enable, void* p, size_t space);
+    virtual bool EnableWrite(bool enable, void* p, size_t space) = 0;
 
     // Allocate code area.  Some systems will not allow both write and execute permissions
     // on the same page.  On those systems we have to allocate two regions of shared memory,
     // one with read+execute permission and the other with read+write.
-    void *AllocateCodeArea(size_t& bytes, void*& shadowArea);
+    virtual void *AllocateCodeArea(size_t& bytes, void*& shadowArea) = 0;
 
     // Free the allocated areas.
-    bool FreeCodeArea(void* codeAddr, void* dataAddr, size_t space);
+    virtual bool FreeCodeArea(void* codeAddr, void* dataAddr, size_t space) = 0;
 
     // Remove write access.  This is used after the permanent code area has been created
     // either from importing a portable export file or copying the area in 32-in-64.
-    bool DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space);
+    virtual bool DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space) = 0;
 
 protected:
     size_t pageSize;
     enum _MemUsage memUsage;
+
+};
+
+// Allows the system to allocate pages.
+class OSMemUnrestricted: public OSMem {
+
+public:
+    OSMemUnrestricted();
+    virtual ~OSMemUnrestricted();
+
+    bool Initialise(enum _MemUsage usage);
+    virtual void* AllocateDataArea(size_t& bytes);
+    virtual bool FreeDataArea(void* p, size_t space);
+    virtual bool EnableWrite(bool enable, void* p, size_t space);
+    virtual void* AllocateCodeArea(size_t& bytes, void*& shadowArea);
+    virtual bool FreeCodeArea(void* codeAddr, void* dataAddr, size_t space);
+    virtual bool DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space);
+
+protected:
 
 #ifndef _WIN32
     // If we need to use dual areas because WRITE+EXECUTE permission is not allowed.
@@ -93,13 +107,37 @@ protected:
     size_t allocPtr;
 #endif
 
-#ifdef POLYML32IN64
-    Bitmap pageMap;
-    uintptr_t lastAllocated;
-    char* memBase, *shadowBase;
-    PLock bitmapLock;
+};
+
+// Pages are allocated within a region.  This is used for 32-in-64 and
+// for code in native X86 64-bit.
+class OSMemInRegion: public OSMem {
+
+public:
+    OSMemInRegion();
+    virtual ~OSMemInRegion();
+
+    bool Initialise(enum _MemUsage usage, size_t space, void** pBase);
+    virtual void* AllocateDataArea(size_t& bytes);
+    virtual bool FreeDataArea(void* p, size_t space);
+    virtual bool EnableWrite(bool enable, void* p, size_t space);
+    virtual void* AllocateCodeArea(size_t& bytes, void*& shadowArea);
+    virtual bool FreeCodeArea(void* codeAddr, void* dataAddr, size_t space);
+    virtual bool DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space);
+
+protected:
+
+#ifndef _WIN32
+    // If we need to use dual areas because WRITE+EXECUTE permission is not allowed.
+    int shadowFd;
+    PLock allocLock;
+    size_t allocPtr;
 #endif
 
+    Bitmap pageMap;
+    uintptr_t lastAllocated;
+    char* memBase, * shadowBase;
+    PLock bitmapLock;
 };
 
 #endif
