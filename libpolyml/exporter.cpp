@@ -378,8 +378,9 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         memcpy(newConsts, constPtr, numConsts * sizeof(PolyWord));
         // Set the last word of the new area to the offset of the constants from the end of
         // the code.
-        writable->Set(codeAreaSize - 1,
-            PolyWord::FromSigned((byte*)newConsts - (byte*)newObj - codeAreaSize * sizeof(PolyWord)));
+        int64_t offset = (byte*)newConsts - (byte*)newObj - codeAreaSize * sizeof(PolyWord);
+        ASSERT(offset < ((int64_t)1) << 32 && offset > ((int64_t)(-1)) << 32);
+        writable->Set(codeAreaSize - 1, PolyWord::FromSigned(offset));
     }
     else
 #endif

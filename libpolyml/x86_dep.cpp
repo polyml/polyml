@@ -1113,6 +1113,7 @@ static void skipea(PolyObject *base, byte *&pt, ScanAddress *process, bool lea, 
                                 wr[i] = (byte)(disp & 0xff);
                                 disp >>= 8;
                             }
+                            ASSERT(disp == 0 || disp == -1);
                         }
                     }
                     process->RelocateOnly(base, pt, PROCESS_RELOC_I386RELATIVE);
@@ -1132,7 +1133,6 @@ static void skipea(PolyObject *base, byte *&pt, ScanAddress *process, bool lea, 
         if (!lea)
         {
 #ifdef HOSTARCHITECTURE_X86_64
-
             if (constAdjustment != 0)
             {
                 POLYSIGNED disp = (pt[3] & 0x80) ? -1 : 0; // Set the sign just in case.
@@ -1147,6 +1147,7 @@ static void skipea(PolyObject *base, byte *&pt, ScanAddress *process, bool lea, 
                         wr[i] = (byte)(disp & 0xff);
                         disp >>= 8;
                     }
+                    ASSERT(disp == 0 || disp == -1);
                 }
             }
             process->RelocateOnly(base, pt, PROCESS_RELOC_I386RELATIVE);
