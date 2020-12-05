@@ -108,7 +108,7 @@ private:
     virtual void addExternalReference(void *addr, const char *name, bool isFuncPtr);
     virtual void RelocateOnly(PolyObject* base, byte* addressOfConstant, ScanRelocationKind code)
     {
-        ScanConstant(base, addressOfConstant, code);
+        ScanConstant(base, addressOfConstant, code, 0);
     }
 
 private:
