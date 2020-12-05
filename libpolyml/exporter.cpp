@@ -344,6 +344,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     ASSERT(space->spaceType == ST_LOCAL || space->spaceType == ST_PERMANENT ||
         space->spaceType == ST_CODE);
     POLYUNSIGNED lengthWord = obj->LengthWord();
+    POLYUNSIGNED originalLengthWord = lengthWord;
     POLYUNSIGNED words = OBJ_OBJECT_LENGTH(lengthWord);
 
     bool isMutableObj = obj->IsMutable();
@@ -379,6 +380,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         // Set the last word of the new area to the offset of the constants from the end of
         // the code.
         int64_t offset = (byte*)newConsts - (byte*)newObj - codeAreaSize * sizeof(PolyWord);
+        ASSERT(offset >= -(int64_t)0x80000000 && offset <= (int64_t)0x7fffffff);
         ASSERT(offset < ((int64_t)1) << 32 && offset > ((int64_t)(-1)) << 32);
         writable->Set(codeAreaSize - 1, PolyWord::FromSigned(offset));
     }
@@ -443,17 +445,18 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #endif
     else obj->SetForwardingPtr(newObj); // Put forwarding pointer in old object.
 
-    if (OBJ_IS_CODE_OBJECT(lengthWord))
+    if (isCodeObj)
     {
-        // We don't need to worry about flushing the instruction cache
-        // since we're not going to execute this code here.
-        // We do have to update any relative addresses within the code
+        // We should flush the instruction cache here since we will execute the code
+        // at this location if this is a saved state.
+        machineDependent->FlushInstructionCache(newObj, newObj->Length());
+        // We have to update any relative addresses within the code
         // to take account of its new position.  We have to do that now
         // even though ScanAddressesInObject will do it again because this
         // is the only point where we have both the old and the new addresses.
         PolyWord *oldConstAddr;
         POLYUNSIGNED count;
-        obj->GetConstSegmentForCode(OBJ_OBJECT_LENGTH(lengthWord), oldConstAddr, count);
+        obj->GetConstSegmentForCode(OBJ_OBJECT_LENGTH(originalLengthWord), oldConstAddr, count);
         PolyWord *newConstAddr = newObj->ConstPtrForCode();
         machineDependent->ScanConstantsWithinCode(newObj, obj, words, newConstAddr, oldConstAddr, count, this);
     }
