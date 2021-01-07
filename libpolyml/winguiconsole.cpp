@@ -293,7 +293,7 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
         {
             HFONT hFount;
             // Switch back to the old window proc just in case.
-#ifdef _M_AMD64
+#ifdef _WIN64
             SetWindowLongPtr(hwnd, GWLP_WNDPROC, (INT_PTR)wpOrigEditProc);
             SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
 #else
@@ -370,7 +370,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                 // Sub-class this so that we get the keys that are pressed.
                 // Save the old window proc.
-#ifdef _M_AMD64
+#ifdef _WIN64
                 wpOrigEditProc =
                     (WNDPROC)GetWindowLongPtr(hEditWnd, GWLP_WNDPROC);
                // Set our new window proc.

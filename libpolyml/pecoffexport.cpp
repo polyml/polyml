@@ -68,12 +68,20 @@
 #define ASSERT(x)
 #endif
 
-#if (SIZEOF_VOIDP == 8)
-#define DIRECT_WORD_RELOCATION      IMAGE_REL_AMD64_ADDR64
-#define RELATIVE_32BIT_RELOCATION   IMAGE_REL_AMD64_REL32
-#else
+#if (defined(HOSTARCHITECTURE_X86))
 #define DIRECT_WORD_RELOCATION      IMAGE_REL_I386_DIR32
 #define RELATIVE_32BIT_RELOCATION   IMAGE_REL_I386_REL32
+#define IMAGE_MACHINE_TYPE          IMAGE_FILE_MACHINE_I386
+#elif (defined(HOSTARCHITECTURE_X86_64))
+#define DIRECT_WORD_RELOCATION      IMAGE_REL_AMD64_ADDR64
+#define RELATIVE_32BIT_RELOCATION   IMAGE_REL_AMD64_REL32
+#define IMAGE_MACHINE_TYPE          IMAGE_FILE_MACHINE_AMD64
+#elif (defined(HOSTARCHITECTURE_AARCH64))
+#define DIRECT_WORD_RELOCATION      IMAGE_REL_ARM64_ADDR64
+#define RELATIVE_32BIT_RELOCATION   IMAGE_REL_AMD64_REL32 // Leave for the moment
+#define IMAGE_MACHINE_TYPE          IMAGE_FILE_MACHINE_ARM64
+#else
+#error "Unknown architecture: unable to configure exporter for PECOFF"
 #endif
 
 void PECOFFExport::writeRelocation(const IMAGE_RELOCATION* reloc)
@@ -216,11 +224,7 @@ void PECOFFExport::exportStore(void)
     // Write out initial values for the headers.  These are overwritten at the end.
     // File header
     memset(&fhdr, 0, sizeof(fhdr));
-#if (SIZEOF_VOIDP == 8)
-    fhdr.Machine = IMAGE_FILE_MACHINE_AMD64; // x86-64
-#else
-    fhdr.Machine = IMAGE_FILE_MACHINE_I386; // i386
-#endif
+    fhdr.Machine = IMAGE_MACHINE_TYPE; // x86-64
     fhdr.NumberOfSections = memTableEntries+1; // One for each area plus one for the tables.
     fhdr.TimeDateStamp = (DWORD)now;
     //fhdr.NumberOfSymbols = memTableEntries+1; // One for each area plus "poly_exports"
