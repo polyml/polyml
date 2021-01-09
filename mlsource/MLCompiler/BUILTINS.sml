@@ -1,7 +1,7 @@
 (*
     Signature for built-in functions
 
-    Copyright David C. J. Matthews 2016, 2018-20
+    Copyright David C. J. Matthews 2016, 2018-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -52,8 +52,6 @@ sig
     |   MemoryCellLength (* Return the length of a memory cell (heap object) *)
     |   MemoryCellFlags (* Return the flags byte of a memory cell (heap object) *)
     |   ClearMutableFlag (* Remove the mutable flag from the flags byte *)
-    |   AtomicIncrement
-    |   AtomicDecrement
     |   AtomicReset (* Set a value to (tagged) zero atomically. *)
     |   LongWordToTagged (* Convert a LargeWord.word to a Word.word or FixedInt.int. *)
     |   SignedToLongWord (* Convert a tagged value to a LargeWord with sign extension. *)
@@ -100,12 +98,14 @@ sig
            values are tagged. *)
     |   PointerEq
     |   FreeCStack  (* Free  space on the C stack. *)
+    |   AtomicExchangeAdd (* Add a value to a ref atomically and return the old value. *)
     
     and nullaryOps =
         (* Get the current thread id *)
         GetCurrentThreadId
         (* Check whether the last RTS call set the exception status and raise it if it had. *)
     |   CheckRTSException
+    |   CPUPause (* Pause a CPU while waiting for a spinlock. *)
 
     val unaryRepr: unaryOps -> string
     and binaryRepr: binaryOps -> string

@@ -102,6 +102,7 @@ struct
                     |   ArithmeticFunction{oper=SUB, operand2, ...} =>
                             (* Special case for subtraction - we can't use the same register for the result and
                                the second operand. *) destRegNos @ map regNo (argRegs operand2)
+
                     |   ArithmeticFunction{operand2 as MemoryLocation _, ...} =>
                         (* If operand1 is not in the destination register we will move it
                            there before the instruction.  That means that we must not have the
@@ -110,6 +111,10 @@ struct
                     |   Multiplication{operand2 as MemoryLocation _, ...} =>
                         (* Likewise for multiplication.  *)
                             destRegNos @ map regNo (argRegs operand2)
+                    |   AtomicExchangeAndAdd{base, ...} =>
+                        (* and for atomic add. The base is always a memory address. *)
+                            regNo base :: destRegNos
+                            
                         (* TailRecursiveCall and JumpLoop may require a work register.
                            This is the only destination but if present it must be distinct
                            from the arguments. *)

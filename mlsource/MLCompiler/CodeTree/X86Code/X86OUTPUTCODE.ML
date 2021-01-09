@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-20
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-21
     
     Based on original code:    
     Copyright (c) 2000
@@ -685,6 +685,7 @@ struct
     |   MOVSXD
     |   CMOV32 of branchOps
     |   CMOV64 of branchOps
+    |   PAUSE
 
 
     fun opToInt Group1_8_A32    =  0wx83
@@ -789,6 +790,7 @@ struct
     |   opToInt MOVSXD          = 0wx63
     |   opToInt (CMOV32 opc)    = 0wx40 + branchOpToWord opc (* Needs 0F prefix *)
     |   opToInt (CMOV64 opc)    = 0wx40 + branchOpToWord opc (* Needs 0F prefix and rex.w *)
+    |   opToInt PAUSE           = 0wx90 (* Needs F3 prefix *)
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -855,6 +857,7 @@ struct
     |   opcodePrefix CVTTSD2SI64                = [0wxf2]
     |   opcodePrefix CVTTSS2SI32                = [0wxf3]
     |   opcodePrefix CVTTSS2SI64                = [0wxf3]
+    |   opcodePrefix PAUSE                      = [0wxf3]
     |   opcodePrefix _                          = []
 
     (* A few instructions require an escape.  Escapes come after the REX. *)
@@ -1193,6 +1196,7 @@ struct
     |   XMMStoreInt of { source: xmmReg regOrMemoryArg, output: genReg, precision: fpSize, isTruncate: bool }
     |   CondMove of { test: branchOps, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
     |   LoadAbsolute of { destination: genReg, value: machineWord }
+    |   PauseForSpinLock
 
     and jumpSize = JumpSize2 | JumpSize8
 
@@ -1449,6 +1453,7 @@ struct
             )
         |   LoadAbsolute { destination, value } =>
                 ( stream "LoadAbsolute "; printGReg destination; stream " <= "; stream(Address.stringOfWord value) )
+        |   PauseForSpinLock => stream "PauseForSpinLock"
         ;
  
         stream "\n"
@@ -2366,6 +2371,8 @@ struct
 
         |   cgOp(CondMove { test, output, source=MemoryArg{base, offset, index}, opSize=OpSize64 }) =
                 opAddress(CMOV64 test, LargeInt.fromInt offset, base, index, output)
+        
+        |   cgOp PauseForSpinLock = opCodeBytes(PAUSE, NONE)
 
     in
         List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
@@ -3612,7 +3619,8 @@ struct
                 end
          
             |   0wx8f => (print "pop \t"; printEA(rex, sz32_64))
-            |   0wx90 => print "nop"
+
+            |   0wx90 => if legacyPrefix = 0wxf3 then print "pause" else print "nop"
             
             |   0wx99 => if rexW then print "cqo" else print "cdq"
             

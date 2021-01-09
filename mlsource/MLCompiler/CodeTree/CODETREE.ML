@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15-20 David C.J. Matthews
+    Copyright (c) 2012,13,15-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -400,6 +400,10 @@ struct
         mkInlproc(getCurrentThreadId, 1 (* Ignores argument *), "GetThreadId()", [], 0)
     
     val checkRTSException = Nullary{oper=BuiltIns.CheckRTSException}
+    
+    val cpuPause = Nullary{oper=BuiltIns.CPUPause}
+    val cpuPauseFn =
+        mkInlproc(cpuPause, 1 (* Ignores argument *), "CPUPause()", [], 0)
 
     fun mkAllocateWordMemory (numWords, flags, initial) =
         AllocateWordMemory { numWords = numWords, flags = flags, initial = initial }

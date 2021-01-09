@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-19
+    Copyright David C. J. Matthews 2016-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1098,15 +1098,14 @@ struct
                                         divisorCode @ dividendCode @ code
                         end
 
-                    |   pushRegisters({instr=AtomicExchangeAndAdd{base, source}, ...}, code) =
+                    |   pushRegisters({instr=AtomicExchangeAndAdd{base, source, resultReg}, ...}, code) =
                         let
                             val (baseVal, baseCode) = mapSrcReg(base)
                             val (sourceVal, sourceCode) = mapSrcReg source
-                            (* The "source" is also a result and must be in a register.  It's an untagged reg
-                               so it shouldn't have been marked as to be pushed. *)
-                            val _ = case sourceCode of [] => () | _ => raise InternalError "pushRegisters - AtomicExchangeAndAdd"
+                            val (destVal, destCode) = mapDestReg resultReg
                         in
-                            AtomicExchangeAndAdd{base=baseVal, source=sourceVal} :: baseCode @ code
+                            destCode @
+                                AtomicExchangeAndAdd{base=baseVal, source=sourceVal, resultReg=destVal} :: sourceCode @ baseCode @ code
                         end
 
                     |   pushRegisters({instr=BoxValue{boxKind, source, dest as PReg dReg, ...}, ...}, code) =
@@ -1344,6 +1343,8 @@ struct
                         in
                             TouchArgument{source=sourceVal} :: sourceCode @ code
                         end
+
+                    |   pushRegisters({instr=PauseCPU, ...}, code) = PauseCPU :: code
 
                     (* Find the common cache state. *)
                     val () = setCommonCacheState(List.map (#cache o asub blockOutput) (asub blockRefs blockNo))
