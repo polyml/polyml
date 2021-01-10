@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development Copyright 2020 David C. J. Matthews
+    Further development Copyright 2020-21 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -35,7 +35,8 @@ typedef enum {
     MA_Interpreted = 0,
     MA_I386,
     MA_X86_64,
-    MA_X86_64_32
+    MA_X86_64_32,
+    MA_Arm64
 } Architectures;
 
 // Machine-dependent module.

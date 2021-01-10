@@ -1,7 +1,7 @@
 /*
     Title:  poly_specific.cpp - Poly/ML specific RTS calls.
 
-    Copyright (c) 2006, 2015-17, 2019 David C. J. Matthews
+    Copyright (c) 2006, 2015-17, 2019, 2021 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -96,6 +96,8 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             case MA_Interpreted:    version = "Portable-" TextVersion; break;
             case MA_I386:           version = "I386-" TextVersion; break;
             case MA_X86_64:         version = "X86_64-" TextVersion; break;
+            case MA_X86_64_32:      version = "X86_64_32-" TextVersion; break;
+            case MA_Arm64:          version = "Arm64-" TextVersion; break;
             default:                version = "Unknown-" TextVersion; break;
             }
             return SAVE(C_string_to_Poly(taskData, version));
@@ -111,6 +113,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             case MA_I386:           arch = "I386"; break;
             case MA_X86_64:         arch = "X86_64"; break;
             case MA_X86_64_32:      arch = "X86_64_32"; break;
+            case MA_Arm64:          arch = "Arm64"; break;
             default:                arch = "Unknown"; break;
             }
             return SAVE(C_string_to_Poly(taskData, arch));
