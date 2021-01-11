@@ -656,6 +656,8 @@ BOOT64_FALSE
 BOOT64_TRUE
 ARCHINTERPRET_FALSE
 ARCHINTERPRET_TRUE
+ARCHARM_64_FALSE
+ARCHARM_64_TRUE
 ARCHX86_64_FALSE
 ARCHX86_64_TRUE
 ARCHI386_FALSE
@@ -22054,6 +22056,12 @@ $as_echo "#define HOSTARCHITECTURE_X32 1" >>confdefs.h
                 polyarch=interpret
             fi
             ;;
+      aarch64*)
+
+$as_echo "#define HOSTARCHITECTURE_AARCH64 1" >>confdefs.h
+
+            polyarch=aarch64
+            ;;
       sparc64*)
 
 $as_echo "#define HOSTARCHITECTURE_SPARC64 1" >>confdefs.h
@@ -22081,12 +22089,6 @@ $as_echo "#define HOSTARCHITECTURE_PPC 1" >>confdefs.h
       arm*)
 
 $as_echo "#define HOSTARCHITECTURE_ARM 1" >>confdefs.h
-
-            polyarch=interpret
-            ;;
-      aarch64*)
-
-$as_echo "#define HOSTARCHITECTURE_AARCH64 1" >>confdefs.h
 
             polyarch=interpret
             ;;
@@ -22237,6 +22239,14 @@ fi
 else
   ARCHX86_64_TRUE='#'
   ARCHX86_64_FALSE=
+fi
+
+ if test "$polyarch" = aarch64; then
+  ARCHARM_64_TRUE=
+  ARCHARM_64_FALSE='#'
+else
+  ARCHARM_64_TRUE='#'
+  ARCHARM_64_FALSE=
 fi
 
  if test "$polyarch" = interpret; then
@@ -22585,6 +22595,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${ARCHX86_64_TRUE}" && test -z "${ARCHX86_64_FALSE}"; then
   as_fn_error $? "conditional \"ARCHX86_64\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${ARCHARM_64_TRUE}" && test -z "${ARCHARM_64_FALSE}"; then
+  as_fn_error $? "conditional \"ARCHARM_64\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${ARCHINTERPRET_TRUE}" && test -z "${ARCHINTERPRET_FALSE}"; then

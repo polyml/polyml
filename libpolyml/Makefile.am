@@ -29,7 +29,7 @@ ARCHSOURCE = interpreter.cpp
 AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
 endif
 endif
-emdif
+endif
 
 # Select the object-format-specific modules
 if EXPPECOFF
