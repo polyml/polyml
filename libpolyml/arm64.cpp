@@ -338,35 +338,41 @@ void Arm64TaskData::InterruptCode()
 // code to do it.  These are defaults that are used where there is no
 // machine-specific code.
 
-// This lock is used to synchronise all atomic operations.
-// It is not needed in the X86 version because that can use a global
-// memory lock.
-static PLock mutexLock;
-
-POLYUNSIGNED Arm64TaskData::AtomicIncrement(PolyObject* mutexp)
+#if defined(_MSC_VER)
+// This saves having to define it in the MASM assembly code.
+static POLYUNSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED addend)
 {
-    PLocker l(&mutexLock);
-    // A thread can only call this once so the values will be short
-    PolyWord newValue = TAGGED(UNTAGGED(mutexp->Get(0)) + 1);
-    mutexp->Set(0, newValue);
-    return newValue.AsUnsigned();
+#   if (SIZEOF_POLYWORD == 8)
+    return InterlockedExchangeAdd64((LONG64*)mutexp, addend);
+#   else
+    return InterlockedExchangeAdd((LONG*)mutexp, addend);
+#  endif
 }
 
+#else
+extern "C" {
+    // This is only defined in the GAS assembly code
+    POLYUNSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject*, POLYSIGNED);
+}
+#endif
+
+// Decrement the value contained in the first word of the mutex.
+// The addend is TAGGED(+/-1) - 1
 POLYUNSIGNED Arm64TaskData::AtomicDecrement(PolyObject* mutexp)
 {
-    PLocker l(&mutexLock);
-    // A thread can only call this once so the values will be short
-    PolyWord newValue = TAGGED(UNTAGGED(mutexp->Get(0)) - 1);
-    mutexp->Set(0, newValue);
-    return newValue.AsUnsigned();
+    return Arm64AsmAtomicExchangeAndAdd(mutexp, -2) - 2;
 }
 
-// Release a mutex.  We need to lock the mutex to ensure we don't
-// reset it in the time between one of atomic operations reading
-// and writing the mutex.
+// Increment the value contained in the first word of the mutex.
+POLYUNSIGNED Arm64TaskData::AtomicIncrement(PolyObject* mutexp)
+{
+    return Arm64AsmAtomicExchangeAndAdd(mutexp, 2) + 2;
+}
+
+// Release a mutex.  Because the atomic increment and decrement
+// use the hardware atomic load-and-add we can simply set this to zero.
 void Arm64TaskData::AtomicReset(PolyObject* mutexp)
 {
-    PLocker l(&mutexLock);
     mutexp->Set(0, TAGGED(0)); // Set this to released.
 }
 
