@@ -22,10 +22,14 @@ else
 if ARCHX86_64
 ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 else
+if ARCHARM_64
+ARCHSOURCE = arm64.cpp arm64assembly.S
+else
 ARCHSOURCE = interpreter.cpp
 AM_CPPFLAGS += -DCODEISNOTEXECUTABLE
 endif
 endif
+emdif
 
 # Select the object-format-specific modules
 if EXPPECOFF

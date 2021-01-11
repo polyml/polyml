@@ -395,6 +395,10 @@ case "${host_cpu}" in
                 polyarch=interpret
             fi
             ;;
+      aarch64*)
+            AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64-bit)])
+            polyarch=aarch64
+            ;;
       sparc64*)
             AC_DEFINE([HOSTARCHITECTURE_SPARC64], [1], [Define if the host is a Sparc (64-bit)])
             polyarch=interpret
@@ -413,10 +417,6 @@ case "${host_cpu}" in
             ;;
       arm*)
             AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32-bit)])
-            polyarch=interpret
-            ;;
-      aarch64*)
-            AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64-bit)])
             polyarch=interpret
             ;;
       hppa*)
@@ -529,6 +529,7 @@ fi
 
 AM_CONDITIONAL([ARCHI386], [test "$polyarch" = i386])
 AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
+AM_CONDITIONAL([ARCHARM_64], [test "$polyarch" = aarch64])
 AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret])
 # Are we bootstrapping from the 32-bit or 64-bit pre-built compiler?
 AM_CONDITIONAL([BOOT64], [test "$bootstrap64" = yes])
