@@ -126,12 +126,11 @@ public:
 
     virtual void InitStackFrame(TaskData *newTask, Handle proc);
 
-    // Increment or decrement the first word of the object pointed to by the
-    // mutex argument and return the new value.
-    virtual POLYUNSIGNED AtomicDecrement(PolyObject* mutexp);
+    // Atomic exchange-and-add.  Used in the process module to release a mutex and in the
+    // interpreter.  It needs to use the same instruction that compiled code uses. 
+    virtual POLYSIGNED AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr);
     // Set a mutex to zero.
     virtual void AtomicReset(PolyObject* mutexp);
-    virtual POLYUNSIGNED AtomicIncrement(PolyObject* mutexp);
 
     // Return the minimum space occupied by the stack.   Used when setting a limit.
     virtual uintptr_t currentStackSpace(void) const { return ((stackItem*)this->stack->top - this->taskSp) + OVERFLOW_STACK_SIZE; }
@@ -393,7 +392,7 @@ void Arm64TaskData::InterruptCode()
 
 #if defined(_MSC_VER)
 // This saves having to define it in the MASM assembly code.
-static POLYUNSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED addend)
+static POLYSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED addend)
 {
 #   if (SIZEOF_POLYWORD == 8)
     return InterlockedExchangeAdd64((LONG64*)mutexp, addend);
@@ -405,21 +404,14 @@ static POLYUNSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED 
 #else
 extern "C" {
     // This is only defined in the GAS assembly code
-    POLYUNSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject*, POLYSIGNED);
+    POLYSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject*, POLYSIGNED);
 }
 #endif
 
-// Decrement the value contained in the first word of the mutex.
-// The addend is TAGGED(+/-1) - 1
-POLYUNSIGNED Arm64TaskData::AtomicDecrement(PolyObject* mutexp)
+// Do the exchange-and-add
+POLYSIGNED Arm64TaskData::AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr)
 {
-    return Arm64AsmAtomicExchangeAndAdd(mutexp, -2) - 2;
-}
-
-// Increment the value contained in the first word of the mutex.
-POLYUNSIGNED Arm64TaskData::AtomicIncrement(PolyObject* mutexp)
-{
-    return Arm64AsmAtomicExchangeAndAdd(mutexp, 2) + 2;
+    return Arm64AsmAtomicExchangeAndAdd(mutexp, incr - TAGGED(0).AsSigned()/* Remove the tag */);
 }
 
 // Release a mutex.  Because the atomic increment and decrement

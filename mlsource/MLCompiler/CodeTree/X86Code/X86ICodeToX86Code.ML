@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-20
+    Copyright David C. J. Matthews 2016-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -631,7 +631,7 @@ struct
             |   instructionUses(ShiftOperation{operand, shiftAmount, ...}) = (used operand; argUses shiftAmount)
             |   instructionUses(Multiplication{operand1, operand2, ...}) = (used operand1; argUses operand2)
             |   instructionUses(Division{dividend, divisor, ...}) = (used dividend; argUses divisor)
-            |   instructionUses(AtomicExchangeAndAdd{base, source}) = (used base; used source)
+            |   instructionUses(AtomicExchangeAndAdd{base, source, ...}) = (used base; used source)
             |   instructionUses(BoxValue{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(CompareByteVectors{vec1Addr, vec2Addr, length, ...}) = (used vec1Addr; used vec2Addr; used length)
             |   instructionUses(BlockMove{srcAddr, destAddr, length, ...}) = (used srcAddr; used destAddr; used length)
@@ -655,6 +655,7 @@ struct
             |   instructionUses(SSE2RealToInt{source, ...}) = argUses source
             |   instructionUses(SignExtend32To64{source, dest}) = if isUsed dest then argUses source else ()
             |   instructionUses(TouchArgument{source}) = used source
+            |   instructionUses PauseCPU = ()
 
             (* Depth-first scan. *)
             val visited = Array.array(numBlocks, false)
@@ -1371,15 +1372,16 @@ struct
                         moveIfNecessary({src=realDiviReg, dst=GenReg eax, kind=opSizeToIMove opSize}, code))
             end
 
-        |   codeExtended _ ({instr=AtomicExchangeAndAdd{base=PReg bReg, source=PReg sReg}, ...}, code) =
+        |   codeExtended _ ({instr=AtomicExchangeAndAdd{base=PReg bReg, source=PReg sReg, resultReg = PReg rReg}, ...}, code) =
             let
-                val baseReg = asGenReg (getAllocatedReg bReg) and outReg = asGenReg (getAllocatedReg sReg)
+                val baseReg = asGenReg (getAllocatedReg bReg) and outReg = asGenReg (getAllocatedReg rReg)
                 val address =
                     if targetArch = ObjectId32Bit
                     then {base=ebx, index=Index4 baseReg, offset=0}
                     else {base=baseReg, index=NoIndex, offset=0}
             in
-                AtomicXAdd{address=address, output=outReg, opSize=polyWordOpSize} :: code
+                AtomicXAdd{address=address, output=outReg, opSize=polyWordOpSize} ::
+                    moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg outReg, kind=movePolyWord}, code)
             end
 
         |   codeExtended _ ({instr=BoxValue{boxKind, source=PReg sReg, dest as PReg dReg, saveRegs}, ...}, code) =
@@ -1667,6 +1669,8 @@ struct
             end
         
         |   codeExtended _ ({instr=TouchArgument _, ...}, code) = code (* Don't need to do anything. *)
+        
+        |   codeExtended _ ({instr=PauseCPU, ...}, code) = PauseForSpinLock :: code
 
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 
         

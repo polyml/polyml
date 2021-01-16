@@ -1,7 +1,7 @@
 (*
     Signature for the high-level X86 code
 
-    Copyright David C. J. Matthews 2016-19
+    Copyright David C. J. Matthews 2016-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -282,10 +282,10 @@ sig
         (* Atomic exchange and addition.   This is executed with a lock prefix and is used
            for atomic increment and decrement for mutexes.
            Before the operation the source contains an increment.  After the operation
-           the source contains the old value of the destination and the destination
+           the resultReg contains the old value of the destination and the destination
            has been updated with its old value added to the increment.
            The destination is actually the word pointed at by "base". *)
-    |   AtomicExchangeAndAdd of { base: preg, source: preg }
+    |   AtomicExchangeAndAdd of { base: preg, source: preg, resultReg: preg }
 
         (* Create a "box" of a single-word "byte" cell and store the source into it.
            This can be implemented using AllocateMemoryOperation but the idea is to
@@ -359,6 +359,9 @@ sig
 
         (* Touch an entry.  Actually doesn't do anything except make sure it is referenced. *)
     |   TouchArgument of { source: preg }
+
+        (* Pause instruction - used only in mutex spinlock *)
+    |   PauseCPU
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =

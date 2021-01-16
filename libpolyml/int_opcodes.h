@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development Copyright David C.J. Matthews 2015-18, 2020.
+    Further development Copyright David C.J. Matthews 2015-18, 2020-21.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -91,8 +91,10 @@
 #define INSTR_arbAdd                0x4c
 #define INSTR_arbSubtract           0x4d
 #define INSTR_arbMultiply           0x4e
+#define INSTR_enterIntArm64         0x4f
 #define INSTR_reset_1               0x50
 #define INSTR_reset_2               0x51
+#define INSTR_no_op                 0x52
 #define INSTR_indirectClosureBB     0x54
 #define INSTR_constAddr8_0          0x55
 #define INSTR_constAddr8_1          0x56
@@ -127,8 +129,8 @@
 #define INSTR_cellLength        0x93
 #define INSTR_cellFlags         0x94
 #define INSTR_clearMutable      0x95
-#define INSTR_atomicIncr        0x97
-#define INSTR_atomicDecr        0x98
+#define INSTR_atomicIncr        0x97 // Legacy
+#define INSTR_atomicDecr        0x98 // Legacy
 #define INSTR_equalWord         0xa0
 #define INSTR_lessSigned        0xa2
 #define INSTR_lessUnsigned      0xa3
@@ -218,6 +220,7 @@
 #define EXTINSTR_tail               0x7c
 #define EXTINSTR_callFastRtoR       0x8f
 #define EXTINSTR_callFastGtoR       0x90
+#define EXTINSTR_atomicExchAdd      0x96
 #define EXTINSTR_atomicReset        0x99
 #define EXTINSTR_longWToTagged      0x9a
 #define EXTINSTR_signedToLongW      0x9b

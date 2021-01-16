@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-20
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -951,15 +951,15 @@ struct
                     [DeclaredAt inBasis])
             val threadType = mkTypeConstruction ("thread", threadConstr, [], []);
             val selfFunction = mkGvar ("self", Unit ->> threadType, getCurrentThreadIdFn, declInBasis)
-            val atIncrFunction = mkGvar("atomicIncr", Ref Word ->> Word, mkUnaryFn BuiltIns.AtomicIncrement, declInBasis)
-            val atDecrFunction = mkGvar("atomicDecr", Ref Word ->> Word, mkUnaryFn BuiltIns.AtomicDecrement, declInBasis)
+            val atExAddFunction = mkGvar("atomicExchAdd", Ref Word ** Word ->> Word, mkBinaryFn BuiltIns.AtomicExchangeAdd, declInBasis)
             val atResetFunction = mkGvar("atomicReset", Ref Word ->> Unit, mkUnaryFn BuiltIns.AtomicReset, declInBasis)
+            val cpuPauseFunction = mkGvar("cpuPause", Unit ->> Unit, cpuPauseFn, declInBasis)
         in
             val () = #enterType threadEnv ("thread", TypeConstrSet(threadConstr, []))
             val () = #enterVal threadEnv ("self", selfFunction)
-            val () = #enterVal threadEnv ("atomicIncr", atIncrFunction)
-            val () = #enterVal threadEnv ("atomicDecr", atDecrFunction)
+            val () = #enterVal threadEnv ("atomicExchAdd", atExAddFunction)
             val () = #enterVal threadEnv ("atomicReset", atResetFunction)
+            val () = #enterVal threadEnv ("cpuPause", cpuPauseFunction)
         end
 
         local

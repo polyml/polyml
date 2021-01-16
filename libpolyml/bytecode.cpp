@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2015-18, 2020.
+    Further development Copyright David C.J. Matthews 2015-18, 2020-21.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1411,6 +1411,14 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                 break;
             }
 
+            case EXTINSTR_atomicExchAdd:
+            {
+                PolyWord u = *sp++;
+                PolyObject* p = (*sp).w().AsObjPtr();
+                *sp = PolyWord::FromSigned(taskData->AtomicExchAdd(p, u.AsSigned()));
+                break;
+            }
+
             case EXTINSTR_atomicReset:
             {
                 // This is needed in the interpreted version otherwise there
@@ -2299,6 +2307,13 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             // This is a no-op if we are already interpreting.
             pc += 3; break;
 
+        case INSTR_enterIntArm64:
+            pc += 8; break;
+
+        case INSTR_no_op:
+            // Only used for alignment for ARM64.
+            break;
+
         default: Crash("Unknown instruction %x\n", pc[-1]);
 
         } /* switch */
@@ -2591,7 +2606,6 @@ POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId)
     else return result->Word().AsUnsigned();
 }
 
-// No machine-specific calls in the interpreter.
 struct _entrypts byteCodeEPT[] =
 {
     { "PolyInterpretedGetAbiList",           (polyRTSFunction)&PolyInterpretedGetAbiList },

@@ -2,7 +2,7 @@
     Title:      Lightweight process library
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007-8, 2012, 2015, 2017, 2019, 2020 David C.J. Matthews
+    Copyright (c) 2007-8, 2012, 2015, 2017, 2019-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -121,13 +121,24 @@ public:
 
     // The scheduler needs versions of atomic decrement and atomic reset that
     // work in exactly the same way as the code-generated versions (if any).
-    // Atomic decrement isn't needed since it only ever releases a mutex.
-    virtual POLYUNSIGNED AtomicDecrement(PolyObject *mutexp) = 0;
+    // Atomic increment isn't needed since the scheduler only ever releases a mutex.
+    virtual POLYUNSIGNED AtomicDecrement(PolyObject* mutexp)
+    {
+        POLYSIGNED prev = AtomicExchAdd(mutexp, TAGGED(-1).AsSigned());
+        return (POLYUNSIGNED)(prev - TAGGED(1).AsSigned() + TAGGED(0).AsSigned());
+    }
     // Reset a mutex to one.  This needs to be atomic with respect to the
     // atomic increment and decrement instructions.
     virtual void AtomicReset(PolyObject* mutexp) = 0;
     // This is actually only used in the interpreter.
-    virtual POLYUNSIGNED AtomicIncrement(PolyObject* mutexp) = 0;
+    virtual POLYUNSIGNED AtomicIncrement(PolyObject* mutexp)
+    {
+        POLYSIGNED prev = AtomicExchAdd(mutexp, TAGGED(1).AsSigned());
+        return (POLYUNSIGNED)(prev + TAGGED(1).AsSigned() - TAGGED(0).AsSigned());
+    }
+    // This is now used in the interpreter in place of AtomicIncrement and AtomicDecrement.
+    // It may be simpler to use it everywhere.
+    virtual POLYSIGNED AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr) = 0;
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length,
                                 StackObject *new_stack, uintptr_t new_length) = 0;

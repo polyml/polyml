@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015-18, 2020 David C.J. Matthews
+    Copyright (c) 2015-18, 2020-21 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -119,8 +119,10 @@ struct
     and opcode_arbAdd            = 0wx4c
     and opcode_arbSubtract       = 0wx4d
     and opcode_arbMultiply       = 0wx4e
+    (*and opcode_enterIntARM64   = 0wx4f*) (* Reserved - the low order byte of a load *)
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
+    and opcode_noop              = 0wx52 (* Used for alignment in ARM64 enter-int. *)
     and opcode_indirectClosureBB = 0wx54
     and opcode_constAddr8_0      = 0wx55
     and opcode_constAddr8_1      = 0wx56
@@ -155,8 +157,6 @@ struct
     and opcode_cellLength        = 0wx93
     and opcode_cellFlags         = 0wx94
     and opcode_clearMutable      = 0wx95
-    and opcode_atomicIncr        = 0wx97
-    and opcode_atomicDecr        = 0wx98
     and opcode_equalWord         = 0wxa0
     and opcode_lessSigned        = 0wxa2
     and opcode_lessUnsigned      = 0wxa3
@@ -247,6 +247,7 @@ struct
     and ext_opcode_tail              = 0wx7c
     and ext_opcode_callFastRTSRtoR   = 0wx8f
     and ext_opcode_callFastRTSGtoR   = 0wx90
+    and ext_opcode_atomicExchAdd     = 0wx96
     and ext_opcode_atomicReset       = 0wx99
     and ext_opcode_longWToTagged     = 0wx9a
     and ext_opcode_signedToLongW     = 0wx9b
@@ -328,6 +329,7 @@ struct
     |   JumpOnIsTaggedLocalB of { label: labels, size: jumpSize ref, localAddr: Word8.word }
     |   JumpNotEqualLocalInd0BB of { label: labels, size: jumpSize ref, localAddr: Word8.word, const: Word8.word }
     |   JumpNotEqualLocalConstBB of { label: labels, size: jumpSize ref, localAddr: Word8.word, const: Word8.word }
+    |   EnterIntArm64 of Word8.word (* Special case because it has to be 32-bit aligned. *)
     
     and jumpSize = Size8 | Size16 | Size32
 
@@ -521,8 +523,10 @@ struct
                 |   0wx4c => printStream "arbAdd"
                 |   0wx4d => printStream "arbSubtract"
                 |   0wx4e => printStream "arbMultiply"
+                |   0wx4f => (printStream "enterIntARM64"; ptr := !ptr + 0w8)
                 |   0wx50 => printStream "reset_1"
                 |   0wx51 => printStream "reset_2"
+                |   0wx52 => printStream "noop"
                 |   0wx54 => (printOp(1, "indirectClosureBB\t"); printOp(1, ", "))
                 |   0wx55 => printDisp (1, "constAddr8_0\t")
                 |   0wx56 => printDisp (1, "constAddr8_1\t")
@@ -561,8 +565,6 @@ struct
                 |   0wx93 => printStream "cellLength"
                 |   0wx94 => printStream "cellFlags"
                 |   0wx95 => printStream "clearMutable"
-                |   0wx97 => printStream "atomicIncr"
-                |   0wx98 => printStream "atomicDecr"
                 |   0wxa0 => printStream "equalWord"
                 |   0wxa1 => printOp(1, "equalWordConstB\t")
                 |   0wxa2 => printStream "lessSigned"
@@ -611,7 +613,7 @@ struct
                 |   0wxfa => printDisp (1, "constAddr8\t")
                 |   0wxfb => printOp(1, "stackSize8\t")
                 |   0wxfc => printOp(2, "stackSize16\t")
-                |   0wxff => printStream "enterIntX86"
+                |   0wxff => (printStream "enterIntX86"; ptr := !ptr + 0w3)
                 
                 |   0wxfe =>
                     (
@@ -654,6 +656,7 @@ struct
                         |   0wx7c => (printOp (2, "tail\t"); printOp (2, ","))
                         |   0wx8f => printStream "callFastRTSRtoR"
                         |   0wx90 => printStream "callFastRTSGtoR"
+                        |   0wx96 => printStream "atomicExchAdd"
                         |   0wx99 => printStream "atomicReset"
                         |   0wx9a => printStream "longWToTagged"
                         |   0wx9b => printStream "signedToLongW"
@@ -769,6 +772,8 @@ struct
     |   codeSize (JumpNotEqualLocalConstBB {label, size, localAddr, const}) =
             codeSize(LoadLocal localAddr) + codeSize(PushShort(word8ToWord const)) + 1 +
                 codeSize(JumpInstruction{jumpType=JumpFalse, label=label, size=size})
+    
+    |   codeSize (EnterIntArm64 _) = 12 (* For simplicity we add no-ops before and/or after *)
 
     (* General function to process the code.  ic is the byte counter within the original code. *)
     fun foldCode startIc foldFn ops =
@@ -1238,6 +1243,23 @@ struct
                     [LoadLocal localAddr, PushShort(word8ToWord const), 
                      SimpleCode[opcode_equalWord],
                      JumpInstruction{jumpType=JumpFalse, label=label, size=size}]; ())
+
+       |    genByteCode(EnterIntArm64 b, ic) =
+            let
+                (* The machine code is 8 bytes that must be 32-bit aligned.  There is then
+                   a single byte that indicates the type of enter-int instruction.
+                   We may need up to three bytes to get the alignment.  It is simpler to
+                   define this as a fixed-length (12-byte) instruction and add no-ops afterwards
+                   if necessary. *)
+                val bytesBefore = if Word.andb(ic, 0w3) = 0w0 then 0w0 else 0w4-Word.andb(ic, 0w3)
+                val byteSequence =
+                    List.tabulate(Word.toInt bytesBefore, fn _ => opcode_noop) @
+                    [0wx4f, 0wx03, 0wx40, 0wxf9, 0wxe0, 0wx01, 0wx3f, 0wxd6, b] @
+                    List.tabulate(3 - Word.toInt bytesBefore, fn _ => opcode_noop)
+            in
+                List.app genByte byteSequence
+            end
+
     in
         foldCode 0w0 genByteCode (ops @ paddingBytes);
         (codeVec (* Return the completed code. *), endIC (* And the size. *))
@@ -1345,6 +1367,7 @@ struct
     |   genEnterInt(b, Code { enterIntMode = 1 (* X86_32 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx24, b]]
     |   genEnterInt(b, Code { enterIntMode = 2 (* X86_64 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx48, b]]
     |   genEnterInt(b, Code { enterIntMode = 3 (* X86_32_64 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx48, b]]
+    |   genEnterInt(b, Code { enterIntMode = 4 (* ARM_64 *), ...}) = [EnterIntArm64 b]
     |   genEnterInt _ = raise InternalError "genEnterInt: unknown architecture value"
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
@@ -1658,8 +1681,7 @@ struct
     val opcode_cellLength       = SimpleCode [opcode_cellLength]
     and opcode_cellFlags        = SimpleCode [opcode_cellFlags]
     and opcode_clearMutable     = SimpleCode [opcode_clearMutable]
-    and opcode_atomicIncr       = SimpleCode [opcode_atomicIncr]
-    and opcode_atomicDecr       = SimpleCode [opcode_atomicDecr]
+    and opcode_atomicExchAdd    = SimpleCode [opcode_escape, ext_opcode_atomicExchAdd]
     and opcode_atomicReset      = SimpleCode [opcode_escape, ext_opcode_atomicReset]
     and opcode_longWToTagged    = SimpleCode [opcode_escape, ext_opcode_longWToTagged]
     and opcode_signedToLongW    = SimpleCode [opcode_escape, ext_opcode_signedToLongW]

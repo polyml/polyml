@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-20 David C.J. Matthews
+    Copyright (c) 2012, 2016-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -56,8 +56,6 @@ struct
         |   MemoryCellLength
         |   MemoryCellFlags
         |   ClearMutableFlag
-        |   AtomicIncrement
-        |   AtomicDecrement
         |   AtomicReset
         |   LongWordToTagged
         |   SignedToLongWord
@@ -88,18 +86,18 @@ struct
         |   RealArith of arithmeticOperations * precision
         |   PointerEq
         |   FreeCStack
+        |   AtomicExchangeAdd
 
         and nullaryOps =
             GetCurrentThreadId
         |   CheckRTSException
+        |   CPUPause
 
         fun unaryRepr NotBoolean = "NotBoolean"
         |   unaryRepr IsTaggedValue = "IsTaggedValue"
         |   unaryRepr MemoryCellLength = "MemoryCellLength"
         |   unaryRepr MemoryCellFlags = "MemoryCellFlags"
         |   unaryRepr ClearMutableFlag = "ClearMutableFlag"
-        |   unaryRepr AtomicIncrement = "AtomicIncrement"
-        |   unaryRepr AtomicDecrement = "AtomicDecrement"
         |   unaryRepr AtomicReset = "AtomicReset"
         |   unaryRepr LongWordToTagged = "LongWordToTagged"
         |   unaryRepr SignedToLongWord = "SignedToLongWord"
@@ -129,9 +127,11 @@ struct
         |   binaryRepr (RealArith (arithOp, prec)) = arithRepr arithOp ^ precRepr prec
         |   binaryRepr PointerEq = "PointerEq"
         |   binaryRepr FreeCStack = "FreeCStack"
+        |   binaryRepr AtomicExchangeAdd = "AtomicExchangeAdd"
         
         and nullaryRepr GetCurrentThreadId = "GetCurrentThreadId"
         |   nullaryRepr CheckRTSException = "CheckRTSException"
+        |   nullaryRepr CPUPause = "CPUPause"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestLess           = "Less"

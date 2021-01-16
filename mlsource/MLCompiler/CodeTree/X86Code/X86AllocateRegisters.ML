@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-19
+    Copyright David C. J. Matthews 2016-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -214,6 +214,9 @@ struct
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
         
             |   addHints{instr=SSE2FPBinary{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
+                    addSourceAndDestinationHint{dst=resReg, src=op1Reg}
+            
+            |   addHints{instr=AtomicExchangeAndAdd{resultReg=PReg resReg, source=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
 
             |   addHints _ = ()
@@ -670,8 +673,8 @@ struct
                 allocateArgGeneral divisor
             )
 
-        |   registerAllocate({instr=AtomicExchangeAndAdd{base=PReg bReg, source=PReg sReg}, ...}) =
-                (allocateGeneralReg sReg; allocateGeneralReg bReg)
+        |   registerAllocate({instr=AtomicExchangeAndAdd{base=PReg bReg, source=PReg sReg, resultReg=PReg rReg}, ...}) =
+                (allocateGeneralReg sReg; allocateGeneralReg bReg; allocateGeneralReg rReg)
 
         |   registerAllocate({instr=BoxValue{boxKind, source=PReg sReg, dest=PReg dReg, saveRegs}, ...}) =
             (
@@ -793,6 +796,8 @@ struct
 
         |   registerAllocate({instr=TouchArgument{source=PReg srcReg}, ...}) =
                 allocateRegister(srcReg, NONE, generalRegisters)
+        
+        |   registerAllocate({instr=PauseCPU, ...}) = ()
 
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

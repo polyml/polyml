@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-20
+    Copyright David C. J. Matthews 2016-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1082,7 +1082,7 @@ struct
                 (BlockSimple(LoadMemReg{offset=memRegThreadSelf, dest=target, kind=movePolyWord}) :: tailCode, RegisterArgument target, false)
             end
 
-        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, { currHandler, ...}, _, _, tailCode) =
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, { currHandler, ...}, _, destination, tailCode) =
             let
                 (* Raise an exception in ML if the last RTS call set the exception packet. *)
                 val haveException = newLabel() and noException = newLabel()
@@ -1099,8 +1099,12 @@ struct
                     BlockSimple(LoadMemReg{offset=memRegExceptionPacket, dest=testReg, kind=movePolyWord}) ::
                     tailCode
             in
-                (code, (* Unit result *) IntegerConstant(tag 0), false)
+                moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
+
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CPUPause}, _, _, destination, tailCode) =
+            (* Pause during spinlock phase of mutex locking. *)
+                moveIfNotAllowedRev(destination, BlockSimple PauseCPU :: tailCode, (* Unit result *) IntegerConstant(tag 0))
 
         |   codeToICodeRev(BICUnary instr, context, isTail, destination, tailCode) =
                 codeToICodeUnaryRev(instr, context, isTail, destination, tailCode)
@@ -1790,37 +1794,6 @@ struct
                 val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
             in
                 moveIfNotAllowedRev(destination, BlockSimple(LockMutable{addr=addrReg}) :: argCode, (* Unit result *) IntegerConstant(tag 0))
-            end
-
-        |   codeToICodeUnaryRev({oper=BuiltIns.AtomicIncrement, arg1}, context, _, destination, tailCode) =
-            let
-                val target = asTarget destination
-                val incrReg = newUReg()
-                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
-                val code =
-                    (* We want the result to be the new value but we've returned the old value. *)
-                    BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1),
-                                ccRef=newCCRef(), opSize=polyWordOpSize}) ::
-                    BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }) ::
-                    BlockSimple(LoadArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=movePolyWord}) ::
-                    argCode
-            in
-                (code, RegisterArgument target, false)
-            end
-
-        |   codeToICodeUnaryRev({oper=BuiltIns.AtomicDecrement, arg1}, context, _, destination, tailCode) =
-            let
-                val target = asTarget destination
-                val incrReg = newUReg()
-                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
-                val code =
-                    BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1),
-                                    ccRef=newCCRef(), opSize=polyWordOpSize}) ::
-                    BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }) ::
-                    BlockSimple(LoadArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=movePolyWord}) ::
-                    argCode
-            in
-                (code, RegisterArgument target, false)
             end
 
         |   codeToICodeUnaryRev({oper=BuiltIns.AtomicReset, arg1}, context, _, destination, tailCode) =
@@ -3052,6 +3025,42 @@ struct
                     arg1Code
             in
                 moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.AtomicExchangeAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination, tailCode) =
+            let
+                (* The value to be added is always a constant. *)
+                val target = asTarget destination
+                val incrReg = newUReg()
+                val (arg1Code, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
+                val constVal =
+                    if isShort value
+                    then semitag(Word.toLargeIntX(toShort value))
+                    else 0
+                val code =
+                    BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg, resultReg=target }) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant constVal, dest=incrReg, kind=movePolyWord}) ::
+                    arg1Code
+            in
+                (code, RegisterArgument target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.AtomicExchangeAdd, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                (* This is only needed if the function is returned as a value. *)
+                val target = asTarget destination
+                val incrReg = newUReg()
+                val (arg1Code, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
+                val code =
+                    BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg, resultReg=target }) ::
+                    (* Subtract the tag from the increment before the operation *)
+                    BlockSimple(ArithmeticFunction{oper=SUB, resultReg=incrReg, operand1=arg2Reg, operand2=IntegerConstant 1,
+                            ccRef=newCCRef(), opSize=polyWordOpSize}) ::
+                    arg2Code
+            in
+                (code, RegisterArgument target, false)
             end
         
         (* Multiply tagged word by a constant.  We're not concerned with overflow so it's possible to use

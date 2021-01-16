@@ -204,13 +204,11 @@ public:
     virtual void InitStackFrame(TaskData *parentTask, Handle proc);
     virtual void SetException(poly_exn *exc);
 
-    // Release a mutex in exactly the same way as compiler code
-    virtual POLYUNSIGNED AtomicDecrement(PolyObject* mutexp);
-    // Reset a mutex to one.  This needs to be atomic with respect to the
-    // atomic increment and decrement instructions.
+    // Atomic exchange-and-add.  Used in the process module to release a mutex and in the
+    // interpreter.  It needs to use the same instruction that compiled code uses. 
+    virtual POLYSIGNED AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr);
+    // Reset a mutex to zero.  This needs to be atomic with respect to AtomicExchAdd.
     virtual void AtomicReset(PolyObject* mutexp);
-    // This is actually only used in the interpreter.
-    virtual POLYUNSIGNED AtomicIncrement(PolyObject* mutexp);
 
     // Return the minimum space occupied by the stack.  Used when setting a limit.
     // N.B. This is PolyWords not native words.
@@ -1387,7 +1385,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
 #if defined(_MSC_VER)
 // This saves having to define it in the MASM assembly code.
-static POLYUNSIGNED X86AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED addend)
+static POLYSIGNED X86AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED addend)
 {
 #   if (SIZEOF_POLYWORD == 8)
     return InterlockedExchangeAdd64((LONG64*)mutexp, addend);
@@ -1399,21 +1397,14 @@ static POLYUNSIGNED X86AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED ad
 #else
 extern "C" {
     // This is only defined in the GAS assembly code
-    POLYUNSIGNED X86AsmAtomicExchangeAndAdd(PolyObject*, POLYSIGNED);
+    POLYSIGNED X86AsmAtomicExchangeAndAdd(PolyObject*, POLYSIGNED);
 }
 #endif
 
-// Decrement the value contained in the first word of the mutex.
-// The addend is TAGGED(+/-1) - 1
-POLYUNSIGNED X86TaskData::AtomicDecrement(PolyObject *mutexp)
+// Do the exchange-and-add
+POLYSIGNED X86TaskData::AtomicExchAdd(PolyObject *mutexp, POLYSIGNED incr)
 {
-    return X86AsmAtomicExchangeAndAdd(mutexp, -2) - 2;
-}
-
-// Increment the value contained in the first word of the mutex.
-POLYUNSIGNED X86TaskData::AtomicIncrement(PolyObject* mutexp)
-{
-    return X86AsmAtomicExchangeAndAdd(mutexp, 2) + 2;
+    return X86AsmAtomicExchangeAndAdd(mutexp, incr - TAGGED(0).AsSigned()/* Remove the tag */);
 }
 
 // Release a mutex.  Because the atomic increment and decrement

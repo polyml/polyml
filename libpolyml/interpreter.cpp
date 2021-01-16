@@ -1,7 +1,7 @@
 /*
     Architecture independent wrapper for the byte-code interpreter.
 
-    Copyright David C.J. Matthews 2020.
+    Copyright David C.J. Matthews 2020-21.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -78,12 +78,10 @@ public:
 
     virtual void InitStackFrame(TaskData *newTask, Handle proc);
 
-    // Increment or decrement the first word of the object pointed to by the
-    // mutex argument and return the new value.
-    virtual POLYUNSIGNED AtomicDecrement(PolyObject* mutexp);
+    // Atomic exchanege-and-add.
+    virtual POLYSIGNED AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr);
     // Set a mutex to zero.
     virtual void AtomicReset(PolyObject* mutexp);
-    virtual POLYUNSIGNED AtomicIncrement(PolyObject* mutexp);
 
     // Return the minimum space occupied by the stack.   Used when setting a limit.
     virtual uintptr_t currentStackSpace(void) const { return ((stackItem*)this->stack->top - this->taskSp) + OVERFLOW_STACK_SIZE; }
@@ -322,22 +320,13 @@ void IntTaskData::InterruptCode()
 // memory lock.
 static PLock mutexLock;
 
-POLYUNSIGNED IntTaskData::AtomicIncrement(PolyObject* mutexp)
+POLYSIGNED IntTaskData::AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr)
 {
     PLocker l(&mutexLock);
-    // A thread can only call this once so the values will be short
-    PolyWord newValue = TAGGED(UNTAGGED(mutexp->Get(0)) + 1);
+    POLYSIGNED oldValue = mutexp->Get(0).AsSigned();
+    PolyWord newValue = PolyWord::FromSigned(oldValue + incr - TAGGED(0).AsSigned() /* Remove the tag */);
     mutexp->Set(0, newValue);
-    return newValue.AsUnsigned();
-}
-
-POLYUNSIGNED IntTaskData::AtomicDecrement(PolyObject* mutexp)
-{
-    PLocker l(&mutexLock);
-    // A thread can only call this once so the values will be short
-    PolyWord newValue = TAGGED(UNTAGGED(mutexp->Get(0)) - 1);
-    mutexp->Set(0, newValue);
-    return newValue.AsUnsigned();
+    return oldValue;
 }
 
 // Release a mutex.  We need to lock the mutex to ensure we don't

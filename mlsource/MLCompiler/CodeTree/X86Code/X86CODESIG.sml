@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016-19
+    Copyright David C. J. Matthews 2010, 2012, 2016-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -184,6 +184,7 @@ sig
     |   XMMStoreInt of { source: xmmReg regOrMemoryArg, output: genReg, precision: fpSize, isTruncate: bool }
     |   CondMove of { test: branchOps, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
     |   LoadAbsolute of { destination: genReg, value: machineWord }
+    |   PauseForSpinLock
 
     and jumpSize = JumpSize2 | JumpSize8
 

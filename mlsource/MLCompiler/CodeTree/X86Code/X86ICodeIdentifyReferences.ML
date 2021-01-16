@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-20 David C.J. Matthews
+    Copyright (c) 2016-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -234,8 +234,8 @@ struct
             { sources=dividend :: argRegs divisor, dests=[quotient, remainder],
               sStacks=argStacks divisor, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(AtomicExchangeAndAdd{base, source}) =
-            { sources=[base, source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+    |   getInstructionState(AtomicExchangeAndAdd{base, source, resultReg}) =
+            { sources=[base, source], dests=[resultReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(BoxValue{source, dest, ...}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
@@ -308,6 +308,9 @@ struct
 
     |   getInstructionState(TouchArgument{source}) =
             { sources=[source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState PauseCPU =
+            { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
