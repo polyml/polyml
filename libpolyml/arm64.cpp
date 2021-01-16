@@ -55,43 +55,70 @@
 #include "rtsentry.h"
 #include "bytecode.h"
 
-#if (SIZEOF_VOIDP == 8 && !defined(POLYML32IN64))
-#define IS64BITS 1
-#endif
-
-#define CHECKED_REGS 2
-#define UNCHECKED_REGS 0
-
-#define EXTRA_STACK 0 // Don't need any extra - signals aren't handled on the Poly stack.
+/*
+* ARM64 register use:
+* X0        First argument and return value
+* X1-X7     Second-eighth argument
+* X8        Indirect result (C), ML closure pointer on entry
+* X9-X15    Volatile scratch registers
+* X16-17    Intra-procedure-call (C).  Only used for special cases in ML.
+* X18       Platform register. Not used in ML.
+* X19-X25   Non-volatile (C).  Scratch registers (ML).
+* X26       ML assembly interface pointer.  Non-volatile (C).
+* X27       ML Heap allocation pointer.  Non-volatile (C).
+* X28       ML Stack pointer. Non-volatile (C).
+* X29       Frame pointer (C). Not used in ML
+* X30       Link register.  Not used in ML.
+* X31       Stack pointer (C).  Not used in ML.  Also zero register.
+* 
+* Floating point registers:
+* V0        First argument and return value
+* V1-V7     Second-eighth argument
+* V8-V15    Non volatile. Not currently used in ML.
+* V16-V31   Volatile. Not currently used in ML.
+* 
+* The ML calling conventions generally follow the C ABI except that
+* all registers are volatile and X28 is used for the stack.
+*/
 
 /* the amount of ML stack space to reserve for registers,
    C exception handling etc. The compiler requires us to
-   reserve 2 stack-frames worth (2 * 20 words) plus whatever
-   we require for the register save area. We actually reserve
-   slightly more than this. SPF 3/3/97
+   reserve 2 stack-frames worth (2 * 20 words). We actually reserve
+   slightly more than this.
 */
-#define OVERFLOW_STACK_SIZE \
-  (50 + \
-   CHECKED_REGS + \
-   UNCHECKED_REGS + \
-   EXTRA_STACK)
+
+#define OVERFLOW_STACK_SIZE 50
+
+// X26 always points at this area when executing ML code.
+// The offsets are built into the assembly code and some are built into
+// the code generator
+typedef struct _AssemblyArgs {
+public:
+    byte*           enterInterpreter;  // These are filled in with the functions.
+    byte*           heapOverFlowCall;
+    byte*           stackOverFlowCall;
+    byte*           stackOverFlowCallEx;
+    byte*           trapHandlerEntry;
+    stackItem       exceptionPacket;    // Set if there is an exception
+    PolyWord        threadId;           // My thread id.  Saves having to call into RTS for it.
 
 
-// This duplicates some code in reals.cpp but is now updated.
-#define DOUBLESIZE (sizeof(double)/sizeof(POLYUNSIGNED))
-
-union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
+    byte            returnReason;       // Reason for returning from ML - Set by assembly code.
+}  AssemblyArgs;
 
 class Arm64TaskData: public TaskData, ByteCodeInterpreter {
 public:
-    Arm64TaskData() : ByteCodeInterpreter(&taskSp, &sl) {}
+    Arm64TaskData();
     ~Arm64TaskData() {}
+
+    AssemblyArgs assemblyInterface;
+    int saveRegisterMask; // Registers that need to be updated by a GC.
 
     virtual void GarbageCollect(ScanAddress *process);
     void ScanStackAddress(ScanAddress *process, stackItem& val, StackSpace *stack);
     virtual void EnterPolyCode(); // Start running ML
 
-    virtual void SetException(poly_exn *exc) { exception_arg = exc;  }
+    virtual void SetException(poly_exn *exc) { assemblyInterface.exceptionPacket = (PolyWord)exc;  }
     virtual void InterruptCode();
 
     // AddTimeProfileCount is used in time profiling.
@@ -115,17 +142,43 @@ public:
 
     PLock interruptLock;
 
-    virtual void ClearExceptionPacket() { exception_arg = TAGGED(0); }
-    virtual PolyWord GetExceptionPacket() { return exception_arg; }
+    virtual void ClearExceptionPacket() { assemblyInterface.exceptionPacket = TAGGED(0); }
+    virtual PolyWord GetExceptionPacket() { return assemblyInterface.exceptionPacket; }
     virtual stackItem* GetHandlerRegister() { return hr; }
     virtual void SetHandlerRegister(stackItem* newHr) { hr = newHr;  }
     virtual void HandleStackOverflow(uintptr_t space);
 
     stackItem       *taskSp; /* Stack pointer. */
     stackItem       *hr;
-    PolyWord        exception_arg;
     stackItem       *sl; /* Stack limit register. */
 };
+
+// Values for the returnReason byte
+enum RETURN_REASON {
+    RETURN_HEAP_OVERFLOW = 1,
+    RETURN_STACK_OVERFLOW = 2,
+    RETURN_STACK_OVERFLOWEX = 3,
+    RETURN_ENTER_INTERPRETER = 4
+};
+
+extern "C" {
+
+    // These are declared in the assembly code segment.
+    void Arm64AsmSwitchToPoly(void*);
+    int  Arm64AsmCallExtraRETURN_ENTER_INTERPRETER(void);
+    int  Arm64AsmCallExtraRETURN_HEAP_OVERFLOW(void);
+    int  Arm64AsmCallExtraRETURN_STACK_OVERFLOW(void);
+    int  Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
+
+    // This is declared here and called from the assembly code.
+    // It avoids having a call to an external in the assembly code
+    // which sometimes gives problems with position-indepent code.
+    void  Arm64TrapHandler(PolyWord threadId);
+};
+
+Arm64TaskData::Arm64TaskData() : ByteCodeInterpreter(&taskSp, &sl)
+{
+}
 
 class Arm64Dependent : public MachineDependent {
 public:
@@ -147,7 +200,7 @@ void Arm64TaskData::InitStackFrame(TaskData *parentTask, Handle proc)
     this->hr = this->taskSp;
     *(--this->taskSp) = (PolyWord)closure; /* Closure address */
     this->interpreterPc = *(POLYCODEPTR*)closure;
-    this->exception_arg = TAGGED(0); /* Used for exception argument. */
+    this->assemblyInterface.exceptionPacket = TAGGED(0); /* Used for exception argument. */
 }
 
 void Arm64TaskData::HandleStackOverflow(uintptr_t space)
@@ -186,11 +239,11 @@ void Arm64TaskData::GarbageCollect(ScanAddress *process)
     TaskData::GarbageCollect(process);
     ByteCodeInterpreter::GarbageCollect(process);
 
-    if (exception_arg.IsDataPtr())
+    if (assemblyInterface.exceptionPacket.w().IsDataPtr())
     {
-        PolyObject* obj = exception_arg.AsObjPtr();
+        PolyObject* obj = assemblyInterface.exceptionPacket.w().AsObjPtr();
         obj = process->ScanObjectAddress(obj);
-        exception_arg = obj;
+        assemblyInterface.exceptionPacket = (PolyWord)obj;
     }
 
     if (stack != 0)

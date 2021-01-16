@@ -53,32 +53,13 @@
 #include "rtsentry.h"
 #include "bytecode.h"
 
-#if (SIZEOF_VOIDP == 8 && !defined(POLYML32IN64))
-#define IS64BITS 1
-#endif
-
-#define CHECKED_REGS 2
-#define UNCHECKED_REGS 0
-
-#define EXTRA_STACK 0 // Don't need any extra - signals aren't handled on the Poly stack.
-
 /* the amount of ML stack space to reserve for registers,
    C exception handling etc. The compiler requires us to
    reserve 2 stack-frames worth (2 * 20 words) plus whatever
    we require for the register save area. We actually reserve
    slightly more than this. SPF 3/3/97
 */
-#define OVERFLOW_STACK_SIZE \
-  (50 + \
-   CHECKED_REGS + \
-   UNCHECKED_REGS + \
-   EXTRA_STACK)
-
-
-// This duplicates some code in reals.cpp but is now updated.
-#define DOUBLESIZE (sizeof(double)/sizeof(POLYUNSIGNED))
-
-union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
+#define OVERFLOW_STACK_SIZE 50
 
 class IntTaskData: public TaskData, ByteCodeInterpreter {
 public:
