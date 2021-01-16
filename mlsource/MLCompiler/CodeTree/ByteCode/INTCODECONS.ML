@@ -150,8 +150,6 @@ struct
     and opcode_cellLength        = 0wx93
     and opcode_cellFlags         = 0wx94
     and opcode_clearMutable      = 0wx95
-    and opcode_atomicIncr        = 0wx97
-    and opcode_atomicDecr        = 0wx98
     and opcode_equalWord         = 0wxa0
     and opcode_lessSigned        = 0wxa2
     and opcode_lessUnsigned      = 0wxa3
@@ -242,6 +240,7 @@ struct
     and ext_opcode_tail              = 0wx7c
     and ext_opcode_callFastRTSRtoR   = 0wx8f
     and ext_opcode_callFastRTSGtoR   = 0wx90
+    and ext_opcode_atomicExchAdd     = 0wx96
     and ext_opcode_atomicReset       = 0wx99
     and ext_opcode_longWToTagged     = 0wx9a
     and ext_opcode_signedToLongW     = 0wx9b
@@ -544,8 +543,6 @@ struct
                 |   0wx93 => printStream "cellLength"
                 |   0wx94 => printStream "cellFlags"
                 |   0wx95 => printStream "clearMutable"
-                |   0wx97 => printStream "atomicIncr"
-                |   0wx98 => printStream "atomicDecr"
                 |   0wxa0 => printStream "equalWord"
                 |   0wxa1 => printOp(1, "equalWordConstB\t")
                 |   0wxa2 => printStream "lessSigned"
@@ -637,6 +634,7 @@ struct
                         |   0wx7c => (printOp (2, "tail\t"); printOp (2, ","))
                         |   0wx8f => printStream "callFastRTSRtoR"
                         |   0wx90 => printStream "callFastRTSGtoR"
+                        |   0wx96 => printStream "atomicExchAdd"
                         |   0wx99 => printStream "atomicReset"
                         |   0wx9a => printStream "longWToTagged"
                         |   0wx9b => printStream "signedToLongW"
@@ -1623,8 +1621,7 @@ struct
     val opcode_cellLength       = SimpleCode [opcode_cellLength]
     and opcode_cellFlags        = SimpleCode [opcode_cellFlags]
     and opcode_clearMutable     = SimpleCode [opcode_clearMutable]
-    and opcode_atomicIncr       = SimpleCode [opcode_atomicIncr]
-    and opcode_atomicDecr       = SimpleCode [opcode_atomicDecr]
+    and opcode_atomicExchAdd    = SimpleCode [opcode_escape, ext_opcode_atomicExchAdd]
     and opcode_atomicReset      = SimpleCode [opcode_escape, ext_opcode_atomicReset]
     and opcode_longWToTagged    = SimpleCode [opcode_escape, ext_opcode_longWToTagged]
     and opcode_signedToLongW    = SimpleCode [opcode_escape, ext_opcode_signedToLongW]

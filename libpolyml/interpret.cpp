@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2015-18, 2020.
+    Further development Copyright David C.J. Matthews 2015-18, 2020-21.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1627,6 +1627,19 @@ int IntTaskData::SwitchToPoly()
                 PolyObject* t = boxDouble(result, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *(--sp) = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_atomicExchAdd:
+            {
+                PolyWord u = *sp++;
+                PolyObject* p = (*sp).w().AsObjPtr();
+                PLocker l(&mutexLock);
+                PolyWord oldValue = p->Get(0);
+                // Add the values and remove the tag, ignoring overflow.
+                PolyWord newValue = PolyWord::FromUnsigned(oldValue.AsUnsigned() + u.AsUnsigned() - TAGGED(0).AsUnsigned());
+                p->Set(0, newValue);
+                *sp = oldValue;
                 break;
             }
 

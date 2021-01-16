@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Further development copyright David C.J. Matthews 2016-18,2020
+    Further development copyright David C.J. Matthews 2016-18,2020-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -458,9 +458,13 @@ struct
                 genOpcode(opcode_getThreadId, cvec);
                 incsp()
             )
-        
+
         |   BICNullary {oper=BuiltIns.CheckRTSException} =>
             ( (* Do nothing.  This is done in the RTS call. *)
+            )
+
+        |   BICNullary {oper=BuiltIns.CPUPause} =>
+            ( (* Do nothing.  It's really only a hint. *)
             )
 
         |   BICUnary { oper, arg1 } =>
@@ -474,8 +478,6 @@ struct
                 |   MemoryCellLength => genOpcode(opcode_cellLength, cvec)
                 |   MemoryCellFlags => genOpcode(opcode_cellFlags, cvec)
                 |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
-                |   AtomicIncrement => genOpcode(opcode_atomicIncr, cvec)
-                |   AtomicDecrement => genOpcode(opcode_atomicDecr, cvec)
                 |   AtomicReset => genOpcode(opcode_atomicReset, cvec)
                 |   LongWordToTagged => genOpcode(opcode_longWToTagged, cvec)
                 |   SignedToLongWord => genOpcode(opcode_signedToLongW, cvec)
@@ -601,6 +603,8 @@ struct
                 |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
                 
                 |   FreeCStack => genOpcode(opcode_freeCSpace, cvec)
+                
+                |   AtomicExchangeAdd => genOpcode(opcode_atomicExchAdd, cvec)
                  ;
                 decsp() (* Removes one item from the stack. *)
             end

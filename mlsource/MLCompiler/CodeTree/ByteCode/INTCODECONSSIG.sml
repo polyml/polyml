@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-18, 2020 David C.J. Matthews
+    Copyright (c) 2016-18, 2020-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,8 +28,7 @@ sig
     val opcode_cellLength: opcode
     and opcode_cellFlags: opcode
     and opcode_clearMutable: opcode
-    and opcode_atomicIncr: opcode
-    and opcode_atomicDecr: opcode
+    and opcode_atomicExchAdd: opcode
     and opcode_atomicReset: opcode
     and opcode_longWToTagged: opcode
     and opcode_signedToLongW: opcode
