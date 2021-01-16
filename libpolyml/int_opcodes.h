@@ -85,8 +85,10 @@
 #define INSTR_local_13              0x49
 #define INSTR_local_14              0x4a
 #define INSTR_local_15              0x4b
+#define INSTR_enterIntArm64         0x4f
 #define INSTR_reset_1       0x50
 #define INSTR_reset_2       0x51
+#define INSTR_no_op                 0x52
 #define INSTR_indirectClosureBB     0x54
 #define INSTR_tuple_containerLegacy 0x55
 #define INSTR_reset_r_1     0x64

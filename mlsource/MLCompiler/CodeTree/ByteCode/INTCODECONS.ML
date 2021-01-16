@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015-18, 2020 David C.J. Matthews
+    Copyright (c) 2015-18, 2020-21 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -112,8 +112,10 @@ struct
     and opcode_local_13          = 0wx49
     and opcode_local_14          = 0wx4a
     and opcode_local_15          = 0wx4b
+    (*and opcode_enterIntARM64   = 0wx4f*) (* Reserved - the low order byte of a load *)
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
+    and opcode_noop              = 0wx52 (* Used for alignment in ARM64 enter-int. *)
     and opcode_indirectClosureBB = 0wx54
     and opcode_resetR_1          = 0wx64
     and opcode_resetR_2          = 0wx65
@@ -321,6 +323,7 @@ struct
     |   JumpOnIsTaggedLocalB of { label: labels, size: jumpSize ref, localAddr: Word8.word }
     |   JumpNotEqualLocalInd0BB of { label: labels, size: jumpSize ref, localAddr: Word8.word, const: Word8.word }
     |   JumpNotEqualLocalConstBB of { label: labels, size: jumpSize ref, localAddr: Word8.word, const: Word8.word }
+    |   EnterIntArm64 of Word8.word (* Special case because it has to be 32-bit aligned. *)
     
     and jumpSize = Size8 | Size16 | Size32
 
@@ -507,8 +510,10 @@ struct
                 |   0wx49 => printStream "local_13"
                 |   0wx4a => printStream "local_14"
                 |   0wx4b => printStream "local_15"
+                |   0wx4f => (printStream "enterIntARM64"; ptr := !ptr + 0w8)
                 |   0wx50 => printStream "reset_1"
                 |   0wx51 => printStream "reset_2"
+                |   0wx52 => printStream "noop"
                 |   0wx54 => (printOp(1, "indirectClosureBB\t"); printOp(1, ", "))
                 |   0wx64 => printStream "resetR_1"
                 |   0wx65 => printStream "resetR_2"
@@ -591,7 +596,7 @@ struct
                 |   0wxfa => printDisp (1, "constAddr8\t")
                 |   0wxfb => printOp(1, "stackSize8\t")
                 |   0wxfc => printOp(2, "stackSize16\t")
-                |   0wxff => printStream "enterIntX86"
+                |   0wxff => (printStream "enterIntX86"; ptr := !ptr + 0w3)
                 
                 |   0wxfe =>
                     (
@@ -749,6 +754,8 @@ struct
     |   codeSize (JumpNotEqualLocalConstBB {label, size, localAddr, const}) =
             codeSize(LoadLocal localAddr) + codeSize(PushShort(word8ToWord const)) + 1 +
                 codeSize(JumpInstruction{jumpType=JumpFalse, label=label, size=size})
+    
+    |   codeSize (EnterIntArm64 _) = 12 (* For simplicity we add no-ops before and/or after *)
 
     (* General function to process the code.  ic is the byte counter within the original code. *)
     fun foldCode startIc foldFn ops =
@@ -1201,6 +1208,23 @@ struct
                     [LoadLocal localAddr, PushShort(word8ToWord const), 
                      SimpleCode[opcode_equalWord],
                      JumpInstruction{jumpType=JumpFalse, label=label, size=size}]; ())
+
+       |    genByteCode(EnterIntArm64 b, ic) =
+            let
+                (* The machine code is 8 bytes that must be 32-bit aligned.  There is then
+                   a single byte that indicates the type of enter-int instruction.
+                   We may need up to three bytes to get the alignment.  It is simpler to
+                   define this as a fixed-length (12-byte) instruction and add no-ops afterwards
+                   if necessary. *)
+                val bytesBefore = if Word.andb(ic, 0w3) = 0w0 then 0w0 else 0w4-Word.andb(ic, 0w3)
+                val byteSequence =
+                    List.tabulate(Word.toInt bytesBefore, fn _ => opcode_noop) @
+                    [0wx4f, 0wx03, 0wx40, 0wxf9, 0wxe0, 0wx01, 0wx3f, 0wxd6, b] @
+                    List.tabulate(3 - Word.toInt bytesBefore, fn _ => opcode_noop)
+            in
+                List.app genByte byteSequence
+            end
+
     in
         foldCode 0w0 genByteCode (ops @ paddingBytes);
         (codeVec (* Return the completed code. *), endIC (* And the size. *))
@@ -1308,6 +1332,7 @@ struct
     |   genEnterInt(b, Code { enterIntMode = 1 (* X86_32 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx24, b]]
     |   genEnterInt(b, Code { enterIntMode = 2 (* X86_64 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx48, b]]
     |   genEnterInt(b, Code { enterIntMode = 3 (* X86_32_64 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx48, b]]
+    |   genEnterInt(b, Code { enterIntMode = 4 (* ARM_64 *), ...}) = [EnterIntArm64 b]
     |   genEnterInt _ = raise InternalError "genEnterInt: unknown architecture value"
 
     (* Adds the constants onto the code, and copies the code into a new segment *)

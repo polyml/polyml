@@ -2522,6 +2522,13 @@ int IntTaskData::SwitchToPoly()
             // This is a no-op if we are already interpreting.
             pc += 3; break;
 
+        case INSTR_enterIntArm64:
+            pc += 8; break;
+
+        case INSTR_no_op:
+            // Only used for alignment for ARM64.
+            break;
+
         default: Crash("Unknown instruction %x\n", pc[-1]);
 
         } /* switch */
@@ -3031,7 +3038,7 @@ POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId)
 }
 
 // Do we require EnterInt instructions and if so for which architecture?
-// 0 = > None; 1 => X86_32, 2 => X86_64. 3 => X86_32_in_64.
+// 0 = > None; 1 => X86_32, 2 => X86_64. 3 => X86_32_in_64, 4 => ARM64.
 POLYUNSIGNED PolyInterpretedEnterIntMode()
 {
     return TAGGED(0).AsUnsigned();
