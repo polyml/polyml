@@ -119,7 +119,6 @@ struct
     and opcode_arbAdd            = 0wx4c
     and opcode_arbSubtract       = 0wx4d
     and opcode_arbMultiply       = 0wx4e
-    (*and opcode_enterIntARM64   = 0wx4f*) (* Reserved - the low order byte of a load *)
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
     and opcode_noop              = 0wx52 (* Used for alignment in ARM64 enter-int. *)
@@ -194,6 +193,7 @@ struct
     and opcode_allocWordMemory   = 0wxda
     and opcode_loadMLByte        = 0wxdc
     and opcode_storeMLByte       = 0wxe4
+    (*and opcode_enterIntARM64   = 0wxe9*) (* Reserved - the low order byte of a move *)
     and opcode_blockMoveByte     = 0wxec
     and opcode_blockEqualByte    = 0wxed
     and opcode_blockCompareByte  = 0wxee
@@ -523,7 +523,6 @@ struct
                 |   0wx4c => printStream "arbAdd"
                 |   0wx4d => printStream "arbSubtract"
                 |   0wx4e => printStream "arbMultiply"
-                |   0wx4f => (printStream "enterIntARM64"; ptr := !ptr + 0w8)
                 |   0wx50 => printStream "reset_1"
                 |   0wx51 => printStream "reset_2"
                 |   0wx52 => printStream "noop"
@@ -603,6 +602,7 @@ struct
                 |   0wxda => printStream "allocWordMemory"
                 |   0wxdc => printStream "loadMLByte"
                 |   0wxe4 => printStream "storeMLByte"
+                |   0wxe9 => (printStream "enterIntARM64"; ptr := !ptr + 0w12)
                 |   0wxec => printStream "blockMoveByte"
                 |   0wxed => printStream "blockEqualByte"
                 |   0wxee => printStream "blockCompareByte"
@@ -773,7 +773,7 @@ struct
             codeSize(LoadLocal localAddr) + codeSize(PushShort(word8ToWord const)) + 1 +
                 codeSize(JumpInstruction{jumpType=JumpFalse, label=label, size=size})
     
-    |   codeSize (EnterIntArm64 _) = 12 (* For simplicity we add no-ops before and/or after *)
+    |   codeSize (EnterIntArm64 _) = 16 (* For simplicity we add no-ops before and/or after *)
 
     (* General function to process the code.  ic is the byte counter within the original code. *)
     fun foldCode startIc foldFn ops =
@@ -1246,15 +1246,15 @@ struct
 
        |    genByteCode(EnterIntArm64 b, ic) =
             let
-                (* The machine code is 8 bytes that must be 32-bit aligned.  There is then
+                (* The machine code is 12 bytes that must be 32-bit aligned.  There is then
                    a single byte that indicates the type of enter-int instruction.
                    We may need up to three bytes to get the alignment.  It is simpler to
-                   define this as a fixed-length (12-byte) instruction and add no-ops afterwards
+                   define this as a fixed-length (16-byte) instruction and add no-ops afterwards
                    if necessary. *)
                 val bytesBefore = if Word.andb(ic, 0w3) = 0w0 then 0w0 else 0w4-Word.andb(ic, 0w3)
                 val byteSequence =
                     List.tabulate(Word.toInt bytesBefore, fn _ => opcode_noop) @
-                    [0wx4f, 0wx03, 0wx40, 0wxf9, 0wxe0, 0wx01, 0wx3f, 0wxd6, b] @
+                    [0wxe9, 0wx03, 0wx1e, 0wxaa, 0wx50, 0wx03, 0wx40, 0wxf9, 0wx00, 0wx02, 0wx3f, 0wxd6, b] @
                     List.tabulate(3 - Word.toInt bytesBefore, fn _ => opcode_noop)
             in
                 List.app genByte byteSequence
