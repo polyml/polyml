@@ -270,12 +270,6 @@ public:
     stackItem &reg13() { return assemblyInterface.p_r13; }
     stackItem &reg14() { return assemblyInterface.p_r14; }
 #endif
-
-#if (defined(_WIN32))
-    DWORD savedErrno;
-#else
-    int savedErrno;
-#endif
 };
 
 class X86Dependent: public MachineDependent {
@@ -349,7 +343,6 @@ X86TaskData::X86TaskData(): ByteCodeInterpreter(&assemblyInterface.stackPtr, &as
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
     assemblyInterface.trapHandlerEntry = (byte*)X86TrapHandler;
-    savedErrno = 0;
     interpreterPc = 0;
     mixedCode = !x86Dependent.mustInterpret;
 }
