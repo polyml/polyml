@@ -2308,7 +2308,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             pc += 3; break;
 
         case INSTR_enterIntArm64:
-            pc += 8; break;
+            pc += 12; break;
 
         case INSTR_no_op:
             // Only used for alignment for ARM64.

@@ -17,7 +17,7 @@
 //  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 // The syntax of directives in the GNU assembler and in the MS ARMASM
-// are somewhat different.  ARMASMSYNTAX is defined in the VS project files.
+// are somewhat different.  ARMASMSYNTAX is defined in the VS project files. 
 
 #ifdef ARMASMSYNTAX
 #define LABEL(x) x
@@ -31,6 +31,150 @@
     .section .text,"x"
     .balign 4
 #endif
+
+// Offsets into the assembly code interface
+#define TrapHandlerEntry    32
+#define ThreadId            64
+#define RegisterArray       72
+#define FPRegisterArray     272
+#define LocalMBottom        336
+#define LocalMPointer       344
+#define MLStackPointer      352
+#define LinkRegister        360
+#define EntryPoint          368
+#define ReturnReason        376
+
+#ifdef ARMASMSYNTAX
+    EXPORT Arm64AsmEnterCompiledCode
+Arm64AsmEnterCompiledCode PROC
+#else
+    .global Arm64AsmEnterCompiledCode
+Arm64AsmEnterCompiledCode:
+#endif
+// This is called once the thread has been initialised to run the ML code.
+// It never returns.  The RTS may be entered either by a compiled RTS call
+// or by a call to a "trap" function.
+// We only need to load a subset of the registers.
+    mov     x26,x0      // Copy the address of the assembly-code section into X26
+    ldr     x0,[x26, RegisterArray]             // Argument
+    ldr     x8,[x26, RegisterArray+8*8]         // Closure address
+    ldr     x16,[x8]                            // Code address - first word of closure
+    ldr     x25,[x26, LocalMBottom]             // Limit of heap
+    ldp     x27,x28,[x26, LocalMPointer]        // Allocation pointer and stack pointer
+    ldr     x30,[x26, LinkRegister]             // Link register - always zero because we don't return
+
+    br      x16                                 // Jump to code
+
+
+#ifdef ARMASMSYNTAX
+    ENDP
+#endif
+
+#ifdef ARMASMSYNTAX
+    EXPORT Arm64AsmCallExtraRETURN_HEAP_OVERFLOW
+Arm64AsmCallExtraRETURN_HEAP_OVERFLOW PROC
+#else
+    .global Arm64AsmCallExtraRETURN_HEAP_OVERFLOW
+Arm64AsmCallExtraRETURN_HEAP_OVERFLOW :
+#endif
+
+    mov     x16, 1
+
+    // Common code to call into the RTS
+LABEL(trapHandle)
+    strb    w16,[x26, ReturnReason]
+    stp     x0,x1,[x26, RegisterArray]
+    stp     x2,x3, [x26, RegisterArray+2*8]
+    stp     x4,x5, [x26, RegisterArray + 4*8]
+    stp     x6, x7, [x26, RegisterArray + 6*8]
+    stp     x8, x9, [x26, RegisterArray + 8*8]
+    stp     x10, x11, [x26, RegisterArray + 10*8]
+    stp     x12, x13, [x26, RegisterArray + 12*8]
+    stp     x14, x15, [x26, RegisterArray + 14*8]
+    stp     x19, x20, [x26, RegisterArray + 19 * 8]
+    stp     x21,x22,[x26, RegisterArray + 21 * 8]
+    stp     x23,x24, [x26, RegisterArray + 23 * 8]
+    stp     d0,d1,[x26, FPRegisterArray]
+    stp     d2,d3,[x26, FPRegisterArray+2*8]
+    stp     d4,d5,[x26, FPRegisterArray+4*8]
+    stp     d6,d7,[x26, FPRegisterArray+6*8]
+    str     x27,[x26,LocalMPointer]
+    str     x28,[x26,MLStackPointer]
+    str     x30,[x26,LinkRegister]
+    ldr     x0,[x26,ThreadId]           // Pass the thread id as an argument so that we can get the task data
+    ldr     x16,[x26,TrapHandlerEntry]
+    blr     x16
+    // Load the registers.  Even though some are callee-save the RTS may have updated them.
+    // x26, though, should have been preserved.
+    ldp     x0,x1,[x26, RegisterArray]
+    ldp     x2,x3, [x26, RegisterArray+2*8]
+    ldp     x4,x5, [x26, RegisterArray + 4*8]
+    ldp     x6, x7, [x26, RegisterArray + 6*8]
+    ldp     x8, x9, [x26, RegisterArray + 8*8]
+    ldp     x10, x11, [x26, RegisterArray + 10*8]
+    ldp     x12, x13, [x26, RegisterArray + 12*8]
+    ldp     x14, x15, [x26, RegisterArray + 14*8]
+    ldp     x19, x20, [x26, RegisterArray + 19 * 8]
+    ldp     x21,x22,[x26, RegisterArray + 21 * 8]
+    ldp     x23,x24, [x26, RegisterArray + 23 * 8]
+    ldp     d0,d1,[x26, FPRegisterArray]
+    ldp     d2,d3,[x26, FPRegisterArray+2*8]
+    ldp     d4,d5,[x26, FPRegisterArray+4*8]
+    ldp     d6,d7,[x26, FPRegisterArray+6*8]
+    ldr     x25,[x26, LocalMBottom]
+    ldp     x27,x28,[x26,LocalMPointer]
+    ldr     x30,[x26,LinkRegister]
+    ldr     x16,[x26,EntryPoint]        // Normally this will be x30 but not always
+    br      x16
+
+#ifdef ARMASMSYNTAX
+    ENDP
+#endif
+#ifdef ARMASMSYNTAX
+    EXPORT Arm64AsmCallExtraRETURN_STACK_OVERFLOW
+Arm64AsmCallExtraRETURN_STACK_OVERFLOW PROC
+#else
+    .global Arm64AsmCallExtraRETURN_STACK_OVERFLOW
+Arm64AsmCallExtraRETURN_STACK_OVERFLOW :
+#endif
+
+    mov     x16, 2
+    b       trapHandle
+
+#ifdef ARMASMSYNTAX
+    ENDP
+#endif
+
+#ifdef ARMASMSYNTAX
+    EXPORT Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX
+Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX PROC
+#else
+    .global Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX
+Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX :
+#endif
+
+    mov     x16, 3
+    b       trapHandle
+
+#ifdef ARMASMSYNTAX
+    ENDP
+#endif
+#ifdef ARMASMSYNTAX
+    EXPORT Arm64AsmCallExtraRETURN_ENTER_INTERPRETER
+Arm64AsmCallExtraRETURN_ENTER_INTERPRETER PROC
+#else
+    .global Arm64AsmCallExtraRETURN_ENTER_INTERPRETER
+Arm64AsmCallExtraRETURN_ENTER_INTERPRETER :
+#endif
+
+    mov     x16,4
+    b       trapHandle
+
+#ifdef ARMASMSYNTAX
+    ENDP
+#endif
+
+
 
 // POLYUNSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject*, POLYSIGNED);
 // This is not actually used with the VS build.
