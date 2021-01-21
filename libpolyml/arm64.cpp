@@ -418,6 +418,7 @@ void Arm64TaskData::Interpret()
                 // continue.
                 interpreterPc = (POLYCODEPTR)cp;
                 assemblyInterface.stackPtr--;
+                HandleStackOverflow(128); // Make sure we have space since we're bypassing the check.
                 continue;
             }
             assemblyInterface.registers[8] = closureWord; // Put closure in the closure reg.
