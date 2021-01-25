@@ -185,7 +185,8 @@ public:
 
     // Create a task data object.
     virtual TaskData* CreateTaskData(void) { return new Arm64TaskData(); }
-    virtual Architectures MachineArchitecture(void) { return MA_Arm64; }
+
+    virtual Architectures MachineArchitecture(void);
 
     virtual void SetBootArchitecture(char arch, unsigned wordLength);
 
@@ -199,6 +200,14 @@ public:
 static Arm64Dependent arm64Dependent;
 
 MachineDependent* machineDependent = &arm64Dependent;
+
+Architectures Arm64Dependent::MachineArchitecture(void)
+{
+    // During the first phase of the bootstrap we
+    // compile the interpreted version.
+    if (mustInterpret) return MA_Interpreted;
+    return MA_Arm64;
+}
 
 // Values for the returnReason byte
 enum RETURN_REASON {
@@ -604,7 +613,6 @@ void Arm64TaskData::InitStackFrame(TaskData* parentTask, Handle proc)
 {
     StackSpace* space = this->stack;
     StackObject* stack = (StackObject*)space->stack();
-    PolyObject* closure = DEREFWORDHANDLE(proc);
     uintptr_t stack_size = space->spaceSize() * sizeof(PolyWord) / sizeof(stackItem);
     assemblyInterface.stackPtr = (stackItem*)stack + stack_size;
     assemblyInterface.stackLimit = (stackItem*)space->bottom + OVERFLOW_STACK_SIZE;
@@ -775,6 +783,7 @@ POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function)
     taskData->PreRTSCall();
     Handle pushedFunction = taskData->saveVec.push(function);
     arm64Dependent.mustInterpret = false;
+    ((Arm64TaskData*)taskData)->EndBootStrap();
     taskData->InitStackFrame(taskData, pushedFunction);
     taskData->EnterPolyCode();
     // Should never return.
