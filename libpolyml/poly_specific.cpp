@@ -59,9 +59,7 @@
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetABI();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableCode(FirstArgument threadId, PolyWord byteSeg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, PolyWord closure);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyCopyByteVecToCode(FirstArgument threadId, PolyWord byteVec);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyCopyByteVecToClosure(FirstArgument threadId, PolyWord byteVec, PolyWord closure);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord c, PolyWord flags);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(PolyWord closure, PolyWord offset, PolyWord c);
@@ -172,38 +170,6 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetABI()
 // Code generation - Code is initially allocated in a byte segment.  When all the
 // values have been set apart from any addresses the byte segment is copied into
 // a mutable code segment.
-// PolyCopyByteVecToCode is now replaced by PolyCopyByteVecToClosure
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyCopyByteVecToCode(FirstArgument threadId, PolyWord byteVec)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedArg = taskData->saveVec.push(byteVec);
-    PolyObject *result = 0;
-
-    try {
-        if (!pushedArg->WordP()->IsByteObject())
-            raise_fail(taskData, "Not byte data area");
-        do {
-            PolyObject *initCell = pushedArg->WordP();
-            POLYUNSIGNED requiredSize = initCell->Length();
-            result = gMem.AllocCodeSpace(requiredSize);
-            if (result == 0)
-            {
-                // Could not allocate - must GC.
-                if (!QuickGC(taskData, pushedArg->WordP()->Length()))
-                    raise_fail(taskData, "Insufficient memory");
-            }
-            else memcpy(result, initCell, requiredSize * sizeof(PolyWord));
-        } while (result == 0);
-    }
-    catch (...) {} // If an ML exception is raised
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    return ((PolyWord)result).AsUnsigned();
-}
 
 // Copy the byte vector into code space.
 POLYUNSIGNED PolyCopyByteVecToClosure(FirstArgument threadId, PolyWord byteVec, PolyWord closure)
@@ -251,37 +217,6 @@ POLYUNSIGNED PolyCopyByteVecToClosure(FirstArgument threadId, PolyWord byteVec, 
 // Code generation - Lock a mutable code segment and return the original address.
 // Currently this does not allocate so other than the exception it could
 // be a fast call.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableCode(FirstArgument threadId, PolyWord byteSeg)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedArg = taskData->saveVec.push(byteSeg);
-    Handle result = 0;
-
-    try {
-        PolyObject *codeObj = pushedArg->WordP();
-        if (!codeObj->IsCodeObject() || !codeObj->IsMutable())
-            raise_fail(taskData, "Not mutable code area");
-        POLYUNSIGNED segLength = codeObj->Length();
-        codeObj->SetLengthWord(segLength, F_CODE_OBJ);
-        // This is really a legacy of the PPC code-generator.
-        machineDependent->FlushInstructionCache(codeObj, segLength * sizeof(PolyWord));
-        // In the future it may be necessary to return a different address here.
-        // N.B.  The code area should only have execute permission in the native
-        // code version, not the interpreted version.
-        result = pushedArg; // Return the original address.
-    }
-    catch (...) {} // If an ML exception is raised
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
-}
-
-// Replacement for above
 POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, PolyWord closure)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
@@ -453,9 +388,7 @@ struct _entrypts polySpecificEPT[] =
 {
     { "PolySpecificGeneral",            (polyRTSFunction)&PolySpecificGeneral},
     { "PolyGetABI",                     (polyRTSFunction)&PolyGetABI },
-    { "PolyCopyByteVecToCode",          (polyRTSFunction)&PolyCopyByteVecToCode },
     { "PolyCopyByteVecToClosure",       (polyRTSFunction)&PolyCopyByteVecToClosure },
-    { "PolyLockMutableCode",            (polyRTSFunction)&PolyLockMutableCode },
     { "PolyLockMutableClosure",         (polyRTSFunction)&PolyLockMutableClosure },
     { "PolySetCodeConstant",            (polyRTSFunction)&PolySetCodeConstant },
     { "PolySetCodeByte",                (polyRTSFunction)&PolySetCodeByte },
