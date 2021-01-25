@@ -19,24 +19,47 @@ functor Arm64GenCode (
     structure FallBackCG: GENCODESIG
     and       BackendTree: BackendIntermediateCodeSig
     and       CodeArray: CODEARRAYSIG
+    and       Arm64Assembly: Arm64Assembly
     
-    sharing FallBackCG.Sharing = BackendTree.Sharing = CodeArray.Sharing
+    sharing FallBackCG.Sharing = BackendTree.Sharing = CodeArray.Sharing = Arm64Assembly.Sharing
 ) : GENCODESIG =
 struct
 
-    open BackendTree CodeArray
+    open BackendTree CodeArray Arm64Assembly Address
     
     exception Fallback
     
-    fun gencodeLambda(lambda, args, closureRef) =
-    (
-        raise Fallback
-    )
-    (* If we can't do it fall back to the interpreter. *)
-    handle Fallback => FallBackCG.gencodeLambda(lambda, args, closureRef)
+    fun codegen (pt, cvec, resultClosure, numOfArgs, localCount, parameters) =
+    let
+        val maxStack = ref 0
+        
+        fun genCode (BICConstnt(w, _)) =
+            if isShort w andalso toShort w = 0w0 then () else raise Fallback
+        |   genCode _ = raise Fallback
+        
+        val () = genCode pt
+        
+        fun breakHere () = ()
+        val () = breakHere()
+    in
+        copyCode{code = cvec, maxStack = !maxStack, resultClosure=resultClosure, numberOfArguments=numOfArgs}
+    end
     
     
-    
+    fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
+    (let
+        (* make the code buffer for the new function. *)
+        val newCode : code = codeCreate (name, parameters)
+        (* This function must have no non-local references. *)
+        
+        val _ =
+            case (argTypes, localCount) of
+                ([GeneralType], 0) => ()
+            |   _ => raise Fallback
+    in
+        codegen (body, newCode, closure, List.length argTypes, localCount, parameters)
+    end) handle Fallback => FallBackCG.gencodeLambda(lambda, parameters, closure)
+
     structure Foreign: FOREIGNCALLSIG =
     struct
         open FallBackCG.Foreign

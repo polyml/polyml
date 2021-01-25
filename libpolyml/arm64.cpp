@@ -189,6 +189,9 @@ public:
 
     virtual void SetBootArchitecture(char arch, unsigned wordLength);
 
+    // The ARM has separate instruction and data caches.
+    virtual void FlushInstructionCache(void* p, POLYUNSIGNED bytes);
+
     // During the first bootstrap phase this is interpreted.
     bool mustInterpret;
 };
@@ -238,6 +241,21 @@ void Arm64Dependent::SetBootArchitecture(char arch, unsigned wordLength)
         mustInterpret = true;
     else if (arch != 'A')
         Crash("Boot file has unexpected architecture code: %c", arch);
+}
+
+// The ARM has separate instruction and data caches so we must flush
+// the cache when creating or modifying code.
+void Arm64Dependent::FlushInstructionCache(void* p, POLYUNSIGNED bytes)
+{
+#ifdef _WIN32
+    ::FlushInstructionCache(GetCurrentProcess(), p, bytes);
+#elif defined (__GNUC__)
+    __builtin___clear_cache(p, (char*)p + bytes);
+#elif (defined (__clang__) && defined (__APPLE__))
+    sys_icache_invalidate(p, bytes);
+#else
+#error "No code to flush the instruction cache."
+#endif
 }
 
 void Arm64TaskData::GarbageCollect(ScanAddress *process)

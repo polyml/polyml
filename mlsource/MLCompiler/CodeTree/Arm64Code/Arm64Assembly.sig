@@ -15,21 +15,22 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-local
-    structure FallBackCG = ByteCode
+signature Arm64Assembly =
+sig
+    type code
+    type closureRef
     
-    structure Arm64Assembly =
-        ARM64ASSEMBLY (
-            structure Debug = Debug
-            and       Pretty = Pretty
-            and       CodeArray = CODE_ARRAY
-        )
-in
-    structure Arm64Code =
-        Arm64GenCode(
-            structure FallBackCG = FallBackCG
-            and       BackendTree = BackendIntermediateCode
-            and       CodeArray   = CODE_ARRAY
-            and       Arm64Assembly = Arm64Assembly
-        )
+    (* Create a code value for the function. *)
+    val codeCreate: string * Universal.universal list -> code
+    
+    
+    (* copyCode - create the vector of code and update the closure reference to
+       point to it. *)
+    val copyCode: {code: code, maxStack: int, numberOfArguments: int, resultClosure: closureRef} -> unit
+
+    structure Sharing:
+    sig
+        type code = code
+        type closureRef = closureRef
+    end
 end;
