@@ -26,7 +26,7 @@ sig
     
     (* copyCode - create the vector of code and update the closure reference to
        point to it. *)
-    val copyCode: {code: code, maxStack: int, numberOfArguments: int, resultClosure: closureRef} -> unit
+    val generateCode: {code: code, maxStack: int, resultClosure: closureRef} -> unit
 
     structure Sharing:
     sig

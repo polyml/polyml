@@ -42,7 +42,7 @@ struct
         fun breakHere () = ()
         val () = breakHere()
     in
-        copyCode{code = cvec, maxStack = !maxStack, resultClosure=resultClosure, numberOfArguments=numOfArgs}
+        generateCode{code = cvec, maxStack = !maxStack, resultClosure=resultClosure}
     end
     
     
