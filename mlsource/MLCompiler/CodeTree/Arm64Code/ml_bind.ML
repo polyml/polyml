@@ -31,5 +31,6 @@ in
             and       BackendTree = BackendIntermediateCode
             and       CodeArray   = CODE_ARRAY
             and       Arm64Assembly = Arm64Assembly
+            and       Debug = Debug
         )
 end;

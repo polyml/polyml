@@ -28,6 +28,8 @@ sig
        point to it. *)
     val generateCode: {code: code, maxStack: int, resultClosure: closureRef} -> unit
 
+    exception Fallback (* During development only. *)
+
     structure Sharing:
     sig
         type code = code

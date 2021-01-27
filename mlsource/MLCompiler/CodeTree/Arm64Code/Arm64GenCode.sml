@@ -20,14 +20,13 @@ functor Arm64GenCode (
     and       BackendTree: BackendIntermediateCodeSig
     and       CodeArray: CODEARRAYSIG
     and       Arm64Assembly: Arm64Assembly
+    and       Debug: DEBUG
     
     sharing FallBackCG.Sharing = BackendTree.Sharing = CodeArray.Sharing = Arm64Assembly.Sharing
 ) : GENCODESIG =
 struct
 
     open BackendTree CodeArray Arm64Assembly Address
-    
-    exception Fallback
     
     fun codegen (pt, cvec, resultClosure, numOfArgs, localCount, parameters) =
     let
@@ -48,6 +47,9 @@ struct
     
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
     (let
+        val debugSwitchLevel = Debug.getParameter Debug.compilerDebugTag parameters
+        val _ = debugSwitchLevel <> 0 orelse raise Fallback
+    
         (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (name, parameters)
         (* This function must have no non-local references. *)
