@@ -1,7 +1,7 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019-20
+    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -250,6 +250,7 @@ local
     and codetreeAfterOpt = ref false
     and icode = ref false
     and parsetree = ref false
+    and compilerDebug = ref 0
     and reportUnreferencedIds = ref false
     and reportExhaustiveHandlers = ref false
     and narrowOverloadFlexRecord = ref false
@@ -523,6 +524,7 @@ local
                     tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                     tagInject assemblyCodeTag (! assemblyCode),
                     tagInject codetreeAfterOptTag (! codetreeAfterOpt),
+                    tagInject compilerDebugTag (! compilerDebug),
                     tagInject profileAllocationTag (FixedInt.fromInt allocProfiling),
                     tagInject errorDepthTag (FixedInt.fromInt(! errorDepth)),
                     tagInject printDepthFunTag (FixedInt.fromInt o printDepth),
@@ -1231,7 +1233,7 @@ in
             and codetreeAfterOpt = codetreeAfterOpt and icode = icode
             and parsetree = parsetree and reportUnreferencedIds = reportUnreferencedIds
             and lowlevelOptimise = lowlevelOptimise and reportExhaustiveHandlers = reportExhaustiveHandlers
-            and narrowOverloadFlexRecord = narrowOverloadFlexRecord
+            and narrowOverloadFlexRecord = narrowOverloadFlexRecord and compilerDebug = compilerDebug
             and createPrintFunctions = createPrintFunctions
             and reportDiscardFunction = reportDiscardFunction
             and reportDiscardNonUnit = reportDiscardNonUnit
@@ -1996,7 +1998,8 @@ in
                             tagInject icodeTag (! icode),
                             tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                             tagInject assemblyCodeTag (! assemblyCode),
-                            tagInject codetreeAfterOptTag (! codetreeAfterOpt)
+                            tagInject codetreeAfterOptTag (! codetreeAfterOpt),
+                            tagInject compilerDebugTag (! compilerDebug)
                         ], numLocals)
                 end
         end

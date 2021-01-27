@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2016, 2020 David C.J. Matthews
+    Copyright (c) 2013-2016, 2020-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -22,6 +22,7 @@ sig
     val bindingCounterTag : (unit -> FixedInt.int) Universal.tag
     val codetreeAfterOptTag : bool Universal.tag
     val codetreeTag : bool Universal.tag
+    val compilerDebugTag: int Universal.tag
     val createPrintFunctionsTag : bool Universal.tag
     val debugTag : bool Universal.tag
     val defaults : Universal.universal list

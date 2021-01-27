@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008, 2013, 2015-16, 2020.
+    Modified David C.J. Matthews 2008, 2013, 2015-16, 2020-21.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -63,6 +63,9 @@ struct
         val lowlevelOptimiseTag: bool tag            = tag()
         (* Print assembly code in code-generator? default false *)
         val assemblyCodeTag: bool tag                = tag()
+        (* General switch for compiler debugging.  Generally does nothing. *)
+        val compilerDebugTag: int tag                = tag()
+
         (* Report unreferenced identifiers as warnings *)
         val reportUnreferencedIdsTag: bool tag       = tag()
         (* Report catch-all handlers as warnings *)
@@ -76,7 +79,7 @@ struct
         val reportDiscardNone     = 0: FixedInt.int (* No reports *)
         and reportDiscardFunction = 1: FixedInt.int (* Only report discarded functions *)
         and reportDiscardNonUnit  = 2: FixedInt.int (* Report discarding any non unit values *)
-        
+         
         (* To avoid circularity of dependencies a few tags are defined
            elsewhere:  *)
         (* ValueOps.printSpaceTag: ValueOps.nameSpace tag
@@ -102,6 +105,7 @@ struct
             tagInject lowlevelOptimiseTag true,
             tagInject assemblyCodeTag false,
             tagInject codetreeAfterOptTag false,
+            tagInject compilerDebugTag 0,
             tagInject errorDepthTag 6,
             tagInject printDepthFunTag (fn () => 0),
             tagInject lineLengthTag 77,
