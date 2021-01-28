@@ -28,18 +28,37 @@ struct
 
     open BackendTree CodeArray Arm64Assembly Address
     
+    (* tag a short constant *)
+    fun tag c = 2 * c + 1
+  
+    (* shift a short constant, but don't set tag bit *)
+    fun semitag c = 2 * c
+
+    
     fun codegen (pt, cvec, resultClosure, numOfArgs, localCount, parameters) =
     let
         val maxStack = ref 0
-        
+        val () = genPushReg (X0, cvec)
+        val () = genPushReg (X30, cvec)
+               
         fun genCode (BICConstnt(w, _)) =
-            if isShort w andalso toShort w = 0w0 then () else raise Fallback
+            if isShort w andalso toShort w < 0w32768 (* So tagged value will fit. *)
+            then
+            let
+                val cVal = tag(Word.toInt(toShort w))
+            in
+                genMoveShortConstToReg(X0, cVal, cvec); genPushReg(X0, cvec)
+            end
+            else raise Fallback
+            
         |   genCode _ = raise Fallback
         
         val () = genCode pt
-        
-        fun breakHere () = ()
-        val () = breakHere()
+
+        val () = genPopReg(X0, cvec)
+        val () = genPopReg(X30, cvec)
+        val () = genIncMLSP1 cvec
+        val () = genRetCode cvec
     in
         generateCode{code = cvec, maxStack = !maxStack, resultClosure=resultClosure}
     end

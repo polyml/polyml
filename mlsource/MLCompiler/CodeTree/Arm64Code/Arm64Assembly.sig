@@ -19,11 +19,42 @@ signature Arm64Assembly =
 sig
     type code
     type closureRef
+    type instr
     
     (* Create a code value for the function. *)
     val codeCreate: string * Universal.universal list -> code
+
+    type xReg
+    val X0:  xReg   and X1:  xReg   and X2:  xReg   and X3: xReg
+    and X4:  xReg   and X5:  xReg   and X6:  xReg   and X7: xReg
+    and X8:  xReg   and X9:  xReg   and X10: xReg   and X11: xReg
+    and X12: xReg   and X13: xReg   and X14: xReg   and X15: xReg
+    and X16: xReg   and X17: xReg   and X18: xReg   and X19: xReg
+    and X20: xReg   and X21: xReg   and X22: xReg   and X23: xReg
+    and X24: xReg   and X25: xReg   and X26: xReg   and X27: xReg
+    and X28: xReg   and X29: xReg   and X30: xReg
     
+    (* XZero and XSP are both encoded as 31 but the interpretation
+       depends on the instruction *)
+    val XZero: xReg and XSP: xReg
     
+    val X_MLHeapLimit: xReg (* ML Heap limit pointer *)
+    and X_MLAssemblyInt: xReg (* ML assembly interface pointer. *)
+    and X_MLHeapAllocPtr: xReg (* ML Heap allocation pointer. *)
+    and X_MLStackPtr: xReg (* ML Stack pointer. *)
+    and X_LinkReg: xReg (* Link reg - return address *)
+
+    val genRetCode: code -> unit
+    and genIncMLSP1: code -> unit
+    
+    (* Push a register to the ML stack *)
+    val genPushReg: xReg * code -> unit
+    (* Pop a register from the ML stack. *)
+    val genPopReg: xReg * code -> unit
+
+    (* Move a short constant to a register.  Currently limited to unsigned 16-bits. *)
+    val genMoveShortConstToReg: xReg * int * code -> unit
+
     (* copyCode - create the vector of code and update the closure reference to
        point to it. *)
     val generateCode: {code: code, maxStack: int, resultClosure: closureRef} -> unit
@@ -34,5 +65,7 @@ sig
     sig
         type code = code
         type closureRef = closureRef
+        type instr = instr
+        type xReg = xReg
     end
 end;

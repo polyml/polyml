@@ -36,10 +36,46 @@ struct
 
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
+    
+    type instr = word
+    
+    
+    datatype xReg = XReg of Word8.word | XZero | XSP
+    
+    (* 31 in the register field can either mean the zero register or
+       the hardware stack pointer.  Which meaning depends on the instruction. *)
+    fun xRegOrXZ(XReg w) = w
+    |   xRegOrXZ XZero = 0w31
+    |   xRegOrXZ XSP = raise InternalError "XSP not valid here"
+    
+    and xRegOrXSP(XReg w) = w
+    |   xRegOrXSP XZero = raise InternalError "XZero not valid here"
+    |   xRegOrXSP XSP = 0w31
+    
+    (* There are cases where it isn't clear. *)
+    and xRegOnly (XReg w) = w
+    |   xRegOnly XZero = raise InternalError "XZero not valid here"
+    |   xRegOnly XSP = raise InternalError "XSP not valid here"
+
+    val X0  = XReg 0w0  and X1  = XReg 0w1  and X2 = XReg 0w2   and X3  = XReg 0w3
+    and X4  = XReg 0w4  and X5  = XReg 0w5  and X6 = XReg 0w6   and X7  = XReg 0w7
+    and X8  = XReg 0w8  and X9  = XReg 0w9  and X10= XReg 0w10  and X11 = XReg 0w11
+    and X12 = XReg 0w12 and X13 = XReg 0w13 and X14= XReg 0w14  and X15 = XReg 0w15
+    and X16 = XReg 0w16 and X17 = XReg 0w17 and X18= XReg 0w18  and X19 = XReg 0w19
+    and X20 = XReg 0w20 and X21 = XReg 0w21 and X22= XReg 0w22  and X23 = XReg 0w23
+    and X24 = XReg 0w24 and X25 = XReg 0w25 and X26= XReg 0w26  and X27 = XReg 0w27
+    and X28 = XReg 0w28 and X29 = XReg 0w29 and X30= XReg 0w30
+    
+    val X_MLHeapLimit       = X25 (* ML Heap limit pointer *)
+    and X_MLAssemblyInt     = X26 (* ML assembly interface pointer. *)
+    and X_MLHeapAllocPtr    = X27 (* ML Heap allocation pointer. *)
+    and X_MLStackPtr        = X28 (* ML Stack pointer. *)
+    and X_LinkReg           = X30 (* Link reg - return address *)
 
     datatype code =
     Code of 
     {
+        instructions:   instr list ref,        (* Code in reverse order. *)
         constVec:       machineWord list ref, (* Constant area constant values. *)
         functionName:   string,               (* Name of the function. *)
         printAssemblyCode:bool,               (* Whether to print the code when we finish. *)
@@ -51,23 +87,42 @@ struct
         val printStream = Pretty.getSimplePrinter(parameters, [])
     in
         Code
-        { 
+        {
+            instructions     = ref nil,
             constVec         = ref [],
             functionName     = name,
             printAssemblyCode = Debug.getParameter Debug.assemblyCodeTag parameters,
             printStream    = printStream
         }
     end
+    
+    fun addInstr (instr, Code{instructions, ...}) =
+        instructions := instr :: ! instructions
 
     val retCode  = 0wxD65F03C0
     and nopCode  = 0wxD503201F
-    and mov1ToX0 = 0wxD2800020
-    and pushX0   = 0wxF81F8F80
-    and pushX30  = 0wxF81F8F9E
-    and popX0    = 0wxF8408780
-    and popX30   = 0wxF840879E
     and incMLSP1 = 0wx9100239C
     
+    
+    fun genRetCode code = addInstr(retCode, code)
+    and genIncMLSP1 code = addInstr(incMLSP1, code)
+    
+    (* Push a register to the ML stack. This uses a pre-increment store to x28 *)
+    fun genPushReg(xReg, code) =
+        addInstr(0wxF81F8F80 orb word8ToWord(xRegOnly xReg), code)
+    
+    (* Pop a register from the ML stack. *)
+    fun genPopReg(xReg, code) =
+        addInstr(0wxF8408780 orb word8ToWord(xRegOnly xReg), code)
+    
+    
+    (* Move an unsigned constant into the low 16-bits of a register. *)
+    fun genMoveShortConstToReg(xReg, constnt, code) =
+    if constnt < 0 orelse constnt >= 65536
+    then raise InternalError "genMoveShortConstToReg: constant out of range"
+    else addInstr(0wxD2800000 orb (Word.fromInt constnt << 0w5) orb word8ToWord(xRegOnly xReg), code)
+    
+    (* Size of each code word. *)
     fun codeSize _ = 1 (* Number of 32-bit words *)
 
     fun foldCode startIc foldFn ops =
@@ -166,8 +221,8 @@ struct
                 val rD = wordValue andb 0wx1f
                 val imm16 = (wordValue andb 0wx1fffe) >> 0w5
             in
-                printStream "mov\tx"; printStream(Int.toString(Word.toInt rD));
-                printStream ",#"; printStream(Word.toString imm16)
+                printStream "mov\tx"; printStream(Word.fmt StringCvt.DEC rD);
+                printStream ",#"; printStream(Word.fmt StringCvt.DEC imm16)
             end
 
             else if (wordValue andb 0wxffe00c00) = 0wxF8000C00
@@ -179,11 +234,11 @@ struct
                 and imm9 = (wordValue andb 0wx1ff000) >> 0w12
                 val imm9Text =
                     if imm9 > 0wxff
-                    then "-" ^ Word.toString(0wx200 - imm9)
-                    else Word.toString imm9
+                    then "-" ^ Word.fmt StringCvt.DEC (0wx200 - imm9)
+                    else Word.fmt StringCvt.DEC imm9
             in
-                printStream "str\tx"; printStream(Int.toString(Word.toInt rT));
-                printStream ",[x"; printStream(Int.toString(Word.toInt rN));
+                printStream "str\tx"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
                 printStream ",#"; printStream imm9Text; printStream "]!"
             end
 
@@ -196,11 +251,11 @@ struct
                 and imm9 = (wordValue andb 0wx1ff000) >> 0w12
                 val imm9Text =
                     if imm9 > 0wxff
-                    then "-" ^ Word.toString(0wx200 - imm9)
-                    else Word.toString imm9
+                    then "-" ^ Word.fmt StringCvt.DEC(0wx200 - imm9)
+                    else Word.fmt StringCvt.DEC imm9
             in
-                printStream "ldr\tx"; printStream(Int.toString(Word.toInt rT));
-                printStream ",[x"; printStream(Int.toString(Word.toInt rN)); printStream "],#";
+                printStream "ldr\tx"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN); printStream "],#";
                 printStream imm9Text
             end
 
@@ -212,13 +267,10 @@ struct
                 and rN = (wordValue andb 0wx3e0) >> 0w5
                 and imm16 = (wordValue andb 0wx3ffc00) >> 0w10
             in
-                printStream "add\tx"; printStream(Int.toString(Word.toInt rD));
-                printStream ",x"; printStream(Int.toString(Word.toInt rN));
-                printStream ",#"; printStream(Word.toString imm16)
+                printStream "add\tx"; printStream(Word.fmt StringCvt.DEC rD);
+                printStream ",x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ",#"; printStream(Word.fmt StringCvt.DEC imm16)
             end
-
-            (*else if wordValue = 0wx9100239C
-            then printStream "add\tx28,x28,#8"*)
 
             else printStream "?"
             ;
@@ -235,12 +287,12 @@ struct
     end
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun generateCode {code as Code{ printAssemblyCode, printStream, functionName, constVec, ...},
+    fun generateCode {code as Code{ instructions = ref instrs, printAssemblyCode, printStream, functionName, constVec, ...},
                       maxStack, resultClosure} =
     let
+
         local
-            (*val codeList = [mov1ToX0, retCode]*)
-            val codeList = [pushX0, pushX30, mov1ToX0, pushX0, popX0, popX30, incMLSP1, retCode]
+            val codeList = List.rev instrs
             (* Add a stack check.  We need to do this for native code. *)
         in
             val codeList =
@@ -310,6 +362,8 @@ struct
     struct
         type code = code
         type closureRef = closureRef
+        type instr = instr
+        type xReg = xReg
     end
 end;
 
