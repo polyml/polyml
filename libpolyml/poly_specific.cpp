@@ -62,6 +62,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, PolyWord closure);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyCopyByteVecToClosure(FirstArgument threadId, PolyWord byteVec, PolyWord closure);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord c, PolyWord flags);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeConstant(PolyWord closure, PolyWord offset, PolyWord flags);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(PolyWord closure, PolyWord offset, PolyWord c);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeByte(PolyWord closure, PolyWord offset);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(PolyWord array);
@@ -315,6 +316,31 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
     return TAGGED(0).AsUnsigned();
 }
 
+// Get a code constant.  This is only used for debugging.
+POLYUNSIGNED PolyGetCodeConstant(PolyWord closure, PolyWord offset, PolyWord flags)
+{
+    byte* pointer = *(POLYCODEPTR*)(closure.AsObjPtr());
+    // offset is a byte offset
+    pointer += offset.UnTaggedUnsigned();
+    switch (UNTAGGED(flags))
+    {
+    case 0: // Absolute constant - size PolyWord
+    {
+        POLYUNSIGNED c = 0;
+#ifdef WORDS_BIGENDIAN
+        for (unsigned i = 0; i < sizeof(PolyWord); i++)
+            c = (c << 8) | pointer[i];
+#else
+        for (unsigned i = sizeof(PolyWord); i > 0; i--)
+            c = (c << 8) | pointer[i-1];
+#endif
+        return c;
+    }
+    }
+    // For the moment just handle that case.
+    return TAGGED(0).AsUnsigned();
+}
+
 // Set a code byte.  This needs to be in the RTS because it uses the closure
 POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(PolyWord closure, PolyWord offset, PolyWord cWord)
 {
@@ -391,6 +417,7 @@ struct _entrypts polySpecificEPT[] =
     { "PolyCopyByteVecToClosure",       (polyRTSFunction)&PolyCopyByteVecToClosure },
     { "PolyLockMutableClosure",         (polyRTSFunction)&PolyLockMutableClosure },
     { "PolySetCodeConstant",            (polyRTSFunction)&PolySetCodeConstant },
+    { "PolyGetCodeConstant",            (polyRTSFunction)&PolyGetCodeConstant },
     { "PolySetCodeByte",                (polyRTSFunction)&PolySetCodeByte },
     { "PolyGetCodeByte",                (polyRTSFunction)&PolyGetCodeByte },
     { "PolySortArrayOfAddresses",       (polyRTSFunction)&PolySortArrayOfAddresses },

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2017 David C.J. Matthews
+    Copyright (c) 2017, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -31,6 +31,7 @@ sig
     val codeVecSet:             codeVec * word * Word8.word -> unit
     val codeVecAddr:            codeVec -> address
     val codeVecPutWord:         codeVec * word * machineWord -> unit
+    and codeVecGetWord:         codeVec * word -> machineWord
     
     datatype constantType = ConstAbsolute | ConstX86Relative
     

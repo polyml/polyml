@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2017, 2019, 2020 David C.J. Matthews
+    Copyright (c) 2017, 2019-21 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -124,6 +124,13 @@ struct
         (* Used to set constants in the constant area. *)
         fun codeVecPutWord(addr, wordIndex, value) =
             setCodeConstantCall(addr, wordIndex * wordSize, value, 0w0)
+    end
+    
+    local
+        val getCodeConstantCall = RunCall.rtsCallFast3 "PolyGetCodeConstant"
+    in
+        fun codeVecGetWord(addr, wordIndex): machineWord =
+            getCodeConstantCall(addr, wordIndex * wordSize, 0w0)
     end
 
     structure Sharing =
