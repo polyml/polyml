@@ -49,7 +49,7 @@ struct
             in
                 genMoveShortConstToReg(X0, cVal, cvec); genPushReg(X0, cvec)
             end
-            else raise Fallback
+            else (genLoadConstant(X0, w, cvec); genPushReg(X0, cvec))
             
         |   genCode _ = raise Fallback
         

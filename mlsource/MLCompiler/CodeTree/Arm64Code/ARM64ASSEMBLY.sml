@@ -37,11 +37,12 @@ struct
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
     
-    type instr = word
-    
-    
     datatype xReg = XReg of Word8.word | XZero | XSP
     
+    datatype instr =
+        SimpleInstr of word
+    |   LoadLiteral of xReg * int
+
     (* 31 in the register field can either mean the zero register or
        the hardware stack pointer.  Which meaning depends on the instruction. *)
     fun xRegOrXZ(XReg w) = w
@@ -95,9 +96,27 @@ struct
             printStream    = printStream
         }
     end
+
+    fun addConstToVec (valu, Code{constVec, ...}) =
+    let
+        (* Search the list to see if the constant is already there. *)
+        fun findConst valu [] num =
+            (* Add to the list *)
+            (
+                constVec    := ! constVec @ [valu];
+                num
+            )
+        |   findConst valu (h :: t) num =
+                if wordEq (valu, h)
+                then num
+                else findConst valu t (num + 1) (* Not equal *)
+    in
+        findConst valu (! constVec) 0
+    end
+
     
     fun addInstr (instr, Code{instructions, ...}) =
-        instructions := instr :: ! instructions
+        instructions := SimpleInstr instr :: ! instructions
 
     val retCode  = 0wxD65F03C0
     and nopCode  = 0wxD503201F
@@ -115,6 +134,12 @@ struct
     fun genPopReg(xReg, code) =
         addInstr(0wxF8408780 orb word8ToWord(xRegOnly xReg), code)
     
+    fun genLoadConstant(xReg, valu, code as Code{instructions, ...}) =
+    let
+        val cNum = addConstToVec(valu, code)
+    in
+        instructions := LoadLiteral(xReg, cNum) :: ! instructions
+    end
     
     (* Move an unsigned constant into the low 16-bits of a register. *)
     fun genMoveShortConstToReg(xReg, constnt, code) =
@@ -136,7 +161,20 @@ struct
         doFold(ops, startIc)
     end
 
-    
+    (* Store a 32-bit value in the code *)
+    fun set32(value, addrs, seg) =
+    let
+        fun putBytes(value, a, seg, i) =
+        if i = 0w4 then ()
+        else
+        (
+            byteVecSet(seg, a+i, wordToWord8(value andb 0wxff));
+            putBytes(value >> 0w8, a, seg, i+0w1)
+        )
+    in
+        putBytes(value, addrs, seg, 0w0)
+    end
+
     fun genCode(ops, Code {constVec, ...}) =
     let
     
@@ -144,20 +182,23 @@ struct
         fun setLabelsAndSizes ops = Word.fromInt(List.length ops)
         val codeSize = setLabelsAndSizes ops (* Number of 32-bit instructions *)
         val wordsOfCode = (codeSize + 0w1) div 0w2 (* Round up to 64-bits *)
-        val paddingWord = if Word.andb(codeSize, 0w1) = 0w1 then [nopCode] else []
+        val paddingWord = if Word.andb(codeSize, 0w1) = 0w1 then [SimpleInstr nopCode] else []
 
         val segSize   = wordsOfCode + Word.fromInt(List.length(! constVec)) + 0w4 (* 4 extra words *)
         val codeVec = byteVecMake segSize
 
-
-        fun genCodeWords(code, byteNo) =
-        (
-            (* Little-endian order *)
-            byteVecSet(codeVec, byteNo, wordToWord8 code);
-            byteVecSet(codeVec, byteNo+0w1, wordToWord8(code >> 0w8));
-            byteVecSet(codeVec, byteNo+0w2, wordToWord8(code >> 0w16));
-            byteVecSet(codeVec, byteNo+0w3, wordToWord8(code >> 0w24))
-        )
+        fun genCodeWords(SimpleInstr code, byteNo) = set32(code, byteNo, codeVec)
+        |   genCodeWords(LoadLiteral(xReg, cNum), byteNo) =
+            let
+                (* The offset is in 32-bit words.  The first of the constants is
+                   at offset wordsOfCode+3 *)
+                val offsetOfConstant =
+                    (wordsOfCode+0w3+Word.fromInt cNum)*0w2 - (byteNo >> 0w2)
+                val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
+                val code = 0wx58000000 orb (offsetOfConstant << 0w5) orb word8ToWord(xRegOnly xReg)
+            in
+                set32(code, byteNo, codeVec)
+            end
         
     in
         foldCode 0w0 genCodeWords (ops @ paddingWord);
@@ -270,6 +311,20 @@ struct
                 printStream "add\tx"; printStream(Word.fmt StringCvt.DEC rD);
                 printStream ",x"; printStream(Word.fmt StringCvt.DEC rN);
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC imm16)
+            end
+
+            else if (wordValue andb 0wxff000000) = 0wx58000000
+            then
+            let
+                (* Load from a PC-relative address i.e. the constant area. *)
+                val rT = wordValue andb 0wx1f
+                (* The offset is in 32-bit words *)
+                val byteOffset = (wordValue andb 0wx00ffffe0) >> (0w5-0w2)
+                val constantValue = codeVecGetWord(codeVec, (byteOffset+byteNo) >> 0w3)
+            in
+                printStream "ldr\tx"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",0x"; printStream(Word.fmt StringCvt.HEX (byteOffset+byteNo));
+                printStream "\t// "; printStream(stringOfWord constantValue)
             end
 
             else printStream "?"

@@ -20,6 +20,7 @@ sig
     type code
     type closureRef
     type instr
+    type machineWord = Address.machineWord
     
     (* Create a code value for the function. *)
     val codeCreate: string * Universal.universal list -> code
@@ -54,6 +55,9 @@ sig
 
     (* Move a short constant to a register.  Currently limited to unsigned 16-bits. *)
     val genMoveShortConstToReg: xReg * int * code -> unit
+    
+    (* Move a long constant to a register. *)
+    val genLoadConstant: xReg * machineWord * code -> unit
 
     (* copyCode - create the vector of code and update the closure reference to
        point to it. *)
