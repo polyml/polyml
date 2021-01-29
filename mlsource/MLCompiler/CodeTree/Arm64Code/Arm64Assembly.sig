@@ -46,8 +46,7 @@ sig
     and X_LinkReg: xReg (* Link reg - return address *)
 
     val genRetCode: code -> unit
-    and genIncMLSP1: code -> unit
-    
+
     (* Push a register to the ML stack *)
     val genPushReg: xReg * code -> unit
     (* Pop a register from the ML stack. *)
@@ -58,6 +57,12 @@ sig
     
     (* Move a long constant to a register. *)
     val genLoadConstant: xReg * machineWord * code -> unit
+
+    (* Add a 12-bit constant, possibly shifted by 12 bits *)
+    val genAddRegConstant: {sReg: xReg, dReg: xReg, cValue: int, shifted: bool} * code -> unit
+    
+    (* Load an aligned word using a 12-bit offset. *)
+    val loadRegAligned: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
 
     (* copyCode - create the vector of code and update the closure reference to
        point to it. *)

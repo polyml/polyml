@@ -120,11 +120,33 @@ struct
 
     val retCode  = 0wxD65F03C0
     and nopCode  = 0wxD503201F
-    and incMLSP1 = 0wx9100239C
-    
-    
+
     fun genRetCode code = addInstr(retCode, code)
-    and genIncMLSP1 code = addInstr(incMLSP1, code)
+
+    (* Add a 12-bit constant, possibly shifted by 12 bits. *)
+    fun genAddRegConstant({sReg, dReg, cValue, shifted}, code) =
+    let
+        val () =
+            if cValue < 0 orelse cValue >= 0x400 then raise InternalError "genAddRegConstant: Value > 12 bits" else ()
+    in
+        addInstr(0wx91000000 orb (if shifted then 0wx400000 else 0w0) orb
+            (Word.fromInt cValue << 0w10) orb (word8ToWord(xRegOrXSP sReg) << 0w5) orb
+            word8ToWord(xRegOrXSP dReg), code)
+    end
+    
+    (* Loads: There are two versions of this on the ARM.  There is a version that
+       takes a signed 9-bit byte offset and a version that takes an unsigned
+       12-bit word offset. *)
+    
+    (* Load an aligned value using an unsigned offset.. *)
+    fun loadRegAligned({dest, base, wordOffset}, code) =
+    let
+        val _ = (wordOffset >= 0 andalso wordOffset < 0x1000)
+            orelse raise InternalError "loadRegAligned: value out of range"
+    in
+        addInstr(0wxF9400000 orb (Word.fromInt wordOffset << 0w10) orb
+            (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
+    end
     
     (* Push a register to the ML stack. This uses a pre-increment store to x28 *)
     fun genPushReg(xReg, code) =
@@ -300,17 +322,19 @@ struct
                 printStream imm9Text
             end
 
-            else if (wordValue andb 0wxffc00000) = 0wx91000000
+            else if (wordValue andb 0wxff800000) = 0wx91000000
             then
             let
-                (* Add a 12-bit immediate with no shift. *)
+                (* Add a 12-bit immediate with possible shift. *)
                 val rD = wordValue andb 0wx1f
                 and rN = (wordValue andb 0wx3e0) >> 0w5
-                and imm16 = (wordValue andb 0wx3ffc00) >> 0w10
+                and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
+                and shiftBit = wordValue andb 0wx400000
+                val imm = if shiftBit <> 0w0 then imm12 << 0w12 else imm12
             in
                 printStream "add\tx"; printStream(Word.fmt StringCvt.DEC rD);
                 printStream ",x"; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ",#"; printStream(Word.fmt StringCvt.DEC imm16)
+                printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
             end
 
             else if (wordValue andb 0wxff000000) = 0wx58000000
@@ -325,6 +349,20 @@ struct
                 printStream "ldr\tx"; printStream(Word.fmt StringCvt.DEC rT);
                 printStream ",0x"; printStream(Word.fmt StringCvt.HEX (byteOffset+byteNo));
                 printStream "\t// "; printStream(stringOfWord constantValue)
+            end
+
+            else if (wordValue andb 0wxffc00000) = 0wxF9400000
+            then
+            let
+                (* Load with an unsigned offset.  The offset is in units of 64-bits. *)
+                val rT = wordValue andb 0wx1f
+                and rN = (wordValue andb 0wx3e0) >> 0w5
+                and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
+            in
+                printStream "ldr\tx"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ",#"; printStream(Word.fmt StringCvt.DEC(imm12*0w8));
+                printStream "]"
             end
 
             else printStream "?"
