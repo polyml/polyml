@@ -456,9 +456,22 @@ void Arm64TaskData::Interpret()
                 ASSERT(originalReturn[0] == INSTR_no_op); 
                 originalReturn++;
             }
-            // Because of the way the build process works we only ever call functions with a single argument.
-            ASSERT(numTailArguments == 1);
-            assemblyInterface.registers[0] = *(assemblyInterface.stackPtr++);
+            // Get the arguments into the correct registers.
+            // Load the register arguments.  The first 8 arguments go into X0-X7.
+            // These will have been the first arguments to be pushed so will be
+            // furthest away on the stack.
+            // Note: we don't currently pass any arguments in the FP regs.
+            for (unsigned i = 0; i < numTailArguments && i < 8; i++)
+                assemblyInterface.registers[i] = assemblyInterface.stackPtr[numTailArguments - i - 1];
+            // If there are any more arguments these need to be shifted down the stack.
+            while (numTailArguments > 8)
+            {
+                numTailArguments--;
+                assemblyInterface.stackPtr[numTailArguments] = assemblyInterface.stackPtr[numTailArguments - 8];
+            }
+            // Remove the register arguments
+            assemblyInterface.stackPtr += numTailArguments > 8 ? 8 : numTailArguments;
+
             assemblyInterface.linkRegister = (arm64CodePointer)originalReturn; // Set the return address to caller
             assemblyInterface.entryPoint = *(arm64CodePointer*)closure; // Entry point to callee
             interpreterPc = 0; // No longer in the interpreter (See SaveMemRegs)

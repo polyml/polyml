@@ -46,7 +46,7 @@ protected:
 
     void GarbageCollect(ScanAddress* process);
     bool mixedCode;
-    int numTailArguments;
+    unsigned numTailArguments;
     POLYCODEPTR     interpreterPc;
     stackItem       **stackPointerAddress, **stackLimitAddress;
 
