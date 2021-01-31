@@ -35,6 +35,14 @@ struct
   
     (* shift a short constant, but don't set tag bit *)
     fun semitag c = 2 * c
+    
+    (* Offsets in the assembly code interface pointed at by X26
+       These are in units of 64-bits NOT bytes. *)
+    val heapOverflowCallOffset  = 1
+    and exceptionHandlerOffset  = 5
+    and stackLimitOffset        = 6
+    and exceptionPacketOffset   = 7
+    and threadIdOffset          = 8
 
     (* Remove items from the stack. If the second argument is true the value
        on the top of the stack has to be moved.
@@ -79,7 +87,6 @@ struct
     fun setLabel _ =  toDo()
     fun genSetStackVal _ =  toDo()
     fun putBranchInstruction _ =  toDo()
-    fun genRaiseEx _ =  toDo()
     fun genPushHandler _ =  toDo()
     fun genLdexc _ =  toDo()
     fun genCase _ =  toDo()
@@ -448,7 +455,15 @@ struct
             |   BICRaise exp =>
                 (
                     gencde (exp, ToStack, NotEnd, loopAddr);
-                    genRaiseEx cvec
+                    genPopReg(X0, cvec);
+                    (* Copy the handler "register" into the stack pointer.  Then
+                       jump to the address in the first word.  The second word is
+                       the next handler.  This is set up in the handler.  We have a lot
+                       more raises than handlers since most raises are exceptional conditions
+                       such as overflow so it makes sense to minimise the code in each raise. *)
+                    loadRegAligned({dest=X_MLStackPtr, base=X_MLAssemblyInt, wordOffset=exceptionHandlerOffset}, cvec);
+                    loadRegAligned({dest=X1, base=X_MLStackPtr, wordOffset=0}, cvec);
+                    genBranchRegister(X1, cvec)
                 )
   
             |   BICHandle {exp, handler, exPacketAddr} =>

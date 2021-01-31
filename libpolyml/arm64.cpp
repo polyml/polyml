@@ -556,13 +556,9 @@ void Arm64TaskData::HandleTrap()
         if (reasonCode == 0xff)
         {
             // Exception handler.
-            ASSERT(0); // Not used
             assemblyInterface.exceptionPacket = assemblyInterface.registers[0]; // Get the exception packet
-            // We're already in the exception handler but we still have to
-            // adjust the stack pointer and pop the current exception handler.
-            assemblyInterface.stackPtr = assemblyInterface.handlerRegister;
-            assemblyInterface.stackPtr++;
-            assemblyInterface.handlerRegister = (assemblyInterface.stackPtr++)[0].stackAddr;
+            // We need to leave the current handler in place.  When we enter the interpreter it will
+            // check the exception packet and if it is non-null will raise it.
         }
         else if (reasonCode >= 128)
         {

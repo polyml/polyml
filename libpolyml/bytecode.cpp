@@ -334,16 +334,28 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             break;
 
         case INSTR_setHandler8: /* Set up a handler */
-            (*(--sp)).codeAddr = pc + *pc + 1; /* Address of handler */
+        {
+            POLYCODEPTR entry = pc + *pc + 1; // Address of handler
+            // This needs to be aligned for the ARM.  This is only during development.
+            while (((uintptr_t)entry & 3) && entry[0] == INSTR_no_op)
+                entry++;
+            (--sp)->codeAddr = entry;
             SetHandlerRegister(sp);
             pc += 1;
             break;
+        }
 
         case INSTR_setHandler16: /* Set up a handler */
-            (*(--sp)).codeAddr = pc + arg1 + 2; /* Address of handler */
+        {
+            POLYCODEPTR entry = pc + arg1 + 2;
+            // This needs to be aligned for the ARM.  This is only during development.
+            while (((uintptr_t)entry & 3) && entry[0] == INSTR_no_op)
+                entry++;
+            (--sp)->codeAddr = entry;
             SetHandlerRegister(sp);
             pc += 2;
             break;
+        }
 
         case INSTR_deleteHandler: /* Delete handler retaining the result. */
         {
@@ -2130,7 +2142,11 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             case EXTINSTR_setHandler32: /* Set up a handler */
             {
                 POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
-                (--sp)->codeAddr = pc + offset + 4; /* Address of handler */
+                POLYCODEPTR entry = pc + offset + 4; // Address of handler
+                // This needs to be aligned for the ARM.  This is only during development.
+                while (((uintptr_t)entry & 3) && entry[0] == INSTR_no_op)
+                    entry++;
+                (--sp)->codeAddr = entry;
                 SetHandlerRegister(sp);
                 pc += 4;
                 break;
