@@ -69,31 +69,31 @@ struct
        TODO: the offset is limited to 12-bits. *)
     fun genIndirect(offset, code) =
         (genPopReg(X0, code); loadRegAligned({dest=X0, base=X0, wordOffset=offset}, code); genPushReg(X0, code))
+    
+    fun toDo() = raise Fallback
 
-    fun genOpcode _ =  raise Fallback
+    fun genOpcode _ =  toDo()
 
-    fun genContainer _ =  raise Fallback
-    fun createLabel _ =  raise Fallback
-    fun setLabel _ =  raise Fallback
-    fun genSetStackVal _ =  raise Fallback
-    fun putBranchInstruction _ =  raise Fallback
-    fun genRaiseEx _ =  raise Fallback
-    fun genPushHandler _ =  raise Fallback
-    fun genLdexc _ =  raise Fallback
-    fun genCase _ =  raise Fallback
-    fun genTuple _ =  raise Fallback
-    fun genMoveToContainer _ =  raise Fallback
-    fun genEqualWordConst _ =  raise Fallback
-    fun genAllocMutableClosure _ =  raise Fallback
-    fun genMoveToMutClosure _ =  raise Fallback
-    fun genLock _ =  raise Fallback
-    fun genClosure _ =  raise Fallback
-    fun genCallClosure _ =  raise Fallback
-    fun genTailCall _ =  raise Fallback
-    fun genIsTagged _ =  raise Fallback
-    fun genDoubleToFloat _ =  raise Fallback
-    fun genRealToInt _ =  raise Fallback
-    fun genFloatToInt _ =  raise Fallback
+    fun genContainer _ =  toDo()
+    fun createLabel _ =  toDo()
+    fun setLabel _ =  toDo()
+    fun genSetStackVal _ =  toDo()
+    fun putBranchInstruction _ =  toDo()
+    fun genRaiseEx _ =  toDo()
+    fun genPushHandler _ =  toDo()
+    fun genLdexc _ =  toDo()
+    fun genCase _ =  toDo()
+    fun genTuple _ =  toDo()
+    fun genMoveToContainer _ =  toDo()
+    fun genEqualWordConst _ =  toDo()
+    fun genAllocMutableClosure _ =  toDo()
+    fun genMoveToMutClosure _ =  toDo()
+    fun genLock _ =  toDo()
+    fun genClosure _ =  toDo()
+    fun genIsTagged _ =  toDo()
+    fun genDoubleToFloat _ =  toDo()
+    fun genRealToInt _ =  toDo()
+    fun genFloatToInt _ =  toDo()
 
 
     val opcode_notBoolean = 0
@@ -1168,28 +1168,6 @@ struct
                 loadArgs vs
             end;
 
-            (* Called after the args and the closure to call have been pushed
-                onto the stack. *)
-            fun callClosure () : unit =
-                case tailKind of
-                    NotEnd => (* Normal call. *) genCallClosure cvec
-         
-                |   EndOfProc => (* Tail recursive call. *)
-                    let
-                        (* Get the return address onto the top of the stack. *)
-                        val () = pushLocalStackValue 0
-           
-                        (* Slide the return address, closure and args over the
-                          old closure, return address and args, and reset the
-                          stack. Then jump to the closure. *)
-                        val () =
-                            genTailCall(argsToPass + 2, !realstackptr - 1 + (numOfArgs - argsToPass), cvec);
-                            (* It's "-1" not "-2", because we didn't bump the realstackptr
-                               when we pushed the return address. SPF 3/1/97 *)
-                    in
-                        ()
-                    end
-
             (* Have to guarantee that the expression to return the function
               is evaluated before the arguments. *)
 
@@ -1225,10 +1203,81 @@ struct
                     incsp ()
                 end
 
-            val () = callClosure () (* Call the function. *)
-
         in (* body of genEval *)
-            realstackptr := !realstackptr - argsToPass (* Args popped by caller. *)
+            case tailKind of
+                NotEnd => (* Normal call. *)
+                let
+                    val () = genPopReg(X8, cvec) (* Pop the closure pointer. *)
+                    (* We need to put the first 8 arguments into registers and
+                       leave the rest on the stack. *)
+                    fun loadArg(n, reg) =
+                        if argsToPass > n
+                        then loadRegAligned({dest=reg, base=X_MLStackPtr, wordOffset=argsToPass-n-1}, cvec)
+                        else ()
+                    val () = loadArg(0, X0)
+                    val () = loadArg(1, X1)
+                    val () = loadArg(2, X2)
+                    val () = loadArg(3, X3)
+                    val () = loadArg(4, X4)
+                    val () = loadArg(5, X5)
+                    val () = loadArg(6, X6)
+                    val () = loadArg(7, X7)
+                in
+                    loadRegAligned({dest=X9, base=X8, wordOffset=0}, cvec); (* Entry point *)
+                    genBranchAndLinkReg(X9, cvec);
+                    (* We have popped the closure pointer.  The caller has popped the stack
+                       arguments and we have pushed the result value. The register arguments
+                       are still on the stack. *)
+                    genPushReg (X0, cvec);
+                    realstackptr := !realstackptr - Int.max(argsToPass-8, 0) (* Args popped by caller. *)
+                end
+     
+            |   EndOfProc => (* Tail recursive call. *)
+                let
+                    val () = genPopReg(X8, cvec) (* Pop the closure pointer. *)
+                    val () = decsp()
+                    (* Get the return address into X30. *)
+                    val () = loadRegAligned({dest=X30, base=X_MLStackPtr, wordOffset= !realstackptr}, cvec)
+
+                    (* Load the register arguments *)
+                    fun loadArg(n, reg) =
+                        if argsToPass > n
+                        then loadRegAligned({dest=reg, base=X_MLStackPtr, wordOffset=argsToPass-n-1}, cvec)
+                        else ()
+                    val () = loadArg(0, X0)
+                    val () = loadArg(1, X1)
+                    val () = loadArg(2, X2)
+                    val () = loadArg(3, X3)
+                    val () = loadArg(4, X4)
+                    val () = loadArg(5, X5)
+                    val () = loadArg(6, X6)
+                    val () = loadArg(7, X7)
+                    (* We need to move the stack arguments into the original argument area. *)
+
+                    (* This is the total number of words that this function is responsible for.
+                       It includes the stack arguments that the caller expects to be removed. *)
+                    val itemsOnStack = !realstackptr + 1 + numOfArgs
+
+                    (* Stack arguments are moved using X9. *)
+                    fun moveStackArg n =
+                    if n < 8
+                    then ()
+                    else
+                    let
+                        val () = loadArg(n, X9)
+                        val destOffset = itemsOnStack - (n-8) - 1
+                        val () = storeRegAligned({dest=X9, base=X_MLStackPtr, wordOffset=destOffset}, cvec)
+                    in
+                        moveStackArg(n-1)
+                    end
+
+                    val () = moveStackArg (argsToPass-1)
+                in
+                    resetStack(itemsOnStack - Int.max(argsToPass-8, 0), false, cvec);
+                    loadRegAligned({dest=X9, base=X8, wordOffset=0}, cvec); (* Entry point *)
+                    genBranchRegister(X9, cvec)
+                    (* Since we're not returning we can ignore the stack pointer value. *)
+                end
         end
 
         (* Push the arguments passed in registers. *)
@@ -1253,7 +1302,7 @@ struct
         val () = resetStack(1, false, cvec) (* Skip over the pushed closure *)
         val () = genPopReg(X30, cvec) (* Return address => pop into X30 *)
         val () = resetStack(numOfArgs, false, cvec) (* Remove the arguments *)
-        val () = genRetCode cvec (* Jump to X30 *)
+        val () = genReturnRegister(X30, cvec) (* Jump to X30 *)
 
     in (* body of codegen *)
        (* Having code-generated the body of the function, it is copied

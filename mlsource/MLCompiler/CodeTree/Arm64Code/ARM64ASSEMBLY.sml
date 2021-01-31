@@ -118,10 +118,7 @@ struct
     fun addInstr (instr, Code{instructions, ...}) =
         instructions := SimpleInstr instr :: ! instructions
 
-    val retCode  = 0wxD65F03C0
-    and nopCode  = 0wxD503201F
-
-    fun genRetCode code = addInstr(retCode, code)
+    val nopCode  = 0wxD503201F
 
     (* Add a 12-bit constant, possibly shifted by 12 bits. *)
     fun genAddRegConstant({sReg, dReg, cValue, shifted}, code) =
@@ -148,6 +145,17 @@ struct
             (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
     end
     
+    (* and corresponding store. *)
+    and storeRegAligned({dest, base, wordOffset}, code) =
+    let
+        val _ = (wordOffset >= 0 andalso wordOffset < 0x1000)
+            orelse raise InternalError "storeRegAligned: value out of range"
+    in
+        addInstr(0wxF9000000 orb (Word.fromInt wordOffset << 0w10) orb
+            (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
+    end
+    
+    
     (* Push a register to the ML stack. This uses a pre-increment store to x28 *)
     fun genPushReg(xReg, code) =
         addInstr(0wxF81F8F80 orb word8ToWord(xRegOnly xReg), code)
@@ -168,7 +176,20 @@ struct
     if constnt < 0 orelse constnt >= 65536
     then raise InternalError "genMoveShortConstToReg: constant out of range"
     else addInstr(0wxD2800000 orb (Word.fromInt constnt << 0w5) orb word8ToWord(xRegOnly xReg), code)
-    
+
+    (* Jump to the address in the register and put the address of the
+       next instruction into X30. *)
+    fun genBranchAndLinkReg(dest, code) =
+        addInstr(0wxD63F0000 orb (word8ToWord(xRegOnly dest) << 0w5), code)
+
+    (* Jump to the address in the register. *)
+    fun genBranchRegister(dest, code) =
+        addInstr(0wxD61F0000 orb (word8ToWord(xRegOnly dest) << 0w5), code)
+
+    (* Jump to the address in the register and hint this is a return. *)
+    fun genReturnRegister(dest, code) =
+        addInstr(0wxD65F0000 orb (word8ToWord(xRegOnly dest) << 0w5), code)
+
     (* Size of each code word. *)
     fun codeSize _ = 1 (* Number of 32-bit words *)
 
@@ -271,8 +292,32 @@ struct
             val () = printHex(wordValue, 8) (* Instr as hex *)
             val () = printStream "\t"
         in
-            if wordValue = 0wxD65F03C0
-            then printStream "ret"
+            if (wordValue andb 0wxfffffc1f) = 0wxD61F0000
+            then
+            let
+                val rN = (wordValue andb 0wx3e0) >> 0w5
+            in
+                printStream "br\tx";
+                printStream(Word.fmt StringCvt.DEC rN)
+            end
+
+            else if (wordValue andb 0wxfffffc1f) = 0wxD63F0000
+            then
+            let
+                val rN = (wordValue andb 0wx3e0) >> 0w5
+            in
+                printStream "blr\tx";
+                printStream(Word.fmt StringCvt.DEC rN)
+            end
+
+            else if (wordValue andb 0wxfffffc1f) = 0wxD65F0000
+            then
+            let
+                val rN = (wordValue andb 0wx3e0) >> 0w5
+            in
+                printStream "ret\tx";
+                printStream(Word.fmt StringCvt.DEC rN)
+            end
 
             else if wordValue = 0wxD503201F
             then printStream "nop"
@@ -351,15 +396,16 @@ struct
                 printStream "\t// "; printStream(stringOfWord constantValue)
             end
 
-            else if (wordValue andb 0wxffc00000) = 0wxF9400000
+            else if (wordValue andb 0wxff800000) = 0wxF9000000
             then
             let
-                (* Load with an unsigned offset.  The offset is in units of 64-bits. *)
+                (* Load/Store with an unsigned offset.  The offset is in units of 64-bits. *)
+                val opc = if (wordValue andb 0wx400000) = 0w0 then "str" else "ldr"
                 val rT = wordValue andb 0wx1f
                 and rN = (wordValue andb 0wx3e0) >> 0w5
                 and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
             in
-                printStream "ldr\tx"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream opc; printStream "\tx"; printStream(Word.fmt StringCvt.DEC rT);
                 printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC(imm12*0w8));
                 printStream "]"

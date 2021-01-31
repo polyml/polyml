@@ -570,9 +570,21 @@ void Arm64TaskData::HandleTrap()
             unsigned numArgs = reasonCode - 128;
             // We need the stack to contain:
             // The closure, the return address, the arguments.
-            // Push the register args.
-            ASSERT(numArgs == 1); // We only ever call functions with one argument.
-            *(--assemblyInterface.stackPtr) = assemblyInterface.registers[0];
+            // The stack will currently contain the stack arguments.
+            // Add space for the register arguments
+            if (numArgs > 8)
+                assemblyInterface.stackPtr -= 8;
+            else assemblyInterface.stackPtr -= numArgs;
+            // Move up any stack arguments.
+            for (unsigned n = numArgs; n > 8; n--)
+            {
+                assemblyInterface.stackPtr[n - 8 - 1] = assemblyInterface.stackPtr[n - 1];
+            }
+            // Store the register arguments
+            for (unsigned n = 0; n < numArgs && n < 8; n++)
+                assemblyInterface.stackPtr[numArgs - n - 1] = assemblyInterface.registers[n];
+
+            // Finally push the return address and closure pointer
             *(--assemblyInterface.stackPtr) = assemblyInterface.registers[9]; // Return address - value of X30 before enter-int
             *(--assemblyInterface.stackPtr) = assemblyInterface.registers[8]; // Closure
         }

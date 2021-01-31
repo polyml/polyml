@@ -45,7 +45,14 @@ sig
     and X_MLStackPtr: xReg (* ML Stack pointer. *)
     and X_LinkReg: xReg (* Link reg - return address *)
 
-    val genRetCode: code -> unit
+
+    (* Jump to the address in the register and put the address of the
+       next instruction into X30. *)
+    val genBranchAndLinkReg: xReg * code -> unit
+    (* Jump to the address in the register. *)
+    and genBranchRegister: xReg * code -> unit
+    (* Jump to the address in the register and hint this is a return. *)
+    and genReturnRegister: xReg * code -> unit
 
     (* Push a register to the ML stack *)
     val genPushReg: xReg * code -> unit
@@ -61,8 +68,9 @@ sig
     (* Add a 12-bit constant, possibly shifted by 12 bits *)
     val genAddRegConstant: {sReg: xReg, dReg: xReg, cValue: int, shifted: bool} * code -> unit
     
-    (* Load an aligned word using a 12-bit offset. *)
+    (* Load/Store an aligned word using a 12-bit offset. *)
     val loadRegAligned: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
+    and storeRegAligned: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
 
     (* copyCode - create the vector of code and update the closure reference to
        point to it. *)
