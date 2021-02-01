@@ -82,11 +82,11 @@ struct
 
     fun genOpcode _ =  toDo()
 
-    fun genContainer _ =  toDo()
-    fun createLabel _ =  toDo()
-    fun setLabel _ =  toDo()
+    fun checkForInterruptInLoop _ = toDo()
+    fun genSetHandler _ = toDo()
+
+    fun genContainer _ = toDo()
     fun genSetStackVal _ =  toDo()
-    fun putBranchInstruction _ =  toDo()
     fun genPushHandler _ =  toDo()
     fun genLdexc _ =  toDo()
     fun genCase _ =  toDo()
@@ -215,10 +215,6 @@ struct
     val opcode_arbSubtract = 0
     val opcode_arbMultiply = 0
     
-    val Jump = 0
-    val JumpBack = 0
-    val JumpFalse = 0
-    val JumpTrue = 0
     val SetHandler = 0
 
     val word0 = toMachineWord 0;
@@ -449,7 +445,9 @@ struct
                     else ();
             
                     (* Jump back to the start of the loop. *)
-                    putBranchInstruction(JumpBack, startLoop, cvec)
+                    checkForInterruptInLoop cvec;
+                    
+                    putBranchInstruction(condAlways, startLoop, cvec)
                 end
   
             |   BICRaise exp =>
@@ -472,7 +470,7 @@ struct
                     val () = genPushHandler cvec
                     val () = incsp ()
                     val handlerLabel = createLabel()
-                    val () = putBranchInstruction (SetHandler, handlerLabel, cvec)
+                    val () = genSetHandler (SetHandler, handlerLabel, cvec)
                     val () = incsp()
                     (* Code generate the body; "NotEnd" because we have to come back
                      to remove the handler; "ToStack" because delHandler needs
@@ -482,7 +480,7 @@ struct
                     (* Now get out of the handler and restore the old one. *)
                     val () = genOpcode(opcode_deleteHandler, cvec)
                     val skipHandler = createLabel()
-                    val () = putBranchInstruction (Jump, skipHandler, cvec)
+                    val () = putBranchInstruction (condAlways, skipHandler, cvec)
                     val () = realstackptr := oldsp
                     val () = setLabel (handlerLabel, cvec)
                     (* Push the exception packet and set the address. *)
@@ -534,7 +532,7 @@ struct
                         (
                             (* First exit from the previous case or the default if
                                this is the first. *)
-                            putBranchInstruction(Jump, exitJump, cvec);
+                            putBranchInstruction(condAlways, exitJump, cvec);
                             (* Remove the result - the last case will leave it. *)
                             case whereto of ToStack => decsp () | NoResult => ();
                             (* Fix up the jump to come here. *)
@@ -1126,7 +1124,7 @@ struct
                     val cVal = case toShort w of 0w0 => false | 0w1 => true | _ => raise InternalError "genTest"
                 in
                     if cVal = jumpOn
-                    then putBranchInstruction (Jump, targetLabel, cvec)
+                    then putBranchInstruction (condAlways, targetLabel, cvec)
                     else ()
                 end
 
@@ -1139,7 +1137,7 @@ struct
                 in
                     genTest(testPart, false, toElse);
                     genTest(thenPart, jumpOn, targetLabel);
-                    putBranchInstruction (Jump, exitJump, cvec);
+                    putBranchInstruction (condAlways, exitJump, cvec);
                     setLabel (toElse, cvec);
                     genTest(elsePart, jumpOn, targetLabel);
                     setLabel (exitJump, cvec)
@@ -1148,7 +1146,9 @@ struct
             |   genTest(testCode, jumpOn, targetLabel) =
                 (
                     gencde (testCode, ToStack, NotEnd, loopAddr);
-                    putBranchInstruction(if jumpOn then JumpTrue else JumpFalse, targetLabel, cvec);
+                    genPopReg(X0, cvec);
+                    genSubSRegConstant({sReg=X0, dReg=XZero, cValue=tag 1, shifted=false}, cvec);
+                    putBranchInstruction(if jumpOn then condEqual else condNotEqual, targetLabel, cvec);
                     decsp() (* conditional branch pops a value. *)
                 )
 
@@ -1159,7 +1159,7 @@ struct
             ``else-part'' will push it. *)
             val () = case whereto of ToStack => decsp () | NoResult => ()
 
-            val () = putBranchInstruction (Jump, exitJump, cvec)
+            val () = putBranchInstruction (condAlways, exitJump, cvec)
 
             (* start of "else part" *)
             val () = setLabel (toElse, cvec)

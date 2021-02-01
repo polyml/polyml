@@ -21,6 +21,8 @@ sig
     type closureRef
     type instr
     type machineWord = Address.machineWord
+    type labels
+    type condition
     
     (* Create a code value for the function. *)
     val codeCreate: string * Universal.universal list -> code
@@ -45,6 +47,23 @@ sig
     and X_MLStackPtr: xReg (* ML Stack pointer. *)
     and X_LinkReg: xReg (* Link reg - return address *)
 
+    (* Condition for conditional branches etc. *)
+    val condEqual: condition
+    and condNotEqual: condition
+    and condCarrySet: condition
+    and condCarryClear: condition
+    and condNegative: condition
+    and condPositive: condition
+    and condOverflow: condition
+    and condNoOverflow: condition
+    and condUnsignedHigher: condition
+    and condUnsignedLowOrEq: condition
+    and condSignedGreaterEq: condition
+    and condSignedLess: condition
+    and condSignedGreater: condition
+    and condSignedLessEq: condition
+    and condAlways: condition
+    and condAlwaysNV: condition
 
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
@@ -67,10 +86,22 @@ sig
 
     (* Add a 12-bit constant, possibly shifted by 12 bits *)
     val genAddRegConstant: {sReg: xReg, dReg: xReg, cValue: int, shifted: bool} * code -> unit
+
+    (* Subtract a 12-bit constant, possibly shifted by 12 bits and set the
+       condition flags.  The destination can be the zero register in which
+       case this is a comparison. *)
+    val genSubSRegConstant: {sReg: xReg, dReg: xReg, cValue: int, shifted: bool} * code -> unit
     
     (* Load/Store an aligned word using a 12-bit offset. *)
     val loadRegAligned: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
     and storeRegAligned: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
+
+    (* Create a label. *)
+    val createLabel: unit -> labels
+    (* Put a label into the code. *)
+    val setLabel: labels * code -> unit
+    (* A conditional or unconditional branch. *)
+    val putBranchInstruction: condition * labels * code -> unit
 
     (* copyCode - create the vector of code and update the closure reference to
        point to it. *)
@@ -84,5 +115,7 @@ sig
         type closureRef = closureRef
         type instr = instr
         type xReg = xReg
+        type labels = labels
+        type condition = condition
     end
 end;

@@ -38,10 +38,39 @@ struct
     and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
     
     datatype xReg = XReg of Word8.word | XZero | XSP
+
+    (* A Label is a ref that is later set to the location.
+       Several labels can be linked together so that they are only set
+       at a single point.
+       Only forward jumps are linked so when we come to finally set the
+       label we will have the full list. *)
+    type labels = Word.word ref list ref
+
+    (* Condition codes.  The encoding is standard. *)
+    datatype condition = CCode of Word8.word
     
+    val condEqual           = CCode 0wx0 (* Z=1 *)
+    and condNotEqual        = CCode 0wx1 (* Z=0 *)
+    and condCarrySet        = CCode 0wx2 (* C=1 *)
+    and condCarryClear      = CCode 0wx3 (* C=0 *)
+    and condNegative        = CCode 0wx4 (* N=1 *)
+    and condPositive        = CCode 0wx5 (* N=0 imcludes zero *)
+    and condOverflow        = CCode 0wx6 (* V=1 *)
+    and condNoOverflow      = CCode 0wx7 (* V=0 *)
+    and condUnsignedHigher  = CCode 0wx8 (* C=1 && Z=0 *)
+    and condUnsignedLowOrEq = CCode 0wx9 (* ! (C=1 && Z=0) *)
+    and condSignedGreaterEq = CCode 0wxa (* N=V *)
+    and condSignedLess      = CCode 0wxb (* N<>V *)
+    and condSignedGreater   = CCode 0wxc (* Z==0 && N=V *)
+    and condSignedLessEq    = CCode 0wxd (* !(Z==0 && N=V) *)
+    and condAlways          = CCode 0wxe (* Any *)
+    and condAlwaysNV        = CCode 0wxf (* Any - alternative encoding. *)
+
     datatype instr =
         SimpleInstr of word
     |   LoadLiteral of xReg * int
+    |   Label of labels
+    |   Branch of { label: labels, jumpCondition: condition }
 
     (* 31 in the register field can either mean the zero register or
        the hardware stack pointer.  Which meaning depends on the instruction. *)
@@ -130,6 +159,19 @@ struct
             (Word.fromInt cValue << 0w10) orb (word8ToWord(xRegOrXSP sReg) << 0w5) orb
             word8ToWord(xRegOrXSP dReg), code)
     end
+
+    (* Subtract a 12-bit constant, possibly shifted by 12 bits and set the
+       condition flags.  The destination can be the zero register in which
+       case this is a comparison. *)
+    fun genSubSRegConstant({sReg, dReg, cValue, shifted}, code) =
+    let
+        val () =
+            if cValue < 0 orelse cValue >= 0x400 then raise InternalError "genAddRegConstant: Value > 12 bits" else ()
+    in
+        addInstr(0wxF1000000 orb (if shifted then 0wx400000 else 0w0) orb
+            (Word.fromInt cValue << 0w10) orb (word8ToWord(xRegOrXSP sReg) << 0w5) orb
+            word8ToWord(xRegOrXZ dReg), code)
+    end
     
     (* Loads: There are two versions of this on the ARM.  There is a version that
        takes a signed 9-bit byte offset and a version that takes an unsigned
@@ -190,22 +232,35 @@ struct
     fun genReturnRegister(dest, code) =
         addInstr(0wxD65F0000 orb (word8ToWord(xRegOnly dest) << 0w5), code)
 
-    (* Size of each code word. *)
-    fun codeSize _ = 1 (* Number of 32-bit words *)
+    (* Put a label into the code. *)
+    fun setLabel(label, Code{instructions, ...}) =
+        instructions := Label label :: ! instructions
+    (* Create a label. *)
+    and createLabel () = ref [ref 0w0]
+
+    (* A conditional or unconditional branch. *)
+    and putBranchInstruction(cond, label, Code{instructions, ...}) =
+        instructions := Branch{label=label, jumpCondition=cond} :: ! instructions
+
+    (* Size of each code word.  All except labels are one word at the moment. *)
+    fun codeSize (SimpleInstr _) = 1 (* Number of 32-bit words *)
+    |   codeSize (LoadLiteral _) = 1
+    |   codeSize (Label _) = 0
+    |   codeSize (Branch _) = 1
 
     fun foldCode startIc foldFn ops =
     let
         fun doFold(oper :: operList, ic) =
             doFold(operList,
                 (* Get the size BEFORE any possible change. *)
-                ic + Word.fromInt(codeSize oper) * 0w4 before foldFn(oper, ic))
+                ic + Word.fromInt(codeSize oper) before foldFn(oper, ic))
         |   doFold(_, ic) = ic
     in
         doFold(ops, startIc)
     end
 
     (* Store a 32-bit value in the code *)
-    fun set32(value, addrs, seg) =
+    fun writeInstr(value, wordAddr, seg) =
     let
         fun putBytes(value, a, seg, i) =
         if i = 0w4 then ()
@@ -215,34 +270,63 @@ struct
             putBytes(value >> 0w8, a, seg, i+0w1)
         )
     in
-        putBytes(value, addrs, seg, 0w0)
+        putBytes(value, wordAddr << 0w2, seg, 0w0)
     end
 
     fun genCode(ops, Code {constVec, ...}) =
     let
-    
-        (* First pass - set the labels. *)
-        fun setLabelsAndSizes ops = Word.fromInt(List.length ops)
-        val codeSize = setLabelsAndSizes ops (* Number of 32-bit instructions *)
+        local
+            (* First pass - set the labels. *)
+            fun setLabels(Label(ref labs) :: ops, ic) = (List.app(fn d => d := ic) labs; setLabels(ops, ic))
+            |   setLabels(oper :: ops, ic) = setLabels(ops, ic + Word.fromInt(codeSize oper))
+            |   setLabels([], ic) = ic
+        in
+            val codeSize = setLabels(ops, 0w0) (* Number of 32-bit instructions *)
+        end
+
         val wordsOfCode = (codeSize + 0w1) div 0w2 (* Round up to 64-bits *)
         val paddingWord = if Word.andb(codeSize, 0w1) = 0w1 then [SimpleInstr nopCode] else []
 
         val segSize   = wordsOfCode + Word.fromInt(List.length(! constVec)) + 0w4 (* 4 extra words *)
         val codeVec = byteVecMake segSize
 
-        fun genCodeWords(SimpleInstr code, byteNo) = set32(code, byteNo, codeVec)
-        |   genCodeWords(LoadLiteral(xReg, cNum), byteNo) =
+        fun genCodeWords(SimpleInstr code, wordNo) = writeInstr(code, wordNo, codeVec)
+
+        |   genCodeWords(LoadLiteral(xReg, cNum), wordNo) =
             let
                 (* The offset is in 32-bit words.  The first of the constants is
                    at offset wordsOfCode+3 *)
                 val offsetOfConstant =
-                    (wordsOfCode+0w3+Word.fromInt cNum)*0w2 - (byteNo >> 0w2)
+                    (wordsOfCode+0w3+Word.fromInt cNum)*0w2 - wordNo
                 val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
                 val code = 0wx58000000 orb (offsetOfConstant << 0w5) orb word8ToWord(xRegOnly xReg)
             in
-                set32(code, byteNo, codeVec)
+                writeInstr(code, wordNo, codeVec)
             end
-        
+
+        |   genCodeWords(Label _, _) = () (* No code. *)
+
+        |   genCodeWords(Branch{ label=ref labs, jumpCondition=CCode cond }, wordNo) =
+            let
+                val dest = !(hd labs)
+                val offset = Word.toInt dest - Word.toInt wordNo
+            in
+                if cond = 0wxe orelse cond = 0wxf
+                then (* We can use an unconditional branch. *)
+                (
+                    (offset < Word.toInt(0w1 << 0w25) andalso offset >= ~ (Word.toInt(0w1 << 0w25)))
+                        orelse raise InternalError "genCodeWords: branch too far";
+                    writeInstr(0wx14000000 orb (Word.fromInt offset andb 0wx03ffffff), wordNo, codeVec)
+                )
+                else
+                (
+                    (offset < Word.toInt(0w1 << 0w18) andalso offset >= ~ (Word.toInt(0w1 << 0w18)))
+                        orelse raise InternalError "genCodeWords: branch too far";
+                    writeInstr(0wx54000000 orb ((Word.fromInt offset andb 0wx07ffff) << 0w5)
+                        orb word8ToWord cond, wordNo, codeVec)
+                )
+
+            end
     in
         foldCode 0w0 genCodeWords (ops @ paddingWord);
         (codeVec (* Return the completed code. *), wordsOfCode (* And the size in 64-bit words. *))
@@ -277,6 +361,22 @@ struct
             printStream pad; printStream s
         end
 
+        fun printCondition 0wx0 = printStream "eq"
+        |   printCondition 0wx1 = printStream "ne"
+        |   printCondition 0wx2 = printStream "cs"
+        |   printCondition 0wx3 = printStream "cc"
+        |   printCondition 0wx4 = printStream "mi"
+        |   printCondition 0wx5 = printStream "pl"
+        |   printCondition 0wx6 = printStream "vs"
+        |   printCondition 0wx7 = printStream "vc"
+        |   printCondition 0wx8 = printStream "hi"
+        |   printCondition 0wx9 = printStream "ls"
+        |   printCondition 0wxa = printStream "ge"
+        |   printCondition 0wxb = printStream "lt"
+        |   printCondition 0wxc = printStream "gt"
+        |   printCondition 0wxd = printStream "le"
+        |   printCondition 0wxe = printStream "al"
+        |   printCondition _    = printStream "nv"
 
         (* Each instruction is 32-bytes. *)
         fun printWordAt wordNo =
@@ -382,6 +482,23 @@ struct
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
             end
 
+            else if (wordValue andb 0wxff800000) = 0wxF1000000
+            then
+            let
+                (* Subtract a 12-bit immediate with possible shift, setting flags. *)
+                val rD = wordValue andb 0wx1f
+                and rN = (wordValue andb 0wx3e0) >> 0w5
+                and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
+                and shiftBit = wordValue andb 0wx400000
+                val imm = if shiftBit <> 0w0 then imm12 << 0w12 else imm12
+            in
+                if rD = 0w31
+                then printStream "cmp\t"
+                else (printStream "subs\tx"; printStream(Word.fmt StringCvt.DEC rD); printStream ",");
+                printStream "x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
+            end
+
             else if (wordValue andb 0wxff000000) = 0wx58000000
             then
             let
@@ -409,6 +526,31 @@ struct
                 printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC(imm12*0w8));
                 printStream "]"
+            end
+
+            else if (wordValue andb 0wxfc000000) = 0wx14000000
+            then (* Unconditional branch. *)
+            let
+                (* The offset is signed and the destination may be earlier. *)
+                val byteOffset =
+                    (wordValue andb 0wx03ffffff) << (Word.fromInt Word.wordSize - 0w26) ~>>
+                        (Word.fromInt Word.wordSize - 0w28)
+            in
+                printStream "b\t0x";
+                printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
+            end
+
+            else if (wordValue andb 0wxff000000) = 0wx54000000
+            then (* Conditional branch *)
+            let
+                val byteOffset =
+                    (wordValue andb 0wx00ffffe0) << (Word.fromInt Word.wordSize - 0w24) ~>>
+                        (Word.fromInt Word.wordSize - 0w21)
+            in
+                printStream "b.";
+                printCondition(wordValue andb 0wxf);
+                printStream "\t0x";
+                printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
             end
 
             else printStream "?"
@@ -503,6 +645,8 @@ struct
         type closureRef = closureRef
         type instr = instr
         type xReg = xReg
+        type labels = labels
+        type condition = condition
     end
 end;
 
