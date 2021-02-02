@@ -65,12 +65,24 @@ struct
     and condSignedLessEq    = CCode 0wxd (* !(Z==0 && N=V) *)
     and condAlways          = CCode 0wxe (* Any *)
     and condAlwaysNV        = CCode 0wxf (* Any - alternative encoding. *)
+    (* N.B. On subtraction and comparison the ARM uses an inverted carry
+       flag for borrow.  The C flag is set if there is NO borrow.
+       This is the reverse of the X86. *)
+
+    (* Offsets in the assembly code interface pointed at by X26
+       These are in units of 64-bits NOT bytes. *)
+    val heapOverflowCallOffset  = 1
+    and exceptionHandlerOffset  = 5
+    and stackLimitOffset        = 6
+    and exceptionPacketOffset   = 7
+    and threadIdOffset          = 8
 
     datatype instr =
         SimpleInstr of word
     |   LoadLiteral of xReg * int
     |   Label of labels
     |   Branch of { label: labels, jumpCondition: condition }
+    |   CheckStack of { work: xReg, spaceRef: int ref }
 
     (* 31 in the register field can either mean the zero register or
        the hardware stack pointer.  Which meaning depends on the instruction. *)
@@ -109,7 +121,8 @@ struct
         constVec:       machineWord list ref, (* Constant area constant values. *)
         functionName:   string,               (* Name of the function. *)
         printAssemblyCode:bool,               (* Whether to print the code when we finish. *)
-        printStream:    string->unit          (* The stream to use *)
+        printStream:    string->unit,         (* The stream to use *)
+        maxStackRef:    int ref                 (* Set to the stack space required. *)
     }
 
     fun codeCreate (name, parameters) = 
@@ -122,7 +135,8 @@ struct
             constVec         = ref [],
             functionName     = name,
             printAssemblyCode = Debug.getParameter Debug.assemblyCodeTag parameters,
-            printStream    = printStream
+            printStream    = printStream,
+            maxStackRef      = ref 0
         }
     end
 
@@ -242,11 +256,20 @@ struct
     and putBranchInstruction(cond, label, Code{instructions, ...}) =
         instructions := Branch{label=label, jumpCondition=cond} :: ! instructions
 
+    (* Put in a check for the stack for the function. *)
+    fun checkStackForFunction(workReg, Code{instructions, maxStackRef, ...}) =
+        instructions := CheckStack{work=workReg, spaceRef=maxStackRef} :: ! instructions
+
+    (* Inserted in a backwards jump to allow loops to be interrupted.  *)
+    fun checkForInterrupts(workReg, Code{instructions, ...}) =
+        instructions := CheckStack{work=workReg, spaceRef=ref 0} :: ! instructions
+
     (* Size of each code word.  All except labels are one word at the moment. *)
     fun codeSize (SimpleInstr _) = 1 (* Number of 32-bit words *)
     |   codeSize (LoadLiteral _) = 1
     |   codeSize (Label _) = 0
     |   codeSize (Branch _) = 1
+    |   codeSize (CheckStack _) = 7 (* Fixed size for the moment. *)
 
     fun foldCode startIc foldFn ops =
     let
@@ -326,6 +349,30 @@ struct
                         orb word8ToWord cond, wordNo, codeVec)
                 )
 
+            end
+
+        |   genCodeWords(CheckStack{work, spaceRef=ref space}, wordNo) =
+            let (* Check for stack space. *)
+                (*  ldr x10,[x26,#48]
+                    sub x9,x28,#words
+                    cmp x9,x10
+                    b.cs L1
+                    ldr x10,[x26,#24]
+                    blr x10
+                    0x20000000
+                    L1: *)
+                val bytesNeeded = space * 8
+                val _ = bytesNeeded < 0x400 orelse raise InternalError "CheckStack: too large"
+            in
+                writeInstr(0wxF9401B4A, wordNo, codeVec);
+                writeInstr(0wxD1000389 orb (Word.fromInt bytesNeeded << 0w10), wordNo+0w1, codeVec);
+                writeInstr(0wxEB0A013F, wordNo+0w2, codeVec);
+                writeInstr(0wx54000082, wordNo+0w3, codeVec);
+                writeInstr(0wxF9400F4A, wordNo+0w4, codeVec);
+                writeInstr(0wxD63F0140, wordNo+0w5, codeVec);
+                (* This is an unallocated instruction.  The lower 25 bits are the registers
+                   that must be updated if there is a GC.  *)
+                writeInstr(0wx20000000, wordNo+0w6, codeVec) (* Register mask - currently empty *)
             end
     in
         foldCode 0w0 genCodeWords (ops @ paddingWord);
@@ -467,17 +514,18 @@ struct
                 printStream imm9Text
             end
 
-            else if (wordValue andb 0wxff800000) = 0wx91000000
+            else if (wordValue andb 0wxbf800000) = 0wx91000000
             then
             let
-                (* Add a 12-bit immediate with possible shift. *)
+                (* Add/Subtract a 12-bit immediate with possible shift. *)
                 val rD = wordValue andb 0wx1f
                 and rN = (wordValue andb 0wx3e0) >> 0w5
                 and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
                 and shiftBit = wordValue andb 0wx400000
                 val imm = if shiftBit <> 0w0 then imm12 << 0w12 else imm12
+                val opr = if (wordValue andb 0wx40000000) = 0w0 then "add" else "sub"
             in
-                printStream "add\tx"; printStream(Word.fmt StringCvt.DEC rD);
+                printStream opr; printStream "\tx"; printStream(Word.fmt StringCvt.DEC rD);
                 printStream ",x"; printStream(Word.fmt StringCvt.DEC rN);
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
             end
@@ -497,6 +545,34 @@ struct
                 else (printStream "subs\tx"; printStream(Word.fmt StringCvt.DEC rD); printStream ",");
                 printStream "x"; printStream(Word.fmt StringCvt.DEC rN);
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
+            end
+            
+            else if (wordValue andb 0wxffe00000) = 0wxEB000000
+            then
+            let
+                (* Subtract a register from another, possibly shifted, setting the flags. *)
+                val rD = wordValue andb 0wx1f
+                and rN = (wordValue >> 0w5) andb 0wx1f
+                and rM = (wordValue >> 0w16) andb 0wx1f
+                and imm6 = (wordValue >> 0w10) andb 0wx3f
+                and shiftCode = (wordValue >> 0w22) andb 0wx3
+            in
+                if rD = 0w31
+                then printStream "cmp\t"
+                else (printStream "subs\tx"; printStream(Word.fmt StringCvt.DEC rD); printStream ",");
+                printStream "x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ",x"; printStream(Word.fmt StringCvt.DEC rM);
+                if imm6 <> 0w0
+                then
+                (
+                    case shiftCode of
+                        0w0 => printStream ",lsl #"
+                    |   0w1 => printStream ",lsr #"
+                    |   0w2 => printStream ",asr #"
+                    |   _ => printStream ",?? #";
+                    printStream(Word.fmt StringCvt.DEC imm6)
+                )
+                else ()
             end
 
             else if (wordValue andb 0wxff000000) = 0wx58000000
@@ -568,9 +644,12 @@ struct
     end
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun generateCode {code as Code{ instructions = ref instrs, printAssemblyCode, printStream, functionName, constVec, ...},
-                      maxStack, resultClosure} =
+    fun generateCode {code as
+            Code{ instructions = ref instrs, printAssemblyCode, printStream,
+                  functionName, constVec, maxStackRef, ...},
+            maxStack, resultClosure} =
     let
+        val () = maxStackRef := maxStack
 
         local
             val codeList = List.rev instrs

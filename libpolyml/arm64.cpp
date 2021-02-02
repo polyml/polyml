@@ -92,6 +92,10 @@
 // Arm64 instructions are all 32-bit values.
 typedef uint32_t* arm64CodePointer;
 
+// Each function checks for space on the stack at the start.  To reduce the
+// code size it assumes there are at least 10 words on the stack and only
+// checks the exact space if it requires more than that.  For safety we
+// always make sure there are 50 words spare.
 #define OVERFLOW_STACK_SIZE 50
 
 // X26 always points at this area when executing ML code.
@@ -209,12 +213,13 @@ Architectures Arm64Dependent::MachineArchitecture(void)
     return MA_Arm64;
 }
 
-// Values for the returnReason byte
+// Values for the returnReason byte. These values are put into returnReason by the assembly code
+// depending on which of the "trap" functions has been called.
 enum RETURN_REASON {
-    RETURN_HEAP_OVERFLOW = 1,
-    RETURN_STACK_OVERFLOW = 2,
-    RETURN_STACK_OVERFLOWEX = 3,
-    RETURN_ENTER_INTERPRETER = 4
+    RETURN_HEAP_OVERFLOW = 1,           // Heap space check has failed.
+    RETURN_STACK_OVERFLOW = 2,          // Stack space check has failed (<= 10 words).
+    RETURN_STACK_OVERFLOWEX = 3,        // Stack space check has failed.  Adjusted SP is in X9.
+    RETURN_ENTER_INTERPRETER = 4        // Native code has entered interpreted code.
 };
 
 extern "C" {
@@ -285,6 +290,13 @@ void Arm64TaskData::GarbageCollect(ScanAddress *process)
         // Now the values on the stack.
         for (stackItem* q = stackPtr; q < (stackItem*)stack->top; q++)
             ScanStackAddress(process, *q, stack);
+    }
+
+    // Register mask.  There is a bit for each of the registers up to X24.
+    for (int i = 0; i < 25; i++)
+    {
+        if (saveRegisterMask & (1 << i))
+            ScanStackAddress(process, assemblyInterface.registers[i], stack);
     }
 }
 
@@ -526,9 +538,7 @@ void Arm64TaskData::HandleTrap()
     {
         // The register mask is the word after the return.
         saveRegisterMask = *assemblyInterface.entryPoint++;
-        ASSERT(0); // TODO
         uintptr_t min_size = 0; // Size in PolyWords
-#if (0)
         if (assemblyInterface.returnReason == RETURN_STACK_OVERFLOW)
         {
             min_size = (this->stack->top - (PolyWord*)assemblyInterface.stackPtr) +
@@ -537,12 +547,11 @@ void Arm64TaskData::HandleTrap()
         else
         {
             // Stack limit overflow.  If the required stack space is larger than
-            // the fixed overflow size the code will calculate the limit in %EDI.
-            stackItem* stackP = regDI().stackAddr;
+            // the fixed overflow size the code will calculate the limit in X9.
+            stackItem* stackP = assemblyInterface.registers[9].stackAddr;
             min_size = (this->stack->top - (PolyWord*)stackP) +
                 OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
         }
-#endif
         HandleStackOverflow(min_size);
         break;
     }

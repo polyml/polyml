@@ -34,6 +34,8 @@
 
 // Offsets into the assembly code interface
 #define TrapHandlerEntry    32
+#define HandlerRegister     40
+#define ExceptionPacket     56
 #define ThreadId            64
 #define RegisterArray       72
 #define FPRegisterArray     272
@@ -106,7 +108,7 @@ LABEL(trapHandle)
     blr     x16
     // Load the registers.  Even though some are callee-save the RTS may have updated them.
     // x26, though, should have been preserved.
-    ldp     x0,x1,[x26, RegisterArray]
+    ldr     x1,[x26, RegisterArray+1*8]
     ldp     x2,x3, [x26, RegisterArray+2*8]
     ldp     x4,x5, [x26, RegisterArray + 4*8]
     ldp     x6, x7, [x26, RegisterArray + 6*8]
@@ -124,9 +126,18 @@ LABEL(trapHandle)
     ldr     x25,[x26, LocalMBottom]
     ldp     x27,x28,[x26,LocalMPointer]
     ldr     x30,[x26,LinkRegister]
+    // Check whether we've raised an exception e.g. Interrupt
+    ldr     x0,[x26,ExceptionPacket]
+    cmp     x0,#1
+    bne     raiseexcept
+    ldr     x0,[x26, RegisterArray]
     ldr     x16,[x26,EntryPoint]        // Normally this will be x30 but not always
     br      x16
 
+LABEL(raiseexcept)
+    ldr     x28,[x26,HandlerRegister]   // Set the stack ptr to this
+    ldr     x16,[x28]
+    br      x16
 #ifdef ARMASMSYNTAX
     ENDP
 #endif

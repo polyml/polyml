@@ -103,9 +103,23 @@ sig
     (* A conditional or unconditional branch. *)
     val putBranchInstruction: condition * labels * code -> unit
 
+    (* Put in a check for the stack for the function. *)
+    val checkStackForFunction: xReg * code -> unit
+    (* Inserted in a backwards jump to allow loops to be interrupted.  *)
+    and checkForInterrupts: xReg * code -> unit
+
     (* copyCode - create the vector of code and update the closure reference to
        point to it. *)
     val generateCode: {code: code, maxStack: int, resultClosure: closureRef} -> unit
+
+
+    (* Offsets in the assembly code interface pointed at by X26
+       These are in units of 64-bits NOT bytes. *)
+    val heapOverflowCallOffset: int
+    and exceptionHandlerOffset: int
+    and stackLimitOffset: int
+    and exceptionPacketOffset: int
+    and threadIdOffset: int
 
     exception Fallback (* During development only. *)
 

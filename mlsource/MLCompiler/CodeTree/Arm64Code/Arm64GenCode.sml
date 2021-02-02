@@ -36,14 +36,6 @@ struct
     (* shift a short constant, but don't set tag bit *)
     fun semitag c = 2 * c
     
-    (* Offsets in the assembly code interface pointed at by X26
-       These are in units of 64-bits NOT bytes. *)
-    val heapOverflowCallOffset  = 1
-    and exceptionHandlerOffset  = 5
-    and stackLimitOffset        = 6
-    and exceptionPacketOffset   = 7
-    and threadIdOffset          = 8
-
     (* Remove items from the stack. If the second argument is true the value
        on the top of the stack has to be moved.
        TODO: This works only for offsets up to 256 words. *)
@@ -82,7 +74,6 @@ struct
 
     fun genOpcode _ =  toDo()
 
-    fun checkForInterruptInLoop _ = toDo()
     fun genSetHandler _ = toDo()
 
     fun genContainer _ = toDo()
@@ -445,7 +436,7 @@ struct
                     else ();
             
                     (* Jump back to the start of the loop. *)
-                    checkForInterruptInLoop cvec;
+                    checkForInterrupts(X10, cvec);
                     
                     putBranchInstruction(condAlways, startLoop, cvec)
                 end
@@ -1306,6 +1297,9 @@ struct
         val () = if numOfArgs >= 1 then genPushReg (X0, cvec) else ()
         val () = genPushReg (X30, cvec)
         val () = genPushReg (X8, cvec) (* Push closure pointer *)
+        (* The stack check code will modify X30 if it has to call the
+           RTS so this can only be done once X30 has been saved. *)
+        val () = checkStackForFunction(X10, cvec)
 
        (* Generate the function. *)
        (* Assume we always want a result. There is otherwise a problem if the
