@@ -99,8 +99,6 @@ val () = Bootstrap.use "basis/IO.sml";
 val () = Bootstrap.use "basis/OS.sml";
 val () = Bootstrap.use "basis/PRIM_IO.sml";
 val () = Bootstrap.use "basis/PrimIO.sml";
-(*val () = Bootstrap.use "basis/TextPrimIO.sml";
-val () = Bootstrap.use "basis/BinPrimIO.sml"; *)
 val () = Bootstrap.use "basis/LibraryIOSupport.sml";
 val () = Bootstrap.use "basis/STREAM_IO.sml";
 val () = Bootstrap.use "basis/BasicStreamIO.sml";
@@ -114,8 +112,13 @@ val () = Bootstrap.use "basis/NetServDB.sml";
 val () = Bootstrap.use "basis/GenericSock.sml";
 val () = Bootstrap.use "basis/INetSock.sml";
 val () = Bootstrap.use "basis/INet6Sock.sml";
-val () = Bootstrap.use "basis/PackRealBig.sml"; (* also declares PackRealLittle *)
-val () = Bootstrap.use "basis/PackWord8Big.sml"; (* also declares Pack8Little. ...*)
+val () = Bootstrap.use "basis/PackReal.sml";
+val () =
+    if Word.wordSize = 31
+    then Bootstrap.use "basis/PackReal32Boxed.sml"
+    else Bootstrap.use "basis/PackReal32Tagged.sml";
+
+val () = Bootstrap.use "basis/PackWord.sml";
 val () = Bootstrap.use "basis/Array2Signature.sml";
 val () = Bootstrap.use "basis/Array2.sml";
 val () = Bootstrap.use "basis/IntArray2.sml";
@@ -200,7 +203,8 @@ local
         "Int63", "IntArray", "IntArray2", "IntArraySlice", "IntInf", "IntVector",
         "IntVectorSlice", "LargeInt", "LargeReal", "LargeWord", "List",
         "ListPair", "Math", "Net6HostDB", "NetHostDB", "NetProtDB", "NetServDB",
-        "OS", "Option", "PackRealBig", "PackRealLittle", "PackWord16Big",
+        "OS", "Option", "PackRealBig", "PackRealLittle", "PackReal32Big",
+        "PackReal32Little", "PackWord16Big",
         "PackWord16Little", "PackWord32Big", "PackWord32Little", "PackWord8Big",
         "PackWord8Little", "PolyML", "Position", "Posix", "Real", "Real32",
         "RealArray", "RealArray2", "RealArraySlice", "RealVector",
