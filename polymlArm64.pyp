@@ -52,8 +52,10 @@
 	<source name="basis\NetServDB.sml" />
 	<source name="basis\Option.sml" />
 	<source name="basis\OS.sml" />
-	<source name="basis\PackRealBig.sml" />
-	<source name="basis\PackWord8Big.sml" />
+	<source name="basis\PackReal.sml" />
+	<source name="basis\PackReal32Boxed.sml" />
+	<source name="basis\PackReal32Tagged.sml" />
+	<source name="basis\PackWord.sml" />
 	<source name="basis\PolyMLException.sml" />
 	<source name="basis\PolyVectorOperations.sml" />
 	<source name="basis\Posix.sml" />
