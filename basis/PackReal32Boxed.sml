@@ -19,6 +19,6 @@
 
 
 structure PackReal32Big: PACK_REAL =
-    PackRealBoxed(type realType = real val isBigEndian = true val realSize = 0w4)
+    PackRealBoxed(type realType = Real32.real val isBigEndian = true val realSize = 0w4)
 and PackReal32Little: PACK_REAL =
-    PackRealBoxed(type realType = real val isBigEndian = false val realSize = 0w4);
+    PackRealBoxed(type realType = Real32.real val isBigEndian = false val realSize = 0w4);
