@@ -78,9 +78,6 @@ sig
     (* Pop a register from the ML stack. *)
     val genPopReg: xReg * code -> unit
 
-    (* Move a short constant to a register.  Currently limited to unsigned 16-bits. *)
-    val genMoveShortConstToReg: xReg * int * code -> unit
-    
     (* Move an address constant to a register. *)
     val loadAddressConstant: xReg * machineWord * code -> unit
     (* Move a constant into a register that is not an address.
