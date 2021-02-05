@@ -79,7 +79,7 @@ struct
 
     datatype instr =
         SimpleInstr of word
-    |   LoadLiteral of xReg * int
+    |   LoadLiteral of {reg: xReg, cNum: int, isAddress: bool}
     |   Label of labels
     |   Branch of { label: labels, jumpCondition: condition }
     |   CheckStack of { work: xReg, spaceRef: int ref }
@@ -118,7 +118,8 @@ struct
     Code of 
     {
         instructions:   instr list ref,        (* Code in reverse order. *)
-        constVec:       machineWord list ref, (* Constant area constant values. *)
+        addressConstVec: machineWord list ref, (* Addresses for the constant area. *)
+        nonAddressConstVec: Word64.word list ref, (* Non-address constants. *)
         functionName:   string,               (* Name of the function. *)
         printAssemblyCode:bool,               (* Whether to print the code when we finish. *)
         printStream:    string->unit,         (* The stream to use *)
@@ -132,7 +133,8 @@ struct
         Code
         {
             instructions     = ref nil,
-            constVec         = ref [],
+            addressConstVec  = ref [],
+            nonAddressConstVec = ref [],
             functionName     = name,
             printAssemblyCode = Debug.getParameter Debug.assemblyCodeTag parameters,
             printStream    = printStream,
@@ -140,38 +142,27 @@ struct
         }
     end
 
-    fun addConstToVec (valu, Code{constVec, ...}) =
-    let
-        (* Search the list to see if the constant is already there. *)
-        fun findConst valu [] num =
-            (* Add to the list *)
-            (
-                constVec    := ! constVec @ [valu];
-                num
-            )
-        |   findConst valu (h :: t) num =
-                if wordEq (valu, h)
-                then num
-                else findConst valu t (num + 1) (* Not equal *)
-    in
-        findConst valu (! constVec) 0
-    end
-
-    
     fun addInstr (instr, Code{instructions, ...}) =
         instructions := SimpleInstr instr :: ! instructions
 
     val nopCode  = 0wxD503201F
-
-    (* Add a 12-bit constant, possibly shifted by 12 bits. *)
-    fun genAddRegConstant({sReg, dReg, cValue, shifted}, code) =
-    let
-        val () =
-            if cValue < 0 orelse cValue >= 0x400 then raise InternalError "genAddRegConstant: Value > 12 bits" else ()
+    
+    local
+        fun addSubRegConstant({sReg, dReg, cValue, shifted, isAdd}, code) =
+        let
+            val () =
+                if cValue < 0 orelse cValue >= 0x400 then raise InternalError "genAddRegConstant: Value > 12 bits" else ()
+        in
+            addInstr((if isAdd then 0wx91000000 else 0wxD1000000) orb
+                (if shifted then 0wx400000 else 0w0) orb
+                (Word.fromInt cValue << 0w10) orb (word8ToWord(xRegOrXSP sReg) << 0w5) orb
+                word8ToWord(xRegOrXSP dReg), code)
+        end
     in
-        addInstr(0wx91000000 orb (if shifted then 0wx400000 else 0w0) orb
-            (Word.fromInt cValue << 0w10) orb (word8ToWord(xRegOrXSP sReg) << 0w5) orb
-            word8ToWord(xRegOrXSP dReg), code)
+        fun genAddRegConstant({sReg, dReg, cValue}, code) =
+            addSubRegConstant({sReg=sReg, dReg=dReg, cValue=cValue, shifted=false, isAdd=true}, code)
+        and genSubRegConstant({sReg, dReg, cValue}, code) =
+            addSubRegConstant({sReg=sReg, dReg=dReg, cValue=cValue, shifted=false, isAdd=false}, code)
     end
 
     (* Subtract a 12-bit constant, possibly shifted by 12 bits and set the
@@ -219,19 +210,68 @@ struct
     (* Pop a register from the ML stack. *)
     fun genPopReg(xReg, code) =
         addInstr(0wxF8408780 orb word8ToWord(xRegOnly xReg), code)
-    
-    fun genLoadConstant(xReg, valu, code as Code{instructions, ...}) =
+
+    (* Addresses must go in the constant area at the end of the code where they
+       can be found by the GC. *)
+    fun loadAddressConstant(xReg, valu, code as Code{instructions, ...}) =
     let
+        fun addConstToVec (valu, Code{addressConstVec, ...}) =
+        let
+            (* Search the list to see if the constant is already there. *)
+            fun findConst valu [] num =
+                (* Add to the list *)
+                (
+                    addressConstVec:= ! addressConstVec @ [valu];
+                    num
+                )
+            |   findConst valu (h :: t) num =
+                    if wordEq (valu, h)
+                    then num
+                    else findConst valu t (num + 1) (* Not equal *)
+        in
+            findConst valu (! addressConstVec) 0
+        end
+
         val cNum = addConstToVec(valu, code)
     in
-        instructions := LoadLiteral(xReg, cNum) :: ! instructions
+        instructions := LoadLiteral{reg=xReg, cNum=cNum, isAddress=true} :: ! instructions
     end
-    
+
+    (* Non-address constants. *)
+    fun loadNonAddressConstant(xReg, valu, code as Code{instructions, ...}) =
+    let
+        fun addConstToVec (valu, Code{nonAddressConstVec, ...}) =
+        let
+            (* Search the list to see if the constant is already there. *)
+            fun findConst valu [] num =
+                (* Add to the list *)
+                (
+                    nonAddressConstVec:= ! nonAddressConstVec @ [valu];
+                    num
+                )
+            |   findConst valu (h :: t) num =
+                    if valu = h
+                    then num
+                    else findConst valu t (num + 1) (* Not equal *)
+        in
+            findConst valu (! nonAddressConstVec) 0
+        end
+
+        val cNum = addConstToVec(valu, code)
+    in
+        instructions := LoadLiteral{reg=xReg, cNum=cNum, isAddress=false} :: ! instructions
+    end 
+
     (* Move an unsigned constant into the low 16-bits of a register. *)
     fun genMoveShortConstToReg(xReg, constnt, code) =
     if constnt < 0 orelse constnt >= 65536
     then raise InternalError "genMoveShortConstToReg: constant out of range"
     else addInstr(0wxD2800000 orb (Word.fromInt constnt << 0w5) orb word8ToWord(xRegOnly xReg), code)
+
+    (* Move a value from one register into another.  This actually uses ORR shifted
+       register but for the moment we'll just encode it independently. *)
+    fun genMoveRegToReg({sReg, dReg}, code) =
+        addInstr(0wxAA0003E0 orb (word8ToWord(xRegOnly sReg) << 0w16) orb word8ToWord(xRegOnly dReg), code)
 
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
@@ -295,8 +335,22 @@ struct
     in
         putBytes(value, wordAddr << 0w2, seg, 0w0)
     end
+    
+    (* Store a 64-bit constant in the code area. *)
+    fun write64Bit(value, word64Addr, seg) =
+    let
+        fun putBytes(value, a, seg, i) =
+        if i = 0w8 then ()
+        else
+        (
+            byteVecSet(seg, a+i, Word8.fromLarge(Word64.toLarge value));
+            putBytes(Word64.>>(value, 0w8), a, seg, i+0w1)
+        )
+    in
+        putBytes(value, word64Addr << 0w3, seg, 0w0)
+    end
 
-    fun genCode(ops, Code {constVec, ...}) =
+    fun genCode(ops, Code {addressConstVec, nonAddressConstVec, ...}) =
     let
         local
             (* First pass - set the labels. *)
@@ -309,20 +363,23 @@ struct
 
         val wordsOfCode = (codeSize + 0w1) div 0w2 (* Round up to 64-bits *)
         val paddingWord = if Word.andb(codeSize, 0w1) = 0w1 then [SimpleInstr nopCode] else []
+        
+        val numNonAddrConsts = Word.fromInt(List.length(! nonAddressConstVec))
+        and numAddrConsts = Word.fromInt(List.length(! addressConstVec))
 
-        val segSize   = wordsOfCode + Word.fromInt(List.length(! constVec)) + 0w4 (* 4 extra words *)
+        val segSize = wordsOfCode + numAddrConsts + numNonAddrConsts + 0w4 (* 4 extra words *)
         val codeVec = byteVecMake segSize
 
         fun genCodeWords(SimpleInstr code, wordNo) = writeInstr(code, wordNo, codeVec)
 
-        |   genCodeWords(LoadLiteral(xReg, cNum), wordNo) =
+        |   genCodeWords(LoadLiteral{reg, cNum, isAddress}, wordNo) =
             let
                 (* The offset is in 32-bit words.  The first of the constants is
                    at offset wordsOfCode+3 *)
                 val offsetOfConstant =
-                    (wordsOfCode+0w3+Word.fromInt cNum)*0w2 - wordNo
+                    (wordsOfCode+(if isAddress then numNonAddrConsts+0w3 else 0w0)+Word.fromInt cNum)*0w2 - wordNo
                 val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
-                val code = 0wx58000000 orb (offsetOfConstant << 0w5) orb word8ToWord(xRegOnly xReg)
+                val code = 0wx58000000 orb (offsetOfConstant << 0w5) orb word8ToWord(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec)
             end
@@ -376,7 +433,9 @@ struct
             end
     in
         foldCode 0w0 genCodeWords (ops @ paddingWord);
-        (codeVec (* Return the completed code. *), wordsOfCode (* And the size in 64-bit words. *))
+        (* Copy in the non-address constants. *)
+        List.foldl(fn (cVal, addr) => (write64Bit(cVal, addr, codeVec); addr+0w1)) wordsOfCode (! nonAddressConstVec);
+        (codeVec (* Return the completed code. *), wordsOfCode+numNonAddrConsts (* And the size in 64-bit words. *))
     end
 
     (* Store a 64-bit value in the code *)
@@ -578,15 +637,33 @@ struct
             else if (wordValue andb 0wxff000000) = 0wx58000000
             then
             let
-                (* Load from a PC-relative address i.e. the constant area. *)
+                (* Load from a PC-relative address.  This may refer to the
+                   address constant area or the non-address constant area. *)
                 val rT = wordValue andb 0wx1f
                 (* The offset is in 32-bit words *)
-                val byteOffset = (wordValue andb 0wx00ffffe0) >> (0w5-0w2)
-                val constantValue = codeVecGetWord(codeVec, (byteOffset+byteNo) >> 0w3)
+                val byteAddr = ((wordValue andb 0wx00ffffe0) >> (0w5-0w2)) + byteNo
+                val word64Addr = byteAddr >> 0w3
+                (* We must NOT use codeVecGetWord if this is in the non-address
+                   area.  It may well not be a tagged value. *)
+                local
+                    fun getConstant(cVal, 0w0) = cVal
+                    |   getConstant(cVal, offset) =
+                        let
+                            val byteVal =
+                                Word64.fromLarge(Word8.toLarge(codeVecGet (codeVec, byteAddr+offset-0w1)))
+                        in
+                            getConstant(Word64.orb(Word64.<<(cVal, 0w8), byteVal), offset-0w1)
+                        end
+                in
+                    val constantValue =
+                        if word64Addr <= wordsOfCode
+                        then "0x" ^ Word64.toString(getConstant(0w0, 0w8)) (* It's a non-address constant *)
+                        else stringOfWord(codeVecGetWord(codeVec, word64Addr))
+                end
             in
                 printStream "ldr\tx"; printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",0x"; printStream(Word.fmt StringCvt.HEX (byteOffset+byteNo));
-                printStream "\t// "; printStream(stringOfWord constantValue)
+                printStream ",0x"; printStream(Word.fmt StringCvt.HEX byteAddr);
+                printStream "\t// "; printStream constantValue
             end
 
             else if (wordValue andb 0wxff800000) = 0wxF9000000
@@ -646,7 +723,7 @@ struct
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun generateCode {code as
             Code{ instructions = ref instrs, printAssemblyCode, printStream,
-                  functionName, constVec, maxStackRef, ...},
+                  functionName, addressConstVec, maxStackRef, ...},
             maxStack, resultClosure} =
     let
         val () = maxStackRef := maxStack
@@ -664,7 +741,7 @@ struct
         val (byteVec, wordsOfCode) = genCode(codeList, code)
 
         (* +3 for profile count, function name and constants count *)
-        val numOfConst = List.length(! constVec)
+        val numOfConst = List.length(! addressConstVec)
         val segSize   = wordsOfCode + Word.fromInt numOfConst + 0w4
         val firstConstant = wordsOfCode + 0w3 (* Add 3 for no of consts, fn name and profile count. *)
     
@@ -707,7 +784,7 @@ struct
                 num+0w1
             )
         in
-            val _ = List.foldl setConstant 0w0 (!constVec)
+            val _ = List.foldl setConstant 0w0 (!addressConstVec)
         end
     in
         if printAssemblyCode

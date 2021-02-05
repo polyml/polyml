@@ -81,11 +81,21 @@ sig
     (* Move a short constant to a register.  Currently limited to unsigned 16-bits. *)
     val genMoveShortConstToReg: xReg * int * code -> unit
     
-    (* Move a long constant to a register. *)
-    val genLoadConstant: xReg * machineWord * code -> unit
+    (* Move an address constant to a register. *)
+    val loadAddressConstant: xReg * machineWord * code -> unit
+    (* Move a constant into a register that is not an address.
+       The argument is the actual bit pattern to be copied.
+       For tagged integers that means that the value must have
+       been shifted and the tag bit set. *)
+    and loadNonAddressConstant: xReg * Word64.word * code -> unit
 
-    (* Add a 12-bit constant, possibly shifted by 12 bits *)
-    val genAddRegConstant: {sReg: xReg, dReg: xReg, cValue: int, shifted: bool} * code -> unit
+    (* Add a 12-bit constant.  Currently limited to 12-bits but this could
+       be changed by using a sequence of instructions. *)
+    val genAddRegConstant: {sReg: xReg, dReg: xReg, cValue: int} * code -> unit
+    and genSubRegConstant: {sReg: xReg, dReg: xReg, cValue: int} * code -> unit
+    
+    (* Move a value from one register into another. *)
+    val genMoveRegToReg: {sReg: xReg, dReg: xReg} * code -> unit
 
     (* Subtract a 12-bit constant, possibly shifted by 12 bits and set the
        condition flags.  The destination can be the zero register in which

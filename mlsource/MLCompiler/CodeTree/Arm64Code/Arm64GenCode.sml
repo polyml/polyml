@@ -48,18 +48,7 @@ struct
         )
     |   resetStack(nItems, false, code) =
             genAddRegConstant({sReg=X_MLStackPtr, dReg=X_MLStackPtr,
-                cValue=Word.toInt wordSize * nItems, shifted=false}, code)
-
-    (* Load a constant and push it to the stack. *)
-    fun pushConst(w, code) =
-        if isShort w andalso toShort w < 0w32768 (* So tagged value will fit. *)
-        then
-        let
-            val cVal = tag(Word.toInt(toShort w))
-        in
-            genMoveShortConstToReg(X0, cVal, code); genPushReg(X0, code)
-        end
-        else (genLoadConstant(X0, w, code); genPushReg(X0, code))
+                cValue=Word.toInt wordSize * nItems}, code)
 
     (* Load a local value.  TODO: the offset is limited to 12-bits. *)
     fun genLocal(offset, code) =
@@ -69,6 +58,26 @@ struct
        TODO: the offset is limited to 12-bits. *)
     fun genIndirect(offset, code) =
         (genPopReg(X0, code); loadRegAligned({dest=X0, base=X0, wordOffset=offset}, code); genPushReg(X0, code))
+
+    (* Sequence to allocate on the heap.  Returns the result in X0.  The words are not initialised
+       apart from the length word. *)
+    (*fun genAllocateFixedSize(words, flags, code) =
+    let
+        val label = createLabel()
+    in
+        genSubRegConstant({sReg=X_MLHeapAllocPtr, dReg=X0, cValue=(words+1)* Word.toInt wordSize}, code);
+        genCompare(X0, X_MLHeapLimit, code);
+        putBranchInstruction(condCarrySet, label, code);
+        loadRegAligned({dest=X16, base=X_MLAssemblyInt, wordOffset=heapOverflowCallOffset}, code);
+        genBranchAndLinkReg(X16, code);
+        genRegisterMask([], code);
+        genMoveRegToReg({sReg=X0, dReg=X_MLHeapAllocPtr}, code);
+        setLabel(label, code);
+        loadNonAddressConstant(X1,
+            Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags), 0w56)), code);
+        storeRegUnaligned({dest=X1, base=X0, byteOffset= ~8}, code)
+    end*)
+    
     
     fun toDo() = raise Fallback
 
@@ -208,10 +217,6 @@ struct
     
     val SetHandler = 0
 
-    val word0 = toMachineWord 0;
-  
-    val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
-
     type caseForm =
         {
             cases   : (backendIC * word) list,
@@ -275,12 +280,13 @@ struct
                 gencde (base, ToStack, NotEnd, loopAddr);
                 offset mod scale = 0 orelse raise InternalError "genMLAddress";
                 case (index, offset div scale) of
-                    (NONE, soffset) => (pushConst (toMachineWord soffset, cvec); incsp())
+                    (NONE, soffset) =>
+                        (loadNonAddressConstant(X0, Word64.fromInt(tag soffset), cvec); genPushReg(X0, cvec); incsp())
                 |   (SOME indexVal, 0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
                 |   (SOME indexVal, soffset) =>
                     (
                         gencde (indexVal, ToStack, NotEnd, loopAddr);
-                        pushConst (toMachineWord soffset, cvec);
+                        loadNonAddressConstant(X0, Word64.fromInt(tag soffset), cvec); genPushReg(X0, cvec); 
                         genOpcode(opcode_wordAdd, cvec)
                     )
            )
@@ -292,9 +298,11 @@ struct
             (
                 gencde (base, ToStack, NotEnd, loopAddr);
                 case index of
-                    NONE => (pushConst (toMachineWord 0, cvec); incsp())
+                    NONE =>
+                        (loadNonAddressConstant(X0, Word64.fromInt(tag 0), cvec); genPushReg(X0, cvec); incsp())
                 |   SOME indexVal => gencde (indexVal, ToStack, NotEnd, loopAddr);
-                pushConst (toMachineWord offset, cvec); incsp()
+                loadNonAddressConstant(X0, Word64.fromInt(tag offset), cvec);
+                genPushReg(X0, cvec); incsp()
             )
 
          val () =
@@ -339,8 +347,15 @@ struct
        
             |   BICLambda lam => genProc (lam, false, fn () => ())
            
-            |   BICConstnt(w, _) => (pushConst (w, cvec); incsp ())
-  
+            |   BICConstnt(w, _) =>
+                    (
+                        if isShort w
+                        then loadNonAddressConstant(X0, Word64.fromInt(tag(Word.toIntX(toShort w))), cvec)
+                        else loadAddressConstant(X0, w, cvec);
+                        genPushReg(X0, cvec);
+                        incsp()
+                    )
+
             |   BICCond (testPart, thenPart, elsePart) =>
                     genCond (testPart, thenPart, elsePart, whereto, tailKind, loopAddr)
   
@@ -500,7 +515,8 @@ struct
                         else
                         (   (* Subtract lower limit.  Don't check for overflow.  Instead
                                allow large value to wrap around and check in "case" instruction. *)
-                            pushConst(toMachineWord firstIndex, cvec);
+                            loadNonAddressConstant(X0, Word64.fromInt(tag(Word.toIntX firstIndex)), cvec);
+                            genPushReg(X0, cvec);
                             genOpcode(opcode_wordSub, cvec)
                         )
 
@@ -1008,7 +1024,11 @@ struct
                         then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
                         (* Hack for declarations that should push values, but don't *)
                         else if adjustment = ~1
-                        then pushConst (DummyValue, cvec)
+                        then
+                        (
+                            loadNonAddressConstant(X0, Word64.fromInt(tag 0), cvec);
+                            genPushReg(X0, cvec)
+                        )
                         else resetStack (adjustment, true, cvec)
                 in
                     realstackptr := newsp
@@ -1043,7 +1063,8 @@ struct
                 (* Code-gen function. No non-local references. *)
                  val () =
                    codegen (body, newCode, closure, List.length argTypes, localCount, parameters);
-                val () = pushConst(closureAsAddress closure, cvec);
+                val () = loadAddressConstant(X0, closureAsAddress closure, cvec)
+                val () = genPushReg(X0, cvec)
                 val () = incsp();
             in
                 if mutualDecs then doNext () else ()
@@ -1060,7 +1081,8 @@ struct
                 if mutualDecs
                 then
                 let (* Have to make the closure now and fill it in later. *)
-                    val () = pushConst(toMachineWord resClosure, cvec)
+                    val () = loadAddressConstant(X0, toMachineWord resClosure, cvec)
+                    val () = genPushReg(X0, cvec)
                     val () = genAllocMutableClosure(closureVars, cvec)
                     val () = incsp ()
            
@@ -1097,7 +1119,8 @@ struct
                 else
                 let
                     (* Put it on the stack. *)
-                    val () = pushConst (toMachineWord resClosure, cvec)
+                    val () = loadAddressConstant(X0, toMachineWord resClosure, cvec)
+                    val () = genPushReg(X0, cvec)
                     val () = incsp ()
                     val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
                     val () = genClosure (closureVars, cvec)

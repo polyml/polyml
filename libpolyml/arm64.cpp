@@ -90,7 +90,7 @@
 */
 
 // Arm64 instructions are all 32-bit values.
-typedef uint32_t* arm64CodePointer;
+typedef uint32_t arm64Instr, *arm64CodePointer;
 
 // Each function checks for space on the stack at the start.  To reduce the
 // code size it assumes there are at least 10 words on the stack and only
@@ -526,12 +526,25 @@ void Arm64TaskData::HandleTrap()
     {
 
     case RETURN_HEAP_OVERFLOW:
+    {
         // The heap has overflowed.
         // The register mask is the word after the return.
         saveRegisterMask = *assemblyInterface.entryPoint++;
-        ASSERT(0); // TODO
-        //HeapOverflowTrap(); // Computes a value for allocWords only
+        // The generated code first subtracts the space required from x27 and puts the
+        // result into a separate register.  It then compares this with x25 and comes here if
+        // it is not above that.  Either way it is going to execute an instruction to put
+        // this value back into x27.
+        // Look at that instruction to find out the register.
+        arm64Instr moveInstr = *assemblyInterface.entryPoint;
+        ASSERT((moveInstr & 0xffe0ffff) == 0xaa003fb); // mov x27,xN
+        allocReg = (moveInstr >> 16) & 0x1f;
+        allocWords = (allocPointer - (PolyWord*)assemblyInterface.registers[allocReg].stackAddr) + 1;
+        assemblyInterface.registers[allocReg] = TAGGED(0); // Clear this - it's not a valid address.
+        if (profileMode == kProfileStoreAllocation)
+            addProfileCount(allocWords);
+        // The actual allocation is done in SetMemRegisters.
         break;
+    }
 
     case RETURN_STACK_OVERFLOW:
     case RETURN_STACK_OVERFLOWEX:
@@ -700,10 +713,7 @@ void Arm64TaskData::SetMemRegisters()
         // This also happens if we have just trapped because of store profiling.
         allocPointer -= allocWords; // Now allocate
         // Set the allocation register to this area. N.B.  This is an absolute address.
-#if (0)
-        if (this->allocReg < 15)
-            get_reg(this->allocReg)[0].codeAddr = (POLYCODEPTR)(this->allocPointer + 1); /* remember: it's off-by-one */
-#endif
+        assemblyInterface.registers[allocReg].codeAddr = (POLYCODEPTR)(allocPointer + 1); /* remember: it's off-by-one */
         allocWords = 0;
     }
 
