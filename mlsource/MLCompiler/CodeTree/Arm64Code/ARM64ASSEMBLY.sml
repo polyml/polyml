@@ -338,6 +338,17 @@ struct
     and putBranchInstruction(cond, label, Code{instructions, ...}) =
         instructions := Branch{label=label, jumpCondition=cond} :: ! instructions
 
+    (* Sets the destination register to the value of the first reg if the
+       condition is true otherwise the second register incremented by one.
+       Using XZR for the second register means the result value is one.
+       This is used to set the value to either "true" (tagged 1 = 3) or
+       "false" (tagged 0 = 1) by setting the result register to 3 and then
+       conditionally setting it to XZR incremented. *)
+    fun conditionalSetIncrement({regD, regTrue, regFalse, cond=CCode cond}, code) =
+        addInstr(0wx9A800400 orb (word8ToWord(xRegOrXZ regFalse) << 0w16) orb
+            (word8ToWord cond << 0w12) orb (word8ToWord(xRegOrXZ regTrue) << 0w5) orb
+            word8ToWord(xRegOrXZ regD), code)
+
     (* Put in a check for the stack for the function. *)
     fun checkStackForFunction(workReg, Code{instructions, maxStackRef, ...}) =
         instructions := CheckStack{work=workReg, spaceRef=maxStackRef} :: ! instructions
@@ -782,6 +793,20 @@ struct
                 printCondition(wordValue andb 0wxf);
                 printStream "\t0x";
                 printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
+            end
+
+            else if (wordValue andb 0wxffe00c00) = 0wx9A800400
+            then
+            let
+                val rT = wordValue andb 0wx1f
+                val rN = (wordValue >> 0w5) andb 0wx1f
+                val rM = (wordValue >> 0w16) andb 0wx1f
+                val cond = (wordValue >> 0w12) andb 0wxf
+            in
+                printStream "csinc\tx"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ",x"; printStream(Word.fmt StringCvt.DEC rM);
+                printStream ","; printCondition cond
             end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000

@@ -81,7 +81,14 @@ struct
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
         storeRegUnscaled({dest=X1, base=X0, byteOffset= ~8}, code)
     end
-    
+
+    (* Set a register to either tagged(1) i.e. true or tagged(0) i.e. false. *)
+    fun setBooleanCondition(reg, condition, code) =
+    (
+        loadNonAddressConstant(reg, Word64.fromInt(tag 1), code);
+        (* If the condition is false the value used is the XZero incremented by 1 i.e. 1 *)
+        conditionalSetIncrement({regD=reg, regTrue=reg, regFalse=XZero, cond=condition}, code)
+    )
     
     fun toDo() = raise Fallback
 
@@ -89,13 +96,11 @@ struct
 
     fun genSetHandler _ = toDo()
 
-    fun genContainer _ = toDo()
     fun genSetStackVal _ =  toDo()
     fun genPushHandler _ =  toDo()
     fun genLdexc _ =  toDo()
     fun genCase _ =  toDo()
     fun genMoveToContainer _ =  toDo()
-    fun genEqualWordConst _ =  toDo()
     fun genAllocMutableClosure _ =  toDo()
     fun genMoveToMutClosure _ =  toDo()
     fun genLock _ =  toDo()
@@ -121,16 +126,6 @@ struct
     and opcode_floatToReal = 0
     and opcode_floatAbs = 0
     and opcode_floatNeg = 0
-    
-    val opcode_equalWord = 0
-    and opcode_lessSigned = 0
-    and opcode_lessUnsigned = 0
-    and opcode_lessEqSigned = 0
-    and opcode_lessEqUnsigned = 0
-    and opcode_greaterSigned = 0
-    and opcode_greaterUnsigned = 0
-    and opcode_greaterEqSigned = 0
-    and opcode_greaterEqUnsigned = 0
 
     val opcode_fixedAdd = 0
     val opcode_fixedSub = 0
@@ -384,7 +379,11 @@ struct
                         (
                             (* If this is a container we have to process it here otherwise it
                                will be removed in the stack adjustment code. *)
-                            genContainer(size, cvec); (* Push the address of this container. *)
+                            (* The stack entries have to be initialised.  Set them to tagged(0). *)
+                            loadNonAddressConstant(X0, Word64.fromInt(tag 0), cvec);
+                            let fun pushN 0 = () | pushN n = (genPushReg(X0, cvec); pushN (n-1)) in pushN size end;
+                            genMoveRegToReg({sReg=X_MLStackPtr, dReg=X0}, cvec);
+                            genPushReg(X0, cvec); (* Push the address of this container. *)
                             realstackptr := !realstackptr + size + 1; (* Pushes N words plus the address. *)
                             Array.update (decVec, addr, StackAddr(!realstackptr))
                         )
@@ -629,10 +628,13 @@ struct
                         end
                 )
 
-            |   BICTagTest { test, tag, ... } =>
+            |   BICTagTest { test, tag=tagValue, ... } =>
                 (
                     gencde (test, ToStack, NotEnd, loopAddr);
-                    genEqualWordConst(tag, cvec)
+                    genPopReg(X0, cvec);
+                    genSubSRegConstant({sReg=X0, dReg=XZero, cValue=tag(Word.toInt tagValue), shifted=false}, cvec);
+                    setBooleanCondition(X0, condEqual, cvec);
+                    genPushReg(X0, cvec)
                 )
 
             |   BICNullary {oper=BuiltIns.GetCurrentThreadId} =>
@@ -678,39 +680,34 @@ struct
                     |   AllocCStack => genOpcode(opcode_allocCSpace, cvec)
                 end
 
-            |   BICBinary { oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1, arg2=BICConstnt(w, _) } =>
-                let
-                    val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                in
-                    genEqualWordConst(toShort w, cvec)
-                end
-
-            |   BICBinary { oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1=BICConstnt(w, _), arg2 } =>
-                let
-                    val () = gencde (arg2, ToStack, NotEnd, loopAddr)
-                in
-                    genEqualWordConst(toShort w, cvec)
-                end
-
             |   BICBinary { oper, arg1, arg2 } =>
                 let
                     open BuiltIns
                     val () = gencde (arg1, ToStack, NotEnd, loopAddr)
                     val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+                    
+                    fun compareWords cond =
+                    (
+                        genPopReg(X1, cvec); (* Second argument. *)
+                        genPopReg(X0, cvec); (* First argument. *)
+                        compareRegs(X0, X1, cvec);
+                        setBooleanCondition(X0, cond, cvec);
+                        genPushReg(X0, cvec)
+                    )
                 in
                     case oper of
-                        WordComparison{test=TestEqual, ...} => genOpcode(opcode_equalWord, cvec)
-                    |   WordComparison{test=TestLess, isSigned=true} => genOpcode(opcode_lessSigned, cvec)
-                    |   WordComparison{test=TestLessEqual, isSigned=true} => genOpcode(opcode_lessEqSigned, cvec)
-                    |   WordComparison{test=TestGreater, isSigned=true} => genOpcode(opcode_greaterSigned, cvec)
-                    |   WordComparison{test=TestGreaterEqual, isSigned=true} => genOpcode(opcode_greaterEqSigned, cvec)
-                    |   WordComparison{test=TestLess, isSigned=false} => genOpcode(opcode_lessUnsigned, cvec)
-                    |   WordComparison{test=TestLessEqual, isSigned=false} => genOpcode(opcode_lessEqUnsigned, cvec)
-                    |   WordComparison{test=TestGreater, isSigned=false} => genOpcode(opcode_greaterUnsigned, cvec)
-                    |   WordComparison{test=TestGreaterEqual, isSigned=false} => genOpcode(opcode_greaterEqUnsigned, cvec)
+                        WordComparison{test=TestEqual, ...} => compareWords condEqual
+                    |   WordComparison{test=TestLess, isSigned=true} => compareWords condSignedLess
+                    |   WordComparison{test=TestLessEqual, isSigned=true} => compareWords condSignedLessEq
+                    |   WordComparison{test=TestGreater, isSigned=true} => compareWords condSignedGreater
+                    |   WordComparison{test=TestGreaterEqual, isSigned=true} => compareWords condSignedGreaterEq
+                    |   WordComparison{test=TestLess, isSigned=false} => compareWords condCarryClear
+                    |   WordComparison{test=TestLessEqual, isSigned=false} => compareWords condUnsignedLowOrEq
+                    |   WordComparison{test=TestGreater, isSigned=false} => compareWords condUnsignedHigher
+                    |   WordComparison{test=TestGreaterEqual, isSigned=false} => compareWords condCarrySet
                     |   WordComparison{test=TestUnordered, ...} => raise InternalError "WordComparison: TestUnordered"
 
-                    |   PointerEq => genOpcode(opcode_equalWord, cvec)
+                    |   PointerEq => compareWords condEqual
 
                     |   FixedPrecisionArith ArithAdd => genOpcode(opcode_fixedAdd, cvec)
                     |   FixedPrecisionArith ArithSub => genOpcode(opcode_fixedSub, cvec)

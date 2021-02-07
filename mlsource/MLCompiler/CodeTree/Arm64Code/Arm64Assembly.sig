@@ -131,6 +131,12 @@ sig
     (* A conditional or unconditional branch. *)
     val putBranchInstruction: condition * labels * code -> unit
 
+    (* Sets the destination register to the value of the first reg if the
+       condition is true otherwise the second register incremented by one. *)
+    val conditionalSetIncrement:
+        {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} * code -> unit
+
+
     (* Put in a check for the stack for the function. *)
     val checkStackForFunction: xReg * code -> unit
     (* Inserted in a backwards jump to allow loops to be interrupted.  *)
