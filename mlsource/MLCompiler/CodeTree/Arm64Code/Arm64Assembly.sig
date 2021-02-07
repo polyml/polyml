@@ -65,6 +65,12 @@ sig
     and condAlways: condition
     and condAlwaysNV: condition
 
+    datatype shiftType =
+        ShiftLSL of word
+    |   ShiftLSR of word
+    |   ShiftASR of word
+    |   ShiftNone
+
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
     val genBranchAndLinkReg: xReg * code -> unit
@@ -98,10 +104,25 @@ sig
        condition flags.  The destination can be the zero register in which
        case this is a comparison. *)
     val genSubSRegConstant: {sReg: xReg, dReg: xReg, cValue: int, shifted: bool} * code -> unit
-    
+
+
+    (* Subtract regM, after a possible shift, from regN and put the result in regD,
+       setting the flags.  This is frequently used as a comparison. *)
+    val subSRegReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} * code -> unit
+
     (* Load/Store an aligned word using a 12-bit offset. *)
-    val loadRegAligned: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
-    and storeRegAligned: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
+    val loadRegScaled: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
+    and storeRegScaled: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
+
+    (* Store a value using a signed byte offset. *)
+    val storeRegUnscaled: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
+
+    (* This word is put in after a call to the RTS trap-handler.  All the registers
+       are saved and restored across a call to the trap-handler; the register
+       mask contains those that may contain an address and so need to be scanned and
+       possibly updated if there is a GC. *)
+    val registerMask: xReg list * code -> unit
+
 
     (* Create a label. *)
     val createLabel: unit -> labels
@@ -138,5 +159,6 @@ sig
         type xReg = xReg
         type labels = labels
         type condition = condition
+        type shiftType = shiftType
     end
 end;

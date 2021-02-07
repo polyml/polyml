@@ -114,6 +114,22 @@ struct
     and X_MLStackPtr        = X28 (* ML Stack pointer. *)
     and X_LinkReg           = X30 (* Link reg - return address *)
 
+    (* Many instructions include a possible shift. *)
+    datatype shiftType =
+        ShiftLSL of word
+    |   ShiftLSR of word
+    |   ShiftASR of word
+    |   ShiftNone
+
+    local
+        fun checkImm6 w = if w > 0w63 then raise InternalError "shift > 63" else w
+    in 
+        fun shiftEncode(ShiftLSL w) = (0w0, checkImm6 w)
+        |   shiftEncode(ShiftLSR w) = (0w1, checkImm6 w)
+        |   shiftEncode(ShiftASR w) = (0w2, checkImm6 w)
+        |   shiftEncode ShiftNone   = (0w0, 0w0)
+    end
+
     datatype code =
     Code of 
     {
@@ -177,13 +193,24 @@ struct
             (Word.fromInt cValue << 0w10) orb (word8ToWord(xRegOrXSP sReg) << 0w5) orb
             word8ToWord(xRegOrXZ dReg), code)
     end
-    
+
+    (* Subtract regM, after a possible shift, from regN and put the result in regD,
+       setting the flags.  This is frequently used as a comparison. *)
+    fun subSRegReg({regM, regN, regD, shift}, code) =
+    let
+        val (shft, imm6) = shiftEncode shift
+    in
+        addInstr(0wxEB000000 orb (shft << 0w22) orb (word8ToWord(xRegOnly regM) << 0w16) orb
+            (imm6 << 0w10) orb (word8ToWord(xRegOnly regN) << 0w5) orb
+            word8ToWord(xRegOrXZ regD), code)
+    end
+
     (* Loads: There are two versions of this on the ARM.  There is a version that
        takes a signed 9-bit byte offset and a version that takes an unsigned
        12-bit word offset. *)
     
-    (* Load an aligned value using an unsigned offset.. *)
-    fun loadRegAligned({dest, base, wordOffset}, code) =
+    (* Load an aligned value using an unsigned offset. *)
+    fun loadRegScaled({dest, base, wordOffset}, code) =
     let
         val _ = (wordOffset >= 0 andalso wordOffset < 0x1000)
             orelse raise InternalError "loadRegAligned: value out of range"
@@ -193,7 +220,7 @@ struct
     end
     
     (* and corresponding store. *)
-    and storeRegAligned({dest, base, wordOffset}, code) =
+    and storeRegScaled({dest, base, wordOffset}, code) =
     let
         val _ = (wordOffset >= 0 andalso wordOffset < 0x1000)
             orelse raise InternalError "storeRegAligned: value out of range"
@@ -202,6 +229,16 @@ struct
             (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
     end
     
+    (* Store a value using a signed byte offset. *)
+    fun storeRegUnscaled({dest, base, byteOffset}, code) =
+    let
+        val _ = (byteOffset >= ~256 andalso byteOffset < 256)
+            orelse raise InternalError "storeRegUnaligned: value out of range"
+        val imm9 = Word.fromInt byteOffset andb 0wx1ff
+    in
+        addInstr(0wxF8000000 orb (imm9 << 0w12) orb
+            (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
+    end
     
     (* Push a register to the ML stack. This uses a pre-increment store to x28 *)
     fun genPushReg(xReg, code) =
@@ -308,6 +345,20 @@ struct
     (* Inserted in a backwards jump to allow loops to be interrupted.  *)
     fun checkForInterrupts(workReg, Code{instructions, ...}) =
         instructions := CheckStack{work=workReg, spaceRef=ref 0} :: ! instructions
+
+    (* This word is put in after a call to the RTS trap-handler.  All the registers
+       are saved and restored across a call to the trap-handler; the register
+       mask contains those that may contain an address and so need to be scanned and
+       possibly updated if there is a GC. *)
+    fun registerMask(regs, code) =
+    let
+        fun addToMask(r, mask) = mask orb (0w1 << word8ToWord(xRegOnly r))
+        val maskWord = List.foldl addToMask 0w0 regs
+    in
+        addInstr(0wx02000000 (* Reserved instr range. *) orb maskWord, code)
+    end
+    
+    
 
     (* Size of each code word.  All except labels are one word at the moment. *)
     fun codeSize (SimpleInstr _) = 1 (* Number of 32-bit words *)
@@ -434,7 +485,7 @@ struct
                 writeInstr(0wxD63F0140, wordNo+0w5, codeVec);
                 (* This is an unallocated instruction.  The lower 25 bits are the registers
                    that must be updated if there is a GC.  *)
-                writeInstr(0wx20000000, wordNo+0w6, codeVec) (* Register mask - currently empty *)
+                writeInstr(0wx02000000, wordNo+0w6, codeVec) (* Register mask - currently empty *)
             end
     in
         foldCode 0w0 genCodeWords (ops @ paddingWord);
@@ -552,10 +603,9 @@ struct
                 else (printStream ",lsl #"; printStream(Word.fmt StringCvt.HEX (shift*0w16)))
             end
 
-            else if (wordValue andb 0wxffe00c00) = 0wxF8000C00
-            then
+            else if (wordValue andb 0wxffe00000) = 0wxF8000000
+            then (* Store with 9-bit byte offset. *)
             let
-                (* Store with pre-indexing *)
                 val rT = wordValue andb 0wx1f
                 and rN = (wordValue andb 0wx3e0) >> 0w5
                 and imm9 = (wordValue andb 0wx1ff000) >> 0w12
@@ -563,10 +613,16 @@ struct
                     if imm9 > 0wxff
                     then "-" ^ Word.fmt StringCvt.DEC (0wx200 - imm9)
                     else Word.fmt StringCvt.DEC imm9
+                val opBits = (wordValue >> 0w10) andb 0w3
             in
-                printStream "str\tx"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream(if opBits = 0w0 then "stur\tx" else "str\tx");
+                printStream(Word.fmt StringCvt.DEC rT);
                 printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ",#"; printStream imm9Text; printStream "]!"
+                case opBits of
+                    0w0 => (printStream ",#"; printStream imm9Text; printStream "]")
+                |   0w1 => (printStream "],#"; printStream imm9Text) (* Post-index *)
+                |   0w3 => (printStream ",#"; printStream imm9Text; printStream "]!") (* Pre-index *)
+                |   _ => printStream "??" (* Not used - store unprivileged. *)
             end
 
             else if (wordValue andb 0wxffe00c00) = 0wxF8400400
@@ -694,6 +750,15 @@ struct
                 printStream "]"
             end
 
+            else if (wordValue andb 0wxffe0ffe0) = 0wxAA0003E0
+            then (* Move reg,reg.  This is a subset of ORR shifted register. *)
+            (
+                printStream "mov\tx";
+                printStream(Word.fmt StringCvt.DEC(wordValue andb 0wx1f));
+                printStream ",x";
+                printStream(Word.fmt StringCvt.DEC((wordValue >> 0w16)andb 0wx1f))
+            )
+
             else if (wordValue andb 0wxfc000000) = 0wx14000000
             then (* Unconditional branch. *)
             let
@@ -717,6 +782,24 @@ struct
                 printCondition(wordValue andb 0wxf);
                 printStream "\t0x";
                 printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
+            end
+
+            else if (wordValue andb 0wx1e000000) = 0wx02000000
+            then (* This is an unallocated range.  We use it for the register mask. *)
+            let
+                fun printMask (0w25, _) = ()
+                |   printMask (i, comma) =
+                    if ((0w1 << i) andb wordValue) <> 0w0
+                    then
+                    (
+                        if comma then printStream ", " else ();
+                        printStream "x";
+                        printStream(Word.fmt StringCvt.DEC i);
+                        printMask(i+0w1, true)
+                    )
+                    else printMask(i+0w1, comma)
+            in
+                printStream "["; printMask(0w0, false); printStream "]"
             end
 
             else printStream "?"
@@ -816,6 +899,7 @@ struct
         type xReg = xReg
         type labels = labels
         type condition = condition
+        type shiftType = shiftType
     end
 end;
 

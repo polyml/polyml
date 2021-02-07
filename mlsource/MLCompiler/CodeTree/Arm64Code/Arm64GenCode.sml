@@ -52,31 +52,35 @@ struct
 
     (* Load a local value.  TODO: the offset is limited to 12-bits. *)
     fun genLocal(offset, code) =
-        (loadRegAligned({dest=X0, base=X_MLStackPtr, wordOffset=offset}, code); genPushReg(X0, code))
+        (loadRegScaled({dest=X0, base=X_MLStackPtr, wordOffset=offset}, code); genPushReg(X0, code))
 
     (* Load a value at an offset from the address on the top of the stack.
        TODO: the offset is limited to 12-bits. *)
     fun genIndirect(offset, code) =
-        (genPopReg(X0, code); loadRegAligned({dest=X0, base=X0, wordOffset=offset}, code); genPushReg(X0, code))
+        (genPopReg(X0, code); loadRegScaled({dest=X0, base=X0, wordOffset=offset}, code); genPushReg(X0, code))
+
+    fun compareRegs(reg1, reg2, code) =
+        subSRegReg({regM=reg2, regN=reg1, regD=XZero, shift=ShiftNone}, code)
 
     (* Sequence to allocate on the heap.  Returns the result in X0.  The words are not initialised
        apart from the length word. *)
-    (*fun genAllocateFixedSize(words, flags, code) =
+    fun genAllocateFixedSize(words, flags, code) =
     let
         val label = createLabel()
     in
         genSubRegConstant({sReg=X_MLHeapAllocPtr, dReg=X0, cValue=(words+1)* Word.toInt wordSize}, code);
-        genCompare(X0, X_MLHeapLimit, code);
+        compareRegs(X0, X_MLHeapLimit, code);
         putBranchInstruction(condCarrySet, label, code);
-        loadRegAligned({dest=X16, base=X_MLAssemblyInt, wordOffset=heapOverflowCallOffset}, code);
+        loadRegScaled({dest=X16, base=X_MLAssemblyInt, wordOffset=heapOverflowCallOffset}, code);
         genBranchAndLinkReg(X16, code);
-        genRegisterMask([], code);
-        genMoveRegToReg({sReg=X0, dReg=X_MLHeapAllocPtr}, code);
+        registerMask([], code); (* Not used at the moment. *)
         setLabel(label, code);
+        genMoveRegToReg({sReg=X0, dReg=X_MLHeapAllocPtr}, code);
         loadNonAddressConstant(X1,
             Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags), 0w56)), code);
-        storeRegUnaligned({dest=X1, base=X0, byteOffset= ~8}, code)
-    end*)
+        (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
+        storeRegUnscaled({dest=X1, base=X0, byteOffset= ~8}, code)
+    end
     
     
     fun toDo() = raise Fallback
@@ -90,13 +94,11 @@ struct
     fun genPushHandler _ =  toDo()
     fun genLdexc _ =  toDo()
     fun genCase _ =  toDo()
-    fun genTuple _ =  toDo()
     fun genMoveToContainer _ =  toDo()
     fun genEqualWordConst _ =  toDo()
     fun genAllocMutableClosure _ =  toDo()
     fun genMoveToMutClosure _ =  toDo()
     fun genLock _ =  toDo()
-    fun genClosure _ =  toDo()
     fun genIsTagged _ =  toDo()
     fun genDoubleToFloat _ =  toDo()
     fun genRealToInt _ =  toDo()
@@ -465,8 +467,8 @@ struct
                        the next handler.  This is set up in the handler.  We have a lot
                        more raises than handlers since most raises are exceptional conditions
                        such as overflow so it makes sense to minimise the code in each raise. *)
-                    loadRegAligned({dest=X_MLStackPtr, base=X_MLAssemblyInt, wordOffset=exceptionHandlerOffset}, cvec);
-                    loadRegAligned({dest=X1, base=X_MLStackPtr, wordOffset=0}, cvec);
+                    loadRegScaled({dest=X_MLStackPtr, base=X_MLAssemblyInt, wordOffset=exceptionHandlerOffset}, cvec);
+                    loadRegScaled({dest=X1, base=X_MLStackPtr, wordOffset=0}, cvec);
                     genBranchRegister(X1, cvec)
                 )
   
@@ -560,9 +562,13 @@ struct
                 let
                     val size = List.length recList
                 in
-                    (* Move the fields into the vector. *)
+                    (* Get the fields and push them to the stack. *)
                     List.app(fn v => gencde (v, ToStack, NotEnd, loopAddr)) recList;
-                    genTuple (size, cvec);
+                    genAllocateFixedSize(size, 0w0, cvec);
+                    List.foldl(fn (_, w) =>
+                        (genPopReg(X1, cvec); storeRegScaled({dest=X1, base=X0, wordOffset=w-1}, cvec); w-1))
+                            size recList;
+                    genPushReg(X0, cvec);
                     realstackptr := !realstackptr - (size - 1)
                 end
 
@@ -1118,13 +1124,17 @@ struct
          
                 else
                 let
-                    (* Put it on the stack. *)
-                    val () = loadAddressConstant(X0, toMachineWord resClosure, cvec)
-                    val () = genPushReg(X0, cvec)
-                    val () = incsp ()
+                    (* Since we're using native words rather than 32-in-64 we can load this now. *)
+                    val codeAddr = codeAddressFromClosure resClosure
                     val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
-                    val () = genClosure (closureVars, cvec)
                 in
+                    genAllocateFixedSize(closureVars+1, 0w0, cvec);
+                    List.foldl(fn (_, w) =>
+                        (genPopReg(X1, cvec); storeRegScaled({dest=X1, base=X0, wordOffset=w-1}, cvec); w-1))
+                            (closureVars+1) closure;
+                    loadAddressConstant(X1, codeAddr, cvec);
+                    storeRegScaled({dest=X1, base=X0, wordOffset=0}, cvec);
+                    genPushReg(X0, cvec);
                     realstackptr := !realstackptr - closureVars
                 end
             end
@@ -1241,7 +1251,7 @@ struct
                        leave the rest on the stack. *)
                     fun loadArg(n, reg) =
                         if argsToPass > n
-                        then loadRegAligned({dest=reg, base=X_MLStackPtr, wordOffset=argsToPass-n-1}, cvec)
+                        then loadRegScaled({dest=reg, base=X_MLStackPtr, wordOffset=argsToPass-n-1}, cvec)
                         else ()
                     val () = loadArg(0, X0)
                     val () = loadArg(1, X1)
@@ -1252,7 +1262,7 @@ struct
                     val () = loadArg(6, X6)
                     val () = loadArg(7, X7)
                 in
-                    loadRegAligned({dest=X9, base=X8, wordOffset=0}, cvec); (* Entry point *)
+                    loadRegScaled({dest=X9, base=X8, wordOffset=0}, cvec); (* Entry point *)
                     genBranchAndLinkReg(X9, cvec);
                     (* We have popped the closure pointer.  The caller has popped the stack
                        arguments and we have pushed the result value. The register arguments
@@ -1266,12 +1276,12 @@ struct
                     val () = genPopReg(X8, cvec) (* Pop the closure pointer. *)
                     val () = decsp()
                     (* Get the return address into X30. *)
-                    val () = loadRegAligned({dest=X30, base=X_MLStackPtr, wordOffset= !realstackptr}, cvec)
+                    val () = loadRegScaled({dest=X30, base=X_MLStackPtr, wordOffset= !realstackptr}, cvec)
 
                     (* Load the register arguments *)
                     fun loadArg(n, reg) =
                         if argsToPass > n
-                        then loadRegAligned({dest=reg, base=X_MLStackPtr, wordOffset=argsToPass-n-1}, cvec)
+                        then loadRegScaled({dest=reg, base=X_MLStackPtr, wordOffset=argsToPass-n-1}, cvec)
                         else ()
                     val () = loadArg(0, X0)
                     val () = loadArg(1, X1)
@@ -1295,7 +1305,7 @@ struct
                     let
                         val () = loadArg(n, X9)
                         val destOffset = itemsOnStack - (n-8) - 1
-                        val () = storeRegAligned({dest=X9, base=X_MLStackPtr, wordOffset=destOffset}, cvec)
+                        val () = storeRegScaled({dest=X9, base=X_MLStackPtr, wordOffset=destOffset}, cvec)
                     in
                         moveStackArg(n-1)
                     end
@@ -1303,7 +1313,7 @@ struct
                     val () = moveStackArg (argsToPass-1)
                 in
                     resetStack(itemsOnStack - Int.max(argsToPass-8, 0), false, cvec);
-                    loadRegAligned({dest=X9, base=X8, wordOffset=0}, cvec); (* Entry point *)
+                    loadRegScaled({dest=X9, base=X8, wordOffset=0}, cvec); (* Entry point *)
                     genBranchRegister(X9, cvec)
                     (* Since we're not returning we can ignore the stack pointer value. *)
                 end

@@ -112,7 +112,7 @@ public:
     stackItem*      stackLimit;        // Lower limit of stack
     stackItem       exceptionPacket;    // Set if there is an exception
     PolyWord        threadId;           // My thread id.  Saves having to call into RTS for it.
-    stackItem       registers[25];      // Save/load area for registers X0-X25 inclusive
+    stackItem       registers[25];      // Save/load area for registers X0-X24 inclusive
     double          fpRegisters[8];     // Save/load area for floating point regs D0-D7
     PolyWord*       localMbottom;      // Base of memory + 1 word
     PolyWord*       localMpointer;      // X27 Allocation ptr + 1 word
@@ -161,8 +161,6 @@ public:
     virtual void addProfileCount(POLYUNSIGNED words) { addSynchronousCount(interpreterPc, words); }
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
-
-    //void HeapOverflowTrap();
 
     void SetMemRegisters();
     void SaveMemRegisters();
@@ -536,7 +534,7 @@ void Arm64TaskData::HandleTrap()
         // this value back into x27.
         // Look at that instruction to find out the register.
         arm64Instr moveInstr = *assemblyInterface.entryPoint;
-        ASSERT((moveInstr & 0xffe0ffff) == 0xaa003fb); // mov x27,xN
+        ASSERT((moveInstr & 0xffe0ffff) == 0xaa0003fb); // mov x27,xN
         allocReg = (moveInstr >> 16) & 0x1f;
         allocWords = (allocPointer - (PolyWord*)assemblyInterface.registers[allocReg].stackAddr) + 1;
         assemblyInterface.registers[allocReg] = TAGGED(0); // Clear this - it's not a valid address.
