@@ -2572,9 +2572,23 @@ static struct _abiTable { const char* abiName; int abiCode; } abiTable[] =
 };
 
 // Don't raise an exception at this point so we can build calls.
+// Have to create a sysword result.
 POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes)
 {
-    return TAGGED(0).AsUnsigned();
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle result = 0;
+
+    try {
+        result = Make_sysword(taskData, (uintptr_t)0);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+
 }
 
 POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
