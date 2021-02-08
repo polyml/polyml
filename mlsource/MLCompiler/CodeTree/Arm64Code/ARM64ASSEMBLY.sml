@@ -349,6 +349,12 @@ struct
             (word8ToWord cond << 0w12) orb (word8ToWord(xRegOrXZ regTrue) << 0w5) orb
             word8ToWord(xRegOrXZ regD), code)
 
+    (* Test the bottom bit of a register.  This uses the 32-bit version of the
+       instruction.  If we use the 64-bit version we need to set the N bit
+       otherwise the bit pattern will be repeated into the top 32-bits. *)
+    fun testBitZero(reg, code) =
+        addInstr(0wx7200001F orb (word8ToWord(xRegOnly reg) << 0w5), code)
+
     (* Put in a check for the stack for the function. *)
     fun checkStackForFunction(workReg, Code{instructions, maxStackRef, ...}) =
         instructions := CheckStack{work=workReg, spaceRef=maxStackRef} :: ! instructions
@@ -550,6 +556,12 @@ struct
         |   printCondition 0wxd = printStream "le"
         |   printCondition 0wxe = printStream "al"
         |   printCondition _    = printStream "nv"
+
+        (* Bit patterns on the ARM64 are encoded using a very complicated scheme. *)
+        fun decodeBitPattern(sf, n, immr, imms) =
+            if sf = 0w0 andalso n = 0w0 andalso immr = 0w0 andalso imms = 0w0
+            then 0w1
+            else 0w0 (* Not yet worked out. *)
 
         (* Each instruction is 32-bytes. *)
         fun printWordAt wordNo =
@@ -807,6 +819,24 @@ struct
                 printStream ",x"; printStream(Word.fmt StringCvt.DEC rN);
                 printStream ",x"; printStream(Word.fmt StringCvt.DEC rM);
                 printStream ","; printCondition cond
+            end
+
+            else if (wordValue andb 0wx7f800000) = 0wx72000000
+            then (* ands immediate *)
+            let
+                val sf = wordValue >> 0w31
+                val nBit = (wordValue >> 0w22) andb 0w1
+                val immr = (wordValue >> 0w16) andb 0wx3f
+                val imms = (wordValue >> 0w10) andb 0wx3f
+                val rN = (wordValue >> 0w5) andb 0wx1f
+                val rD = wordValue andb 0wx1f
+            in
+                if rD = 0w31
+                then printStream "tst\t"
+                else (printStream "ands\t"; printStream(Word.fmt StringCvt.DEC rD); printStream ",");
+                printStream(if sf = 0w0 then "w" else "x");
+                printStream(Word.fmt StringCvt.DEC rN); printStream ",#0x";
+                printStream(Word.toString(decodeBitPattern(sf, nBit, immr, imms)))
             end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000

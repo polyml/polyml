@@ -104,7 +104,6 @@ struct
     fun genAllocMutableClosure _ =  toDo()
     fun genMoveToMutClosure _ =  toDo()
     fun genLock _ =  toDo()
-    fun genIsTagged _ =  toDo()
     fun genDoubleToFloat _ =  toDo()
     fun genRealToInt _ =  toDo()
     fun genFloatToInt _ =  toDo()
@@ -346,9 +345,9 @@ struct
            
             |   BICConstnt(w, _) =>
                     (
-                        if isShort w
+                        (*if isShort w
                         then loadNonAddressConstant(X0, Word64.fromInt(tag(Word.toIntX(toShort w))), cvec)
-                        else loadAddressConstant(X0, w, cvec);
+                        else *)loadAddressConstant(X0, w, cvec);
                         genPushReg(X0, cvec);
                         incsp()
                     )
@@ -658,7 +657,13 @@ struct
                 in
                     case oper of
                         NotBoolean => genOpcode(opcode_notBoolean, cvec)
-                    |   IsTaggedValue => genIsTagged cvec
+                    |   IsTaggedValue =>
+                        (
+                            genPopReg(X0, cvec);
+                            testBitZero(X0, cvec);
+                            setBooleanCondition(X0, condNotEqual (*Non-zero*), cvec);
+                            genPushReg(X0, cvec)
+                        )
                     |   MemoryCellLength => genOpcode(opcode_cellLength, cvec)
                     |   MemoryCellFlags => genOpcode(opcode_cellFlags, cvec)
                     |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
@@ -1132,7 +1137,7 @@ struct
                     loadAddressConstant(X1, codeAddr, cvec);
                     storeRegScaled({dest=X1, base=X0, wordOffset=0}, cvec);
                     genPushReg(X0, cvec);
-                    realstackptr := !realstackptr - closureVars
+                    realstackptr := !realstackptr - closureVars + 1 (* Popped the closure vars and pushed the address. *)
                 end
             end
 
@@ -1352,7 +1357,8 @@ struct
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
     (let
         val debugSwitchLevel = Debug.getParameter Debug.compilerDebugTag parameters
-        val _ = debugSwitchLevel <> 0 orelse raise Fallback
+        (*val _ = debugSwitchLevel <> 0 orelse raise Fallback*)
+        (*val _ = if String.isSubstring "getInstream" name then raise Fallback else ()*)
         (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (name, parameters)
         (* This function must have no non-local references. *)

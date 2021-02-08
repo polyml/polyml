@@ -109,6 +109,9 @@ sig
     (* Subtract regM, after a possible shift, from regN and put the result in regD,
        setting the flags.  This is frequently used as a comparison. *)
     val subSRegReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} * code -> unit
+    
+    (* Test the bottom bit of a register. *)
+    val testBitZero: xReg * code -> unit
 
     (* Load/Store an aligned word using a 12-bit offset. *)
     val loadRegScaled: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
