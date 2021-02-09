@@ -164,8 +164,6 @@ sig
     and exceptionPacketOffset: int
     and threadIdOffset: int
 
-    exception Fallback (* During development only. *)
-
     structure Sharing:
     sig
         type code = code

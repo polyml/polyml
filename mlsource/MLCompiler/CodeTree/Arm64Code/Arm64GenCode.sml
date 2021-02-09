@@ -30,6 +30,8 @@ struct
     
     exception InternalError = Misc.InternalError
     
+    exception Fallback of string
+    
     (* tag a short constant *)
     fun tag c = 2 * c + 1
   
@@ -90,126 +92,127 @@ struct
         conditionalSetIncrement({regD=reg, regTrue=reg, regFalse=XZero, cond=condition}, code)
     )
     
-    fun toDo() = raise Fallback
+    fun toDo s = raise Fallback s
 
-    fun genOpcode _ =  toDo()
+    fun genOpcode (n, _) =  toDo n
 
-    fun genSetHandler _ = toDo()
+    fun genSetHandler _ = toDo "genSetHandler"
 
-    fun genSetStackVal _ =  toDo()
-    fun genPushHandler _ =  toDo()
-    fun genLdexc _ =  toDo()
-    fun genCase _ =  toDo()
-    fun genMoveToContainer _ =  toDo()
-    fun genAllocMutableClosure _ =  toDo()
-    fun genMoveToMutClosure _ =  toDo()
-    fun genLock _ =  toDo()
-    fun genDoubleToFloat _ =  toDo()
-    fun genRealToInt _ =  toDo()
-    fun genFloatToInt _ =  toDo()
+    fun genSetStackVal _ =  toDo "genSetStackVal"
+    fun genPushHandler _ =  toDo "genPushHandler"
+    fun genLdexc _ =  toDo "genLdexc"
+    fun genCase _ =  toDo "genCase"
+    fun genMoveToContainer _ =  toDo "genMoveToContainer"
+    fun genAllocMutableClosure _ =  toDo "genAllocMutableClosure"
+    fun genMoveToMutClosure _ =  toDo "genMoveToMutClosure"
+    fun genLock _ =  toDo "genLock"
+    fun genDoubleToFloat _ =  toDo "genDoubleToFloat"
+    fun genRealToInt _ =  toDo "genRealToInt"
+    fun genFloatToInt _ =  toDo "genFloatToInt"
 
 
-    val opcode_notBoolean = 0
-    val opcode_cellLength = 0
-    and opcode_cellFlags = 0
-    and opcode_clearMutable = 0
-    and opcode_atomicExchAdd = 0
-    and opcode_atomicReset = 0
-    and opcode_longWToTagged = 0
-    and opcode_signedToLongW = 0
-    and opcode_unsignedToLongW = 0
-    and opcode_realAbs = 0
-    and opcode_realNeg = 0
-    and opcode_fixedIntToReal = 0
-    and opcode_fixedIntToFloat = 0
-    and opcode_floatToReal = 0
-    and opcode_floatAbs = 0
-    and opcode_floatNeg = 0
+    val opcode_notBoolean = "notBoolean"
+    and opcode_cellLength = "cellLength"
+    and opcode_cellFlags = "cellFlags"
+    and opcode_clearMutable = "clearMutable"
+    val opcode_atomicExchAdd = "opcode_atomicExchAdd"
+and opcode_atomicReset = "opcode_atomicReset"
+and opcode_longWToTagged = "opcode_longWToTagged"
+and opcode_signedToLongW = "opcode_signedToLongW"
+and opcode_unsignedToLongW = "opcode_unsignedToLongW"
+and opcode_realAbs = "opcode_realAbs"
+and opcode_realNeg = "opcode_realNeg"
+and opcode_fixedIntToReal = "opcode_fixedIntToReal"
+and opcode_fixedIntToFloat = "opcode_fixedIntToFloat"
+and opcode_floatToReal = "opcode_floatToReal"
+and opcode_floatAbs = "opcode_floatAbs"
+and opcode_floatNeg = "opcode_floatNeg"
 
-    val opcode_fixedAdd = 0
-    val opcode_fixedSub = 0
-    val opcode_fixedMult = 0
-    val opcode_fixedQuot = 0
-    val opcode_fixedRem = 0
-    val opcode_wordAdd = 0
-    val opcode_wordSub = 0
-    val opcode_wordMult = 0
-    val opcode_wordDiv = 0
-    val opcode_wordMod = 0
-    val opcode_wordAnd = 0
-    val opcode_wordOr = 0
-    val opcode_wordXor = 0
-    val opcode_wordShiftLeft = 0
-    val opcode_wordShiftRLog = 0
-    val opcode_wordShiftRArith = 0
-    val opcode_allocByteMem = 0
-    val opcode_lgWordEqual = 0
-    val opcode_lgWordLess = 0
-    val opcode_lgWordLessEq = 0
-    val opcode_lgWordGreater = 0
-    val opcode_lgWordGreaterEq = 0
-    val opcode_lgWordAdd = 0
-    val opcode_lgWordSub = 0
-    val opcode_lgWordMult = 0
-    val opcode_lgWordDiv = 0
-    val opcode_lgWordMod = 0
-    val opcode_lgWordAnd = 0
-    val opcode_lgWordOr = 0
-    val opcode_lgWordXor = 0
-    val opcode_lgWordShiftLeft = 0
-    val opcode_lgWordShiftRLog = 0
-    val opcode_lgWordShiftRArith = 0
-    val opcode_realEqual = 0
-    val opcode_realLess = 0
-    val opcode_realLessEq = 0
-    val opcode_realGreater = 0
-    val opcode_realGreaterEq = 0
-    val opcode_realUnordered = 0
-    val opcode_realAdd = 0
-    val opcode_realSub = 0
-    val opcode_realMult = 0
-    val opcode_realDiv = 0
-    val opcode_floatEqual = 0
-    val opcode_floatLess = 0
-    val opcode_floatLessEq = 0
-    val opcode_floatGreater = 0
-    val opcode_floatGreaterEq = 0
-    val opcode_floatUnordered = 0
-    val opcode_floatAdd = 0
-    val opcode_floatSub = 0
-    val opcode_floatMult = 0
-    val opcode_floatDiv = 0
-    val opcode_getThreadId = 0
-    val opcode_allocWordMemory = 0
-    val opcode_alloc_ref = 0
-    val opcode_loadMLWord = 0
-    val opcode_loadMLByte = 0
-    val opcode_loadC8 = 0
-    val opcode_loadC16 = 0
-    val opcode_loadC32 = 0
-    val opcode_loadC64 = 0
-    val opcode_loadCFloat = 0
-    val opcode_loadCDouble = 0
-    val opcode_loadUntagged = 0
-    val opcode_storeMLWord = 0
-    val opcode_storeMLByte = 0
-    val opcode_storeC8 = 0
-    val opcode_storeC16 = 0
-    val opcode_storeC32 = 0
-    val opcode_storeC64 = 0
-    val opcode_storeCFloat = 0
-    val opcode_storeCDouble = 0
-    val opcode_storeUntagged = 0
-    val opcode_blockMoveWord = 0
-    val opcode_blockMoveByte = 0
-    val opcode_blockEqualByte = 0
-    val opcode_blockCompareByte = 0
-    val opcode_deleteHandler = 0
-    val opcode_allocCSpace = 0
-    val opcode_freeCSpace = 0
-    val opcode_arbAdd = 0
-    val opcode_arbSubtract = 0
-    val opcode_arbMultiply = 0
+and opcode_fixedAdd = "opcode_fixedAdd"
+and opcode_fixedSub = "opcode_fixedSub"
+and opcode_fixedMult = "opcode_fixedMult"
+and opcode_fixedQuot = "opcode_fixedQuot"
+and opcode_fixedRem = "opcode_fixedRem"
+and opcode_wordAdd = "opcode_wordAdd"
+and opcode_wordSub = "opcode_wordSub"
+and opcode_wordMult = "opcode_wordMult"
+and opcode_wordDiv = "opcode_wordDiv"
+and opcode_wordMod = "opcode_wordMod"
+and opcode_wordAnd = "opcode_wordAnd"
+and opcode_wordOr = "opcode_wordOr"
+and opcode_wordXor = "opcode_wordXor"
+and opcode_wordShiftLeft = "opcode_wordShiftLeft"
+and opcode_wordShiftRLog = "opcode_wordShiftRLog"
+and opcode_wordShiftRArith = "opcode_wordShiftRArith"
+and opcode_allocByteMem = "opcode_allocByteMem"
+and opcode_lgWordEqual = "opcode_lgWordEqual"
+and opcode_lgWordLess = "opcode_lgWordLess"
+and opcode_lgWordLessEq = "opcode_lgWordLessEq"
+and opcode_lgWordGreater = "opcode_lgWordGreater"
+and opcode_lgWordGreaterEq = "opcode_lgWordGreaterEq"
+and opcode_lgWordAdd = "opcode_lgWordAdd"
+and opcode_lgWordSub = "opcode_lgWordSub"
+and opcode_lgWordMult = "opcode_lgWordMult"
+and opcode_lgWordDiv = "opcode_lgWordDiv"
+and opcode_lgWordMod = "opcode_lgWordMod"
+and opcode_lgWordAnd = "opcode_lgWordAnd"
+and opcode_lgWordOr = "opcode_lgWordOr"
+and opcode_lgWordXor = "opcode_lgWordXor"
+and opcode_lgWordShiftLeft = "opcode_lgWordShiftLeft"
+and opcode_lgWordShiftRLog = "opcode_lgWordShiftRLog"
+and opcode_lgWordShiftRArith = "opcode_lgWordShiftRArith"
+and opcode_realEqual = "opcode_realEqual"
+and opcode_realLess = "opcode_realLess"
+and opcode_realLessEq = "opcode_realLessEq"
+and opcode_realGreater = "opcode_realGreater"
+and opcode_realGreaterEq = "opcode_realGreaterEq"
+and opcode_realUnordered = "opcode_realUnordered"
+and opcode_realAdd = "opcode_realAdd"
+and opcode_realSub = "opcode_realSub"
+and opcode_realMult = "opcode_realMult"
+and opcode_realDiv = "opcode_realDiv"
+and opcode_floatEqual = "opcode_floatEqual"
+and opcode_floatLess = "opcode_floatLess"
+and opcode_floatLessEq = "opcode_floatLessEq"
+and opcode_floatGreater = "opcode_floatGreater"
+and opcode_floatGreaterEq = "opcode_floatGreaterEq"
+and opcode_floatUnordered = "opcode_floatUnordered"
+and opcode_floatAdd = "opcode_floatAdd"
+and opcode_floatSub = "opcode_floatSub"
+and opcode_floatMult = "opcode_floatMult"
+and opcode_floatDiv = "opcode_floatDiv"
+and opcode_getThreadId = "opcode_getThreadId"
+and opcode_allocWordMemory = "opcode_allocWordMemory"
+and opcode_alloc_ref = "opcode_alloc_ref"
+and opcode_loadMLWord = "opcode_loadMLWord"
+and opcode_loadMLByte = "opcode_loadMLByte"
+and opcode_loadC8 = "opcode_loadC8"
+and opcode_loadC16 = "opcode_loadC16"
+and opcode_loadC32 = "opcode_loadC32"
+and opcode_loadC64 = "opcode_loadC64"
+and opcode_loadCFloat = "opcode_loadCFloat"
+and opcode_loadCDouble = "opcode_loadCDouble"
+and opcode_loadUntagged = "opcode_loadUntagged"
+and opcode_storeMLWord = "opcode_storeMLWord"
+and opcode_storeMLByte = "opcode_storeMLByte"
+and opcode_storeC8 = "opcode_storeC8"
+and opcode_storeC16 = "opcode_storeC16"
+and opcode_storeC32 = "opcode_storeC32"
+and opcode_storeC64 = "opcode_storeC64"
+and opcode_storeCFloat = "opcode_storeCFloat"
+and opcode_storeCDouble = "opcode_storeCDouble"
+and opcode_storeUntagged = "opcode_storeUntagged"
+and opcode_blockMoveWord = "opcode_blockMoveWord"
+and opcode_blockMoveByte = "opcode_blockMoveByte"
+and opcode_blockEqualByte = "opcode_blockEqualByte"
+and opcode_blockCompareByte = "opcode_blockCompareByte"
+and opcode_deleteHandler = "opcode_deleteHandler"
+and opcode_allocCSpace = "opcode_allocCSpace"
+and opcode_freeCSpace = "opcode_freeCSpace"
+and opcode_arbAdd = "opcode_arbAdd"
+and opcode_arbSubtract = "opcode_arbSubtract"
+and opcode_arbMultiply = "opcode_arbMultiply"
+
     
     val SetHandler = 0
 
@@ -1355,15 +1358,20 @@ struct
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
+    if Debug.getParameter Debug.compilerDebugTag parameters = 0
+    then FallBackCG.gencodeLambda(lambda, parameters, closure)
+    else
     (let
-        val debugSwitchLevel = Debug.getParameter Debug.compilerDebugTag parameters
-        val _ = debugSwitchLevel <> 0 orelse raise Fallback
         (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (name, parameters)
         (* This function must have no non-local references. *)
     in
         codegen (body, newCode, closure, List.length argTypes, localCount, parameters)
-    end) handle Fallback => FallBackCG.gencodeLambda(lambda, parameters, closure)
+    end) handle Fallback s =>
+        (
+            Pretty.getSimplePrinter(parameters, []) ("TODO: " ^ s ^ "\n");
+            FallBackCG.gencodeLambda(lambda, parameters, closure)
+        )
 
     structure Foreign = FallBackCG.Foreign
 
