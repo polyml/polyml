@@ -130,6 +130,122 @@ struct
         |   shiftEncode ShiftNone   = (0w0, 0w0)
     end
 
+    datatype wordSize = WordSize32 | WordSize64
+
+    (* Bit patterns on the ARM64 are encoded using a complicated scheme and
+       only certain values can be encoded.  An element can be 2, 4, 8, 16, 32 or
+       64 bits and must be a sequence of at least one zero bits followed by at
+       least one one bit.  This sequence can then be rotated within the element.
+       Finally the element is replicated within the register up to 32 or
+       64 bits.  All this information is encoded in 13 bits.
+       N.B. Bit patterns of all zeros or all ones cannot be encoded. *)
+
+    (* Encode the value if it is possible. *)
+    fun encodeBitPattern(value, sf (* size flag *)) =
+    (* Can't encode 0 or all ones. *)
+    if value = 0w0 orelse value = Word64.notb 0w0
+    then NONE
+    (* If this is 32-bits we can't encode all ones in the
+       low-order 32-bits or any value that won't fit in 32-bits, *)
+    else if sf = WordSize32 andalso value >= 0wxffffffff
+    then NONE
+    else
+    let
+        val regSize = case sf of WordSize32 => 0w32 | WordSize64 => 0w64
+        (* Get the element size.  Look for the repeat of the
+           pattern. *)
+        fun getElemSize size =
+        let
+            val ns = size div 0w2
+            val mask = Word64.<<(0w1, ns)  - 0w1
+        in
+            if Word64.andb(value, mask) <> Word64.andb(Word64.>>(value, ns), mask)
+            then size
+            else if ns <= 0w2
+            then ns
+            else getElemSize ns
+        end
+        val elemSize = getElemSize regSize
+        fun log2 0w1 = 0w0 | log2 n = 0w1 + log2(Word.>>(n, 0w1))
+        val elemBits = log2 elemSize
+
+        (* Find the rotation that puts as many of the zero bits in the
+           element at the top. *)
+        val elemMask = Word64.>>(Word64.notb 0w0, 0w64-elemSize)
+        fun ror elt =
+            Word64.orb((Word64.<<(Word64.andb(elt, 0w1), elemSize-0w1),
+                Word64.>>(elt, 0w1)))
+        and rol elt =
+            Word64.orb(Word64.andb(elemMask, Word64.<<(elt, 0w1)),
+                Word64.>>(elt, elemSize-0w1))
+
+        fun findRotation(v, n) =
+            if ror v < v then findRotation(ror v, (n-0w1) mod elemSize)
+            else if rol v < v then findRotation(rol v, n+0w1)
+            else (v, n)
+
+        val (rotated, rotation) = findRotation(Word64.andb(value, elemMask), 0w0)
+
+        (* Count out the low order ones.  If the result is zero
+           then we;ve got a valid sequence of zeros followed by ones
+           but if we discover a zero bit and the result isn't zero
+           then we can't encode this. *)
+        fun countLowOrderOnes(v, n) =
+            if v = 0w0
+            then SOME n
+            else if Word64.andb(v, 0w1) = 0w1
+            then countLowOrderOnes(Word64.>>(v, 0w1), n+0w1)
+            else NONE
+     in
+        case countLowOrderOnes(rotated, 0w0) of
+            NONE => NONE
+        |   SOME lowOrderOnes =>
+            let
+                (* Encode the element size. *)
+                val elemSizeEnc = 0wx7f - (Word.<<(0w1, elemBits+0w1) - 0w1)
+                val n = if Word.andb(elemSizeEnc, 0wx40) = 0w0 then 0w1 else 0w0
+                val imms = Word.andb(Word.orb(elemSizeEnc, lowOrderOnes-0w1), 0wx3f)
+            in
+                SOME{n=n, imms=imms, immr=rotation}
+            end
+    end;
+
+    (* Decode a pattern for printing. *)
+    fun decodeBitPattern{sf, n, immr, imms} =
+    let
+        (* Find the highest bit set in N:NOT(imms) *)
+        fun highestBitSet 0w0 = 0
+        |   highestBitSet n = 1+highestBitSet(Word.>>(n, 0w1))
+        val len = highestBitSet(Word.orb(Word.<<(n, 0w6), Word.xorb(imms, 0wx3f))) - 1
+        val _ = if len < 0 then raise InternalError "decodeBitPattern: invalid" else ()
+        val size = Word.<<(0w1, Word.fromInt len)
+        val r = Word.andb(immr, size-0w1)
+        and s = Word.andb(imms, size-0w1)
+        val _ = if s = size-0w1 then raise InternalError "decodeBitPattern: invalid" else ()
+        val pattern = Word64.<<(0w1, s+0w1) - 0w1
+        (* Rotate right: shift left and put the top bit in the high order bit*)
+        fun ror elt =
+            Word64.orb((Word64.<<(Word64.andb(elt, 0w1), size-0w1),
+                Word64.>>(elt, 0w1)))
+
+        fun rotateBits(value, 0w0) = value
+        |   rotateBits(value, n) = rotateBits(ror value, n-0w1)
+
+        val rotated = rotateBits(pattern, r)
+
+        val regSize = if sf = 0w0 then 0w32 else 0w64
+
+        (* Replicate the rotated pattern to fill the register. *)
+        fun replicate(pattern, size) =
+            if size >= regSize
+            then pattern
+            else replicate(Word64.orb(pattern, Word64.<<(pattern, size)), size * 0w2)
+    in
+        replicate(rotated, size)
+    end
+
+    val isEncodableBitPattern = isSome o encodeBitPattern
+
     datatype code =
     Code of 
     {
@@ -349,11 +465,18 @@ struct
             (word8ToWord cond << 0w12) orb (word8ToWord(xRegOrXZ regTrue) << 0w5) orb
             word8ToWord(xRegOrXZ regD), code)
 
-    (* Test the bottom bit of a register.  This uses the 32-bit version of the
-       instruction.  If we use the 64-bit version we need to set the N bit
-       otherwise the bit pattern will be repeated into the top 32-bits. *)
-    fun testBitZero(reg, code) =
-        addInstr(0wx7200001F orb (word8ToWord(xRegOnly reg) << 0w5), code)
+    (* Test a bit pattern in a register. *)
+    fun testBitPattern(reg, bits, code) =
+    let
+        val (w, s) = if bits <= 0wxffffffff then (WordSize32, 0w0) else (WordSize64, 0w1)
+        val {n, imms, immr} =
+            case encodeBitPattern(bits, w) of
+                NONE => raise InternalError "testBitPattern: unable to encode bit pattern"
+            |   SOME res => res
+    in
+        addInstr(0wx7200001F orb (s << 0w31) orb (n << 0w22) orb
+            (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOnly reg) << 0w5), code)
+    end
 
     (* Put in a check for the stack for the function. *)
     fun checkStackForFunction(workReg, Code{instructions, maxStackRef, ...}) =
@@ -557,11 +680,7 @@ struct
         |   printCondition 0wxe = printStream "al"
         |   printCondition _    = printStream "nv"
 
-        (* Bit patterns on the ARM64 are encoded using a very complicated scheme. *)
-        fun decodeBitPattern(sf, n, immr, imms) =
-            if sf = 0w0 andalso n = 0w0 andalso immr = 0w0 andalso imms = 0w0
-            then 0w1
-            else 0w0 (* Not yet worked out. *)
+
 
         (* Each instruction is 32-bytes. *)
         fun printWordAt wordNo =
@@ -836,7 +955,7 @@ struct
                 else (printStream "ands\t"; printStream(Word.fmt StringCvt.DEC rD); printStream ",");
                 printStream(if sf = 0w0 then "w" else "x");
                 printStream(Word.fmt StringCvt.DEC rN); printStream ",#0x";
-                printStream(Word.toString(decodeBitPattern(sf, nBit, immr, imms)))
+                printStream(Word64.toString(decodeBitPattern{sf=sf, n=nBit, immr=immr, imms=imms}))
             end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000
@@ -955,6 +1074,7 @@ struct
         type labels = labels
         type condition = condition
         type shiftType = shiftType
+        type wordSize = wordSize
     end
 end;
 

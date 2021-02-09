@@ -71,6 +71,8 @@ sig
     |   ShiftASR of word
     |   ShiftNone
 
+    datatype wordSize = WordSize32 | WordSize64
+
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
     val genBranchAndLinkReg: xReg * code -> unit
@@ -110,8 +112,12 @@ sig
        setting the flags.  This is frequently used as a comparison. *)
     val subSRegReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} * code -> unit
     
-    (* Test the bottom bit of a register. *)
-    val testBitZero: xReg * code -> unit
+    (* And a register with a bit pattern, discarding the results but setting the
+       condition codes.  The bit pattern must be encodable. *)
+    val testBitPattern: xReg * Word64.word * code -> unit
+
+    (* Check whether a constant can be encoded. *)
+    val isEncodableBitPattern: Word64.word * wordSize -> bool
 
     (* Load/Store an aligned word using a 12-bit offset. *)
     val loadRegScaled: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
@@ -169,5 +175,6 @@ sig
         type labels = labels
         type condition = condition
         type shiftType = shiftType
+        type wordSize = wordSize
     end
 end;

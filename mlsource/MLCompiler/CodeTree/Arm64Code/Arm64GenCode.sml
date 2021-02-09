@@ -660,7 +660,7 @@ struct
                     |   IsTaggedValue =>
                         (
                             genPopReg(X0, cvec);
-                            testBitZero(X0, cvec);
+                            testBitPattern(X0, 0w1, cvec);
                             setBooleanCondition(X0, condNotEqual (*Non-zero*), cvec);
                             genPushReg(X0, cvec)
                         )
@@ -1357,8 +1357,7 @@ struct
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
     (let
         val debugSwitchLevel = Debug.getParameter Debug.compilerDebugTag parameters
-        (*val _ = debugSwitchLevel <> 0 orelse raise Fallback*)
-        (*val _ = if String.isSubstring "getInstream" name then raise Fallback else ()*)
+        val _ = debugSwitchLevel <> 0 orelse raise Fallback
         (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (name, parameters)
         (* This function must have no non-local references. *)
