@@ -323,25 +323,23 @@ struct
        takes a signed 9-bit byte offset and a version that takes an unsigned
        12-bit word offset. *)
     
-    (* Load an aligned value using an unsigned offset. *)
-    fun loadRegScaled({dest, base, wordOffset}, code) =
-    let
-        val _ = (wordOffset >= 0 andalso wordOffset < 0x1000)
-            orelse raise InternalError "loadRegAligned: value out of range"
+    local
+        fun loadStoreRegScaled (size, v, opc) ({dest, base, unitOffset}, code) =
+        let
+            val _ = (unitOffset >= 0 andalso unitOffset < 0x1000)
+                orelse raise InternalError "loadStoreRegScaled: value out of range"
+        in
+            addInstr(0wx39000000 orb (size << 0w30) orb (opc << 0w22) orb
+                (v << 0w26) orb (Word.fromInt unitOffset << 0w10) orb
+                (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
+        end
     in
-        addInstr(0wxF9400000 orb (Word.fromInt wordOffset << 0w10) orb
-            (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
-    end
-    
-    (* and corresponding store. *)
-    and storeRegScaled({dest, base, wordOffset}, code) =
-    let
-        val _ = (wordOffset >= 0 andalso wordOffset < 0x1000)
-            orelse raise InternalError "storeRegAligned: value out of range"
-    in
-        addInstr(0wxF9000000 orb (Word.fromInt wordOffset << 0w10) orb
-            (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
-    end
+        val loadRegScaled = loadStoreRegScaled(0w3, 0w0, 0w1)
+        and storeRegScaled = loadStoreRegScaled(0w3, 0w0, 0w0)
+        (* (Unsigned) byte operations.  There are also signed versions. *)
+        and loadRegScaledByte = loadStoreRegScaled (0w0, 0w0, 0w1)
+        and storeRegScaledByte = loadStoreRegScaled (0w0, 0w0, 0w0)
+    end    
 
     local
         (* Unscaled loads and stores always use a signed byte offset *)

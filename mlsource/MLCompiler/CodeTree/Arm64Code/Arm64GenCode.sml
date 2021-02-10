@@ -54,12 +54,12 @@ struct
 
     (* Load a local value.  TODO: the offset is limited to 12-bits. *)
     fun genLocal(offset, code) =
-        (loadRegScaled({dest=X0, base=X_MLStackPtr, wordOffset=offset}, code); genPushReg(X0, code))
+        (loadRegScaled({dest=X0, base=X_MLStackPtr, unitOffset=offset}, code); genPushReg(X0, code))
 
     (* Load a value at an offset from the address on the top of the stack.
        TODO: the offset is limited to 12-bits. *)
     fun genIndirect(offset, code) =
-        (genPopReg(X0, code); loadRegScaled({dest=X0, base=X0, wordOffset=offset}, code); genPushReg(X0, code))
+        (genPopReg(X0, code); loadRegScaled({dest=X0, base=X0, unitOffset=offset}, code); genPushReg(X0, code))
 
     fun compareRegs(reg1, reg2, code) =
         subSRegReg({regM=reg2, regN=reg1, regD=XZero, shift=ShiftNone}, code)
@@ -73,7 +73,7 @@ struct
         genSubRegConstant({sReg=X_MLHeapAllocPtr, dReg=X0, cValue=(words+1)* Word.toInt wordSize}, code);
         compareRegs(X0, X_MLHeapLimit, code);
         putBranchInstruction(condCarrySet, label, code);
-        loadRegScaled({dest=X16, base=X_MLAssemblyInt, wordOffset=heapOverflowCallOffset}, code);
+        loadRegScaled({dest=X16, base=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
         genBranchAndLinkReg(X16, code);
         registerMask([], code); (* Not used at the moment. *)
         setLabel(label, code);
@@ -110,9 +110,9 @@ struct
     fun genRealToInt _ =  toDo "genRealToInt"
     fun genFloatToInt _ =  toDo "genFloatToInt"
 
+    val checkRTSException = "checkRTSException"
 
-    val opcode_notBoolean = "notBoolean"
-    and opcode_clearMutable = "clearMutable"
+    val opcode_clearMutable = "clearMutable"
     val opcode_atomicExchAdd = "opcode_atomicExchAdd"
 and opcode_atomicReset = "opcode_atomicReset"
 and opcode_longWToTagged = "opcode_longWToTagged"
@@ -179,7 +179,6 @@ and opcode_floatAdd = "opcode_floatAdd"
 and opcode_floatSub = "opcode_floatSub"
 and opcode_floatMult = "opcode_floatMult"
 and opcode_floatDiv = "opcode_floatDiv"
-and opcode_getThreadId = "opcode_getThreadId"
 and opcode_allocWordMemory = "opcode_allocWordMemory"
 and opcode_loadMLWord = "opcode_loadMLWord"
 and opcode_loadMLByte = "opcode_loadMLByte"
@@ -465,8 +464,8 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                        the next handler.  This is set up in the handler.  We have a lot
                        more raises than handlers since most raises are exceptional conditions
                        such as overflow so it makes sense to minimise the code in each raise. *)
-                    loadRegScaled({dest=X_MLStackPtr, base=X_MLAssemblyInt, wordOffset=exceptionHandlerOffset}, cvec);
-                    loadRegScaled({dest=X1, base=X_MLStackPtr, wordOffset=0}, cvec);
+                    loadRegScaled({dest=X_MLStackPtr, base=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
+                    loadRegScaled({dest=X1, base=X_MLStackPtr, unitOffset=0}, cvec);
                     genBranchRegister(X1, cvec)
                 )
   
@@ -564,7 +563,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     List.app(fn v => gencde (v, ToStack, NotEnd, loopAddr)) recList;
                     genAllocateFixedSize(size, 0w0, cvec);
                     List.foldl(fn (_, w) =>
-                        (genPopReg(X1, cvec); storeRegScaled({dest=X1, base=X0, wordOffset=w-1}, cvec); w-1))
+                        (genPopReg(X1, cvec); storeRegScaled({dest=X1, base=X0, unitOffset=w-1}, cvec); w-1))
                             size recList;
                     genPushReg(X0, cvec);
                     realstackptr := !realstackptr - (size - 1)
@@ -638,12 +637,14 @@ and opcode_arbMultiply = "opcode_arbMultiply"
 
             |   BICNullary {oper=BuiltIns.GetCurrentThreadId} =>
                 (
-                    genOpcode(opcode_getThreadId, cvec);
+                    loadRegScaled({dest=X0, base=X_MLAssemblyInt, unitOffset=threadIdOffset}, cvec);
+                    genPushReg(X0, cvec);
                     incsp()
                 )
 
             |   BICNullary {oper=BuiltIns.CheckRTSException} =>
-                ( (* Do nothing.  This is done in the RTS call. *)
+                ( (* This needs to be done if we implement RTS calls. *)
+                    genOpcode(checkRTSException, cvec)
                 )
 
             |   BICNullary {oper=BuiltIns.CPUPause} =>
@@ -656,7 +657,13 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = gencde (arg1, ToStack, NotEnd, loopAddr)
                 in
                     case oper of
-                        NotBoolean => genOpcode(opcode_notBoolean, cvec)
+                        NotBoolean =>
+                        (
+                            genPopReg(X0, cvec);
+                            (* Flip true to false and the reverse. *)
+                            bitwiseXorImmediate({wordSize=WordSize32, bits=0w2, regN=X0, regD=X0}, cvec);
+                            genPushReg(X0, cvec)
+                        )
 
                     |   IsTaggedValue =>
                         (
@@ -824,7 +831,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     gencde (initial, ToStack, NotEnd, loopAddr); (* Initialiser. *)
                     genAllocateFixedSize(1, 0wx40, cvec);
                     genPopReg(X1, cvec);
-                    storeRegScaled({dest=X1, base=X0, wordOffset=0}, cvec);
+                    storeRegScaled({dest=X1, base=X0, unitOffset=0}, cvec);
                     genPushReg(X0, cvec)
                 )
                 else
@@ -1159,10 +1166,10 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 in
                     genAllocateFixedSize(closureVars+1, 0w0, cvec);
                     List.foldl(fn (_, w) =>
-                        (genPopReg(X1, cvec); storeRegScaled({dest=X1, base=X0, wordOffset=w-1}, cvec); w-1))
+                        (genPopReg(X1, cvec); storeRegScaled({dest=X1, base=X0, unitOffset=w-1}, cvec); w-1))
                             (closureVars+1) closure;
                     loadAddressConstant(X1, codeAddr, cvec);
-                    storeRegScaled({dest=X1, base=X0, wordOffset=0}, cvec);
+                    storeRegScaled({dest=X1, base=X0, unitOffset=0}, cvec);
                     genPushReg(X0, cvec);
                     realstackptr := !realstackptr - closureVars + 1 (* Popped the closure vars and pushed the address. *)
                 end
@@ -1280,7 +1287,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                        leave the rest on the stack. *)
                     fun loadArg(n, reg) =
                         if argsToPass > n
-                        then loadRegScaled({dest=reg, base=X_MLStackPtr, wordOffset=argsToPass-n-1}, cvec)
+                        then loadRegScaled({dest=reg, base=X_MLStackPtr, unitOffset=argsToPass-n-1}, cvec)
                         else ()
                     val () = loadArg(0, X0)
                     val () = loadArg(1, X1)
@@ -1291,7 +1298,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = loadArg(6, X6)
                     val () = loadArg(7, X7)
                 in
-                    loadRegScaled({dest=X9, base=X8, wordOffset=0}, cvec); (* Entry point *)
+                    loadRegScaled({dest=X9, base=X8, unitOffset=0}, cvec); (* Entry point *)
                     genBranchAndLinkReg(X9, cvec);
                     (* We have popped the closure pointer.  The caller has popped the stack
                        arguments and we have pushed the result value. The register arguments
@@ -1305,12 +1312,12 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = genPopReg(X8, cvec) (* Pop the closure pointer. *)
                     val () = decsp()
                     (* Get the return address into X30. *)
-                    val () = loadRegScaled({dest=X30, base=X_MLStackPtr, wordOffset= !realstackptr}, cvec)
+                    val () = loadRegScaled({dest=X30, base=X_MLStackPtr, unitOffset= !realstackptr}, cvec)
 
                     (* Load the register arguments *)
                     fun loadArg(n, reg) =
                         if argsToPass > n
-                        then loadRegScaled({dest=reg, base=X_MLStackPtr, wordOffset=argsToPass-n-1}, cvec)
+                        then loadRegScaled({dest=reg, base=X_MLStackPtr, unitOffset=argsToPass-n-1}, cvec)
                         else ()
                     val () = loadArg(0, X0)
                     val () = loadArg(1, X1)
@@ -1334,7 +1341,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     let
                         val () = loadArg(n, X9)
                         val destOffset = itemsOnStack - (n-8) - 1
-                        val () = storeRegScaled({dest=X9, base=X_MLStackPtr, wordOffset=destOffset}, cvec)
+                        val () = storeRegScaled({dest=X9, base=X_MLStackPtr, unitOffset=destOffset}, cvec)
                     in
                         moveStackArg(n-1)
                     end
@@ -1342,7 +1349,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = moveStackArg (argsToPass-1)
                 in
                     resetStack(itemsOnStack - Int.max(argsToPass-8, 0), false, cvec);
-                    loadRegScaled({dest=X9, base=X8, wordOffset=0}, cvec); (* Entry point *)
+                    loadRegScaled({dest=X9, base=X8, unitOffset=0}, cvec); (* Entry point *)
                     genBranchRegister(X9, cvec)
                     (* Since we're not returning we can ignore the stack pointer value. *)
                 end

@@ -118,9 +118,12 @@ sig
     (* Check whether a constant can be encoded. *)
     val isEncodableBitPattern: Word64.word * wordSize -> bool
 
-    (* Load/Store an aligned word using a 12-bit offset. *)
-    val loadRegScaled: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
-    and storeRegScaled: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
+    (* Load/Store an aligned word using a 12-bit offset.  The offset is in units
+       of the size of the operand. *)
+    val loadRegScaled: {dest: xReg, base: xReg, unitOffset: int} * code -> unit
+    and storeRegScaled: {dest: xReg, base: xReg, unitOffset: int} * code -> unit
+    and loadRegScaledByte: {dest: xReg, base: xReg, unitOffset: int} * code -> unit
+    and storeRegScaledByte: {dest: xReg, base: xReg, unitOffset: int} * code -> unit
 
     (* Load/Store a value using a signed byte offset. *)
     val loadRegUnscaled: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
