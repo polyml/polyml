@@ -342,18 +342,27 @@ struct
         addInstr(0wxF9000000 orb (Word.fromInt wordOffset << 0w10) orb
             (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
     end
-    
-    (* Store a value using a signed byte offset. *)
-    fun storeRegUnscaled({dest, base, byteOffset}, code) =
-    let
-        val _ = (byteOffset >= ~256 andalso byteOffset < 256)
-            orelse raise InternalError "storeRegUnaligned: value out of range"
-        val imm9 = Word.fromInt byteOffset andb 0wx1ff
+
+    local
+        (* Unscaled loads and stores always use a signed byte offset *)
+        fun loadStoreUnscaled (size, v, opc) ({dest, base, byteOffset}, code) =
+        let
+            val _ = (byteOffset >= ~256 andalso byteOffset < 256)
+                orelse raise InternalError "loadStoreUnscaled: value out of range"
+            val imm9 = Word.fromInt byteOffset andb 0wx1ff
+        in
+            addInstr(0wx38000000 orb (size << 0w30) orb (opc << 0w22) orb
+                (v << 0w26) orb (imm9 << 0w12) orb
+                (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
+        end
     in
-        addInstr(0wxF8000000 orb (imm9 << 0w12) orb
-            (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
+        val loadRegUnscaled = loadStoreUnscaled (0w3, 0w0, 0w1)
+        and storeRegUnscaled = loadStoreUnscaled (0w3, 0w0, 0w0)
+        (* (Unsigned) byte operations.  There are also signed versions. *)
+        and loadRegUnscaledByte = loadStoreUnscaled (0w0, 0w0, 0w1)
+        and storeRegUnscaledByte = loadStoreUnscaled (0w0, 0w0, 0w0)
     end
-    
+
     (* Push a register to the ML stack. This uses a pre-increment store to x28 *)
     fun genPushReg(xReg, code) =
         addInstr(0wxF81F8F80 orb word8ToWord(xRegOnly xReg), code)
@@ -463,18 +472,76 @@ struct
             (word8ToWord cond << 0w12) orb (word8ToWord(xRegOrXZ regTrue) << 0w5) orb
             word8ToWord(xRegOrXZ regD), code)
 
-    (* Test a bit pattern in a register. *)
-    fun testBitPattern(reg, bits, code) =
+    (* This combines the effect of a left and right shift.  There are various
+       derived forms of this depending on the relative values of immr and imms.
+       if imms >= immr copies imms-immr-1 bits from bit position immr to the lsb
+       bits of the destination.
+       if imms < immr copies imms+1 bits from the lsb bit to bit position
+       regsize-immr.  Bits not otherwise set are zeroed. *)
+    fun unsignedBitfieldMove({wordSize, n, immr, imms, regN, regD}, code) =
     let
-        val (w, s) = if bits <= 0wxffffffff then (WordSize32, 0w0) else (WordSize64, 0w1)
-        val {n, imms, immr} =
-            case encodeBitPattern(bits, w) of
-                NONE => raise InternalError "testBitPattern: unable to encode bit pattern"
-            |   SOME res => res
+        val sf = case wordSize of WordSize32 => 0w0 | WordSize64 => 0w1 << 0w31
     in
-        addInstr(0wx7200001F orb (s << 0w31) orb (n << 0w22) orb
-            (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOnly reg) << 0w5), code)
+        addInstr(0wx53000000 orb sf orb (n << 0w22) orb
+            (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOnly regN) << 0w5) orb
+            word8ToWord(xRegOnly regD), code)
     end
+
+    fun logicalShiftLeft({wordSize, shift, regN, regD}, code) =
+    let
+        val (wordBits, n) = case wordSize of WordSize32 => (0w32, 0w0) | WordSize64 => (0w64, 0w1)
+    in
+        unsignedBitfieldMove({wordSize=wordSize, n=n, immr=Word.~ shift mod wordBits,
+            imms=wordBits-0w1-shift, regN=regN, regD=regD}, code)
+    end
+
+    and logicalShiftRight({wordSize, shift, regN, regD}, code) =
+    let
+        val (imms, n) = case wordSize of WordSize32 => (0wx1f, 0w0) | WordSize64 => (0wx3f, 0w1)
+    in
+        unsignedBitfieldMove({wordSize=wordSize, n=n, immr=shift,
+            imms=imms, regN=regN, regD=regD}, code)
+    end
+    
+    and unsignedBitfieldInsertinZeros({wordSize, lsb, width, regN, regD}, code) =
+    let
+        val (wordBits, n) = case wordSize of WordSize32 => (0w32, 0w0) | WordSize64 => (0w64, 0w1)
+    in
+        unsignedBitfieldMove({wordSize=wordSize, n=n, immr=Word.~ lsb mod wordBits,
+            imms=width-0w1, regN=regN, regD=regD}, code)
+    end
+
+    local
+        (* Logical immediates.  AND, OR, XOR and ANDS.  Assumes that the immediate value
+           has already been checked as valid. *)
+        fun logicalImmediate opc ({wordSize, bits, regN, regD}, code) =
+        let
+            val s = case wordSize of WordSize32 => 0w0 | WordSize64 => 0w1
+            val {n, imms, immr} = 
+                case encodeBitPattern(bits, wordSize) of
+                    NONE => raise InternalError "testBitPattern: unable to encode bit pattern"
+                |   SOME res => res
+        in
+            addInstr(0wx12000000 orb (opc << 0w29) orb (s << 0w31) orb (n << 0w22) orb
+                (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
+                word8ToWord(xRegOrXZ regD), code)
+        end
+    in
+        val bitwiseAndImmediate = logicalImmediate 0w0
+        and bitwiseOrImmediate = logicalImmediate 0w1
+        and bitwiseXorImmediate = logicalImmediate 0w2
+        and bitwiseAndSImmediate = logicalImmediate 0w3
+        
+        (* Test a bit pattern in a register.  If the pattern is within the low-order
+           32-bits we use a 32-bit test. *)
+        fun testBitPattern(reg, bits, code) =
+        let
+            val w = if bits <= 0wxffffffff then WordSize32 else WordSize64
+        in
+            bitwiseAndSImmediate({wordSize=w, bits=bits, regN=reg, regD=XZero}, code)
+        end
+    end
+
 
     (* Put in a check for the stack for the function. *)
     fun checkStackForFunction(workReg, Code{instructions, maxStackRef, ...}) =
@@ -743,9 +810,12 @@ struct
                 else (printStream ",lsl #"; printStream(Word.fmt StringCvt.HEX (shift*0w16)))
             end
 
-            else if (wordValue andb 0wxffe00000) = 0wxF8000000
-            then (* Store with 9-bit byte offset. *)
+            else if (wordValue andb 0wx3b200c00) = 0wx38000000
+            then (* Load/store unscaled immediate *)
             let
+                val size = wordValue >> 0w30
+                and v = (wordValue >> 0w26) andb 0w1
+                and opc = (wordValue >> 0w22) andb 0w3
                 val rT = wordValue andb 0wx1f
                 and rN = (wordValue andb 0wx3e0) >> 0w5
                 and imm9 = (wordValue andb 0wx1ff000) >> 0w12
@@ -753,16 +823,72 @@ struct
                     if imm9 > 0wxff
                     then "-" ^ Word.fmt StringCvt.DEC (0wx200 - imm9)
                     else Word.fmt StringCvt.DEC imm9
-                val opBits = (wordValue >> 0w10) andb 0w3
+                val (opcode, r) =
+                    case (size, v, opc) of
+                        (0w0, 0w0, 0w0) => ("strub", "w")
+                    |   (0w0, 0w0, 0w1) => ("ldrub", "w")
+                    |   (0w3, 0w0, 0w0) => ("stur", "x")
+                    |   (0w3, 0w0, 0w1) => ("ldur", "x")
+                    |   _ => ("???", "?")
             in
-                printStream(if opBits = 0w0 then "stur\tx" else "str\tx");
+                printStream opcode; printStream "\t"; printStream r;
                 printStream(Word.fmt StringCvt.DEC rT);
                 printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
-                case opBits of
-                    0w0 => (printStream ",#"; printStream imm9Text; printStream "]")
-                |   0w1 => (printStream "],#"; printStream imm9Text) (* Post-index *)
-                |   0w3 => (printStream ",#"; printStream imm9Text; printStream "]!") (* Pre-index *)
-                |   _ => printStream "??" (* Not used - store unprivileged. *)
+                printStream ",#"; printStream imm9Text; printStream "]"
+            end
+
+            else if (wordValue andb 0wx3b200c00) = 0wx38000400
+            then (* Load/store immediate post-indexed *)
+            let
+                val size = wordValue >> 0w30
+                and v = (wordValue >> 0w26) andb 0w1
+                and opc = (wordValue >> 0w22) andb 0w3
+                val rT = wordValue andb 0wx1f
+                and rN = (wordValue andb 0wx3e0) >> 0w5
+                and imm9 = (wordValue andb 0wx1ff000) >> 0w12
+                val imm9Text =
+                    if imm9 > 0wxff
+                    then "-" ^ Word.fmt StringCvt.DEC (0wx200 - imm9)
+                    else Word.fmt StringCvt.DEC imm9
+                val (opcode, r) =
+                    case (size, v, opc) of
+                        (0w0, 0w0, 0w0) => ("strb", "w")
+                    |   (0w0, 0w0, 0w1) => ("ldrb", "w")
+                    |   (0w3, 0w0, 0w0) => ("str", "x")
+                    |   (0w3, 0w0, 0w1) => ("ldr", "x")
+                    |   _ => ("???", "?")
+            in
+                printStream opcode; printStream "\t"; printStream r;
+                printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream "],#"; printStream imm9Text
+            end
+
+            else if (wordValue andb 0wx3b200c00) = 0wx38000c00
+            then (* Load/store immediate pre-indexed *)
+            let
+                val size = wordValue >> 0w30
+                and v = (wordValue >> 0w26) andb 0w1
+                and opc = (wordValue >> 0w22) andb 0w3
+                val rT = wordValue andb 0wx1f
+                and rN = (wordValue andb 0wx3e0) >> 0w5
+                and imm9 = (wordValue andb 0wx1ff000) >> 0w12
+                val imm9Text =
+                    if imm9 > 0wxff
+                    then "-" ^ Word.fmt StringCvt.DEC (0wx200 - imm9)
+                    else Word.fmt StringCvt.DEC imm9
+                val (opcode, r) =
+                    case (size, v, opc) of
+                        (0w0, 0w0, 0w0) => ("strb", "w")
+                    |   (0w0, 0w0, 0w1) => ("ldrb", "w")
+                    |   (0w3, 0w0, 0w0) => ("str", "x")
+                    |   (0w3, 0w0, 0w1) => ("ldr", "x")
+                    |   _ => ("???", "?")
+            in
+                printStream opcode; printStream "\t"; printStream r;
+                printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ",#"; printStream imm9Text; printStream "]!"
             end
 
             else if (wordValue andb 0wxffe00c00) = 0wxF8400400
@@ -938,21 +1064,55 @@ struct
                 printStream ","; printCondition cond
             end
 
-            else if (wordValue andb 0wx7f800000) = 0wx72000000
-            then (* ands immediate *)
+            else if (wordValue andb 0wx7f800000) = 0wx53000000
+            then (* unsigned bitfield move *)
             let
                 val sf = wordValue >> 0w31
+                (* N is always the same as sf. *)
+                (*val nBit = (wordValue >> 0w22) andb 0w1*)
+                val immr = (wordValue >> 0w16) andb 0wx3f
+                val imms = (wordValue >> 0w10) andb 0wx3f
+                val rN = (wordValue >> 0w5) andb 0wx1f
+                val rD = wordValue andb 0wx1f
+                val r = if sf = 0w0 then "w" else "x"
+                (* TODO: various aliases. *)
+            in
+                printStream "ubfm\t";
+                printStream r;
+                printStream(Word.fmt StringCvt.DEC rD);
+                printStream ",";
+                printStream r;
+                printStream(Word.fmt StringCvt.DEC rN);
+                printStream ",#0x"; printStream(Word.toString immr);
+                printStream ",#0x"; printStream(Word.toString imms)
+            end
+
+            else if (wordValue andb 0wx1f800000) = 0wx12000000
+            then (* logical immediate *)
+            let
+                val sf = wordValue >> 0w31
+                val opc = (wordValue >> 0w29) andb 0w3
                 val nBit = (wordValue >> 0w22) andb 0w1
                 val immr = (wordValue >> 0w16) andb 0wx3f
                 val imms = (wordValue >> 0w10) andb 0wx3f
                 val rN = (wordValue >> 0w5) andb 0wx1f
                 val rD = wordValue andb 0wx1f
+                val (opcode, r) =
+                    case (sf, opc, nBit) of
+                        (0w0, 0w0, 0w0) => ("and", "w")
+                    |   (0w0, 0w1, 0w0) => ("orr", "w")
+                    |   (0w0, 0w2, 0w0) => ("eor", "w")
+                    |   (0w0, 0w3, 0w0) => ("ands", "w")
+                    |   (0w1, 0w0, _) => ("and", "x")
+                    |   (0w1, 0w1, _) => ("orr", "x")
+                    |   (0w1, 0w2, _) => ("eor", "x")
+                    |   (0w1, 0w3, _) => ("ands", "x")
+                    |   _ => ("??", "?")
             in
-                if rD = 0w31
-                then printStream "tst\t"
-                else (printStream "ands\t"; printStream(Word.fmt StringCvt.DEC rD); printStream ",");
-                printStream(if sf = 0w0 then "w" else "x");
-                printStream(Word.fmt StringCvt.DEC rN); printStream ",#0x";
+                printStream opcode;
+                printStream "\t";
+                printStream r; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
+                printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",#0x";
                 printStream(Word64.toString(decodeBitPattern{sf=sf, n=nBit, immr=immr, imms=imms}))
             end
 

@@ -112,8 +112,6 @@ struct
 
 
     val opcode_notBoolean = "notBoolean"
-    and opcode_cellLength = "cellLength"
-    and opcode_cellFlags = "cellFlags"
     and opcode_clearMutable = "clearMutable"
     val opcode_atomicExchAdd = "opcode_atomicExchAdd"
 and opcode_atomicReset = "opcode_atomicReset"
@@ -183,7 +181,6 @@ and opcode_floatMult = "opcode_floatMult"
 and opcode_floatDiv = "opcode_floatDiv"
 and opcode_getThreadId = "opcode_getThreadId"
 and opcode_allocWordMemory = "opcode_allocWordMemory"
-and opcode_alloc_ref = "opcode_alloc_ref"
 and opcode_loadMLWord = "opcode_loadMLWord"
 and opcode_loadMLByte = "opcode_loadMLByte"
 and opcode_loadC8 = "opcode_loadC8"
@@ -660,6 +657,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 in
                     case oper of
                         NotBoolean => genOpcode(opcode_notBoolean, cvec)
+
                     |   IsTaggedValue =>
                         (
                             genPopReg(X0, cvec);
@@ -667,8 +665,31 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                             setBooleanCondition(X0, condNotEqual (*Non-zero*), cvec);
                             genPushReg(X0, cvec)
                         )
-                    |   MemoryCellLength => genOpcode(opcode_cellLength, cvec)
-                    |   MemoryCellFlags => genOpcode(opcode_cellFlags, cvec)
+
+                    |   MemoryCellLength =>
+                        (
+                            genPopReg(X0, cvec);
+                            (* Load the length word. *)
+                            loadRegUnscaled({dest=X0, base=X0, byteOffset= ~8}, cvec);
+                            (* Extract the length, excluding the flag bytes and shift by one bit. *)
+                            unsignedBitfieldInsertinZeros(
+                                {wordSize=WordSize64, lsb=0w1, width=0w56, regN=X0, regD=X0}, cvec);
+                            (* Set the tag bit. *)
+                            bitwiseOrImmediate({wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec);
+                            genPushReg(X0, cvec)
+                        )
+
+                    |   MemoryCellFlags =>
+                        (
+                            genPopReg(X0, cvec);
+                            (* Load the flags byte. *)
+                            loadRegUnscaledByte({dest=X0, base=X0, byteOffset= ~1}, cvec);
+                            (* Tag the result. *)
+                            logicalShiftLeft({wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                            bitwiseOrImmediate({wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec);
+                            genPushReg(X0, cvec)
+                        )
+
                     |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
                     |   AtomicReset => genOpcode(opcode_atomicReset, cvec)
                     |   LongWordToTagged => genOpcode(opcode_longWToTagged, cvec)
@@ -800,8 +821,11 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 if isShort length andalso toShort length = 0w1 andalso isShort flagByte andalso toShort flagByte = 0wx40
                 then (* This is a very common case. *)
                 (
-                    gencde (initial, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_alloc_ref, cvec)
+                    gencde (initial, ToStack, NotEnd, loopAddr); (* Initialiser. *)
+                    genAllocateFixedSize(1, 0wx40, cvec);
+                    genPopReg(X1, cvec);
+                    storeRegScaled({dest=X1, base=X0, wordOffset=0}, cvec);
+                    genPushReg(X0, cvec)
                 )
                 else
                 let

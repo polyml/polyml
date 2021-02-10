@@ -107,7 +107,6 @@ sig
        case this is a comparison. *)
     val genSubSRegConstant: {sReg: xReg, dReg: xReg, cValue: int, shifted: bool} * code -> unit
 
-
     (* Subtract regM, after a possible shift, from regN and put the result in regD,
        setting the flags.  This is frequently used as a comparison. *)
     val subSRegReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} * code -> unit
@@ -123,8 +122,11 @@ sig
     val loadRegScaled: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
     and storeRegScaled: {dest: xReg, base: xReg, wordOffset: int} * code -> unit
 
-    (* Store a value using a signed byte offset. *)
-    val storeRegUnscaled: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
+    (* Load/Store a value using a signed byte offset. *)
+    val loadRegUnscaled: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
+    and storeRegUnscaled: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
+    and loadRegUnscaledByte: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
+    and storeRegUnscaledByte: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
 
     (* This word is put in after a call to the RTS trap-handler.  All the registers
        are saved and restored across a call to the trap-handler; the register
@@ -145,6 +147,18 @@ sig
     val conditionalSetIncrement:
         {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} * code -> unit
 
+    (* Various shifts *)
+    val logicalShiftLeft: {wordSize: wordSize, shift: word, regN: xReg, regD: xReg} * code -> unit
+    and logicalShiftRight: {wordSize: wordSize, shift: word, regN: xReg, regD: xReg} * code -> unit
+    and unsignedBitfieldInsertinZeros:
+        {wordSize: wordSize, lsb: word, width: word, regN: xReg, regD: xReg} * code -> unit
+
+    (* Logical operations on bit patterns.  The pattern must be valid.
+       ANDS is an AND that also sets the flags, typically used for a test. *)
+    val bitwiseAndImmediate: {wordSize: wordSize, bits: Word64.word, regN: xReg, regD: xReg} * code -> unit
+    and bitwiseOrImmediate: {wordSize: wordSize, bits: Word64.word, regN: xReg, regD: xReg} * code -> unit
+    and bitwiseXorImmediate: {wordSize: wordSize, bits: Word64.word, regN: xReg, regD: xReg} * code -> unit
+    and bitwiseAndSImmediate: {wordSize: wordSize, bits: Word64.word, regN: xReg, regD: xReg} * code -> unit
 
     (* Put in a check for the stack for the function. *)
     val checkStackForFunction: xReg * code -> unit
@@ -154,7 +168,6 @@ sig
     (* copyCode - create the vector of code and update the closure reference to
        point to it. *)
     val generateCode: {code: code, maxStack: int, resultClosure: closureRef} -> unit
-
 
     (* Offsets in the assembly code interface pointed at by X26
        These are in units of 64-bits NOT bytes. *)
