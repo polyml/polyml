@@ -96,6 +96,19 @@ struct
         (* If the condition is false the value used is the XZero incremented by 1 i.e. 1 *)
         conditionalSetIncrement({regD=reg, regTrue=reg, regFalse=XZero, cond=condition}, code)
     )
+
+    (* Raise the overflow exception if the overflow bit has been set. *)
+    fun checkOverflow code =
+    let
+        val noOverflow = createLabel()
+    in
+        putBranchInstruction(condNoOverflow, noOverflow, code);
+        loadAddressConstant(X0, toMachineWord Overflow, code);
+        loadRegScaled({regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, code);
+        loadRegScaled({regT=X1, regN=X_MLStackPtr, unitOffset=0}, code);
+        genBranchRegister(X1, code);
+        setLabel(noOverflow, code)
+    end
     
     fun toDo s = raise Fallback s
 
@@ -131,8 +144,7 @@ and opcode_floatToReal = "opcode_floatToReal"
 and opcode_floatAbs = "opcode_floatAbs"
 and opcode_floatNeg = "opcode_floatNeg"
 
-and opcode_fixedAdd = "opcode_fixedAdd"
-and opcode_fixedSub = "opcode_fixedSub"
+
 and opcode_fixedMult = "opcode_fixedMult"
 and opcode_fixedQuot = "opcode_fixedQuot"
 and opcode_fixedRem = "opcode_fixedRem"
@@ -193,8 +205,6 @@ and opcode_loadC32 = "opcode_loadC32"
 and opcode_loadC64 = "opcode_loadC64"
 and opcode_loadCFloat = "opcode_loadCFloat"
 and opcode_loadCDouble = "opcode_loadCDouble"
-and opcode_loadUntagged = "opcode_loadUntagged"
-and opcode_storeMLWord = "opcode_storeMLWord"
 and opcode_storeMLByte = "opcode_storeMLByte"
 and opcode_storeC8 = "opcode_storeC8"
 and opcode_storeC16 = "opcode_storeC16"
@@ -750,16 +760,52 @@ and opcode_arbMultiply = "opcode_arbMultiply"
 
                     |   PointerEq => compareWords condEqual
 
-                    |   FixedPrecisionArith ArithAdd => genOpcode(opcode_fixedAdd, cvec)
-                    |   FixedPrecisionArith ArithSub => genOpcode(opcode_fixedSub, cvec)
+                    |   FixedPrecisionArith ArithAdd =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Subtract the tag bit. *)
+                            subImmediate({regN=X1, regD=X1, immed=0w1, shifted=false}, cvec);
+                            genPopReg(X0, cvec);
+                            (* Add and set the flag bits *)
+                            addSShiftedReg({regN=X0, regM=X1, regD=X0, shift=ShiftNone}, cvec);
+                            checkOverflow cvec;
+                            genPushReg(X0, cvec)
+                        )
+                    |   FixedPrecisionArith ArithSub =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Subtract the tag bit. *)
+                            subImmediate({regN=X1, regD=X1, immed=0w1, shifted=false}, cvec);
+                            genPopReg(X0, cvec);
+                            (* Subtract and set the flag bits *)
+                            subSShiftedReg({regN=X0, regM=X1, regD=X0, shift=ShiftNone}, cvec);
+                            checkOverflow cvec;
+                            genPushReg(X0, cvec)
+                        )
                     |   FixedPrecisionArith ArithMult => genOpcode(opcode_fixedMult, cvec)
                     |   FixedPrecisionArith ArithQuot => genOpcode(opcode_fixedQuot, cvec)
                     |   FixedPrecisionArith ArithRem => genOpcode(opcode_fixedRem, cvec)
                     |   FixedPrecisionArith ArithDiv => raise InternalError "TODO: FixedPrecisionArith ArithDiv"
                     |   FixedPrecisionArith ArithMod => raise InternalError "TODO: FixedPrecisionArith ArithMod"
 
-                    |   WordArith ArithAdd => genOpcode(opcode_wordAdd, cvec)
-                    |   WordArith ArithSub => genOpcode(opcode_wordSub, cvec)
+                    |   WordArith ArithAdd =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Subtract the tag bit. *)
+                            subImmediate({regN=X1, regD=X1, immed=0w1, shifted=false}, cvec);
+                            genPopReg(X0, cvec);
+                            addShiftedReg({regN=X0, regM=X1, regD=X0, shift=ShiftNone}, cvec);
+                            genPushReg(X0, cvec)
+                        )
+                    |   WordArith ArithSub =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Subtract the tag bit. *)
+                            subImmediate({regN=X1, regD=X1, immed=0w1, shifted=false}, cvec);
+                            genPopReg(X0, cvec);
+                            subShiftedReg({regN=X0, regM=X1, regD=X0, shift=ShiftNone}, cvec);
+                            genPushReg(X0, cvec)
+                        )
                     |   WordArith ArithMult => genOpcode(opcode_wordMult, cvec)
                     |   WordArith ArithDiv => genOpcode(opcode_wordDiv, cvec)
                     |   WordArith ArithMod => genOpcode(opcode_wordMod, cvec)
@@ -928,7 +974,15 @@ and opcode_arbMultiply = "opcode_arbMultiply"
             |   BICLoadOperation { kind=LoadStoreUntaggedUnsigned, address} =>
                 (
                     genMLAddress(address, Word.toInt wordSize);
-                    genOpcode(opcode_loadUntagged, cvec);
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Shift right to remove the tag. *)
+                    logicalShiftRight({regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X0, cvec); (* Base address. *)
+                    loadRegIndexed({regN=X0, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    (* Have to tag the result. *)
+                    logicalShiftLeft({regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                    bitwiseOrImmediate({regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
+                    genPushReg(X0, cvec);
                     decsp()
                 )
 
@@ -936,8 +990,16 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 (
                     genMLAddress(address, Word.toInt wordSize);
                     gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeMLWord, cvec);
-                    decsp(); decsp()
+                    genPopReg(X0, cvec); (* Value to store *)
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Shift right to remove the tag.  N.B.  Indexes into ML memory are
+                       unsigned.  Unlike on the X86 we can't remove the tag by providing
+                       a displacement and the only options are to scale by either 1 or 8. *)
+                    logicalShiftRight({regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address. *)
+                    storeRegIndexed({regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    (* Don't put the unit result in; it probably isn't needed, *)
+                    decsp(); decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreMLByte _, address, value } =>
@@ -1394,9 +1456,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    (*if Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
-    else*)
+    else
     (let
         (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (name, parameters)

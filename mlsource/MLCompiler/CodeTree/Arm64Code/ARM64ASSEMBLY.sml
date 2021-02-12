@@ -452,7 +452,7 @@ struct
                 case extendLSEncode option of
                     (opt, ScaleOrShift) => (opt, 0w1) | (opt, NoScale) => (opt, 0w0)
         in
-            addInstr(0wx38400800 orb (size << 0w30) orb (v << 0w26) orb (opc << 0w22) orb
+            addInstr(0wx38200800 orb (size << 0w30) orb (v << 0w26) orb (opc << 0w22) orb
                 (word8ToWord(xRegOnly regM) << 0w16) orb (opt << 0w13) orb (s << 0w12) orb
                 (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXSP regT), code)
         end
@@ -983,21 +983,45 @@ struct
                 printStream ",#"; printStream imm9Text; printStream "]!"
             end
 
-            else if (wordValue andb 0wxffe00c00) = 0wxF8400400
-            then
+            else if (wordValue andb 0wx3b200c00) = 0wx38200800
+            then (* Load/store with register offset i.e. an index register. *)
             let
-                (* Load with post-indexing *)
+                val size = wordValue >> 0w30
+                and v = (wordValue >> 0w26) andb 0w1
+                and opc = (wordValue >> 0w22) andb 0w3
                 val rT = wordValue andb 0wx1f
-                and rN = (wordValue andb 0wx3e0) >> 0w5
-                and imm9 = (wordValue andb 0wx1ff000) >> 0w12
-                val imm9Text =
-                    if imm9 > 0wxff
-                    then "-" ^ Word.fmt StringCvt.DEC(0wx200 - imm9)
-                    else Word.fmt StringCvt.DEC imm9
+                and rN = (wordValue >> 0w5) andb 0wx1f
+                and rM = (wordValue >> 0w16) andb 0wx1f
+                val option = (wordValue >> 0w13) andb 0w7
+                val s = (wordValue andb 0wx1000) <> 0w0 
+                val (opcode, r) =
+                    case (size, v, opc) of
+                        (0w0, 0w0, 0w0) => ("strb", "w")
+                    |   (0w0, 0w0, 0w1) => ("ldrb", "w")
+                    |   (0w3, 0w0, 0w0) => ("str", "x")
+                    |   (0w3, 0w0, 0w1) => ("ldr", "x")
+                    |   _ => ("???", "?")
+                val (extend, xr) =
+                    case option of
+                        0w2 => ("uxtw", "w")
+                    |   0w3 => if s then ("lsl", "x") else ("", "x")
+                    |   0w6 => ("sxtw", "w")
+                    |   0w7 => ("sxtx", "x")
+                    |   _   => ("?", "?")
+                val indexShift =
+                    case (size, s) of
+                        (0w0, true) => " #1"
+                    |   (0w1, true) => " #1"
+                    |   (0w2, true) => " #2"
+                    |   (0w3, true) => " #3"
+                    |   _ => ""
             in
-                printStream "ldr\tx"; printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN); printStream "],#";
-                printStream imm9Text
+                printStream opcode; printStream "\t"; printStream r;
+                printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ","; printStream xr; printStream(Word.fmt StringCvt.DEC rM);
+                printStream " "; printStream extend; printStream indexShift;
+                printStream "]"
             end
 
             else if (wordValue andb 0wxbf800000) = 0wx91000000
@@ -1033,21 +1057,29 @@ struct
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
             end
             
-            else if (wordValue andb 0wxffe00000) = 0wxEB000000
+            else if (wordValue andb 0wx1f800000) = 0wx0B000000
             then
             let
-                (* Subtract a register from another, possibly shifted, setting the flags. *)
+                (* Add/subtract shifted register. *)
                 val rD = wordValue andb 0wx1f
                 and rN = (wordValue >> 0w5) andb 0wx1f
                 and rM = (wordValue >> 0w16) andb 0wx1f
                 and imm6 = (wordValue >> 0w10) andb 0wx3f
                 and shiftCode = (wordValue >> 0w22) andb 0wx3
+                val oper = (wordValue andb 0wx40000000) = 0w0
+                val isS = (wordValue andb 0wx20000000) <> 0w0
+                val reg = if (wordValue andb 0wx80000000) <> 0w0 then "x" else "w"
             in
-                if rD = 0w31
-                then printStream "cmp\t"
-                else (printStream "subs\tx"; printStream(Word.fmt StringCvt.DEC rD); printStream ",");
-                printStream "x"; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ",x"; printStream(Word.fmt StringCvt.DEC rM);
+                if isS andalso rD = 0w31
+                then printStream(if oper then "cmn\t" else "cmp\t")
+                else
+                (
+                    printStream(if oper then "add" else "sub"); printStream(if isS then "s\t" else "\t");
+                    printStream reg;
+                    printStream(Word.fmt StringCvt.DEC rD); printStream ","
+                );
+                printStream reg; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ","; printStream reg; printStream(Word.fmt StringCvt.DEC rM);
                 if imm6 <> 0w0
                 then
                 (
@@ -1166,17 +1198,27 @@ struct
                 val imms = (wordValue >> 0w10) andb 0wx3f
                 val rN = (wordValue >> 0w5) andb 0wx1f
                 val rD = wordValue andb 0wx1f
-                val r = if sf = 0w0 then "w" else "x"
-                (* TODO: various aliases. *)
+                val (r, wordSize) = if sf = 0w0 then ("w", 0w32) else ("x", 0w64)
             in
-                printStream "ubfm\t";
+                if imms + 0w1 = immr
+                then printStream "lsl\t"
+                else if imms = wordSize - 0w1
+                then printStream "lsr\t"
+                else printStream "ubfm\t";
                 printStream r;
                 printStream(Word.fmt StringCvt.DEC rD);
                 printStream ",";
                 printStream r;
                 printStream(Word.fmt StringCvt.DEC rN);
-                printStream ",#0x"; printStream(Word.toString immr);
-                printStream ",#0x"; printStream(Word.toString imms)
+                if imms + 0w1 = immr
+                then (printStream ",#0x"; printStream(Word.toString(wordSize - immr)))
+                else if imms = wordSize - 0w1
+                then (printStream ",#0x"; printStream(Word.toString immr))
+                else
+                (
+                    printStream ",#0x"; printStream(Word.toString immr);
+                    printStream ",#0x"; printStream(Word.toString imms)
+                )
             end
 
             else if (wordValue andb 0wx1f800000) = 0wx12000000
