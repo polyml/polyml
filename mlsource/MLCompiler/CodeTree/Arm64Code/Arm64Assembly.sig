@@ -73,6 +73,23 @@ sig
 
     datatype wordSize = WordSize32 | WordSize64
 
+    datatype 'a extend =
+        ExtUXTB of 'a (* Unsigned extend byte *)
+    |   ExtUXTH of 'a (* Unsigned extend byte *)
+    |   ExtUXTW of 'a (* Unsigned extend byte *)
+    |   ExtUXTX of 'a (* Left shift *)
+    |   ExtSXTB of 'a (* Sign extend byte *)
+    |   ExtSXTH of 'a (* Sign extend halfword *)
+    |   ExtSXTW of 'a (* Sign extend word *)
+    |   ExtSXTX of 'a (* Left shift *)
+
+    (* Load/store instructions have only a single bit for the shift.  For byte
+       operations this is one bit shift; for others it scales by the size of
+       the operand if set. *)
+    datatype scale =
+        ScaleOrShift
+    |   NoScale
+
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
     val genBranchAndLinkReg: xReg * code -> unit
@@ -81,11 +98,6 @@ sig
     (* Jump to the address in the register and hint this is a return. *)
     and genReturnRegister: xReg * code -> unit
 
-    (* Push a register to the ML stack *)
-    val genPushReg: xReg * code -> unit
-    (* Pop a register from the ML stack. *)
-    val genPopReg: xReg * code -> unit
-
     (* Move an address constant to a register. *)
     val loadAddressConstant: xReg * machineWord * code -> unit
     (* Move a constant into a register that is not an address.
@@ -93,24 +105,29 @@ sig
        For tagged integers that means that the value must have
        been shifted and the tag bit set. *)
     and loadNonAddressConstant: xReg * Word64.word * code -> unit
-
-    (* Add a 12-bit constant.  Currently limited to 12-bits but this could
-       be changed by using a sequence of instructions. *)
-    val genAddRegConstant: {sReg: xReg, dReg: xReg, cValue: int} * code -> unit
-    and genSubRegConstant: {sReg: xReg, dReg: xReg, cValue: int} * code -> unit
     
     (* Move a value from one register into another. *)
     val genMoveRegToReg: {sReg: xReg, dReg: xReg} * code -> unit
 
-    (* Subtract a 12-bit constant, possibly shifted by 12 bits and set the
-       condition flags.  The destination can be the zero register in which
-       case this is a comparison. *)
-    val genSubSRegConstant: {sReg: xReg, dReg: xReg, cValue: int, shifted: bool} * code -> unit
+    (* Add/subtract an optionally shifted 12-bit immediate (i.e. constant) to/from a register.
+       The constant is zero-extended. *)
+    val addImmediate: {regN: xReg, regD: xReg, immed: word, shifted: bool} * code -> unit
+    and addSImmediate: {regN: xReg, regD: xReg, immed: word, shifted: bool} * code -> unit
+    and subImmediate: {regN: xReg, regD: xReg, immed: word, shifted: bool} * code -> unit
+    and subSImmediate: {regN: xReg, regD: xReg, immed: word, shifted: bool} * code -> unit
 
-    (* Subtract regM, after a possible shift, from regN and put the result in regD,
-       setting the flags.  This is frequently used as a comparison. *)
-    val subSRegReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} * code -> unit
+    (* Add/subtract a shifted register, optionally setting the flags. *)
+    val addShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} * code -> unit
+    and addSShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} * code -> unit
+    and subShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} * code -> unit
+    and subSShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} * code -> unit
     
+    (* Add/subtract an extended register, optionally setting the flags. *)
+    val addExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} * code -> unit
+    and addSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} * code -> unit
+    and subExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} * code -> unit
+    and subSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} * code -> unit
+
     (* And a register with a bit pattern, discarding the results but setting the
        condition codes.  The bit pattern must be encodable. *)
     val testBitPattern: xReg * Word64.word * code -> unit
@@ -120,16 +137,38 @@ sig
 
     (* Load/Store an aligned word using a 12-bit offset.  The offset is in units
        of the size of the operand. *)
-    val loadRegScaled: {dest: xReg, base: xReg, unitOffset: int} * code -> unit
-    and storeRegScaled: {dest: xReg, base: xReg, unitOffset: int} * code -> unit
-    and loadRegScaledByte: {dest: xReg, base: xReg, unitOffset: int} * code -> unit
-    and storeRegScaledByte: {dest: xReg, base: xReg, unitOffset: int} * code -> unit
+    val loadRegScaled: {regT: xReg, regN: xReg, unitOffset: int} * code -> unit
+    and storeRegScaled: {regT: xReg, regN: xReg, unitOffset: int} * code -> unit
+    and loadRegScaledByte: {regT: xReg, regN: xReg, unitOffset: int} * code -> unit
+    and storeRegScaledByte: {regT: xReg, regN: xReg, unitOffset: int} * code -> unit
 
     (* Load/Store a value using a signed byte offset. *)
-    val loadRegUnscaled: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
-    and storeRegUnscaled: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
-    and loadRegUnscaledByte: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
-    and storeRegUnscaledByte: {dest: xReg, base: xReg, byteOffset: int} * code -> unit
+    val loadRegUnscaled: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+    and storeRegUnscaled: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+    and loadRegUnscaledByte: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+    and storeRegUnscaledByte: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+
+    (* Load/store with a register offset i.e. an index register. *)
+    val loadRegIndexed: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} * code -> unit
+    and storeRegIndexed: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} * code -> unit
+    and loadRegIndexedByte: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} * code -> unit
+    and storeRegIndexedByte: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} * code -> unit
+
+    (* Load/Store a value using a signed byte offset and post-indexing (post-increment). *)
+    (* The terminology is confusing. Pre-indexing means adding the offset into base address
+       before loading the value, typically used for push, and post-index means using the
+       original value of the base register as the address and adding in the offset after
+       the value has been loaded, e.g. pop. *)
+    val loadRegPostIndex: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+    and storeRegPostIndex: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+    and loadRegPostIndexByte: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+    and storeRegPostIndexByte: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+
+    (* Load/Store a value using a signed byte offset and pre-indexing (pre-increment). *)
+    val loadRegPreIndex: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+    and storeRegPreIndex: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+    and loadRegPreIndexByte: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
+    and storeRegPreIndexByte: {regT: xReg, regN: xReg, byteOffset: int} * code -> unit
 
     (* This word is put in after a call to the RTS trap-handler.  All the registers
        are saved and restored across a call to the trap-handler; the register
@@ -190,5 +229,7 @@ sig
         type condition = condition
         type shiftType = shiftType
         type wordSize = wordSize
+        type 'a extend = 'a extend
+        type scale = scale
     end
 end;

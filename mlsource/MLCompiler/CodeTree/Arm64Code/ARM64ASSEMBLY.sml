@@ -112,7 +112,7 @@ struct
     and X_MLStackPtr        = X28 (* ML Stack pointer. *)
     and X_LinkReg           = X30 (* Link reg - return address *)
 
-    (* Many instructions include a possible shift. *)
+    (* Some data instructions include a possible shift. *)
     datatype shiftType =
         ShiftLSL of word
     |   ShiftLSR of word
@@ -126,6 +126,53 @@ struct
         |   shiftEncode(ShiftLSR w) = (0w1, checkImm6 w)
         |   shiftEncode(ShiftASR w) = (0w2, checkImm6 w)
         |   shiftEncode ShiftNone   = (0w0, 0w0)
+    end
+
+    (* Other instructions include an extension i.e. a sign- or zero-extended
+       value from one of the argument registers.  When an extension is encoded
+       there can also be a left shift which applies after the extension.
+       I don't understand what difference, if any, there is between UXTX
+       and SXTX.
+       There's no ExtNone because we need to use either UXTW or UXTX depending
+       on the length *)
+    datatype 'a extend =
+        ExtUXTB of 'a (* Unsigned extend byte *)
+    |   ExtUXTH of 'a (* Unsigned extend byte *)
+    |   ExtUXTW of 'a (* Unsigned extend byte *)
+    |   ExtUXTX of 'a (* Left shift *)
+    |   ExtSXTB of 'a (* Sign extend byte *)
+    |   ExtSXTH of 'a (* Sign extend halfword *)
+    |   ExtSXTW of 'a (* Sign extend word *)
+    |   ExtSXTX of 'a (* Left shift *)
+
+    (* Load/store instructions have only a single bit for the shift.  For byte
+       operations this is one bit shift; for others it scales by the size of
+       the operand if set. *)
+    datatype scale =
+        ScaleOrShift
+    |   NoScale
+
+    local
+        (* Although there are three bits it seems that the shift is limited to 0 to 4. *)
+        fun checkImm3 w = if w > 0w4 then raise InternalError "extend shift > 4" else w
+    in
+        fun extendArithEncode(ExtUXTB w) = (0w0, checkImm3 w)
+        |   extendArithEncode(ExtUXTH w) = (0w1, checkImm3 w)
+        |   extendArithEncode(ExtUXTW w) = (0w2, checkImm3 w)
+        |   extendArithEncode(ExtUXTX w) = (0w3, checkImm3 w)
+        |   extendArithEncode(ExtSXTB w) = (0w4, checkImm3 w)
+        |   extendArithEncode(ExtSXTH w) = (0w5, checkImm3 w)
+        |   extendArithEncode(ExtSXTW w) = (0w6, checkImm3 w)
+        |   extendArithEncode(ExtSXTX w) = (0w7, checkImm3 w)
+        
+        fun extendLSEncode(ExtUXTB v) = (0w0, v)
+        |   extendLSEncode(ExtUXTH v) = (0w1, v)
+        |   extendLSEncode(ExtUXTW v) = (0w2, v)
+        |   extendLSEncode(ExtUXTX v) = (0w3, v)
+        |   extendLSEncode(ExtSXTB v) = (0w4, v)
+        |   extendLSEncode(ExtSXTH v) = (0w5, v)
+        |   extendLSEncode(ExtSXTW v) = (0w6, v)
+        |   extendLSEncode(ExtSXTX v) = (0w7, v)
     end
 
     datatype wordSize = WordSize32 | WordSize64
@@ -276,62 +323,83 @@ struct
         instructions := SimpleInstr instr :: ! instructions
 
     val nopCode  = 0wxD503201F
-    
+
+    (* Add/subtract an optionally shifted 12-bit immediate (i.e. constant) to/from a register.
+       The constant is zero-extended.  The versions that do not set the flags can use XSP as
+       the destination; the versions that use the signs can use XZero as the destination i.e.
+       they discard the result and act as a comparison. *)
     local
-        fun addSubRegConstant({sReg, dReg, cValue, shifted, isAdd}, code) =
+        fun addSubRegImmediate(sf, oper, s, xdOp) ({regN, regD, immed, shifted}, code) =
         let
             val () =
-                if cValue < 0 orelse cValue >= 0x400 then raise InternalError "genAddRegConstant: Value > 12 bits" else ()
+                if immed >= 0wx400 then raise InternalError "addSubRegImmediate: immed > 12 bits" else ()
         in
-            addInstr((if isAdd then 0wx91000000 else 0wxD1000000) orb
+            addInstr(
+                0wx11000000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
                 (if shifted then 0wx400000 else 0w0) orb
-                (Word.fromInt cValue << 0w10) orb (word8ToWord(xRegOrXSP sReg) << 0w5) orb
-                word8ToWord(xRegOrXSP dReg), code)
+                (immed << 0w10) orb (word8ToWord(xRegOrXSP regN) << 0w5) orb
+                word8ToWord(xdOp regD), code)
         end
     in
-        fun genAddRegConstant({sReg, dReg, cValue}, code) =
-            addSubRegConstant({sReg=sReg, dReg=dReg, cValue=cValue, shifted=false, isAdd=true}, code)
-        and genSubRegConstant({sReg, dReg, cValue}, code) =
-            addSubRegConstant({sReg=sReg, dReg=dReg, cValue=cValue, shifted=false, isAdd=false}, code)
+        val addImmediate = addSubRegImmediate(0w1, 0w0, 0w0, xRegOrXSP)
+        and addSImmediate = addSubRegImmediate(0w1, 0w0, 0w1, xRegOrXZ)
+        and subImmediate = addSubRegImmediate(0w1, 0w1, 0w0, xRegOrXSP)
+        and subSImmediate = addSubRegImmediate(0w1, 0w1, 0w1, xRegOrXZ)
     end
 
-    (* Subtract a 12-bit constant, possibly shifted by 12 bits and set the
-       condition flags.  The destination can be the zero register in which
-       case this is a comparison. *)
-    fun genSubSRegConstant({sReg, dReg, cValue, shifted}, code) =
-    let
-        val () =
-            if cValue < 0 orelse cValue >= 0x400 then raise InternalError "genAddRegConstant: Value > 12 bits" else ()
+    (* Add/subtract a shifted register, optionally setting the flags. *)
+    local
+        fun addSubtractShiftedReg (sf, oper, s, xdOp) ({regM, regN, regD, shift}, code) =
+        let
+            val (shift, imm6) = shiftEncode shift
+        in
+            addInstr(0wx0b000000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
+                (shift << 0w22) orb (word8ToWord(xRegOnly regM) << 0w16) orb
+                (imm6 << 0w10) orb (word8ToWord(xRegOnly regN) << 0w5) orb
+                word8ToWord(xdOp regD), code)
+        end
     in
-        addInstr(0wxF1000000 orb (if shifted then 0wx400000 else 0w0) orb
-            (Word.fromInt cValue << 0w10) orb (word8ToWord(xRegOrXSP sReg) << 0w5) orb
-            word8ToWord(xRegOrXZ dReg), code)
+        val addShiftedReg = addSubtractShiftedReg(0w1, 0w0, 0w0, xRegOrXSP)
+        and addSShiftedReg = addSubtractShiftedReg(0w1, 0w0, 0w1, xRegOrXZ)
+        and subShiftedReg = addSubtractShiftedReg(0w1, 0w1, 0w0, xRegOrXSP)
+        and subSShiftedReg = addSubtractShiftedReg(0w1, 0w1, 0w1, xRegOrXZ)
     end
 
-    (* Subtract regM, after a possible shift, from regN and put the result in regD,
-       setting the flags.  This is frequently used as a comparison. *)
-    fun subSRegReg({regM, regN, regD, shift}, code) =
-    let
-        val (shft, imm6) = shiftEncode shift
+    (* Add/subtract an extended register, optionally setting the flags. *)
+    local
+        (* It's not clear whether SP can be used here or how 31 is interpreted.
+           For the moment don't allow either. *)
+        fun addSubtractExtendedReg (sf, oper, s, opt) ({regM, regN, regD, extend}, code) =
+        let
+            val (option, imm3) = extendArithEncode extend
+        in
+            addInstr(0wx0b200000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
+                (opt << 0w22) orb (word8ToWord(xRegOnly regM) << 0w16) orb
+                (option << 0w13) orb (imm3 << 0w10) orb
+                (word8ToWord(xRegOnly regN) << 0w5) orb
+                word8ToWord(xRegOnly regD), code)
+        end
     in
-        addInstr(0wxEB000000 orb (shft << 0w22) orb (word8ToWord(xRegOnly regM) << 0w16) orb
-            (imm6 << 0w10) orb (word8ToWord(xRegOnly regN) << 0w5) orb
-            word8ToWord(xRegOrXZ regD), code)
+        val addExtendedReg = addSubtractExtendedReg(0w1, 0w0, 0w0, 0w0)
+        and addSExtendedReg = addSubtractExtendedReg(0w1, 0w0, 0w1, 0w0)
+        and subExtendedReg = addSubtractExtendedReg(0w1, 0w1, 0w0, 0w0)
+        and subSExtendedReg = addSubtractExtendedReg(0w1, 0w1, 0w1, 0w0)
     end
+
 
     (* Loads: There are two versions of this on the ARM.  There is a version that
        takes a signed 9-bit byte offset and a version that takes an unsigned
        12-bit word offset. *)
     
     local
-        fun loadStoreRegScaled (size, v, opc) ({dest, base, unitOffset}, code) =
+        fun loadStoreRegScaled (size, v, opc) ({regT, regN, unitOffset}, code) =
         let
             val _ = (unitOffset >= 0 andalso unitOffset < 0x1000)
                 orelse raise InternalError "loadStoreRegScaled: value out of range"
         in
             addInstr(0wx39000000 orb (size << 0w30) orb (opc << 0w22) orb
                 (v << 0w26) orb (Word.fromInt unitOffset << 0w10) orb
-                (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOnly regT), code)
         end
     in
         val loadRegScaled = loadStoreRegScaled(0w3, 0w0, 0w1)
@@ -342,32 +410,58 @@ struct
     end    
 
     local
-        (* Unscaled loads and stores always use a signed byte offset *)
-        fun loadStoreUnscaled (size, v, opc) ({dest, base, byteOffset}, code) =
+        (* Loads and stores with a signed byte offset.  This includes simple
+           unscaled addresses, pre-indexing and post-indexing. *)
+        fun loadStoreByteAddress op4 (size, v, opc) ({regT, regN, byteOffset}, code) =
         let
             val _ = (byteOffset >= ~256 andalso byteOffset < 256)
                 orelse raise InternalError "loadStoreUnscaled: value out of range"
             val imm9 = Word.fromInt byteOffset andb 0wx1ff
         in
             addInstr(0wx38000000 orb (size << 0w30) orb (opc << 0w22) orb
-                (v << 0w26) orb (imm9 << 0w12) orb
-                (word8ToWord(xRegOrXSP base) << 0w5) orb word8ToWord(xRegOnly dest), code)
+                (v << 0w26) orb (imm9 << 0w12) orb (op4 << 0w10) orb
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOnly regT), code)
         end
+        
+        val loadStoreUnscaled = loadStoreByteAddress 0w0
+        and loadStorePostIndex = loadStoreByteAddress 0w1
+        and loadStorePreIndex = loadStoreByteAddress 0w3
     in
         val loadRegUnscaled = loadStoreUnscaled (0w3, 0w0, 0w1)
         and storeRegUnscaled = loadStoreUnscaled (0w3, 0w0, 0w0)
         (* (Unsigned) byte operations.  There are also signed versions. *)
         and loadRegUnscaledByte = loadStoreUnscaled (0w0, 0w0, 0w1)
         and storeRegUnscaledByte = loadStoreUnscaled (0w0, 0w0, 0w0)
+
+        val loadRegPostIndex = loadStorePostIndex (0w3, 0w0, 0w1)
+        and storeRegPostIndex = loadStorePostIndex (0w3, 0w0, 0w0)
+        and loadRegPostIndexByte = loadStorePostIndex (0w0, 0w0, 0w1)
+        and storeRegPostIndexByte = loadStorePostIndex (0w0, 0w0, 0w0)
+
+        val loadRegPreIndex = loadStorePreIndex (0w3, 0w0, 0w1)
+        and storeRegPreIndex = loadStorePreIndex (0w3, 0w0, 0w0)
+        and loadRegPreIndexByte = loadStorePreIndex (0w0, 0w0, 0w1)
+        and storeRegPreIndexByte = loadStorePreIndex (0w0, 0w0, 0w0)
     end
 
-    (* Push a register to the ML stack. This uses a pre-increment store to x28 *)
-    fun genPushReg(xReg, code) =
-        addInstr(0wxF81F8F80 orb word8ToWord(xRegOnly xReg), code)
-    
-    (* Pop a register from the ML stack. *)
-    fun genPopReg(xReg, code) =
-        addInstr(0wxF8408780 orb word8ToWord(xRegOnly xReg), code)
+    (* Load/store with a register offset i.e. an index register. *)
+    local
+        fun loadStoreRegRegisterOffset (size, v, opc) ({regT, regN, regM, option}, code) =
+        let
+            val (opt, s) =
+                case extendLSEncode option of
+                    (opt, ScaleOrShift) => (opt, 0w1) | (opt, NoScale) => (opt, 0w0)
+        in
+            addInstr(0wx38400800 orb (size << 0w30) orb (v << 0w26) orb (opc << 0w22) orb
+                (word8ToWord(xRegOnly regM) << 0w16) orb (opt << 0w13) orb (s << 0w12) orb
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXSP regT), code)
+        end
+    in
+        val loadRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w1)
+        and storeRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w0)
+        and loadRegIndexedByte = loadStoreRegRegisterOffset(0w0, 0w0, 0w1)
+        and storeRegIndexedByte = loadStoreRegRegisterOffset(0w0, 0w0, 0w0)
+    end
 
     (* Addresses must go in the constant area at the end of the code where they
        can be found by the GC. *)
@@ -1231,6 +1325,8 @@ struct
         type condition = condition
         type shiftType = shiftType
         type wordSize = wordSize
+        type 'a extend = 'a extend
+        type scale = scale
     end
 end;
 
