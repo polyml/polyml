@@ -102,15 +102,6 @@ struct
             addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
                 value=Word64.fromLarge(Word.toLarge wordSize) * Word64.fromInt nItems}, code)
 
-    (* Load a local value.  TODO: the offset is limited to 12-bits. *)
-    fun genLocal(offset, code) =
-        (loadRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset=offset}, code); genPushReg(X0, code))
-
-    (* Load a value at an offset from the address on the top of the stack.
-       TODO: the offset is limited to 12-bits. *)
-    fun genIndirect(offset, code) =
-        (genPopReg(X0, code); loadRegScaled({regT=X0, regN=X0, unitOffset=offset}, code); genPushReg(X0, code))
-
     fun compareRegs(reg1, reg2, code) =
         subSShiftedReg({regM=reg2, regN=reg1, regD=XZero, shift=ShiftNone}, code)
 
@@ -285,7 +276,8 @@ and opcode_arbMultiply = "opcode_arbMultiply"
     (* Where the result, if any, should go *)
     datatype whereto =
         NoResult     (* discard result *)
-    |   ToStack     (* Need a result but it can stay on the pseudo-stack *);
+    |   ToStack     (* Need a result but it can stay on the pseudo-stack *)
+    |   ToX0        (* Need a result in X0. *)
   
     (* Are we at the end of the function. *)
     datatype tail =
@@ -301,11 +293,15 @@ and opcode_arbMultiply = "opcode_arbMultiply"
     
         val decVec = Array.array (localCount, Empty)
     
-        (* Count of number of items on the stack. *)
+        (* Count of number of items on the stack.  This excludes the arguments and
+           the return address. *)
         val realstackptr = ref 1 (* The closure ptr is already there *)
         
         (* Maximum size of the stack. *)
         val maxStack = ref 1
+
+        (* Whether the top of the stack is actually in X0. *)
+        val topInX0 = ref false
 
         (* Push a value onto the stack. *)
         fun incsp () =
@@ -317,9 +313,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
         )
 
         (* An entry has been removed from the stack. *)
-        fun decsp () = realstackptr := !realstackptr - 1;
- 
-        fun pushLocalStackValue addr = ( genLocal(!realstackptr + addr, cvec); incsp() )
+        fun decsp () = realstackptr := !realstackptr - 1
+        
+        fun ensureX0 () = if ! topInX0 then (genPushReg(X0, cvec); incsp(); topInX0 := false) else ()
 
         (* generates code from the tree *)
         fun gencde (pt : backendIC, whereto : whereto, tailKind : tail, loopAddr) : unit =
@@ -371,47 +367,58 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                        used on this branch. *)
                 if whereto = NoResult then ()
                 else
-                (
+                let     
+                    fun loadLocalStackValue addr =
+                    (
+                        loadRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset= !realstackptr + addr}, cvec);
+                        topInX0 := true
+                    )
+                in
                     case ext of
                         BICLoadArgument locn =>
                             (* The register arguments appear in order on the
                                stack, followed by the stack argumens in reverse
                                order. *)
                             if locn < 8
-                            then pushLocalStackValue (locn+1)
-                            else pushLocalStackValue (numOfArgs-locn+8)
+                            then loadLocalStackValue (locn+1)
+                            else loadLocalStackValue (numOfArgs-locn+8)
                     |   BICLoadLocal locn =>
                         (
                             case Array.sub (decVec, locn) of
-                                StackAddr n => pushLocalStackValue (~ n)
+                                StackAddr n => loadLocalStackValue (~ n)
                             |   _ => (* Should be on the stack, not a function. *)
                                 raise InternalError "locaddr: bad stack address"
                         )
                     |   BICLoadClosure locn =>
                         (
-                            pushLocalStackValue ~1; (* The closure itself. *)
-                            genIndirect(locn+1 (* The first word is the code *), cvec)
+                            loadLocalStackValue ~1; (* The closure itself. *)
+                            loadRegScaled({regT=X0, regN=X0, unitOffset=locn+1 (* The first word is the code *)}, cvec)
                         )
                     |   BICLoadRecursive =>
-                            pushLocalStackValue ~1 (* The closure itself - first value on the stack. *)
-                )
+                            loadLocalStackValue ~1 (* The closure itself - first value on the stack. *)
+                end
 
             |   BICField {base, offset} =>
-                    (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
+                (
+                    gencde (base, ToX0, NotEnd, loopAddr);
+                    loadRegScaled({regT=X0, regN=X0, unitOffset=offset}, cvec)
+                )
 
             |   BICLoadContainer {base, offset} =>
-                    (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
+                (
+                    gencde (base, ToX0, NotEnd, loopAddr);
+                    loadRegScaled({regT=X0, regN=X0, unitOffset=offset}, cvec)
+                )
        
             |   BICLambda lam => genProc (lam, false, fn () => ())
            
             |   BICConstnt(w, _) =>
-                    (
-                        (*if isShort w
-                        then loadNonAddressConstant(X0, Word64.fromInt(tag(Word.toIntX(toShort w))), cvec)
-                        else *)loadAddressConstant(X0, w, cvec);
-                        genPushReg(X0, cvec);
-                        incsp()
-                    )
+                (
+                    (*if isShort w
+                    then loadNonAddressConstant(X0, Word64.fromInt(tag(Word.toIntX(toShort w))), cvec)
+                    else *)loadAddressConstant(X0, w, cvec);
+                    topInX0 := true
+                )
 
             |   BICCond (testPart, thenPart, elsePart) =>
                     genCond (testPart, thenPart, elsePart, whereto, tailKind, loopAddr)
@@ -602,7 +609,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                                this is the first. *)
                             putBranchInstruction(condAlways, exitJump, cvec);
                             (* Remove the result - the last case will leave it. *)
-                            case whereto of ToStack => decsp () | NoResult => ();
+                            case whereto of ToStack => decsp () | NoResult => () | ToX0 => ();
                             (* Fix up the jump to come here. *)
                             setLabel(label, cvec);
                             gencde (body, whereto, tailKind, loopAddr)
@@ -627,8 +634,8 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     List.foldl(fn (_, w) =>
                         (genPopReg(X1, cvec); storeRegScaled({regT=X1, regN=X0, unitOffset=w-1}, cvec); w-1))
                             size recList;
-                    genPushReg(X0, cvec);
-                    realstackptr := !realstackptr - (size - 1)
+                    topInX0 := true;
+                    realstackptr := !realstackptr - size
                 end
 
             |   BICSetContainer{container, tuple, filter} =>
@@ -674,8 +681,10 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                                 then
                                 (
                                     (* Duplicate the tuple address . *)
-                                    genLocal(1, cvec);
-                                    genIndirect(sourceOffset, cvec);
+                                    loadRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset=1}, cvec);
+                                    (* Load the value in the tuple. *)
+                                    loadRegScaled({regT=X0, regN=X0, unitOffset=sourceOffset}, cvec);
+                                    genPushReg(X0, cvec);
                                     genMoveToContainer(destOffset, cvec);
                                     if sourceOffset = last
                                     then ()
@@ -961,7 +970,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                        it should always be an exact multiple. *)
                     gencde (base, ToStack, NotEnd, loopAddr);
                     offset mod Word.toInt wordSize = 0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
-                    genIndirect (offset div Word.toInt wordSize, cvec)
+                    genPopReg(X0, cvec);
+                    loadRegScaled({regT=X0, regN=X0, unitOffset=offset div Word.toInt wordSize}, cvec);
+                    genPushReg(X0, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreMLWord _, address} =>
@@ -1172,6 +1183,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
             case whereto of
                 ToStack =>
                 let
+                    val () = ensureX0()
                     val newsp = oldsp + 1;
                     val adjustment = !realstackptr - newsp
 
@@ -1194,6 +1206,32 @@ and opcode_arbMultiply = "opcode_arbMultiply"
           
             |   NoResult =>
                 let
+                    val adjustment = !realstackptr - oldsp
+
+                    val () =
+                        if adjustment = 0
+                        then ()
+                        else if adjustment < 0
+                        then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
+                        else resetStack (adjustment, false, cvec)
+                in
+                    realstackptr := oldsp
+                end
+
+            |   ToX0 =>
+                let
+                    (* If we have not pushed anything we have to push a unit result. *)
+                    val () =
+                        if !topInX0 then ()
+                        else if !realstackptr = oldsp
+                        then loadNonAddressConstant(X0, Word64.fromInt(tag 0), cvec)
+                        else
+                        (
+                            genPopReg(X0, cvec);
+                            decsp()
+                        )
+                    val () = topInX0 := true
+
                     val adjustment = !realstackptr - oldsp
 
                     val () =
@@ -1250,7 +1288,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
 
                     (* Push the address of the vector - If we have processed other
                        closures the vector will no longer be on the top of the stack. *)
-                    val () = pushLocalStackValue (~ entryAddr)
+                    val () = loadRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset= !realstackptr - entryAddr}, cvec);
+                    val () = genPushReg(X0, cvec);
+                    val () = incsp()
 
                     (* Load items for the closure. *)
                     fun loadItems ([], _) = ()
@@ -1333,7 +1373,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
             val () = gencde (thenCode, whereto, tailKind, loopAddr)
             (* Get rid of the result from the stack. If there is a result then the
             ``else-part'' will push it. *)
-            val () = case whereto of ToStack => decsp () | NoResult => ()
+            val () = case whereto of ToStack => decsp () | NoResult => () | ToX0 => ()
 
             val () = putBranchInstruction (condAlways, exitJump, cvec)
 
@@ -1389,7 +1429,8 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = gencde(#function eval, ToStack, NotEnd, NONE);
                     val () = loadArgs(argList);
                     (* Load the function again. *)
-                    val () = genLocal(argsToPass, cvec);
+                    val () = loadRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset=argsToPass}, cvec)
+                    val () = genPushReg(X0, cvec)
                 in
                     incsp ()
                 end
@@ -1419,8 +1460,8 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     (* We have popped the closure pointer.  The caller has popped the stack
                        arguments and we have pushed the result value. The register arguments
                        are still on the stack. *)
-                    genPushReg (X0, cvec);
-                    realstackptr := !realstackptr - Int.max(argsToPass-8, 0) (* Args popped by caller. *)
+                    topInX0 := true;
+                    realstackptr := !realstackptr - Int.max(argsToPass-8, 0) - 1 (* Args popped by caller. *)
                 end
      
             |   EndOfProc => (* Tail recursive call. *)
@@ -1490,9 +1531,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
        (* Assume we always want a result. There is otherwise a problem if the
           called routine returns a result of type void (i.e. no result) but the
           caller wants a result (e.g. the identity function). *)
-        val () = gencde (pt, ToStack, EndOfProc, NONE)
-
-        val () = genPopReg(X0, cvec) (* Value to return => pop into X0 *)
+        val () = gencde (pt, ToX0, EndOfProc, NONE)
         val () = resetStack(1, false, cvec) (* Skip over the pushed closure *)
         val () = genPopReg(X30, cvec) (* Return address => pop into X30 *)
         val () = resetStack(numOfArgs, false, cvec) (* Remove the arguments *)
@@ -1505,7 +1544,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if false andalso Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
     (let
