@@ -154,7 +154,6 @@ struct
 
     fun genSetHandler _ = toDo "genSetHandler"
 
-    fun genSetStackVal _ =  toDo "genSetStackVal"
     fun genPushHandler _ =  toDo "genPushHandler"
     fun genLdexc _ =  toDo "genLdexc"
     fun genCase _ =  toDo "genCase"
@@ -235,8 +234,7 @@ and opcode_floatSub = "opcode_floatSub"
 and opcode_floatMult = "opcode_floatMult"
 and opcode_floatDiv = "opcode_floatDiv"
 and opcode_allocWordMemory = "opcode_allocWordMemory"
-and opcode_loadMLWord = "opcode_loadMLWord"
-and opcode_loadMLByte = "opcode_loadMLByte"
+
 and opcode_loadC8 = "opcode_loadC8"
 and opcode_loadC16 = "opcode_loadC16"
 and opcode_loadC32 = "opcode_loadC32"
@@ -326,7 +324,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
             (* Operations on ML memory always have the base as an ML address.
                Word operations are always word aligned.  The higher level will
                have extracted any constant offset and scaled it if necessary.
-               That's helpful for the X86 but not for the interpreter.  We
+               That's helpful for the X86 but not for the ARM.  We
                have to turn them back into indexes. *)
             (* This pushes two values to the stack: the base address and the index. *)
             fun genMLAddress({base, index, offset}, scale) =
@@ -343,8 +341,33 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                         loadNonAddressConstant(X0, Word64.fromInt(tag soffset), cvec); genPushReg(X0, cvec); 
                         genOpcode(opcode_wordAdd, cvec)
                     )
-           )
-       
+            )
+
+            datatype mlLoadKind = MLLoadOffset of int | MLLoadReg of xReg
+            
+            fun genMLLoadAddress({base, index=NONE, offset}, scale) =
+                (* The index, if any, is a constant. *)
+                (
+                    gencde (base, ToX0, NotEnd, loopAddr);
+                    (X0, MLLoadOffset(offset div scale))
+                )
+            
+            |   genMLLoadAddress({base, index=SOME indexVal, offset}, scale) =
+                (
+                    gencde (base, ToStack, NotEnd, loopAddr); (* Push base addr to stack. *)
+                    gencde (indexVal, ToX0, NotEnd, loopAddr);
+                    (* Shift right to remove the tag.  N.B.  Indexes into ML memory are
+                       unsigned.  Unlike on the X86 we can't remove the tag by providing
+                       a displacement and the only options are to scale by either 1 or 8. *)
+                    logicalShiftRight({regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                    (* Add any constant offset.  Does nothing if it's zero. *)
+                    addConstantWord({regS=X0, regD=X0, regW=X3,
+                        value=Word64.fromInt (* unsigned *)(offset div scale)}, cvec);
+                    genPopReg(X1, cvec); (* Pop base reg into X1. *)
+                    decsp();
+                    (X1, MLLoadReg X0)
+                )
+
            (* Load the address, index value and offset for non-byte operations.
               Because the offset has already been scaled by the size of the operand
               we have to load the index and offset separately. *)
@@ -507,7 +530,8 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                             val () = gencde (arg, ToStack, NotEnd, NONE);
                             val argOffset = loadArgs(argList, argIndexList);
                         in
-                            genSetStackVal(argOffset, cvec); (* Copy the arg over. *)
+                            genPopReg(X0, cvec);
+                            storeRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset=argOffset-1}, cvec);
                             decsp(); (* The argument has now been popped. *)
                             argOffset
                         end
@@ -945,28 +969,26 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     decsp(); decsp()
                 end
 
-            |   BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset}} =>
-                (
-                    (* If the index is a constant, frequently zero, we can use indirection.
-                       The offset is a byte count so has to be divided by the word size but
-                       it should always be an exact multiple. *)
-                    gencde (base, ToX0, NotEnd, loopAddr);
-                    offset mod Word.toInt wordSize = 0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
-                    loadRegScaled({regT=X0, regN=X0, unitOffset=offset div Word.toInt wordSize}, cvec)
-                )
-
             |   BICLoadOperation { kind=LoadStoreMLWord _, address} =>
                 (
-                    genMLAddress(address, Word.toInt wordSize);
-                    genOpcode(opcode_loadMLWord, cvec);
-                    decsp()
+                    case genMLLoadAddress(address, Word.toInt wordSize) of
+                        (base, MLLoadOffset offset) =>
+                            loadRegScaled({regT=X0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            loadRegIndexed({regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreMLByte _, address} =>
                 (
-                    genMLAddress(address, 1);
-                    genOpcode(opcode_loadMLByte, cvec);
-                    decsp()
+                    case genMLLoadAddress(address, 1) of
+                        (base, MLLoadOffset offset) =>
+                            loadRegScaledByte({regT=X0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            loadRegIndexedByte({regN=base, regM=indexR, regT=X0, option=ExtUXTX NoScale}, cvec);
+
+                    (* Have to tag the result. *)
+                    logicalShiftLeft({regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                    bitwiseOrImmediate({regN=X0, regD=X0, wordSize=WordSize32, bits=0w1}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreC8, address} =>
@@ -1013,17 +1035,15 @@ and opcode_arbMultiply = "opcode_arbMultiply"
 
             |   BICLoadOperation { kind=LoadStoreUntaggedUnsigned, address} =>
                 (
-                    genMLAddress(address, Word.toInt wordSize);
-                    genPopReg(X1, cvec); (* Index: a tagged value. *)
-                    (* Shift right to remove the tag. *)
-                    logicalShiftRight({regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
-                    genPopReg(X0, cvec); (* Base address. *)
-                    loadRegIndexed({regN=X0, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    case genMLLoadAddress(address, Word.toInt wordSize) of
+                        (base, MLLoadOffset offset) =>
+                            loadRegScaled({regT=X0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            loadRegIndexed({regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+
                     (* Have to tag the result. *)
                     logicalShiftLeft({regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                    bitwiseOrImmediate({regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
-                    genPushReg(X0, cvec);
-                    decsp()
+                    bitwiseOrImmediate({regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
                 )
 
             |   BICStoreOperation { kind=LoadStoreMLWord _, address, value } =>

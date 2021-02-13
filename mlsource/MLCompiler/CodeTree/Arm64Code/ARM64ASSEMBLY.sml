@@ -1004,10 +1004,10 @@ struct
                     |   _ => ("???", "?")
                 val (extend, xr) =
                     case option of
-                        0w2 => ("uxtw", "w")
-                    |   0w3 => if s then ("lsl", "x") else ("", "x")
-                    |   0w6 => ("sxtw", "w")
-                    |   0w7 => ("sxtx", "x")
+                        0w2 => (" uxtw", "w")
+                    |   0w3 => if s then (" lsl", "x") else ("", "x")
+                    |   0w6 => (" sxtw", "w")
+                    |   0w7 => (" sxtx", "x")
                     |   _   => ("?", "?")
                 val indexShift =
                     case (size, s) of
@@ -1021,7 +1021,7 @@ struct
                 printStream(Word.fmt StringCvt.DEC rT);
                 printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
                 printStream ","; printStream xr; printStream(Word.fmt StringCvt.DEC rM);
-                printStream " "; printStream extend; printStream indexShift;
+                printStream extend; printStream indexShift;
                 printStream "]"
             end
 
