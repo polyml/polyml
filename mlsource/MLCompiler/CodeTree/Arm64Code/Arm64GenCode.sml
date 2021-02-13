@@ -328,6 +328,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                have extracted any constant offset and scaled it if necessary.
                That's helpful for the X86 but not for the interpreter.  We
                have to turn them back into indexes. *)
+            (* This pushes two values to the stack: the base address and the index. *)
             fun genMLAddress({base, index, offset}, scale) =
             (
                 gencde (base, ToStack, NotEnd, loopAddr);
@@ -725,47 +726,37 @@ and opcode_arbMultiply = "opcode_arbMultiply"
             |   BICUnary { oper, arg1 } =>
                 let
                     open BuiltIns
-                    val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+                    val () = gencde (arg1, ToX0, NotEnd, loopAddr)
                 in
                     case oper of
                         NotBoolean =>
-                        (
-                            genPopReg(X0, cvec);
                             (* Flip true to false and the reverse. *)
-                            bitwiseXorImmediate({wordSize=WordSize32, bits=0w2, regN=X0, regD=X0}, cvec);
-                            genPushReg(X0, cvec)
-                        )
+                            bitwiseXorImmediate({wordSize=WordSize32, bits=0w2, regN=X0, regD=X0}, cvec)
 
                     |   IsTaggedValue =>
                         (
-                            genPopReg(X0, cvec);
                             testBitPattern(X0, 0w1, cvec);
-                            setBooleanCondition(X0, condNotEqual (*Non-zero*), cvec);
-                            genPushReg(X0, cvec)
+                            setBooleanCondition(X0, condNotEqual (*Non-zero*), cvec)
                         )
 
                     |   MemoryCellLength =>
                         (
-                            genPopReg(X0, cvec);
                             (* Load the length word. *)
                             loadRegUnscaled({regT=X0, regN=X0, byteOffset= ~8}, cvec);
                             (* Extract the length, excluding the flag bytes and shift by one bit. *)
                             unsignedBitfieldInsertinZeros(
                                 {wordSize=WordSize64, lsb=0w1, width=0w56, regN=X0, regD=X0}, cvec);
                             (* Set the tag bit. *)
-                            bitwiseOrImmediate({wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec);
-                            genPushReg(X0, cvec)
+                            bitwiseOrImmediate({wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
                         )
 
                     |   MemoryCellFlags =>
                         (
-                            genPopReg(X0, cvec);
                             (* Load the flags byte. *)
                             loadRegUnscaledByte({regT=X0, regN=X0, byteOffset= ~1}, cvec);
                             (* Tag the result. *)
                             logicalShiftLeft({wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
-                            bitwiseOrImmediate({wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec);
-                            genPushReg(X0, cvec)
+                            bitwiseOrImmediate({wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
                         )
 
                     |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
@@ -783,23 +774,22 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     |   DoubleToFloat rnding => genDoubleToFloat(rnding, cvec)
                     |   RealToInt (PrecDouble, rnding) => genRealToInt(rnding, cvec)
                     |   RealToInt (PrecSingle, rnding) => genFloatToInt(rnding, cvec)
-                    |   TouchAddress => resetStack(1, false, cvec) (* Discard this *)
+                    |   TouchAddress => topInX0 := false (* Discard this *)
                     |   AllocCStack => genOpcode(opcode_allocCSpace, cvec)
                 end
 
             |   BICBinary { oper, arg1, arg2 } =>
                 let
                     open BuiltIns
+                    (* Generate the first argument to the stack and the second to X0. *)
                     val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                    val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+                    val () = gencde (arg2, ToX0, NotEnd, loopAddr)
                     
                     fun compareWords cond =
                     (
-                        genPopReg(X1, cvec); (* Second argument. *)
-                        genPopReg(X0, cvec); (* First argument. *)
-                        compareRegs(X0, X1, cvec);
-                        setBooleanCondition(X0, cond, cvec);
-                        genPushReg(X0, cvec)
+                        genPopReg(X1, cvec); (* First argument. *)
+                        compareRegs(X1, X0, cvec);
+                        setBooleanCondition(X0, cond, cvec)
                     )
                 in
                     case oper of
@@ -818,25 +808,21 @@ and opcode_arbMultiply = "opcode_arbMultiply"
 
                     |   FixedPrecisionArith ArithAdd =>
                         (
-                            genPopReg(X1, cvec);
                             (* Subtract the tag bit. *)
-                            subImmediate({regN=X1, regD=X1, immed=0w1, shifted=false}, cvec);
-                            genPopReg(X0, cvec);
+                            subImmediate({regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                            genPopReg(X1, cvec);
                             (* Add and set the flag bits *)
-                            addSShiftedReg({regN=X0, regM=X1, regD=X0, shift=ShiftNone}, cvec);
-                            checkOverflow cvec;
-                            genPushReg(X0, cvec)
+                            addSShiftedReg({regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                            checkOverflow cvec
                         )
                     |   FixedPrecisionArith ArithSub =>
                         (
-                            genPopReg(X1, cvec);
                             (* Subtract the tag bit. *)
-                            subImmediate({regN=X1, regD=X1, immed=0w1, shifted=false}, cvec);
-                            genPopReg(X0, cvec);
+                            subImmediate({regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                            genPopReg(X1, cvec);
                             (* Subtract and set the flag bits *)
-                            subSShiftedReg({regN=X0, regM=X1, regD=X0, shift=ShiftNone}, cvec);
-                            checkOverflow cvec;
-                            genPushReg(X0, cvec)
+                            subSShiftedReg({regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                            checkOverflow cvec
                         )
                     |   FixedPrecisionArith ArithMult => genOpcode(opcode_fixedMult, cvec)
                     |   FixedPrecisionArith ArithQuot => genOpcode(opcode_fixedQuot, cvec)
@@ -846,21 +832,17 @@ and opcode_arbMultiply = "opcode_arbMultiply"
 
                     |   WordArith ArithAdd =>
                         (
-                            genPopReg(X1, cvec);
                             (* Subtract the tag bit. *)
-                            subImmediate({regN=X1, regD=X1, immed=0w1, shifted=false}, cvec);
-                            genPopReg(X0, cvec);
-                            addShiftedReg({regN=X0, regM=X1, regD=X0, shift=ShiftNone}, cvec);
-                            genPushReg(X0, cvec)
+                            subImmediate({regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                            genPopReg(X1, cvec);
+                            addShiftedReg({regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
                         )
                     |   WordArith ArithSub =>
                         (
-                            genPopReg(X1, cvec);
                             (* Subtract the tag bit. *)
-                            subImmediate({regN=X1, regD=X1, immed=0w1, shifted=false}, cvec);
-                            genPopReg(X0, cvec);
-                            subShiftedReg({regN=X0, regM=X1, regD=X0, shift=ShiftNone}, cvec);
-                            genPushReg(X0, cvec)
+                            subImmediate({regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                            genPopReg(X1, cvec);
+                            subShiftedReg({regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
                         )
                     |   WordArith ArithMult => genOpcode(opcode_wordMult, cvec)
                     |   WordArith ArithDiv => genOpcode(opcode_wordDiv, cvec)
@@ -941,7 +923,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     genAllocateFixedSize(1, flagByte, cvec);
                     genPopReg(X1, cvec);
                     storeRegScaled({regT=X1, regN=X0, unitOffset=0}, cvec);
-                    genPushReg(X0, cvec)
+                    decsp(); topInX0 := true
                 end
                 else
                 let
@@ -968,11 +950,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     (* If the index is a constant, frequently zero, we can use indirection.
                        The offset is a byte count so has to be divided by the word size but
                        it should always be an exact multiple. *)
-                    gencde (base, ToStack, NotEnd, loopAddr);
+                    gencde (base, ToX0, NotEnd, loopAddr);
                     offset mod Word.toInt wordSize = 0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
-                    genPopReg(X0, cvec);
-                    loadRegScaled({regT=X0, regN=X0, unitOffset=offset div Word.toInt wordSize}, cvec);
-                    genPushReg(X0, cvec)
+                    loadRegScaled({regT=X0, regN=X0, unitOffset=offset div Word.toInt wordSize}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreMLWord _, address} =>
