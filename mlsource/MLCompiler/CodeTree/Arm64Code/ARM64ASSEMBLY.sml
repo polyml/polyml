@@ -772,7 +772,8 @@ struct
                     0x20000000
                     L1: *)
                 val bytesNeeded = space * 8
-                val _ = bytesNeeded < 0x400 orelse raise InternalError "CheckStack: too large"
+                (* TODO: We need to handle more than 12 bits. *)
+                val _ = bytesNeeded < 0x1000 orelse raise InternalError "CheckStack: too large"
             in
                 writeInstr(0wxF9401B4A, wordNo, codeVec);
                 writeInstr(0wxD1000389 orb (Word.fromInt bytesNeeded << 0w10), wordNo+0w1, codeVec);
@@ -1289,17 +1290,7 @@ struct
             maxStack, resultClosure} =
     let
         val () = maxStackRef := maxStack
-
-        local
-            val codeList = List.rev instrs
-            (* Add a stack check.  We need to do this for native code. *)
-        in
-            val codeList =
-                if maxStack < 128
-                then codeList
-                else raise InternalError "TODO" (* SimpleCode[opcode_stackSize16, Word8.fromInt maxStack, Word8.fromInt(maxStack div 256)] :: codeList *)
-        end
-
+        val codeList = List.rev instrs
         val (byteVec, wordsOfCode) = genCode(codeList, code)
 
         (* +3 for profile count, function name and constants count *)
