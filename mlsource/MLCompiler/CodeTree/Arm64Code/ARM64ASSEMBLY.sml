@@ -332,7 +332,7 @@ struct
         fun addSubRegImmediate(sf, oper, s, xdOp) ({regN, regD, immed, shifted}, code) =
         let
             val () =
-                if immed >= 0wx400 then raise InternalError "addSubRegImmediate: immed > 12 bits" else ()
+                if immed >= 0wx1000 then raise InternalError "addSubRegImmediate: immed > 12 bits" else ()
         in
             addInstr(
                 0wx11000000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb

@@ -36,16 +36,61 @@ struct
     fun tag c = 2 * c + 1
     
     fun taggedWord w: word = w * 0w2 + 0w1
-  
-    (* shift a short constant, but don't set tag bit *)
-    fun semitag c = 2 * c
 
     fun genPushReg(reg, code) = storeRegPreIndex({regT=reg, regN=X_MLStackPtr, byteOffset= ~8}, code)
     and genPopReg(reg, code) = loadRegPostIndex({regT=reg, regN=X_MLStackPtr, byteOffset= 8}, code)
+
+    (* Add a constant word to the source register and put the result in the
+       destination.  regW is used as a work register if necessary.  This is used
+       both for addition and subtraction. *)
+    fun addConstantWord({regS, regD, value=0w0, ...}, code) =
+        if regS = regD then () else genMoveRegToReg({sReg=regS, dReg=regD}, code)
+    
+    |   addConstantWord({regS, regD, regW, value}, code) =
+        let
+            (* If we have to load the constant it's better if the top 32-bits are
+               zero if possible. *)
+            val (isSub, unsigned) =
+                if value > Word64.<<(0w1, 0w63)
+                then (true, ~ value)
+                else (false, value)
+        in
+            if unsigned < Word64.<<(0w1, 0w24)
+            then (* We can put up to 24 in a shifted and an unshifted constant. *)
+            let
+                val w = Word.fromLarge(Word64.toLarge unsigned)
+                val high = Word.andb(Word.>>(w, 0w12), 0wxfff)
+                val low = Word.andb(w, 0wxfff)
+                val addSub = if isSub then subImmediate else addImmediate
+            in
+                if high <> 0w0
+                then
+                (
+                    addSub({regN=regS, regD=regD, immed=high, shifted=true}, code);
+                    if low <> 0w0
+                    then addSub({regN=regD, regD=regD, immed=low, shifted=false}, code)
+                    else ()
+                )
+                else addSub({regN=regS, regD=regD, immed=low, shifted=false}, code)
+            end
+            else
+            let
+                (* To minimise the constant and increase the chances that it
+                   will fit in a single word look to see if we can shift it. *)
+                fun getShift(value, shift) =
+                    if Word64.andb(value, 0w1) = 0w0
+                    then getShift(Word64.>>(value, 0w1), shift+0w1)
+                    else (value, shift)
+                val (shifted, shift) = getShift(unsigned, 0w0)
+            in
+                loadNonAddressConstant(regW, shifted, code);
+                (if isSub then subShiftedReg else addShiftedReg)
+                    ({regM=regW, regN=regS, regD=regD, shift=ShiftLSL shift}, code)
+            end
+        end
     
     (* Remove items from the stack. If the second argument is true the value
-       on the top of the stack has to be moved.
-       TODO: This works only for offsets up to 256 words. *)
+       on the top of the stack has to be moved. *)
     fun resetStack(0, _, _) = ()
     |   resetStack(nItems, true, code) =
         (
@@ -54,8 +99,8 @@ struct
             genPushReg(X0, code)
         )
     |   resetStack(nItems, false, code) =
-            addImmediate({regN=X_MLStackPtr, regD=X_MLStackPtr,
-                immed=wordSize * Word.fromInt nItems, shifted=false}, code)
+            addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
+                value=Word64.fromLarge(Word.toLarge wordSize) * Word64.fromInt nItems}, code)
 
     (* Load a local value.  TODO: the offset is limited to 12-bits. *)
     fun genLocal(offset, code) =
@@ -75,7 +120,9 @@ struct
     let
         val label = createLabel()
     in
-        subImmediate({regN=X_MLHeapAllocPtr, regD=X0, immed=Word.fromInt(words+1) * wordSize, shifted=false}, code);
+        (* Subtract the number of bytes required from the heap pointer and put in X0. *)
+        addConstantWord({regS=X_MLHeapAllocPtr, regD=X0, regW=X3,
+            value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * Word64.fromInt(words+1)}, code);
         compareRegs(X0, X_MLHeapLimit, code);
         putBranchInstruction(condCarrySet, label, code);
         loadRegScaled({regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
@@ -875,16 +922,18 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     decsp() (* Removes one item from the stack. *)
                 end
             
-            |   BICAllocateWordMemory {numWords as BICConstnt(length, _), flags as BICConstnt(flagByte, _), initial } =>
-                if isShort length andalso toShort length = 0w1 andalso isShort flagByte andalso toShort flagByte = 0wx40
-                then (* This is a very common case. *)
-                (
+            |   BICAllocateWordMemory {numWords as BICConstnt(length, _), flags as BICConstnt(flagValue, _), initial } =>
+                if isShort length andalso toShort length = 0w1 andalso isShort flagValue
+                then (* This is a very common case for refs. *)
+                let
+                    val flagByte = Word8.fromLargeWord(Word.toLargeWord(toShort flagValue))
+                in
                     gencde (initial, ToStack, NotEnd, loopAddr); (* Initialiser. *)
-                    genAllocateFixedSize(1, 0wx40, cvec);
+                    genAllocateFixedSize(1, flagByte, cvec);
                     genPopReg(X1, cvec);
                     storeRegScaled({regT=X1, regN=X0, unitOffset=0}, cvec);
                     genPushReg(X0, cvec)
-                )
+                end
                 else
                 let
                     val () = gencde (numWords, ToStack, NotEnd, loopAddr)
@@ -1456,7 +1505,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if false andalso Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
     (let
