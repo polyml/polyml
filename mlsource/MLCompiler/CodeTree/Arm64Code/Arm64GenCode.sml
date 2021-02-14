@@ -36,15 +36,17 @@ struct
     fun tag c = 2 * c + 1
     
     fun taggedWord w: word = w * 0w2 + 0w1
+    
+    fun gen(instr, code) = code := instr :: !code
 
-    fun genPushReg(reg, code) = storeRegPreIndex({regT=reg, regN=X_MLStackPtr, byteOffset= ~8}, code)
-    and genPopReg(reg, code) = loadRegPostIndex({regT=reg, regN=X_MLStackPtr, byteOffset= 8}, code)
+    fun genPushReg(reg, code) = gen(storeRegPreIndex{regT=reg, regN=X_MLStackPtr, byteOffset= ~8}, code)
+    and genPopReg(reg, code) = gen(loadRegPostIndex{regT=reg, regN=X_MLStackPtr, byteOffset= 8}, code)
 
     (* Add a constant word to the source register and put the result in the
        destination.  regW is used as a work register if necessary.  This is used
        both for addition and subtraction. *)
     fun addConstantWord({regS, regD, value=0w0, ...}, code) =
-        if regS = regD then () else genMoveRegToReg({sReg=regS, dReg=regD}, code)
+        if regS = regD then () else gen(genMoveRegToReg{sReg=regS, dReg=regD}, code)
     
     |   addConstantWord({regS, regD, regW, value}, code) =
         let
@@ -66,12 +68,12 @@ struct
                 if high <> 0w0
                 then
                 (
-                    addSub({regN=regS, regD=regD, immed=high, shifted=true}, code);
+                    gen(addSub{regN=regS, regD=regD, immed=high, shifted=true}, code);
                     if low <> 0w0
-                    then addSub({regN=regD, regD=regD, immed=low, shifted=false}, code)
+                    then gen(addSub{regN=regD, regD=regD, immed=low, shifted=false}, code)
                     else ()
                 )
-                else addSub({regN=regS, regD=regD, immed=low, shifted=false}, code)
+                else gen(addSub{regN=regS, regD=regD, immed=low, shifted=false}, code)
             end
             else
             let
@@ -83,9 +85,9 @@ struct
                     else (value, shift)
                 val (shifted, shift) = getShift(unsigned, 0w0)
             in
-                loadNonAddressConstant(regW, shifted, code);
-                (if isSub then subShiftedReg else addShiftedReg)
-                    ({regM=regW, regN=regS, regD=regD, shift=ShiftLSL shift}, code)
+                gen(loadNonAddressConstant(regW, shifted), code);
+                gen((if isSub then subShiftedReg else addShiftedReg)
+                    {regM=regW, regN=regS, regD=regD, shift=ShiftLSL shift}, code)
             end
         end
     
@@ -103,7 +105,7 @@ struct
                 value=Word64.fromLarge(Word.toLarge wordSize) * Word64.fromInt nItems}, code)
 
     fun compareRegs(reg1, reg2, code) =
-        subSShiftedReg({regM=reg2, regN=reg1, regD=XZero, shift=ShiftNone}, code)
+        gen(subSShiftedReg{regM=reg2, regN=reg1, regD=XZero, shift=ShiftNone}, code)
 
     (* Sequence to allocate on the heap.  Returns the result in X0.  The words are not initialised
        apart from the length word. *)
@@ -115,24 +117,24 @@ struct
         addConstantWord({regS=X_MLHeapAllocPtr, regD=X0, regW=X3,
             value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * Word64.fromInt(words+1)}, code);
         compareRegs(X0, X_MLHeapLimit, code);
-        putBranchInstruction(condCarrySet, label, code);
-        loadRegScaled({regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
-        genBranchAndLinkReg(X16, code);
-        registerMask([], code); (* Not used at the moment. *)
-        setLabel(label, code);
-        genMoveRegToReg({sReg=X0, dReg=X_MLHeapAllocPtr}, code);
-        loadNonAddressConstant(X1,
-            Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags), 0w56)), code);
+        gen(putBranchInstruction(condCarrySet, label), code);
+        gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
+        gen(genBranchAndLinkReg X16, code);
+        gen(registerMask [], code); (* Not used at the moment. *)
+        gen(setLabel label, code);
+        gen(genMoveRegToReg{sReg=X0, dReg=X_MLHeapAllocPtr}, code);
+        gen(loadNonAddressConstant(X1,
+            Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags), 0w56))), code);
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
-        storeRegUnscaled({regT=X1, regN=X0, byteOffset= ~8}, code)
+        gen(storeRegUnscaled{regT=X1, regN=X0, byteOffset= ~8}, code)
     end
 
     (* Set a register to either tagged(1) i.e. true or tagged(0) i.e. false. *)
     fun setBooleanCondition(reg, condition, code) =
     (
-        loadNonAddressConstant(reg, Word64.fromInt(tag 1), code);
+        gen(loadNonAddressConstant(reg, Word64.fromInt(tag 1)), code);
         (* If the condition is false the value used is the XZero incremented by 1 i.e. 1 *)
-        conditionalSetIncrement({regD=reg, regTrue=reg, regFalse=XZero, cond=condition}, code)
+        gen(conditionalSetIncrement{regD=reg, regTrue=reg, regFalse=XZero, cond=condition}, code)
     )
 
     (* Raise the overflow exception if the overflow bit has been set. *)
@@ -140,12 +142,39 @@ struct
     let
         val noOverflow = createLabel()
     in
-        putBranchInstruction(condNoOverflow, noOverflow, code);
-        loadAddressConstant(X0, toMachineWord Overflow, code);
-        loadRegScaled({regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, code);
-        loadRegScaled({regT=X1, regN=X_MLStackPtr, unitOffset=0}, code);
-        genBranchRegister(X1, code);
-        setLabel(noOverflow, code)
+        gen(putBranchInstruction(condNoOverflow, noOverflow), code);
+        gen(loadAddressConstant(X0, toMachineWord Overflow), code);
+        gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, code);
+        gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, code);
+        gen(genBranchRegister X1, code);
+        gen(setLabel noOverflow, code)
+    end
+
+    (* Stack check code: this is inserted at the start of a function to check that there
+       is sufficient ML stack available.  It is also inserted, with a zero space value,
+       in a loop to ensure that the RTS can interrupt a function. *)
+    fun checkStackCode(regW, space, code) =
+    let
+        val skipCheck = createLabel()
+        val defaultWords = 10 (* This is wired into the RTS. *)
+        val (testReg, entryPt) =
+            if space <= defaultWords
+            then (X_MLStackPtr, stackOverflowCallOffset)
+            else
+            (
+                (* This is only used at the start of the code.  X9 is wired into the RTS. *)
+                addConstantWord({regS=X_MLStackPtr, regD=X9, regW=regW,
+                    value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * Word64.fromInt space}, code);
+                (X9, stackOverflowXCallOffset)
+            )
+    in
+        gen(loadRegScaled{regT=regW, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset}, code);
+        compareRegs(testReg, regW, code);
+        gen(putBranchInstruction(condCarrySet, skipCheck), code);
+        gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=entryPt}, code);
+        gen(genBranchAndLinkReg X16, code);
+        gen(registerMask [], code); (* Not used at the moment. *)
+        gen(setLabel skipCheck, code)
     end
     
     fun toDo s = raise Fallback s
@@ -283,8 +312,10 @@ and opcode_arbMultiply = "opcode_arbMultiply"
     |   NotEnd
 
     (* Code generate a function or global declaration *)
-    fun codegen (pt, cvec, resultClosure, numOfArgs, localCount, parameters) =
+    fun codegen (pt, name, resultClosure, numOfArgs, localCount, parameters) =
     let
+        val cvec = ref []
+        
         datatype decEntry =
             StackAddr of int
         |   Empty
@@ -333,12 +364,12 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 offset mod scale = 0 orelse raise InternalError "genMLAddress";
                 case (index, offset div scale) of
                     (NONE, soffset) =>
-                        (loadNonAddressConstant(X0, Word64.fromInt(tag soffset), cvec); genPushReg(X0, cvec); incsp())
+                        (gen(loadNonAddressConstant(X0, Word64.fromInt(tag soffset)), cvec); genPushReg(X0, cvec); incsp())
                 |   (SOME indexVal, 0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
                 |   (SOME indexVal, soffset) =>
                     (
                         gencde (indexVal, ToStack, NotEnd, loopAddr);
-                        loadNonAddressConstant(X0, Word64.fromInt(tag soffset), cvec); genPushReg(X0, cvec); 
+                        gen(loadNonAddressConstant(X0, Word64.fromInt(tag soffset)), cvec); genPushReg(X0, cvec); 
                         genOpcode(opcode_wordAdd, cvec)
                     )
             )
@@ -359,7 +390,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     (* Shift right to remove the tag.  N.B.  Indexes into ML memory are
                        unsigned.  Unlike on the X86 we can't remove the tag by providing
                        a displacement and the only options are to scale by either 1 or 8. *)
-                    logicalShiftRight({regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
                     (* Add any constant offset.  Does nothing if it's zero. *)
                     addConstantWord({regS=X0, regD=X0, regW=X3,
                         value=Word64.fromInt (* unsigned *)(offset div scale)}, cvec);
@@ -376,9 +407,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 gencde (base, ToStack, NotEnd, loopAddr);
                 case index of
                     NONE =>
-                        (loadNonAddressConstant(X0, Word64.fromInt(tag 0), cvec); genPushReg(X0, cvec); incsp())
+                        (gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec); genPushReg(X0, cvec); incsp())
                 |   SOME indexVal => gencde (indexVal, ToStack, NotEnd, loopAddr);
-                loadNonAddressConstant(X0, Word64.fromInt(tag offset), cvec);
+                gen(loadNonAddressConstant(X0, Word64.fromInt(tag offset)), cvec);
                 genPushReg(X0, cvec); incsp()
             )
 
@@ -394,7 +425,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 let     
                     fun loadLocalStackValue addr =
                     (
-                        loadRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset= !realstackptr + addr}, cvec);
+                        gen(loadRegScaled{regT=X0, regN=X_MLStackPtr, unitOffset= !realstackptr + addr}, cvec);
                         topInX0 := true
                     )
                 in
@@ -416,7 +447,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     |   BICLoadClosure locn =>
                         (
                             loadLocalStackValue ~1; (* The closure itself. *)
-                            loadRegScaled({regT=X0, regN=X0, unitOffset=locn+1 (* The first word is the code *)}, cvec)
+                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=locn+1 (* The first word is the code *)}, cvec)
                         )
                     |   BICLoadRecursive =>
                             loadLocalStackValue ~1 (* The closure itself - first value on the stack. *)
@@ -425,13 +456,13 @@ and opcode_arbMultiply = "opcode_arbMultiply"
             |   BICField {base, offset} =>
                 (
                     gencde (base, ToX0, NotEnd, loopAddr);
-                    loadRegScaled({regT=X0, regN=X0, unitOffset=offset}, cvec)
+                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=offset}, cvec)
                 )
 
             |   BICLoadContainer {base, offset} =>
                 (
                     gencde (base, ToX0, NotEnd, loopAddr);
-                    loadRegScaled({regT=X0, regN=X0, unitOffset=offset}, cvec)
+                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=offset}, cvec)
                 )
        
             |   BICLambda lam => genProc (lam, false, fn () => ())
@@ -439,8 +470,8 @@ and opcode_arbMultiply = "opcode_arbMultiply"
             |   BICConstnt(w, _) =>
                 (
                     (*if isShort w
-                    then loadNonAddressConstant(X0, Word64.fromInt(tag(Word.toIntX(toShort w))), cvec)
-                    else *)loadAddressConstant(X0, w, cvec);
+                    then gen(loadNonAddressConstantX0, Word64.fromInt(tag(Word.toIntX(toShort w))), cvec)
+                    else *)gen(loadAddressConstant(X0, w), cvec);
                     topInX0 := true
                 )
 
@@ -471,9 +502,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                             (* If this is a container we have to process it here otherwise it
                                will be removed in the stack adjustment code. *)
                             (* The stack entries have to be initialised.  Set them to tagged(0). *)
-                            loadNonAddressConstant(X0, Word64.fromInt(tag 0), cvec);
+                            gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec);
                             let fun pushN 0 = () | pushN n = (genPushReg(X0, cvec); pushN (n-1)) in pushN size end;
-                            genMoveRegToReg({sReg=X_MLStackPtr, dReg=X0}, cvec);
+                            gen(genMoveRegToReg{sReg=X_MLStackPtr, dReg=X0}, cvec);
                             genPushReg(X0, cvec); (* Push the address of this container. *)
                             realstackptr := !realstackptr + size + 1; (* Pushes N words plus the address. *)
                             Array.update (decVec, addr, StackAddr(!realstackptr))
@@ -507,7 +538,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
 
                     val startSp = ! realstackptr; (* Remember the current top of stack. *)
                     val startLoop = createLabel ()
-                    val () = setLabel(startLoop, cvec) (* Start of loop *)
+                    val () = gen(setLabel startLoop, cvec) (* Start of loop *)
                 in
                     (* Process the body, passing the jump-back address down for the Loop instruction(s). *)
                     gencde (body, whereto, tailKind, SOME(startLoop, startSp, argIndexList))
@@ -531,7 +562,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                             val argOffset = loadArgs(argList, argIndexList);
                         in
                             genPopReg(X0, cvec);
-                            storeRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset=argOffset-1}, cvec);
+                            gen(storeRegScaled{regT=X0, regN=X_MLStackPtr, unitOffset=argOffset-1}, cvec);
                             decsp(); (* The argument has now been popped. *)
                             argOffset
                         end
@@ -544,9 +575,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     else ();
             
                     (* Jump back to the start of the loop. *)
-                    checkForInterrupts(X10, cvec);
+                    checkStackCode(X10, 0, cvec);
                     
-                    putBranchInstruction(condAlways, startLoop, cvec)
+                    gen(putBranchInstruction(condAlways, startLoop), cvec)
                 end
   
             |   BICRaise exp =>
@@ -558,9 +589,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                        the next handler.  This is set up in the handler.  We have a lot
                        more raises than handlers since most raises are exceptional conditions
                        such as overflow so it makes sense to minimise the code in each raise. *)
-                    loadRegScaled({regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
-                    loadRegScaled({regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
-                    genBranchRegister(X1, cvec)
+                    gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
+                    gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
+                    gen(genBranchRegister X1, cvec)
                 )
   
             |   BICHandle {exp, handler, exPacketAddr} =>
@@ -579,9 +610,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     (* Now get out of the handler and restore the old one. *)
                     val () = genOpcode(opcode_deleteHandler, cvec)
                     val skipHandler = createLabel()
-                    val () = putBranchInstruction (condAlways, skipHandler, cvec)
+                    val () = gen(putBranchInstruction (condAlways, skipHandler), cvec)
                     val () = realstackptr := oldsp
-                    val () = setLabel (handlerLabel, cvec)
+                    val () = gen(setLabel handlerLabel, cvec)
                     (* Push the exception packet and set the address. *)
                     val () = genLdexc cvec
                     val () = incsp ()
@@ -592,7 +623,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = decsp()
           
                     (* Finally fix-up the jump around the handler *)
-                    val () = setLabel (skipHandler, cvec)
+                    val () = gen(setLabel skipHandler, cvec)
                 in
                     ()
                 end
@@ -608,7 +639,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                         else
                         (   (* Subtract lower limit.  Don't check for overflow.  Instead
                                allow large value to wrap around and check in "case" instruction. *)
-                            loadNonAddressConstant(X0, Word64.fromInt(tag(Word.toIntX firstIndex)), cvec);
+                            gen(loadNonAddressConstant(X0, Word64.fromInt(tag(Word.toIntX firstIndex))), cvec);
                             genPushReg(X0, cvec);
                             genOpcode(opcode_wordSub, cvec)
                         )
@@ -621,7 +652,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     (* The default case, if any, follows the case statement. *)
                     (* If we have a jump to the default set it to jump here. *)
                     local
-                        fun fixDefault(NONE, defCase) = setLabel(defCase, cvec)
+                        fun fixDefault(NONE, defCase) = gen(setLabel defCase, cvec)
                         |   fixDefault(SOME _, _) = ()
                     in
                         val () = ListPair.appEq fixDefault (cases, caseLabels)
@@ -632,11 +663,11 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                         (
                             (* First exit from the previous case or the default if
                                this is the first. *)
-                            putBranchInstruction(condAlways, exitJump, cvec);
+                            gen(putBranchInstruction(condAlways, exitJump), cvec);
                             (* Remove the result - the last case will leave it. *)
                             case whereto of ToStack => decsp () | NoResult => () | ToX0 => ();
                             (* Fix up the jump to come here. *)
-                            setLabel(label, cvec);
+                            gen(setLabel label, cvec);
                             gencde (body, whereto, tailKind, loopAddr)
                         )
                     |   genCases(NONE, _) = ()
@@ -644,7 +675,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = ListPair.appEq genCases (cases, caseLabels)
      
                     (* Finally set the exit jump to come here. *)
-                    val () = setLabel (exitJump, cvec)
+                    val () = gen(setLabel exitJump, cvec)
                 in
                     ()
                 end
@@ -657,7 +688,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     List.app(fn v => gencde (v, ToStack, NotEnd, loopAddr)) recList;
                     genAllocateFixedSize(size, 0w0, cvec);
                     List.foldl(fn (_, w) =>
-                        (genPopReg(X1, cvec); storeRegScaled({regT=X1, regN=X0, unitOffset=w-1}, cvec); w-1))
+                        (genPopReg(X1, cvec); gen(storeRegScaled{regT=X1, regN=X0, unitOffset=w-1}, cvec); w-1))
                             size recList;
                     topInX0 := true;
                     realstackptr := !realstackptr - size
@@ -706,9 +737,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                                 then
                                 (
                                     (* Duplicate the tuple address . *)
-                                    loadRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset=1}, cvec);
+                                    gen(loadRegScaled{regT=X0, regN=X_MLStackPtr, unitOffset=1}, cvec);
                                     (* Load the value in the tuple. *)
-                                    loadRegScaled({regT=X0, regN=X0, unitOffset=sourceOffset}, cvec);
+                                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=sourceOffset}, cvec);
                                     genPushReg(X0, cvec);
                                     genMoveToContainer(destOffset, cvec);
                                     if sourceOffset = last
@@ -726,14 +757,14 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 (
                     gencde (test, ToStack, NotEnd, loopAddr);
                     genPopReg(X0, cvec);
-                    subSImmediate({regN=X0, regD=XZero, immed=taggedWord tagValue, shifted=false}, cvec);
+                    gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord tagValue, shifted=false}, cvec);
                     setBooleanCondition(X0, condEqual, cvec);
                     genPushReg(X0, cvec)
                 )
 
             |   BICNullary {oper=BuiltIns.GetCurrentThreadId} =>
                 (
-                    loadRegScaled({regT=X0, regN=X_MLAssemblyInt, unitOffset=threadIdOffset}, cvec);
+                    gen(loadRegScaled{regT=X0, regN=X_MLAssemblyInt, unitOffset=threadIdOffset}, cvec);
                     genPushReg(X0, cvec);
                     incsp()
                 )
@@ -755,32 +786,32 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     case oper of
                         NotBoolean =>
                             (* Flip true to false and the reverse. *)
-                            bitwiseXorImmediate({wordSize=WordSize32, bits=0w2, regN=X0, regD=X0}, cvec)
+                            gen(bitwiseXorImmediate{wordSize=WordSize32, bits=0w2, regN=X0, regD=X0}, cvec)
 
                     |   IsTaggedValue =>
                         (
-                            testBitPattern(X0, 0w1, cvec);
+                            gen(testBitPattern(X0, 0w1), cvec);
                             setBooleanCondition(X0, condNotEqual (*Non-zero*), cvec)
                         )
 
                     |   MemoryCellLength =>
                         (
                             (* Load the length word. *)
-                            loadRegUnscaled({regT=X0, regN=X0, byteOffset= ~8}, cvec);
+                            gen(loadRegUnscaled{regT=X0, regN=X0, byteOffset= ~8}, cvec);
                             (* Extract the length, excluding the flag bytes and shift by one bit. *)
-                            unsignedBitfieldInsertinZeros(
+                            gen(unsignedBitfieldInsertinZeros
                                 {wordSize=WordSize64, lsb=0w1, width=0w56, regN=X0, regD=X0}, cvec);
                             (* Set the tag bit. *)
-                            bitwiseOrImmediate({wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
+                            gen(bitwiseOrImmediate{wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
                         )
 
                     |   MemoryCellFlags =>
                         (
                             (* Load the flags byte. *)
-                            loadRegUnscaledByte({regT=X0, regN=X0, byteOffset= ~1}, cvec);
+                            gen(loadRegUnscaledByte{regT=X0, regN=X0, byteOffset= ~1}, cvec);
                             (* Tag the result. *)
-                            logicalShiftLeft({wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
-                            bitwiseOrImmediate({wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
+                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                            gen(bitwiseOrImmediate{wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
                         )
 
                     |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
@@ -833,19 +864,19 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     |   FixedPrecisionArith ArithAdd =>
                         (
                             (* Subtract the tag bit. *)
-                            subImmediate({regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                            gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                             genPopReg(X1, cvec);
                             (* Add and set the flag bits *)
-                            addSShiftedReg({regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                            gen(addSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
                             checkOverflow cvec
                         )
                     |   FixedPrecisionArith ArithSub =>
                         (
                             (* Subtract the tag bit. *)
-                            subImmediate({regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                            gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                             genPopReg(X1, cvec);
                             (* Subtract and set the flag bits *)
-                            subSShiftedReg({regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                            gen(subSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
                             checkOverflow cvec
                         )
                     |   FixedPrecisionArith ArithMult => genOpcode(opcode_fixedMult, cvec)
@@ -857,16 +888,16 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     |   WordArith ArithAdd =>
                         (
                             (* Subtract the tag bit. *)
-                            subImmediate({regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                            gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                             genPopReg(X1, cvec);
-                            addShiftedReg({regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
+                            gen(addShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
                         )
                     |   WordArith ArithSub =>
                         (
                             (* Subtract the tag bit. *)
-                            subImmediate({regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                            gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                             genPopReg(X1, cvec);
-                            subShiftedReg({regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
+                            gen(subShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
                         )
                     |   WordArith ArithMult => genOpcode(opcode_wordMult, cvec)
                     |   WordArith ArithDiv => genOpcode(opcode_wordDiv, cvec)
@@ -946,7 +977,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     gencde (initial, ToStack, NotEnd, loopAddr); (* Initialiser. *)
                     genAllocateFixedSize(1, flagByte, cvec);
                     genPopReg(X1, cvec);
-                    storeRegScaled({regT=X1, regN=X0, unitOffset=0}, cvec);
+                    gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec);
                     decsp(); topInX0 := true
                 end
                 else
@@ -973,22 +1004,22 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 (
                     case genMLLoadAddress(address, Word.toInt wordSize) of
                         (base, MLLoadOffset offset) =>
-                            loadRegScaled({regT=X0, regN=base, unitOffset=offset}, cvec)
+                            gen(loadRegScaled{regT=X0, regN=base, unitOffset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            loadRegIndexed({regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec)
+                            gen(loadRegIndexed{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreMLByte _, address} =>
                 (
                     case genMLLoadAddress(address, 1) of
                         (base, MLLoadOffset offset) =>
-                            loadRegScaledByte({regT=X0, regN=base, unitOffset=offset}, cvec)
+                            gen(loadRegScaledByte{regT=X0, regN=base, unitOffset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            loadRegIndexedByte({regN=base, regM=indexR, regT=X0, option=ExtUXTX NoScale}, cvec);
+                            gen(loadRegIndexedByte{regN=base, regM=indexR, regT=X0, option=ExtUXTX NoScale}, cvec);
 
                     (* Have to tag the result. *)
-                    logicalShiftLeft({regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
-                    bitwiseOrImmediate({regN=X0, regD=X0, wordSize=WordSize32, bits=0w1}, cvec)
+                    gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize32, bits=0w1}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreC8, address} =>
@@ -1037,13 +1068,13 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 (
                     case genMLLoadAddress(address, Word.toInt wordSize) of
                         (base, MLLoadOffset offset) =>
-                            loadRegScaled({regT=X0, regN=base, unitOffset=offset}, cvec)
+                            gen(loadRegScaled{regT=X0, regN=base, unitOffset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            loadRegIndexed({regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                            gen(loadRegIndexed{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
 
                     (* Have to tag the result. *)
-                    logicalShiftLeft({regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                    bitwiseOrImmediate({regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
                 )
 
             |   BICStoreOperation { kind=LoadStoreMLWord _, address, value } =>
@@ -1055,9 +1086,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     (* Shift right to remove the tag.  N.B.  Indexes into ML memory are
                        unsigned.  Unlike on the X86 we can't remove the tag by providing
                        a displacement and the only options are to scale by either 1 or 8. *)
-                    logicalShiftRight({regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    gen(logicalShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address. *)
-                    storeRegIndexed({regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    gen(storeRegIndexed{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
                     (* Don't put the unit result in; it probably isn't needed, *)
                     decsp(); decsp(); decsp()
                 )
@@ -1196,7 +1227,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                         else if adjustment = ~1
                         then
                         (
-                            loadNonAddressConstant(X0, Word64.fromInt(tag 0), cvec);
+                            gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec);
                             genPushReg(X0, cvec)
                         )
                         else resetStack (adjustment, true, cvec)
@@ -1224,7 +1255,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () =
                         if !topInX0 then ()
                         else if !realstackptr = oldsp
-                        then loadNonAddressConstant(X0, Word64.fromInt(tag 0), cvec)
+                        then gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec)
                         else
                         (
                             genPopReg(X0, cvec);
@@ -1254,12 +1285,9 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 (* Create a one word item for the closure.  This is returned for recursive references
                    and filled in with the address of the code when we've finished. *)
                 val closure = makeConstantClosure()
-                val newCode : code = codeCreate(name, parameters);
-
                 (* Code-gen function. No non-local references. *)
-                 val () =
-                   codegen (body, newCode, closure, List.length argTypes, localCount, parameters);
-                val () = loadAddressConstant(X0, closureAsAddress closure, cvec)
+                val () = codegen (body, name, closure, List.length argTypes, localCount, parameters);
+                val () = gen(loadAddressConstant(X0, closureAsAddress closure), cvec)
                 val () = genPushReg(X0, cvec)
                 val () = incsp();
             in
@@ -1269,15 +1297,14 @@ and opcode_arbMultiply = "opcode_arbMultiply"
         |   genProc ({ localCount, body, name, argTypes, closure, ...}, mutualDecs, doNext) =
             let (* Full closure required. *)
                 val resClosure = makeConstantClosure()
-                val newCode = codeCreate (name, parameters)
                 (* Code-gen function. *)
-                val () = codegen (body, newCode, resClosure, List.length argTypes, localCount, parameters)
+                val () = codegen (body, name, resClosure, List.length argTypes, localCount, parameters)
                 val closureVars = List.length closure (* Size excluding the code address *)
             in
                 if mutualDecs
                 then
                 let (* Have to make the closure now and fill it in later. *)
-                    val () = loadAddressConstant(X0, toMachineWord resClosure, cvec)
+                    val () = gen(loadAddressConstant(X0, toMachineWord resClosure), cvec)
                     val () = genPushReg(X0, cvec)
                     val () = genAllocMutableClosure(closureVars, cvec)
                     val () = incsp ()
@@ -1288,7 +1315,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
 
                     (* Push the address of the vector - If we have processed other
                        closures the vector will no longer be on the top of the stack. *)
-                    val () = loadRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset= !realstackptr - entryAddr}, cvec);
+                    val () = gen(loadRegScaled{regT=X0, regN=X_MLStackPtr, unitOffset= !realstackptr - entryAddr}, cvec);
                     val () = genPushReg(X0, cvec);
                     val () = incsp()
 
@@ -1322,10 +1349,10 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 in
                     genAllocateFixedSize(closureVars+1, 0w0, cvec);
                     List.foldl(fn (_, w) =>
-                        (genPopReg(X1, cvec); storeRegScaled({regT=X1, regN=X0, unitOffset=w-1}, cvec); w-1))
+                        (genPopReg(X1, cvec); gen(storeRegScaled{regT=X1, regN=X0, unitOffset=w-1}, cvec); w-1))
                             (closureVars+1) closure;
-                    loadAddressConstant(X1, codeAddr, cvec);
-                    storeRegScaled({regT=X1, regN=X0, unitOffset=0}, cvec);
+                    gen(loadAddressConstant(X1, codeAddr), cvec);
+                    gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec);
                     genPushReg(X0, cvec);
                     realstackptr := !realstackptr - closureVars + 1 (* Popped the closure vars and pushed the address. *)
                 end
@@ -1340,7 +1367,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val cVal = case toShort w of 0w0 => false | 0w1 => true | _ => raise InternalError "genTest"
                 in
                     if cVal = jumpOn
-                    then putBranchInstruction (condAlways, targetLabel, cvec)
+                    then gen(putBranchInstruction (condAlways, targetLabel), cvec)
                     else ()
                 end
 
@@ -1353,18 +1380,18 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 in
                     genTest(testPart, false, toElse);
                     genTest(thenPart, jumpOn, targetLabel);
-                    putBranchInstruction (condAlways, exitJump, cvec);
-                    setLabel (toElse, cvec);
+                    gen(putBranchInstruction (condAlways, exitJump), cvec);
+                    gen(setLabel toElse, cvec);
                     genTest(elsePart, jumpOn, targetLabel);
-                    setLabel (exitJump, cvec)
+                    gen(setLabel exitJump, cvec)
                 end
 
             |   genTest(testCode, jumpOn, targetLabel) =
                 (
                     gencde (testCode, ToStack, NotEnd, loopAddr);
                     genPopReg(X0, cvec);
-                    subSImmediate({regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
-                    putBranchInstruction(if jumpOn then condEqual else condNotEqual, targetLabel, cvec);
+                    gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
+                    gen(putBranchInstruction(if jumpOn then condEqual else condNotEqual, targetLabel), cvec);
                     decsp() (* conditional branch pops a value. *)
                 )
 
@@ -1375,12 +1402,12 @@ and opcode_arbMultiply = "opcode_arbMultiply"
             ``else-part'' will push it. *)
             val () = case whereto of ToStack => decsp () | NoResult => () | ToX0 => ()
 
-            val () = putBranchInstruction (condAlways, exitJump, cvec)
+            val () = gen(putBranchInstruction (condAlways, exitJump), cvec)
 
             (* start of "else part" *)
-            val () = setLabel (toElse, cvec)
+            val () = gen(setLabel toElse, cvec)
             val () = gencde (elseCode, whereto, tailKind, loopAddr)
-            val () = setLabel (exitJump, cvec)
+            val () = gen(setLabel exitJump, cvec)
         in
             ()
         end (* genCond *)
@@ -1429,7 +1456,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = gencde(#function eval, ToStack, NotEnd, NONE);
                     val () = loadArgs(argList);
                     (* Load the function again. *)
-                    val () = loadRegScaled({regT=X0, regN=X_MLStackPtr, unitOffset=argsToPass}, cvec)
+                    val () = gen(loadRegScaled{regT=X0, regN=X_MLStackPtr, unitOffset=argsToPass}, cvec)
                     val () = genPushReg(X0, cvec)
                 in
                     incsp ()
@@ -1444,7 +1471,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                        leave the rest on the stack. *)
                     fun loadArg(n, reg) =
                         if argsToPass > n
-                        then loadRegScaled({regT=reg, regN=X_MLStackPtr, unitOffset=argsToPass-n-1}, cvec)
+                        then gen(loadRegScaled{regT=reg, regN=X_MLStackPtr, unitOffset=argsToPass-n-1}, cvec)
                         else ()
                     val () = loadArg(0, X0)
                     val () = loadArg(1, X1)
@@ -1455,8 +1482,8 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = loadArg(6, X6)
                     val () = loadArg(7, X7)
                 in
-                    loadRegScaled({regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
-                    genBranchAndLinkReg(X9, cvec);
+                    gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
+                    gen(genBranchAndLinkReg X9, cvec);
                     (* We have popped the closure pointer.  The caller has popped the stack
                        arguments and we have pushed the result value. The register arguments
                        are still on the stack. *)
@@ -1469,12 +1496,12 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = genPopReg(X8, cvec) (* Pop the closure pointer. *)
                     val () = decsp()
                     (* Get the return address into X30. *)
-                    val () = loadRegScaled({regT=X30, regN=X_MLStackPtr, unitOffset= !realstackptr}, cvec)
+                    val () = gen(loadRegScaled{regT=X30, regN=X_MLStackPtr, unitOffset= !realstackptr}, cvec)
 
                     (* Load the register arguments *)
                     fun loadArg(n, reg) =
                         if argsToPass > n
-                        then loadRegScaled({regT=reg, regN=X_MLStackPtr, unitOffset=argsToPass-n-1}, cvec)
+                        then gen(loadRegScaled{regT=reg, regN=X_MLStackPtr, unitOffset=argsToPass-n-1}, cvec)
                         else ()
                     val () = loadArg(0, X0)
                     val () = loadArg(1, X1)
@@ -1498,7 +1525,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     let
                         val () = loadArg(n, X9)
                         val destOffset = itemsOnStack - (n-8) - 1
-                        val () = storeRegScaled({regT=X9, regN=X_MLStackPtr, unitOffset=destOffset}, cvec)
+                        val () = gen(storeRegScaled{regT=X9, regN=X_MLStackPtr, unitOffset=destOffset}, cvec)
                     in
                         moveStackArg(n-1)
                     end
@@ -1506,54 +1533,53 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = moveStackArg (argsToPass-1)
                 in
                     resetStack(itemsOnStack - Int.max(argsToPass-8, 0), false, cvec);
-                    loadRegScaled({regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
-                    genBranchRegister(X9, cvec)
+                    gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
+                    gen(genBranchRegister X9, cvec)
                     (* Since we're not returning we can ignore the stack pointer value. *)
                 end
-        end
+        end (* genEval *)
 
+        (* Begin generating the code for the function. *)
+        val prefix = ref []
         (* Push the arguments passed in registers. *)
-        val () = if numOfArgs >= 8 then genPushReg (X7, cvec) else ()
-        val () = if numOfArgs >= 7 then genPushReg (X6, cvec) else ()
-        val () = if numOfArgs >= 6 then genPushReg (X5, cvec) else ()
-        val () = if numOfArgs >= 5 then genPushReg (X4, cvec) else ()
-        val () = if numOfArgs >= 4 then genPushReg (X3, cvec) else ()
-        val () = if numOfArgs >= 3 then genPushReg (X2, cvec) else ()
-        val () = if numOfArgs >= 2 then genPushReg (X1, cvec) else ()
-        val () = if numOfArgs >= 1 then genPushReg (X0, cvec) else ()
-        val () = genPushReg (X30, cvec)
-        val () = genPushReg (X8, cvec) (* Push closure pointer *)
-        (* The stack check code will modify X30 if it has to call the
-           RTS so this can only be done once X30 has been saved. *)
-        val () = checkStackForFunction(X10, cvec)
+        val () = if numOfArgs >= 8 then genPushReg (X7, prefix) else ()
+        val () = if numOfArgs >= 7 then genPushReg (X6, prefix) else ()
+        val () = if numOfArgs >= 6 then genPushReg (X5, prefix) else ()
+        val () = if numOfArgs >= 5 then genPushReg (X4, prefix) else ()
+        val () = if numOfArgs >= 4 then genPushReg (X3, prefix) else ()
+        val () = if numOfArgs >= 3 then genPushReg (X2, prefix) else ()
+        val () = if numOfArgs >= 2 then genPushReg (X1, prefix) else ()
+        val () = if numOfArgs >= 1 then genPushReg (X0, prefix) else ()
+        val () = genPushReg (X30, prefix)
+        val () = genPushReg (X8, prefix) (* Push closure pointer *)
 
-       (* Generate the function. *)
-       (* Assume we always want a result. There is otherwise a problem if the
+        (* Generate the function. *)
+        (* Assume we always want a result. There is otherwise a problem if the
           called routine returns a result of type void (i.e. no result) but the
           caller wants a result (e.g. the identity function). *)
         val () = gencde (pt, ToX0, EndOfProc, NONE)
         val () = resetStack(1, false, cvec) (* Skip over the pushed closure *)
         val () = genPopReg(X30, cvec) (* Return address => pop into X30 *)
         val () = resetStack(numOfArgs, false, cvec) (* Remove the arguments *)
-        val () = genReturnRegister(X30, cvec) (* Jump to X30 *)
+        val () = gen(genReturnRegister X30, cvec) (* Jump to X30 *)
+        
+        (* Now we know the maximum stack size we can code-gen the stack check.
+           This needs to go in after we have saved X30. *)
+        val () = checkStackCode(X10, !maxStack, prefix)
+        val instructions = List.rev(!prefix) @ List.rev(!cvec)
 
     in (* body of codegen *)
        (* Having code-generated the body of the function, it is copied
           into a new data segment. *)
-        generateCode{code = cvec, maxStack = !maxStack, resultClosure=resultClosure}
+        generateCode{instrs=instructions, name=name, parameters=parameters, resultClosure=resultClosure}
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
     if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
-    (let
-        (* make the code buffer for the new function. *)
-        val newCode : code = codeCreate (name, parameters)
-        (* This function must have no non-local references. *)
-    in
-        codegen (body, newCode, closure, List.length argTypes, localCount, parameters)
-    end) handle Fallback s =>
+        codegen (body, name, closure, List.length argTypes, localCount, parameters)
+        handle Fallback s =>
         (
             Pretty.getSimplePrinter(parameters, []) ("TODO: " ^ s ^ "\n");
             FallBackCG.gencodeLambda(lambda, parameters, closure)

@@ -70,17 +70,12 @@ struct
     (* Offsets in the assembly code interface pointed at by X26
        These are in units of 64-bits NOT bytes. *)
     val heapOverflowCallOffset  = 1
+    and stackOverflowCallOffset = 2
+    and stackOverflowXCallOffset= 3
     and exceptionHandlerOffset  = 5
     and stackLimitOffset        = 6
     and exceptionPacketOffset   = 7
     and threadIdOffset          = 8
-
-    datatype instr =
-        SimpleInstr of word
-    |   LoadLiteral of {reg: xReg, cNum: int, isAddress: bool}
-    |   Label of labels
-    |   Branch of { label: labels, jumpCondition: condition }
-    |   CheckStack of { work: xReg, spaceRef: int ref }
 
     (* 31 in the register field can either mean the zero register or
        the hardware stack pointer.  Which meaning depends on the instruction. *)
@@ -291,36 +286,13 @@ struct
 
     val isEncodableBitPattern = isSome o encodeBitPattern
 
-    datatype code =
-    Code of 
-    {
-        instructions:   instr list ref,        (* Code in reverse order. *)
-        addressConstVec: machineWord list ref, (* Addresses for the constant area. *)
-        nonAddressConstVec: Word64.word list ref, (* Non-address constants. *)
-        functionName:   string,               (* Name of the function. *)
-        printAssemblyCode:bool,               (* Whether to print the code when we finish. *)
-        printStream:    string->unit,         (* The stream to use *)
-        maxStackRef:    int ref                 (* Set to the stack space required. *)
-    }
 
-    fun codeCreate (name, parameters) = 
-    let
-        val printStream = Pretty.getSimplePrinter(parameters, [])
-    in
-        Code
-        {
-            instructions     = ref nil,
-            addressConstVec  = ref [],
-            nonAddressConstVec = ref [],
-            functionName     = name,
-            printAssemblyCode = Debug.getParameter Debug.assemblyCodeTag parameters,
-            printStream    = printStream,
-            maxStackRef      = ref 0
-        }
-    end
-
-    fun addInstr (instr, Code{instructions, ...}) =
-        instructions := SimpleInstr instr :: ! instructions
+    datatype instr =
+        SimpleInstr of word
+    |   LoadAddressLiteral of {reg: xReg, value: machineWord}
+    |   LoadNonAddressLiteral of {reg: xReg, value: Word64.word}
+    |   Label of labels
+    |   Branch of { label: labels, jumpCondition: condition }
 
     val nopCode  = 0wxD503201F
 
@@ -329,16 +301,16 @@ struct
        the destination; the versions that use the signs can use XZero as the destination i.e.
        they discard the result and act as a comparison. *)
     local
-        fun addSubRegImmediate(sf, oper, s, xdOp) ({regN, regD, immed, shifted}, code) =
+        fun addSubRegImmediate(sf, oper, s, xdOp) ({regN, regD, immed, shifted}) =
         let
             val () =
                 if immed >= 0wx1000 then raise InternalError "addSubRegImmediate: immed > 12 bits" else ()
         in
-            addInstr(
+            SimpleInstr(
                 0wx11000000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
                 (if shifted then 0wx400000 else 0w0) orb
                 (immed << 0w10) orb (word8ToWord(xRegOrXSP regN) << 0w5) orb
-                word8ToWord(xdOp regD), code)
+                word8ToWord(xdOp regD))
         end
     in
         val addImmediate = addSubRegImmediate(0w1, 0w0, 0w0, xRegOrXSP)
@@ -349,14 +321,14 @@ struct
 
     (* Add/subtract a shifted register, optionally setting the flags. *)
     local
-        fun addSubtractShiftedReg (sf, oper, s, xdOp) ({regM, regN, regD, shift}, code) =
+        fun addSubtractShiftedReg (sf, oper, s, xdOp) ({regM, regN, regD, shift}) =
         let
             val (shift, imm6) = shiftEncode shift
         in
-            addInstr(0wx0b000000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
+            SimpleInstr(0wx0b000000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
                 (shift << 0w22) orb (word8ToWord(xRegOnly regM) << 0w16) orb
                 (imm6 << 0w10) orb (word8ToWord(xRegOnly regN) << 0w5) orb
-                word8ToWord(xdOp regD), code)
+                word8ToWord(xdOp regD))
         end
     in
         val addShiftedReg = addSubtractShiftedReg(0w1, 0w0, 0w0, xRegOrXSP)
@@ -369,15 +341,15 @@ struct
     local
         (* It's not clear whether SP can be used here or how 31 is interpreted.
            For the moment don't allow either. *)
-        fun addSubtractExtendedReg (sf, oper, s, opt) ({regM, regN, regD, extend}, code) =
+        fun addSubtractExtendedReg (sf, oper, s, opt) ({regM, regN, regD, extend}) =
         let
             val (option, imm3) = extendArithEncode extend
         in
-            addInstr(0wx0b200000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
+            SimpleInstr(0wx0b200000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
                 (opt << 0w22) orb (word8ToWord(xRegOnly regM) << 0w16) orb
                 (option << 0w13) orb (imm3 << 0w10) orb
                 (word8ToWord(xRegOnly regN) << 0w5) orb
-                word8ToWord(xRegOnly regD), code)
+                word8ToWord(xRegOnly regD))
         end
     in
         val addExtendedReg = addSubtractExtendedReg(0w1, 0w0, 0w0, 0w0)
@@ -392,14 +364,14 @@ struct
        12-bit word offset. *)
     
     local
-        fun loadStoreRegScaled (size, v, opc) ({regT, regN, unitOffset}, code) =
+        fun loadStoreRegScaled (size, v, opc) ({regT, regN, unitOffset}) =
         let
             val _ = (unitOffset >= 0 andalso unitOffset < 0x1000)
                 orelse raise InternalError "loadStoreRegScaled: value out of range"
         in
-            addInstr(0wx39000000 orb (size << 0w30) orb (opc << 0w22) orb
+            SimpleInstr(0wx39000000 orb (size << 0w30) orb (opc << 0w22) orb
                 (v << 0w26) orb (Word.fromInt unitOffset << 0w10) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOnly regT), code)
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOnly regT))
         end
     in
         val loadRegScaled = loadStoreRegScaled(0w3, 0w0, 0w1)
@@ -412,15 +384,15 @@ struct
     local
         (* Loads and stores with a signed byte offset.  This includes simple
            unscaled addresses, pre-indexing and post-indexing. *)
-        fun loadStoreByteAddress op4 (size, v, opc) ({regT, regN, byteOffset}, code) =
+        fun loadStoreByteAddress op4 (size, v, opc) ({regT, regN, byteOffset}) =
         let
             val _ = (byteOffset >= ~256 andalso byteOffset < 256)
                 orelse raise InternalError "loadStoreUnscaled: value out of range"
             val imm9 = Word.fromInt byteOffset andb 0wx1ff
         in
-            addInstr(0wx38000000 orb (size << 0w30) orb (opc << 0w22) orb
+            SimpleInstr(0wx38000000 orb (size << 0w30) orb (opc << 0w22) orb
                 (v << 0w26) orb (imm9 << 0w12) orb (op4 << 0w10) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOnly regT), code)
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOnly regT))
         end
         
         val loadStoreUnscaled = loadStoreByteAddress 0w0
@@ -446,15 +418,15 @@ struct
 
     (* Load/store with a register offset i.e. an index register. *)
     local
-        fun loadStoreRegRegisterOffset (size, v, opc) ({regT, regN, regM, option}, code) =
+        fun loadStoreRegRegisterOffset (size, v, opc) ({regT, regN, regM, option}) =
         let
             val (opt, s) =
                 case extendLSEncode option of
                     (opt, ScaleOrShift) => (opt, 0w1) | (opt, NoScale) => (opt, 0w0)
         in
-            addInstr(0wx38200800 orb (size << 0w30) orb (v << 0w26) orb (opc << 0w22) orb
+            SimpleInstr(0wx38200800 orb (size << 0w30) orb (v << 0w26) orb (opc << 0w22) orb
                 (word8ToWord(xRegOnly regM) << 0w16) orb (opt << 0w13) orb (s << 0w12) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXSP regT), code)
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXSP regT))
         end
     in
         val loadRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w1)
@@ -465,33 +437,21 @@ struct
 
     (* Addresses must go in the constant area at the end of the code where they
        can be found by the GC. *)
-    fun loadAddressConstant(xReg, valu, Code{instructions, addressConstVec, ...}) =
-    let
-        val cNum = List.length(!addressConstVec) 
-    in
-        addressConstVec := valu :: ! addressConstVec;
-        instructions := LoadLiteral{reg=xReg, cNum=cNum, isAddress=true} :: ! instructions
-    end
+    fun loadAddressConstant(xReg, valu) = LoadAddressLiteral{reg=xReg, value=valu}
 
     (* Non-address constants.  These may or may not be tagged values. *)
     local
-        fun loadConstantFromCArea(xReg, valu, Code{instructions, nonAddressConstVec, ...}) =
-        let
-            val cNum = List.length(!nonAddressConstVec)
-        in
-            nonAddressConstVec := valu :: !nonAddressConstVec;
-            instructions := LoadLiteral{reg=xReg, cNum=cNum, isAddress=false} :: ! instructions
-        end
+        fun loadConstantFromCArea(xReg, valu) = LoadNonAddressLiteral{reg=xReg, value=valu}
 
         (* Move an unsigned constant. *)
-        fun genMoveShortConstToReg(xReg, constnt, shiftBits, is64, opc, code) =
-            addInstr((if is64 then 0wx80000000 else 0w0) orb (opc << 0w29) orb 0wx12800000 orb (shiftBits << 0w21) orb
-                (constnt << 0w5) orb word8ToWord(xRegOnly xReg), code)
+        fun genMoveShortConstToReg(xReg, constnt, shiftBits, is64, opc) =
+            SimpleInstr((if is64 then 0wx80000000 else 0w0) orb (opc << 0w29) orb 0wx12800000 orb (shiftBits << 0w21) orb
+                (constnt << 0w5) orb word8ToWord(xRegOnly xReg))
         val opcMovZ = 0w2 (* Zero the rest of the register. *)
         and opcMovK = 0w3 (* Keep the rest of the register. *)
         and opcMovN = 0w0 (* Invert the value and the rest of the register. *)
     in
-        fun loadNonAddressConstant(xReg, valu, code) =
+        fun loadNonAddressConstant(xReg, valu) =
         (* If this can be encoded using at most two instructions we do that
            otherwise the constant is stored in the non-address constant area. *)
         let
@@ -502,24 +462,24 @@ struct
             then (* If the top 32-bits are zero we can use a 32-bit move. *)
             (
                 if hw2 = 0w0
-                then genMoveShortConstToReg(xReg, hw3, 0w0, false, opcMovZ, code)
+                then genMoveShortConstToReg(xReg, hw3, 0w0, false, opcMovZ)
                 else if hw3 = 0w0
-                then genMoveShortConstToReg(xReg, hw2, 0w1, false, opcMovZ, code)
+                then genMoveShortConstToReg(xReg, hw2, 0w1, false, opcMovZ)
                 else if hw2 = 0wxffff
-                then genMoveShortConstToReg(xReg, Word.xorb(hw3, 0wxffff), 0w0, false, opcMovN, code)
+                then genMoveShortConstToReg(xReg, Word.xorb(hw3, 0wxffff), 0w0, false, opcMovN)
                 else if hw3 = 0wxffff
-                then genMoveShortConstToReg(xReg, Word.xorb(hw2, 0wxffff), 0w1, false, opcMovN, code)
+                then genMoveShortConstToReg(xReg, Word.xorb(hw2, 0wxffff), 0w1, false, opcMovN)
                 else
                 (
-                    genMoveShortConstToReg(xReg, hw3, 0w0, false, opcMovZ, code);
-                    genMoveShortConstToReg(xReg, hw2, 0w1, false, opcMovK, code)
+                    genMoveShortConstToReg(xReg, hw3, 0w0, false, opcMovZ);
+                    genMoveShortConstToReg(xReg, hw2, 0w1, false, opcMovK)
                 )
             )
             (* TODO: For the moment just handle the simple case. *)
             else if hw0 = 0wxffff andalso hw1 = 0wxffff andalso hw2 = 0wxffff
-            then genMoveShortConstToReg(xReg, Word.xorb(hw3, 0wxffff), 0w0, true, opcMovN, code)
+            then genMoveShortConstToReg(xReg, Word.xorb(hw3, 0wxffff), 0w0, true, opcMovN)
 
-            else loadConstantFromCArea(xReg, valu, code)
+            else loadConstantFromCArea(xReg, valu)
         end
     end
 
@@ -527,31 +487,30 @@ struct
 
     (* Move a value from one register into another.  This actually uses ORR shifted
        register but for the moment we'll just encode it independently. *)
-    fun genMoveRegToReg({sReg, dReg}, code) =
-        addInstr(0wxAA0003E0 orb (word8ToWord(xRegOnly sReg) << 0w16) orb word8ToWord(xRegOnly dReg), code)
+    fun genMoveRegToReg({sReg, dReg}) =
+        SimpleInstr(0wxAA0003E0 orb (word8ToWord(xRegOnly sReg) << 0w16) orb word8ToWord(xRegOnly dReg))
 
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
-    fun genBranchAndLinkReg(dest, code) =
-        addInstr(0wxD63F0000 orb (word8ToWord(xRegOnly dest) << 0w5), code)
+    fun genBranchAndLinkReg(dest) =
+        SimpleInstr(0wxD63F0000 orb (word8ToWord(xRegOnly dest) << 0w5))
 
     (* Jump to the address in the register. *)
-    fun genBranchRegister(dest, code) =
-        addInstr(0wxD61F0000 orb (word8ToWord(xRegOnly dest) << 0w5), code)
+    fun genBranchRegister(dest) =
+        SimpleInstr(0wxD61F0000 orb (word8ToWord(xRegOnly dest) << 0w5))
 
     (* Jump to the address in the register and hint this is a return. *)
-    fun genReturnRegister(dest, code) =
-        addInstr(0wxD65F0000 orb (word8ToWord(xRegOnly dest) << 0w5), code)
+    fun genReturnRegister(dest) =
+        SimpleInstr(0wxD65F0000 orb (word8ToWord(xRegOnly dest) << 0w5))
 
     (* Put a label into the code. *)
-    fun setLabel(label, Code{instructions, ...}) =
-        instructions := Label label :: ! instructions
+    val setLabel = Label
+
     (* Create a label. *)
-    and createLabel () = ref [ref 0w0]
+    fun createLabel () = ref [ref 0w0]
 
     (* A conditional or unconditional branch. *)
-    and putBranchInstruction(cond, label, Code{instructions, ...}) =
-        instructions := Branch{label=label, jumpCondition=cond} :: ! instructions
+    and putBranchInstruction(cond, label) = Branch{label=label, jumpCondition=cond}
 
     (* Sets the destination register to the value of the first reg if the
        condition is true otherwise the second register incremented by one.
@@ -559,10 +518,10 @@ struct
        This is used to set the value to either "true" (tagged 1 = 3) or
        "false" (tagged 0 = 1) by setting the result register to 3 and then
        conditionally setting it to XZR incremented. *)
-    fun conditionalSetIncrement({regD, regTrue, regFalse, cond=CCode cond}, code) =
-        addInstr(0wx9A800400 orb (word8ToWord(xRegOrXZ regFalse) << 0w16) orb
+    fun conditionalSetIncrement({regD, regTrue, regFalse, cond=CCode cond}) =
+        SimpleInstr(0wx9A800400 orb (word8ToWord(xRegOrXZ regFalse) << 0w16) orb
             (word8ToWord cond << 0w12) orb (word8ToWord(xRegOrXZ regTrue) << 0w5) orb
-            word8ToWord(xRegOrXZ regD), code)
+            word8ToWord(xRegOrXZ regD))
 
     (* This combines the effect of a left and right shift.  There are various
        derived forms of this depending on the relative values of immr and imms.
@@ -570,43 +529,43 @@ struct
        bits of the destination.
        if imms < immr copies imms+1 bits from the lsb bit to bit position
        regsize-immr.  Bits not otherwise set are zeroed. *)
-    fun unsignedBitfieldMove({wordSize, n, immr, imms, regN, regD}, code) =
+    fun unsignedBitfieldMove({wordSize, n, immr, imms, regN, regD}) =
     let
         val sf = case wordSize of WordSize32 => 0w0 | WordSize64 => 0w1 << 0w31
     in
-        addInstr(0wx53000000 orb sf orb (n << 0w22) orb
+        SimpleInstr(0wx53000000 orb sf orb (n << 0w22) orb
             (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOnly regN) << 0w5) orb
-            word8ToWord(xRegOnly regD), code)
+            word8ToWord(xRegOnly regD))
     end
 
-    fun logicalShiftLeft({wordSize, shift, regN, regD}, code) =
+    fun logicalShiftLeft({wordSize, shift, regN, regD}) =
     let
         val (wordBits, n) = case wordSize of WordSize32 => (0w32, 0w0) | WordSize64 => (0w64, 0w1)
     in
         unsignedBitfieldMove({wordSize=wordSize, n=n, immr=Word.~ shift mod wordBits,
-            imms=wordBits-0w1-shift, regN=regN, regD=regD}, code)
+            imms=wordBits-0w1-shift, regN=regN, regD=regD})
     end
 
-    and logicalShiftRight({wordSize, shift, regN, regD}, code) =
+    and logicalShiftRight({wordSize, shift, regN, regD}) =
     let
         val (imms, n) = case wordSize of WordSize32 => (0wx1f, 0w0) | WordSize64 => (0wx3f, 0w1)
     in
         unsignedBitfieldMove({wordSize=wordSize, n=n, immr=shift,
-            imms=imms, regN=regN, regD=regD}, code)
+            imms=imms, regN=regN, regD=regD})
     end
     
-    and unsignedBitfieldInsertinZeros({wordSize, lsb, width, regN, regD}, code) =
+    and unsignedBitfieldInsertinZeros({wordSize, lsb, width, regN, regD}) =
     let
         val (wordBits, n) = case wordSize of WordSize32 => (0w32, 0w0) | WordSize64 => (0w64, 0w1)
     in
         unsignedBitfieldMove({wordSize=wordSize, n=n, immr=Word.~ lsb mod wordBits,
-            imms=width-0w1, regN=regN, regD=regD}, code)
+            imms=width-0w1, regN=regN, regD=regD})
     end
 
     local
         (* Logical immediates.  AND, OR, XOR and ANDS.  Assumes that the immediate value
            has already been checked as valid. *)
-        fun logicalImmediate opc ({wordSize, bits, regN, regD}, code) =
+        fun logicalImmediate opc ({wordSize, bits, regN, regD}) =
         let
             val s = case wordSize of WordSize32 => 0w0 | WordSize64 => 0w1
             val {n, imms, immr} = 
@@ -614,9 +573,9 @@ struct
                     NONE => raise InternalError "testBitPattern: unable to encode bit pattern"
                 |   SOME res => res
         in
-            addInstr(0wx12000000 orb (opc << 0w29) orb (s << 0w31) orb (n << 0w22) orb
+            SimpleInstr(0wx12000000 orb (opc << 0w29) orb (s << 0w31) orb (n << 0w22) orb
                 (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
-                word8ToWord(xRegOrXZ regD), code)
+                word8ToWord(xRegOrXZ regD))
         end
     in
         val bitwiseAndImmediate = logicalImmediate 0w0
@@ -626,54 +585,33 @@ struct
         
         (* Test a bit pattern in a register.  If the pattern is within the low-order
            32-bits we use a 32-bit test. *)
-        fun testBitPattern(reg, bits, code) =
+        fun testBitPattern(reg, bits) =
         let
             val w = if bits <= 0wxffffffff then WordSize32 else WordSize64
         in
-            bitwiseAndSImmediate({wordSize=w, bits=bits, regN=reg, regD=XZero}, code)
+            bitwiseAndSImmediate({wordSize=w, bits=bits, regN=reg, regD=XZero})
         end
     end
-
-
-    (* Put in a check for the stack for the function. *)
-    fun checkStackForFunction(workReg, Code{instructions, maxStackRef, ...}) =
-        instructions := CheckStack{work=workReg, spaceRef=maxStackRef} :: ! instructions
-
-    (* Inserted in a backwards jump to allow loops to be interrupted.  *)
-    fun checkForInterrupts(workReg, Code{instructions, ...}) =
-        instructions := CheckStack{work=workReg, spaceRef=ref 0} :: ! instructions
 
     (* This word is put in after a call to the RTS trap-handler.  All the registers
        are saved and restored across a call to the trap-handler; the register
        mask contains those that may contain an address and so need to be scanned and
        possibly updated if there is a GC. *)
-    fun registerMask(regs, code) =
+    fun registerMask(regs) =
     let
         fun addToMask(r, mask) = mask orb (0w1 << word8ToWord(xRegOnly r))
         val maskWord = List.foldl addToMask 0w0 regs
     in
-        addInstr(0wx02000000 (* Reserved instr range. *) orb maskWord, code)
+        SimpleInstr(0wx02000000 (* Reserved instr range. *) orb maskWord)
     end
-    
     
 
     (* Size of each code word.  All except labels are one word at the moment. *)
     fun codeSize (SimpleInstr _) = 1 (* Number of 32-bit words *)
-    |   codeSize (LoadLiteral _) = 1
+    |   codeSize (LoadAddressLiteral _) = 1
+    |   codeSize (LoadNonAddressLiteral _) = 1
     |   codeSize (Label _) = 0
     |   codeSize (Branch _) = 1
-    |   codeSize (CheckStack _) = 7 (* Fixed size for the moment. *)
-
-    fun foldCode startIc foldFn ops =
-    let
-        fun doFold(oper :: operList, ic) =
-            doFold(operList,
-                (* Get the size BEFORE any possible change. *)
-                ic + Word.fromInt(codeSize oper) before foldFn(oper, ic))
-        |   doFold(_, ic) = ic
-    in
-        doFold(ops, startIc)
-    end
 
     (* Store a 32-bit value in the code *)
     fun writeInstr(value, wordAddr, seg) =
@@ -703,7 +641,7 @@ struct
         putBytes(value, word64Addr << 0w3, seg, 0w0)
     end
 
-    fun genCode(ops, Code {addressConstVec=ref addrConst, nonAddressConstVec=ref nonAddrConsts, ...}) =
+    fun genCode(ops, addressConsts, nonAddressConsts) =
     let
         local
             (* First pass - set the labels. *)
@@ -717,29 +655,48 @@ struct
         val wordsOfCode = (codeSize + 0w1) div 0w2 (* Round up to 64-bits *)
         val paddingWord = if Word.andb(codeSize, 0w1) = 0w1 then [SimpleInstr nopCode] else []
         
-        val numNonAddrConsts = Word.fromInt(List.length nonAddrConsts)
-        and numAddrConsts = Word.fromInt(List.length addrConst)
+        val numNonAddrConsts = Word.fromInt(List.length nonAddressConsts)
+        and numAddrConsts = Word.fromInt(List.length addressConsts)
 
         val segSize = wordsOfCode + numAddrConsts + numNonAddrConsts + 0w4 (* 4 extra words *)
         val codeVec = byteVecMake segSize
 
-        fun genCodeWords(SimpleInstr code, wordNo) = writeInstr(code, wordNo, codeVec)
+        fun genCodeWords([], _ , _, _) = ()
 
-        |   genCodeWords(LoadLiteral{reg, cNum, isAddress}, wordNo) =
+        |   genCodeWords(SimpleInstr code :: tail, wordNo, aConstNum, nonAConstNum) =
+            (
+                writeInstr(code, wordNo, codeVec);
+                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
+            )
+
+        |   genCodeWords(LoadAddressLiteral{reg, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 (* The offset is in 32-bit words.  The first of the constants is
                    at offset wordsOfCode+3 *)
                 val offsetOfConstant =
-                    (wordsOfCode+(if isAddress then numNonAddrConsts+0w3 else 0w0)+Word.fromInt cNum)*0w2 - wordNo
+                    (wordsOfCode+numNonAddrConsts+0w3+aConstNum)*0w2 - wordNo
                 val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
                 val code = 0wx58000000 orb (offsetOfConstant << 0w5) orb word8ToWord(xRegOnly reg)
             in
-                writeInstr(code, wordNo, codeVec)
+                writeInstr(code, wordNo, codeVec);
+                genCodeWords(tail, wordNo+0w1, aConstNum+0w1, nonAConstNum)
             end
 
-        |   genCodeWords(Label _, _) = () (* No code. *)
+        |   genCodeWords(LoadNonAddressLiteral{reg, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
+            let
+                (* The offset is in 32-bit words. *)
+                val offsetOfConstant = (wordsOfCode+nonAConstNum)*0w2 - wordNo
+                val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
+                val code = 0wx58000000 orb (offsetOfConstant << 0w5) orb word8ToWord(xRegOnly reg)
+            in
+                writeInstr(code, wordNo, codeVec);
+                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum+0w1)
+            end
 
-        |   genCodeWords(Branch{ label=ref labs, jumpCondition=CCode cond }, wordNo) =
+        |   genCodeWords(Label _ :: tail, wordNo, aConstNum, nonAConstNum) = 
+                genCodeWords(tail, wordNo, aConstNum, nonAConstNum) (* No code. *)
+
+        |   genCodeWords(Branch{ label=ref labs, jumpCondition=CCode cond }:: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
@@ -757,38 +714,14 @@ struct
                         orelse raise InternalError "genCodeWords: branch too far";
                     writeInstr(0wx54000000 orb ((Word.fromInt offset andb 0wx07ffff) << 0w5)
                         orb word8ToWord cond, wordNo, codeVec)
-                )
+                );
 
-            end
-
-        |   genCodeWords(CheckStack{work, spaceRef=ref space}, wordNo) =
-            let (* Check for stack space. *)
-                (*  ldr x10,[x26,#48]
-                    sub x9,x28,#words
-                    cmp x9,x10
-                    b.cs L1
-                    ldr x10,[x26,#24]
-                    blr x10
-                    0x20000000
-                    L1: *)
-                val bytesNeeded = space * 8
-                (* TODO: We need to handle more than 12 bits. *)
-                val _ = bytesNeeded < 0x1000 orelse raise InternalError "CheckStack: too large"
-            in
-                writeInstr(0wxF9401B4A, wordNo, codeVec);
-                writeInstr(0wxD1000389 orb (Word.fromInt bytesNeeded << 0w10), wordNo+0w1, codeVec);
-                writeInstr(0wxEB0A013F, wordNo+0w2, codeVec);
-                writeInstr(0wx54000082, wordNo+0w3, codeVec);
-                writeInstr(0wxF9400F4A, wordNo+0w4, codeVec);
-                writeInstr(0wxD63F0140, wordNo+0w5, codeVec);
-                (* This is an unallocated instruction.  The lower 25 bits are the registers
-                   that must be updated if there is a GC.  *)
-                writeInstr(0wx02000000, wordNo+0w6, codeVec) (* Register mask - currently empty *)
+                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
     in
-        foldCode 0w0 genCodeWords (ops @ paddingWord);
+        genCodeWords (ops @ paddingWord, 0w0, 0w0, 0w0);
         (* Copy in the non-address constants. *)
-        List.foldl(fn (cVal, addr) => (write64Bit(cVal, addr, codeVec); addr+0w1)) wordsOfCode (List.rev nonAddrConsts);
+        List.foldl(fn (cVal, addr) => (write64Bit(cVal, addr, codeVec); addr+0w1)) wordsOfCode nonAddressConsts;
         (codeVec (* Return the completed code. *), wordsOfCode+numNonAddrConsts (* And the size in 64-bit words. *))
     end
 
@@ -1284,17 +1217,27 @@ struct
     end
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun generateCode {code as
-            Code{ instructions = ref instrs, printAssemblyCode, printStream,
-                  functionName, addressConstVec=ref addrConsts, maxStackRef, ...},
-            maxStack, resultClosure} =
+    fun generateCode {instrs, name=functionName, parameters, resultClosure} =
     let
-        val () = maxStackRef := maxStack
-        val codeList = List.rev instrs
-        val (byteVec, wordsOfCode) = genCode(codeList, code)
+        val printStream = Pretty.getSimplePrinter(parameters, [])
+        and printAssemblyCode = Debug.getParameter Debug.assemblyCodeTag parameters
+        
+        local
+            (* Extract the constants. *)
+            fun getConsts(LoadAddressLiteral {value, ...}, (addrs, nonAddrs)) = (value::addrs, nonAddrs)
+            |   getConsts(LoadNonAddressLiteral {value, ...}, (addrs, nonAddrs)) = (addrs, value::nonAddrs)
+            |   getConsts(_, consts) = consts
+
+            val (addrConsts, nonAddrConsts) = List.foldl getConsts ([], []) instrs
+        in
+            val addressConsts = List.rev addrConsts
+            and nonAddressConsts = List.rev nonAddrConsts
+        end
+        
+        val (byteVec, wordsOfCode) = genCode(instrs, addressConsts, nonAddressConsts)
 
         (* +3 for profile count, function name and constants count *)
-        val numOfConst = List.length addrConsts
+        val numOfConst = List.length addressConsts
         val segSize   = wordsOfCode + Word.fromInt numOfConst + 0w4
         val firstConstant = wordsOfCode + 0w3 (* Add 3 for no of consts, fn name and profile count. *)
     
@@ -1337,7 +1280,7 @@ struct
                 num+0w1
             )
         in
-            val _ = List.foldl setConstant 0w0 (List.rev addrConsts)
+            val _ = List.foldl setConstant 0w0 addressConsts
         end
     in
         if printAssemblyCode
@@ -1350,7 +1293,6 @@ struct
 
     structure Sharing =
     struct
-        type code = code
         type closureRef = closureRef
         type instr = instr
         type xReg = xReg
