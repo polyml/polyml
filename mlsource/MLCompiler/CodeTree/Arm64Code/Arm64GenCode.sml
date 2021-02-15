@@ -182,7 +182,6 @@ struct
     fun genOpcode (n, _) =  toDo n
 
     fun genCase _ =  toDo "genCase"
-    fun genMoveToContainer _ =  toDo "genMoveToContainer"
     fun genAllocMutableClosure _ =  toDo "genAllocMutableClosure"
     fun genMoveToMutClosure _ =  toDo "genMoveToMutClosure"
     fun genLock _ =  toDo "genLock"
@@ -714,19 +713,22 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                         BICTuple cl =>
                             (* Simply set the container from the values. *)
                         let
-                            (* Load the address of the container. *)
-                            val _ = gencde (container, ToStack, NotEnd, loopAddr);
+                            (* Push the address of the container to the stack. *)
+                            val _ = gencde (container, ToStack, NotEnd, loopAddr)
+
                             fun setValues([], _, _) = ()
 
                             |   setValues(v::tl, sourceOffset, destOffset) =
                                 if sourceOffset < BoolVector.length filter andalso BoolVector.sub(filter, sourceOffset)
                                 then
                                 (
-                                    gencde (v, ToStack, NotEnd, loopAddr);
-                                    (* Move the entry into the container. This instruction
-                                       pops the value to be moved but not the destination. *)
-                                    genMoveToContainer(destOffset, cvec);
-                                    decsp();
+                                    (* Get the value to store into X0. *)
+                                    gencde (v, ToX0, NotEnd, loopAddr);
+                                    (* Load the address of the container from the stack and store
+                                       the value into the container. *)
+                                    gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
+                                    gen(storeRegScaled{regT=X0, regN=X1, unitOffset=destOffset}, cvec);
+                                    topInX0 := false; (* We've used it. *)
                                     setValues(tl, sourceOffset+1, destOffset+1)
                                 )
                                 else setValues(tl, sourceOffset+1, destOffset)
@@ -736,30 +738,32 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                         end
 
                     |   _ =>
-                        let (* General case. *)
+                        let (* General case: copy values from the source tuple. *)
                             (* First the target tuple, then the container. *)
                             val () = gencde (tuple, ToStack, NotEnd, loopAddr)
-                            val () = gencde (container, ToStack, NotEnd, loopAddr)
+                            val () = gencde (container, ToX0, NotEnd, loopAddr)
+                            val () = genPopReg(X1, cvec)
+                            val () = decsp()
+                            (* Container address is in X0, tuple in X1. *)
+                            
                             val last = BoolVector.foldli(fn (i, true, _) => i | (_, false, n) => n) ~1 filter
 
                             fun copy (sourceOffset, destOffset) =
                                 if BoolVector.sub(filter, sourceOffset)
                                 then
                                 (
-                                    (* Duplicate the tuple address . *)
-                                    gen(loadRegScaled{regT=X0, regN=X_MLStackPtr, unitOffset=1}, cvec);
                                     (* Load the value in the tuple. *)
-                                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=sourceOffset}, cvec);
-                                    genPushReg(X0, cvec);
-                                    genMoveToContainer(destOffset, cvec);
+                                    gen(loadRegScaled{regT=X2, regN=X1, unitOffset=sourceOffset}, cvec);
+                                    (* Store into the container. *)
+                                    gen(storeRegScaled{regT=X2, regN=X0, unitOffset=destOffset}, cvec);
                                     if sourceOffset = last
                                     then ()
                                     else copy (sourceOffset+1, destOffset+1)
                                 )
                                 else copy(sourceOffset+1, destOffset)
                         in
-                            copy (0, 0)
-                            (* The container and tuple addresses are still on the stack. *)
+                            copy (0, 0);
+                            topInX0 := true (* Container address is in X0 *)
                         end
                 )
 
