@@ -179,6 +179,8 @@ sig
     val setLabel: labels -> instr
     (* A conditional or unconditional branch. *)
     val putBranchInstruction: condition * labels -> instr
+    (* Put the address of a label into a register - used for handlers and cases. *)
+    and loadLabelAddress: xReg * labels -> instr
 
     (* Sets the destination register to the value of the first reg if the
        condition is true otherwise the second register incremented by one. *)

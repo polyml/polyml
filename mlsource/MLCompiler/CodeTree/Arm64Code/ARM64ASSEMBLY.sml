@@ -293,6 +293,7 @@ struct
     |   LoadNonAddressLiteral of {reg: xReg, value: Word64.word}
     |   Label of labels
     |   Branch of { label: labels, jumpCondition: condition }
+    |   LoadLabelAddress of { label: labels, reg: xReg }
 
     val nopCode  = 0wxD503201F
 
@@ -511,6 +512,8 @@ struct
 
     (* A conditional or unconditional branch. *)
     and putBranchInstruction(cond, label) = Branch{label=label, jumpCondition=cond}
+    
+    and loadLabelAddress(reg, label) = LoadLabelAddress{label=label, reg=reg}
 
     (* Sets the destination register to the value of the first reg if the
        condition is true otherwise the second register incremented by one.
@@ -612,6 +615,7 @@ struct
     |   codeSize (LoadNonAddressLiteral _) = 1
     |   codeSize (Label _) = 0
     |   codeSize (Branch _) = 1
+    |   codeSize (LoadLabelAddress _) = 1
 
     (* Store a 32-bit value in the code *)
     fun writeInstr(value, wordAddr, seg) =
@@ -716,6 +720,18 @@ struct
                         orb word8ToWord cond, wordNo, codeVec)
                 );
 
+                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
+            end
+
+        |   genCodeWords(LoadLabelAddress{label=ref labs, reg} :: tail, wordNo, aConstNum, nonAConstNum) =
+            let
+                val dest = !(hd labs)
+                val offset = dest - wordNo
+                val _ = offset < 0wx100000 orelse offset >= ~ 0wx100000
+                    orelse raise InternalError "Offset to label address is too large"
+                val code = 0wx10000000 orb ((offset andb 0wx1fffff) << 0w5) orb word8ToWord(xRegOnly reg)
+            in
+                writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
     in

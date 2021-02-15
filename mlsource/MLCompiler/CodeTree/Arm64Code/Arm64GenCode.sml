@@ -181,10 +181,6 @@ struct
 
     fun genOpcode (n, _) =  toDo n
 
-    fun genSetHandler _ = toDo "genSetHandler"
-
-    fun genPushHandler _ =  toDo "genPushHandler"
-    fun genLdexc _ =  toDo "genLdexc"
     fun genCase _ =  toDo "genCase"
     fun genMoveToContainer _ =  toDo "genMoveToContainer"
     fun genAllocMutableClosure _ =  toDo "genAllocMutableClosure"
@@ -282,15 +278,11 @@ and opcode_blockMoveWord = "opcode_blockMoveWord"
 and opcode_blockMoveByte = "opcode_blockMoveByte"
 and opcode_blockEqualByte = "opcode_blockEqualByte"
 and opcode_blockCompareByte = "opcode_blockCompareByte"
-and opcode_deleteHandler = "opcode_deleteHandler"
 and opcode_allocCSpace = "opcode_allocCSpace"
 and opcode_freeCSpace = "opcode_freeCSpace"
 and opcode_arbAdd = "opcode_arbAdd"
 and opcode_arbSubtract = "opcode_arbSubtract"
 and opcode_arbMultiply = "opcode_arbMultiply"
-
-    
-    val SetHandler = 0
 
     type caseForm =
         {
@@ -597,24 +589,42 @@ and opcode_arbMultiply = "opcode_arbMultiply"
             |   BICHandle {exp, handler, exPacketAddr} =>
                 let
                     (* Save old handler *)
-                    val () = genPushHandler cvec
+                    val () = gen(loadRegScaled{regT=X0, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec)
+                    val () = genPushReg(X0, cvec)
                     val () = incsp ()
                     val handlerLabel = createLabel()
-                    val () = genSetHandler (SetHandler, handlerLabel, cvec)
+                    (* Push address of handler. *)
+                    val () = gen(loadLabelAddress(X0, handlerLabel), cvec)
+                    val () = genPushReg(X0, cvec)
                     val () = incsp()
+                    (* Store the address of the stack pointer into the handler register. *)
+                    val () = gen(storeRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec)
+
                     (* Code generate the body; "NotEnd" because we have to come back
-                     to remove the handler; "ToStack" because delHandler needs
-                     a result to carry down. *)
+                       to remove the handler; "ToStack" because delHandler needs
+                       a result to carry down. *)
                     val () = gencde (exp, ToStack, NotEnd, loopAddr)
       
                     (* Now get out of the handler and restore the old one. *)
-                    val () = genOpcode(opcode_deleteHandler, cvec)
+                    val () = genPopReg(X0, cvec) (* Pop the result. *)
+                    val () = genPopReg(X1, cvec) (* Pop and discard the handler address. *)
+                    val () = genPopReg(X1, cvec) (* Pop the old handler. *)
+                    val () = gen(storeRegScaled{regT=X1, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec)
+                    val () = genPushReg(X0, cvec) (* Push the result. *)
+
                     val skipHandler = createLabel()
                     val () = gen(putBranchInstruction (condAlways, skipHandler), cvec)
                     val () = realstackptr := oldsp
                     val () = gen(setLabel handlerLabel, cvec)
-                    (* Push the exception packet and set the address. *)
-                    val () = genLdexc cvec
+                    (* The exception raise code resets the stack pointer to the value in the exception handler
+                       so this is probably redundant.  Leave it for the moment, *)
+                    val () = gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec)
+                    (* We must, though, restore the old handler. *)
+                    val () = genPopReg(X1, cvec) (* Pop and discard the handler address. *)
+                    val () = genPopReg(X1, cvec) (* Pop the old handler. *)
+                    val () = gen(storeRegScaled{regT=X1, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec)
+                    (* Push the exception packet which is in X0 and set the address. *)
+                    val () = genPushReg(X0, cvec)
                     val () = incsp ()
                     val () = Array.update (decVec, exPacketAddr, StackAddr(!realstackptr))
                     val () = gencde (handler, ToStack, NotEnd, loopAddr)
