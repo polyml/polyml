@@ -1254,7 +1254,7 @@ ulp
         else {
             word0(&u) = 0;
             L -= Exp_shift;
-            word1(&u) = L >= 31 ? 1 : 1 << 31 - L;
+            word1(&u) = L >= 31 ? 1 : 1L << 31 - L;
             }
         }
 #endif
