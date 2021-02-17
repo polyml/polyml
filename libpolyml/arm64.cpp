@@ -513,7 +513,7 @@ void Arm64TaskData::Interpret()
             if (cp[0] == 0xAA1E03E9 && cp[1] == 0xF9400350 && cp[2] == 0xD63F0200)
                 continue;
             interpreterPc = 0;
-            // Leave the handler as it is.  The trap handler return code will raise the exception.
+
             return;
         }
         }
@@ -604,9 +604,9 @@ void Arm64TaskData::HandleTrap()
                 assemblyInterface.stackPtr -= 8;
             else assemblyInterface.stackPtr -= numArgs;
             // Move up any stack arguments.
-            for (unsigned n = numArgs; n > 8; n--)
+            for (unsigned n = 8; n < numArgs; n++)
             {
-                assemblyInterface.stackPtr[n - 8 - 1] = assemblyInterface.stackPtr[n - 1];
+                assemblyInterface.stackPtr[n - 8] = assemblyInterface.stackPtr[n];
             }
             // Store the register arguments
             for (unsigned n = 0; n < numArgs && n < 8; n++)
