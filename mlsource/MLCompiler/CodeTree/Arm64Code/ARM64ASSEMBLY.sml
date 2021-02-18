@@ -729,7 +729,7 @@ struct
                 val offset = dest - wordNo
                 val _ = offset < 0wx100000 orelse offset >= ~ 0wx100000
                     orelse raise InternalError "Offset to label address is too large"
-                val code = 0wx10000000 orb ((offset andb 0wx1fffff) << 0w5) orb word8ToWord(xRegOnly reg)
+                val code = 0wx10000000 orb ((offset andb 0wx7ffff) << 0w5) orb word8ToWord(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
@@ -1073,6 +1073,19 @@ struct
                 printStream "ldr\tx"; printStream(Word.fmt StringCvt.DEC rT);
                 printStream ",0x"; printStream(Word.fmt StringCvt.HEX byteAddr);
                 printStream "\t// "; printStream constantValue
+            end
+
+            else if (wordValue andb 0wxbf000000) = 0wx10000000
+            then
+            let
+                (* Put a pc-relative address into a register. *)
+                val rT = wordValue andb 0wx1f
+                val byteOffset =
+                    ((wordValue andb 0wx00ffffe0) << (Word.fromInt Word.wordSize - 0w23) ~>>
+                        (Word.fromInt Word.wordSize - 0w20)) + ((wordValue >> 0w29) andb 0w3)
+            in
+                printStream "adr\tx"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",0x"; printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
             end
 
             else if (wordValue andb 0wxff800000) = 0wxF9000000

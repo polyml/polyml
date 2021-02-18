@@ -36,6 +36,7 @@ struct
     fun tag c = 2 * c + 1
     
     fun taggedWord w: word = w * 0w2 + 0w1
+    and taggedWord64 w: Word64.word = w * 0w2 + 0w1
     
     fun gen(instr, code) = code := instr :: !code
 
@@ -181,7 +182,6 @@ struct
 
     fun genOpcode (n, _) =  toDo n
 
-    fun genCase _ =  toDo "genCase"
     fun genAllocMutableClosure _ =  toDo "genAllocMutableClosure"
     fun genMoveToMutClosure _ =  toDo "genMoveToMutClosure"
     fun genLock _ =  toDo "genLock"
@@ -210,7 +210,6 @@ and opcode_fixedMult = "opcode_fixedMult"
 and opcode_fixedQuot = "opcode_fixedQuot"
 and opcode_fixedRem = "opcode_fixedRem"
 and opcode_wordAdd = "opcode_wordAdd"
-and opcode_wordSub = "opcode_wordSub"
 and opcode_wordMult = "opcode_wordMult"
 and opcode_wordDiv = "opcode_wordDiv"
 and opcode_wordMod = "opcode_wordMod"
@@ -642,21 +641,37 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     val () = gencde (test, ToStack, NotEnd, loopAddr)
                     (* Label to jump to at the end of each case. *)
                     val exitJump = createLabel()
-
-                    val () =
-                        if firstIndex = 0w0 then ()
-                        else
-                        (   (* Subtract lower limit.  Don't check for overflow.  Instead
-                               allow large value to wrap around and check in "case" instruction. *)
-                            gen(loadNonAddressConstant(X0, Word64.fromInt(tag(Word.toIntX firstIndex))), cvec);
-                            genPushReg(X0, cvec);
-                            genOpcode(opcode_wordSub, cvec)
-                        )
-
-                    (* Generate the case instruction followed by the table of jumps.  *)
-                    val nCases = List.length cases
-                    val caseLabels = genCase (nCases, cvec)
+                    val () = genPopReg(X0, cvec)
                     val () = decsp ()
+
+                    (* Subtract the minimum even if it is zero to remove the tag.
+                       This leaves us with a shifted but untagged value. Don't check for overflow.
+                       Instead allow large values to wrap around and check later.*)
+                    val () = addConstantWord({regS=X0, regD=X0, regW=X1,
+                                    value= ~(taggedWord64(Word64.fromLarge(Word.toLargeX firstIndex)))}, cvec)
+
+                    (* Create the case labels. *)
+                    val nCases = List.length cases
+                    val caseLabels = List.tabulate(nCases, fn _ => createLabel())
+                    val defaultLabel = createLabel()
+                    
+                    (* Compare with the number of cases and go to the default if it is
+                       not less. We use an unsigned comparison and compare with
+                       the semitagged value because we've removed the tag bit. *)
+                    (* TODO: Not necessary if it exhaustive. *)
+                    (* For the moment load the value into a register and compare. *)
+                    val () = gen(loadNonAddressConstant(X1, Word64.<<(Word64.fromInt nCases, 0w2)), cvec)
+                    val () = compareRegs(X0, X1, cvec)
+                    val () = gen(putBranchInstruction(condCarrySet, defaultLabel), cvec)
+                    (* Load the address of the jump table. *)
+                    val tableLabel = createLabel()
+                    val () = gen(loadLabelAddress(X1, tableLabel), cvec)
+                    (* Add the value shifted by one since it's already shifted. *)
+                    val () = gen(addShiftedReg{regM=X0, regN=X1, regD=X0, shift=ShiftLSL 0w1}, cvec)
+                    val () = gen(genBranchRegister X0, cvec)
+                    (* Put in the branch table. *)
+                    val () = gen(setLabel tableLabel, cvec)
+                    val () = List.app(fn label => gen(putBranchInstruction(condAlways, label), cvec)) caseLabels
 
                     (* The default case, if any, follows the case statement. *)
                     (* If we have a jump to the default set it to jump here. *)
@@ -666,7 +681,8 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                     in
                         val () = ListPair.appEq fixDefault (cases, caseLabels)
                     end
-                    val () = gencde (default, whereto, tailKind, loopAddr);
+                    val () = gen(setLabel defaultLabel, cvec)
+                    val () = gencde (default, whereto, tailKind, loopAddr)
 
                     fun genCases(SOME body, label) =
                         (
@@ -675,6 +691,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                             gen(putBranchInstruction(condAlways, exitJump), cvec);
                             (* Remove the result - the last case will leave it. *)
                             case whereto of ToStack => decsp () | NoResult => () | ToX0 => ();
+                            topInX0 := false;
                             (* Fix up the jump to come here. *)
                             gen(setLabel label, cvec);
                             gencde (body, whereto, tailKind, loopAddr)
@@ -1415,6 +1432,7 @@ and opcode_arbMultiply = "opcode_arbMultiply"
             (* Get rid of the result from the stack. If there is a result then the
             ``else-part'' will push it. *)
             val () = case whereto of ToStack => decsp () | NoResult => () | ToX0 => ()
+            val () = topInX0 := false
 
             val () = gen(putBranchInstruction (condAlways, exitJump), cvec)
 
