@@ -359,6 +359,25 @@ struct
         and subSExtendedReg = addSubtractExtendedReg(0w1, 0w1, 0w1, 0w0)
     end
 
+    (* Logical operations on a shifted register. *)
+    local
+        fun logicalShiftedReg (sf, oper, n) ({regM, regN, regD, shift}) =
+        let
+            val (shift, imm6) = shiftEncode shift
+        in
+            SimpleInstr(0wx0a000000 orb (sf << 0w31) orb (oper << 0w29) orb
+                (shift << 0w22) orb (n << 0w21) orb (word8ToWord(xRegOrXZ regM) << 0w16) orb
+                (imm6 << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
+                word8ToWord(xRegOrXZ regD))
+        end
+    in
+        val andShiftedReg = logicalShiftedReg(0w1, 0w0, 0w0)
+        and orrShiftedReg = logicalShiftedReg(0w1, 0w1, 0w0)
+        and eorShiftedReg = logicalShiftedReg(0w1, 0w2, 0w0)
+        and andsShiftedReg = logicalShiftedReg(0w1, 0w3, 0w0)
+        (* There are also versions that operate with an inverted version
+           of the argument. *)
+    end
 
     (* Loads: There are two versions of this on the ARM.  There is a version that
        takes a signed 9-bit byte offset and a version that takes an unsigned
@@ -1006,7 +1025,45 @@ struct
                 printStream "x"; printStream(Word.fmt StringCvt.DEC rN);
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
             end
-            
+
+            else if (wordValue andb 0wx1f800000) = 0wx0A000000
+            then
+            let
+                (* Logical operations with shifted register. *)
+                val rD = wordValue andb 0wx1f
+                and rN = (wordValue >> 0w5) andb 0wx1f
+                and rM = (wordValue >> 0w16) andb 0wx1f
+                and imm6 = (wordValue >> 0w10) andb 0wx3f
+                and shiftCode = (wordValue >> 0w22) andb 0wx3
+                val opc = (wordValue >> 0w29) andb 0wx3
+                val nBit = (wordValue >> 0w1) andb 0w1
+                val reg = if (wordValue andb 0wx80000000) <> 0w0 then "x" else "w"
+                val opcode =
+                    case (opc, nBit) of
+                        (0w0, 0w0) => "and"
+                    |   (0w1, 0w0) => "orr"
+                    |   (0w2, 0w0) => "eor"
+                    |   (0w3, 0w0) => "ands"
+                    |   _ => "??"
+            in
+                printStream opcode; printStream"\t";
+                printStream reg;
+                printStream(Word.fmt StringCvt.DEC rD); printStream ",";
+                printStream reg; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ","; printStream reg; printStream(Word.fmt StringCvt.DEC rM);
+                if imm6 <> 0w0
+                then
+                (
+                    case shiftCode of
+                        0w0 => printStream ",lsl #"
+                    |   0w1 => printStream ",lsr #"
+                    |   0w2 => printStream ",asr #"
+                    |   _ => printStream ",?? #";
+                    printStream(Word.fmt StringCvt.DEC imm6)
+                )
+                else ()
+            end
+
             else if (wordValue andb 0wx1f800000) = 0wx0B000000
             then
             let

@@ -124,6 +124,12 @@ sig
     and subExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
     and subSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
 
+    (* Logical operations on a shifted register, optionally setting the flags. *)
+    val andShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and orrShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and eorShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and andsShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+
     (* And a register with a bit pattern, discarding the results but setting the
        condition codes.  The bit pattern must be encodable. *)
     val testBitPattern: xReg * Word64.word -> instr

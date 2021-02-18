@@ -211,9 +211,6 @@ and opcode_wordAdd = "opcode_wordAdd"
 and opcode_wordMult = "opcode_wordMult"
 and opcode_wordDiv = "opcode_wordDiv"
 and opcode_wordMod = "opcode_wordMod"
-and opcode_wordAnd = "opcode_wordAnd"
-and opcode_wordOr = "opcode_wordOr"
-and opcode_wordXor = "opcode_wordXor"
 and opcode_wordShiftLeft = "opcode_wordShiftLeft"
 and opcode_wordShiftRLog = "opcode_wordShiftRLog"
 and opcode_wordShiftRArith = "opcode_wordShiftRArith"
@@ -946,9 +943,25 @@ and cpuPause = "cpuPause"
                     |   WordArith ArithMod => genOpcode(opcode_wordMod, cvec)
                     |   WordArith _ => raise InternalError "WordArith - unimplemented instruction"
                 
-                    |   WordLogical LogicalAnd => genOpcode(opcode_wordAnd, cvec)
-                    |   WordLogical LogicalOr => genOpcode(opcode_wordOr, cvec)
-                    |   WordLogical LogicalXor => genOpcode(opcode_wordXor, cvec)
+                    |   WordLogical LogicalAnd =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Since they're both tagged the tag bit is preserved. *)
+                            gen(andShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
+                        )
+                    |   WordLogical LogicalOr =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Since they're both tagged the tag bit is preserved. *)
+                            gen(orrShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
+                        )
+                    |   WordLogical LogicalXor =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Have to restore the tag bit because that will be cleared. *)
+                            gen(eorShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize32, bits=0w1}, cvec)
+                        )
 
                     |   WordShift ShiftLeft => genOpcode(opcode_wordShiftLeft, cvec)
                     |   WordShift ShiftRightLogical => genOpcode(opcode_wordShiftRLog, cvec)
