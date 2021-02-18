@@ -189,8 +189,6 @@ struct
     fun genRealToInt _ =  toDo "genRealToInt"
     fun genFloatToInt _ =  toDo "genFloatToInt"
 
-    val checkRTSException = "checkRTSException"
-
     val opcode_clearMutable = "clearMutable"
     val opcode_atomicExchAdd = "opcode_atomicExchAdd"
 and opcode_atomicReset = "opcode_atomicReset"
@@ -281,6 +279,7 @@ and opcode_freeCSpace = "opcode_freeCSpace"
 and opcode_arbAdd = "opcode_arbAdd"
 and opcode_arbSubtract = "opcode_arbSubtract"
 and opcode_arbMultiply = "opcode_arbMultiply"
+and cpuPause = "cpuPause"
 
     type caseForm =
         {
@@ -801,12 +800,24 @@ and opcode_arbMultiply = "opcode_arbMultiply"
                 )
 
             |   BICNullary {oper=BuiltIns.CheckRTSException} =>
-                ( (* This needs to be done if we implement RTS calls. *)
-                    genOpcode(checkRTSException, cvec)
-                )
+                (* Raise an exception in ML if the last RTS call set the exception packet. *)
+                let (* It may be better to do this in all RTS calls. *)
+                    val noException = createLabel()
+                in
+                    (* Load the packet and see if it is nil (tagged 0) *)
+                    gen(loadRegScaled{regT=X0, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset}, cvec);
+                    gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w0, shifted=false}, cvec);
+                    gen(putBranchInstruction(condEqual, noException), cvec);
+                    (* If it isn't then raise the exception. *)
+                    gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
+                    gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
+                    gen(genBranchRegister X1, cvec);
+                    gen(setLabel noException, cvec)
+                end
 
             |   BICNullary {oper=BuiltIns.CPUPause} =>
-                ( (* Do nothing.  It's really only a hint. *)
+                (
+                    genOpcode(cpuPause, cvec)
                 )
 
             |   BICUnary { oper, arg1 } =>
