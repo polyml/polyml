@@ -101,9 +101,6 @@ sig
        For tagged integers that means that the value must have
        been shifted and the tag bit set. *)
     and loadNonAddressConstant: xReg * Word64.word -> instr
-    
-    (* Move a value from one register into another. *)
-    val genMoveRegToReg: {sReg: xReg, dReg: xReg} -> instr
 
     (* Add/subtract an optionally shifted 12-bit immediate (i.e. constant) to/from a register.
        The constant is zero-extended. *)
@@ -123,6 +120,18 @@ sig
     and addSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
     and subExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
     and subSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
+
+    (* Multiplication *)
+    (* regD = regA + regN * regM *)
+    val multiplyAndAdd: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
+    (* regD = regA - regN * regM *)
+    and multiplyAndSub: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
+    (* Return the high-order part of a signed multiplication. *)
+    and signedMultiplyHigh: {regM: xReg, regN: xReg, regD: xReg} -> instr
+
+    (* Division *)
+    val unsignedDivide: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and signedDivide: {regM: xReg, regN: xReg, regD: xReg} -> instr
 
     (* Logical operations on a shifted register, optionally setting the flags. *)
     val andShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
@@ -198,6 +207,13 @@ sig
     and logicalShiftRight: {wordSize: wordSize, shift: word, regN: xReg, regD: xReg} -> instr
     and unsignedBitfieldInsertinZeros:
         {wordSize: wordSize, lsb: word, width: word, regN: xReg, regD: xReg} -> instr
+
+    (* Logical shift left Rd = Rn << (Rm mod 0w64) *)
+    val logicalShiftLeftVariable: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    (* Logical shift right Rd = Rn >> (Rm mod 0w64) *)
+    and logicalShiftRightVariable: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    (* Arithmetic shift right Rd = Rn ~>> (Rm mod 0w64) *)
+    and arithmeticShiftRightVariable: {regM: xReg, regN: xReg, regD: xReg} -> instr
 
     (* Logical operations on bit patterns.  The pattern must be valid.
        ANDS is an AND that also sets the flags, typically used for a test. *)

@@ -379,6 +379,43 @@ struct
            of the argument. *)
     end
 
+    (* Two-source operations. *)
+    local
+        fun twoSourceInstr (sf, s, opcode) ({regM, regN, regD}) =
+            SimpleInstr(0wx1ac00000 orb (sf << 0w31) orb (s << 0w29) orb
+                (word8ToWord(xRegOnly regM) << 0w16) orb (opcode << 0w10) orb
+                (word8ToWord(xRegOnly regN) << 0w5) orb
+                word8ToWord(xRegOnly regD))
+    in
+        (* Signed and unsigned division. *)
+        val unsignedDivide   = twoSourceInstr(0w1, 0w0, 0wx2)
+        and signedDivide     = twoSourceInstr(0w1, 0w0, 0wx3)
+        (* Logical shift left Rd = Rn << (Rm mod 0w64) *)
+        and logicalShiftLeftVariable = twoSourceInstr(0w1, 0w0, 0wx8)
+        (* Logical shift right Rd = Rn >> (Rm mod 0w64) *)
+        and logicalShiftRightVariable = twoSourceInstr(0w1, 0w0, 0wx9)
+        (* Arithmetic shift right Rd = Rn ~>> (Rm mod 0w64) *)
+        and arithmeticShiftRightVariable = twoSourceInstr(0w1, 0w0, 0wxa)
+    end
+
+    (* Three source operations.  These are all variations of multiply. *)
+    local
+        fun threeSourceInstr (sf, op54, op31, o0) ({regM, regA, regN, regD}) =
+            SimpleInstr(0wx1b000000 orb (sf << 0w31) orb (op54 << 0w29) orb
+                (op31 << 0w21) orb (word8ToWord(xRegOnly regM) << 0w16) orb
+                (o0 << 0w15) orb (word8ToWord(xRegOrXZ regA) << 0w10) orb
+                (word8ToWord(xRegOnly regN) << 0w5) orb
+                word8ToWord(xRegOnly regD))
+    in
+        (* regD = regA + regN * regM *)
+        val multiplyAndAdd = threeSourceInstr(0w1, 0w0, 0w0, 0w0)
+        (* regD = regA - regN * regM *)
+        and multiplyAndSub = threeSourceInstr(0w1, 0w0, 0w0, 0w1)
+        (* Return the high-order part of a signed multiplication. *)
+        fun signedMultiplyHigh({regM, regN, regD}) =
+            threeSourceInstr(0w1, 0w0, 0w2, 0w0) { regM=regM, regN=regN, regD=regD, regA=XZero}
+    end
+
     (* Loads: There are two versions of this on the ARM.  There is a version that
        takes a signed 9-bit byte offset and a version that takes an unsigned
        12-bit word offset. *)
@@ -502,13 +539,6 @@ struct
             else loadConstantFromCArea(xReg, valu)
         end
     end
-
-
-
-    (* Move a value from one register into another.  This actually uses ORR shifted
-       register but for the moment we'll just encode it independently. *)
-    fun genMoveRegToReg({sReg, dReg}) =
-        SimpleInstr(0wxAA0003E0 orb (word8ToWord(xRegOnly sReg) << 0w16) orb word8ToWord(xRegOnly dReg))
 
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
@@ -1160,15 +1190,6 @@ struct
                 printStream "]"
             end
 
-            else if (wordValue andb 0wxffe0ffe0) = 0wxAA0003E0
-            then (* Move reg,reg.  This is a subset of ORR shifted register. *)
-            (
-                printStream "mov\tx";
-                printStream(Word.fmt StringCvt.DEC(wordValue andb 0wx1f));
-                printStream ",x";
-                printStream(Word.fmt StringCvt.DEC((wordValue >> 0w16)andb 0wx1f))
-            )
-
             else if (wordValue andb 0wxfc000000) = 0wx14000000
             then (* Unconditional branch. *)
             let
@@ -1268,6 +1289,31 @@ struct
                 printStream r; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
                 printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",#0x";
                 printStream(Word64.toString(decodeBitPattern{sf=sf, n=nBit, immr=immr, imms=imms}))
+            end
+
+            else if (wordValue andb 0wx5fe00000) = 0wx1ac00000
+            then (* Two source operations - shifts and divide. *)
+            let
+                val sf = wordValue >> 0w31
+                val s = (wordValue >> 0w29) andb 0w1
+                val rM = (wordValue >> 0w16) andb 0wx1f
+                val opcode = (wordValue >> 0w10) andb 0wx3f
+                val rN = (wordValue >> 0w5) andb 0wx1f
+                val rD = wordValue andb 0wx1f
+                val (oper, r) =
+                    case (sf, s, opcode) of
+                        (0w1, 0w0, 0wx2) => ("udiv", "x")
+                    |   (0w1, 0w0, 0wx3) => ("sdiv", "x")
+                    |   (0w1, 0w0, 0wx8) => ("lsl", "x")
+                    |   (0w1, 0w0, 0wx9) => ("lsr", "x")
+                    |   (0w1, 0w0, 0wxa) => ("asr", "x")
+                    |   _ => ("??", "?")
+            in
+                printStream oper;
+                printStream "\t";
+                printStream r; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
+                printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
+                printStream r; printStream(Word.fmt StringCvt.DEC rM)
             end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000

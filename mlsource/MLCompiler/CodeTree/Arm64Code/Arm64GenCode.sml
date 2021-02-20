@@ -38,10 +38,15 @@ struct
     fun taggedWord w: word = w * 0w2 + 0w1
     and taggedWord64 w: Word64.word = w * 0w2 + 0w1
     
+    val tagBitMask = Word64.<<(Word64.fromInt ~1, 0w1)
+    
     fun gen(instr, code) = code := instr :: !code
 
     fun genPushReg(reg, code) = gen(storeRegPreIndex{regT=reg, regN=X_MLStackPtr, byteOffset= ~8}, code)
     and genPopReg(reg, code) = gen(loadRegPostIndex{regT=reg, regN=X_MLStackPtr, byteOffset= 8}, code)
+    
+    (* Move register.  The ARM64 alias uses XZR as Rn. *)
+    fun genMoveRegToReg{sReg, dReg} = orrShiftedReg{regN=XZero, regM=sReg, regD=dReg, shift=ShiftNone}
 
     (* Add a constant word to the source register and put the result in the
        destination.  regW is used as a work register if necessary.  This is used
@@ -211,9 +216,6 @@ and opcode_wordAdd = "opcode_wordAdd"
 and opcode_wordMult = "opcode_wordMult"
 and opcode_wordDiv = "opcode_wordDiv"
 and opcode_wordMod = "opcode_wordMod"
-and opcode_wordShiftLeft = "opcode_wordShiftLeft"
-and opcode_wordShiftRLog = "opcode_wordShiftRLog"
-and opcode_wordShiftRArith = "opcode_wordShiftRArith"
 and opcode_allocByteMem = "opcode_allocByteMem"
 and opcode_lgWordEqual = "opcode_lgWordEqual"
 and opcode_lgWordLess = "opcode_lgWordLess"
@@ -960,12 +962,42 @@ and cpuPause = "cpuPause"
                             genPopReg(X1, cvec);
                             (* Have to restore the tag bit because that will be cleared. *)
                             gen(eorShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize32, bits=0w1}, cvec)
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
                         )
 
-                    |   WordShift ShiftLeft => genOpcode(opcode_wordShiftLeft, cvec)
-                    |   WordShift ShiftRightLogical => genOpcode(opcode_wordShiftRLog, cvec)
-                    |   WordShift ShiftRightArithmetic => genOpcode(opcode_wordShiftRArith, cvec)
+                        (* Shifts: ARM64 shifts are taken modulo the word length but that's
+                           dealt with at a higher level. *)
+                    |   WordShift ShiftLeft =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Remove the tag from value we're shifting. *)
+                            gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                            (* Untag the shift amount.  Can use 32-bit op here. *)
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                            gen(logicalShiftLeftVariable{regM=X0, regN=X1, regD=X0}, cvec);
+                            (* Put back the tag. *)
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   WordShift ShiftRightLogical =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Don't need to remove the tag. *)
+                            (* Untag the shift amount.  Can use 32-bit op here. *)
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                            gen(logicalShiftRightVariable{regM=X0, regN=X1, regD=X0}, cvec);
+                            (* Put back the tag. *)
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   WordShift ShiftRightArithmetic =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Don't need to remove the tag. *)
+                            (* Untag the shift amount.  Can use 32-bit op here. *)
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                            gen(arithmeticShiftRightVariable{regM=X0, regN=X1, regD=X0}, cvec);
+                            (* Put back the tag. *)
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
                  
                     |   AllocateByteMemory => genOpcode(opcode_allocByteMem, cvec)
                 
@@ -1631,7 +1663,7 @@ and cpuPause = "cpuPause"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if false andalso Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
         codegen (body, name, closure, List.length argTypes, localCount, parameters)
