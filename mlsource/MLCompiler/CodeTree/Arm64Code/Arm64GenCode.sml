@@ -213,9 +213,6 @@ and opcode_fixedMult = "opcode_fixedMult"
 and opcode_fixedQuot = "opcode_fixedQuot"
 and opcode_fixedRem = "opcode_fixedRem"
 and opcode_wordAdd = "opcode_wordAdd"
-and opcode_wordMult = "opcode_wordMult"
-and opcode_wordDiv = "opcode_wordDiv"
-and opcode_wordMod = "opcode_wordMod"
 and opcode_allocByteMem = "opcode_allocByteMem"
 and opcode_lgWordEqual = "opcode_lgWordEqual"
 and opcode_lgWordLess = "opcode_lgWordLess"
@@ -940,9 +937,42 @@ and cpuPause = "cpuPause"
                             genPopReg(X1, cvec);
                             gen(subShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
                         )
-                    |   WordArith ArithMult => genOpcode(opcode_wordMult, cvec)
-                    |   WordArith ArithDiv => genOpcode(opcode_wordDiv, cvec)
-                    |   WordArith ArithMod => genOpcode(opcode_wordMod, cvec)
+                    |   WordArith ArithMult =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Shift to remove the tags on one argument. *)
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                            (* Remove the tag on the other. *)
+                            gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                            gen(multiplyAndAdd{regM=X1, regN=X0, regA=XZero, regD=X0}, cvec);
+                            (* Put back the tag. *)
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   WordArith ArithDiv =>
+                        (
+                            genPopReg(X1, cvec);
+                            (* Shift to remove the tag on the divisor *)
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                            (* Untag but don't shift the dividend. *)
+                            gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                            gen(unsignedDivide{regM=X0, regN=X1, regD=X0}, cvec);
+                            (* Restore the tag. *)
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   WordArith ArithMod =>
+                        (
+                            (* There's no direct way to get the remainder - have to use divide and multiply. *)
+                            genPopReg(X1, cvec);
+                            (* Shift to remove the tag on the divisor *)
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                            (* Untag but don't shift the dividend. *)
+                            gen(bitwiseAndImmediate{regN=X1, regD=X2, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                            gen(unsignedDivide{regM=X0, regN=X2, regD=X2}, cvec);
+                            (* X0 = X1 - (X2/X0)*X0 *)
+                            gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec)
+                            (* Because we're subtracting from the original, tagged, dividend
+                               the result is tagged. *)
+                        )
                     |   WordArith _ => raise InternalError "WordArith - unimplemented instruction"
                 
                     |   WordLogical LogicalAnd =>
@@ -1663,7 +1693,7 @@ and cpuPause = "cpuPause"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if false andalso Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
         codegen (body, name, closure, List.length argTypes, localCount, parameters)

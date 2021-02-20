@@ -1056,6 +1056,17 @@ struct
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
             end
 
+            else if (wordValue andb 0wx7fe0ffe0) = 0wx2A0003E0
+            then (* Move reg,reg.  This is a subset of ORR shifted register. *)
+            let
+                val reg = if (wordValue andb 0wx80000000) <> 0w0 then "x" else "w"
+            in
+                printStream "mov\t"; printStream reg;
+                printStream(Word.fmt StringCvt.DEC(wordValue andb 0wx1f));
+                printStream ","; printStream reg;
+                printStream(Word.fmt StringCvt.DEC((wordValue >> 0w16) andb 0wx1f))
+            end
+
             else if (wordValue andb 0wx1f800000) = 0wx0A000000
             then
             let
@@ -1066,7 +1077,7 @@ struct
                 and imm6 = (wordValue >> 0w10) andb 0wx3f
                 and shiftCode = (wordValue >> 0w22) andb 0wx3
                 val opc = (wordValue >> 0w29) andb 0wx3
-                val nBit = (wordValue >> 0w1) andb 0w1
+                val nBit = (wordValue >> 0w21) andb 0w1
                 val reg = if (wordValue andb 0wx80000000) <> 0w0 then "x" else "w"
                 val opcode =
                     case (opc, nBit) of
@@ -1312,6 +1323,35 @@ struct
                 printStream oper;
                 printStream "\t";
                 printStream r; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
+                printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
+                printStream r; printStream(Word.fmt StringCvt.DEC rM)
+            end
+
+            else if (wordValue andb 0wx1f000000) = 0wx1b000000
+            then (* Three source operations - multiply add/subtract. *)
+            let
+                val sf = wordValue >> 0w31
+                val op54 = (wordValue >> 0w29) andb 0w3
+                val op31 = (wordValue >> 0w21) andb 0w7
+                val o0 = (wordValue >> 0w15) andb 0w1
+                val rM = (wordValue >> 0w16) andb 0wx1f
+                val rA = (wordValue >> 0w10) andb 0wx1f
+                val rN = (wordValue >> 0w5) andb 0wx1f
+                val rD = wordValue andb 0wx1f
+                val (oper, r) =
+                    case (sf, op54, op31, o0, rA) of
+                        (0w1, 0w0, 0w0, 0w0, 0w31) => ("mul", "x")
+                    |   (0w1, 0w0, 0w0, 0w0, _)    => ("madd", "x")
+                    |   (0w1, 0w0, 0w0, 0w1, 0w31) => ("mneg", "x")
+                    |   (0w1, 0w0, 0w0, 0w1, _)    => ("msub", "x")
+                    |   (0w1, 0w0, 0w2, 0w0, 0w31) => ("smulh", "x")
+                    |   _ => ("??", "?")
+            in
+                printStream oper;
+                printStream "\t";
+                printStream r; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
+                if rA = 0w31 then ()
+                else (printStream r; printStream(Word.fmt StringCvt.DEC rA); printStream ",");
                 printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
                 printStream r; printStream(Word.fmt StringCvt.DEC rM)
             end
