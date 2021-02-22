@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-20 David C.J. Matthews
+    Copyright (c) 2016-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1396,6 +1396,8 @@ struct
             in
                 (* Always align the stack. *)
                 val preArgAlign = if align = 0 then 0 else 16-align
+                (* The total space on the stack that needs to be removed at the end. *)
+                val postCallStackReset = argStack + preArgAlign
             end
 
         in
@@ -1436,7 +1438,16 @@ struct
                 in
                     (* Call the function.  We're discarding the value in rsp so no need to remove args. *)
                     CallAddress entryPoint
-                end,
+                end
+            ] @
+            (* Restore the C stack value in case it's been changed by a callback. *)
+            (
+                if postCallStackReset = 0
+                then []
+                else [ArithToGenReg{opc=ADD, output=rsp, source=NonAddressConstArg(LargeInt.fromInt postCallStackReset), opSize=nativeWordOpSize}]
+            ) @
+            [
+                storeMemory(rsp, rbp, memRegCStackPtr, nativeWordOpSize),
                 loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize), (* Restore the ML stack pointer. *)
                 (* Reload the heap pointer.  If we've called back to ML this could well have changed. *)
                 loadMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize)
