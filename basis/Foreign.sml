@@ -259,7 +259,7 @@ sig
     
     (** This ensures that a value can be referenced at the point it is called.  It has no
         other effect. **)
-    val touchClosure: 'a -> unit
+    val touchClosure: 'a closure -> unit
 
     (** Closure functions provided for backwards compatibility.  These are not garbage-collected and
         once created will persist until the end of the session.  **)
@@ -2682,12 +2682,16 @@ struct
 
     local
         open Memory LowLevel
-        fun load _ = raise Foreign "Cannot return a closure"
         (* Store the address of the code.  Touch the closure after the function returns
            to ensure it cannot be GCed earlier.  That would only happen if this resulted
            in a callback to a different function during the execution. *)
-        and store(v, cl: ('a->'b) closure) =
+        fun store(v, cl: ('a->'b) closure) =
             (Memory.setAddress(v, 0w0, cl); fn () => RunCall.touch cl)
+        (* Load a callback address.  This is rare and only occurs if we return
+           the address of a C function from a C function or if we pass a C function
+           as an address to a callback.  There isn't currently any way to turn
+           a closure into an ML function. *)
+        and load a = getAddress(a, 0w0): ('a->'b) closure
     in
         val cFunction: ('a->'b) closure conversion =
             makeConversion { load=load, store=store, ctype = LowLevel.cTypePointer }
