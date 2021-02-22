@@ -187,7 +187,6 @@ sig
        possibly updated if there is a GC. *)
     val registerMask: xReg list -> instr
 
-
     (* Create a label. *)
     val createLabel: unit -> labels
     (* Put a label into the code. *)
@@ -196,6 +195,12 @@ sig
     val putBranchInstruction: condition * labels -> instr
     (* Put the address of a label into a register - used for handlers and cases. *)
     and loadLabelAddress: xReg * labels -> instr
+    (* Test a bit in a register and branch if zero/nonzero *)
+    and testBitBranchZero: xReg * Word8.word * labels -> instr
+    and testBitBranchNonZero: xReg * Word8.word * labels -> instr
+    (* Compare a register with zero and branch if zero/nonzero *)
+    and compareBranchZero: xReg * wordSize * labels -> instr
+    and compareBranchNonZero: xReg * wordSize * labels -> instr
 
     (* Sets the destination register to the value of the first reg if the
        condition is true otherwise the second register incremented by one. *)

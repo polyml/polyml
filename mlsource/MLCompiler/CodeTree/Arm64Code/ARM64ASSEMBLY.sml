@@ -294,6 +294,8 @@ struct
     |   Label of labels
     |   Branch of { label: labels, jumpCondition: condition }
     |   LoadLabelAddress of { label: labels, reg: xReg }
+    |   TestBitBranch of { label: labels, bitNo: Word8.word, brNonZero: bool, reg: xReg }
+    |   CompareBranch of { label: labels, brNonZero: bool, size: wordSize, reg: xReg }
 
     val nopCode  = 0wxD503201F
 
@@ -561,8 +563,19 @@ struct
 
     (* A conditional or unconditional branch. *)
     and putBranchInstruction(cond, label) = Branch{label=label, jumpCondition=cond}
-    
+    (* Put the address of a label into a register - used for handlers and cases. *)
     and loadLabelAddress(reg, label) = LoadLabelAddress{label=label, reg=reg}
+    (* Test a bit in a register and branch if zero/nonzero *)
+    and testBitBranchZero(reg, bit, label) =
+        TestBitBranch{label=label, bitNo=bit, brNonZero=false, reg=reg}
+    and testBitBranchNonZero(reg, bit, label) =
+        TestBitBranch{label=label, bitNo=bit, brNonZero=true, reg=reg}
+    (* Compare a register with zero and branch if zero/nonzero *)
+    and compareBranchZero(reg, size, label) =
+        CompareBranch{label=label, brNonZero=false, size=size, reg=reg}
+    and compareBranchNonZero(reg, size, label) =
+        CompareBranch{label=label, brNonZero=true, size=size, reg=reg}
+    
 
     (* Sets the destination register to the value of the first reg if the
        condition is true otherwise the second register incremented by one.
@@ -665,6 +678,8 @@ struct
     |   codeSize (Label _) = 0
     |   codeSize (Branch _) = 1
     |   codeSize (LoadLabelAddress _) = 1
+    |   codeSize (TestBitBranch _) = 1
+    |   codeSize (CompareBranch _) = 1
 
     (* Store a 32-bit value in the code *)
     fun writeInstr(value, wordAddr, seg) =
@@ -779,6 +794,41 @@ struct
                 val _ = offset < 0wx100000 orelse offset >= ~ 0wx100000
                     orelse raise InternalError "Offset to label address is too large"
                 val code = 0wx10000000 orb ((offset andb 0wx7ffff) << 0w5) orb word8ToWord(xRegOnly reg)
+            in
+                writeInstr(code, wordNo, codeVec);
+                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
+            end
+
+        |   genCodeWords(TestBitBranch{label=ref labs, bitNo, brNonZero, reg} :: tail,
+                    wordNo, aConstNum, nonAConstNum) =
+            let
+                val dest = !(hd labs)
+                val offset = dest - wordNo
+                val _ = offset < 0wx2000 orelse offset >= ~ 0wx2000
+                    orelse raise InternalError "TestBitBranch: Offset to label address is too large"
+                val _ = bitNo <= 0w63 orelse
+                    raise InternalError "TestBitBranch: bit number > 63"
+                val code =
+                    0wx36000000 orb (if bitNo >= 0w32 then 0wx80000000 else 0w0) orb
+                        (if brNonZero then 0wx01000000 else 0w0) orb
+                        (word8ToWord(Word8.andb(bitNo, 0wx3f)) << 0w19) orb
+                        ((offset andb 0wx3fff) << 0w5) orb word8ToWord(xRegOnly reg)
+            in
+                writeInstr(code, wordNo, codeVec);
+                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
+            end
+
+        |   genCodeWords(CompareBranch{label=ref labs, brNonZero, size, reg} :: tail,
+                    wordNo, aConstNum, nonAConstNum) =
+            let
+                val dest = !(hd labs)
+                val offset = dest - wordNo
+                val _ = offset < 0wx40000 orelse offset >= ~ 0wx40000
+                    orelse raise InternalError "CompareBranch: Offset to label address is too large"
+                val code =
+                    0wx34000000 orb (case size of WordSize64 => 0wx80000000 | WordSize32 => 0w0) orb
+                        (if brNonZero then 0wx01000000 else 0w0) orb
+                        ((offset andb 0wx7ffff) << 0w5) orb word8ToWord(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
