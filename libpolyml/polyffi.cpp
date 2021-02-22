@@ -93,7 +93,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(PolyWord err);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtData(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL void PolyFFICallbackException();
+    POLYEXTERNALSYMBOL void PolyFFICallbackException(PolyWord exnMessage);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIMalloc(FirstArgument threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIFree(PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFILoadLibrary(FirstArgument threadId, PolyWord arg);
@@ -380,9 +380,10 @@ POLYUNSIGNED PolyFFICreateExtData(FirstArgument threadId, PolyWord arg)
 
 // Called if a callback raises an exception.  There's nothing we
 // can do because we don't have anything to pass back to C.
-void PolyFFICallbackException()
+void PolyFFICallbackException(PolyWord exnMessage)
 {
-    Crash("An ML function called from foreign code raised an exception.  Unable to continue.");
+    TempCString exception(exnMessage);
+    Crash("An ML function called from foreign code raised an exception: (%s).  Unable to continue.", (const char *)exception);
 }
 
 struct _entrypts polyFFIEPT[] =

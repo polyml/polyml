@@ -609,7 +609,7 @@ struct
             
             local
                 fun getType (ctype: cType) : ctype = RunCall.unsafeCast ctype
-                val callbackException: unit -> unit = RunCall.rtsCallFast0 "PolyFFICallbackException"
+                val callbackException: string -> unit = RunCall.rtsCallFast1 "PolyFFICallbackException"
             in
                 fun callwithAbi (abi: abi) (argTypes: cType list) (resType: cType): symbol -> voidStar * voidStar -> unit =
                 let
@@ -633,7 +633,7 @@ struct
                 let
                     fun callBack(args, resMem) =
                         cbFun(sysWord2VoidStar args, sysWord2VoidStar resMem)
-                            handle _ => callbackException()
+                            handle exn => callbackException(General.exnMessage exn)
                     val cCallBack =
                         (*Foreign.*)buildCallBack(abi, List.map getType argTypes, getType resType) callBack
                 in
