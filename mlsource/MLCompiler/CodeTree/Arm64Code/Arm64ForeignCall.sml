@@ -27,8 +27,9 @@ functor Arm64ForeignCall(
 struct
 
     open CodeArray Arm64Assembly
+    
+    exception InternalError = Misc.InternalError
 
-    val rtsCallFast = FallBackCG.Foreign.rtsCallFast
     val rtsCallFastRealtoReal = FallBackCG.Foreign.rtsCallFastRealtoReal
     val rtsCallFastRealRealtoReal = FallBackCG.Foreign.rtsCallFastRealRealtoReal
     val rtsCallFastGeneraltoReal = FallBackCG.Foreign.rtsCallFastGeneraltoReal
@@ -37,6 +38,107 @@ struct
     val rtsCallFastFloatFloattoFloat = FallBackCG.Foreign.rtsCallFastFloatFloattoFloat
     val rtsCallFastGeneraltoFloat = FallBackCG.Foreign.rtsCallFastGeneraltoFloat
     val rtsCallFastFloatGeneraltoFloat = FallBackCG.Foreign.rtsCallFastFloatGeneraltoFloat
+
+    datatype fastArgs = FastArgFixed | FastArgDouble | FastArgFloat
+
+    val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
+
+
+    fun rtsCallFastGeneral (functionName, argFormats, resultFormat, debugSwitches) =
+    let
+        val entryPointAddr = makeEntryPoint functionName
+        val nArgs = List.length argFormats
+        (* The maximum we currently have is five. *)
+        val _ = nArgs < 8 orelse raise InternalError "rtsCallFastGeneral: more than 8 args"
+        val _ = List.all(fn FastArgFixed => true | _ => false) argFormats orelse
+                    raise InternalError "rtsCallFastGeneral: TODO: floating point"
+        val _ = resultFormat = FastArgFixed orelse raise InternalError "rtsCallFastGeneral: TODO: floating point"
+        val noRtsException = createLabel()
+        
+        (* Temporarily we need to check for RTS exceptions here.  The interpreter assumes they
+           are checked for as part of the RST call. *)
+        val instructions =
+            [
+                (* Move X30 to X24, a callee-save register. *)
+                orrShiftedReg{regN=XZero, regM=X_LinkReg, regD=X24, shift=ShiftNone},
+                (* Clear the RTS exception before we enter.  "Full" RTS calls clear it anyway
+                   but "fast" calls don't. *)
+                loadNonAddressConstant(X8, 0w1),
+                storeRegScaled{regT=X8, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset},
+                (* TODO: For floating pt we'll need to load and reorder the args here. *)
+                loadAddressConstant(X16, entryPointAddr), (* Load entry point *)
+                loadRegScaled{regT=X16, regN=X16, unitOffset=0}, (* Load the actual address. *)
+                (* Store the current heap allocation pointer. *)
+                storeRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
+                (* For the moment save and restore the ML stack pointer.  No RTS call should change
+                   it and it's callee-save but just in case... *)
+                storeRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
+                branchAndLinkReg X16, (* Call the function. *)
+                (* Restore the ML stack pointer. *)
+                loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
+                (* Load the heap allocation ptr and limit.  We could have GCed in the RTS call. *)
+                loadRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
+                loadRegScaled{regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset},
+                (* Check for RTS exception. *)
+                loadRegScaled{regT=X8, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset},
+                subSImmediate{regN=X8, regD=XZero, immed=0w1, shifted=false},
+                conditionalBranch(condEqual, noRtsException),
+                (* If it isn't then raise the exception. *)
+                orrShiftedReg{regN=XZero, regM=X8, regD=X0, shift=ShiftNone},
+                loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset},
+                loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0},
+                branchRegister X1,
+                setLabel noRtsException,
+                (* TODO: For floating point we need to box/tag the result. *)
+                (* Return *)
+                returnRegister X24
+            ]
+        val closure = makeConstantClosure()
+        val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure}
+    in
+        closureAsAddress closure
+    end
+
+
+    fun rtsCallFast (functionName, nArgs, debugSwitches) =
+        rtsCallFastGeneral (functionName, List.tabulate(nArgs, fn _ => FastArgFixed), FastArgFixed, debugSwitches)
+(*
+    (* RTS call with one double-precision floating point argument and a floating point result. *)
+    fun rtsCallFastRealtoReal (functionName, debugSwitches) =
+        rtsCallFastGeneral (functionName, [FastArgDouble], FastArgDouble, debugSwitches)
+    
+    (* RTS call with two double-precision floating point arguments and a floating point result. *)
+    fun rtsCallFastRealRealtoReal (functionName, debugSwitches) =
+        rtsCallFastGeneral (functionName, [FastArgDouble, FastArgDouble], FastArgDouble, debugSwitches)
+
+    (* RTS call with one double-precision floating point argument, one fixed point argument and a
+       floating point result. *)
+    fun rtsCallFastRealGeneraltoReal (functionName, debugSwitches) =
+        rtsCallFastGeneral (functionName, [FastArgDouble, FastArgFixed], FastArgDouble, debugSwitches)
+
+    (* RTS call with one general (i.e. ML word) argument and a floating point result.
+       This is used only to convert arbitrary precision values to floats. *)
+    fun rtsCallFastGeneraltoReal (functionName, debugSwitches) =
+        rtsCallFastGeneral (functionName, [FastArgFixed], FastArgDouble, debugSwitches)
+
+    (* Operations on Real32.real values. *)
+
+    fun rtsCallFastFloattoFloat (functionName, debugSwitches) =
+        rtsCallFastGeneral (functionName, [FastArgFloat], FastArgFloat, debugSwitches)
+    
+    fun rtsCallFastFloatFloattoFloat (functionName, debugSwitches) =
+        rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFloat], FastArgFloat, debugSwitches)
+
+    (* RTS call with one double-precision floating point argument, one fixed point argument and a
+       floating point result. *)
+    fun rtsCallFastFloatGeneraltoFloat (functionName, debugSwitches) =
+        rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFixed], FastArgFloat, debugSwitches)
+
+    (* RTS call with one general (i.e. ML word) argument and a floating point result.
+       This is used only to convert arbitrary precision values to floats. *)
+    fun rtsCallFastGeneraltoFloat (functionName, debugSwitches) =
+        rtsCallFastGeneral (functionName, [FastArgFixed], FastArgFloat, debugSwitches)
+*)
     
     (* There is only one ABI value. *)
     datatype abi = ARM64Abi
@@ -58,7 +160,7 @@ struct
             loadAddressConstant(X0, Address.toMachineWord exceptionPacket),
             loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset},
             loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0},
-            genBranchRegister X1
+            branchRegister X1
         ]
 
         val functionName = "foreignCall"

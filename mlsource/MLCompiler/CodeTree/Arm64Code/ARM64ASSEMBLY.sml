@@ -76,6 +76,9 @@ struct
     and stackLimitOffset        = 6
     and exceptionPacketOffset   = 7
     and threadIdOffset          = 8
+    and heapLimitPtrOffset      = 42
+    and heapAllocPtrOffset      = 43
+    and mlStackPtrOffset        = 44
 
     (* 31 in the register field can either mean the zero register or
        the hardware stack pointer.  Which meaning depends on the instruction. *)
@@ -544,15 +547,15 @@ struct
 
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
-    fun genBranchAndLinkReg(dest) =
+    fun branchAndLinkReg(dest) =
         SimpleInstr(0wxD63F0000 orb (word8ToWord(xRegOnly dest) << 0w5))
 
     (* Jump to the address in the register. *)
-    fun genBranchRegister(dest) =
+    fun branchRegister(dest) =
         SimpleInstr(0wxD61F0000 orb (word8ToWord(xRegOnly dest) << 0w5))
 
     (* Jump to the address in the register and hint this is a return. *)
-    fun genReturnRegister(dest) =
+    fun returnRegister(dest) =
         SimpleInstr(0wxD65F0000 orb (word8ToWord(xRegOnly dest) << 0w5))
 
     (* Put a label into the code. *)
@@ -562,7 +565,7 @@ struct
     fun createLabel () = ref [ref 0w0]
 
     (* A conditional or unconditional branch. *)
-    and putBranchInstruction(cond, label) = Branch{label=label, jumpCondition=cond}
+    and conditionalBranch(cond, label) = Branch{label=label, jumpCondition=cond}
     (* Put the address of a label into a register - used for handlers and cases. *)
     and loadLabelAddress(reg, label) = LoadLabelAddress{label=label, reg=reg}
     (* Test a bit in a register and branch if zero/nonzero *)

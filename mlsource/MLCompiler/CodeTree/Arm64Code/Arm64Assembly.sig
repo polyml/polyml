@@ -88,11 +88,11 @@ sig
 
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
-    val genBranchAndLinkReg: xReg -> instr
+    val branchAndLinkReg: xReg -> instr
     (* Jump to the address in the register. *)
-    and genBranchRegister: xReg -> instr
+    and branchRegister: xReg -> instr
     (* Jump to the address in the register and hint this is a return. *)
-    and genReturnRegister: xReg -> instr
+    and returnRegister: xReg -> instr
 
     (* Move an address constant to a register. *)
     val loadAddressConstant: xReg * machineWord -> instr
@@ -192,7 +192,7 @@ sig
     (* Put a label into the code. *)
     val setLabel: labels -> instr
     (* A conditional or unconditional branch. *)
-    val putBranchInstruction: condition * labels -> instr
+    val conditionalBranch: condition * labels -> instr
     (* Put the address of a label into a register - used for handlers and cases. *)
     and loadLabelAddress: xReg * labels -> instr
     (* Test a bit in a register and branch if zero/nonzero *)
@@ -241,6 +241,9 @@ sig
     and stackLimitOffset: int
     and exceptionPacketOffset: int
     and threadIdOffset: int
+    and heapLimitPtrOffset: int
+    and heapAllocPtrOffset: int
+    and mlStackPtrOffset: int
 
     structure Sharing:
     sig

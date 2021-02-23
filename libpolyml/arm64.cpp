@@ -160,6 +160,12 @@ public:
 
     virtual void addProfileCount(POLYUNSIGNED words) { addSynchronousCount(interpreterPc, words); }
 
+    // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
+    virtual void PreRTSCall(void) { TaskData::PreRTSCall();  SaveMemRegisters(); }
+    // PostRTSCall: Before returning we need to restore the heap pointer.
+    // If there has been a GC in the RTS call we need to create a new heap area.
+    virtual void PostRTSCall(void) { SetMemRegisters(); TaskData::PostRTSCall(); }
+
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
     void SetMemRegisters();
@@ -749,10 +755,12 @@ void Arm64TaskData::SetMemRegisters()
 // This is called whenever we have returned from ML to C.
 void Arm64TaskData::SaveMemRegisters()
 {
-    // The normal return is to the link register address.
-    assemblyInterface.entryPoint = assemblyInterface.linkRegister;
-    if (interpreterPc == 0) // Not if we're already in the interpreter
+    if (interpreterPc == 0)
+    {   // Not if we're already in the interpreter
+        // The normal return is to the link register address.
+        assemblyInterface.entryPoint = assemblyInterface.linkRegister;
         allocPointer = assemblyInterface.localMpointer - 1;
+    }
     allocWords = 0;
     assemblyInterface.exceptionPacket = TAGGED(0);
     saveRegisterMask = 0;

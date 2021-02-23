@@ -125,9 +125,9 @@ struct
         addConstantWord({regS=X_MLHeapAllocPtr, regD=X0, regW=X3,
             value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * Word64.fromInt(words+1)}, code);
         compareRegs(X0, X_MLHeapLimit, code);
-        gen(putBranchInstruction(condCarrySet, label), code);
+        gen(conditionalBranch(condCarrySet, label), code);
         gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
-        gen(genBranchAndLinkReg X16, code);
+        gen(branchAndLinkReg X16, code);
         gen(registerMask [], code); (* Not used at the moment. *)
         gen(setLabel label, code);
         gen(genMoveRegToReg{sReg=X0, dReg=X_MLHeapAllocPtr}, code);
@@ -150,11 +150,11 @@ struct
     let
         val noOverflow = createLabel()
     in
-        gen(putBranchInstruction(condNoOverflow, noOverflow), code);
+        gen(conditionalBranch(condNoOverflow, noOverflow), code);
         gen(loadAddressConstant(X0, toMachineWord Overflow), code);
         gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, code);
         gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, code);
-        gen(genBranchRegister X1, code);
+        gen(branchRegister X1, code);
         gen(setLabel noOverflow, code)
     end
 
@@ -178,9 +178,9 @@ struct
     in
         gen(loadRegScaled{regT=regW, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset}, code);
         compareRegs(testReg, regW, code);
-        gen(putBranchInstruction(condCarrySet, skipCheck), code);
+        gen(conditionalBranch(condCarrySet, skipCheck), code);
         gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=entryPt}, code);
-        gen(genBranchAndLinkReg X16, code);
+        gen(branchAndLinkReg X16, code);
         gen(registerMask [], code); (* Not used at the moment. *)
         gen(setLabel skipCheck, code)
     end
@@ -564,7 +564,7 @@ and cpuPause = "cpuPause"
                     (* Jump back to the start of the loop. *)
                     checkStackCode(X10, 0, cvec);
                     
-                    gen(putBranchInstruction(condAlways, startLoop), cvec)
+                    gen(conditionalBranch(condAlways, startLoop), cvec)
                 end
   
             |   BICRaise exp =>
@@ -578,7 +578,7 @@ and cpuPause = "cpuPause"
                        such as overflow so it makes sense to minimise the code in each raise. *)
                     gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
                     gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
-                    gen(genBranchRegister X1, cvec)
+                    gen(branchRegister X1, cvec)
                 )
   
             |   BICHandle {exp, handler, exPacketAddr} =>
@@ -608,7 +608,7 @@ and cpuPause = "cpuPause"
                     val () = genPushReg(X0, cvec) (* Push the result. *)
 
                     val skipHandler = createLabel()
-                    val () = gen(putBranchInstruction (condAlways, skipHandler), cvec)
+                    val () = gen(conditionalBranch (condAlways, skipHandler), cvec)
                     val () = realstackptr := oldsp
                     val () = gen(setLabel handlerLabel, cvec)
                     (* The exception raise code resets the stack pointer to the value in the exception handler
@@ -659,16 +659,16 @@ and cpuPause = "cpuPause"
                     (* For the moment load the value into a register and compare. *)
                     val () = gen(loadNonAddressConstant(X1, Word64.<<(Word64.fromInt nCases, 0w2)), cvec)
                     val () = compareRegs(X0, X1, cvec)
-                    val () = gen(putBranchInstruction(condCarrySet, defaultLabel), cvec)
+                    val () = gen(conditionalBranch(condCarrySet, defaultLabel), cvec)
                     (* Load the address of the jump table. *)
                     val tableLabel = createLabel()
                     val () = gen(loadLabelAddress(X1, tableLabel), cvec)
                     (* Add the value shifted by one since it's already shifted. *)
                     val () = gen(addShiftedReg{regM=X0, regN=X1, regD=X0, shift=ShiftLSL 0w1}, cvec)
-                    val () = gen(genBranchRegister X0, cvec)
+                    val () = gen(branchRegister X0, cvec)
                     (* Put in the branch table. *)
                     val () = gen(setLabel tableLabel, cvec)
-                    val () = List.app(fn label => gen(putBranchInstruction(condAlways, label), cvec)) caseLabels
+                    val () = List.app(fn label => gen(conditionalBranch(condAlways, label), cvec)) caseLabels
 
                     (* The default case, if any, follows the case statement. *)
                     (* If we have a jump to the default set it to jump here. *)
@@ -685,7 +685,7 @@ and cpuPause = "cpuPause"
                         (
                             (* First exit from the previous case or the default if
                                this is the first. *)
-                            gen(putBranchInstruction(condAlways, exitJump), cvec);
+                            gen(conditionalBranch(condAlways, exitJump), cvec);
                             (* Remove the result - the last case will leave it. *)
                             case whereto of ToStack => decsp () | NoResult => () | ToX0 => ();
                             topInX0 := false;
@@ -805,11 +805,11 @@ and cpuPause = "cpuPause"
                     (* Load the packet and see if it is nil (tagged 0) *)
                     gen(loadRegScaled{regT=X0, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset}, cvec);
                     gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w0, shifted=false}, cvec);
-                    gen(putBranchInstruction(condEqual, noException), cvec);
+                    gen(conditionalBranch(condEqual, noException), cvec);
                     (* If it isn't then raise the exception. *)
                     gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
                     gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
-                    gen(genBranchRegister X1, cvec);
+                    gen(branchRegister X1, cvec);
                     gen(setLabel noException, cvec)
                 end
 
@@ -1486,7 +1486,7 @@ and cpuPause = "cpuPause"
                     val cVal = case toShort w of 0w0 => false | 0w1 => true | _ => raise InternalError "genTest"
                 in
                     if cVal = jumpOn
-                    then gen(putBranchInstruction (condAlways, targetLabel), cvec)
+                    then gen(conditionalBranch (condAlways, targetLabel), cvec)
                     else ()
                 end
 
@@ -1499,7 +1499,7 @@ and cpuPause = "cpuPause"
                 in
                     genTest(testPart, false, toElse);
                     genTest(thenPart, jumpOn, targetLabel);
-                    gen(putBranchInstruction (condAlways, exitJump), cvec);
+                    gen(conditionalBranch (condAlways, exitJump), cvec);
                     gen(setLabel toElse, cvec);
                     genTest(elsePart, jumpOn, targetLabel);
                     gen(setLabel exitJump, cvec)
@@ -1510,7 +1510,7 @@ and cpuPause = "cpuPause"
                     gencde (testCode, ToStack, NotEnd, loopAddr);
                     genPopReg(X0, cvec);
                     gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
-                    gen(putBranchInstruction(if jumpOn then condEqual else condNotEqual, targetLabel), cvec);
+                    gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec);
                     decsp() (* conditional branch pops a value. *)
                 )
 
@@ -1522,7 +1522,7 @@ and cpuPause = "cpuPause"
             val () = case whereto of ToStack => decsp () | NoResult => () | ToX0 => ()
             val () = topInX0 := false
 
-            val () = gen(putBranchInstruction (condAlways, exitJump), cvec)
+            val () = gen(conditionalBranch (condAlways, exitJump), cvec)
 
             (* start of "else part" *)
             val () = gen(setLabel toElse, cvec)
@@ -1603,7 +1603,7 @@ and cpuPause = "cpuPause"
                     val () = loadArg(7, X7)
                 in
                     gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
-                    gen(genBranchAndLinkReg X9, cvec);
+                    gen(branchAndLinkReg X9, cvec);
                     (* We have popped the closure pointer.  The caller has popped the stack
                        arguments and we have pushed the result value. The register arguments
                        are still on the stack. *)
@@ -1654,7 +1654,7 @@ and cpuPause = "cpuPause"
                 in
                     resetStack(itemsOnStack - Int.max(argsToPass-8, 0), false, cvec);
                     gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
-                    gen(genBranchRegister X9, cvec)
+                    gen(branchRegister X9, cvec)
                     (* Since we're not returning we can ignore the stack pointer value. *)
                 end
         end (* genEval *)
@@ -1681,7 +1681,7 @@ and cpuPause = "cpuPause"
         val () = resetStack(1, false, cvec) (* Skip over the pushed closure *)
         val () = genPopReg(X30, cvec) (* Return address => pop into X30 *)
         val () = resetStack(numOfArgs, false, cvec) (* Remove the arguments *)
-        val () = gen(genReturnRegister X30, cvec) (* Jump to X30 *)
+        val () = gen(returnRegister X30, cvec) (* Jump to X30 *)
         
         (* Now we know the maximum stack size we can code-gen the stack check.
            This needs to go in after we have saved X30. *)
