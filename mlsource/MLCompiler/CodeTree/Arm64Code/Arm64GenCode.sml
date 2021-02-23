@@ -21,8 +21,10 @@ functor Arm64GenCode (
     and       CodeArray: CODEARRAYSIG
     and       Arm64Assembly: Arm64Assembly
     and       Debug: DEBUG
+    and       Arm64Foreign: FOREIGNCALLSIG
     
-    sharing FallBackCG.Sharing = BackendTree.Sharing = CodeArray.Sharing = Arm64Assembly.Sharing
+    sharing FallBackCG.Sharing = BackendTree.Sharing = CodeArray.Sharing =
+        Arm64Assembly.Sharing
 ) : GENCODESIG =
 struct
 
@@ -1703,7 +1705,7 @@ and cpuPause = "cpuPause"
             FallBackCG.gencodeLambda(lambda, parameters, closure)
         )
 
-    structure Foreign = FallBackCG.Foreign
+    structure Foreign = Arm64Foreign
 
     structure Sharing =
     struct

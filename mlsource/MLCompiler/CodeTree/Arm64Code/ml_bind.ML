@@ -24,6 +24,14 @@ local
             and       Pretty = Pretty
             and       CodeArray = CODE_ARRAY
         )
+
+    structure Arm64Foreign =
+        Arm64ForeignCall (
+            structure FallBackCG = FallBackCG
+            and       CodeArray   = CODE_ARRAY
+            and       Arm64Assembly = Arm64Assembly
+            and       Debug = Debug
+        )
 in
     structure Arm64Code =
         Arm64GenCode(
@@ -31,6 +39,7 @@ in
             and       BackendTree = BackendIntermediateCode
             and       CodeArray   = CODE_ARRAY
             and       Arm64Assembly = Arm64Assembly
+            and       Arm64Foreign = Arm64Foreign
             and       Debug = Debug
         )
 end;

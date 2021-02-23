@@ -64,6 +64,7 @@ use "mlsource/MLCompiler/CodeTree/ByteCode/ml_bind.ML";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64Assembly.sig";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64ASSEMBLY.sml";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64GenCode.sml";
+use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64ForeignCall.sml";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ml_bind.ML";
 use "mlsource/MLCompiler/CodeTree/GCode.arm64.ML";
 use "mlsource/MLCompiler/CodeTree/ml_bind.ML";

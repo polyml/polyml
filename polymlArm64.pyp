@@ -102,6 +102,7 @@
 	<source name="mlsource\MLCompiler\BUILTINS.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64Assembly.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ASSEMBLY.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64ForeignCall.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64GenCode.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCode.sml" />
