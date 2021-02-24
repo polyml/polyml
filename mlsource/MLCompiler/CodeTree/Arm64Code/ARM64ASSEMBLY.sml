@@ -1279,6 +1279,23 @@ struct
                 printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
             end
 
+            else if (wordValue andb 0wx7e000000) = 0wx34000000
+            then (* Compare and branch *)
+            let
+                val byteOffset =
+                    (wordValue andb 0wx00ffffe0) << (Word.fromInt Word.wordSize - 0w24) ~>>
+                        (Word.fromInt Word.wordSize - 0w21)
+                val oper =
+                    if (wordValue andb 0wx01000000) = 0w0
+                    then "cbz" else "cbnz"
+                val r = if (wordValue andb 0wx80000000) = 0w0 then "w" else "x"
+            in
+                printStream oper; printStream "\t";
+                printStream r; printStream(Word.fmt StringCvt.DEC (wordValue andb 0wx1f));
+                printStream ",";
+                printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
+            end
+
             else if (wordValue andb 0wxffe00c00) = 0wx9A800400
             then
             let
@@ -1403,10 +1420,10 @@ struct
                 printStream oper;
                 printStream "\t";
                 printStream r; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
-                if rA = 0w31 then ()
-                else (printStream r; printStream(Word.fmt StringCvt.DEC rA); printStream ",");
                 printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
-                printStream r; printStream(Word.fmt StringCvt.DEC rM)
+                printStream r; printStream(Word.fmt StringCvt.DEC rM);
+                if rA = 0w31 then ()
+                else (printStream ","; printStream r; printStream(Word.fmt StringCvt.DEC rA))
             end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000

@@ -45,6 +45,9 @@ struct
 
 
     fun rtsCallFastGeneral (functionName, argFormats, resultFormat, debugSwitches) =
+    if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
+    then FallBackCG.Foreign.rtsCallFast(functionName, List.length argFormats, debugSwitches)
+    else 
     let
         val entryPointAddr = makeEntryPoint functionName
         val nArgs = List.length argFormats

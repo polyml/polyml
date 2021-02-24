@@ -160,8 +160,9 @@ struct
 
     (* Stack check code: this is inserted at the start of a function to check that there
        is sufficient ML stack available.  It is also inserted, with a zero space value,
-       in a loop to ensure that the RTS can interrupt a function. *)
-    fun checkStackCode(regW, space, code) =
+       in a loop to ensure that the RTS can interrupt a function.
+       debugTrapAlways can be used to set a sort of breakpoint during debugging. *)
+    fun checkStackCode(regW, space, debugTrapAlways, code) =
     let
         val skipCheck = createLabel()
         val defaultWords = 10 (* This is wired into the RTS. *)
@@ -177,8 +178,13 @@ struct
             )
     in
         gen(loadRegScaled{regT=regW, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset}, code);
-        compareRegs(testReg, regW, code);
-        gen(conditionalBranch(condCarrySet, skipCheck), code);
+        if debugTrapAlways
+        then ()
+        else
+        (
+            compareRegs(testReg, regW, code);
+            gen(conditionalBranch(condCarrySet, skipCheck), code)
+        );
         gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=entryPt}, code);
         gen(branchAndLinkReg X16, code);
         gen(registerMask [], code); (* Not used at the moment. *)
@@ -270,7 +276,6 @@ and opcode_storeCDouble = "opcode_storeCDouble"
 and opcode_storeUntagged = "opcode_storeUntagged"
 and opcode_blockMoveWord = "opcode_blockMoveWord"
 and opcode_blockMoveByte = "opcode_blockMoveByte"
-and opcode_blockEqualByte = "opcode_blockEqualByte"
 and opcode_blockCompareByte = "opcode_blockCompareByte"
 and opcode_allocCSpace = "opcode_allocCSpace"
 and opcode_freeCSpace = "opcode_freeCSpace"
@@ -356,7 +361,8 @@ and cpuPause = "cpuPause"
                 |   (SOME indexVal, soffset) =>
                     (
                         gencde (indexVal, ToStack, NotEnd, loopAddr);
-                        gen(loadNonAddressConstant(X0, Word64.fromInt(tag soffset)), cvec); genPushReg(X0, cvec); 
+                        gen(loadNonAddressConstant(X0, Word64.fromInt(tag soffset)), cvec); genPushReg(X0, cvec);
+                        (* Does this case ever occur? *)
                         genOpcode(opcode_wordAdd, cvec)
                     )
             )
@@ -562,7 +568,7 @@ and cpuPause = "cpuPause"
                     else ();
             
                     (* Jump back to the start of the loop. *)
-                    checkStackCode(X10, 0, cvec);
+                    checkStackCode(X10, 0, false, cvec);
                     
                     gen(conditionalBranch(condAlways, startLoop), cvec)
                 end
@@ -958,7 +964,8 @@ and cpuPause = "cpuPause"
                             (* Untag but don't shift the dividend. *)
                             gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
                             gen(unsignedDivide{regM=X0, regN=X1, regD=X0}, cvec);
-                            (* Restore the tag. *)
+                            (* Restore the tag: Note: it may already be set depending on the result of
+                               the division. *)
                             gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
                         )
                     |   WordArith ArithMod =>
@@ -970,6 +977,8 @@ and cpuPause = "cpuPause"
                             (* Untag but don't shift the dividend. *)
                             gen(bitwiseAndImmediate{regN=X1, regD=X2, wordSize=WordSize64, bits=tagBitMask}, cvec);
                             gen(unsignedDivide{regM=X0, regN=X2, regD=X2}, cvec);
+                            (* Clear the bottom bit before the multiplication. *)
+                            gen(bitwiseAndImmediate{regN=X2, regD=X2, wordSize=WordSize64, bits=tagBitMask}, cvec);
                             (* X0 = X1 - (X2/X0)*X0 *)
                             gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec)
                             (* Because we're subtracting from the original, tagged, dividend
@@ -1295,13 +1304,36 @@ and cpuPause = "cpuPause"
                 )
 
             |   BICBlockOperation { kind=BlockOpEqualByte, sourceLeft, destRight, length } =>
-                (
+                let
+                    val exitLabel = createLabel() and loopLabel = createLabel()
+                in
                     genMLAddress(sourceLeft, 1);
                     genMLAddress(destRight, 1);
-                    gencde (length, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_blockEqualByte, cvec);
+                    gencde (length, ToX0, NotEnd, loopAddr);
+                    genPopReg(X2, cvec); (* 2nd index - tagged value. *)
+                    genPopReg(X1, cvec); (* 2nd base address. *)
+                    (* Add in the index N.B. ML index values are unsigned. *)
+                    gen(addShiftedReg{regM=X2, regN=X1, regD=X1, shift=ShiftLSR 0w1}, cvec);
+                    genPopReg(X3, cvec); (* 1st index *)
+                    genPopReg(X2, cvec);
+                    gen(addShiftedReg{regM=X3, regN=X2, regD=X2, shift=ShiftLSR 0w1}, cvec);
+                    (* Untag the length *)
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                    (* Test the loop value in case it's already zero. *)
+                    compareRegs(X0, X0, cvec); (* Set condition code just in case. *)
+                    gen(setLabel loopLabel, cvec);
+                    gen(compareBranchZero(X0, WordSize64, exitLabel), cvec);
+                    gen(loadRegPostIndexByte{regT=X3, regN=X1, byteOffset=1}, cvec);
+                    gen(loadRegPostIndexByte{regT=X4, regN=X2, byteOffset=1}, cvec);
+                    compareRegs(X3, X4, cvec);
+                    gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                    (* Loop if they're equal. *)
+                    gen(conditionalBranch(condEqual, loopLabel), cvec);
+                    gen(setLabel exitLabel, cvec);
+                    (* Set the result condition. *)
+                    setBooleanCondition(X0, condEqual, cvec);
                     decsp(); decsp(); decsp(); decsp()
-                )
+                end
 
             |   BICBlockOperation { kind=BlockOpCompareByte, sourceLeft, destRight, length } =>
                 (
@@ -1685,7 +1717,7 @@ and cpuPause = "cpuPause"
         
         (* Now we know the maximum stack size we can code-gen the stack check.
            This needs to go in after we have saved X30. *)
-        val () = checkStackCode(X10, !maxStack, prefix)
+        val () = checkStackCode(X10, !maxStack, false (*name = "ProtectedTable.lookup(2)(1)"*), prefix)
         val instructions = List.rev(!prefix) @ List.rev(!cvec)
 
     in (* body of codegen *)
@@ -1695,7 +1727,7 @@ and cpuPause = "cpuPause"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if (*false andalso*) Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
         codegen (body, name, closure, List.length argTypes, localCount, parameters)
