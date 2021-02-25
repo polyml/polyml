@@ -137,6 +137,35 @@ struct
         gen(storeRegUnscaled{regT=X1, regN=X0, byteOffset= ~8}, code)
     end
 
+    (* Allocate space on the heap for a vector, string etc.  sizeReg and flagsReg
+       contain the size and flags as untagged values. sizeReg is unchanged, flagsReg
+       is modified.  The result address is in resultReg.  All the registers must
+       be different. *)
+    fun allocateVariableSize({sizeReg, flagsReg, resultReg}, code) =
+    let
+        val trapLabel = createLabel() and noTrapLabel = createLabel()
+    in
+        (* Subtract the size as a number of bytes from the allocation ptr. *)
+        gen(subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=resultReg, shift=ShiftLSL 0w3}, code);
+        (* If the size is large enough it is possible that this could wrap round.  To check for that
+           we trap if either the result is less than the limit or if it is now greater than
+           the allocation pointer. *)
+        compareRegs(resultReg, X_MLHeapLimit, code);
+        gen(conditionalBranch(condCarryClear, trapLabel), code);
+        compareRegs(resultReg, X_MLHeapAllocPtr, code);
+        gen(conditionalBranch(condCarryClear, noTrapLabel), code);
+        gen(setLabel trapLabel, code);
+        gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
+        gen(branchAndLinkReg X16, code);
+        gen(registerMask [], code); (* Not used at the moment. *)
+        gen(setLabel noTrapLabel, code);
+        gen(genMoveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
+        (* Combine the size with the flags in the top byte. *)
+        gen(orrShiftedReg{regM=flagsReg, regN=sizeReg, regD=flagsReg, shift=ShiftLSL 0w56}, code);
+        (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
+        gen(storeRegUnscaled{regT=flagsReg, regN=resultReg, byteOffset= ~8}, code)
+    end
+
     (* Set a register to either tagged(1) i.e. true or tagged(0) i.e. false. *)
     fun setBooleanCondition(reg, condition, code) =
     (
@@ -221,7 +250,6 @@ and opcode_fixedMult = "opcode_fixedMult"
 and opcode_fixedQuot = "opcode_fixedQuot"
 and opcode_fixedRem = "opcode_fixedRem"
 and opcode_wordAdd = "opcode_wordAdd"
-and opcode_allocByteMem = "opcode_allocByteMem"
 and opcode_lgWordEqual = "opcode_lgWordEqual"
 and opcode_lgWordLess = "opcode_lgWordLess"
 and opcode_lgWordLessEq = "opcode_lgWordLessEq"
@@ -1040,7 +1068,19 @@ and cpuPause = "cpuPause"
                             gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
                         )
                  
-                    |   AllocateByteMemory => genOpcode(opcode_allocByteMem, cvec)
+                    |   AllocateByteMemory =>
+                        (* Allocate memory for byte data.  Unlike for word data it is not necessary to
+                           initialise it before any further allocation provided it has the mutable bit
+                           set. *)
+                        (
+                            (* Load and untag the size and flags.  The size is the number of words even
+                               though this is byte data. *)
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                            allocateVariableSize({sizeReg=X1, flagsReg=X0, resultReg=X2}, cvec);
+                            gen(genMoveRegToReg{sReg=X2, dReg=X0}, cvec)
+                        )
                 
                     |   LargeWordComparison TestEqual => genOpcode(opcode_lgWordEqual, cvec)
                     |   LargeWordComparison TestLess => genOpcode(opcode_lgWordLess, cvec)
