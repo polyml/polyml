@@ -147,6 +147,8 @@ struct
     in
         (* Subtract the size as a number of bytes from the allocation ptr. *)
         gen(subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=resultReg, shift=ShiftLSL 0w3}, code);
+        (* Subtract another 8 to allow for the length word. *)
+        gen(subImmediate{regN=resultReg, regD=resultReg, immed=0w8, shifted=false}, code);
         (* If the size is large enough it is possible that this could wrap round.  To check for that
            we trap if either the result is less than the limit or if it is now greater than
            the allocation pointer. *)
@@ -231,7 +233,6 @@ struct
     fun genRealToInt _ =  toDo "genRealToInt"
     fun genFloatToInt _ =  toDo "genFloatToInt"
 
-    val opcode_clearMutable = "clearMutable"
     val opcode_atomicExchAdd = "opcode_atomicExchAdd"
 and opcode_atomicReset = "opcode_atomicReset"
 and opcode_longWToTagged = "opcode_longWToTagged"
@@ -294,14 +295,12 @@ and opcode_loadC32 = "opcode_loadC32"
 and opcode_loadC64 = "opcode_loadC64"
 and opcode_loadCFloat = "opcode_loadCFloat"
 and opcode_loadCDouble = "opcode_loadCDouble"
-and opcode_storeMLByte = "opcode_storeMLByte"
 and opcode_storeC8 = "opcode_storeC8"
 and opcode_storeC16 = "opcode_storeC16"
 and opcode_storeC32 = "opcode_storeC32"
 and opcode_storeC64 = "opcode_storeC64"
 and opcode_storeCFloat = "opcode_storeCFloat"
 and opcode_storeCDouble = "opcode_storeCDouble"
-and opcode_storeUntagged = "opcode_storeUntagged"
 and opcode_blockMoveWord = "opcode_blockMoveWord"
 and opcode_blockMoveByte = "opcode_blockMoveByte"
 and opcode_blockCompareByte = "opcode_blockCompareByte"
@@ -888,7 +887,13 @@ and cpuPause = "cpuPause"
                             gen(bitwiseOrImmediate{wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
                         )
 
-                    |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
+                    |   ClearMutableFlag =>
+                        (
+                            gen(loadRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec);
+                            gen(bitwiseAndImmediate{wordSize=WordSize32, bits=Word64.xorb(0wxffffffff, 0wx40), regN=X1, regD=X1}, cvec);
+                            gen(storeRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec)
+                        )
+
                     |   AtomicReset => genOpcode(opcode_atomicReset, cvec)
                     |   LongWordToTagged => genOpcode(opcode_longWToTagged, cvec)
                     |   SignedToLongWord => genOpcode(opcode_signedToLongW, cvec)
@@ -1263,10 +1268,20 @@ and cpuPause = "cpuPause"
 
             |   BICStoreOperation { kind=LoadStoreMLByte _, address, value } =>
                 (
+                    (* Untag the value and store the byte. *)
                     genMLAddress(address, 1);
                     gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeMLByte, cvec);
-                    decsp(); decsp()
+                    genPopReg(X0, cvec); (* Value to store *)
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec); (* Untag it *)
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Shift right to remove the tag.  N.B.  Indexes into ML memory are
+                       unsigned.  Unlike on the X86 we can't remove the tag by providing
+                       a displacement and the only options are to scale by either 1 or 8. *)
+                    gen(logicalShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address. *)
+                    gen(storeRegIndexedByte{regN=X2, regM=X1, regT=X0, option=ExtUXTX NoScale}, cvec);
+                    (* Don't put the unit result in; it probably isn't needed, *)
+                    decsp(); decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreC8, address, value} =>
@@ -1319,10 +1334,22 @@ and cpuPause = "cpuPause"
 
             |   BICStoreOperation { kind=LoadStoreUntaggedUnsigned, address, value} =>
                 (
+                    (* Almost the same as LoadStoreMLWord except that the value to be stored
+                       must be untagged before it is stored.  This is used primarily to set
+                       the length word on a string. *)
                     genMLAddress(address, Word.toInt wordSize);
                     gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeUntagged, cvec);
-                    decsp(); decsp()
+                    genPopReg(X0, cvec); (* Value to store *)
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Shift right to remove the tag.  N.B.  Indexes into ML memory are
+                       unsigned.  Unlike on the X86 we can't remove the tag by providing
+                       a displacement and the only options are to scale by either 1 or 8. *)
+                    gen(logicalShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address. *)
+                    gen(storeRegIndexed{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    (* Don't put the unit result in; it probably isn't needed, *)
+                    decsp(); decsp(); decsp()
                 )
 
             |   BICBlockOperation { kind=BlockOpMove{isByteMove=true}, sourceLeft, destRight, length } =>
