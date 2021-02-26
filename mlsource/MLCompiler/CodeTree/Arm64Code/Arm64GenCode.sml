@@ -36,6 +36,7 @@ struct
     
     (* tag a short constant *)
     fun tag c = 2 * c + 1
+    and semitag c = 2*c
     
     fun taggedWord w: word = w * 0w2 + 0w1
     and taggedWord64 w: Word64.word = w * 0w2 + 0w1
@@ -250,7 +251,6 @@ and opcode_floatNeg = "opcode_floatNeg"
 and opcode_fixedMult = "opcode_fixedMult"
 and opcode_fixedQuot = "opcode_fixedQuot"
 and opcode_fixedRem = "opcode_fixedRem"
-and opcode_wordAdd = "opcode_wordAdd"
 and opcode_lgWordEqual = "opcode_lgWordEqual"
 and opcode_lgWordLess = "opcode_lgWordLess"
 and opcode_lgWordLessEq = "opcode_lgWordLessEq"
@@ -386,10 +386,12 @@ and cpuPause = "cpuPause"
                 |   (SOME indexVal, 0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
                 |   (SOME indexVal, soffset) =>
                     (
-                        gencde (indexVal, ToStack, NotEnd, loopAddr);
-                        gen(loadNonAddressConstant(X0, Word64.fromInt(tag soffset)), cvec); genPushReg(X0, cvec);
-                        (* Does this case ever occur? *)
-                        genOpcode(opcode_wordAdd, cvec)
+                        gencde (indexVal, ToX0, NotEnd, loopAddr);
+                        (* Add the offset as a shifted but not tagged value. *)
+                        addConstantWord({regS=X0, regD=X0, regW=X1, value=Word64.fromInt(semitag soffset)}, cvec);
+                        genPushReg(X0, cvec);
+                        incsp();
+                        topInX0 := false
                     )
             )
 
@@ -1814,7 +1816,7 @@ and cpuPause = "cpuPause"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if false andalso Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
         codegen (body, name, closure, List.length argTypes, localCount, parameters)
