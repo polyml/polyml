@@ -302,7 +302,6 @@ and opcode_storeC64 = "opcode_storeC64"
 and opcode_storeCFloat = "opcode_storeCFloat"
 and opcode_storeCDouble = "opcode_storeCDouble"
 and opcode_blockMoveWord = "opcode_blockMoveWord"
-and opcode_blockMoveByte = "opcode_blockMoveByte"
 and opcode_blockCompareByte = "opcode_blockCompareByte"
 and opcode_allocCSpace = "opcode_allocCSpace"
 and opcode_freeCSpace = "opcode_freeCSpace"
@@ -1353,13 +1352,34 @@ and cpuPause = "cpuPause"
                 )
 
             |   BICBlockOperation { kind=BlockOpMove{isByteMove=true}, sourceLeft, destRight, length } =>
-                (
+                let
+                    val exitLabel = createLabel() and loopLabel = createLabel()
+                in
                     genMLAddress(sourceLeft, 1);
                     genMLAddress(destRight, 1);
-                    gencde (length, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_blockMoveByte, cvec);
+                    gencde (length, ToX0, NotEnd, loopAddr); (* Length *)
+                    genPopReg(X2, cvec); (* Dest index - tagged value. *)
+                    genPopReg(X1, cvec); (* Dest base address. *)
+                    (* Add in the index N.B. ML index values are unsigned. *)
+                    gen(addShiftedReg{regM=X2, regN=X1, regD=X1, shift=ShiftLSR 0w1}, cvec);
+                    genPopReg(X3, cvec); (* Source index *)
+                    genPopReg(X2, cvec);
+                    gen(addShiftedReg{regM=X3, regN=X2, regD=X2, shift=ShiftLSR 0w1}, cvec);
+                    (* Untag the length *)
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                    (* Test the loop value in case it's already zero. *)
+                    compareRegs(X0, X0, cvec); (* Set condition code just in case. *)
+                    gen(setLabel loopLabel, cvec);
+                    gen(compareBranchZero(X0, WordSize64, exitLabel), cvec);
+                    gen(loadRegPostIndexByte{regT=X3, regN=X2, byteOffset=1}, cvec);
+                    gen(storeRegPostIndexByte{regT=X3, regN=X1, byteOffset=1}, cvec);
+                    gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                    (* Back to the start. *)
+                    gen(conditionalBranch(condAlways, loopLabel), cvec);
+                    gen(setLabel exitLabel, cvec);
+                    topInX0 := false; (* X0 does not contain "unit" *)
                     decsp(); decsp(); decsp(); decsp()
-                )
+                end
 
             |   BICBlockOperation { kind=BlockOpMove{isByteMove=false}, sourceLeft, destRight, length } =>
                 (
@@ -1794,7 +1814,7 @@ and cpuPause = "cpuPause"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if (*false andalso*) Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if false andalso Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
         codegen (body, name, closure, List.length argTypes, localCount, parameters)
