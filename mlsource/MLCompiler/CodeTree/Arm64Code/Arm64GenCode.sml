@@ -296,9 +296,6 @@ and opcode_storeCFloat = "opcode_storeCFloat"
 and opcode_storeCDouble = "opcode_storeCDouble"
 and opcode_allocCSpace = "opcode_allocCSpace"
 and opcode_freeCSpace = "opcode_freeCSpace"
-and opcode_arbAdd = "opcode_arbAdd"
-and opcode_arbSubtract = "opcode_arbSubtract"
-and opcode_arbMultiply = "opcode_arbMultiply"
 and cpuPause = "cpuPause"
 
     type caseForm =
@@ -1485,19 +1482,11 @@ and cpuPause = "cpuPause"
                     gen(setLabel resultLabel, cvec)
                 end
        
-           |    BICArbitrary { oper, arg1, arg2, ... } =>
-                let
-                    open BuiltIns
-                    val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                    val () = gencde (arg2, ToStack, NotEnd, loopAddr)
-                in
-                    case oper of
-                        ArithAdd  => genOpcode(opcode_arbAdd, cvec)
-                    |   ArithSub  => genOpcode(opcode_arbSubtract, cvec)
-                    |   ArithMult => genOpcode(opcode_arbMultiply, cvec)
-                    |   _ => raise InternalError "Unknown arbitrary precision operation";
-                    decsp() (* Removes one item from the stack. *)
-                end
+           |    BICArbitrary { longCall, ... } =>
+                (* Just implement as a call to the long-precision case. *)
+                (
+                    gencde (longCall, whereto, tailKind, loopAddr)
+                )
 
         in (* body of gencde *) 
 
