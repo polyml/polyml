@@ -287,7 +287,6 @@ and opcode_floatAdd = "opcode_floatAdd"
 and opcode_floatSub = "opcode_floatSub"
 and opcode_floatMult = "opcode_floatMult"
 and opcode_floatDiv = "opcode_floatDiv"
-and opcode_allocWordMemory = "opcode_allocWordMemory"
 
 and opcode_loadC8 = "opcode_loadC8"
 and opcode_loadC16 = "opcode_loadC16"
@@ -1081,7 +1080,7 @@ and cpuPause = "cpuPause"
                         (
                             (* Load and untag the size and flags.  The size is the number of words even
                                though this is byte data. *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32 (*byte*), shift=0w1}, cvec);
                             genPopReg(X1, cvec);
                             gen(logicalShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
                             allocateVariableSize({sizeReg=X1, flagsReg=X0, resultReg=X2}, cvec);
@@ -1142,36 +1141,49 @@ and cpuPause = "cpuPause"
                     decsp() (* Removes one item from the stack. *)
                 end
             
-            |   BICAllocateWordMemory {numWords as BICConstnt(length, _), flags as BICConstnt(flagValue, _), initial } =>
-                if isShort length andalso toShort length = 0w1 andalso isShort flagValue
-                then (* This is a very common case for refs. *)
+            |   BICAllocateWordMemory {numWords, flags, initial } =>
                 let
-                    val flagByte = Word8.fromLargeWord(Word.toLargeWord(toShort flagValue))
+                    fun doAllocateAndInit() =
+                    let
+                        val () = gencde (numWords, ToStack, NotEnd, loopAddr)
+                        val () = gencde (flags, ToStack, NotEnd, loopAddr)
+                        val () = gencde (initial, ToX0, NotEnd, loopAddr)
+                        val exitLabel = createLabel() and loopLabel = createLabel()
+                    in
+                        genPopReg(X2, cvec); (* Flags as tagged value. *)
+                        gen(logicalShiftRight{regN=X2, regD=X2, wordSize=WordSize32 (*byte*), shift=0w1}, cvec);
+                        genPopReg(X1, cvec); (* Length as tagged value. *)
+                        gen(logicalShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                        genPushReg(X0, cvec); (* Save initialiser - TODO: Add it to save set. *)
+                        allocateVariableSize({sizeReg=X1, flagsReg=X2, resultReg=X0}, cvec);
+                        genPopReg(X3, cvec); (* Pop initialiser. *)
+                        (* Add the length in bytes so we point at the end. *)
+                        gen(addShiftedReg{regM=X1, regN=X0, regD=X1, shift=ShiftLSL 0w3}, cvec);
+                        (* Loop to initialise. *)
+                        gen(setLabel loopLabel, cvec);
+                        compareRegs(X1, X0, cvec); (* Are we at the start? *)
+                        gen(conditionalBranch(condEqual, exitLabel), cvec);
+                        gen(storeRegPreIndex{regT=X3, regN=X1, byteOffset= ~8}, cvec);
+                        gen(conditionalBranch(condAlways, loopLabel), cvec);
+                        gen(setLabel exitLabel, cvec);
+                        decsp(); decsp()
+                    end
                 in
-                    gencde (initial, ToStack, NotEnd, loopAddr); (* Initialiser. *)
-                    genAllocateFixedSize(1, flagByte, cvec);
-                    genPopReg(X1, cvec);
-                    gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec);
-                    decsp(); topInX0 := true
-                end
-                else
-                let
-                    val () = gencde (numWords, ToStack, NotEnd, loopAddr)
-                    val () = gencde (flags, ToStack, NotEnd, loopAddr)
-                    val () = gencde (initial, ToStack, NotEnd, loopAddr)
-                in
-                    genOpcode(opcode_allocWordMemory, cvec);
-                    decsp(); decsp()
-                end
-
-            |   BICAllocateWordMemory { numWords, flags, initial } =>
-                let
-                    val () = gencde (numWords, ToStack, NotEnd, loopAddr)
-                    val () = gencde (flags, ToStack, NotEnd, loopAddr)
-                    val () = gencde (initial, ToStack, NotEnd, loopAddr)
-                in
-                    genOpcode(opcode_allocWordMemory, cvec);
-                    decsp(); decsp()
+                    case (numWords, flags) of
+                        (BICConstnt(length, _), BICConstnt(flagValue, _)) =>
+                            if isShort length andalso toShort length = 0w1 andalso isShort flagValue
+                            then (* This is a very common case for refs. *)
+                            let
+                                val flagByte = Word8.fromLargeWord(Word.toLargeWord(toShort flagValue))
+                            in
+                                gencde (initial, ToStack, NotEnd, loopAddr); (* Initialiser. *)
+                                genAllocateFixedSize(1, flagByte, cvec);
+                                genPopReg(X1, cvec);
+                                gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec);
+                                decsp(); topInX0 := true
+                            end
+                            else (* Constant but not a single. *) doAllocateAndInit()
+                    |   _ => (* Not constant. *) doAllocateAndInit()
                 end
 
             |   BICLoadOperation { kind=LoadStoreMLWord _, address} =>
@@ -1760,7 +1772,7 @@ and cpuPause = "cpuPause"
 
                     (* Stack arguments are moved using X9. *)
                     fun moveStackArg n =
-                    if n < 8
+                    if n >= argsToPass
                     then ()
                     else
                     let
@@ -1768,10 +1780,10 @@ and cpuPause = "cpuPause"
                         val destOffset = itemsOnStack - (n-8) - 1
                         val () = gen(storeRegScaled{regT=X9, regN=X_MLStackPtr, unitOffset=destOffset}, cvec)
                     in
-                        moveStackArg(n-1)
+                        moveStackArg(n+1)
                     end
 
-                    val () = moveStackArg (argsToPass-1)
+                    val () = moveStackArg 8
                 in
                     resetStack(itemsOnStack - Int.max(argsToPass-8, 0), false, cvec);
                     gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
@@ -1806,7 +1818,7 @@ and cpuPause = "cpuPause"
         
         (* Now we know the maximum stack size we can code-gen the stack check.
            This needs to go in after we have saved X30. *)
-        val () = checkStackCode(X10, !maxStack, false (*name = "ProtectedTable.lookup(2)(1)"*), prefix)
+        val () = checkStackCode(X10, !maxStack, false, prefix)
         val instructions = List.rev(!prefix) @ List.rev(!cvec)
 
     in (* body of codegen *)
@@ -1816,7 +1828,7 @@ and cpuPause = "cpuPause"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if (*false andalso*) Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
         codegen (body, name, closure, List.length argTypes, localCount, parameters)
