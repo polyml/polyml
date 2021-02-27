@@ -602,38 +602,53 @@ struct
        if imms >= immr copies imms-immr-1 bits from bit position immr to the lsb
        bits of the destination.
        if imms < immr copies imms+1 bits from the lsb bit to bit position
-       regsize-immr.  Bits not otherwise set are zeroed. *)
-    fun unsignedBitfieldMove({wordSize, n, immr, imms, regN, regD}) =
-    let
-        val sf = case wordSize of WordSize32 => 0w0 | WordSize64 => 0w1 << 0w31
-    in
-        SimpleInstr(0wx53000000 orb sf orb (n << 0w22) orb
-            (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOnly regN) << 0w5) orb
-            word8ToWord(xRegOnly regD))
-    end
+       regsize-immr.
+       How the remaining bits are affected depends on the instruction.
+       BitField instructions do not affect other bits.
+       UnsignedBitField instructions zero other bits.
+       SignedBitField instructions set the high order bits to a copy of
+       the high order bit copied and zero the low order bits. *)
+    local
+        fun bitfield (sf, opc, n) {immr, imms, regN, regD} =
+            SimpleInstr(0wx13000000 orb (sf << 0w31) orb (opc << 0w29) orb (n << 0w22) orb
+                (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
+                word8ToWord(xRegOrXZ regD))
 
-    fun logicalShiftLeft({wordSize, shift, regN, regD}) =
-    let
-        val (wordBits, n) = case wordSize of WordSize32 => (0w32, 0w0) | WordSize64 => (0w64, 0w1)
+        val signedBitfieldMove32 = bitfield(0w0, 0w0, 0w0)
+        and bitfieldMove32 = bitfield(0w0, 0w1, 0w0)
+        and unsignedBitfieldMove32 = bitfield(0w0, 0w2, 0w0)
+        and signedBitfieldMove64 = bitfield(0w1, 0w0, 0w1)
+        and bitfieldMove64 = bitfield(0w1, 0w1, 0w1)
+        and unsignedBitfieldMove64 = bitfield(0w1, 0w2, 0w1)
     in
-        unsignedBitfieldMove({wordSize=wordSize, n=n, immr=Word.~ shift mod wordBits,
-            imms=wordBits-0w1-shift, regN=regN, regD=regD})
-    end
+        fun logicalShiftLeft{wordSize=WordSize64, shift, regN, regD} =
+                unsignedBitfieldMove64{immr=Word.~ shift mod 0w64,
+                    imms=0w64-0w1-shift, regN=regN, regD=regD}
+        |   logicalShiftLeft{wordSize=WordSize32, shift, regN, regD} =
+                unsignedBitfieldMove32{immr=Word.~ shift mod 0w32,
+                    imms=0w32-0w1-shift, regN=regN, regD=regD}
 
-    and logicalShiftRight({wordSize, shift, regN, regD}) =
-    let
-        val (imms, n) = case wordSize of WordSize32 => (0wx1f, 0w0) | WordSize64 => (0wx3f, 0w1)
-    in
-        unsignedBitfieldMove({wordSize=wordSize, n=n, immr=shift,
-            imms=imms, regN=regN, regD=regD})
-    end
-    
-    and unsignedBitfieldInsertinZeros({wordSize, lsb, width, regN, regD}) =
-    let
-        val (wordBits, n) = case wordSize of WordSize32 => (0w32, 0w0) | WordSize64 => (0w64, 0w1)
-    in
-        unsignedBitfieldMove({wordSize=wordSize, n=n, immr=Word.~ lsb mod wordBits,
-            imms=width-0w1, regN=regN, regD=regD})
+        and logicalShiftRight{wordSize=WordSize64, shift, regN, regD} =
+                unsignedBitfieldMove64{immr=shift, imms=0wx3f, regN=regN, regD=regD}
+        |   logicalShiftRight{wordSize=WordSize32, shift, regN, regD} =
+                unsignedBitfieldMove32{immr=shift, imms=0wx1f, regN=regN, regD=regD}
+
+        and unsignedBitfieldInsertinZeros{wordSize=WordSize64, lsb, width, regN, regD} =
+                unsignedBitfieldMove64{immr=Word.~ lsb mod 0w64,
+                    imms=width-0w1, regN=regN, regD=regD}
+        |   unsignedBitfieldInsertinZeros{wordSize=WordSize32, lsb, width, regN, regD} =
+                unsignedBitfieldMove32{immr=Word.~ lsb mod 0w32,
+                    imms=width-0w1, regN=regN, regD=regD}
+
+        and arithmeticShiftRight{wordSize=WordSize64, shift, regN, regD} =
+                signedBitfieldMove64{immr=shift, imms=0wx3f, regN=regN, regD=regD}
+        |   arithmeticShiftRight{wordSize=WordSize32, shift, regN, regD} =
+                signedBitfieldMove32{immr=shift, imms=0wx1f, regN=regN, regD=regD}
+
+        and bitfieldInsert{wordSize=WordSize64, lsb, width, regN, regD} =
+                bitfieldMove64{immr=Word.~ lsb mod 0w64, imms=width-0w1, regN=regN, regD=regD}
+        |   bitfieldInsert{wordSize=WordSize32, lsb, width, regN, regD} =
+                bitfieldMove32{immr=Word.~ lsb mod 0w32, imms=width-0w1, regN=regN, regD=regD}
     end
 
     local
@@ -1127,7 +1142,7 @@ struct
                 printStream(Word.fmt StringCvt.DEC((wordValue >> 0w16) andb 0wx1f))
             end
 
-            else if (wordValue andb 0wx1f800000) = 0wx0A000000
+            else if (wordValue andb 0wx1f000000) = 0wx0A000000
             then
             let
                 (* Logical operations with shifted register. *)
@@ -1165,7 +1180,7 @@ struct
                 else ()
             end
 
-            else if (wordValue andb 0wx1f800000) = 0wx0B000000
+            else if (wordValue andb 0wx1f200000) = 0wx0B000000
             then
             let
                 (* Add/subtract shifted register. *)
@@ -1327,6 +1342,35 @@ struct
                 printStream ","; printStream r; printStream(Word.fmt StringCvt.DEC rN);
                 printStream ","; printStream r; printStream(Word.fmt StringCvt.DEC rM);
                 printStream ","; printCondition cond
+            end
+
+            else if (wordValue andb 0wx7f800000) = 0wx13000000
+            then (* signed bitfield *)
+            let
+                val sf = wordValue >> 0w31
+                (* N is always the same as sf. *)
+                (*val nBit = (wordValue >> 0w22) andb 0w1*)
+                val immr = (wordValue >> 0w16) andb 0wx3f
+                val imms = (wordValue >> 0w10) andb 0wx3f
+                val rN = (wordValue >> 0w5) andb 0wx1f
+                val rD = wordValue andb 0wx1f
+                val (r, wordSize) = if sf = 0w0 then ("w", 0w32) else ("x", 0w64)
+            in
+                if imms = wordSize - 0w1
+                then printStream "asr\t"
+                else printStream "sbfm\t";
+                printStream r;
+                printStream(Word.fmt StringCvt.DEC rD);
+                printStream ",";
+                printStream r;
+                printStream(Word.fmt StringCvt.DEC rN);
+                if imms = wordSize - 0w1
+                then (printStream ",#0x"; printStream(Word.toString immr))
+                else
+                (
+                    printStream ",#0x"; printStream(Word.toString immr);
+                    printStream ",#0x"; printStream(Word.toString imms)
+                )
             end
 
             else if (wordValue andb 0wx7f800000) = 0wx53000000

@@ -243,7 +243,6 @@ and opcode_fixedIntToFloat = "opcode_fixedIntToFloat"
 and opcode_floatToReal = "opcode_floatToReal"
 and opcode_floatAbs = "opcode_floatAbs"
 and opcode_floatNeg = "opcode_floatNeg"
-and opcode_fixedMult = "opcode_fixedMult"
 and opcode_fixedQuot = "opcode_fixedQuot"
 and opcode_fixedRem = "opcode_fixedRem"
 and opcode_lgWordEqual = "opcode_lgWordEqual"
@@ -985,7 +984,34 @@ and cpuPause = "cpuPause"
                             gen(subSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
                             checkOverflow cvec
                         )
-                    |   FixedPrecisionArith ArithMult => genOpcode(opcode_fixedMult, cvec)
+                    |   FixedPrecisionArith ArithMult =>
+                        let
+                            (* There's no simple way of detecting overflow.  We have to compute the
+                               high-order word and then check that it is either all zeros with
+                               the sign bit zero or all ones with the sign bit one. *)
+                            val noOverflow = createLabel()
+                        in
+                            (* Compute the result in the same way as for Word.* apart from the
+                               arithmetic shift. *)
+                            genPopReg(X1, cvec);
+                            (* Shift to remove the tags on one argument suing . *)
+                            gen(arithmeticShiftRight{regN=X0, regD=X2, wordSize=WordSize64, shift=0w1}, cvec);
+                            (* Remove the tag on the other. *)
+                            gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                            gen(multiplyAndAdd{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
+                            (* Put back the tag. *)
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
+                            (* Compute the high order part into X2 *)
+                            gen(signedMultiplyHigh{regM=X1, regN=X2, regD=X2}, cvec);
+                            (* Compare with the sign bit of the result. *)
+                            gen(subSShiftedReg{regD=XZero, regN=X2, regM=X0, shift=ShiftASR 0w63}, cvec);
+                            gen(conditionalBranch(condEqual, noOverflow), cvec);
+                            gen(loadAddressConstant(X0, toMachineWord Overflow), cvec);
+                            gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
+                            gen(branchRegister X1, cvec);
+                            gen(setLabel noOverflow, cvec)
+                        end
                     |   FixedPrecisionArith ArithQuot => genOpcode(opcode_fixedQuot, cvec)
                     |   FixedPrecisionArith ArithRem => genOpcode(opcode_fixedRem, cvec)
                     |   FixedPrecisionArith ArithDiv => raise InternalError "TODO: FixedPrecisionArith ArithDiv"

@@ -218,7 +218,13 @@ sig
     (* Various shifts *)
     val logicalShiftLeft: {wordSize: wordSize, shift: word, regN: xReg, regD: xReg} -> instr
     and logicalShiftRight: {wordSize: wordSize, shift: word, regN: xReg, regD: xReg} -> instr
+    and arithmeticShiftRight: {wordSize: wordSize, shift: word, regN: xReg, regD: xReg} -> instr
+    (* Extract bits and set the rest of the register to zero. *)
     and unsignedBitfieldInsertinZeros:
+        {wordSize: wordSize, lsb: word, width: word, regN: xReg, regD: xReg} -> instr
+    (* Extract bits but leave the rest of the register unchanged.  Can be used
+       to clear a specific range of bits by using XZero as the source. *)
+    and bitfieldInsert:
         {wordSize: wordSize, lsb: word, width: word, regN: xReg, regD: xReg} -> instr
 
     (* Logical shift left Rd = Rn << (Rm mod 0w64) *)
