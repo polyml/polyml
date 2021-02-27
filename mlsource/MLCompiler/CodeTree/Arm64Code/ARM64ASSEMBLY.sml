@@ -327,41 +327,41 @@ struct
 
     (* Add/subtract a shifted register, optionally setting the flags. *)
     local
-        fun addSubtractShiftedReg (sf, oper, s, xdOp) ({regM, regN, regD, shift}) =
+        (* X31 is XZ here unlike the extended version.*)
+        fun addSubtractShiftedReg (sf, oper, s) ({regM, regN, regD, shift}) =
         let
             val (shift, imm6) = shiftEncode shift
         in
             SimpleInstr(0wx0b000000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
                 (shift << 0w22) orb (word8ToWord(xRegOnly regM) << 0w16) orb
-                (imm6 << 0w10) orb (word8ToWord(xRegOnly regN) << 0w5) orb
-                word8ToWord(xdOp regD))
+                (imm6 << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
+                word8ToWord(xRegOrXZ regD))
         end
     in
-        val addShiftedReg = addSubtractShiftedReg(0w1, 0w0, 0w0, xRegOrXSP)
-        and addSShiftedReg = addSubtractShiftedReg(0w1, 0w0, 0w1, xRegOrXZ)
-        and subShiftedReg = addSubtractShiftedReg(0w1, 0w1, 0w0, xRegOrXSP)
-        and subSShiftedReg = addSubtractShiftedReg(0w1, 0w1, 0w1, xRegOrXZ)
+        val addShiftedReg = addSubtractShiftedReg(0w1, 0w0, 0w0)
+        and addSShiftedReg = addSubtractShiftedReg(0w1, 0w0, 0w1)
+        and subShiftedReg = addSubtractShiftedReg(0w1, 0w1, 0w0)
+        and subSShiftedReg = addSubtractShiftedReg(0w1, 0w1, 0w1)
     end
 
     (* Add/subtract an extended register, optionally setting the flags. *)
     local
-        (* It's not clear whether SP can be used here or how 31 is interpreted.
-           For the moment don't allow either. *)
-        fun addSubtractExtendedReg (sf, oper, s, opt) ({regM, regN, regD, extend}) =
+        (* SP can be used as Xn and also for Xd for the non-flags versions. *)
+        fun addSubtractExtendedReg (sf, oper, s, opt, xD) ({regM, regN, regD, extend}) =
         let
             val (option, imm3) = extendArithEncode extend
         in
             SimpleInstr(0wx0b200000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
                 (opt << 0w22) orb (word8ToWord(xRegOnly regM) << 0w16) orb
                 (option << 0w13) orb (imm3 << 0w10) orb
-                (word8ToWord(xRegOnly regN) << 0w5) orb
-                word8ToWord(xRegOnly regD))
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb
+                word8ToWord(xD regD))
         end
     in
-        val addExtendedReg = addSubtractExtendedReg(0w1, 0w0, 0w0, 0w0)
-        and addSExtendedReg = addSubtractExtendedReg(0w1, 0w0, 0w1, 0w0)
-        and subExtendedReg = addSubtractExtendedReg(0w1, 0w1, 0w0, 0w0)
-        and subSExtendedReg = addSubtractExtendedReg(0w1, 0w1, 0w1, 0w0)
+        val addExtendedReg = addSubtractExtendedReg(0w1, 0w0, 0w0, 0w0, xRegOrXSP)
+        and addSExtendedReg = addSubtractExtendedReg(0w1, 0w0, 0w1, 0w0, xRegOrXZ)
+        and subExtendedReg = addSubtractExtendedReg(0w1, 0w1, 0w0, 0w0, xRegOrXSP)
+        and subSExtendedReg = addSubtractExtendedReg(0w1, 0w1, 0w1, 0w0, xRegOrXZ)
     end
 
     (* Logical operations on a shifted register. *)
@@ -433,7 +433,7 @@ struct
         in
             SimpleInstr(0wx39000000 orb (size << 0w30) orb (opc << 0w22) orb
                 (v << 0w26) orb (Word.fromInt unitOffset << 0w10) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOnly regT))
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXZ regT))
         end
     in
         val loadRegScaled = loadStoreRegScaled(0w3, 0w0, 0w1)
@@ -454,7 +454,7 @@ struct
         in
             SimpleInstr(0wx38000000 orb (size << 0w30) orb (opc << 0w22) orb
                 (v << 0w26) orb (imm9 << 0w12) orb (op4 << 0w10) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOnly regT))
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXZ regT))
         end
         
         val loadStoreUnscaled = loadStoreByteAddress 0w0
@@ -488,7 +488,7 @@ struct
         in
             SimpleInstr(0wx38200800 orb (size << 0w30) orb (v << 0w26) orb (opc << 0w22) orb
                 (word8ToWord(xRegOnly regM) << 0w16) orb (opt << 0w13) orb (s << 0w12) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXSP regT))
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXZ regT))
         end
     in
         val loadRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w1)
@@ -632,8 +632,9 @@ struct
 
     local
         (* Logical immediates.  AND, OR, XOR and ANDS.  Assumes that the immediate value
-           has already been checked as valid. *)
-        fun logicalImmediate opc ({wordSize, bits, regN, regD}) =
+           has already been checked as valid.  The non-flags versions can use SP as the
+           destination. *)
+        fun logicalImmediate (opc, xD) ({wordSize, bits, regN, regD}) =
         let
             val s = case wordSize of WordSize32 => 0w0 | WordSize64 => 0w1
             val {n, imms, immr} = 
@@ -643,13 +644,13 @@ struct
         in
             SimpleInstr(0wx12000000 orb (opc << 0w29) orb (s << 0w31) orb (n << 0w22) orb
                 (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
-                word8ToWord(xRegOrXZ regD))
+                word8ToWord(xD regD))
         end
     in
-        val bitwiseAndImmediate = logicalImmediate 0w0
-        and bitwiseOrImmediate = logicalImmediate 0w1
-        and bitwiseXorImmediate = logicalImmediate 0w2
-        and bitwiseAndSImmediate = logicalImmediate 0w3
+        val bitwiseAndImmediate = logicalImmediate (0w0, xRegOrXSP)
+        and bitwiseOrImmediate = logicalImmediate (0w1, xRegOrXSP)
+        and bitwiseXorImmediate = logicalImmediate (0w2, xRegOrXSP)
+        and bitwiseAndSImmediate = logicalImmediate (0w3, xRegOrXZ)
         
         (* Test a bit pattern in a register.  If the pattern is within the low-order
            32-bits we use a 32-bit test. *)
