@@ -295,7 +295,6 @@ and opcode_storeC32 = "opcode_storeC32"
 and opcode_storeC64 = "opcode_storeC64"
 and opcode_storeCFloat = "opcode_storeCFloat"
 and opcode_storeCDouble = "opcode_storeCDouble"
-and opcode_blockMoveWord = "opcode_blockMoveWord"
 and opcode_allocCSpace = "opcode_allocCSpace"
 and opcode_freeCSpace = "opcode_freeCSpace"
 and opcode_arbAdd = "opcode_arbAdd"
@@ -1393,7 +1392,7 @@ and cpuPause = "cpuPause"
                     decsp(); decsp(); decsp()
                 )
 
-            |   BICBlockOperation { kind=BlockOpMove{isByteMove=true}, sourceLeft, destRight, length } =>
+            |   BICBlockOperation { kind=BlockOpMove{isByteMove}, sourceLeft, destRight, length } =>
                 let
                     val exitLabel = createLabel() and loopLabel = createLabel()
                 in
@@ -1409,12 +1408,21 @@ and cpuPause = "cpuPause"
                     gen(addShiftedReg{regM=X3, regN=X2, regD=X2, shift=ShiftLSR 0w1}, cvec);
                     (* Untag the length *)
                     gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                    (* Test the loop value in case it's already zero. *)
+                    (* Test the loop value at the top in case it's already zero. *)
                     compareRegs(X0, X0, cvec); (* Set condition code just in case. *)
                     gen(setLabel loopLabel, cvec);
                     gen(compareBranchZero(X0, WordSize64, exitLabel), cvec);
-                    gen(loadRegPostIndexByte{regT=X3, regN=X2, byteOffset=1}, cvec);
-                    gen(storeRegPostIndexByte{regT=X3, regN=X1, byteOffset=1}, cvec);
+                    if isByteMove
+                    then
+                    (
+                        gen(loadRegPostIndexByte{regT=X3, regN=X2, byteOffset=1}, cvec);
+                        gen(storeRegPostIndexByte{regT=X3, regN=X1, byteOffset=1}, cvec)
+                    )
+                    else
+                    (
+                        gen(loadRegPostIndex{regT=X3, regN=X2, byteOffset=8}, cvec);
+                        gen(storeRegPostIndex{regT=X3, regN=X1, byteOffset=8}, cvec)
+                    );
                     gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                     (* Back to the start. *)
                     gen(conditionalBranch(condAlways, loopLabel), cvec);
@@ -1422,15 +1430,6 @@ and cpuPause = "cpuPause"
                     topInX0 := false; (* X0 does not contain "unit" *)
                     decsp(); decsp(); decsp(); decsp()
                 end
-
-            |   BICBlockOperation { kind=BlockOpMove{isByteMove=false}, sourceLeft, destRight, length } =>
-                (
-                    genMLAddress(sourceLeft, Word.toInt wordSize);
-                    genMLAddress(destRight, Word.toInt wordSize);
-                    gencde (length, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_blockMoveWord, cvec);
-                    decsp(); decsp(); decsp(); decsp()
-                )
 
             |   BICBlockOperation { kind=BlockOpEqualByte, sourceLeft, destRight, length } =>
                 (* Compare byte vectors for equality - returns a boolean result. *)
