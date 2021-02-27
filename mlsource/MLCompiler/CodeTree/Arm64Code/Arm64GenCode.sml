@@ -222,7 +222,7 @@ struct
         gen(registerMask [], code); (* Not used at the moment. *)
         gen(setLabel skipCheck, code)
     end
-    
+
     fun toDo s = raise Fallback s
 
     fun genOpcode (n, _) =  toDo n
@@ -296,7 +296,6 @@ and opcode_storeC64 = "opcode_storeC64"
 and opcode_storeCFloat = "opcode_storeCFloat"
 and opcode_storeCDouble = "opcode_storeCDouble"
 and opcode_blockMoveWord = "opcode_blockMoveWord"
-and opcode_blockCompareByte = "opcode_blockCompareByte"
 and opcode_allocCSpace = "opcode_allocCSpace"
 and opcode_freeCSpace = "opcode_freeCSpace"
 and opcode_arbAdd = "opcode_arbAdd"
@@ -428,6 +427,39 @@ and cpuPause = "cpuPause"
                 genPushReg(X0, cvec); incsp()
             )
 
+            (* Compare a block of bytes.  Jumps to labelEqual if all the bytes are
+               equal up to the length.  Otherwise it drops through with the condition
+               code set to the last byte comparison that tested unequal. *)
+            fun blockCompareBytes(leftArg, rightArg, length, labelEqual, setZeroCC) =
+            let
+                val loopLabel = createLabel()
+            in
+                genMLAddress(leftArg, 1);
+                genMLAddress(rightArg, 1);
+                gencde (length, ToX0, NotEnd, loopAddr);
+                genPopReg(X2, cvec); (* right arg index - tagged value. *)
+                genPopReg(X1, cvec); (* right arg base address. *)
+                (* Add in the index N.B. ML index values are unsigned. *)
+                gen(addShiftedReg{regM=X2, regN=X1, regD=X1, shift=ShiftLSR 0w1}, cvec);
+                genPopReg(X3, cvec); (* left index *)
+                genPopReg(X2, cvec);
+                decsp(); decsp(); decsp(); decsp();
+                gen(addShiftedReg{regM=X3, regN=X2, regD=X2, shift=ShiftLSR 0w1}, cvec);
+                (* Untag the length *)
+                gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                (* If necessary set the cc for the case where the length is zero. *)
+                if setZeroCC then compareRegs(X0, X0, cvec) else ();
+                gen(setLabel loopLabel, cvec);
+                gen(compareBranchZero(X0, WordSize64, labelEqual), cvec);
+                (* X2 is left arg addr, X1 is right arg addr. *)
+                gen(loadRegPostIndexByte{regT=X4, regN=X2, byteOffset=1}, cvec);
+                gen(loadRegPostIndexByte{regT=X3, regN=X1, byteOffset=1}, cvec);
+                compareRegs(X4, X3, cvec);
+                gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                (* Loop if they're equal. *)
+                gen(conditionalBranch(condEqual, loopLabel), cvec)
+            end
+    
          val () =
            case pt of
                 BICEval evl => genEval (evl, tailKind)
@@ -1401,45 +1433,32 @@ and cpuPause = "cpuPause"
                 )
 
             |   BICBlockOperation { kind=BlockOpEqualByte, sourceLeft, destRight, length } =>
+                (* Compare byte vectors for equality - returns a boolean result. *)
                 let
-                    val exitLabel = createLabel() and loopLabel = createLabel()
+                    val equalLabel = createLabel()
                 in
-                    genMLAddress(sourceLeft, 1);
-                    genMLAddress(destRight, 1);
-                    gencde (length, ToX0, NotEnd, loopAddr);
-                    genPopReg(X2, cvec); (* 2nd index - tagged value. *)
-                    genPopReg(X1, cvec); (* 2nd base address. *)
-                    (* Add in the index N.B. ML index values are unsigned. *)
-                    gen(addShiftedReg{regM=X2, regN=X1, regD=X1, shift=ShiftLSR 0w1}, cvec);
-                    genPopReg(X3, cvec); (* 1st index *)
-                    genPopReg(X2, cvec);
-                    gen(addShiftedReg{regM=X3, regN=X2, regD=X2, shift=ShiftLSR 0w1}, cvec);
-                    (* Untag the length *)
-                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                    (* Test the loop value in case it's already zero. *)
-                    compareRegs(X0, X0, cvec); (* Set condition code just in case. *)
-                    gen(setLabel loopLabel, cvec);
-                    gen(compareBranchZero(X0, WordSize64, exitLabel), cvec);
-                    gen(loadRegPostIndexByte{regT=X3, regN=X1, byteOffset=1}, cvec);
-                    gen(loadRegPostIndexByte{regT=X4, regN=X2, byteOffset=1}, cvec);
-                    compareRegs(X3, X4, cvec);
-                    gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
-                    (* Loop if they're equal. *)
-                    gen(conditionalBranch(condEqual, loopLabel), cvec);
-                    gen(setLabel exitLabel, cvec);
+                    blockCompareBytes(sourceLeft, destRight, length, equalLabel, true);
+                    gen(setLabel equalLabel, cvec);
                     (* Set the result condition. *)
-                    setBooleanCondition(X0, condEqual, cvec);
-                    decsp(); decsp(); decsp(); decsp()
+                    setBooleanCondition(X0, condEqual, cvec)
                 end
 
             |   BICBlockOperation { kind=BlockOpCompareByte, sourceLeft, destRight, length } =>
-                (
-                    genMLAddress(sourceLeft, 1);
-                    genMLAddress(destRight, 1);
-                    gencde (length, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_blockCompareByte, cvec);
-                    decsp(); decsp(); decsp(); decsp()
-                )
+                (* Compare byte vectors for ordering - return tagged -1, 0, +1. *)
+                let
+                    val equalLabel = createLabel() and resultLabel = createLabel()
+                in
+                    blockCompareBytes(sourceLeft, destRight, length, equalLabel, false);
+                    (* We drop through if we have found unequal bytes. *)
+                    gen(loadNonAddressConstant(X0, Word64.fromInt(tag 1)), cvec);
+                    (* Set X0 to either 1 or -1 depending on whether it's greater or less. *)
+                    gen(conditionalSetInverted{regD=X0, regTrue=X0, regFalse=XZero, cond=condUnsignedHigher}, cvec);
+                    gen(conditionalBranch(condAlways, resultLabel), cvec);
+                    gen(setLabel equalLabel, cvec);
+                    (* Equal case - set it to zero. *)
+                    gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec);
+                    gen(setLabel resultLabel, cvec)
+                end
        
            |    BICArbitrary { oper, arg1, arg2, ... } =>
                 let

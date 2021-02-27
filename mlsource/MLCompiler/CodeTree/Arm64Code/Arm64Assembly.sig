@@ -202,9 +202,17 @@ sig
     and compareBranchZero: xReg * wordSize * labels -> instr
     and compareBranchNonZero: xReg * wordSize * labels -> instr
 
-    (* Sets the destination register to the value of the first reg if the
-       condition is true otherwise the second register incremented by one. *)
+    (* Set the destination register to the value of the first reg if the
+       condition is true otherwise to a, possibly modified, version of
+       the second argument.  There are variants that set it unmodified,
+       incremented, inverted and negated. *)
+    val conditionalSet:
+        {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
     val conditionalSetIncrement:
+        {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
+    val conditionalSetInverted:
+        {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
+    val conditionalSetNegated:
         {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
 
     (* Various shifts *)

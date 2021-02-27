@@ -580,16 +580,22 @@ struct
         CompareBranch{label=label, brNonZero=true, size=size, reg=reg}
     
 
-    (* Sets the destination register to the value of the first reg if the
-       condition is true otherwise the second register incremented by one.
-       Using XZR for the second register means the result value is one.
-       This is used to set the value to either "true" (tagged 1 = 3) or
-       "false" (tagged 0 = 1) by setting the result register to 3 and then
-       conditionally setting it to XZR incremented. *)
-    fun conditionalSetIncrement({regD, regTrue, regFalse, cond=CCode cond}) =
-        SimpleInstr(0wx9A800400 orb (word8ToWord(xRegOrXZ regFalse) << 0w16) orb
-            (word8ToWord cond << 0w12) orb (word8ToWord(xRegOrXZ regTrue) << 0w5) orb
-            word8ToWord(xRegOrXZ regD))
+    (* Set the destination register to the value of the first reg if the
+       condition is true otherwise to a, possibly modified, version of
+       the second argument.  There are variants that set it unmodified,
+       incremented, inverted and negated. *)
+    local
+        fun conditionalSelect (sf, opc, op2) {regD, regFalse, regTrue, cond=CCode cond} =
+            SimpleInstr(0wx1A800000 orb (sf << 0w31) orb (opc << 0w30) orb
+                (word8ToWord(xRegOrXZ regFalse) << 0w16) orb (word8ToWord cond << 0w12) orb
+                (op2 << 0w10) orb (word8ToWord(xRegOrXZ regTrue) << 0w5) orb
+                word8ToWord(xRegOrXZ regD))
+    in
+        val conditionalSet = conditionalSelect(0w1, 0w0, 0w0)
+        and conditionalSetIncrement = conditionalSelect(0w1, 0w0, 0w1)
+        and conditionalSetInverted = conditionalSelect(0w1, 0w1, 0w0)
+        and conditionalSetNegated = conditionalSelect(0w1, 0w1, 0w1)
+    end
 
     (* This combines the effect of a left and right shift.  There are various
        derived forms of this depending on the relative values of immr and imms.
@@ -1297,17 +1303,29 @@ struct
                 printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
             end
 
-            else if (wordValue andb 0wxffe00c00) = 0wx9A800400
+            else if (wordValue andb 0wx3fe00000) = 0wx1A800000
             then
             let
+                val sf = wordValue >> 0w31
+                val opc = (wordValue >> 0w30) andb 0w1
+                val op2 = (wordValue >> 0w10) andb 0w3
                 val rT = wordValue andb 0wx1f
                 val rN = (wordValue >> 0w5) andb 0wx1f
                 val rM = (wordValue >> 0w16) andb 0wx1f
                 val cond = (wordValue >> 0w12) andb 0wxf
+                val opcode =
+                    case (opc, op2) of
+                        (0w0, 0w0) => "csel"
+                    |   (0w0, 0w1) => "csinc"
+                    |   (0w1, 0w0) => "csinv"
+                    |   (0w1, 0w1) => "csneg"
+                    |   _ => "??"
+                val r = if sf = 0w0 then "w" else "x"
             in
-                printStream "csinc\tx"; printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",x"; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ",x"; printStream(Word.fmt StringCvt.DEC rM);
+                printStream opcode; printStream "\t";
+                printStream r; printStream(Word.fmt StringCvt.DEC rT);
+                printStream ","; printStream r; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ","; printStream r; printStream(Word.fmt StringCvt.DEC rM);
                 printStream ","; printCondition cond
             end
 
