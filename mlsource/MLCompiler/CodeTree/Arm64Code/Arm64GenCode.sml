@@ -227,9 +227,6 @@ struct
 
     fun genOpcode (n, _) =  toDo n
 
-    fun genAllocMutableClosure _ =  toDo "genAllocMutableClosure"
-    fun genMoveToMutClosure _ =  toDo "genMoveToMutClosure"
-    fun genLock _ =  toDo "genLock"
     fun genDoubleToFloat _ =  toDo "genDoubleToFloat"
     fun genRealToInt _ =  toDo "genRealToInt"
     fun genFloatToInt _ =  toDo "genFloatToInt"
@@ -246,8 +243,6 @@ and opcode_fixedIntToFloat = "opcode_fixedIntToFloat"
 and opcode_floatToReal = "opcode_floatToReal"
 and opcode_floatAbs = "opcode_floatAbs"
 and opcode_floatNeg = "opcode_floatNeg"
-
-
 and opcode_fixedMult = "opcode_fixedMult"
 and opcode_fixedQuot = "opcode_fixedQuot"
 and opcode_fixedRem = "opcode_fixedRem"
@@ -439,7 +434,8 @@ and cpuPause = "cpuPause"
 
             |   BICExtract ext =>
                     (* This may just be being used to discard a value which isn't
-                       used on this branch. *)
+                       used on this branch.  N.B. genProc for mutual closures
+                       assumes that this does not affect X1. *)
                 if whereto = NoResult then ()
                 else
                 let     
@@ -1551,52 +1547,50 @@ and cpuPause = "cpuPause"
                 val resClosure = makeConstantClosure()
                 (* Code-gen function. *)
                 val () = codegen (body, name, resClosure, List.length argTypes, localCount, parameters)
+                (* Since we're using native words rather than 32-in-64 we can load this now. *)
+                val codeAddr = codeAddressFromClosure resClosure
                 val closureVars = List.length closure (* Size excluding the code address *)
             in
                 if mutualDecs
                 then
                 let (* Have to make the closure now and fill it in later. *)
-                    val () = gen(loadAddressConstant(X0, toMachineWord resClosure), cvec)
+                    val () = genAllocateFixedSize(closureVars+1, F_mutable, cvec)
+                    val () = gen(loadAddressConstant(X1, codeAddr), cvec);
+                    val () = gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec)
                     val () = genPushReg(X0, cvec)
-                    val () = genAllocMutableClosure(closureVars, cvec)
                     val () = incsp ()
            
                     val entryAddr : int = !realstackptr
+                    (* Set the address of this entry in the declaration table and
+                       then process any other mutual-recursive functions. *)
+                    val () = doNext ()
 
-                    val () = doNext () (* Any mutually recursive functions. *)
-
-                    (* Push the address of the vector - If we have processed other
-                       closures the vector will no longer be on the top of the stack. *)
-                    val () = gen(loadRegScaled{regT=X0, regN=X_MLStackPtr, unitOffset= !realstackptr - entryAddr}, cvec);
-                    val () = genPushReg(X0, cvec);
-                    val () = incsp()
+                    (* Reload the address of the vector - If we have processed other
+                       closures the closure will no longer be on the top of the stack. *)
+                    val () = gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset= !realstackptr - entryAddr}, cvec);
 
                     (* Load items for the closure. *)
                     fun loadItems ([], _) = ()
                     |   loadItems (v :: vs, addr : int) =
-                    let
-                        (* Generate an item and move it into the clsoure *)
-                        val () = gencde (BICExtract v, ToStack, NotEnd, NONE)
+                    (
+                        (* Generate an item and move it into the closure *)
+                        gencde (BICExtract v, ToX0, NotEnd, NONE);
                         (* The closure "address" excludes the code address. *)
-                        val () = genMoveToMutClosure(addr, cvec)
-                        val () = decsp ()
-                    in
+                        gen(storeRegScaled{regT=X0, regN=X1, unitOffset=addr+1}, cvec);
+                        topInX0 := false;
                         loadItems (vs, addr + 1)
-                    end
+                    )
              
                     val () = loadItems (closure, 0)
-                    val () = genLock cvec (* Lock it. *)
-           
-                    (* Remove the extra reference. *)
-                    val () = resetStack (1, false, cvec)
+
+                    (* Lock it by setting the top byte to zero. *)
+                    val () = gen(storeRegUnscaledByte{regT=XZero, regN=X1, byteOffset= ~1}, cvec)
                 in
-                    realstackptr := !realstackptr - 1
+                    () (* Don't need to do anything now. *)
                 end
          
                 else
                 let
-                    (* Since we're using native words rather than 32-in-64 we can load this now. *)
-                    val codeAddr = codeAddressFromClosure resClosure
                     val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
                 in
                     genAllocateFixedSize(closureVars+1, 0w0, cvec);
@@ -1828,7 +1822,7 @@ and cpuPause = "cpuPause"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if (*false andalso*) Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
         codegen (body, name, closure, List.length argTypes, localCount, parameters)
