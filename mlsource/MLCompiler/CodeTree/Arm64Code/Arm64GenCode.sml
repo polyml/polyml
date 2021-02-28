@@ -223,14 +223,6 @@ struct
         gen(setLabel skipCheck, code)
     end
 
-    fun toDo s = raise Fallback s
-
-    fun genOpcode (n, _) =  toDo n
-
-    fun genDoubleToFloat _ =  toDo "genDoubleToFloat"
-    fun genRealToInt _ =  toDo "genRealToInt"
-    fun genFloatToInt _ =  toDo "genFloatToInt"
-
     val opcode_atomicExchAdd = "opcode_atomicExchAdd"
 and opcode_atomicReset = "opcode_atomicReset"
 and opcode_longWToTagged = "opcode_longWToTagged"
@@ -243,8 +235,6 @@ and opcode_fixedIntToFloat = "opcode_fixedIntToFloat"
 and opcode_floatToReal = "opcode_floatToReal"
 and opcode_floatAbs = "opcode_floatAbs"
 and opcode_floatNeg = "opcode_floatNeg"
-and opcode_fixedQuot = "opcode_fixedQuot"
-and opcode_fixedRem = "opcode_fixedRem"
 and opcode_lgWordEqual = "opcode_lgWordEqual"
 and opcode_lgWordLess = "opcode_lgWordLess"
 and opcode_lgWordLessEq = "opcode_lgWordLessEq"
@@ -320,6 +310,14 @@ and cpuPause = "cpuPause"
     (* Code generate a function or global declaration *)
     fun codegen (pt, name, resultClosure, numOfArgs, localCount, parameters) =
     let
+        fun toDo s = raise Fallback(s ^ ":" ^ name)
+
+        fun genOpcode (n, _) =  toDo n
+
+        fun genDoubleToFloat _ =  toDo "genDoubleToFloat"
+        fun genRealToInt _ =  toDo "genRealToInt"
+        fun genFloatToInt _ =  toDo "genFloatToInt"
+    
         val cvec = ref []
         
         datatype decEntry =
@@ -355,6 +353,8 @@ and cpuPause = "cpuPause"
         (* generates code from the tree *)
         fun gencde (pt : backendIC, whereto : whereto, tailKind : tail, loopAddr) : unit =
         let
+            val _ = !topInX0 andalso raise InternalError "topInX0 true at start"
+
             (* Save the stack pointer value here. We may want to reset the stack. *)
             val oldsp = !realstackptr;
 
@@ -713,7 +713,7 @@ and cpuPause = "cpuPause"
                        the semitagged value because we've removed the tag bit. *)
                     (* TODO: Not necessary if it exhaustive. *)
                     (* For the moment load the value into a register and compare. *)
-                    val () = gen(loadNonAddressConstant(X1, Word64.<<(Word64.fromInt nCases, 0w2)), cvec)
+                    val () = gen(loadNonAddressConstant(X1, Word64.fromInt nCases * 0w2), cvec)
                     val () = compareRegs(X0, X1, cvec)
                     val () = gen(conditionalBranch(condCarrySet, defaultLabel), cvec)
                     (* Load the address of the jump table. *)
@@ -1009,10 +1009,42 @@ and cpuPause = "cpuPause"
                             gen(branchRegister X1, cvec);
                             gen(setLabel noOverflow, cvec)
                         end
-                    |   FixedPrecisionArith ArithQuot => genOpcode(opcode_fixedQuot, cvec)
-                    |   FixedPrecisionArith ArithRem => genOpcode(opcode_fixedRem, cvec)
-                    |   FixedPrecisionArith ArithDiv => raise InternalError "TODO: FixedPrecisionArith ArithDiv"
-                    |   FixedPrecisionArith ArithMod => raise InternalError "TODO: FixedPrecisionArith ArithMod"
+                    |   FixedPrecisionArith ArithQuot =>
+                        (
+                            (*raise Fallback ("ArithQuot: " ^ name);*)
+                            (* The word version avoids an extra shift.  Don't do that here at least
+                               for the moment.  Division by zero and overflow are checked for at
+                               the higher level. *)
+                            genPopReg(X1, cvec);
+                            (* Shift to remove the tags on the arguments *)
+                            gen(arithmeticShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                            gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                            gen(signedDivide{regM=X0, regN=X1, regD=X0}, cvec);
+                            (* Restore the tag. *)
+                            gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   FixedPrecisionArith ArithRem =>
+                        (
+                            (*raise Fallback ("ArithRem: " ^ name);*)
+                            (* For the moment we remove the tags and then retag afterwards.  The word
+                               version avoids this but at least for the moment we do it the longer way. *)
+                            (* There's no direct way to get the remainder - have to use divide and multiply. *)
+                            genPopReg(X1, cvec);
+                            (* Shift to remove the tags on the arguments *)
+                            gen(arithmeticShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                            gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                            gen(signedDivide{regM=X0, regN=X1, regD=X2}, cvec);
+                            (* X0 = X1 - (X2/X0)*X0 *)
+                            gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec);
+                            (* Restore the tag. *)
+                            gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   FixedPrecisionArith ArithDiv =>
+                            raise InternalError "unimplemented operation: FixedPrecisionArith ArithDiv"
+                    |   FixedPrecisionArith ArithMod =>
+                            raise InternalError "unimplemented operation: FixedPrecisionArith ArithMod"
 
                     |   WordArith ArithAdd =>
                         (
@@ -1518,6 +1550,7 @@ and cpuPause = "cpuPause"
           
             |   NoResult =>
                 let
+                    val () = topInX0 := false
                     val adjustment = !realstackptr - oldsp
 
                     val () =
@@ -1845,7 +1878,7 @@ and cpuPause = "cpuPause"
         
         (* Now we know the maximum stack size we can code-gen the stack check.
            This needs to go in after we have saved X30. *)
-        val () = checkStackCode(X10, !maxStack, false, prefix)
+        val () = checkStackCode(X10, !maxStack, false(*name = "INTCODECONS().genCode(3)genByteCode(2)"*), prefix)
         val instructions = List.rev(!prefix) @ List.rev(!cvec)
 
     in (* body of codegen *)
@@ -1855,7 +1888,7 @@ and cpuPause = "cpuPause"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if (*false andalso *)Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if (*false andalso*) Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
     else
         codegen (body, name, closure, List.length argTypes, localCount, parameters)
