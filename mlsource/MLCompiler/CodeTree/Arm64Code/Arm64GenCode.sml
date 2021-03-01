@@ -233,9 +233,7 @@ struct
     )
     
 
-    val opcode_atomicExchAdd = "opcode_atomicExchAdd"
-and opcode_atomicReset = "opcode_atomicReset"
-and opcode_realAbs = "opcode_realAbs"
+val opcode_realAbs = "opcode_realAbs"
 and opcode_realNeg = "opcode_realNeg"
 and opcode_fixedIntToReal = "opcode_fixedIntToReal"
 and opcode_fixedIntToFloat = "opcode_fixedIntToFloat"
@@ -277,7 +275,6 @@ and opcode_storeCFloat = "opcode_storeCFloat"
 and opcode_storeCDouble = "opcode_storeCDouble"
 and opcode_allocCSpace = "opcode_allocCSpace"
 and opcode_freeCSpace = "opcode_freeCSpace"
-and cpuPause = "cpuPause"
 
     type caseForm =
         {
@@ -860,10 +857,7 @@ and cpuPause = "cpuPause"
                     gen(setLabel noException, cvec)
                 end
 
-            |   BICNullary {oper=BuiltIns.CPUPause} =>
-                (
-                    genOpcode(cpuPause, cvec)
-                )
+            |   BICNullary {oper=BuiltIns.CPUPause} => gen(yield, cvec)
 
             |   BICUnary { oper, arg1 } =>
                 let
@@ -908,7 +902,14 @@ and cpuPause = "cpuPause"
                             gen(storeRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec)
                         )
 
-                    |   AtomicReset => genOpcode(opcode_atomicReset, cvec)
+                    |   AtomicReset =>
+                        (
+                            (* Clear the mutex. Simply setting it to tagged 0 will work.
+                               If another thread is in the ldaxr/stlxr loop it will see
+                               the value has changed and retry. *)
+                            gen(loadNonAddressConstant(X1, taggedWord64 0w0), cvec);
+                            gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec)
+                        )
 
                     |   LongWordToTagged =>
                         (
@@ -1318,7 +1319,27 @@ and cpuPause = "cpuPause"
                 
                     |   FreeCStack => genOpcode(opcode_freeCSpace, cvec)
                 
-                    |   AtomicExchangeAdd => genOpcode(opcode_atomicExchAdd, cvec)
+                    |   AtomicExchangeAdd =>
+                        (* The earliest versions of the Arm8 do not have the LDADD instruction which
+                           will do this directly.  To preserve compatibility we use LDAXR/STLXR
+                           which require a loop. *)
+                        let
+                            val loopLabel = createLabel()
+                        in
+                            genPopReg(X1, cvec); (* Address of mutex *)
+                            (* Untag the value to add. *)
+                            gen(subImmediate{regN=X0, regD=X3, immed=0w1, shifted=false}, cvec);
+                            gen(setLabel loopLabel, cvec);
+                            (* Get the original value into X0. *)
+                            gen(loadAcquireExclusiveRegister{regN=X1, regT=X0}, cvec);
+                            (* Add and put the result into X3 *)
+                            gen(addShiftedReg{regM=X0, regN=X3, regD=X2, shift=ShiftNone}, cvec);
+                            (* Store the result of the addition. W4 will be zero if this succeeded. *)
+                            gen(storeReleaseExclusiveRegister{regS=X4, regT=X2, regN=X1}, cvec);
+                            gen(compareBranchNonZero(X4, WordSize32, loopLabel), cvec);
+                            (* Put in the memory barrier. *)
+                            gen(dmbIsh, cvec)
+                        end
                      ;
                     decsp() (* Removes one item from the stack. *)
                 end

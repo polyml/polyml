@@ -241,6 +241,11 @@ sig
     and bitwiseXorImmediate: {wordSize: wordSize, bits: Word64.word, regN: xReg, regD: xReg} -> instr
     and bitwiseAndSImmediate: {wordSize: wordSize, bits: Word64.word, regN: xReg, regD: xReg} -> instr
 
+    (* Instructions involved in thread synchonisation. *)
+    val yield: instr and dmbIsh: instr
+    val loadAcquireExclusiveRegister: {regN: xReg, regT: xReg} -> instr
+    val storeReleaseExclusiveRegister: {regN: xReg, regS: xReg, regT: xReg} -> instr
+
     (* Create the vector of code from the list of instructions and update the
        closure reference to point to it. *)
     val generateCode:

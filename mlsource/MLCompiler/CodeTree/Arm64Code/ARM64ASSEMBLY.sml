@@ -545,6 +545,20 @@ struct
         end
     end
 
+    (* Instructions involved in thread synchonisation. *)
+    val yield = SimpleInstr 0wxD503203F (* Yield inside a spin-lock. *)
+    and dmbIsh = SimpleInstr 0wxD5033BBF (* Memory barrier. *)
+    
+    (* Acquire exclusive access to a memory location and load its current value *)
+    fun loadAcquireExclusiveRegister{regN, regT} =
+        SimpleInstr(0wxC85FFC00 orb (word8ToWord(xRegOrXSP regN) << 0w5) orb
+                word8ToWord(xRegOnly regT))
+    (* Release exclusive access and test whether it succeeded.  Sets regS to 0
+       if successful otherwise 1, in which case we have to repeat the operation. *)
+    and storeReleaseExclusiveRegister{regN, regS, regT} =
+        SimpleInstr(0wxC800FC00 orb (word8ToWord(xRegOnly regS) << 0w16) orb (word8ToWord(xRegOrXSP regN) << 0w5) orb
+                word8ToWord(xRegOnly regT))
+
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
     fun branchAndLinkReg(dest) =
@@ -956,6 +970,10 @@ struct
 
             else if wordValue = 0wxD503201F
             then printStream "nop"
+            else if wordValue = 0wxD503203F
+            then printStream "yield"
+            else if wordValue = 0wxD5033BBF
+            then printStream "dmb\tish"
 
             else if (wordValue andb 0wx1f800000) = 0wx12800000
             then (* Move of constants.  Includes movn and movk. *)
@@ -1487,6 +1505,28 @@ struct
                 printStream r; printStream(Word.fmt StringCvt.DEC rM);
                 if rA = 0w31 then ()
                 else (printStream ","; printStream r; printStream(Word.fmt StringCvt.DEC rA))
+            end
+
+            else if (wordValue andb 0wxfffffc00) = 0wxC85FFC00
+            then
+            let
+                val rN = (wordValue >> 0w5) andb 0wx1f
+                val rT = wordValue andb 0wx1f
+            in
+                printStream "ldaxr\tx"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream ".[x"; printStream(Word.fmt StringCvt.DEC rN); printStream "]"
+            end
+
+            else if (wordValue andb 0wxffe0fc00) = 0wxC800FC00
+            then
+            let
+                val rS = (wordValue >> 0w16) andb 0wx1f
+                val rN = (wordValue >> 0w5) andb 0wx1f
+                val rT = wordValue andb 0wx1f
+            in
+                printStream "stlxr\tw"; printStream(Word.fmt StringCvt.DEC rS);
+                printStream ",x"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream ".[x"; printStream(Word.fmt StringCvt.DEC rN); printStream "]"
             end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000
