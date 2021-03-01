@@ -116,26 +116,26 @@ struct
     fun compareRegs(reg1, reg2, code) =
         gen(subSShiftedReg{regM=reg2, regN=reg1, regD=XZero, shift=ShiftNone}, code)
 
-    (* Sequence to allocate on the heap.  Returns the result in X0.  The words are not initialised
+    (* Sequence to allocate on the heap.  The words are not initialised
        apart from the length word. *)
-    fun genAllocateFixedSize(words, flags, code) =
+    fun genAllocateFixedSize(words, flags, resultReg, workReg, code) =
     let
         val label = createLabel()
     in
         (* Subtract the number of bytes required from the heap pointer and put in X0. *)
         addConstantWord({regS=X_MLHeapAllocPtr, regD=X0, regW=X3,
             value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * Word64.fromInt(words+1)}, code);
-        compareRegs(X0, X_MLHeapLimit, code);
+        compareRegs(resultReg, X_MLHeapLimit, code);
         gen(conditionalBranch(condCarrySet, label), code);
         gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
         gen(branchAndLinkReg X16, code);
         gen(registerMask [], code); (* Not used at the moment. *)
         gen(setLabel label, code);
-        gen(genMoveRegToReg{sReg=X0, dReg=X_MLHeapAllocPtr}, code);
-        gen(loadNonAddressConstant(X1,
+        gen(genMoveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
+        gen(loadNonAddressConstant(workReg,
             Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags), 0w56))), code);
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
-        gen(storeRegUnscaled{regT=X1, regN=X0, byteOffset= ~8}, code)
+        gen(storeRegUnscaled{regT=workReg, regN=resultReg, byteOffset= ~8}, code)
     end
 
     (* Allocate space on the heap for a vector, string etc.  sizeReg and flagsReg
@@ -223,11 +223,18 @@ struct
         gen(setLabel skipCheck, code)
     end
 
+    (* Allocate a single byte cell and store the register into it. The result is
+       in X0 so reg must not be X0. *)
+    fun boxLargeWord(reg, code) =
+    (
+        reg <> X0 orelse raise InternalError "boxLargeWord: X0";
+        genAllocateFixedSize(1, F_bytes, X0, X5, code);
+        gen(storeRegScaled{regT=reg, regN=X0, unitOffset=0}, code)
+    )
+    
+
     val opcode_atomicExchAdd = "opcode_atomicExchAdd"
 and opcode_atomicReset = "opcode_atomicReset"
-and opcode_longWToTagged = "opcode_longWToTagged"
-and opcode_signedToLongW = "opcode_signedToLongW"
-and opcode_unsignedToLongW = "opcode_unsignedToLongW"
 and opcode_realAbs = "opcode_realAbs"
 and opcode_realNeg = "opcode_realNeg"
 and opcode_fixedIntToReal = "opcode_fixedIntToReal"
@@ -235,22 +242,6 @@ and opcode_fixedIntToFloat = "opcode_fixedIntToFloat"
 and opcode_floatToReal = "opcode_floatToReal"
 and opcode_floatAbs = "opcode_floatAbs"
 and opcode_floatNeg = "opcode_floatNeg"
-and opcode_lgWordEqual = "opcode_lgWordEqual"
-and opcode_lgWordLess = "opcode_lgWordLess"
-and opcode_lgWordLessEq = "opcode_lgWordLessEq"
-and opcode_lgWordGreater = "opcode_lgWordGreater"
-and opcode_lgWordGreaterEq = "opcode_lgWordGreaterEq"
-and opcode_lgWordAdd = "opcode_lgWordAdd"
-and opcode_lgWordSub = "opcode_lgWordSub"
-and opcode_lgWordMult = "opcode_lgWordMult"
-and opcode_lgWordDiv = "opcode_lgWordDiv"
-and opcode_lgWordMod = "opcode_lgWordMod"
-and opcode_lgWordAnd = "opcode_lgWordAnd"
-and opcode_lgWordOr = "opcode_lgWordOr"
-and opcode_lgWordXor = "opcode_lgWordXor"
-and opcode_lgWordShiftLeft = "opcode_lgWordShiftLeft"
-and opcode_lgWordShiftRLog = "opcode_lgWordShiftRLog"
-and opcode_lgWordShiftRArith = "opcode_lgWordShiftRArith"
 and opcode_realEqual = "opcode_realEqual"
 and opcode_realLess = "opcode_realLess"
 and opcode_realLessEq = "opcode_realLessEq"
@@ -765,7 +756,7 @@ and cpuPause = "cpuPause"
                 in
                     (* Get the fields and push them to the stack. *)
                     List.app(fn v => gencde (v, ToStack, NotEnd, loopAddr)) recList;
-                    genAllocateFixedSize(size, 0w0, cvec);
+                    genAllocateFixedSize(size, 0w0, X0, X1, cvec);
                     List.foldl(fn (_, w) =>
                         (genPopReg(X1, cvec); gen(storeRegScaled{regT=X1, regN=X0, unitOffset=w-1}, cvec); w-1))
                             size recList;
@@ -918,9 +909,26 @@ and cpuPause = "cpuPause"
                         )
 
                     |   AtomicReset => genOpcode(opcode_atomicReset, cvec)
-                    |   LongWordToTagged => genOpcode(opcode_longWToTagged, cvec)
-                    |   SignedToLongWord => genOpcode(opcode_signedToLongW, cvec)
-                    |   UnsignedToLongWord => genOpcode(opcode_unsignedToLongW, cvec)
+
+                    |   LongWordToTagged =>
+                        (
+                            (* Load the value and tag it. *)
+                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                            (* Tag the result. *)
+                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                            gen(bitwiseOrImmediate{wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
+                        )
+                    |   SignedToLongWord =>
+                        (
+                            gen(arithmeticShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X1}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+                    |   UnsignedToLongWord =>
+                        (
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X1}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+
                     |   RealAbs PrecDouble => genOpcode(opcode_realAbs, cvec)
                     |   RealNeg PrecDouble => genOpcode(opcode_realNeg, cvec)
                     |   RealFixedInt PrecDouble => genOpcode(opcode_fixedIntToReal, cvec)
@@ -945,6 +953,15 @@ and cpuPause = "cpuPause"
                     fun compareWords cond =
                     (
                         genPopReg(X1, cvec); (* First argument. *)
+                        compareRegs(X1, X0, cvec);
+                        setBooleanCondition(X0, cond, cvec)
+                    )
+                    and compareLargeWords cond =
+                    (
+                        (* The values are boxed so have to be loaded first. *)
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
                         compareRegs(X1, X0, cvec);
                         setBooleanCondition(X0, cond, cvec)
                     )
@@ -1169,26 +1186,109 @@ and cpuPause = "cpuPause"
                             gen(genMoveRegToReg{sReg=X2, dReg=X0}, cvec)
                         )
                 
-                    |   LargeWordComparison TestEqual => genOpcode(opcode_lgWordEqual, cvec)
-                    |   LargeWordComparison TestLess => genOpcode(opcode_lgWordLess, cvec)
-                    |   LargeWordComparison TestLessEqual => genOpcode(opcode_lgWordLessEq, cvec)
-                    |   LargeWordComparison TestGreater => genOpcode(opcode_lgWordGreater, cvec)
-                    |   LargeWordComparison TestGreaterEqual => genOpcode(opcode_lgWordGreaterEq, cvec)
+                    |   LargeWordComparison TestEqual => compareLargeWords condEqual
+                    |   LargeWordComparison TestLess => compareLargeWords condCarryClear
+                    |   LargeWordComparison TestLessEqual => compareLargeWords condUnsignedLowOrEq
+                    |   LargeWordComparison TestGreater => compareLargeWords condUnsignedHigher
+                    |   LargeWordComparison TestGreaterEqual => compareLargeWords condCarrySet
                     |   LargeWordComparison TestUnordered => raise InternalError "LargeWordComparison: TestUnordered"
                 
-                    |   LargeWordArith ArithAdd => genOpcode(opcode_lgWordAdd, cvec)
-                    |   LargeWordArith ArithSub => genOpcode(opcode_lgWordSub, cvec)
-                    |   LargeWordArith ArithMult => genOpcode(opcode_lgWordMult, cvec)
-                    |   LargeWordArith ArithDiv => genOpcode(opcode_lgWordDiv, cvec)
-                    |   LargeWordArith ArithMod => genOpcode(opcode_lgWordMod, cvec)
+                    |   LargeWordArith ArithAdd =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            gen(addShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+                    |   LargeWordArith ArithSub =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            gen(subShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+                    |   LargeWordArith ArithMult =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            gen(multiplyAndAdd{regM=X1, regN=X0, regA=XZero, regD=X1}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+                    |   LargeWordArith ArithDiv =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            gen(unsignedDivide{regM=X0, regN=X1, regD=X1}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+                    |   LargeWordArith ArithMod =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            gen(unsignedDivide{regM=X0, regN=X1, regD=X2}, cvec);
+                            gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X1}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
                     |   LargeWordArith _ => raise InternalError "LargeWordArith - unimplemented instruction"
 
-                    |   LargeWordLogical LogicalAnd => genOpcode(opcode_lgWordAnd, cvec)
-                    |   LargeWordLogical LogicalOr => genOpcode(opcode_lgWordOr, cvec)
-                    |   LargeWordLogical LogicalXor => genOpcode(opcode_lgWordXor, cvec)
-                    |   LargeWordShift ShiftLeft => genOpcode(opcode_lgWordShiftLeft, cvec)
-                    |   LargeWordShift ShiftRightLogical => genOpcode(opcode_lgWordShiftRLog, cvec)
-                    |   LargeWordShift ShiftRightArithmetic => genOpcode(opcode_lgWordShiftRArith, cvec)
+                    |   LargeWordLogical LogicalAnd =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            gen(andShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+                    |   LargeWordLogical LogicalOr =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            gen(orrShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+                    |   LargeWordLogical LogicalXor =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            gen(eorShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+                        (* The shift is always a Word.word value i.e. tagged.  There is a check at the higher level
+                           that the shift does not exceed 32/64 bits. *)
+                    |   LargeWordShift ShiftLeft =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            (* Untag the shift amount.  Can use 32-bit op here. *)
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                            gen(logicalShiftLeftVariable{regM=X0, regN=X1, regD=X1}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+                    |   LargeWordShift ShiftRightLogical =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            (* Untag the shift amount.  Can use 32-bit op here. *)
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                            gen(logicalShiftRightVariable{regM=X0, regN=X1, regD=X1}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
+                    |   LargeWordShift ShiftRightArithmetic =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                            (* Untag the shift amount.  Can use 32-bit op here. *)
+                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                            gen(arithmeticShiftRightVariable{regM=X0, regN=X1, regD=X1}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
 
                     |   RealComparison (TestEqual, PrecDouble) => genOpcode(opcode_realEqual, cvec)
                     |   RealComparison (TestLess, PrecDouble) => genOpcode(opcode_realLess, cvec)
@@ -1259,7 +1359,7 @@ and cpuPause = "cpuPause"
                                 val flagByte = Word8.fromLargeWord(Word.toLargeWord(toShort flagValue))
                             in
                                 gencde (initial, ToStack, NotEnd, loopAddr); (* Initialiser. *)
-                                genAllocateFixedSize(1, flagByte, cvec);
+                                genAllocateFixedSize(1, flagByte, X0, X1, cvec);
                                 genPopReg(X1, cvec);
                                 gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec);
                                 decsp(); topInX0 := true
@@ -1620,7 +1720,7 @@ and cpuPause = "cpuPause"
                 if mutualDecs
                 then
                 let (* Have to make the closure now and fill it in later. *)
-                    val () = genAllocateFixedSize(closureVars+1, F_mutable, cvec)
+                    val () = genAllocateFixedSize(closureVars+1, F_mutable, X0, X1, cvec)
                     val () = gen(loadAddressConstant(X1, codeAddr), cvec);
                     val () = gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec)
                     val () = genPushReg(X0, cvec)
@@ -1659,7 +1759,7 @@ and cpuPause = "cpuPause"
                 let
                     val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
                 in
-                    genAllocateFixedSize(closureVars+1, 0w0, cvec);
+                    genAllocateFixedSize(closureVars+1, 0w0, X0, X1, cvec);
                     List.foldl(fn (_, w) =>
                         (genPopReg(X1, cvec); gen(storeRegScaled{regT=X1, regN=X0, unitOffset=w-1}, cvec); w-1))
                             (closureVars+1) closure;
