@@ -2009,9 +2009,6 @@ and opcode_freeCSpace = "opcode_freeCSpace"
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if (*false andalso*) Debug.getParameter Debug.compilerDebugTag parameters = 0
-    then FallBackCG.gencodeLambda(lambda, parameters, closure)
-    else
         codegen (body, name, closure, List.length argTypes, localCount, parameters)
         handle Fallback s =>
         (
