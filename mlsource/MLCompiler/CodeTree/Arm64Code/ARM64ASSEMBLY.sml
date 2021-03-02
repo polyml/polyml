@@ -35,7 +35,12 @@ struct
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
     
+    (* XReg is used for fixed point registers since X0 and W0 are
+       the same register. *)
     datatype xReg = XReg of Word8.word | XZero | XSP
+    (* VReg is used for the floating point registers since V0, D0 and
+       S0 are the same register. *)
+    and vReg = VReg of Word8.word
 
     (* A Label is a ref that is later set to the location.
        Several labels can be linked together so that they are only set
@@ -109,6 +114,11 @@ struct
     and X_MLHeapAllocPtr    = X27 (* ML Heap allocation pointer. *)
     and X_MLStackPtr        = X28 (* ML Stack pointer. *)
     and X_LinkReg           = X30 (* Link reg - return address *)
+    
+    fun vReg(VReg v) = v
+    (* Only the first eight registers are currently used by ML. *)
+    val V0  = VReg 0w0  and V1  = VReg 0w1 and V2 = VReg 0w2   and V3  = VReg 0w3
+    and V4  = VReg 0w4  and V5  = VReg 0w5 and V6 = VReg 0w6   and V7  = VReg 0w7
 
     (* Some data instructions include a possible shift. *)
     datatype shiftType =
@@ -426,21 +436,25 @@ struct
        12-bit word offset. *)
     
     local
-        fun loadStoreRegScaled (size, v, opc) ({regT, regN, unitOffset}) =
+        fun loadStoreRegScaled (size, v, opc, xD) ({regT, regN, unitOffset}) =
         let
             val _ = (unitOffset >= 0 andalso unitOffset < 0x1000)
                 orelse raise InternalError "loadStoreRegScaled: value out of range"
         in
             SimpleInstr(0wx39000000 orb (size << 0w30) orb (opc << 0w22) orb
                 (v << 0w26) orb (Word.fromInt unitOffset << 0w10) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXZ regT))
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xD regT))
         end
     in
-        val loadRegScaled = loadStoreRegScaled(0w3, 0w0, 0w1)
-        and storeRegScaled = loadStoreRegScaled(0w3, 0w0, 0w0)
+        val loadRegScaled = loadStoreRegScaled(0w3, 0w0, 0w1, xRegOrXZ)
+        and storeRegScaled = loadStoreRegScaled(0w3, 0w0, 0w0, xRegOrXZ)
         (* (Unsigned) byte operations.  There are also signed versions. *)
-        and loadRegScaledByte = loadStoreRegScaled (0w0, 0w0, 0w1)
-        and storeRegScaledByte = loadStoreRegScaled (0w0, 0w0, 0w0)
+        and loadRegScaledByte = loadStoreRegScaled (0w0, 0w0, 0w1, xRegOrXZ)
+        and storeRegScaledByte = loadStoreRegScaled (0w0, 0w0, 0w0, xRegOrXZ)
+        and loadRegScaledDouble = loadStoreRegScaled(0w3, 0w1, 0w1, vReg)
+        and storeRegScaledDouble = loadStoreRegScaled(0w3, 0w1, 0w0, vReg)
+        and loadRegScaledFloat = loadStoreRegScaled(0w2, 0w1, 0w1, vReg)
+        and storeRegScaledFloat = loadStoreRegScaled(0w2, 0w1, 0w0, vReg)
     end    
 
     local
@@ -669,7 +683,7 @@ struct
         (* Logical immediates.  AND, OR, XOR and ANDS.  Assumes that the immediate value
            has already been checked as valid.  The non-flags versions can use SP as the
            destination. *)
-        fun logicalImmediate (opc, xD) ({wordSize, bits, regN, regD}) =
+        fun logicalImmediate (opc, xD) {wordSize, bits, regN, regD} =
         let
             val s = case wordSize of WordSize32 => 0w0 | WordSize64 => 0w1
             val {n, imms, immr} = 
@@ -695,6 +709,35 @@ struct
         in
             bitwiseAndSImmediate({wordSize=w, bits=bits, regN=reg, regD=XZero})
         end
+    end
+
+    local
+        (* Floating point operations - 2 source *)
+        fun floatingPoint2Source (pt, opc) {regM, regN, regD} =
+            SimpleInstr(0wx1E200800 orb (pt << 0w22) orb (word8ToWord(vReg regM) << 0w16) orb
+                (opc << 0w12) orb (word8ToWord(vReg regN) << 0w5) orb word8ToWord(vReg regD))
+    in
+        val multiplyFloat = floatingPoint2Source(0w0, 0wx0)
+        and divideFloat = floatingPoint2Source(0w0, 0wx1)
+        and addFloat = floatingPoint2Source(0w0, 0wx2)
+        and subtractFloat = floatingPoint2Source(0w0, 0wx3)
+        and multiplyDouble = floatingPoint2Source(0w1, 0wx0)
+        and divideDouble = floatingPoint2Source(0w1, 0wx1)
+        and addDouble = floatingPoint2Source(0w1, 0wx2)
+        and subtractDouble = floatingPoint2Source(0w1, 0wx3)
+    end
+
+    local
+        (* Move between a floating point and a general register without conversion. *)
+        fun fmoveGeneral (sf, ftype, mode, opcode, rN, rD) {regN, regD} =
+            SimpleInstr(0wx1E200000 orb (sf << 0w31) orb (ftype << 0w22) orb
+                (mode << 0w19) orb (opcode << 0w16) orb
+                (word8ToWord(rN regN) << 0w5) orb word8ToWord(rD regD))
+    in
+        val moveGeneralToFloat = fmoveGeneral(0w0, 0w0, 0w0, 0w7, xRegOrXZ, vReg)
+        and moveFloatToGeneral = fmoveGeneral(0w0, 0w0, 0w0, 0w6, vReg, xRegOnly)
+        and moveGeneralToDouble = fmoveGeneral(0w1, 0w1, 0w0, 0w7, xRegOrXZ, vReg)
+        and moveDoubleToGeneral = fmoveGeneral(0w1, 0w1, 0w0, 0w6, vReg, xRegOnly)
     end
 
     (* This word is put in after a call to the RTS trap-handler.  All the registers
@@ -994,6 +1037,34 @@ struct
                 else (printStream ",lsl #"; printStream(Word.fmt StringCvt.HEX (shift*0w16)))
             end
 
+            else if (wordValue andb 0wx3b000000) = 0wx39000000
+            then (* Load/Store with unsigned, scaled offset. *)
+            let
+                (* The offset is in units of the size of the operand. *)
+                val size = wordValue >> 0w30
+                and v = (wordValue >> 0w26) andb 0w1
+                and opc = (wordValue >> 0w22) andb 0w3
+                val rT = wordValue andb 0wx1f
+                and rN = (wordValue andb 0wx3e0) >> 0w5
+                and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
+                val (opcode, r, scale) =
+                    case (size, v, opc) of
+                        (0w0, 0w0, 0w0) => ("strb", "w", 0w0)
+                    |   (0w0, 0w0, 0w1) => ("ldrb", "w", 0w0)
+                    |   (0w3, 0w0, 0w0) => ("str", "x", 0w8)
+                    |   (0w3, 0w0, 0w1) => ("ldr", "x", 0w8)
+                    |   (0w2, 0w0, 0w0) => ("str", "s", 0w4)
+                    |   (0w2, 0w0, 0w1) => ("ldr", "s", 0w4)
+                    |   (0w3, 0w1, 0w0) => ("str", "d", 0w8)
+                    |   (0w3, 0w1, 0w1) => ("ldr", "d", 0w8)
+                    |   _ => ("??", "?", 0w1)
+            in
+                printStream opcode; printStream "\t"; printStream r; printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream ",#"; printStream(Word.fmt StringCvt.DEC(imm12*scale));
+                printStream "]"
+            end
+
             else if (wordValue andb 0wx3b200c00) = 0wx38000000
             then (* Load/store unscaled immediate *)
             let
@@ -1279,21 +1350,6 @@ struct
                 printStream ",0x"; printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
             end
 
-            else if (wordValue andb 0wxff800000) = 0wxF9000000
-            then
-            let
-                (* Load/Store with an unsigned offset.  The offset is in units of 64-bits. *)
-                val opc = if (wordValue andb 0wx400000) = 0w0 then "str" else "ldr"
-                val rT = wordValue andb 0wx1f
-                and rN = (wordValue andb 0wx3e0) >> 0w5
-                and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
-            in
-                printStream opc; printStream "\tx"; printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ",#"; printStream(Word.fmt StringCvt.DEC(imm12*0w8));
-                printStream "]"
-            end
-
             else if (wordValue andb 0wxfc000000) = 0wx14000000
             then (* Unconditional branch. *)
             let
@@ -1528,6 +1584,54 @@ struct
                 printStream ",x"; printStream(Word.fmt StringCvt.DEC rT);
                 printStream ".[x"; printStream(Word.fmt StringCvt.DEC rN); printStream "]"
             end
+            
+            else if (wordValue andb 0wx7f20fc00) = 0wx1E200000
+            then (* Moves between floating point and general regs. *)
+            let
+                val sf = (wordValue >> 0w31) andb 0w1
+                and ftype = (wordValue >> 0w22) andb 0w3
+                and mode = (wordValue >> 0w19) andb 0w3
+                and opcode = (wordValue >> 0w16) andb 0w7
+                and rN = (wordValue >> 0w5) andb 0wx1f
+                and rD = wordValue andb 0wx1f
+                val (dr, nr) =
+                    case (sf, ftype, mode, opcode) of
+                        (0w0, 0w0, 0w0, 0w7) => ("s", "w") (* w -> s *)
+                    |   (0w0, 0w0, 0w0, 0w6) => ("w", "s") (* s -> w *)
+                    |   (0w1, 0w1, 0w0, 0w7) => ("d", "x") (* d -> x *)
+                    |   (0w1, 0w1, 0w0, 0w6) => ("x", "d") (* x -> d *)
+                    |   _ => ("?", "?")
+            in
+                printStream "fmov\t";
+                printStream dr; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
+                printStream nr; printStream(Word.fmt StringCvt.DEC rN)
+            end
+            
+            else if (wordValue andb 0wxff200c00) = 0wx1E200800
+            then (* Floating point two source operations. *)
+            let
+                val pt = (wordValue >> 0w22) andb 0w3
+                and rM = (wordValue >> 0w16) andb 0wx1f
+                and opc = (wordValue >> 0w12) andb 0wxf
+                and rN = (wordValue >> 0w5) andb 0wx1f
+                and rT = wordValue andb 0wx1f
+                val (opcode, r) =
+                    case (pt, opc) of
+                        (0w0, 0wx0) => ("fmul", "s")
+                    |   (0w0, 0wx1) => ("fdiv", "s")
+                    |   (0w0, 0wx2) => ("fadd", "s")
+                    |   (0w0, 0wx3) => ("fsub", "s")
+                    |   (0w1, 0wx0) => ("fmul", "d")
+                    |   (0w1, 0wx1) => ("fdiv", "d")
+                    |   (0w1, 0wx2) => ("fadd", "d")
+                    |   (0w1, 0wx3) => ("fsub", "d")
+                    |   _ => ("??", "?")
+            in
+                printStream opcode; printStream "\t";
+                printStream r; printStream(Word.fmt StringCvt.DEC rT); printStream ",";
+                printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
+                printStream r; printStream(Word.fmt StringCvt.DEC rM)
+            end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000
             then (* This is an unallocated range.  We use it for the register mask. *)
@@ -1641,6 +1745,7 @@ struct
         type closureRef = closureRef
         type instr = instr
         type xReg = xReg
+        type vReg = vReg
         type labels = labels
         type condition = condition
         type shiftType = shiftType

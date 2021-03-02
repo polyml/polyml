@@ -232,6 +232,13 @@ struct
         gen(storeRegScaled{regT=reg, regN=X0, unitOffset=0}, code)
     )
     
+    (* Allocate a single byte cell for a "real" i.e. double-precision floating
+       point number. *)
+    fun boxDouble(reg, code) =
+    (
+        genAllocateFixedSize(1, F_bytes, X0, X5, code);
+        gen(storeRegScaledDouble{regT=reg, regN=X0, unitOffset=0}, code)
+    )
 
 val opcode_realAbs = "opcode_realAbs"
 and opcode_realNeg = "opcode_realNeg"
@@ -246,20 +253,12 @@ and opcode_realLessEq = "opcode_realLessEq"
 and opcode_realGreater = "opcode_realGreater"
 and opcode_realGreaterEq = "opcode_realGreaterEq"
 and opcode_realUnordered = "opcode_realUnordered"
-and opcode_realAdd = "opcode_realAdd"
-and opcode_realSub = "opcode_realSub"
-and opcode_realMult = "opcode_realMult"
-and opcode_realDiv = "opcode_realDiv"
 and opcode_floatEqual = "opcode_floatEqual"
 and opcode_floatLess = "opcode_floatLess"
 and opcode_floatLessEq = "opcode_floatLessEq"
 and opcode_floatGreater = "opcode_floatGreater"
 and opcode_floatGreaterEq = "opcode_floatGreaterEq"
 and opcode_floatUnordered = "opcode_floatUnordered"
-and opcode_floatAdd = "opcode_floatAdd"
-and opcode_floatSub = "opcode_floatSub"
-and opcode_floatMult = "opcode_floatMult"
-and opcode_floatDiv = "opcode_floatDiv"
 
 and opcode_loadC8 = "opcode_loadC8"
 and opcode_loadC16 = "opcode_loadC16"
@@ -1305,15 +1304,90 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                     |   RealComparison (TestGreaterEqual, PrecSingle) => genOpcode(opcode_floatGreaterEq, cvec)
                     |   RealComparison (TestUnordered, PrecSingle) => genOpcode(opcode_floatUnordered, cvec)
 
-                    |   RealArith (ArithAdd, PrecDouble) => genOpcode(opcode_realAdd, cvec)
-                    |   RealArith (ArithSub, PrecDouble) => genOpcode(opcode_realSub, cvec)
-                    |   RealArith (ArithMult, PrecDouble) => genOpcode(opcode_realMult, cvec)
-                    |   RealArith (ArithDiv, PrecDouble) => genOpcode(opcode_realDiv, cvec)
+                    |   RealArith (ArithAdd, PrecDouble) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                            gen(addDouble{regM=V0, regN=V1, regD=V0}, cvec);
+                            boxDouble(V0, cvec)
+                        )
+                    |   RealArith (ArithSub, PrecDouble) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                            gen(subtractDouble{regM=V0, regN=V1, regD=V0}, cvec);
+                            boxDouble(V0, cvec)
+                        )
+                    |   RealArith (ArithMult, PrecDouble) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                            gen(multiplyDouble{regM=V0, regN=V1, regD=V0}, cvec);
+                            boxDouble(V0, cvec)
+                        )
+                    |   RealArith (ArithDiv, PrecDouble) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                            gen(divideDouble{regM=V0, regN=V1, regD=V0}, cvec);
+                            boxDouble(V0, cvec)
+                        )
 
-                    |   RealArith (ArithAdd, PrecSingle) => genOpcode(opcode_floatAdd, cvec)
-                    |   RealArith (ArithSub, PrecSingle) => genOpcode(opcode_floatSub, cvec)
-                    |   RealArith (ArithMult, PrecSingle) => genOpcode(opcode_floatMult, cvec)
-                    |   RealArith (ArithDiv, PrecSingle) => genOpcode(opcode_floatDiv, cvec)
+                    |   RealArith (ArithAdd, PrecSingle) =>
+                        (
+                            (* 32-bit floats are represented as the value in the top 32-bits of
+                               a general register with the low-order word containing all zeros
+                               except the bottom bit which is one. *)
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                            gen(addFloat{regM=V0, regN=V1, regD=V0}, cvec);
+                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   RealArith (ArithSub, PrecSingle) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                            gen(subtractFloat{regM=V0, regN=V1, regD=V0}, cvec);
+                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   RealArith (ArithMult, PrecSingle) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                            gen(multiplyFloat{regM=V0, regN=V1, regD=V0}, cvec);
+                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   RealArith (ArithDiv, PrecSingle) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                            gen(divideFloat{regM=V0, regN=V1, regD=V0}, cvec);
+                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
 
                     |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
                 
