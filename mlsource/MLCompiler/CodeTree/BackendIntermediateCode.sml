@@ -64,7 +64,7 @@ struct
         |   RealNeg of precision
         |   RealFixedInt of precision
         |   FloatToDouble
-        |   DoubleToFloat of IEEEReal.rounding_mode option
+        |   DoubleToFloat
         |   RealToInt of precision * IEEEReal.rounding_mode
         |   TouchAddress
         |   AllocCStack
@@ -106,8 +106,7 @@ struct
         |   unaryRepr (RealNeg prec) = "RealNeg" ^ precRepr prec
         |   unaryRepr (RealFixedInt prec) = "RealFixedInt" ^ precRepr prec
         |   unaryRepr FloatToDouble = "FloatToDouble"
-        |   unaryRepr (DoubleToFloat NONE) = "DoubleToFloat"
-        |   unaryRepr (DoubleToFloat (SOME mode)) = "DoubleToFloat" ^ rndModeRepr mode
+        |   unaryRepr DoubleToFloat = "DoubleToFloat"
         |   unaryRepr (RealToInt (prec, mode)) = "RealToInt" ^ precRepr prec ^ rndModeRepr mode
         |   unaryRepr TouchAddress = "TouchAddress"
         |   unaryRepr AllocCStack = "AllocCStack"

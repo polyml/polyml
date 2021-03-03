@@ -42,6 +42,10 @@ sig
     and X_MLHeapAllocPtr: xReg (* ML Heap allocation pointer. *)
     and X_MLStackPtr: xReg (* ML Stack pointer. *)
     and X_LinkReg: xReg (* Link reg - return address *)
+    
+    eqtype vReg
+    val V0:  vReg   and V1:  vReg   and V2:  vReg   and V3: vReg
+    and V4:  vReg   and V5:  vReg   and V6:  vReg   and V7: vReg
 
     (* Condition for conditional branches etc. *)
     val condEqual: condition
@@ -152,6 +156,10 @@ sig
     and storeRegScaled: {regT: xReg, regN: xReg, unitOffset: int} -> instr
     and loadRegScaledByte: {regT: xReg, regN: xReg, unitOffset: int} -> instr
     and storeRegScaledByte: {regT: xReg, regN: xReg, unitOffset: int} -> instr
+    and loadRegScaledDouble: {regT: vReg, regN: xReg, unitOffset: int} -> instr
+    and storeRegScaledDouble: {regT: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadRegScaledFloat: {regT: vReg, regN: xReg, unitOffset: int} -> instr
+    and storeRegScaledFloat: {regT: vReg, regN: xReg, unitOffset: int} -> instr
 
     (* Load/Store a value using a signed byte offset. *)
     val loadRegUnscaled: {regT: xReg, regN: xReg, byteOffset: int} -> instr
@@ -246,6 +254,39 @@ sig
     val loadAcquireExclusiveRegister: {regN: xReg, regT: xReg} -> instr
     val storeReleaseExclusiveRegister: {regN: xReg, regS: xReg, regT: xReg} -> instr
 
+    (* Floating point moves and conversions.  Moves simply copy the bits.
+       In all cases the integer argument is signed 64-bits. *)
+    val moveGeneralToDouble: {regN: xReg, regD: vReg} -> instr
+    and moveGeneralToFloat: {regN: xReg, regD: vReg} -> instr
+    and moveDoubleToGeneral: {regN: vReg, regD: xReg} -> instr
+    and moveFloatToGeneral: {regN: vReg, regD: xReg} -> instr
+    and convertIntToDouble: {regN: xReg, regD: vReg} -> instr
+    and convertIntToFloat: {regN: xReg, regD: vReg} -> instr
+    and convertFloatToInt: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
+    and convertDoubleToInt: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
+   
+    (* Floating point operations. *)
+    val multiplyFloat: {regM: vReg, regN: vReg, regD: vReg} -> instr
+    and divideFloat: {regM: vReg, regN: vReg, regD: vReg} -> instr
+    and addFloat: {regM: vReg, regN: vReg, regD: vReg} -> instr
+    and subtractFloat: {regM: vReg, regN: vReg, regD: vReg} -> instr
+    and multiplyDouble: {regM: vReg, regN: vReg, regD: vReg} -> instr
+    and divideDouble: {regM: vReg, regN: vReg, regD: vReg} -> instr
+    and addDouble: {regM: vReg, regN: vReg, regD: vReg} -> instr
+    and subtractDouble: {regM: vReg, regN: vReg, regD: vReg} -> instr
+
+    val compareFloat: {regM: vReg, regN: vReg} -> instr
+    and compareDouble: {regM: vReg, regN: vReg} -> instr
+    
+    val moveFloatToFloat: {regN: vReg, regD: vReg} -> instr
+    and absFloat: {regN: vReg, regD: vReg} -> instr
+    and negFloat: {regN: vReg, regD: vReg} -> instr
+    and convertFloatToDouble: {regN: vReg, regD: vReg} -> instr
+    and moveDoubleToDouble: {regN: vReg, regD: vReg} -> instr
+    and absDouble: {regN: vReg, regD: vReg} -> instr
+    and negDouble: {regN: vReg, regD: vReg} -> instr
+    and convertDoubleToFloat: {regN: vReg, regD: vReg} -> instr
+
     (* Create the vector of code from the list of instructions and update the
        closure reference to point to it. *)
     val generateCode:
@@ -269,6 +310,7 @@ sig
         type closureRef = closureRef
         type instr = instr
         type xReg = xReg
+        type vReg = vReg
         type labels = labels
         type condition = condition
         type shiftType = shiftType

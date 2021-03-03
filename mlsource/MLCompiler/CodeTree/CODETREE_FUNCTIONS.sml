@@ -115,8 +115,8 @@ struct
                            lose precision so this depends on the current rounding mode. *)
                     |   RealFixedInt _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                     |   FloatToDouble => applicative
-                        (* The rounding mode is set explicitly. *)
-                    |   DoubleToFloat _ => applicative
+                        (* This also depends on the current rounding mode. *)
+                    |   DoubleToFloat => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                         (* May raise the overflow exception *)
                     |   RealToInt _ => PROPWORD_NOUPDATE orb PROPWORD_NODEREF
                     |   TouchAddress => PROPWORD_NORAISE (* Treat as updating a notional reference count. *)
