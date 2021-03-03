@@ -740,7 +740,7 @@ struct
         and moveFloatToGeneral = fmoveGeneral(0w0, 0w0, 0w0, 0w0, 0w6, vReg, xRegOnly)
         and moveGeneralToDouble = fmoveGeneral(0w1, 0w0, 0w1, 0w0, 0w7, xRegOrXZ, vReg)
         and moveDoubleToGeneral = fmoveGeneral(0w1, 0w0, 0w1, 0w0, 0w6, vReg, xRegOnly)
-        (* Moves with conversion - signed.  The argument is a 64-bit value SCVTF *)
+        (* Moves with conversion - signed.  The argument is a 64-bit value. *)
         and convertIntToFloat = fmoveGeneral(0w1, 0w0, 0w0, 0w0, 0w2, xRegOrXZ, vReg)
         and convertIntToDouble = fmoveGeneral(0w1, 0w0, 0w1, 0w0, 0w2, xRegOrXZ, vReg)
 
@@ -1653,6 +1653,14 @@ struct
                     |   (0w1, 0w0, 0w1, 0w0, 0w6) => ("fmov", "x", "d") (* x -> d *)
                     |   (0w1, 0w0, 0w0, 0w0, 0w2) => ("scvtf", "x", "s")
                     |   (0w1, 0w0, 0w1, 0w0, 0w2) => ("scvtf", "x", "d")
+                    |   (0w1, 0w0, 0w0, 0w0, 0w4) => ("fcvtas", "w", "s") (* s -> w *)
+                    |   (0w1, 0w0, 0w0, 0w2, 0w0) => ("fcvtms", "w", "s") (* s -> w *)
+                    |   (0w1, 0w0, 0w0, 0w1, 0w0) => ("fcvtps", "w", "s") (* s -> w *)
+                    |   (0w1, 0w0, 0w0, 0w3, 0w0) => ("fcvtzs", "w", "s") (* s -> w *)
+                    |   (0w1, 0w0, 0w1, 0w0, 0w4) => ("fcvtas", "x", "s") (* s -> x *)
+                    |   (0w1, 0w0, 0w1, 0w2, 0w0) => ("fcvtms", "x", "s") (* s -> x *)
+                    |   (0w1, 0w0, 0w1, 0w1, 0w0) => ("fcvtps", "x", "s") (* s -> x *)
+                    |   (0w1, 0w0, 0w1, 0w3, 0w0) => ("fcvtzs", "x", "s") (* s -> x *)
                     |   _ => ("?", "?", "?")
             in
                 printStream opc; printStream "\t";
@@ -1684,6 +1692,30 @@ struct
                 printStream r; printStream(Word.fmt StringCvt.DEC rT); printStream ",";
                 printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
                 printStream r; printStream(Word.fmt StringCvt.DEC rM)
+            end
+
+            else if (wordValue andb 0wxff207c00) = 0wx1E204000
+            then (* Floating point single source. *)
+            let
+                val pt = (wordValue >> 0w22) andb 0w3
+                and opc = (wordValue >> 0w15) andb 0wx3f
+                and rN = (wordValue >> 0w5) andb 0wx1f
+                and rT = wordValue andb 0wx1f
+                val (opcode, rS, rD) =
+                    case (pt, opc) of
+                        (0w0, 0wx0) => ("fmov", "s", "s")
+                    |   (0w0, 0wx1) => ("fabs", "s", "s")
+                    |   (0w0, 0wx2) => ("fneg", "s", "s")
+                    |   (0w0, 0wx5) => ("fcvt", "s", "d")
+                    |   (0w1, 0wx0) => ("fmov", "d", "d")
+                    |   (0w1, 0wx1) => ("fabs", "d", "d")
+                    |   (0w1, 0wx2) => ("fneg", "d", "d")
+                    |   (0w1, 0wx4) => ("fcvt", "d", "s")
+                    |   _ => ("??", "?", "?")
+            in
+                printStream opcode; printStream "\t";
+                printStream rD; printStream(Word.fmt StringCvt.DEC rT); printStream ",";
+                printStream rS; printStream(Word.fmt StringCvt.DEC rN)
             end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000

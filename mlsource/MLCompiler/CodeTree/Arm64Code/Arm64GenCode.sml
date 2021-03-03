@@ -240,14 +240,7 @@ struct
         gen(storeRegScaledDouble{regT=reg, regN=X0, unitOffset=0}, code)
     )
 
-val opcode_realAbs = "opcode_realAbs"
-and opcode_realNeg = "opcode_realNeg"
-and opcode_fixedIntToReal = "opcode_fixedIntToReal"
-and opcode_fixedIntToFloat = "opcode_fixedIntToFloat"
-and opcode_floatToReal = "opcode_floatToReal"
-and opcode_floatAbs = "opcode_floatAbs"
-and opcode_floatNeg = "opcode_floatNeg"
-and opcode_realEqual = "opcode_realEqual"
+val opcode_realEqual = "opcode_realEqual"
 and opcode_realLess = "opcode_realLess"
 and opcode_realLessEq = "opcode_realLessEq"
 and opcode_realGreater = "opcode_realGreater"
@@ -300,10 +293,6 @@ and opcode_freeCSpace = "opcode_freeCSpace"
         fun toDo s = raise Fallback(s ^ ":" ^ name)
 
         fun genOpcode (n, _) =  toDo n
-
-        fun genDoubleToFloat _ =  toDo "genDoubleToFloat"
-        fun genRealToInt _ =  toDo "genRealToInt"
-        fun genFloatToInt _ =  toDo "genFloatToInt"
     
         val cvec = ref []
         
@@ -984,17 +973,33 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                         )
                     |   DoubleToFloat =>
                         (
-                            genDoubleToFloat(NONE, cvec)
+                            (* Convert double to float using current rounding mode. *)
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(convertDoubleToFloat{regN=V0, regD=V0}, cvec);
+                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
                         )
                     |   RealToInt (PrecDouble, rnding) =>
                         (
-                            (* The rounding mode is given explicitly *)
-                            genRealToInt(rnding, cvec)
+                            (* TODO: Check for overflow.  We could get an overflow in
+                               either the conversion to integer or in the conversion
+                               to a tagged value. *)
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(convertDoubleToInt rnding {regN=V0, regD=X0}, cvec);
+                            gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
                         )
                     |   RealToInt (PrecSingle, rnding) =>
                         (
-                            (* The rounding mode is given explicitly *)
-                            genFloatToInt(rnding, cvec)
+                            (* TODO: Check for overflow.  We could get an overflow in
+                               either the conversion to integer or in the conversion
+                               to a tagged value. *)
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(convertFloatToInt rnding {regN=V0, regD=X0}, cvec);
+                            gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
                         )
                     |   TouchAddress => topInX0 := false (* Discard this *)
                     |   AllocCStack => genOpcode(opcode_allocCSpace, cvec)

@@ -47,16 +47,8 @@ struct
     val fromRealRound = fromLarge TO_NEAREST
 
     (* Defined to use the current rounding mode. *)
-    val fromLargeInt = fromReal o Real.fromLargeInt
-
-    val fromInt: int -> real =
-        (* We have to select the appropriate conversion.  This will be
-           reduced down to the appropriate function but has to be
-           type-correct whether int is arbitrary precision or fixed
-           precision.  Hence the "o Large/FixedInt.fromInt". *)
-        if Bootstrap.intIsArbitraryPrecision
-        then fromLargeInt o LargeInt.fromInt
-        else fromFixedInt o FixedInt.fromInt
+    val fromInt = fromReal o Real.fromInt (* TODO *)
+    and fromLargeInt = fromReal o Real.fromLargeInt
     
     val zero = fromInt 0 and one = fromInt 1 and four = fromInt 4
 

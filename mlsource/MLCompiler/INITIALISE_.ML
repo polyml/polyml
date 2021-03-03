@@ -912,6 +912,7 @@ struct
             val () = enterBinaryOp("/",     ArithDiv)
             val () = enterUnary("~",   RealNeg PrecSingle, unaryType)
             val () = enterUnary("abs", RealAbs PrecSingle, unaryType)
+            val () = enterUnary("fromFixedInt", RealFixedInt PrecSingle, fixedIntType ->> floatType)
             val () = enterUnary("truncFix", RealToInt(PrecSingle, TO_ZERO), floatToFixType)
             val () = enterUnary("roundFix", RealToInt(PrecSingle, TO_NEAREST), floatToFixType)
             val () = enterUnary("ceilFix", RealToInt(PrecSingle, TO_POSINF), floatToFixType)
