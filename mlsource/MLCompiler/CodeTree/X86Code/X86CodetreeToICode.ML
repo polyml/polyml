@@ -1962,7 +1962,7 @@ struct
                 (revApp(code, tailCode), RegisterArgument target, false)
             end
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.DoubleToFloat NONE, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=BuiltIns.DoubleToFloat, arg1}, context, _, destination, tailCode) =
             let
                 (* Convert a double precision value to a single precision using the current rounding
                    mode.  This is simpler than setting the rounding mode and then restoring it. *)
@@ -1977,29 +1977,6 @@ struct
                             BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}) ::
                                 boxOrTagReal(fpReg2, target, BuiltIns.PrecSingle)
                 val code = argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @ boxOrTag
-            in
-                (revApp(code, tailCode), RegisterArgument target, false)
-            end
-
-        |   codeToICodeUnaryRev({oper=BuiltIns.DoubleToFloat (SOME rndMode), arg1}, context, _, destination, tailCode) =
-            let
-                (* Convert a double precision value to a single precision.  The rounding mode
-                   is passed in explicitly. *)
-                val target = asTarget destination
-                val fpReg = newUReg() and fpReg2 = newUReg()
-                val (argCode, aReg1) = codeToPReg(arg1, context)
-                (* In 32-bit mode we need to box the float.  In 64-bit mode we can tag it. *)
-                (* We need to save the rounding mode before we change it and restore it afterwards. *)
-                open IEEEReal
-                fun doConversion() =
-                    case fpMode of
-                        FPModeX87 => (* Convert the value using the appropriate rounding. *)
-                            [BlockSimple(BoxValue{boxKind=BoxX87Float, source=fpReg, dest=target, saveRegs=[]})]
-                    |   FPModeSSE2 =>
-                            BlockSimple(SSE2FPUnary{opc=SSE2UDoubleToFloat, resultReg=fpReg2, source=RegisterArgument fpReg}) ::
-                                boxOrTagReal(fpReg2, target, BuiltIns.PrecSingle)
-                val code = argCode @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpReg, kind=MoveDouble})] @
-                    setAndRestoreRounding(rndMode, doConversion)
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
             end

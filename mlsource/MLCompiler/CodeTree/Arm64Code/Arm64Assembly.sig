@@ -254,12 +254,18 @@ sig
     val loadAcquireExclusiveRegister: {regN: xReg, regT: xReg} -> instr
     val storeReleaseExclusiveRegister: {regN: xReg, regS: xReg, regT: xReg} -> instr
 
-    (* Floating point operations. *)
+    (* Floating point moves and conversions.  Moves simply copy the bits.
+       In all cases the integer argument is signed 64-bits. *)
     val moveGeneralToDouble: {regN: xReg, regD: vReg} -> instr
     and moveGeneralToFloat: {regN: xReg, regD: vReg} -> instr
     and moveDoubleToGeneral: {regN: vReg, regD: xReg} -> instr
     and moveFloatToGeneral: {regN: vReg, regD: xReg} -> instr
+    and convertIntToDouble: {regN: xReg, regD: vReg} -> instr
+    and convertIntToFloat: {regN: xReg, regD: vReg} -> instr
+    and convertFloatToInt: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
+    and convertDoubleToInt: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
    
+    (* Floating point operations. *)
     val multiplyFloat: {regM: vReg, regN: vReg, regD: vReg} -> instr
     and divideFloat: {regM: vReg, regN: vReg, regD: vReg} -> instr
     and addFloat: {regM: vReg, regN: vReg, regD: vReg} -> instr
@@ -268,6 +274,18 @@ sig
     and divideDouble: {regM: vReg, regN: vReg, regD: vReg} -> instr
     and addDouble: {regM: vReg, regN: vReg, regD: vReg} -> instr
     and subtractDouble: {regM: vReg, regN: vReg, regD: vReg} -> instr
+
+    val compareFloat: {regM: vReg, regN: vReg} -> instr
+    and compareDouble: {regM: vReg, regN: vReg} -> instr
+    
+    val moveFloatToFloat: {regN: vReg, regD: vReg} -> instr
+    and absFloat: {regN: vReg, regD: vReg} -> instr
+    and negFloat: {regN: vReg, regD: vReg} -> instr
+    and convertFloatToDouble: {regN: vReg, regD: vReg} -> instr
+    and moveDoubleToDouble: {regN: vReg, regD: vReg} -> instr
+    and absDouble: {regN: vReg, regD: vReg} -> instr
+    and negDouble: {regN: vReg, regD: vReg} -> instr
+    and convertDoubleToFloat: {regN: vReg, regD: vReg} -> instr
 
     (* Create the vector of code from the list of instructions and update the
        closure reference to point to it. *)

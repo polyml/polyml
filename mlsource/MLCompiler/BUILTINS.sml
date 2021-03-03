@@ -60,7 +60,8 @@ sig
     |   RealNeg of precision     (* Invert the sign bit of a real. *)
     |   RealFixedInt of precision (* Convert an integer value into a real value. *)
     |   FloatToDouble (* Convert a single precision floating point value to double precision. *)
-    |   DoubleToFloat of IEEEReal.rounding_mode option (* Convert a double precision floating point value to single precision. *)
+    |   DoubleToFloat (* Convert a double precision floating point value to single precision
+                         using current rounding mode. *)
     |   RealToInt of precision * IEEEReal.rounding_mode (* Convert a double or float to a fixed precision int. *)
     |   TouchAddress (* Ensures that the cell is reachable. *)
     |   AllocCStack (* Allocate space on the C stack. *)

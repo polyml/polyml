@@ -728,16 +728,66 @@ struct
     end
 
     local
-        (* Move between a floating point and a general register without conversion. *)
-        fun fmoveGeneral (sf, ftype, mode, opcode, rN, rD) {regN, regD} =
-            SimpleInstr(0wx1E200000 orb (sf << 0w31) orb (ftype << 0w22) orb
+        (* Move between a floating point and a general register with or without conversion. *)
+        fun fmoveGeneral (sf, s, ptype, mode, opcode, rN, rD) {regN, regD} =
+            SimpleInstr(0wx1E200000 orb (sf << 0w31) orb (s << 0w29) orb (ptype << 0w22) orb
                 (mode << 0w19) orb (opcode << 0w16) orb
                 (word8ToWord(rN regN) << 0w5) orb word8ToWord(rD regD))
+        open IEEEReal
     in
-        val moveGeneralToFloat = fmoveGeneral(0w0, 0w0, 0w0, 0w7, xRegOrXZ, vReg)
-        and moveFloatToGeneral = fmoveGeneral(0w0, 0w0, 0w0, 0w6, vReg, xRegOnly)
-        and moveGeneralToDouble = fmoveGeneral(0w1, 0w1, 0w0, 0w7, xRegOrXZ, vReg)
-        and moveDoubleToGeneral = fmoveGeneral(0w1, 0w1, 0w0, 0w6, vReg, xRegOnly)
+        (* Moves without conversion *)
+        val moveGeneralToFloat = fmoveGeneral(0w0, 0w0, 0w0, 0w0, 0w7, xRegOrXZ, vReg)
+        and moveFloatToGeneral = fmoveGeneral(0w0, 0w0, 0w0, 0w0, 0w6, vReg, xRegOnly)
+        and moveGeneralToDouble = fmoveGeneral(0w1, 0w0, 0w1, 0w0, 0w7, xRegOrXZ, vReg)
+        and moveDoubleToGeneral = fmoveGeneral(0w1, 0w0, 0w1, 0w0, 0w6, vReg, xRegOnly)
+        (* Moves with conversion - signed.  The argument is a 64-bit value SCVTF *)
+        and convertIntToFloat = fmoveGeneral(0w1, 0w0, 0w0, 0w0, 0w2, xRegOrXZ, vReg)
+        and convertIntToDouble = fmoveGeneral(0w1, 0w0, 0w1, 0w0, 0w2, xRegOrXZ, vReg)
+
+        fun convertFloatToInt TO_NEAREST =
+                fmoveGeneral(0w1, 0w0, 0w0, 0w0, 0w4, vReg, xRegOnly) (* fcvtas *)
+        |   convertFloatToInt TO_NEGINF =
+                fmoveGeneral(0w1, 0w0, 0w0, 0w2, 0w0, vReg, xRegOnly) (* fcvtms *)
+        |   convertFloatToInt TO_POSINF =
+                fmoveGeneral(0w1, 0w0, 0w0, 0w1, 0w0, vReg, xRegOnly) (* fcvtps *)
+        |   convertFloatToInt TO_ZERO =
+                fmoveGeneral(0w1, 0w0, 0w0, 0w3, 0w0, vReg, xRegOnly) (* fcvtzs *)
+
+        and convertDoubleToInt TO_NEAREST =
+                fmoveGeneral(0w1, 0w0, 0w1, 0w0, 0w4, vReg, xRegOnly) (* fcvtas *)
+        |   convertDoubleToInt TO_NEGINF =
+                fmoveGeneral(0w1, 0w0, 0w1, 0w2, 0w0, vReg, xRegOnly) (* fcvtms *)
+        |   convertDoubleToInt TO_POSINF =
+                fmoveGeneral(0w1, 0w0, 0w1, 0w1, 0w0, vReg, xRegOnly) (* fcvtps *)
+        |   convertDoubleToInt TO_ZERO =
+                fmoveGeneral(0w1, 0w0, 0w1, 0w3, 0w0, vReg, xRegOnly) (* fcvtzs *)
+    end
+
+    local
+        fun floatingPtQuietCompare(ftype, opc) {regM, regN} =
+            SimpleInstr(0wx1E202000 orb (ftype << 0w22) orb
+                (word8ToWord(vReg regM) << 0w16) orb (word8ToWord(vReg regN) << 0w5) orb
+                (opc << 0w3))
+    in
+        val compareFloat = floatingPtQuietCompare(0w0, 0w0)
+        and compareDouble = floatingPtQuietCompare(0w1, 0w0)
+        (* It is also possible to compare a single register with zero using opc=1 *)
+    end
+
+    local
+        (* Floating point single source. *)
+        fun floatingPtSingle (ptype, opc) {regN, regD} =
+            SimpleInstr(0wx1E204000 orb (ptype << 0w22) orb (opc << 0w15) orb
+                (word8ToWord(vReg regN) << 0w5) orb word8ToWord(vReg regD))
+    in
+        val moveFloatToFloat = floatingPtSingle(0w0, 0wx0)
+        and absFloat = floatingPtSingle(0w0, 0wx1)
+        and negFloat = floatingPtSingle(0w0, 0wx2)
+        and convertFloatToDouble = floatingPtSingle(0w0, 0wx5)
+        and moveDoubleToDouble = floatingPtSingle(0w1, 0wx0)
+        and absDouble = floatingPtSingle(0w1, 0wx1)
+        and negDouble = floatingPtSingle(0w1, 0wx2)
+        and convertDoubleToFloat = floatingPtSingle(0w1, 0wx4)
     end
 
     (* This word is put in after a call to the RTS trap-handler.  All the registers
@@ -1589,20 +1639,23 @@ struct
             then (* Moves between floating point and general regs. *)
             let
                 val sf = (wordValue >> 0w31) andb 0w1
-                and ftype = (wordValue >> 0w22) andb 0w3
+                and s = (wordValue >> 0w29) andb 0w1
+                and ptype = (wordValue >> 0w22) andb 0w3
                 and mode = (wordValue >> 0w19) andb 0w3
                 and opcode = (wordValue >> 0w16) andb 0w7
                 and rN = (wordValue >> 0w5) andb 0wx1f
                 and rD = wordValue andb 0wx1f
-                val (dr, nr) =
-                    case (sf, ftype, mode, opcode) of
-                        (0w0, 0w0, 0w0, 0w7) => ("s", "w") (* w -> s *)
-                    |   (0w0, 0w0, 0w0, 0w6) => ("w", "s") (* s -> w *)
-                    |   (0w1, 0w1, 0w0, 0w7) => ("d", "x") (* d -> x *)
-                    |   (0w1, 0w1, 0w0, 0w6) => ("x", "d") (* x -> d *)
-                    |   _ => ("?", "?")
+                val (opc, dr, nr) =
+                    case (sf, s, ptype, mode, opcode) of
+                        (0w0, 0w0, 0w0, 0w0, 0w7) => ("fmov", "s", "w") (* w -> s *)
+                    |   (0w0, 0w0, 0w0, 0w0, 0w6) => ("fmov", "w", "s") (* s -> w *)
+                    |   (0w1, 0w0, 0w1, 0w0, 0w7) => ("fmov", "d", "x") (* d -> x *)
+                    |   (0w1, 0w0, 0w1, 0w0, 0w6) => ("fmov", "x", "d") (* x -> d *)
+                    |   (0w1, 0w0, 0w0, 0w0, 0w2) => ("scvtf", "x", "s")
+                    |   (0w1, 0w0, 0w1, 0w0, 0w2) => ("scvtf", "x", "d")
+                    |   _ => ("?", "?", "?")
             in
-                printStream "fmov\t";
+                printStream opc; printStream "\t";
                 printStream dr; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
                 printStream nr; printStream(Word.fmt StringCvt.DEC rN)
             end

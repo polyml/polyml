@@ -1,7 +1,7 @@
 (*
     Title:      Real32 structure.
     Author:     David Matthews
-    Copyright   David Matthews 2018
+    Copyright   David Matthews 2018, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -31,10 +31,20 @@ struct
     open Real32 (* Inherit the type and the built-in functions. *)
     open IEEEReal
 
-    fun fromLarge IEEEReal.TO_NEAREST = fromRealRound
-    |   fromLarge IEEEReal.TO_ZERO = fromRealTrunc
-    |   fromLarge IEEEReal.TO_POSINF = fromRealCeil
-    |   fromLarge IEEEReal.TO_NEGINF = fromRealFloor
+    (* On both the X86 and ARM there is only a single conversion from
+       double to float using the current rounding mode.  If we want
+       a specific rounding mode we need to set the rounding. *)
+    fun fromLarge mode value =
+    let
+        val current = getRoundingMode()
+        val () = setRoundingMode mode
+        val result = fromReal value
+        val () = setRoundingMode current
+    in
+        result
+    end
+    
+    val fromRealRound = fromLarge TO_NEAREST
 
     (* Defined to use the current rounding mode. *)
     val fromInt = fromReal o Real.fromInt (* TODO *)

@@ -929,16 +929,73 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                             boxLargeWord(X1, cvec)
                         )
 
-                    |   RealAbs PrecDouble => genOpcode(opcode_realAbs, cvec)
-                    |   RealNeg PrecDouble => genOpcode(opcode_realNeg, cvec)
-                    |   RealFixedInt PrecDouble => genOpcode(opcode_fixedIntToReal, cvec)
-                    |   RealAbs PrecSingle => genOpcode(opcode_floatAbs, cvec)
-                    |   RealNeg PrecSingle => genOpcode(opcode_floatNeg, cvec)
-                    |   RealFixedInt PrecSingle => genOpcode(opcode_fixedIntToFloat, cvec)
-                    |   FloatToDouble => genOpcode(opcode_floatToReal, cvec)
-                    |   DoubleToFloat rnding => genDoubleToFloat(rnding, cvec)
-                    |   RealToInt (PrecDouble, rnding) => genRealToInt(rnding, cvec)
-                    |   RealToInt (PrecSingle, rnding) => genFloatToInt(rnding, cvec)
+                    |   RealAbs PrecDouble =>
+                        (
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(absDouble{regN=V0, regD=V0}, cvec);
+                            boxDouble(V0, cvec)
+                        )
+                    |   RealNeg PrecDouble =>
+                        (
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(negDouble{regN=V0, regD=V0}, cvec);
+                            boxDouble(V0, cvec)
+                        )
+                    |   RealFixedInt PrecDouble =>
+                        (
+                            (* Shift to remove the tag. *)
+                            gen(arithmeticShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                            gen(convertIntToDouble{regN=X0, regD=V0}, cvec);
+                            boxDouble(V0, cvec)
+                        )
+                    |   RealAbs PrecSingle =>
+                        (
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(absFloat{regN=V0, regD=V0}, cvec);
+                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   RealNeg PrecSingle =>
+                        (
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(negFloat{regN=V0, regD=V0}, cvec);
+                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   RealFixedInt PrecSingle =>
+                        (
+                            (* Shift to remove the tag. *)
+                            gen(arithmeticShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                            gen(convertIntToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                        )
+                    |   FloatToDouble =>
+                        (
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(convertFloatToDouble{regN=V0, regD=V0}, cvec);
+                            boxDouble(V0, cvec)
+                        )
+                    |   DoubleToFloat =>
+                        (
+                            genDoubleToFloat(NONE, cvec)
+                        )
+                    |   RealToInt (PrecDouble, rnding) =>
+                        (
+                            (* The rounding mode is given explicitly *)
+                            genRealToInt(rnding, cvec)
+                        )
+                    |   RealToInt (PrecSingle, rnding) =>
+                        (
+                            (* The rounding mode is given explicitly *)
+                            genFloatToInt(rnding, cvec)
+                        )
                     |   TouchAddress => topInX0 := false (* Discard this *)
                     |   AllocCStack => genOpcode(opcode_allocCSpace, cvec)
                 end

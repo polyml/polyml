@@ -164,7 +164,7 @@ sig
    and genMoveToMutClosure:     int * code -> unit
    and genClosure:              int * code -> unit
    
-   val genDoubleToFloat: IEEEReal.rounding_mode option * code -> unit
+   val genDoubleToFloat: code -> unit
    and genRealToInt:   IEEEReal.rounding_mode * code -> unit
    and genFloatToInt:  IEEEReal.rounding_mode * code -> unit
    

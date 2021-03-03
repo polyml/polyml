@@ -489,7 +489,7 @@ struct
                 |   RealNeg PrecSingle => genOpcode(opcode_floatNeg, cvec)
                 |   RealFixedInt PrecSingle => genOpcode(opcode_fixedIntToFloat, cvec)
                 |   FloatToDouble => genOpcode(opcode_floatToReal, cvec)
-                |   DoubleToFloat rnding => genDoubleToFloat(rnding, cvec)
+                |   DoubleToFloat => genDoubleToFloat cvec
                 |   RealToInt (PrecDouble, rnding) => genRealToInt(rnding, cvec)
                 |   RealToInt (PrecSingle, rnding) => genFloatToInt(rnding, cvec)
                 |   TouchAddress => resetStack(1, false, cvec) (* Discard this *)
