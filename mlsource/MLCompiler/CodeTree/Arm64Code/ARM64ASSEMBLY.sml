@@ -764,14 +764,14 @@ struct
     end
 
     local
-        fun floatingPtQuietCompare(ftype, opc) {regM, regN} =
-            SimpleInstr(0wx1E202000 orb (ftype << 0w22) orb
+        fun floatingPtCompare(ptype, opc) {regM, regN} =
+            SimpleInstr(0wx1E202000 orb (ptype << 0w22) orb
                 (word8ToWord(vReg regM) << 0w16) orb (word8ToWord(vReg regN) << 0w5) orb
                 (opc << 0w3))
     in
-        val compareFloat = floatingPtQuietCompare(0w0, 0w0)
-        and compareDouble = floatingPtQuietCompare(0w1, 0w0)
-        (* It is also possible to compare a single register with zero using opc=1 *)
+        val compareFloat = floatingPtCompare(0w0, 0w0) (* fcmp *)
+        and compareDouble = floatingPtCompare(0w1, 0w0)
+        (* It is also possible to compare a single register with zero using opc=1/3 *)
     end
 
     local
@@ -1716,6 +1716,26 @@ struct
                 printStream opcode; printStream "\t";
                 printStream rD; printStream(Word.fmt StringCvt.DEC rT); printStream ",";
                 printStream rS; printStream(Word.fmt StringCvt.DEC rN)
+            end
+
+            else if (wordValue andb 0wxff20fc07) = 0wx1E202000
+            then (* Floating point comparison *)
+            let
+                val pt = (wordValue >> 0w22) andb 0w3
+                and rM = (wordValue >> 0w16) andb 0wx1f
+                and rN = (wordValue >> 0w5) andb 0wx1f
+                and opc = (wordValue >> 0w3) andb 0w3
+                val (opcode, r) =
+                    case (pt, opc) of
+                        (0w0, 0wx0) => ("fcmp", "s")
+                    |   (0w1, 0wx0) => ("fcmp", "d")
+                    |   (0w0, 0wx2) => ("fcmpe", "s")
+                    |   (0w1, 0wx2) => ("fcmpe", "d")
+                    |   _ => ("??", "?")
+            in
+                printStream opcode; printStream "\t";
+                printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
+                printStream r; printStream(Word.fmt StringCvt.DEC rM)
             end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000

@@ -240,20 +240,7 @@ struct
         gen(storeRegScaledDouble{regT=reg, regN=X0, unitOffset=0}, code)
     )
 
-val opcode_realEqual = "opcode_realEqual"
-and opcode_realLess = "opcode_realLess"
-and opcode_realLessEq = "opcode_realLessEq"
-and opcode_realGreater = "opcode_realGreater"
-and opcode_realGreaterEq = "opcode_realGreaterEq"
-and opcode_realUnordered = "opcode_realUnordered"
-and opcode_floatEqual = "opcode_floatEqual"
-and opcode_floatLess = "opcode_floatLess"
-and opcode_floatLessEq = "opcode_floatLessEq"
-and opcode_floatGreater = "opcode_floatGreater"
-and opcode_floatGreaterEq = "opcode_floatGreaterEq"
-and opcode_floatUnordered = "opcode_floatUnordered"
-
-and opcode_loadC8 = "opcode_loadC8"
+val opcode_loadC8 = "opcode_loadC8"
 and opcode_loadC16 = "opcode_loadC16"
 and opcode_loadC32 = "opcode_loadC32"
 and opcode_loadC64 = "opcode_loadC64"
@@ -982,13 +969,15 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                         )
                     |   RealToInt (PrecDouble, rnding) =>
                         (
-                            (* TODO: Check for overflow.  We could get an overflow in
-                               either the conversion to integer or in the conversion
-                               to a tagged value. *)
+                            (* We could get an overflow in either the conversion to integer
+                               or in the conversion to a tagged value.  Fortunately if the
+                               conversion detects an overflow it sets the result to a
+                               value that will cause an overflow in the addition. *)
                             gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
                             gen(convertDoubleToInt rnding {regN=V0, regD=X0}, cvec);
                             gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
+                            checkOverflow cvec
                         )
                     |   RealToInt (PrecSingle, rnding) =>
                         (
@@ -999,7 +988,8 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                             gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
                             gen(convertFloatToInt rnding {regN=V0, regD=X0}, cvec);
                             gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
+                            checkOverflow cvec
                         )
                     |   TouchAddress => topInX0 := false (* Discard this *)
                     |   AllocCStack => genOpcode(opcode_allocCSpace, cvec)
@@ -1105,7 +1095,6 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                         )
                     |   FixedPrecisionArith ArithRem =>
                         (
-                            (*raise Fallback ("ArithRem: " ^ name);*)
                             (* For the moment we remove the tags and then retag afterwards.  The word
                                version avoids this but at least for the moment we do it the longer way. *)
                             (* There's no direct way to get the remainder - have to use divide and multiply. *)
@@ -1351,20 +1340,122 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                             gen(arithmeticShiftRightVariable{regM=X0, regN=X1, regD=X1}, cvec);
                             boxLargeWord(X1, cvec)
                         )
+                        (* Floating point comparisons.
+                           The fcmp instruction differs from integer comparison.  If either
+                           argument is a NaN the overflow bit is set and the other bits are
+                           cleared.  That means that in order to get a true result only
+                           if the values are not NaNs we have to test that at least one of
+                           C, N, or Z are set.  We use unsigned tests for < and <=
+                           and signed tests for > and >=. *)
+                    |   RealComparison (TestEqual, PrecDouble) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                            gen(compareDouble{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condEqual, cvec)
+                        )
+                    |   RealComparison (TestLess, PrecDouble) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                            gen(compareDouble{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condCarryClear, cvec)
+                        )
+                    |   RealComparison (TestLessEqual, PrecDouble) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                            gen(compareDouble{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condUnsignedLowOrEq, cvec)
+                        )
+                    |   RealComparison (TestGreater, PrecDouble) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                            gen(compareDouble{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condSignedGreater, cvec)
+                        )
+                    |   RealComparison (TestGreaterEqual, PrecDouble) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                            gen(compareDouble{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condSignedGreaterEq, cvec)
+                        )
+                    |   RealComparison (TestUnordered, PrecDouble) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                            gen(compareDouble{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condOverflow, cvec)
+                        )
 
-                    |   RealComparison (TestEqual, PrecDouble) => genOpcode(opcode_realEqual, cvec)
-                    |   RealComparison (TestLess, PrecDouble) => genOpcode(opcode_realLess, cvec)
-                    |   RealComparison (TestLessEqual, PrecDouble) => genOpcode(opcode_realLessEq, cvec)
-                    |   RealComparison (TestGreater, PrecDouble) => genOpcode(opcode_realGreater, cvec)
-                    |   RealComparison (TestGreaterEqual, PrecDouble) => genOpcode(opcode_realGreaterEq, cvec)
-                    |   RealComparison (TestUnordered, PrecDouble) => genOpcode(opcode_realUnordered, cvec)
-
-                    |   RealComparison (TestEqual, PrecSingle) => genOpcode(opcode_floatEqual, cvec)
-                    |   RealComparison (TestLess, PrecSingle) => genOpcode(opcode_floatLess, cvec)
-                    |   RealComparison (TestLessEqual, PrecSingle) => genOpcode(opcode_floatLessEq, cvec)
-                    |   RealComparison (TestGreater, PrecSingle) => genOpcode(opcode_floatGreater, cvec)
-                    |   RealComparison (TestGreaterEqual, PrecSingle) => genOpcode(opcode_floatGreaterEq, cvec)
-                    |   RealComparison (TestUnordered, PrecSingle) => genOpcode(opcode_floatUnordered, cvec)
+                    |   RealComparison (TestEqual, PrecSingle) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                            gen(compareFloat{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condEqual, cvec)
+                        )
+                    |   RealComparison (TestLess, PrecSingle) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                            gen(compareFloat{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condCarryClear, cvec)
+                        )
+                    |   RealComparison (TestLessEqual, PrecSingle) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                            gen(compareFloat{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condUnsignedLowOrEq, cvec)
+                        )
+                    |   RealComparison (TestGreater, PrecSingle) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                            gen(compareFloat{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condSignedGreater, cvec)
+                        )
+                    |   RealComparison (TestGreaterEqual, PrecSingle) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                            gen(compareFloat{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condSignedGreaterEq, cvec)
+                        )
+                    |   RealComparison (TestUnordered, PrecSingle) =>
+                        (
+                            genPopReg(X1, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                            gen(compareFloat{regM=V0, regN=V1}, cvec);
+                            setBooleanCondition(X0, condOverflow, cvec)
+                        )
 
                     |   RealArith (ArithAdd, PrecDouble) =>
                         (
