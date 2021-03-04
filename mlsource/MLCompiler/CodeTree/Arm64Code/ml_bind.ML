@@ -27,8 +27,7 @@ local
 
     structure Arm64Foreign =
         Arm64ForeignCall (
-            structure FallBackCG = FallBackCG
-            and       CodeArray   = CODE_ARRAY
+            structure CodeArray   = CODE_ARRAY
             and       Arm64Assembly = Arm64Assembly
             and       Debug = Debug
         )

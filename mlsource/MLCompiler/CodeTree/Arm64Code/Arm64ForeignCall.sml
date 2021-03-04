@@ -16,12 +16,11 @@
 *)
 
 functor Arm64ForeignCall(
-    structure FallBackCG: GENCODESIG
-    and       CodeArray: CODEARRAYSIG
+    structure CodeArray: CODEARRAYSIG
     and       Arm64Assembly: Arm64Assembly
     and       Debug: DEBUG
 
-    sharing FallBackCG.Sharing = CodeArray.Sharing = Arm64Assembly.Sharing
+    sharing CodeArray.Sharing = Arm64Assembly.Sharing
 ): FOREIGNCALLSIG
 =
 struct
@@ -150,61 +149,43 @@ struct
 
 
     fun rtsCallFast (functionName, nArgs, debugSwitches) =
-        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
-        then FallBackCG.Foreign.rtsCallFast(functionName, nArgs, debugSwitches)
-        else rtsCallFastGeneral (functionName, List.tabulate(nArgs, fn _ => FastArgFixed), FastArgFixed, debugSwitches)
+        rtsCallFastGeneral (functionName, List.tabulate(nArgs, fn _ => FastArgFixed), FastArgFixed, debugSwitches)
 
     (* RTS call with one double-precision floating point argument and a floating point result. *)
     fun rtsCallFastRealtoReal (functionName, debugSwitches) =
-        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
-        then FallBackCG.Foreign.rtsCallFastRealtoReal(functionName, debugSwitches)
-        else rtsCallFastGeneral (functionName, [FastArgDouble], FastArgDouble, debugSwitches)
+        rtsCallFastGeneral (functionName, [FastArgDouble], FastArgDouble, debugSwitches)
     
     (* RTS call with two double-precision floating point arguments and a floating point result. *)
     fun rtsCallFastRealRealtoReal (functionName, debugSwitches) =
-        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
-        then FallBackCG.Foreign.rtsCallFastRealRealtoReal(functionName, debugSwitches)
-        else rtsCallFastGeneral (functionName, [FastArgDouble, FastArgDouble], FastArgDouble, debugSwitches)
+        rtsCallFastGeneral (functionName, [FastArgDouble, FastArgDouble], FastArgDouble, debugSwitches)
 
     (* RTS call with one double-precision floating point argument, one fixed point argument and a
        floating point result. *)
     fun rtsCallFastRealGeneraltoReal (functionName, debugSwitches) =
-        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
-        then FallBackCG.Foreign.rtsCallFastRealGeneraltoReal(functionName, debugSwitches)
-        else rtsCallFastGeneral (functionName, [FastArgDouble, FastArgFixed], FastArgDouble, debugSwitches)
+        rtsCallFastGeneral (functionName, [FastArgDouble, FastArgFixed], FastArgDouble, debugSwitches)
 
     (* RTS call with one general (i.e. ML word) argument and a floating point result.
        This is used only to convert arbitrary precision values to floats. *)
     fun rtsCallFastGeneraltoReal (functionName, debugSwitches) =
-        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
-        then FallBackCG.Foreign.rtsCallFastGeneraltoReal(functionName, debugSwitches)
-        else rtsCallFastGeneral (functionName, [FastArgFixed], FastArgDouble, debugSwitches)
+        rtsCallFastGeneral (functionName, [FastArgFixed], FastArgDouble, debugSwitches)
 
     (* Operations on Real32.real values. *)
 
     fun rtsCallFastFloattoFloat (functionName, debugSwitches) =
-        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
-        then FallBackCG.Foreign.rtsCallFastFloattoFloat(functionName, debugSwitches)
-        else rtsCallFastGeneral (functionName, [FastArgFloat], FastArgFloat, debugSwitches)
+        rtsCallFastGeneral (functionName, [FastArgFloat], FastArgFloat, debugSwitches)
     
     fun rtsCallFastFloatFloattoFloat (functionName, debugSwitches) =
-        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
-        then FallBackCG.Foreign.rtsCallFastFloatFloattoFloat(functionName, debugSwitches)
-        else rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFloat], FastArgFloat, debugSwitches)
+        rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFloat], FastArgFloat, debugSwitches)
 
     (* RTS call with one double-precision floating point argument, one fixed point argument and a
        floating point result. *)
     fun rtsCallFastFloatGeneraltoFloat (functionName, debugSwitches) =
-        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
-        then FallBackCG.Foreign.rtsCallFastFloatGeneraltoFloat(functionName, debugSwitches)
-        else rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFixed], FastArgFloat, debugSwitches)
+        rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFixed], FastArgFloat, debugSwitches)
 
     (* RTS call with one general (i.e. ML word) argument and a floating point result.
        This is used only to convert arbitrary precision values to floats. *)
     fun rtsCallFastGeneraltoFloat (functionName, debugSwitches) =
-        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
-        then FallBackCG.Foreign.rtsCallFastGeneraltoFloat(functionName, debugSwitches)
-        else rtsCallFastGeneral (functionName, [FastArgFixed], FastArgFloat, debugSwitches)
+        rtsCallFastGeneral (functionName, [FastArgFixed], FastArgFloat, debugSwitches)
 
     
     (* There is only one ABI value. *)
