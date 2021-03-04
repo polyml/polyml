@@ -30,37 +30,72 @@ struct
     
     exception InternalError = Misc.InternalError
 
-    val rtsCallFastRealtoReal = FallBackCG.Foreign.rtsCallFastRealtoReal
-    val rtsCallFastRealRealtoReal = FallBackCG.Foreign.rtsCallFastRealRealtoReal
-    val rtsCallFastGeneraltoReal = FallBackCG.Foreign.rtsCallFastGeneraltoReal
-    val rtsCallFastRealGeneraltoReal = FallBackCG.Foreign.rtsCallFastRealGeneraltoReal
-    val rtsCallFastFloattoFloat = FallBackCG.Foreign.rtsCallFastFloattoFloat
-    val rtsCallFastFloatFloattoFloat = FallBackCG.Foreign.rtsCallFastFloatFloattoFloat
-    val rtsCallFastGeneraltoFloat = FallBackCG.Foreign.rtsCallFastGeneraltoFloat
-    val rtsCallFastFloatGeneraltoFloat = FallBackCG.Foreign.rtsCallFastFloatGeneraltoFloat
-
     datatype fastArgs = FastArgFixed | FastArgDouble | FastArgFloat
 
     val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
 
+    (* Move register.  The ARM64 alias uses XZR as Rn. *)
+    fun moveRegToReg{sReg, dReg} = orrShiftedReg{regN=XZero, regM=sReg, regD=dReg, shift=ShiftNone}
+
+    (* Store a double into memory. *)
+    fun boxDouble(floatReg, fixedReg, workReg) =
+    let
+        val label = createLabel()
+    in
+        [
+            (* Subtract the number of bytes required from the heap pointer. *)
+            subImmediate{regN=X_MLHeapAllocPtr, regD=fixedReg, immed=0w16, shifted=false},
+            (* Compare the result with the heap limit. *)
+            subSShiftedReg{regM=X_MLHeapLimit, regN=fixedReg, regD=XZero, shift=ShiftNone},
+            conditionalBranch(condCarrySet, label),
+            loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset},
+            branchAndLinkReg X16,
+            registerMask [], (* Not used at the moment. *)
+            setLabel label,
+            (* Update the heap pointer. *)
+            moveRegToReg{sReg=fixedReg, dReg=X_MLHeapAllocPtr},
+            loadNonAddressConstant(workReg,
+                Word64.orb(0w1, Word64.<<(Word64.fromLarge(Word8.toLarge Address.F_bytes), 0w56))),
+            (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
+            storeRegUnscaled{regT=workReg, regN=fixedReg, byteOffset= ~8},
+            (* Store the floating pt reg. *)
+            storeRegScaledDouble{regT=floatReg, regN=fixedReg, unitOffset=0}
+        ]
+    end
 
     fun rtsCallFastGeneral (functionName, argFormats, resultFormat, debugSwitches) =
-    if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
-    then FallBackCG.Foreign.rtsCallFast(functionName, List.length argFormats, debugSwitches)
-    else 
     let
         val entryPointAddr = makeEntryPoint functionName
         val nArgs = List.length argFormats
         (* The maximum we currently have is five. *)
-        val _ = nArgs < 8 orelse raise InternalError "rtsCallFastGeneral: more than 8 args"
-        val _ = List.all(fn FastArgFixed => true | _ => false) argFormats orelse
-                    raise InternalError "rtsCallFastGeneral: TODO: floating point"
-        val _ = resultFormat = FastArgFixed orelse raise InternalError "rtsCallFastGeneral: TODO: floating point"
+
         val noRtsException = createLabel()
+        
+        fun loadArgs([], _, _, _) = []
+        |   loadArgs(FastArgFixed :: argTypes, srcReg :: srcRegs, fixed :: fixedRegs, fpRegs) =
+                if srcReg = fixed
+                then loadArgs(argTypes, srcRegs, fixedRegs, fpRegs) (* Already in the right reg *)
+                else moveRegToReg{sReg=srcReg, dReg=fixed} ::
+                        loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
+        |   loadArgs(FastArgDouble :: argTypes, srcReg :: srcRegs, fixedRegs, fp :: fpRegs) =
+                (* Unbox the value into a fp reg. *)
+                loadRegScaledDouble{regT=fp, regN=srcReg, unitOffset=0} ::
+                loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
+        |   loadArgs(FastArgFloat :: argTypes, srcReg :: srcRegs, fixedRegs, fp :: fpRegs) =
+                (* Untag and move into the fp reg *)
+                logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=srcReg, regD=srcReg} ::
+                moveGeneralToFloat{regN=srcReg, regD=fp} ::
+                loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
+        |   loadArgs _ = raise InternalError "rtsCall: Too many arguments"
+
         
         (* Temporarily we need to check for RTS exceptions here.  The interpreter assumes they
            are checked for as part of the RST call. *)
         val instructions =
+            loadArgs(argFormats,
+                (* ML Arguments *) [X0, X1, X2, X3, X4, X5, X6, X7],
+                (* C fixed pt args *) [X0, X1, X2, X3, X4, X5, X6, X7],
+                (* C floating pt args *) [V0, V1, V2, V3, V4, V5, V6, V7]) @
             [
                 (* Move X30 to X24, a callee-save register. *)
                 orrShiftedReg{regN=XZero, regM=X_LinkReg, regD=X24, shift=ShiftNone},
@@ -91,9 +126,20 @@ struct
                 loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset},
                 loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0},
                 branchRegister X1,
-                setLabel noRtsException,
-                (* TODO: For floating point we need to box/tag the result. *)
-                (* Return *)
+                setLabel noRtsException
+            ] @
+            (
+                case resultFormat of
+                    FastArgFixed => []
+                |   FastArgDouble => (* This must be boxed. *) boxDouble(V0, X0, X1)
+                |   FastArgFloat => (* This must be tagged *)
+                    [
+                        moveFloatToGeneral{regN=V0, regD=X0},
+                        logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0},
+                        bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}
+                    ]
+            ) @
+            [
                 returnRegister X24
             ]
         val closure = makeConstantClosure()
@@ -104,44 +150,62 @@ struct
 
 
     fun rtsCallFast (functionName, nArgs, debugSwitches) =
-        rtsCallFastGeneral (functionName, List.tabulate(nArgs, fn _ => FastArgFixed), FastArgFixed, debugSwitches)
-(*
+        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
+        then FallBackCG.Foreign.rtsCallFast(functionName, nArgs, debugSwitches)
+        else rtsCallFastGeneral (functionName, List.tabulate(nArgs, fn _ => FastArgFixed), FastArgFixed, debugSwitches)
+
     (* RTS call with one double-precision floating point argument and a floating point result. *)
     fun rtsCallFastRealtoReal (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgDouble], FastArgDouble, debugSwitches)
+        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
+        then FallBackCG.Foreign.rtsCallFastRealtoReal(functionName, debugSwitches)
+        else rtsCallFastGeneral (functionName, [FastArgDouble], FastArgDouble, debugSwitches)
     
     (* RTS call with two double-precision floating point arguments and a floating point result. *)
     fun rtsCallFastRealRealtoReal (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgDouble, FastArgDouble], FastArgDouble, debugSwitches)
+        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
+        then FallBackCG.Foreign.rtsCallFastRealRealtoReal(functionName, debugSwitches)
+        else rtsCallFastGeneral (functionName, [FastArgDouble, FastArgDouble], FastArgDouble, debugSwitches)
 
     (* RTS call with one double-precision floating point argument, one fixed point argument and a
        floating point result. *)
     fun rtsCallFastRealGeneraltoReal (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgDouble, FastArgFixed], FastArgDouble, debugSwitches)
+        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
+        then FallBackCG.Foreign.rtsCallFastRealGeneraltoReal(functionName, debugSwitches)
+        else rtsCallFastGeneral (functionName, [FastArgDouble, FastArgFixed], FastArgDouble, debugSwitches)
 
     (* RTS call with one general (i.e. ML word) argument and a floating point result.
        This is used only to convert arbitrary precision values to floats. *)
     fun rtsCallFastGeneraltoReal (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgFixed], FastArgDouble, debugSwitches)
+        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
+        then FallBackCG.Foreign.rtsCallFastGeneraltoReal(functionName, debugSwitches)
+        else rtsCallFastGeneral (functionName, [FastArgFixed], FastArgDouble, debugSwitches)
 
     (* Operations on Real32.real values. *)
 
     fun rtsCallFastFloattoFloat (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgFloat], FastArgFloat, debugSwitches)
+        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
+        then FallBackCG.Foreign.rtsCallFastFloattoFloat(functionName, debugSwitches)
+        else rtsCallFastGeneral (functionName, [FastArgFloat], FastArgFloat, debugSwitches)
     
     fun rtsCallFastFloatFloattoFloat (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFloat], FastArgFloat, debugSwitches)
+        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
+        then FallBackCG.Foreign.rtsCallFastFloatFloattoFloat(functionName, debugSwitches)
+        else rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFloat], FastArgFloat, debugSwitches)
 
     (* RTS call with one double-precision floating point argument, one fixed point argument and a
        floating point result. *)
     fun rtsCallFastFloatGeneraltoFloat (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFixed], FastArgFloat, debugSwitches)
+        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
+        then FallBackCG.Foreign.rtsCallFastFloatGeneraltoFloat(functionName, debugSwitches)
+        else rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFixed], FastArgFloat, debugSwitches)
 
     (* RTS call with one general (i.e. ML word) argument and a floating point result.
        This is used only to convert arbitrary precision values to floats. *)
     fun rtsCallFastGeneraltoFloat (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgFixed], FastArgFloat, debugSwitches)
-*)
+        if Debug.getParameter Debug.compilerDebugTag debugSwitches = 0
+        then FallBackCG.Foreign.rtsCallFastGeneraltoFloat(functionName, debugSwitches)
+        else rtsCallFastGeneral (functionName, [FastArgFixed], FastArgFloat, debugSwitches)
+
     
     (* There is only one ABI value. *)
     datatype abi = ARM64Abi
