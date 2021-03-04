@@ -31,9 +31,7 @@ struct
     open BackendTree CodeArray Arm64Assembly Address
     
     exception InternalError = Misc.InternalError
-    
-    exception Fallback of string
-    
+
     (* tag a short constant *)
     fun tag c = 2 * c + 1
     and semitag c = 2*c
@@ -240,13 +238,6 @@ struct
         gen(storeRegScaledDouble{regT=reg, regN=X0, unitOffset=0}, code)
     )
 
-val opcode_storeC8 = "opcode_storeC8"
-and opcode_storeC16 = "opcode_storeC16"
-and opcode_storeC32 = "opcode_storeC32"
-and opcode_storeC64 = "opcode_storeC64"
-and opcode_storeCFloat = "opcode_storeCFloat"
-and opcode_storeCDouble = "opcode_storeCDouble"
-
     type caseForm =
         {
             cases   : (backendIC * word) list,
@@ -269,10 +260,6 @@ and opcode_storeCDouble = "opcode_storeCDouble"
     (* Code generate a function or global declaration *)
     fun codegen (pt, name, resultClosure, numOfArgs, localCount, parameters) =
     let
-        fun toDo s = raise Fallback(s ^ ":" ^ name)
-
-        fun genOpcode (n, _) =  toDo n
-    
         val cvec = ref []
         
         datatype decEntry =
@@ -1792,56 +1779,100 @@ and opcode_storeCDouble = "opcode_storeCDouble"
                     genPopReg(X2, cvec); (* Base address. *)
                     gen(storeRegIndexedByte{regN=X2, regM=X1, regT=X0, option=ExtUXTX NoScale}, cvec);
                     (* Don't put the unit result in; it probably isn't needed, *)
-                    decsp(); decsp(); decsp()
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreC8, address, value} =>
                 (
                     genCAddress(address, 1);
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeC8, cvec);
-                    decsp(); decsp(); decsp()
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec); (* Untag it *)
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexedByte{regN=X2, regM=X1, regT=X0, option=ExtUXTX NoScale}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreC16, address, value} =>
                 (
                     genCAddress(address, 2);
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeC16, cvec);
-                    decsp(); decsp(); decsp()
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec); (* Untag it *)
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexed16{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreC32, address, value} =>
                 (
                     genCAddress(address, 4);
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeC32, cvec);
-                    decsp(); decsp(); decsp()
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec); (* Untag it *)
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexed32{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreC64, address, value} =>
                 (
                     genCAddress(address, 8);
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    (* The value to be stored is boxed. *)
-                    genOpcode(opcode_storeC64, cvec);
-                    decsp(); decsp(); decsp()
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store. This is boxed. *)
+                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexed{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreCFloat, address, value} =>
                 (
                     genCAddress(address, 4);
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeCFloat, cvec);
-                    decsp(); decsp(); decsp()
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
+                    (* This is a boxed double.  It needs to be converted to a float. *)
+                    gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec); (* Untag it *)
+                    gen(convertDoubleToFloat{regN=V0, regD=V0}, cvec);
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexedFloat{regN=X2, regM=X1, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreCDouble, address, value} =>
                 (
                     genCAddress(address, 8);
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeCDouble, cvec);
-                    decsp(); decsp(); decsp()
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
+                    (* This is a boxed double. *)
+                    gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec); (* Untag it *)
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexedDouble{regN=X2, regM=X1, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreUntaggedUnsigned, address, value} =>
@@ -2307,13 +2338,7 @@ and opcode_storeCDouble = "opcode_storeCDouble"
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
     if (*false andalso*) Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
-    else
-        codegen (body, name, closure, List.length argTypes, localCount, parameters)
-        handle Fallback s =>
-        (
-            Pretty.getSimplePrinter(parameters, []) ("TODO: " ^ s ^ "\n");
-            FallBackCG.gencodeLambda(lambda, parameters, closure)
-        )
+    else codegen (body, name, closure, List.length argTypes, localCount, parameters)
 
     structure Foreign = Arm64Foreign
 
