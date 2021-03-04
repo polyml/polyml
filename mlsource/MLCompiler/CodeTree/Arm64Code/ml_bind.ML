@@ -16,8 +16,6 @@
 *)
 
 local
-    structure FallBackCG = ByteCode
-    
     structure Arm64Assembly =
         ARM64ASSEMBLY (
             structure Debug = Debug
@@ -34,8 +32,7 @@ local
 in
     structure Arm64Code =
         Arm64GenCode(
-            structure FallBackCG = FallBackCG
-            and       BackendTree = BackendIntermediateCode
+            structure BackendTree = BackendIntermediateCode
             and       CodeArray   = CODE_ARRAY
             and       Arm64Assembly = Arm64Assembly
             and       Arm64Foreign = Arm64Foreign

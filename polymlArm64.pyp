@@ -109,10 +109,6 @@
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BaseCodeTree.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BaseCodeTreeSig.sml" />
-	<source name="mlsource\MLCompiler\CodeTree\ByteCode\INTCODECONS.ML" />
-	<source name="mlsource\MLCompiler\CodeTree\ByteCode\INTCODECONSSIG.sml" />
-	<source name="mlsource\MLCompiler\CodeTree\ByteCode\INTGCODE.ML" />
-	<source name="mlsource\MLCompiler\CodeTree\ByteCode\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CODE_ARRAY.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CODEARRAYSIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CodegenTreeSig.sml" />

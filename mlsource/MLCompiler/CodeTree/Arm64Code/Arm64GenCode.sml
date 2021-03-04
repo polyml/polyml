@@ -16,15 +16,13 @@
 *)
 
 functor Arm64GenCode (
-    structure FallBackCG: GENCODESIG
-    and       BackendTree: BackendIntermediateCodeSig
+    structure BackendTree: BackendIntermediateCodeSig
     and       CodeArray: CODEARRAYSIG
     and       Arm64Assembly: Arm64Assembly
     and       Debug: DEBUG
     and       Arm64Foreign: FOREIGNCALLSIG
     
-    sharing FallBackCG.Sharing = BackendTree.Sharing = CodeArray.Sharing =
-        Arm64Assembly.Sharing
+    sharing BackendTree.Sharing = CodeArray.Sharing = Arm64Assembly.Sharing
 ) : GENCODESIG =
 struct
 
