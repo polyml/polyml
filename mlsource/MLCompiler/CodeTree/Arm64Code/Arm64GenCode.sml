@@ -240,13 +240,7 @@ struct
         gen(storeRegScaledDouble{regT=reg, regN=X0, unitOffset=0}, code)
     )
 
-val opcode_loadC8 = "opcode_loadC8"
-and opcode_loadC16 = "opcode_loadC16"
-and opcode_loadC32 = "opcode_loadC32"
-and opcode_loadC64 = "opcode_loadC64"
-and opcode_loadCFloat = "opcode_loadCFloat"
-and opcode_loadCDouble = "opcode_loadCDouble"
-and opcode_storeC8 = "opcode_storeC8"
+val opcode_storeC8 = "opcode_storeC8"
 and opcode_storeC16 = "opcode_storeC16"
 and opcode_storeC32 = "opcode_storeC32"
 and opcode_storeC64 = "opcode_storeC64"
@@ -343,9 +337,11 @@ and opcode_storeCDouble = "opcode_storeCDouble"
                         topInX0 := false
                     )
             )
+            
+            val genCAddress = genMLAddress
 
             datatype mlLoadKind = MLLoadOffset of int | MLLoadReg of xReg
-            
+
             fun genMLLoadAddress({base, index=NONE, offset}, scale) =
                 (* The index, if any, is a constant. *)
                 (
@@ -369,19 +365,31 @@ and opcode_storeCDouble = "opcode_storeCDouble"
                     (X1, MLLoadReg X0)
                 )
 
-           (* Load the address, index value and offset for non-byte operations.
-              Because the offset has already been scaled by the size of the operand
-              we have to load the index and offset separately. *)
-           fun genCAddress{base, index, offset} =
-            (
-                gencde (base, ToStack, NotEnd, loopAddr);
-                case index of
-                    NONE =>
-                        (gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec); genPushReg(X0, cvec); incsp())
-                |   SOME indexVal => gencde (indexVal, ToStack, NotEnd, loopAddr);
-                gen(loadNonAddressConstant(X0, Word64.fromInt(tag offset)), cvec);
-                genPushReg(X0, cvec); incsp()
-            )
+            (* Similar to genMLLoadAddress but for C addresses.  There are two
+               differences.  The index is signed so we use an arithmetic shift and
+               the base address is a LargeWord value i.e. the actual
+               address is held in the word pointed at by "base", unlike with
+               ML addresses. *)
+            fun genCLoadAddress({base, index=NONE, offset}, scale) =
+                (
+                    gencde (base, ToX0, NotEnd, loopAddr);
+                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                    (X0, MLLoadOffset(offset div scale))
+                )
+            |   genCLoadAddress({base, index=SOME indexVal, offset}, scale) =
+                (
+                    gencde (base, ToStack, NotEnd, loopAddr); (* Push base addr to stack. *)
+                    gencde (indexVal, ToX0, NotEnd, loopAddr);
+                    (* Shift right to remove the tag.  C indexes are SIGNED. *)
+                    gen(arithmeticShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                    (* Add any constant offset.  Does nothing if it's zero. *)
+                    addConstantWord({regS=X0, regD=X0, regW=X3,
+                        value=Word64.fromInt (* unsigned *)(offset div scale)}, cvec);
+                    genPopReg(X1, cvec); (* Pop base reg into X1. *)
+                    gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                    decsp();
+                    (X1, MLLoadReg X0)
+                )
 
             (* Compare a block of bytes.  Jumps to labelEqual if all the bytes are
                equal up to the length.  Otherwise it drops through with the condition
@@ -1655,44 +1663,89 @@ and opcode_storeCDouble = "opcode_storeCDouble"
 
             |   BICLoadOperation { kind=LoadStoreC8, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadC8, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 1) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaledByte{regT=X0, regN=base, byteOffset=offset}, cvec)
+                            else gen(loadRegScaledByte{regT=X0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexedByte{regN=base, regM=indexR, regT=X0, option=ExtUXTX NoScale}, cvec);
+
+                    (* Have to tag the result. *)
+                    gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize32, bits=0w1}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreC16, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadC16, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 2) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaled16{regT=X0, regN=base, byteOffset=offset*2}, cvec)
+                            else gen(loadRegScaled16{regT=X0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexed16{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+
+                    (* Have to tag the result. *)
+                    gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize32, bits=0w1}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreC32, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadC32, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 4) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaled32{regT=X0, regN=base, byteOffset=offset*4}, cvec)
+                            else gen(loadRegScaled32{regT=X0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexed32{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+
+                    (* Have to tag the result. *)
+                    gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64 (* Must use 64-bits *), shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreC64, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadC64, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 8) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaled{regT=X1, regN=base, byteOffset=offset*8}, cvec)
+                            else gen(loadRegScaled{regT=X1, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexed{regN=base, regM=indexR, regT=X1, option=ExtUXTX ScaleOrShift}, cvec);
+
+                    (* Load the value at the address and box it. *)
+                    boxLargeWord(X1, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreCFloat, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadCFloat, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 4) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaledFloat{regT=V0, regN=base, byteOffset=offset*4}, cvec)
+                            else gen(loadRegScaledFloat{regT=V0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexedFloat{regN=base, regM=indexR, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                    (* This is defined to return a "real" i.e. a double so we need to convert it
+                       to a double and then box the result. *)
+                    gen(convertFloatToDouble{regN=V0, regD=V0}, cvec);
+                    boxDouble(V0, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreCDouble, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadCDouble, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 8) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaledDouble{regT=V0, regN=base, byteOffset=offset*8}, cvec)
+                            else gen(loadRegScaledDouble{regT=V0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexedDouble{regN=base, regM=indexR, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                    (* Box the result. *)
+                    boxDouble(V0, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreUntaggedUnsigned, address} =>
@@ -1744,7 +1797,7 @@ and opcode_storeCDouble = "opcode_storeCDouble"
 
             |   BICStoreOperation { kind=LoadStoreC8, address, value} =>
                 (
-                    genCAddress address;
+                    genCAddress(address, 1);
                     gencde (value, ToStack, NotEnd, loopAddr);
                     genOpcode(opcode_storeC8, cvec);
                     decsp(); decsp(); decsp()
@@ -1752,7 +1805,7 @@ and opcode_storeCDouble = "opcode_storeCDouble"
 
             |   BICStoreOperation { kind=LoadStoreC16, address, value} =>
                 (
-                    genCAddress address;
+                    genCAddress(address, 2);
                     gencde (value, ToStack, NotEnd, loopAddr);
                     genOpcode(opcode_storeC16, cvec);
                     decsp(); decsp(); decsp()
@@ -1760,7 +1813,7 @@ and opcode_storeCDouble = "opcode_storeCDouble"
 
             |   BICStoreOperation { kind=LoadStoreC32, address, value} =>
                 (
-                    genCAddress address;
+                    genCAddress(address, 4);
                     gencde (value, ToStack, NotEnd, loopAddr);
                     genOpcode(opcode_storeC32, cvec);
                     decsp(); decsp(); decsp()
@@ -1768,15 +1821,16 @@ and opcode_storeCDouble = "opcode_storeCDouble"
 
             |   BICStoreOperation { kind=LoadStoreC64, address, value} =>
                 (
-                    genCAddress address;
+                    genCAddress(address, 8);
                     gencde (value, ToStack, NotEnd, loopAddr);
+                    (* The value to be stored is boxed. *)
                     genOpcode(opcode_storeC64, cvec);
                     decsp(); decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreCFloat, address, value} =>
                 (
-                    genCAddress address;
+                    genCAddress(address, 4);
                     gencde (value, ToStack, NotEnd, loopAddr);
                     genOpcode(opcode_storeCFloat, cvec);
                     decsp(); decsp(); decsp()
@@ -1784,7 +1838,7 @@ and opcode_storeCDouble = "opcode_storeCDouble"
 
             |   BICStoreOperation { kind=LoadStoreCDouble, address, value} =>
                 (
-                    genCAddress address;
+                    genCAddress(address, 8);
                     gencde (value, ToStack, NotEnd, loopAddr);
                     genOpcode(opcode_storeCDouble, cvec);
                     decsp(); decsp(); decsp()

@@ -451,6 +451,10 @@ struct
         (* (Unsigned) byte operations.  There are also signed versions. *)
         and loadRegScaledByte = loadStoreRegScaled (0w0, 0w0, 0w1, xRegOrXZ)
         and storeRegScaledByte = loadStoreRegScaled (0w0, 0w0, 0w0, xRegOrXZ)
+        and loadRegScaled16 = loadStoreRegScaled (0w1, 0w0, 0w1, xRegOrXZ)
+        and storeRegScaled16 = loadStoreRegScaled (0w1, 0w0, 0w0, xRegOrXZ)
+        and loadRegScaled32 = loadStoreRegScaled (0w2, 0w0, 0w1, xRegOrXZ)
+        and storeRegScaled32 = loadStoreRegScaled (0w2, 0w0, 0w0, xRegOrXZ)
         and loadRegScaledDouble = loadStoreRegScaled(0w3, 0w1, 0w1, vReg)
         and storeRegScaledDouble = loadStoreRegScaled(0w3, 0w1, 0w0, vReg)
         and loadRegScaledFloat = loadStoreRegScaled(0w2, 0w1, 0w1, vReg)
@@ -460,7 +464,7 @@ struct
     local
         (* Loads and stores with a signed byte offset.  This includes simple
            unscaled addresses, pre-indexing and post-indexing. *)
-        fun loadStoreByteAddress op4 (size, v, opc) ({regT, regN, byteOffset}) =
+        fun loadStoreByteAddress (op4, xD) (size, v, opc) ({regT, regN, byteOffset}) =
         let
             val _ = (byteOffset >= ~256 andalso byteOffset < 256)
                 orelse raise InternalError "loadStoreUnscaled: value out of range"
@@ -468,18 +472,27 @@ struct
         in
             SimpleInstr(0wx38000000 orb (size << 0w30) orb (opc << 0w22) orb
                 (v << 0w26) orb (imm9 << 0w12) orb (op4 << 0w10) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXZ regT))
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xD regT))
         end
         
-        val loadStoreUnscaled = loadStoreByteAddress 0w0
-        and loadStorePostIndex = loadStoreByteAddress 0w1
-        and loadStorePreIndex = loadStoreByteAddress 0w3
+        val loadStoreUnscaled = loadStoreByteAddress (0w0, xRegOrXZ)
+        and loadStoreUnscaledSIMD = loadStoreByteAddress (0w0, vReg)
+        and loadStorePostIndex = loadStoreByteAddress (0w1, xRegOrXZ)
+        and loadStorePreIndex = loadStoreByteAddress (0w3, xRegOrXZ)
     in
         val loadRegUnscaled = loadStoreUnscaled (0w3, 0w0, 0w1)
         and storeRegUnscaled = loadStoreUnscaled (0w3, 0w0, 0w0)
         (* (Unsigned) byte operations.  There are also signed versions. *)
         and loadRegUnscaledByte = loadStoreUnscaled (0w0, 0w0, 0w1)
         and storeRegUnscaledByte = loadStoreUnscaled (0w0, 0w0, 0w0)
+        and loadRegUnscaled16 = loadStoreUnscaled (0w1, 0w0, 0w1)
+        and storeRegUnscaled16 = loadStoreUnscaled (0w1, 0w0, 0w0)
+        and loadRegUnscaled32 = loadStoreUnscaled (0w2, 0w0, 0w1)
+        and storeRegUnscaled32 = loadStoreUnscaled (0w2, 0w0, 0w0)
+        and loadRegUnscaledFloat = loadStoreUnscaledSIMD (0w2, 0w1, 0w1)
+        and storeRegUnscaledFloat = loadStoreUnscaledSIMD (0w2, 0w1, 0w0)
+        and loadRegUnscaledDouble = loadStoreUnscaledSIMD (0w3, 0w1, 0w1)
+        and storeRegUnscaledDouble = loadStoreUnscaledSIMD (0w3, 0w1, 0w0)
 
         val loadRegPostIndex = loadStorePostIndex (0w3, 0w0, 0w1)
         and storeRegPostIndex = loadStorePostIndex (0w3, 0w0, 0w0)
@@ -494,7 +507,7 @@ struct
 
     (* Load/store with a register offset i.e. an index register. *)
     local
-        fun loadStoreRegRegisterOffset (size, v, opc) ({regT, regN, regM, option}) =
+        fun loadStoreRegRegisterOffset (size, v, opc, xD) ({regT, regN, regM, option}) =
         let
             val (opt, s) =
                 case extendLSEncode option of
@@ -502,13 +515,21 @@ struct
         in
             SimpleInstr(0wx38200800 orb (size << 0w30) orb (v << 0w26) orb (opc << 0w22) orb
                 (word8ToWord(xRegOnly regM) << 0w16) orb (opt << 0w13) orb (s << 0w12) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXZ regT))
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xD regT))
         end
     in
-        val loadRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w1)
-        and storeRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w0)
-        and loadRegIndexedByte = loadStoreRegRegisterOffset(0w0, 0w0, 0w1)
-        and storeRegIndexedByte = loadStoreRegRegisterOffset(0w0, 0w0, 0w0)
+        val loadRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w1, xRegOrXZ)
+        and storeRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w0, xRegOrXZ)
+        and loadRegIndexedByte = loadStoreRegRegisterOffset(0w0, 0w0, 0w1, xRegOrXZ)
+        and storeRegIndexedByte = loadStoreRegRegisterOffset(0w0, 0w0, 0w0, xRegOrXZ)
+        and loadRegIndexed16 = loadStoreRegRegisterOffset(0w1, 0w0, 0w1, xRegOrXZ)
+        and storeRegIndexed16 = loadStoreRegRegisterOffset(0w1, 0w0, 0w0, xRegOrXZ)
+        and loadRegIndexed32 = loadStoreRegRegisterOffset(0w2, 0w0, 0w1, xRegOrXZ)
+        and storeRegIndexed32 = loadStoreRegRegisterOffset(0w2, 0w0, 0w0, xRegOrXZ)
+        and loadRegIndexedFloat = loadStoreRegRegisterOffset(0w2, 0w1, 0w1, vReg)
+        and storeRegIndexedFloat = loadStoreRegRegisterOffset(0w2, 0w1, 0w0, vReg)
+        and loadRegIndexedDouble = loadStoreRegRegisterOffset(0w3, 0w1, 0w1, vReg)
+        and storeRegIndexedDouble = loadStoreRegRegisterOffset(0w3, 0w1, 0w0, vReg)
     end
 
     (* Addresses must go in the constant area at the end of the code where they
@@ -1115,10 +1136,14 @@ struct
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strb", "w", 0w0)
                     |   (0w0, 0w0, 0w1) => ("ldrb", "w", 0w0)
+                    |   (0w1, 0w0, 0w0) => ("strh", "w", 0w2)
+                    |   (0w1, 0w0, 0w1) => ("ldrh", "w", 0w2)
+                    |   (0w2, 0w0, 0w0) => ("str", "w", 0w4)
+                    |   (0w2, 0w0, 0w1) => ("ldr", "w", 0w4)
                     |   (0w3, 0w0, 0w0) => ("str", "x", 0w8)
                     |   (0w3, 0w0, 0w1) => ("ldr", "x", 0w8)
-                    |   (0w2, 0w0, 0w0) => ("str", "s", 0w4)
-                    |   (0w2, 0w0, 0w1) => ("ldr", "s", 0w4)
+                    |   (0w2, 0w1, 0w0) => ("str", "s", 0w4)
+                    |   (0w2, 0w1, 0w1) => ("ldr", "s", 0w4)
                     |   (0w3, 0w1, 0w0) => ("str", "d", 0w8)
                     |   (0w3, 0w1, 0w1) => ("ldr", "d", 0w8)
                     |   _ => ("??", "?", 0w1)
@@ -1146,8 +1171,16 @@ struct
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strub", "w")
                     |   (0w0, 0w0, 0w1) => ("ldrub", "w")
+                    |   (0w1, 0w0, 0w0) => ("struh", "w")
+                    |   (0w1, 0w0, 0w1) => ("ldruh", "w")
+                    |   (0w2, 0w0, 0w0) => ("stur", "w")
+                    |   (0w2, 0w0, 0w1) => ("ldur", "w")
                     |   (0w3, 0w0, 0w0) => ("stur", "x")
                     |   (0w3, 0w0, 0w1) => ("ldur", "x")
+                    |   (0w2, 0w1, 0w0) => ("stur", "s")
+                    |   (0w2, 0w1, 0w1) => ("ldur", "s")
+                    |   (0w3, 0w1, 0w0) => ("stur", "d")
+                    |   (0w3, 0w1, 0w1) => ("ldur", "d")
                     |   _ => ("???", "?")
             in
                 printStream opcode; printStream "\t"; printStream r;
@@ -1225,8 +1258,16 @@ struct
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strb", "w")
                     |   (0w0, 0w0, 0w1) => ("ldrb", "w")
+                    |   (0w1, 0w0, 0w0) => ("strh", "w")
+                    |   (0w1, 0w0, 0w1) => ("ldrh", "w")
+                    |   (0w2, 0w0, 0w0) => ("str", "w")
+                    |   (0w2, 0w0, 0w1) => ("ldr", "w")
                     |   (0w3, 0w0, 0w0) => ("str", "x")
                     |   (0w3, 0w0, 0w1) => ("ldr", "x")
+                    |   (0w2, 0w1, 0w0) => ("str", "s")
+                    |   (0w2, 0w1, 0w1) => ("ldr", "s")
+                    |   (0w3, 0w1, 0w0) => ("str", "d")
+                    |   (0w3, 0w1, 0w1) => ("ldr", "d")
                     |   _ => ("???", "?")
                 val (extend, xr) =
                     case option of

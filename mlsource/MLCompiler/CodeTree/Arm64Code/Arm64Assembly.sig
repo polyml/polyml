@@ -156,6 +156,10 @@ sig
     and storeRegScaled: {regT: xReg, regN: xReg, unitOffset: int} -> instr
     and loadRegScaledByte: {regT: xReg, regN: xReg, unitOffset: int} -> instr
     and storeRegScaledByte: {regT: xReg, regN: xReg, unitOffset: int} -> instr
+    and loadRegScaled16: {regT: xReg, regN: xReg, unitOffset: int} -> instr
+    and storeRegScaled16: {regT: xReg, regN: xReg, unitOffset: int} -> instr
+    and loadRegScaled32: {regT: xReg, regN: xReg, unitOffset: int} -> instr
+    and storeRegScaled32: {regT: xReg, regN: xReg, unitOffset: int} -> instr
     and loadRegScaledDouble: {regT: vReg, regN: xReg, unitOffset: int} -> instr
     and storeRegScaledDouble: {regT: vReg, regN: xReg, unitOffset: int} -> instr
     and loadRegScaledFloat: {regT: vReg, regN: xReg, unitOffset: int} -> instr
@@ -166,12 +170,28 @@ sig
     and storeRegUnscaled: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and loadRegUnscaledByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegUnscaledByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegUnscaled16: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and storeRegUnscaled16: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegUnscaled32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and storeRegUnscaled32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegUnscaledFloat: {regT: vReg, regN: xReg, byteOffset: int} -> instr
+    and storeRegUnscaledFloat: {regT: vReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegUnscaledDouble: {regT: vReg, regN: xReg, byteOffset: int} -> instr
+    and storeRegUnscaledDouble: {regT: vReg, regN: xReg, byteOffset: int} -> instr
 
     (* Load/store with a register offset i.e. an index register. *)
     val loadRegIndexed: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} -> instr
     and storeRegIndexed: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} -> instr
     and loadRegIndexedByte: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} -> instr
     and storeRegIndexedByte: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} -> instr
+    and loadRegIndexed16: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} -> instr
+    and storeRegIndexed16: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} -> instr
+    and loadRegIndexed32: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} -> instr
+    and storeRegIndexed32: {regN: xReg, regM: xReg, regT: xReg, option: scale extend} -> instr
+    and loadRegIndexedFloat: {regN: xReg, regM: xReg, regT: vReg, option: scale extend} -> instr
+    and storeRegIndexedFloat: {regN: xReg, regM: xReg, regT: vReg, option: scale extend} -> instr
+    and loadRegIndexedDouble: {regN: xReg, regM: xReg, regT: vReg, option: scale extend} -> instr
+    and storeRegIndexedDouble: {regN: xReg, regM: xReg, regT: vReg, option: scale extend} -> instr
 
     (* Load/Store a value using a signed byte offset and post-indexing (post-increment). *)
     (* The terminology is confusing. Pre-indexing means adding the offset into base address
