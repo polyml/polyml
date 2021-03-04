@@ -1018,7 +1018,21 @@ struct
         |   printCondition 0wxe = printStream "al"
         |   printCondition _    = printStream "nv"
 
+        (* Normal XReg with 31 being XZ *)
+        fun prXReg 0w31 = printStream "xz"
+        |   prXReg r = printStream("x" ^ Word.fmt StringCvt.DEC r)
 
+        (* XReg when 31 is SP *)
+        fun prXRegOrSP 0w31 = printStream "sp"
+        |   prXRegOrSP r = printStream("x" ^ Word.fmt StringCvt.DEC r)
+
+        (* Normal WReg with 31 being WZ *)
+        fun prWReg 0w31 = printStream "wz"
+        |   prWReg r = printStream("w" ^ Word.fmt StringCvt.DEC r)
+
+        (* WReg when 31 is WSP *)
+        fun prWRegOrSP 0w31 = printStream "wsp"
+        |   prWRegOrSP r = printStream("w" ^ Word.fmt StringCvt.DEC r)
 
         (* Each instruction is 32-bytes. *)
         fun printWordAt wordNo =
@@ -1248,8 +1262,8 @@ struct
                 val imm = if shiftBit <> 0w0 then imm12 << 0w12 else imm12
                 val opr = if (wordValue andb 0wx40000000) = 0w0 then "add" else "sub"
             in
-                printStream opr; printStream "\tx"; printStream(Word.fmt StringCvt.DEC rD);
-                printStream ",x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream opr; printStream "\t"; prXRegOrSP rD;
+                printStream ","; prXRegOrSP rN;
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
             end
 
@@ -1265,9 +1279,8 @@ struct
             in
                 if rD = 0w31
                 then printStream "cmp\t"
-                else (printStream "subs\tx"; printStream(Word.fmt StringCvt.DEC rD); printStream ",");
-                printStream "x"; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
+                else (printStream "subs\t"; prXReg rD; printStream ",");
+                prXRegOrSP rN; printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
             end
 
             else if (wordValue andb 0wx7fe0ffe0) = 0wx2A0003E0
@@ -1330,18 +1343,17 @@ struct
                 and shiftCode = (wordValue >> 0w22) andb 0wx3
                 val oper = (wordValue andb 0wx40000000) = 0w0
                 val isS = (wordValue andb 0wx20000000) <> 0w0
-                val reg = if (wordValue andb 0wx80000000) <> 0w0 then "x" else "w"
+                val pReg = if (wordValue andb 0wx80000000) <> 0w0 then prXReg else prWReg
             in
                 if isS andalso rD = 0w31
                 then printStream(if oper then "cmn\t" else "cmp\t")
                 else
                 (
                     printStream(if oper then "add" else "sub"); printStream(if isS then "s\t" else "\t");
-                    printStream reg;
-                    printStream(Word.fmt StringCvt.DEC rD); printStream ","
+                    pReg rD; printStream ","
                 );
-                printStream reg; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ","; printStream reg; printStream(Word.fmt StringCvt.DEC rM);
+                pReg rN;
+                printStream ","; pReg rM;
                 if imm6 <> 0w0
                 then
                 (
@@ -1352,6 +1364,46 @@ struct
                     |   _ => printStream ",?? #";
                     printStream(Word.fmt StringCvt.DEC imm6)
                 )
+                else ()
+            end
+
+            else if (wordValue andb 0wx1fe00000) = 0wx0b200000
+            then
+            let
+                (* Add/subtract extended register. *)
+                val rD = wordValue andb 0wx1f
+                and rN = (wordValue >> 0w5) andb 0wx1f
+                and rM = (wordValue >> 0w16) andb 0wx1f
+                and extend = (wordValue >> 0w13) andb 0w7
+                and amount = (wordValue >> 0w10) andb 0w7
+                and sf = (wordValue >> 0w31) andb 0w1
+                and p = (wordValue >> 0w30) andb 0w1
+                and s = (wordValue >> 0w29) andb 0w1
+            in
+                if s = 0w1 andalso rD = 0w31
+                then printStream(if p = 0w0 then "cmn\t" else "cmp\t")
+                else
+                (
+                    printStream(if p = 0w0 then "add" else "sub");
+                    printStream(if s = 0w1 then "s\t" else "\t");
+                    (if sf = 0w1 then prXRegOrSP else prWRegOrSP) rD; printStream ","
+                );
+                (if sf = 0w1 then prXRegOrSP else prWRegOrSP) rN;
+                printStream ",";
+                (if extend = 0w3 orelse extend = 0w7 then prXReg else prWReg) rM;
+                case extend of
+                    0w0 => printStream ",uxtb"
+                |   0w1 => printStream ",uxth"
+                |   0w2 => if amount = 0w0 andalso sf = 0w0 then () else printStream ",uxtw"
+                |   0w3 => if amount = 0w0 andalso sf = 0w1 then () else printStream ",uxtx"
+                |   0w4 => printStream ",sxtb"
+                |   0w5 => printStream ",sxth"
+                |   0w6 => printStream ",sxtw"
+                |   0w7 => printStream ",sxtx"
+                |   _ => printStream "?";
+               
+                if amount <> 0w0
+                then printStream(" #" ^ Word.fmt StringCvt.DEC amount)
                 else ()
             end
 

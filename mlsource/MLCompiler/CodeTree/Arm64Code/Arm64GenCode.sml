@@ -49,13 +49,13 @@ struct
     and genPopReg(reg, code) = gen(loadRegPostIndex{regT=reg, regN=X_MLStackPtr, byteOffset= 8}, code)
     
     (* Move register.  The ARM64 alias uses XZR as Rn. *)
-    fun genMoveRegToReg{sReg, dReg} = orrShiftedReg{regN=XZero, regM=sReg, regD=dReg, shift=ShiftNone}
+    fun moveRegToReg{sReg, dReg} = orrShiftedReg{regN=XZero, regM=sReg, regD=dReg, shift=ShiftNone}
 
     (* Add a constant word to the source register and put the result in the
        destination.  regW is used as a work register if necessary.  This is used
        both for addition and subtraction. *)
     fun addConstantWord({regS, regD, value=0w0, ...}, code) =
-        if regS = regD then () else gen(genMoveRegToReg{sReg=regS, dReg=regD}, code)
+        if regS = regD then () else gen(moveRegToReg{sReg=regS, dReg=regD}, code)
     
     |   addConstantWord({regS, regD, regW, value}, code) =
         let
@@ -131,7 +131,7 @@ struct
         gen(branchAndLinkReg X16, code);
         gen(registerMask [], code); (* Not used at the moment. *)
         gen(setLabel label, code);
-        gen(genMoveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
+        gen(moveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
         gen(loadNonAddressConstant(workReg,
             Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags), 0w56))), code);
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
@@ -162,7 +162,7 @@ struct
         gen(branchAndLinkReg X16, code);
         gen(registerMask [], code); (* Not used at the moment. *)
         gen(setLabel noTrapLabel, code);
-        gen(genMoveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
+        gen(moveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
         (* Combine the size with the flags in the top byte. *)
         gen(orrShiftedReg{regM=flagsReg, regN=sizeReg, regD=flagsReg, shift=ShiftLSL 0w56}, code);
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
@@ -252,8 +252,6 @@ and opcode_storeC32 = "opcode_storeC32"
 and opcode_storeC64 = "opcode_storeC64"
 and opcode_storeCFloat = "opcode_storeCFloat"
 and opcode_storeCDouble = "opcode_storeCDouble"
-and opcode_allocCSpace = "opcode_allocCSpace"
-and opcode_freeCSpace = "opcode_freeCSpace"
 
     type caseForm =
         {
@@ -510,7 +508,7 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                             (* The stack entries have to be initialised.  Set them to tagged(0). *)
                             gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec);
                             let fun pushN 0 = () | pushN n = (genPushReg(X0, cvec); pushN (n-1)) in pushN size end;
-                            gen(genMoveRegToReg{sReg=X_MLStackPtr, dReg=X0}, cvec);
+                            gen(moveRegToReg{sReg=X_MLStackPtr, dReg=X0}, cvec);
                             genPushReg(X0, cvec); (* Push the address of this container. *)
                             realstackptr := !realstackptr + size + 1; (* Pushes N words plus the address. *)
                             Array.update (decVec, addr, StackAddr(!realstackptr))
@@ -981,9 +979,6 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                         )
                     |   RealToInt (PrecSingle, rnding) =>
                         (
-                            (* TODO: Check for overflow.  We could get an overflow in
-                               either the conversion to integer or in the conversion
-                               to a tagged value. *)
                             gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
                             gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
                             gen(convertFloatToInt rnding {regN=V0, regD=X0}, cvec);
@@ -992,7 +987,19 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                             checkOverflow cvec
                         )
                     |   TouchAddress => topInX0 := false (* Discard this *)
-                    |   AllocCStack => genOpcode(opcode_allocCSpace, cvec)
+                    |   AllocCStack =>
+                        (
+                            (* Allocate space on the stack.  The higher levels have already aligned
+                               the size to a multiple of 16. *)
+                            (* Remove the tag and then use add-extended.  This can use SP unlike
+                               the shifted case. *)
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                            gen(subExtendedReg{regM=X0, regN=XSP, regD=XSP, extend=ExtUXTX 0w0}, cvec);
+                            (* The result is a large-word.  We can't box SP directly.
+                               We have to use add here to get the SP into X1 instead of the usual move. *)
+                            gen(addImmediate{regN=XSP, regD=X1, immed=0w0, shifted=false}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
                 end
 
             |   BICBinary { oper, arg1, arg2 } =>
@@ -1234,7 +1241,7 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                             genPopReg(X1, cvec);
                             gen(logicalShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
                             allocateVariableSize({sizeReg=X1, flagsReg=X0, resultReg=X2}, cvec);
-                            gen(genMoveRegToReg{sReg=X2, dReg=X0}, cvec)
+                            gen(moveRegToReg{sReg=X2, dReg=X0}, cvec)
                         )
                 
                     |   LargeWordComparison TestEqual => compareLargeWords condEqual
@@ -1544,7 +1551,15 @@ and opcode_freeCSpace = "opcode_freeCSpace"
 
                     |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
                 
-                    |   FreeCStack => genOpcode(opcode_freeCSpace, cvec)
+                    |   FreeCStack =>
+                        (* Free space on the C stack. This is a binary operation that takes the base address
+                           and the size.  The base address isn't used in this version. *)
+                        (
+                            genPopReg(X1, cvec); (* Pop and discard the address *)
+                            (* Can't use the shifted addition which would remove the tag as part of the add. *)
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                            gen(addExtendedReg{regM=X0, regN=XSP, regD=XSP, extend=ExtUXTX 0w0}, cvec)
+                        )
                 
                     |   AtomicExchangeAdd =>
                         (* The earliest versions of the Arm8 do not have the LDADD instruction which
