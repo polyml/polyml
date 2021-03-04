@@ -451,6 +451,10 @@ struct
         (* (Unsigned) byte operations.  There are also signed versions. *)
         and loadRegScaledByte = loadStoreRegScaled (0w0, 0w0, 0w1, xRegOrXZ)
         and storeRegScaledByte = loadStoreRegScaled (0w0, 0w0, 0w0, xRegOrXZ)
+        and loadRegScaled16 = loadStoreRegScaled (0w1, 0w0, 0w1, xRegOrXZ)
+        and storeRegScaled16 = loadStoreRegScaled (0w1, 0w0, 0w0, xRegOrXZ)
+        and loadRegScaled32 = loadStoreRegScaled (0w2, 0w0, 0w1, xRegOrXZ)
+        and storeRegScaled32 = loadStoreRegScaled (0w2, 0w0, 0w0, xRegOrXZ)
         and loadRegScaledDouble = loadStoreRegScaled(0w3, 0w1, 0w1, vReg)
         and storeRegScaledDouble = loadStoreRegScaled(0w3, 0w1, 0w0, vReg)
         and loadRegScaledFloat = loadStoreRegScaled(0w2, 0w1, 0w1, vReg)
@@ -460,7 +464,7 @@ struct
     local
         (* Loads and stores with a signed byte offset.  This includes simple
            unscaled addresses, pre-indexing and post-indexing. *)
-        fun loadStoreByteAddress op4 (size, v, opc) ({regT, regN, byteOffset}) =
+        fun loadStoreByteAddress (op4, xD) (size, v, opc) ({regT, regN, byteOffset}) =
         let
             val _ = (byteOffset >= ~256 andalso byteOffset < 256)
                 orelse raise InternalError "loadStoreUnscaled: value out of range"
@@ -468,18 +472,27 @@ struct
         in
             SimpleInstr(0wx38000000 orb (size << 0w30) orb (opc << 0w22) orb
                 (v << 0w26) orb (imm9 << 0w12) orb (op4 << 0w10) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXZ regT))
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xD regT))
         end
         
-        val loadStoreUnscaled = loadStoreByteAddress 0w0
-        and loadStorePostIndex = loadStoreByteAddress 0w1
-        and loadStorePreIndex = loadStoreByteAddress 0w3
+        val loadStoreUnscaled = loadStoreByteAddress (0w0, xRegOrXZ)
+        and loadStoreUnscaledSIMD = loadStoreByteAddress (0w0, vReg)
+        and loadStorePostIndex = loadStoreByteAddress (0w1, xRegOrXZ)
+        and loadStorePreIndex = loadStoreByteAddress (0w3, xRegOrXZ)
     in
         val loadRegUnscaled = loadStoreUnscaled (0w3, 0w0, 0w1)
         and storeRegUnscaled = loadStoreUnscaled (0w3, 0w0, 0w0)
         (* (Unsigned) byte operations.  There are also signed versions. *)
         and loadRegUnscaledByte = loadStoreUnscaled (0w0, 0w0, 0w1)
         and storeRegUnscaledByte = loadStoreUnscaled (0w0, 0w0, 0w0)
+        and loadRegUnscaled16 = loadStoreUnscaled (0w1, 0w0, 0w1)
+        and storeRegUnscaled16 = loadStoreUnscaled (0w1, 0w0, 0w0)
+        and loadRegUnscaled32 = loadStoreUnscaled (0w2, 0w0, 0w1)
+        and storeRegUnscaled32 = loadStoreUnscaled (0w2, 0w0, 0w0)
+        and loadRegUnscaledFloat = loadStoreUnscaledSIMD (0w2, 0w1, 0w1)
+        and storeRegUnscaledFloat = loadStoreUnscaledSIMD (0w2, 0w1, 0w0)
+        and loadRegUnscaledDouble = loadStoreUnscaledSIMD (0w3, 0w1, 0w1)
+        and storeRegUnscaledDouble = loadStoreUnscaledSIMD (0w3, 0w1, 0w0)
 
         val loadRegPostIndex = loadStorePostIndex (0w3, 0w0, 0w1)
         and storeRegPostIndex = loadStorePostIndex (0w3, 0w0, 0w0)
@@ -494,7 +507,7 @@ struct
 
     (* Load/store with a register offset i.e. an index register. *)
     local
-        fun loadStoreRegRegisterOffset (size, v, opc) ({regT, regN, regM, option}) =
+        fun loadStoreRegRegisterOffset (size, v, opc, xD) ({regT, regN, regM, option}) =
         let
             val (opt, s) =
                 case extendLSEncode option of
@@ -502,13 +515,21 @@ struct
         in
             SimpleInstr(0wx38200800 orb (size << 0w30) orb (v << 0w26) orb (opc << 0w22) orb
                 (word8ToWord(xRegOnly regM) << 0w16) orb (opt << 0w13) orb (s << 0w12) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xRegOrXZ regT))
+                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xD regT))
         end
     in
-        val loadRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w1)
-        and storeRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w0)
-        and loadRegIndexedByte = loadStoreRegRegisterOffset(0w0, 0w0, 0w1)
-        and storeRegIndexedByte = loadStoreRegRegisterOffset(0w0, 0w0, 0w0)
+        val loadRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w1, xRegOrXZ)
+        and storeRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w0, xRegOrXZ)
+        and loadRegIndexedByte = loadStoreRegRegisterOffset(0w0, 0w0, 0w1, xRegOrXZ)
+        and storeRegIndexedByte = loadStoreRegRegisterOffset(0w0, 0w0, 0w0, xRegOrXZ)
+        and loadRegIndexed16 = loadStoreRegRegisterOffset(0w1, 0w0, 0w1, xRegOrXZ)
+        and storeRegIndexed16 = loadStoreRegRegisterOffset(0w1, 0w0, 0w0, xRegOrXZ)
+        and loadRegIndexed32 = loadStoreRegRegisterOffset(0w2, 0w0, 0w1, xRegOrXZ)
+        and storeRegIndexed32 = loadStoreRegRegisterOffset(0w2, 0w0, 0w0, xRegOrXZ)
+        and loadRegIndexedFloat = loadStoreRegRegisterOffset(0w2, 0w1, 0w1, vReg)
+        and storeRegIndexedFloat = loadStoreRegRegisterOffset(0w2, 0w1, 0w0, vReg)
+        and loadRegIndexedDouble = loadStoreRegRegisterOffset(0w3, 0w1, 0w1, vReg)
+        and storeRegIndexedDouble = loadStoreRegRegisterOffset(0w3, 0w1, 0w0, vReg)
     end
 
     (* Addresses must go in the constant area at the end of the code where they
@@ -1018,7 +1039,21 @@ struct
         |   printCondition 0wxe = printStream "al"
         |   printCondition _    = printStream "nv"
 
+        (* Normal XReg with 31 being XZ *)
+        fun prXReg 0w31 = printStream "xz"
+        |   prXReg r = printStream("x" ^ Word.fmt StringCvt.DEC r)
 
+        (* XReg when 31 is SP *)
+        fun prXRegOrSP 0w31 = printStream "sp"
+        |   prXRegOrSP r = printStream("x" ^ Word.fmt StringCvt.DEC r)
+
+        (* Normal WReg with 31 being WZ *)
+        fun prWReg 0w31 = printStream "wz"
+        |   prWReg r = printStream("w" ^ Word.fmt StringCvt.DEC r)
+
+        (* WReg when 31 is WSP *)
+        fun prWRegOrSP 0w31 = printStream "wsp"
+        |   prWRegOrSP r = printStream("w" ^ Word.fmt StringCvt.DEC r)
 
         (* Each instruction is 32-bytes. *)
         fun printWordAt wordNo =
@@ -1101,10 +1136,14 @@ struct
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strb", "w", 0w0)
                     |   (0w0, 0w0, 0w1) => ("ldrb", "w", 0w0)
+                    |   (0w1, 0w0, 0w0) => ("strh", "w", 0w2)
+                    |   (0w1, 0w0, 0w1) => ("ldrh", "w", 0w2)
+                    |   (0w2, 0w0, 0w0) => ("str", "w", 0w4)
+                    |   (0w2, 0w0, 0w1) => ("ldr", "w", 0w4)
                     |   (0w3, 0w0, 0w0) => ("str", "x", 0w8)
                     |   (0w3, 0w0, 0w1) => ("ldr", "x", 0w8)
-                    |   (0w2, 0w0, 0w0) => ("str", "s", 0w4)
-                    |   (0w2, 0w0, 0w1) => ("ldr", "s", 0w4)
+                    |   (0w2, 0w1, 0w0) => ("str", "s", 0w4)
+                    |   (0w2, 0w1, 0w1) => ("ldr", "s", 0w4)
                     |   (0w3, 0w1, 0w0) => ("str", "d", 0w8)
                     |   (0w3, 0w1, 0w1) => ("ldr", "d", 0w8)
                     |   _ => ("??", "?", 0w1)
@@ -1132,8 +1171,16 @@ struct
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strub", "w")
                     |   (0w0, 0w0, 0w1) => ("ldrub", "w")
+                    |   (0w1, 0w0, 0w0) => ("struh", "w")
+                    |   (0w1, 0w0, 0w1) => ("ldruh", "w")
+                    |   (0w2, 0w0, 0w0) => ("stur", "w")
+                    |   (0w2, 0w0, 0w1) => ("ldur", "w")
                     |   (0w3, 0w0, 0w0) => ("stur", "x")
                     |   (0w3, 0w0, 0w1) => ("ldur", "x")
+                    |   (0w2, 0w1, 0w0) => ("stur", "s")
+                    |   (0w2, 0w1, 0w1) => ("ldur", "s")
+                    |   (0w3, 0w1, 0w0) => ("stur", "d")
+                    |   (0w3, 0w1, 0w1) => ("ldur", "d")
                     |   _ => ("???", "?")
             in
                 printStream opcode; printStream "\t"; printStream r;
@@ -1211,8 +1258,16 @@ struct
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strb", "w")
                     |   (0w0, 0w0, 0w1) => ("ldrb", "w")
+                    |   (0w1, 0w0, 0w0) => ("strh", "w")
+                    |   (0w1, 0w0, 0w1) => ("ldrh", "w")
+                    |   (0w2, 0w0, 0w0) => ("str", "w")
+                    |   (0w2, 0w0, 0w1) => ("ldr", "w")
                     |   (0w3, 0w0, 0w0) => ("str", "x")
                     |   (0w3, 0w0, 0w1) => ("ldr", "x")
+                    |   (0w2, 0w1, 0w0) => ("str", "s")
+                    |   (0w2, 0w1, 0w1) => ("ldr", "s")
+                    |   (0w3, 0w1, 0w0) => ("str", "d")
+                    |   (0w3, 0w1, 0w1) => ("ldr", "d")
                     |   _ => ("???", "?")
                 val (extend, xr) =
                     case option of
@@ -1248,8 +1303,8 @@ struct
                 val imm = if shiftBit <> 0w0 then imm12 << 0w12 else imm12
                 val opr = if (wordValue andb 0wx40000000) = 0w0 then "add" else "sub"
             in
-                printStream opr; printStream "\tx"; printStream(Word.fmt StringCvt.DEC rD);
-                printStream ",x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream opr; printStream "\t"; prXRegOrSP rD;
+                printStream ","; prXRegOrSP rN;
                 printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
             end
 
@@ -1265,9 +1320,8 @@ struct
             in
                 if rD = 0w31
                 then printStream "cmp\t"
-                else (printStream "subs\tx"; printStream(Word.fmt StringCvt.DEC rD); printStream ",");
-                printStream "x"; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
+                else (printStream "subs\t"; prXReg rD; printStream ",");
+                prXRegOrSP rN; printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
             end
 
             else if (wordValue andb 0wx7fe0ffe0) = 0wx2A0003E0
@@ -1330,18 +1384,17 @@ struct
                 and shiftCode = (wordValue >> 0w22) andb 0wx3
                 val oper = (wordValue andb 0wx40000000) = 0w0
                 val isS = (wordValue andb 0wx20000000) <> 0w0
-                val reg = if (wordValue andb 0wx80000000) <> 0w0 then "x" else "w"
+                val pReg = if (wordValue andb 0wx80000000) <> 0w0 then prXReg else prWReg
             in
                 if isS andalso rD = 0w31
                 then printStream(if oper then "cmn\t" else "cmp\t")
                 else
                 (
                     printStream(if oper then "add" else "sub"); printStream(if isS then "s\t" else "\t");
-                    printStream reg;
-                    printStream(Word.fmt StringCvt.DEC rD); printStream ","
+                    pReg rD; printStream ","
                 );
-                printStream reg; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ","; printStream reg; printStream(Word.fmt StringCvt.DEC rM);
+                pReg rN;
+                printStream ","; pReg rM;
                 if imm6 <> 0w0
                 then
                 (
@@ -1352,6 +1405,46 @@ struct
                     |   _ => printStream ",?? #";
                     printStream(Word.fmt StringCvt.DEC imm6)
                 )
+                else ()
+            end
+
+            else if (wordValue andb 0wx1fe00000) = 0wx0b200000
+            then
+            let
+                (* Add/subtract extended register. *)
+                val rD = wordValue andb 0wx1f
+                and rN = (wordValue >> 0w5) andb 0wx1f
+                and rM = (wordValue >> 0w16) andb 0wx1f
+                and extend = (wordValue >> 0w13) andb 0w7
+                and amount = (wordValue >> 0w10) andb 0w7
+                and sf = (wordValue >> 0w31) andb 0w1
+                and p = (wordValue >> 0w30) andb 0w1
+                and s = (wordValue >> 0w29) andb 0w1
+            in
+                if s = 0w1 andalso rD = 0w31
+                then printStream(if p = 0w0 then "cmn\t" else "cmp\t")
+                else
+                (
+                    printStream(if p = 0w0 then "add" else "sub");
+                    printStream(if s = 0w1 then "s\t" else "\t");
+                    (if sf = 0w1 then prXRegOrSP else prWRegOrSP) rD; printStream ","
+                );
+                (if sf = 0w1 then prXRegOrSP else prWRegOrSP) rN;
+                printStream ",";
+                (if extend = 0w3 orelse extend = 0w7 then prXReg else prWReg) rM;
+                case extend of
+                    0w0 => printStream ",uxtb"
+                |   0w1 => printStream ",uxth"
+                |   0w2 => if amount = 0w0 andalso sf = 0w0 then () else printStream ",uxtw"
+                |   0w3 => if amount = 0w0 andalso sf = 0w1 then () else printStream ",uxtx"
+                |   0w4 => printStream ",sxtb"
+                |   0w5 => printStream ",sxth"
+                |   0w6 => printStream ",sxtw"
+                |   0w7 => printStream ",sxtx"
+                |   _ => printStream "?";
+               
+                if amount <> 0w0
+                then printStream(" #" ^ Word.fmt StringCvt.DEC amount)
                 else ()
             end
 

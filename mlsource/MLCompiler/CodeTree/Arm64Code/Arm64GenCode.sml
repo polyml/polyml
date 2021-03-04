@@ -31,9 +31,7 @@ struct
     open BackendTree CodeArray Arm64Assembly Address
     
     exception InternalError = Misc.InternalError
-    
-    exception Fallback of string
-    
+
     (* tag a short constant *)
     fun tag c = 2 * c + 1
     and semitag c = 2*c
@@ -49,13 +47,13 @@ struct
     and genPopReg(reg, code) = gen(loadRegPostIndex{regT=reg, regN=X_MLStackPtr, byteOffset= 8}, code)
     
     (* Move register.  The ARM64 alias uses XZR as Rn. *)
-    fun genMoveRegToReg{sReg, dReg} = orrShiftedReg{regN=XZero, regM=sReg, regD=dReg, shift=ShiftNone}
+    fun moveRegToReg{sReg, dReg} = orrShiftedReg{regN=XZero, regM=sReg, regD=dReg, shift=ShiftNone}
 
     (* Add a constant word to the source register and put the result in the
        destination.  regW is used as a work register if necessary.  This is used
        both for addition and subtraction. *)
     fun addConstantWord({regS, regD, value=0w0, ...}, code) =
-        if regS = regD then () else gen(genMoveRegToReg{sReg=regS, dReg=regD}, code)
+        if regS = regD then () else gen(moveRegToReg{sReg=regS, dReg=regD}, code)
     
     |   addConstantWord({regS, regD, regW, value}, code) =
         let
@@ -131,7 +129,7 @@ struct
         gen(branchAndLinkReg X16, code);
         gen(registerMask [], code); (* Not used at the moment. *)
         gen(setLabel label, code);
-        gen(genMoveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
+        gen(moveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
         gen(loadNonAddressConstant(workReg,
             Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags), 0w56))), code);
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
@@ -162,7 +160,7 @@ struct
         gen(branchAndLinkReg X16, code);
         gen(registerMask [], code); (* Not used at the moment. *)
         gen(setLabel noTrapLabel, code);
-        gen(genMoveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
+        gen(moveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
         (* Combine the size with the flags in the top byte. *)
         gen(orrShiftedReg{regM=flagsReg, regN=sizeReg, regD=flagsReg, shift=ShiftLSL 0w56}, code);
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
@@ -240,21 +238,6 @@ struct
         gen(storeRegScaledDouble{regT=reg, regN=X0, unitOffset=0}, code)
     )
 
-val opcode_loadC8 = "opcode_loadC8"
-and opcode_loadC16 = "opcode_loadC16"
-and opcode_loadC32 = "opcode_loadC32"
-and opcode_loadC64 = "opcode_loadC64"
-and opcode_loadCFloat = "opcode_loadCFloat"
-and opcode_loadCDouble = "opcode_loadCDouble"
-and opcode_storeC8 = "opcode_storeC8"
-and opcode_storeC16 = "opcode_storeC16"
-and opcode_storeC32 = "opcode_storeC32"
-and opcode_storeC64 = "opcode_storeC64"
-and opcode_storeCFloat = "opcode_storeCFloat"
-and opcode_storeCDouble = "opcode_storeCDouble"
-and opcode_allocCSpace = "opcode_allocCSpace"
-and opcode_freeCSpace = "opcode_freeCSpace"
-
     type caseForm =
         {
             cases   : (backendIC * word) list,
@@ -277,10 +260,6 @@ and opcode_freeCSpace = "opcode_freeCSpace"
     (* Code generate a function or global declaration *)
     fun codegen (pt, name, resultClosure, numOfArgs, localCount, parameters) =
     let
-        fun toDo s = raise Fallback(s ^ ":" ^ name)
-
-        fun genOpcode (n, _) =  toDo n
-    
         val cvec = ref []
         
         datatype decEntry =
@@ -345,9 +324,11 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                         topInX0 := false
                     )
             )
+            
+            val genCAddress = genMLAddress
 
             datatype mlLoadKind = MLLoadOffset of int | MLLoadReg of xReg
-            
+
             fun genMLLoadAddress({base, index=NONE, offset}, scale) =
                 (* The index, if any, is a constant. *)
                 (
@@ -371,19 +352,31 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                     (X1, MLLoadReg X0)
                 )
 
-           (* Load the address, index value and offset for non-byte operations.
-              Because the offset has already been scaled by the size of the operand
-              we have to load the index and offset separately. *)
-           fun genCAddress{base, index, offset} =
-            (
-                gencde (base, ToStack, NotEnd, loopAddr);
-                case index of
-                    NONE =>
-                        (gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec); genPushReg(X0, cvec); incsp())
-                |   SOME indexVal => gencde (indexVal, ToStack, NotEnd, loopAddr);
-                gen(loadNonAddressConstant(X0, Word64.fromInt(tag offset)), cvec);
-                genPushReg(X0, cvec); incsp()
-            )
+            (* Similar to genMLLoadAddress but for C addresses.  There are two
+               differences.  The index is signed so we use an arithmetic shift and
+               the base address is a LargeWord value i.e. the actual
+               address is held in the word pointed at by "base", unlike with
+               ML addresses. *)
+            fun genCLoadAddress({base, index=NONE, offset}, scale) =
+                (
+                    gencde (base, ToX0, NotEnd, loopAddr);
+                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                    (X0, MLLoadOffset(offset div scale))
+                )
+            |   genCLoadAddress({base, index=SOME indexVal, offset}, scale) =
+                (
+                    gencde (base, ToStack, NotEnd, loopAddr); (* Push base addr to stack. *)
+                    gencde (indexVal, ToX0, NotEnd, loopAddr);
+                    (* Shift right to remove the tag.  C indexes are SIGNED. *)
+                    gen(arithmeticShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                    (* Add any constant offset.  Does nothing if it's zero. *)
+                    addConstantWord({regS=X0, regD=X0, regW=X3,
+                        value=Word64.fromInt (* unsigned *)(offset div scale)}, cvec);
+                    genPopReg(X1, cvec); (* Pop base reg into X1. *)
+                    gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                    decsp();
+                    (X1, MLLoadReg X0)
+                )
 
             (* Compare a block of bytes.  Jumps to labelEqual if all the bytes are
                equal up to the length.  Otherwise it drops through with the condition
@@ -510,7 +503,7 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                             (* The stack entries have to be initialised.  Set them to tagged(0). *)
                             gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec);
                             let fun pushN 0 = () | pushN n = (genPushReg(X0, cvec); pushN (n-1)) in pushN size end;
-                            gen(genMoveRegToReg{sReg=X_MLStackPtr, dReg=X0}, cvec);
+                            gen(moveRegToReg{sReg=X_MLStackPtr, dReg=X0}, cvec);
                             genPushReg(X0, cvec); (* Push the address of this container. *)
                             realstackptr := !realstackptr + size + 1; (* Pushes N words plus the address. *)
                             Array.update (decVec, addr, StackAddr(!realstackptr))
@@ -981,9 +974,6 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                         )
                     |   RealToInt (PrecSingle, rnding) =>
                         (
-                            (* TODO: Check for overflow.  We could get an overflow in
-                               either the conversion to integer or in the conversion
-                               to a tagged value. *)
                             gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
                             gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
                             gen(convertFloatToInt rnding {regN=V0, regD=X0}, cvec);
@@ -992,7 +982,19 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                             checkOverflow cvec
                         )
                     |   TouchAddress => topInX0 := false (* Discard this *)
-                    |   AllocCStack => genOpcode(opcode_allocCSpace, cvec)
+                    |   AllocCStack =>
+                        (
+                            (* Allocate space on the stack.  The higher levels have already aligned
+                               the size to a multiple of 16. *)
+                            (* Remove the tag and then use add-extended.  This can use SP unlike
+                               the shifted case. *)
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                            gen(subExtendedReg{regM=X0, regN=XSP, regD=XSP, extend=ExtUXTX 0w0}, cvec);
+                            (* The result is a large-word.  We can't box SP directly.
+                               We have to use add here to get the SP into X1 instead of the usual move. *)
+                            gen(addImmediate{regN=XSP, regD=X1, immed=0w0, shifted=false}, cvec);
+                            boxLargeWord(X1, cvec)
+                        )
                 end
 
             |   BICBinary { oper, arg1, arg2 } =>
@@ -1234,7 +1236,7 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                             genPopReg(X1, cvec);
                             gen(logicalShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
                             allocateVariableSize({sizeReg=X1, flagsReg=X0, resultReg=X2}, cvec);
-                            gen(genMoveRegToReg{sReg=X2, dReg=X0}, cvec)
+                            gen(moveRegToReg{sReg=X2, dReg=X0}, cvec)
                         )
                 
                     |   LargeWordComparison TestEqual => compareLargeWords condEqual
@@ -1544,7 +1546,15 @@ and opcode_freeCSpace = "opcode_freeCSpace"
 
                     |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
                 
-                    |   FreeCStack => genOpcode(opcode_freeCSpace, cvec)
+                    |   FreeCStack =>
+                        (* Free space on the C stack. This is a binary operation that takes the base address
+                           and the size.  The base address isn't used in this version. *)
+                        (
+                            genPopReg(X1, cvec); (* Pop and discard the address *)
+                            (* Can't use the shifted addition which would remove the tag as part of the add. *)
+                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                            gen(addExtendedReg{regM=X0, regN=XSP, regD=XSP, extend=ExtUXTX 0w0}, cvec)
+                        )
                 
                     |   AtomicExchangeAdd =>
                         (* The earliest versions of the Arm8 do not have the LDADD instruction which
@@ -1640,44 +1650,89 @@ and opcode_freeCSpace = "opcode_freeCSpace"
 
             |   BICLoadOperation { kind=LoadStoreC8, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadC8, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 1) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaledByte{regT=X0, regN=base, byteOffset=offset}, cvec)
+                            else gen(loadRegScaledByte{regT=X0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexedByte{regN=base, regM=indexR, regT=X0, option=ExtUXTX NoScale}, cvec);
+
+                    (* Have to tag the result. *)
+                    gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize32, bits=0w1}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreC16, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadC16, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 2) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaled16{regT=X0, regN=base, byteOffset=offset*2}, cvec)
+                            else gen(loadRegScaled16{regT=X0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexed16{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+
+                    (* Have to tag the result. *)
+                    gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize32, bits=0w1}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreC32, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadC32, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 4) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaled32{regT=X0, regN=base, byteOffset=offset*4}, cvec)
+                            else gen(loadRegScaled32{regT=X0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexed32{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+
+                    (* Have to tag the result. *)
+                    gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64 (* Must use 64-bits *), shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreC64, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadC64, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 8) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaled{regT=X1, regN=base, byteOffset=offset*8}, cvec)
+                            else gen(loadRegScaled{regT=X1, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexed{regN=base, regM=indexR, regT=X1, option=ExtUXTX ScaleOrShift}, cvec);
+
+                    (* Load the value at the address and box it. *)
+                    boxLargeWord(X1, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreCFloat, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadCFloat, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 4) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaledFloat{regT=V0, regN=base, byteOffset=offset*4}, cvec)
+                            else gen(loadRegScaledFloat{regT=V0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexedFloat{regN=base, regM=indexR, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                    (* This is defined to return a "real" i.e. a double so we need to convert it
+                       to a double and then box the result. *)
+                    gen(convertFloatToDouble{regN=V0, regD=V0}, cvec);
+                    boxDouble(V0, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreCDouble, address} =>
                 (
-                    genCAddress address;
-                    genOpcode(opcode_loadCDouble, cvec);
-                    decsp(); decsp()
+                    case genCLoadAddress(address, 8) of
+                        (base, MLLoadOffset offset) =>
+                            if offset < 0 (* C offsets can be negative. *)
+                            then gen(loadRegUnscaledDouble{regT=V0, regN=base, byteOffset=offset*8}, cvec)
+                            else gen(loadRegScaledDouble{regT=V0, regN=base, unitOffset=offset}, cvec)
+                    |   (base, MLLoadReg indexR) =>
+                            gen(loadRegIndexedDouble{regN=base, regM=indexR, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                    (* Box the result. *)
+                    boxDouble(V0, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreUntaggedUnsigned, address} =>
@@ -1724,55 +1779,100 @@ and opcode_freeCSpace = "opcode_freeCSpace"
                     genPopReg(X2, cvec); (* Base address. *)
                     gen(storeRegIndexedByte{regN=X2, regM=X1, regT=X0, option=ExtUXTX NoScale}, cvec);
                     (* Don't put the unit result in; it probably isn't needed, *)
-                    decsp(); decsp(); decsp()
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreC8, address, value} =>
                 (
-                    genCAddress address;
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeC8, cvec);
-                    decsp(); decsp(); decsp()
+                    genCAddress(address, 1);
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec); (* Untag it *)
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexedByte{regN=X2, regM=X1, regT=X0, option=ExtUXTX NoScale}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreC16, address, value} =>
                 (
-                    genCAddress address;
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeC16, cvec);
-                    decsp(); decsp(); decsp()
+                    genCAddress(address, 2);
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec); (* Untag it *)
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexed16{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreC32, address, value} =>
                 (
-                    genCAddress address;
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeC32, cvec);
-                    decsp(); decsp(); decsp()
+                    genCAddress(address, 4);
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
+                    gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec); (* Untag it *)
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexed32{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreC64, address, value} =>
                 (
-                    genCAddress address;
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeC64, cvec);
-                    decsp(); decsp(); decsp()
+                    genCAddress(address, 8);
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store. This is boxed. *)
+                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexed{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreCFloat, address, value} =>
                 (
-                    genCAddress address;
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeCFloat, cvec);
-                    decsp(); decsp(); decsp()
+                    genCAddress(address, 4);
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
+                    (* This is a boxed double.  It needs to be converted to a float. *)
+                    gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec); (* Untag it *)
+                    gen(convertDoubleToFloat{regN=V0, regD=V0}, cvec);
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexedFloat{regN=X2, regM=X1, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreCDouble, address, value} =>
                 (
-                    genCAddress address;
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    genOpcode(opcode_storeCDouble, cvec);
-                    decsp(); decsp(); decsp()
+                    genCAddress(address, 8);
+                    gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
+                    (* This is a boxed double. *)
+                    gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec); (* Untag it *)
+                    genPopReg(X1, cvec); (* Index: a tagged value. *)
+                    (* Untag.  C indexes are signed. *)
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                    genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
+                    gen(storeRegIndexedDouble{regN=X2, regM=X1, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                    topInX0 := false;
+                    decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreUntaggedUnsigned, address, value} =>
@@ -2237,11 +2337,7 @@ and opcode_freeCSpace = "opcode_freeCSpace"
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
         codegen (body, name, closure, List.length argTypes, localCount, parameters)
-        handle Fallback s =>
-        (
-            Pretty.getSimplePrinter(parameters, []) ("TODO: " ^ s ^ "\n");
-            FallBackCG.gencodeLambda(lambda, parameters, closure)
-        )
+
 
     structure Foreign = Arm64Foreign
 
