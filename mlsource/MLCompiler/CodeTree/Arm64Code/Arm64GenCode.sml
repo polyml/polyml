@@ -1779,7 +1779,7 @@ struct
                     genPopReg(X2, cvec); (* Base address. *)
                     gen(storeRegIndexedByte{regN=X2, regM=X1, regT=X0, option=ExtUXTX NoScale}, cvec);
                     (* Don't put the unit result in; it probably isn't needed, *)
-                    decsp(); decsp()
+                    decsp(); decsp(); decsp()
                 )
 
             |   BICStoreOperation { kind=LoadStoreC8, address, value} =>
