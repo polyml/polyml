@@ -151,7 +151,7 @@ struct
     and memRegHeapOverflowCall    = 10 * Word.toInt nativeWordSize
     and memRegStackOverflowCall   = 11 * Word.toInt nativeWordSize
     and memRegStackOverflowCallEx = 12 * Word.toInt nativeWordSize
-    and memRegSavedRbx            = 14 * Word.toInt nativeWordSize (* Heap base in 32-in-64. *)
+    and memRegSavedRbx            = 15 * Word.toInt nativeWordSize (* Heap base in 32-in-64. *)
 
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
