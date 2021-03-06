@@ -64,8 +64,21 @@ struct
             loadIndexed{regN=base, regM=work, regT=dest,
                 option=ExtUXTX(if scale = 1 then NoScale else ScaleOrShift)}
         ]
-    
+
+    (* Similar store. *)
+    and storeScaledOffset(scale, storeScaled, storeIndexed) {base, store, work, offset} =
+        if offset < 0 then raise InternalError "storeScaledOffset: negative offset"
+        else if offset < 0x1000
+        then [storeScaled{regT=store, regN=base, unitOffset=offset}]
+        else
+        [
+            loadNonAddressConstant(work, Word64.fromInt offset),
+            storeIndexed{regN=base, regM=work, regT=store,
+                option=ExtUXTX(if scale = 1 then NoScale else ScaleOrShift)}
+        ]
+
     val loadScaledWord = loadScaledOffset(8, loadRegScaled, loadRegIndexed)
+    and storeScaledWord = storeScaledOffset(8, storeRegScaled, storeRegIndexed)
 
     (* Add a constant word to the source register and put the result in the
        destination.  regW is used as a work register if necessary.  This is used
@@ -580,7 +593,7 @@ struct
                             val argOffset = loadArgs(argList, argIndexList);
                         in
                             genPopReg(X0, cvec);
-                            gen(storeRegScaled{regT=X0, regN=X_MLStackPtr, unitOffset=argOffset-1}, cvec);
+                            genList(storeScaledWord{store=X0, base=X_MLStackPtr, work=X16, offset=argOffset-1}, cvec);
                             decsp(); (* The argument has now been popped. *)
                             argOffset
                         end
@@ -742,8 +755,12 @@ struct
                     List.app(fn v => gencde (v, ToStack, NotEnd, loopAddr)) recList;
                     genAllocateFixedSize(size, 0w0, X0, X1, cvec);
                     List.foldl(fn (_, w) =>
-                        (genPopReg(X1, cvec); gen(storeRegScaled{regT=X1, regN=X0, unitOffset=w-1}, cvec); w-1))
-                            size recList;
+                        (
+                            genPopReg(X1, cvec);
+                            genList(storeScaledWord{store=X1, base=X0, work=X16, offset=w-1}, cvec);
+                            w-1)
+                        )
+                        size recList;
                     topInX0 := true;
                     realstackptr := !realstackptr - size
                 end
@@ -772,7 +789,7 @@ struct
                                     (* Load the address of the container from the stack and store
                                        the value into the container. *)
                                     gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
-                                    gen(storeRegScaled{regT=X0, regN=X1, unitOffset=destOffset}, cvec);
+                                    genList(storeScaledWord{store=X0, base=X1, work=X16, offset=destOffset}, cvec);
                                     topInX0 := false; (* We've used it. *)
                                     setValues(tl, sourceOffset+1, destOffset+1)
                                 )
@@ -800,7 +817,7 @@ struct
                                     (* Load the value in the tuple. *)
                                     genList(loadScaledWord{dest=X2, base=X1, work=X16, offset=sourceOffset}, cvec);
                                     (* Store into the container. *)
-                                    gen(storeRegScaled{regT=X2, regN=X0, unitOffset=destOffset}, cvec);
+                                    genList(storeScaledWord{store=X2, base=X0, work=X16, offset=destOffset}, cvec);
                                     if sourceOffset = last
                                     then ()
                                     else copy (sourceOffset+1, destOffset+1)
@@ -2109,7 +2126,7 @@ struct
                         (* Generate an item and move it into the closure *)
                         gencde (BICExtract v, ToX0, NotEnd, NONE);
                         (* The closure "address" excludes the code address. *)
-                        gen(storeRegScaled{regT=X0, regN=X1, unitOffset=addr+1}, cvec);
+                        genList(storeScaledWord{store=X0, base=X1, work=X16, offset=addr+1}, cvec);
                         topInX0 := false;
                         loadItems (vs, addr + 1)
                     )
@@ -2128,8 +2145,12 @@ struct
                 in
                     genAllocateFixedSize(closureVars+1, 0w0, X0, X1, cvec);
                     List.foldl(fn (_, w) =>
-                        (genPopReg(X1, cvec); gen(storeRegScaled{regT=X1, regN=X0, unitOffset=w-1}, cvec); w-1))
-                            (closureVars+1) closure;
+                        (
+                            genPopReg(X1, cvec);
+                            genList(storeScaledWord{store=X1, base=X0, work=X16, offset=w-1}, cvec);
+                            w-1
+                        )
+                    ) (closureVars+1) closure;
                     gen(loadAddressConstant(X1, codeAddr), cvec);
                     gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec);
                     genPushReg(X0, cvec);
@@ -2305,7 +2326,7 @@ struct
                     let
                         val () = loadArg(n, X9)
                         val destOffset = itemsOnStack - (n-8) - 1
-                        val () = gen(storeRegScaled{regT=X9, regN=X_MLStackPtr, unitOffset=destOffset}, cvec)
+                        val () = genList(storeScaledWord{store=X9, base=X_MLStackPtr, work=X16, offset=destOffset}, cvec)
                     in
                         moveStackArg(n+1)
                     end
