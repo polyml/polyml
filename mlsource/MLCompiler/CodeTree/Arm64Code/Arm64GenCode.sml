@@ -43,11 +43,29 @@ struct
     
     fun gen(instr, code) = code := instr :: !code
 
+    fun genList([], _) = ()
+    |   genList(instr :: instrs, code) = (gen(instr, code); genList(instrs, code))
+
     fun genPushReg(reg, code) = gen(storeRegPreIndex{regT=reg, regN=X_MLStackPtr, byteOffset= ~8}, code)
     and genPopReg(reg, code) = gen(loadRegPostIndex{regT=reg, regN=X_MLStackPtr, byteOffset= 8}, code)
     
     (* Move register.  The ARM64 alias uses XZR as Rn. *)
     fun moveRegToReg{sReg, dReg} = orrShiftedReg{regN=XZero, regM=sReg, regD=dReg, shift=ShiftNone}
+
+    (* Load a value using a scaled offset.  This uses a normal scaled load if
+       the offset is in the range and an indexed offset if it is not. *)
+    fun loadScaledOffset(scale, loadScaled, loadIndexed) {base, dest, work, offset} =
+        if offset < 0 then raise InternalError "loadScaledOffset: negative offset"
+        else if offset < 0x1000
+        then [loadScaled{regT=dest, regN=base, unitOffset=offset}]
+        else
+        [
+            loadNonAddressConstant(work, Word64.fromInt offset),
+            loadIndexed{regN=base, regM=work, regT=dest,
+                option=ExtUXTX(if scale = 1 then NoScale else ScaleOrShift)}
+        ]
+    
+    val loadScaledWord = loadScaledOffset(8, loadRegScaled, loadRegIndexed)
 
     (* Add a constant word to the source register and put the result in the
        destination.  regW is used as a work register if necessary.  This is used
@@ -424,7 +442,7 @@ struct
                 let     
                     fun loadLocalStackValue addr =
                     (
-                        gen(loadRegScaled{regT=X0, regN=X_MLStackPtr, unitOffset= !realstackptr + addr}, cvec);
+                        genList (loadScaledWord{dest=X0, base=X_MLStackPtr, work=X16, offset= !realstackptr + addr}, cvec);
                         topInX0 := true
                     )
                 in
@@ -446,7 +464,8 @@ struct
                     |   BICLoadClosure locn =>
                         (
                             loadLocalStackValue ~1; (* The closure itself. *)
-                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=locn+1 (* The first word is the code *)}, cvec)
+                            genList (loadScaledWord{dest=X0, base=X0, work=X16,
+                                offset=locn+1 (* The first word is the code *)}, cvec)
                         )
                     |   BICLoadRecursive =>
                             loadLocalStackValue ~1 (* The closure itself - first value on the stack. *)
@@ -455,13 +474,13 @@ struct
             |   BICField {base, offset} =>
                 (
                     gencde (base, ToX0, NotEnd, loopAddr);
-                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=offset}, cvec)
+                    genList (loadScaledWord{dest=X0, base=X0, work=X16, offset=offset}, cvec)
                 )
 
             |   BICLoadContainer {base, offset} =>
                 (
                     gencde (base, ToX0, NotEnd, loopAddr);
-                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=offset}, cvec)
+                    genList (loadScaledWord{dest=X0, base=X0, work=X16, offset=offset}, cvec)
                 )
        
             |   BICLambda lam => genProc (lam, false, fn () => ())
@@ -779,7 +798,7 @@ struct
                                 then
                                 (
                                     (* Load the value in the tuple. *)
-                                    gen(loadRegScaled{regT=X2, regN=X1, unitOffset=sourceOffset}, cvec);
+                                    genList(loadScaledWord{dest=X2, base=X1, work=X16, offset=sourceOffset}, cvec);
                                     (* Store into the container. *)
                                     gen(storeRegScaled{regT=X2, regN=X0, unitOffset=destOffset}, cvec);
                                     if sourceOffset = last
@@ -1630,7 +1649,7 @@ struct
                 (
                     case genMLLoadAddress(address, Word.toInt wordSize) of
                         (base, MLLoadOffset offset) =>
-                            gen(loadRegScaled{regT=X0, regN=base, unitOffset=offset}, cvec)
+                            genList(loadScaledWord{dest=X0, base=base, work=X16, offset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
                             gen(loadRegIndexed{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec)
                 )
@@ -2081,7 +2100,7 @@ struct
 
                     (* Reload the address of the vector - If we have processed other
                        closures the closure will no longer be on the top of the stack. *)
-                    val () = gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset= !realstackptr - entryAddr}, cvec);
+                    val () = genList(loadScaledWord{dest=X1, base=X_MLStackPtr, work=X16, offset= !realstackptr - entryAddr}, cvec)
 
                     (* Load items for the closure. *)
                     fun loadItems ([], _) = ()
@@ -2217,7 +2236,7 @@ struct
                     val () = gencde(#function eval, ToStack, NotEnd, NONE);
                     val () = loadArgs(argList);
                     (* Load the function again. *)
-                    val () = gen(loadRegScaled{regT=X0, regN=X_MLStackPtr, unitOffset=argsToPass}, cvec)
+                    val () = genList(loadScaledWord{dest=X0, base=X_MLStackPtr, work=X16, offset=argsToPass}, cvec)
                     val () = genPushReg(X0, cvec)
                 in
                     incsp ()
@@ -2232,7 +2251,7 @@ struct
                        leave the rest on the stack. *)
                     fun loadArg(n, reg) =
                         if argsToPass > n
-                        then gen(loadRegScaled{regT=reg, regN=X_MLStackPtr, unitOffset=argsToPass-n-1}, cvec)
+                        then genList(loadScaledWord{dest=reg, base=X_MLStackPtr, work=X16, offset=argsToPass-n-1}, cvec)
                         else ()
                     val () = loadArg(0, X0)
                     val () = loadArg(1, X1)
@@ -2257,12 +2276,12 @@ struct
                     val () = genPopReg(X8, cvec) (* Pop the closure pointer. *)
                     val () = decsp()
                     (* Get the return address into X30. *)
-                    val () = gen(loadRegScaled{regT=X30, regN=X_MLStackPtr, unitOffset= !realstackptr}, cvec)
+                    val () = genList(loadScaledWord{dest=X30, base=X_MLStackPtr, work=X16, offset= !realstackptr}, cvec)
 
                     (* Load the register arguments *)
                     fun loadArg(n, reg) =
                         if argsToPass > n
-                        then gen(loadRegScaled{regT=reg, regN=X_MLStackPtr, unitOffset=argsToPass-n-1}, cvec)
+                        then genList(loadScaledWord{dest=reg, base=X_MLStackPtr, work=X16, offset=argsToPass-n-1}, cvec)
                         else ()
                     val () = loadArg(0, X0)
                     val () = loadArg(1, X1)
