@@ -537,47 +537,31 @@ struct
     fun loadAddressConstant(xReg, valu) = LoadAddressLiteral{reg=xReg, value=valu}
 
     (* Non-address constants.  These may or may not be tagged values. *)
+    fun loadNonAddressConstant(xReg, valu) = LoadNonAddressLiteral{reg=xReg, value=valu}
+
     local
-        fun loadConstantFromCArea(xReg, valu) = LoadNonAddressLiteral{reg=xReg, value=valu}
-
-        (* Move an unsigned constant. *)
-        fun genMoveShortConstToReg(xReg, constnt, shiftBits, is64, opc) =
-            SimpleInstr((if is64 then 0wx80000000 else 0w0) orb (opc << 0w29) orb 0wx12800000 orb (shiftBits << 0w21) orb
-                (constnt << 0w5) orb word8ToWord(xRegOnly xReg))
-        val opcMovZ = 0w2 (* Zero the rest of the register. *)
-        and opcMovK = 0w3 (* Keep the rest of the register. *)
-        and opcMovN = 0w0 (* Invert the value and the rest of the register. *)
-    in
-        fun loadNonAddressConstant(xReg, valu) =
-        (* If this can be encoded using at most two instructions we do that
-           otherwise the constant is stored in the non-address constant area. *)
+        fun moveWideImmediate(sf, opc) {regD, immediate, shift} =
         let
-            fun extW h = Word.fromLarge(LargeWord.>>(Word64.toLarge valu, h*0w16)) andb 0wxffff
-            val hw0 = extW 0w3 and hw1 = extW 0w2 and hw2 = extW 0w1 and hw3 = extW 0w0
+            val hw =
+                case (shift, sf) of
+                    (0w0, _) => 0w0
+                |   (0w16, _) => 0w1
+                |   (0w24, 0w1) => 0w2
+                |   (0w48, 0w1) => 0w3
+                |   _ => raise InternalError "moveWideImmediate: invalid shift"
+            val _ =
+                immediate <= 0wxffff orelse raise InternalError "moveWideImmediate: immediate too large"
         in
-            if hw0 = 0w0 andalso hw1 = 0w0
-            then (* If the top 32-bits are zero we can use a 32-bit move. *)
-            (
-                if hw2 = 0w0
-                then genMoveShortConstToReg(xReg, hw3, 0w0, false, opcMovZ)
-                else if hw3 = 0w0
-                then genMoveShortConstToReg(xReg, hw2, 0w1, false, opcMovZ)
-                else if hw2 = 0wxffff
-                then genMoveShortConstToReg(xReg, Word.xorb(hw3, 0wxffff), 0w0, false, opcMovN)
-                else if hw3 = 0wxffff
-                then genMoveShortConstToReg(xReg, Word.xorb(hw2, 0wxffff), 0w1, false, opcMovN)
-                else
-                (
-                    genMoveShortConstToReg(xReg, hw3, 0w0, false, opcMovZ);
-                    genMoveShortConstToReg(xReg, hw2, 0w1, false, opcMovK)
-                )
-            )
-            (* TODO: For the moment just handle the simple case. *)
-            else if hw0 = 0wxffff andalso hw1 = 0wxffff andalso hw2 = 0wxffff
-            then genMoveShortConstToReg(xReg, Word.xorb(hw3, 0wxffff), 0w0, true, opcMovN)
-
-            else loadConstantFromCArea(xReg, valu)
+            SimpleInstr(0wx12800000 orb (sf << 0w31) orb (opc << 0w29) orb
+                (hw << 0w21) orb (immediate << 0w5) orb word8ToWord(xRegOnly regD))
         end
+    in
+        val moveNot32 = moveWideImmediate(0w0, 0w0)
+        and moveZero32 = moveWideImmediate(0w0, 0w2)
+        and moveKeep32 = moveWideImmediate(0w0, 0w3)
+        and moveNot = moveWideImmediate(0w1, 0w0)
+        and moveZero = moveWideImmediate(0w1, 0w2)
+        and moveKeep = moveWideImmediate(0w1, 0w3)
     end
 
     (* Instructions involved in thread synchonisation. *)
@@ -1107,7 +1091,7 @@ struct
             then (* Move of constants.  Includes movn and movk. *)
             let
                 val rD = wordValue andb 0wx1f
-                val imm16 = Word.toInt((wordValue andb 0wx1fffe) >> 0w5)
+                val imm16 = Word.toInt((wordValue >> 0w5) andb 0wxffff)
                 val isXReg = (wordValue andb 0wx80000000) <> 0w0
                 val opc = (wordValue >> 0w29) andb 0w3
                 val shift = (wordValue >> 0w21) andb 0w3
@@ -1119,7 +1103,7 @@ struct
                 printStream(Int.toString(if opc = 0w0 then ~1 - imm16 else imm16));
                 if shift = 0w0
                 then ()
-                else (printStream ",lsl #"; printStream(Word.fmt StringCvt.HEX (shift*0w16)))
+                else (printStream ",lsl #"; printStream(Word.fmt StringCvt.DEC (shift*0w16)))
             end
 
             else if (wordValue andb 0wx3b000000) = 0wx39000000

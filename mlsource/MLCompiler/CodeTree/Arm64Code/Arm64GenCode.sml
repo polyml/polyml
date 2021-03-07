@@ -22,13 +22,14 @@ functor Arm64GenCode (
     and       Arm64Assembly: Arm64Assembly
     and       Debug: DEBUG
     and       Arm64Foreign: FOREIGNCALLSIG
+    and       Arm64Sequences: Arm64Sequences
     
     sharing FallBackCG.Sharing = BackendTree.Sharing = CodeArray.Sharing =
-        Arm64Assembly.Sharing
+        Arm64Assembly.Sharing = Arm64Sequences.Sharing
 ) : GENCODESIG =
 struct
 
-    open BackendTree CodeArray Arm64Assembly Address
+    open BackendTree CodeArray Arm64Assembly Address Arm64Sequences
     
     exception InternalError = Misc.InternalError
 
@@ -48,9 +49,6 @@ struct
 
     fun genPushReg(reg, code) = gen(storeRegPreIndex{regT=reg, regN=X_MLStackPtr, byteOffset= ~8}, code)
     and genPopReg(reg, code) = gen(loadRegPostIndex{regT=reg, regN=X_MLStackPtr, byteOffset= 8}, code)
-    
-    (* Move register.  The ARM64 alias uses XZR as Rn. *)
-    fun moveRegToReg{sReg, dReg} = orrShiftedReg{regN=XZero, regM=sReg, regD=dReg, shift=ShiftNone}
 
     (* Load a value using a scaled offset.  This uses a normal scaled load if
        the offset is in the range and an indexed offset if it is not. *)
@@ -59,11 +57,9 @@ struct
         else if offset < 0x1000
         then [loadScaled{regT=dest, regN=base, unitOffset=offset}]
         else
-        [
-            loadNonAddressConstant(work, Word64.fromInt offset),
-            loadIndexed{regN=base, regM=work, regT=dest,
-                option=ExtUXTX(if scale = 1 then NoScale else ScaleOrShift)}
-        ]
+            loadNonAddress(work, Word64.fromInt offset) @
+            [loadIndexed{regN=base, regM=work, regT=dest,
+                option=ExtUXTX(if scale = 1 then NoScale else ScaleOrShift)}]
 
     (* Similar store. *)
     and storeScaledOffset(scale, storeScaled, storeIndexed) {base, store, work, offset} =
@@ -71,11 +67,9 @@ struct
         else if offset < 0x1000
         then [storeScaled{regT=store, regN=base, unitOffset=offset}]
         else
-        [
-            loadNonAddressConstant(work, Word64.fromInt offset),
-            storeIndexed{regN=base, regM=work, regT=store,
-                option=ExtUXTX(if scale = 1 then NoScale else ScaleOrShift)}
-        ]
+            loadNonAddress(work, Word64.fromInt offset) @
+            [storeIndexed{regN=base, regM=work, regT=store,
+                option=ExtUXTX(if scale = 1 then NoScale else ScaleOrShift)}]
 
     val loadScaledWord = loadScaledOffset(8, loadRegScaled, loadRegIndexed)
     and storeScaledWord = storeScaledOffset(8, storeRegScaled, storeRegIndexed)
@@ -123,7 +117,7 @@ struct
                     else (value, shift)
                 val (shifted, shift) = getShift(unsigned, 0w0)
             in
-                gen(loadNonAddressConstant(regW, shifted), code);
+                genList(loadNonAddress(regW, shifted), code);
                 gen((if isSub then subShiftedReg else addShiftedReg)
                     {regM=regW, regN=regS, regD=regD, shift=ShiftLSL shift}, code)
             end
@@ -161,7 +155,7 @@ struct
         gen(registerMask [], code); (* Not used at the moment. *)
         gen(setLabel label, code);
         gen(moveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
-        gen(loadNonAddressConstant(workReg,
+        genList(loadNonAddress(workReg,
             Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags), 0w56))), code);
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
         gen(storeRegUnscaled{regT=workReg, regN=resultReg, byteOffset= ~8}, code)
@@ -201,7 +195,7 @@ struct
     (* Set a register to either tagged(1) i.e. true or tagged(0) i.e. false. *)
     fun setBooleanCondition(reg, condition, code) =
     (
-        gen(loadNonAddressConstant(reg, Word64.fromInt(tag 1)), code);
+        genList(loadNonAddress(reg, Word64.fromInt(tag 1)), code);
         (* If the condition is false the value used is the XZero incremented by 1 i.e. 1 *)
         gen(conditionalSetIncrement{regD=reg, regTrue=reg, regFalse=XZero, cond=condition}, code)
     )
@@ -343,7 +337,7 @@ struct
                 offset mod scale = 0 orelse raise InternalError "genMLAddress";
                 case (index, offset div scale) of
                     (NONE, soffset) =>
-                        (gen(loadNonAddressConstant(X0, Word64.fromInt(tag soffset)), cvec); genPushReg(X0, cvec); incsp())
+                        (genList(loadNonAddress(X0, Word64.fromInt(tag soffset)), cvec); genPushReg(X0, cvec); incsp())
                 |   (SOME indexVal, 0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
                 |   (SOME indexVal, soffset) =>
                     (
@@ -500,9 +494,10 @@ struct
            
             |   BICConstnt(w, _) =>
                 (
-                    (*if isShort w
-                    then gen(loadNonAddressConstantX0, Word64.fromInt(tag(Word.toIntX(toShort w))), cvec)
-                    else *)gen(loadAddressConstant(X0, w), cvec);
+                    if isShort w
+                    then genList(loadNonAddress(X0,
+                                    taggedWord64(Word64.fromLarge(Word.toLargeX(toShort w)))), cvec)
+                    else gen(loadAddressConstant(X0, w), cvec);
                     topInX0 := true
                 )
 
@@ -533,7 +528,7 @@ struct
                             (* If this is a container we have to process it here otherwise it
                                will be removed in the stack adjustment code. *)
                             (* The stack entries have to be initialised.  Set them to tagged(0). *)
-                            gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec);
+                            genList(loadNonAddress(X0, Word64.fromInt(tag 0)), cvec);
                             let fun pushN 0 = () | pushN n = (genPushReg(X0, cvec); pushN (n-1)) in pushN size end;
                             gen(moveRegToReg{sReg=X_MLStackPtr, dReg=X0}, cvec);
                             genPushReg(X0, cvec); (* Push the address of this container. *)
@@ -701,7 +696,7 @@ struct
                        the semitagged value because we've removed the tag bit. *)
                     (* TODO: Not necessary if it exhaustive. *)
                     (* For the moment load the value into a register and compare. *)
-                    val () = gen(loadNonAddressConstant(X1, Word64.fromInt nCases * 0w2), cvec)
+                    val () = genList(loadNonAddress(X1, Word64.fromInt nCases * 0w2), cvec)
                     val () = compareRegs(X0, X1, cvec)
                     val () = gen(conditionalBranch(condCarrySet, defaultLabel), cvec)
                     (* Load the address of the jump table. *)
@@ -911,7 +906,7 @@ struct
                             (* Clear the mutex. Simply setting it to tagged 0 will work.
                                If another thread is in the ldaxr/stlxr loop it will see
                                the value has changed and retry. *)
-                            gen(loadNonAddressConstant(X1, taggedWord64 0w0), cvec);
+                            genList(loadNonAddress(X1, taggedWord64 0w0), cvec);
                             gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec)
                         )
 
@@ -1988,13 +1983,13 @@ struct
                 in
                     blockCompareBytes(sourceLeft, destRight, length, equalLabel, false);
                     (* We drop through if we have found unequal bytes. *)
-                    gen(loadNonAddressConstant(X0, Word64.fromInt(tag 1)), cvec);
+                    genList(loadNonAddress(X0, Word64.fromInt(tag 1)), cvec);
                     (* Set X0 to either 1 or -1 depending on whether it's greater or less. *)
                     gen(conditionalSetInverted{regD=X0, regTrue=X0, regFalse=XZero, cond=condUnsignedHigher}, cvec);
                     gen(conditionalBranch(condAlways, resultLabel), cvec);
                     gen(setLabel equalLabel, cvec);
                     (* Equal case - set it to zero. *)
-                    gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec);
+                    genList(loadNonAddress(X0, Word64.fromInt(tag 0)), cvec);
                     gen(setLabel resultLabel, cvec)
                 end
        
@@ -2024,7 +2019,7 @@ struct
                         else if adjustment = ~1
                         then
                         (
-                            gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec);
+                            genList(loadNonAddress(X0, Word64.fromInt(tag 0)), cvec);
                             genPushReg(X0, cvec)
                         )
                         else resetStack (adjustment, true, cvec)
@@ -2053,7 +2048,7 @@ struct
                     val () =
                         if !topInX0 then ()
                         else if !realstackptr = oldsp
-                        then gen(loadNonAddressConstant(X0, Word64.fromInt(tag 0)), cvec)
+                        then genList(loadNonAddress(X0, Word64.fromInt(tag 0)), cvec)
                         else
                         (
                             genPopReg(X0, cvec);
@@ -2366,7 +2361,7 @@ struct
         
         (* Now we know the maximum stack size we can code-gen the stack check.
            This needs to go in after we have saved X30. *)
-        val () = checkStackCode(X10, !maxStack, false(*name = "INTCODECONS().genCode(3)genByteCode(2)"*), prefix)
+        val () = checkStackCode(X10, !maxStack, false, prefix)
         val instructions = List.rev(!prefix) @ List.rev(!cvec)
 
     in (* body of codegen *)

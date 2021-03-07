@@ -104,6 +104,8 @@
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ASSEMBLY.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64ForeignCall.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64GenCode.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64Sequences.sig" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64SEQUENCES.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCode.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml" />
