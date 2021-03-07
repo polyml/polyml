@@ -23,7 +23,13 @@ sig
     type labels
     type condition
 
-    eqtype xReg
+    (* XZero and XSP are both encoded as 31 but the interpretation
+       depends on the instruction 
+       The datatype definition is included here to allow for
+       pattern matching on XSP and XZero. *)
+    datatype xReg = XReg of Word8.word | XZero | XSP
+    and vReg = VReg of Word8.word
+
     val X0:  xReg   and X1:  xReg   and X2:  xReg   and X3: xReg
     and X4:  xReg   and X5:  xReg   and X6:  xReg   and X7: xReg
     and X8:  xReg   and X9:  xReg   and X10: xReg   and X11: xReg
@@ -32,18 +38,13 @@ sig
     and X20: xReg   and X21: xReg   and X22: xReg   and X23: xReg
     and X24: xReg   and X25: xReg   and X26: xReg   and X27: xReg
     and X28: xReg   and X29: xReg   and X30: xReg
-    
-    (* XZero and XSP are both encoded as 31 but the interpretation
-       depends on the instruction *)
-    val XZero: xReg and XSP: xReg
-    
+
     val X_MLHeapLimit: xReg (* ML Heap limit pointer *)
     and X_MLAssemblyInt: xReg (* ML assembly interface pointer. *)
     and X_MLHeapAllocPtr: xReg (* ML Heap allocation pointer. *)
     and X_MLStackPtr: xReg (* ML Stack pointer. *)
     and X_LinkReg: xReg (* Link reg - return address *)
     
-    eqtype vReg
     val V0:  vReg   and V1:  vReg   and V2:  vReg   and V3: vReg
     and V4:  vReg   and V5:  vReg   and V6:  vReg   and V7: vReg
 
@@ -105,6 +106,16 @@ sig
        For tagged integers that means that the value must have
        been shifted and the tag bit set. *)
     and loadNonAddressConstant: xReg * Word64.word -> instr
+
+    (* Move a value into a register.  The immediate is 16-bits and the shift
+       is 0, 16, 24, or 48.  moveKeep affect only the specific 16-bits and
+       leaves the remainder unchanged. *)
+    val moveNot32: {regD: xReg, immediate: word, shift: word} -> instr
+    and moveZero32: {regD: xReg, immediate: word, shift: word} -> instr
+    and moveKeep32: {regD: xReg, immediate: word, shift: word} -> instr
+    val moveNot: {regD: xReg, immediate: word, shift: word} -> instr
+    and moveZero: {regD: xReg, immediate: word, shift: word} -> instr
+    and moveKeep: {regD: xReg, immediate: word, shift: word} -> instr
 
     (* Add/subtract an optionally shifted 12-bit immediate (i.e. constant) to/from a register.
        The constant is zero-extended. *)

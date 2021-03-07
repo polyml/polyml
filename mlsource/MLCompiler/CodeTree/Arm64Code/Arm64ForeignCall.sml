@@ -19,22 +19,20 @@ functor Arm64ForeignCall(
     structure CodeArray: CODEARRAYSIG
     and       Arm64Assembly: Arm64Assembly
     and       Debug: DEBUG
+    and       Arm64Sequences: Arm64Sequences
 
-    sharing CodeArray.Sharing = Arm64Assembly.Sharing
+    sharing CodeArray.Sharing = Arm64Assembly.Sharing = Arm64Sequences.Sharing
 ): FOREIGNCALLSIG
 =
 struct
 
-    open CodeArray Arm64Assembly
+    open CodeArray Arm64Assembly Arm64Sequences
     
     exception InternalError = Misc.InternalError
 
     datatype fastArgs = FastArgFixed | FastArgDouble | FastArgFloat
 
     val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
-
-    (* Move register.  The ARM64 alias uses XZR as Rn. *)
-    fun moveRegToReg{sReg, dReg} = orrShiftedReg{regN=XZero, regM=sReg, regD=dReg, shift=ShiftNone}
 
     (* Store a double into memory. *)
     fun boxDouble(floatReg, fixedReg, workReg) =
@@ -52,9 +50,12 @@ struct
             registerMask [], (* Not used at the moment. *)
             setLabel label,
             (* Update the heap pointer. *)
-            moveRegToReg{sReg=fixedReg, dReg=X_MLHeapAllocPtr},
-            loadNonAddressConstant(workReg,
-                Word64.orb(0w1, Word64.<<(Word64.fromLarge(Word8.toLarge Address.F_bytes), 0w56))),
+            moveRegToReg{sReg=fixedReg, dReg=X_MLHeapAllocPtr}
+        ] @
+            loadNonAddress(workReg,
+                Word64.orb(0w1, Word64.<<(Word64.fromLarge(Word8.toLarge Address.F_bytes), 0w56)))
+        @
+        [
             (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
             storeRegUnscaled{regT=workReg, regN=fixedReg, byteOffset= ~8},
             (* Store the floating pt reg. *)
@@ -97,10 +98,12 @@ struct
                 (* C floating pt args *) [V0, V1, V2, V3, V4, V5, V6, V7]) @
             [
                 (* Move X30 to X24, a callee-save register. *)
-                orrShiftedReg{regN=XZero, regM=X_LinkReg, regD=X24, shift=ShiftNone},
+                orrShiftedReg{regN=XZero, regM=X_LinkReg, regD=X24, shift=ShiftNone}
                 (* Clear the RTS exception before we enter.  "Full" RTS calls clear it anyway
                    but "fast" calls don't. *)
-                loadNonAddressConstant(X8, 0w1),
+            ] @
+                loadNonAddress(X8, 0w1) @
+            [
                 storeRegScaled{regT=X8, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset},
                 (* TODO: For floating pt we'll need to load and reorder the args here. *)
                 loadAddressConstant(X16, entryPointAddr), (* Load entry point *)

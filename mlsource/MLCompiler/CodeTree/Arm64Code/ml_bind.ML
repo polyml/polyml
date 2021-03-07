@@ -22,11 +22,17 @@ local
             and       Pretty = Pretty
             and       CodeArray = CODE_ARRAY
         )
+    
+    structure Arm64Sequences =
+        ARM64SEQUENCES (
+            structure Arm64Assembly = Arm64Assembly
+        )
 
     structure Arm64Foreign =
         Arm64ForeignCall (
             structure CodeArray   = CODE_ARRAY
             and       Arm64Assembly = Arm64Assembly
+            and       Arm64Sequences = Arm64Sequences
             and       Debug = Debug
         )
 in
@@ -36,6 +42,7 @@ in
             and       CodeArray   = CODE_ARRAY
             and       Arm64Assembly = Arm64Assembly
             and       Arm64Foreign = Arm64Foreign
+            and       Arm64Sequences = Arm64Sequences
             and       Debug = Debug
         )
 end;

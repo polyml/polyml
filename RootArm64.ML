@@ -59,6 +59,8 @@ use "mlsource/MLCompiler/CodeTree/BackendIntermediateCode.sml";
 use "mlsource/MLCompiler/CodeTree/BaseCodeTree.sml";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64Assembly.sig";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64ASSEMBLY.sml";
+use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64Sequences.sig";
+use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64SEQUENCES.sml";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64GenCode.sml";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64ForeignCall.sml";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ml_bind.ML";
