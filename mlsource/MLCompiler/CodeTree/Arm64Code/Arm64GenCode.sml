@@ -1991,12 +1991,65 @@ struct
                     genList(loadNonAddress(X0, Word64.fromInt(tag 0)), cvec);
                     gen(setLabel resultLabel, cvec)
                 end
-       
-           |    BICArbitrary { longCall, ... } =>
-                (* Just implement as a call to the long-precision case. *)
+
+           |    BICArbitrary { oper=BuiltIns.ArithAdd, shortCond, arg1, arg2, longCall } =>
+                let
+                    val startLong = createLabel() and resultLabel = createLabel()
+                in
+                    (* Check tag bits *)
+                    gencde (shortCond, ToX0, NotEnd, loopAddr);
+                    gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
+                    (* Go to the long case if it's not short. *)
+                    gen(conditionalBranch(condNotEqual, startLong), cvec);
+                    topInX0 := false;
+                    gencde (arg1, ToStack, NotEnd, loopAddr);
+                    gencde (arg2, ToX0, NotEnd, loopAddr);
+                    gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                    genPopReg(X1, cvec);
+                    decsp();
+                    (* Add and set the flag bits *)
+                    gen(addSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                    (* If there's no overflow skip to the end otherwise drop into
+                       the call to the RTS. *)
+                    gen(conditionalBranch(condNoOverflow, resultLabel), cvec);
+                    gen(setLabel startLong, cvec);
+                    topInX0 := false;
+                    gencde (longCall, ToX0, tailKind, loopAddr);
+                    gen(setLabel resultLabel, cvec)
+                end
+
+           |    BICArbitrary { oper=BuiltIns.ArithSub, shortCond, arg1, arg2, longCall } =>
+                let
+                    val startLong = createLabel() and resultLabel = createLabel()
+                in
+                    (* Check tag bits *)
+                    gencde (shortCond, ToX0, NotEnd, loopAddr);
+                    gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
+                    (* Go to the long case if it's not short. *)
+                    gen(conditionalBranch(condNotEqual, startLong), cvec);
+                    topInX0 := false;
+                    gencde (arg1, ToStack, NotEnd, loopAddr);
+                    gencde (arg2, ToX0, NotEnd, loopAddr);
+                    gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                    genPopReg(X1, cvec);
+                    decsp();
+                    (* Subtract and set the flag bits *)
+                    gen(subSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                    gen(conditionalBranch(condNoOverflow, resultLabel), cvec);
+                    gen(setLabel startLong, cvec);
+                    topInX0 := false;
+                    gencde (longCall, ToX0, tailKind, loopAddr);
+                    gen(setLabel resultLabel, cvec)
+                end
+
+           |    BICArbitrary { oper=BuiltIns.ArithMult, longCall, ... } =>
+                (* Multiply - Just implement as a call to the long-precision case. *)
                 (
                     gencde (longCall, whereto, tailKind, loopAddr)
                 )
+
+           |    BICArbitrary _ =>
+                    raise InternalError "BICArbitrary: unimplemented operation"
 
         in (* body of gencde *) 
 
