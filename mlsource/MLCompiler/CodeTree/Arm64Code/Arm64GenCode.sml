@@ -604,7 +604,7 @@ struct
                     (* Jump back to the start of the loop. *)
                     checkStackCode(X10, 0, false, cvec);
                     
-                    gen(conditionalBranch(condAlways, startLoop), cvec)
+                    gen(unconditionalBranch startLoop, cvec)
                 end
   
             |   BICRaise exp =>
@@ -648,7 +648,7 @@ struct
                     val () = genPushReg(X0, cvec) (* Push the result. *)
 
                     val skipHandler = createLabel()
-                    val () = gen(conditionalBranch (condAlways, skipHandler), cvec)
+                    val () = gen(unconditionalBranch skipHandler, cvec)
                     val () = realstackptr := oldsp
                     val () = gen(setLabel handlerLabel, cvec)
                     (* The exception raise code resets the stack pointer to the value in the exception handler
@@ -708,7 +708,7 @@ struct
                     val () = gen(branchRegister X0, cvec)
                     (* Put in the branch table. *)
                     val () = gen(setLabel tableLabel, cvec)
-                    val () = List.app(fn label => gen(conditionalBranch(condAlways, label), cvec)) caseLabels
+                    val () = List.app(fn label => gen(unconditionalBranch label, cvec)) caseLabels
 
                     (* The default case, if any, follows the case statement. *)
                     (* If we have a jump to the default set it to jump here. *)
@@ -725,7 +725,7 @@ struct
                         (
                             (* First exit from the previous case or the default if
                                this is the first. *)
-                            gen(conditionalBranch(condAlways, exitJump), cvec);
+                            gen(unconditionalBranch exitJump, cvec);
                             (* Remove the result - the last case will leave it. *)
                             case whereto of ToStack => decsp () | NoResult => () | ToX0 => ();
                             topInX0 := false;
@@ -886,7 +886,7 @@ struct
                         compareRegs(X1, X0, cvec); (* Are we at the start? *)
                         gen(conditionalBranch(condEqual, exitLabel), cvec);
                         gen(storeRegPreIndex{regT=X3, regN=X1, byteOffset= ~8}, cvec);
-                        gen(conditionalBranch(condAlways, loopLabel), cvec);
+                        gen(unconditionalBranch loopLabel, cvec);
                         gen(setLabel exitLabel, cvec);
                         decsp(); decsp()
                     end
@@ -1210,7 +1210,7 @@ struct
                     );
                     gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                     (* Back to the start. *)
-                    gen(conditionalBranch(condAlways, loopLabel), cvec);
+                    gen(unconditionalBranch loopLabel, cvec);
                     gen(setLabel exitLabel, cvec);
                     topInX0 := false; (* X0 does not contain "unit" *)
                     decsp(); decsp(); decsp(); decsp()
@@ -1237,7 +1237,7 @@ struct
                     genList(loadNonAddress(X0, Word64.fromInt(tag 1)), cvec);
                     (* Set X0 to either 1 or -1 depending on whether it's greater or less. *)
                     gen(conditionalSetInverted{regD=X0, regTrue=X0, regFalse=XZero, cond=condUnsignedHigher}, cvec);
-                    gen(conditionalBranch(condAlways, resultLabel), cvec);
+                    gen(unconditionalBranch resultLabel, cvec);
                     gen(setLabel equalLabel, cvec);
                     (* Equal case - set it to zero. *)
                     genList(loadNonAddress(X0, Word64.fromInt(tag 0)), cvec);
@@ -2272,7 +2272,7 @@ struct
             val () = case whereto of ToStack => decsp () | NoResult => () | ToX0 => ()
             val () = topInX0 := false
 
-            val () = gen(conditionalBranch (condAlways, exitJump), cvec)
+            val () = gen(unconditionalBranch exitJump, cvec)
 
             (* start of "else part" *)
             val () = gen(setLabel toElse, cvec)
@@ -2289,7 +2289,7 @@ struct
                 val cVal = case toShort w of 0w0 => false | 0w1 => true | _ => raise InternalError "genTest"
             in
                 if cVal = jumpOn
-                then gen(conditionalBranch (condAlways, targetLabel), cvec)
+                then gen(unconditionalBranch targetLabel, cvec)
                 else ()
             end
 
@@ -2353,7 +2353,7 @@ struct
             in
                 genTest(testPart, false, toElse, loopAddr);
                 genTest(thenPart, jumpOn, targetLabel, loopAddr);
-                gen(conditionalBranch (condAlways, exitJump), cvec);
+                gen(unconditionalBranch exitJump, cvec);
                 gen(setLabel toElse, cvec);
                 genTest(elsePart, jumpOn, targetLabel, loopAddr);
                 gen(setLabel exitJump, cvec)
