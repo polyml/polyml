@@ -63,8 +63,6 @@ sig
     and condSignedLess: condition
     and condSignedGreater: condition
     and condSignedLessEq: condition
-    and condAlways: condition
-    and condAlwaysNV: condition
 
     datatype shiftType =
         ShiftLSL of word
@@ -230,8 +228,10 @@ sig
     val createLabel: unit -> labels
     (* Put a label into the code. *)
     val setLabel: labels -> instr
-    (* A conditional or unconditional branch. *)
+    (* A conditional branch. *)
     val conditionalBranch: condition * labels -> instr
+    (* Unconditional branch *)
+    and unconditionalBranch: labels -> instr
     (* Put the address of a label into a register - used for handlers and cases. *)
     and loadLabelAddress: xReg * labels -> instr
     (* Test a bit in a register and branch if zero/nonzero *)

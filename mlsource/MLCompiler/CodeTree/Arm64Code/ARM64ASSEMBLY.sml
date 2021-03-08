@@ -66,8 +66,7 @@ struct
     and condSignedLess      = CCode 0wxb (* N<>V *)
     and condSignedGreater   = CCode 0wxc (* Z==0 && N=V *)
     and condSignedLessEq    = CCode 0wxd (* !(Z==0 && N=V) *)
-    and condAlways          = CCode 0wxe (* Any *)
-    and condAlwaysNV        = CCode 0wxf (* Any - alternative encoding. *)
+    (* use unconditional branches for the "always" cases. *)
     (* N.B. On subtraction and comparison the ARM uses an inverted carry
        flag for borrow.  The C flag is set if there is NO borrow.
        This is the reverse of the X86. *)
@@ -305,10 +304,13 @@ struct
     |   LoadAddressLiteral of {reg: xReg, value: machineWord}
     |   LoadNonAddressLiteral of {reg: xReg, value: Word64.word}
     |   Label of labels
-    |   Branch of { label: labels, jumpCondition: condition }
+    |   UnconditionalBranch of labels
+    |   ConditionalBranch of { label: labels, jumpCondition: condition, length: brLength ref }
     |   LoadLabelAddress of { label: labels, reg: xReg }
-    |   TestBitBranch of { label: labels, bitNo: Word8.word, brNonZero: bool, reg: xReg }
-    |   CompareBranch of { label: labels, brNonZero: bool, size: wordSize, reg: xReg }
+    |   TestBitBranch of { label: labels, bitNo: Word8.word, brNonZero: bool, reg: xReg, length: brLength ref }
+    |   CompareBranch of { label: labels, brNonZero: bool, size: wordSize, reg: xReg, length: brLength ref }
+    
+    and brLength = BrShort | BrExtended
 
     val nopCode  = 0wxD503201F
 
@@ -598,19 +600,20 @@ struct
     fun createLabel () = ref [ref 0w0]
 
     (* A conditional or unconditional branch. *)
-    and conditionalBranch(cond, label) = Branch{label=label, jumpCondition=cond}
+    and conditionalBranch(cond, label) = ConditionalBranch{label=label, jumpCondition=cond, length=ref BrExtended }
+    and unconditionalBranch label = UnconditionalBranch label
     (* Put the address of a label into a register - used for handlers and cases. *)
     and loadLabelAddress(reg, label) = LoadLabelAddress{label=label, reg=reg}
     (* Test a bit in a register and branch if zero/nonzero *)
     and testBitBranchZero(reg, bit, label) =
-        TestBitBranch{label=label, bitNo=bit, brNonZero=false, reg=reg}
+        TestBitBranch{label=label, bitNo=bit, brNonZero=false, reg=reg, length=ref BrExtended}
     and testBitBranchNonZero(reg, bit, label) =
-        TestBitBranch{label=label, bitNo=bit, brNonZero=true, reg=reg}
+        TestBitBranch{label=label, bitNo=bit, brNonZero=true, reg=reg, length=ref BrExtended}
     (* Compare a register with zero and branch if zero/nonzero *)
     and compareBranchZero(reg, size, label) =
-        CompareBranch{label=label, brNonZero=false, size=size, reg=reg}
+        CompareBranch{label=label, brNonZero=false, size=size, reg=reg, length=ref BrExtended}
     and compareBranchNonZero(reg, size, label) =
-        CompareBranch{label=label, brNonZero=true, size=size, reg=reg}
+        CompareBranch{label=label, brNonZero=true, size=size, reg=reg, length=ref BrExtended}
     
 
     (* Set the destination register to the value of the first reg if the
@@ -808,15 +811,19 @@ struct
     end
     
 
-    (* Size of each code word.  All except labels are one word at the moment. *)
+    (* Size of each code word. *)
     fun codeSize (SimpleInstr _) = 1 (* Number of 32-bit words *)
     |   codeSize (LoadAddressLiteral _) = 1
     |   codeSize (LoadNonAddressLiteral _) = 1
     |   codeSize (Label _) = 0
-    |   codeSize (Branch _) = 1
+    |   codeSize (UnconditionalBranch _) = 1
     |   codeSize (LoadLabelAddress _) = 1
-    |   codeSize (TestBitBranch _) = 1
-    |   codeSize (CompareBranch _) = 1
+    |   codeSize (ConditionalBranch { length=ref BrShort, ...}) = 1
+    |   codeSize (ConditionalBranch { length=ref BrExtended, ...}) = 2
+    |   codeSize (TestBitBranch { length=ref BrShort, ...}) = 1
+    |   codeSize (TestBitBranch { length=ref BrExtended, ...}) = 2
+    |   codeSize (CompareBranch { length=ref BrShort, ...}) = 1
+    |   codeSize (CompareBranch { length=ref BrExtended, ...}) = 2
 
     (* Store a 32-bit value in the code *)
     fun writeInstr(value, wordAddr, seg) =
@@ -865,6 +872,16 @@ struct
 
         val segSize = wordsOfCode + numAddrConsts + numNonAddrConsts + 0w4 (* 4 extra words *)
         val codeVec = byteVecMake segSize
+        
+        fun testBit(bitNo, brNonZero, offset, reg) =
+            0wx36000000 orb (if bitNo >= 0w32 then 0wx80000000 else 0w0) orb
+                (if brNonZero then 0wx01000000 else 0w0) orb
+                (word8ToWord(Word8.andb(bitNo, 0wx3f)) << 0w19) orb
+                ((offset andb 0wx3fff) << 0w5) orb word8ToWord(xRegOnly reg)
+        and compareBranch(size, brNonZero, offset, reg) =
+            0wx34000000 orb (case size of WordSize64 => 0wx80000000 | WordSize32 => 0w0) orb
+                (if brNonZero then 0wx01000000 else 0w0) orb
+                ((offset andb 0wx7ffff) << 0w5) orb word8ToWord(xRegOnly reg)
 
         fun genCodeWords([], _ , _, _) = ()
 
@@ -901,71 +918,109 @@ struct
         |   genCodeWords(Label _ :: tail, wordNo, aConstNum, nonAConstNum) = 
                 genCodeWords(tail, wordNo, aConstNum, nonAConstNum) (* No code. *)
 
-        |   genCodeWords(Branch{ label=ref labs, jumpCondition=CCode cond }:: tail, wordNo, aConstNum, nonAConstNum) =
+        |   genCodeWords(UnconditionalBranch(ref labs) :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
+                val _ = (offset < Word.toInt(0w1 << 0w25) andalso offset >= ~ (Word.toInt(0w1 << 0w25)))
+                    orelse raise InternalError "genCodeWords: branch too far";
             in
-                if cond = 0wxe orelse cond = 0wxf
-                then (* We can use an unconditional branch. *)
-                (
-                    (offset < Word.toInt(0w1 << 0w25) andalso offset >= ~ (Word.toInt(0w1 << 0w25)))
-                        orelse raise InternalError "genCodeWords: branch too far";
-                    writeInstr(0wx14000000 orb (Word.fromInt offset andb 0wx03ffffff), wordNo, codeVec)
-                )
-                else
-                (
-                    (offset < Word.toInt(0w1 << 0w18) andalso offset >= ~ (Word.toInt(0w1 << 0w18)))
-                        orelse raise InternalError "genCodeWords: branch too far";
-                    writeInstr(0wx54000000 orb ((Word.fromInt offset andb 0wx07ffff) << 0w5)
-                        orb word8ToWord cond, wordNo, codeVec)
-                );
-
+                writeInstr(0wx14000000 orb (Word.fromInt offset andb 0wx03ffffff), wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
+            end
+
+        |   genCodeWords(ConditionalBranch{ label=ref labs, jumpCondition=CCode cond, length=ref BrShort }:: tail, wordNo,
+                            aConstNum, nonAConstNum) =
+            let
+                val dest = !(hd labs)
+                val offset = Word.toInt dest - Word.toInt wordNo
+                val _ = (offset < Word.toInt(0w1 << 0w18) andalso offset >= ~ (Word.toInt(0w1 << 0w18)))
+                        orelse raise InternalError "genCodeWords: branch too far"
+            in
+                writeInstr(0wx54000000 orb ((Word.fromInt offset andb 0wx07ffff) << 0w5)
+                        orb word8ToWord cond, wordNo, codeVec);
+                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
+            end
+
+        |   genCodeWords(ConditionalBranch{ label=ref labs, jumpCondition=CCode cond, length=ref BrExtended }:: tail, wordNo,
+                            aConstNum, nonAConstNum) =
+            let (* Long form - put a conditional branch with reversed sense round an unconditional branch. *)
+                val dest = !(hd labs)
+                val offset = Word.toInt dest - Word.toInt (wordNo + 0w1) (* Next instruction. *)
+                val _ = (offset < Word.toInt(0w1 << 0w25) andalso offset >= ~ (Word.toInt(0w1 << 0w25)))
+                    orelse raise InternalError "genCodeWords: branch too far"
+                val revCond = Word8.xorb(cond, 0w1)
+            in
+                writeInstr(0wx54000000 orb (0w2 << 0w5) orb word8ToWord revCond, wordNo, codeVec);
+                writeInstr(0wx14000000 orb (Word.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);
+                genCodeWords(tail, wordNo+0w2, aConstNum, nonAConstNum)
             end
 
         |   genCodeWords(LoadLabelAddress{label=ref labs, reg} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 val dest = !(hd labs)
-                val offset = dest - wordNo
-                val _ = offset < 0wx100000 orelse offset >= ~ 0wx100000
+                val offset = Word.toInt dest - Word.toInt wordNo
+                val _ = offset < 0x100000 orelse offset >= ~ 0x100000
                     orelse raise InternalError "Offset to label address is too large"
-                val code = 0wx10000000 orb ((offset andb 0wx7ffff) << 0w5) orb word8ToWord(xRegOnly reg)
+                val code = 0wx10000000 orb ((Word.fromInt offset andb 0wx7ffff) << 0w5) orb word8ToWord(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
 
-        |   genCodeWords(TestBitBranch{label=ref labs, bitNo, brNonZero, reg} :: tail,
+        |   genCodeWords(TestBitBranch{label=ref labs, bitNo, brNonZero, reg, length=ref BrExtended} :: tail,
                     wordNo, aConstNum, nonAConstNum) =
             let
                 val dest = !(hd labs)
-                val offset = dest - wordNo
-                val _ = offset < 0wx2000 orelse offset >= ~ 0wx2000
+                val offset = Word.toInt dest - Word.toInt (wordNo + 0w1) (* Next instruction *)
+                val _ = (offset < Word.toInt(0w1 << 0w25) andalso offset >= ~ (Word.toInt(0w1 << 0w25)))
+                    orelse raise InternalError "genCodeWords: branch too far"
+                val _ = bitNo <= 0w63 orelse
+                    raise InternalError "TestBitBranch: bit number > 63"
+                val code = testBit(bitNo, (* Invert test *) not brNonZero, 0w2 (* Skip branch *), reg)
+            in
+                writeInstr(code, wordNo, codeVec);
+                writeInstr(0wx14000000 orb (Word.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);
+                genCodeWords(tail, wordNo+0w2, aConstNum, nonAConstNum)
+            end
+
+        |   genCodeWords(TestBitBranch{label=ref labs, bitNo, brNonZero, reg, length=ref BrShort} :: tail,
+                    wordNo, aConstNum, nonAConstNum) =
+            let
+                val dest = !(hd labs)
+                val offset = Word.toInt dest - Word.toInt wordNo
+                val _ = offset < 0x2000 orelse offset >= ~ 0x2000
                     orelse raise InternalError "TestBitBranch: Offset to label address is too large"
                 val _ = bitNo <= 0w63 orelse
                     raise InternalError "TestBitBranch: bit number > 63"
-                val code =
-                    0wx36000000 orb (if bitNo >= 0w32 then 0wx80000000 else 0w0) orb
-                        (if brNonZero then 0wx01000000 else 0w0) orb
-                        (word8ToWord(Word8.andb(bitNo, 0wx3f)) << 0w19) orb
-                        ((offset andb 0wx3fff) << 0w5) orb word8ToWord(xRegOnly reg)
+                val code = testBit(bitNo, brNonZero, Word.fromInt offset, reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
 
-        |   genCodeWords(CompareBranch{label=ref labs, brNonZero, size, reg} :: tail,
+        |   genCodeWords(CompareBranch{label=ref labs, brNonZero, size, reg, length=ref BrExtended} :: tail,
                     wordNo, aConstNum, nonAConstNum) =
             let
                 val dest = !(hd labs)
-                val offset = dest - wordNo
-                val _ = offset < 0wx40000 orelse offset >= ~ 0wx40000
+                val offset = Word.toInt dest - Word.toInt (wordNo+0w1)
+                val _ = (offset < Word.toInt(0w1 << 0w25) andalso offset >= ~ (Word.toInt(0w1 << 0w25)))
+                    orelse raise InternalError "genCodeWords: branch too far"
+                val code = compareBranch(size, (* Invert test *) not brNonZero, 0w2, reg)
+            in
+                writeInstr(code, wordNo, codeVec);
+                writeInstr(0wx14000000 orb (Word.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);
+                genCodeWords(tail, wordNo+0w2, aConstNum, nonAConstNum)
+            end
+
+        |   genCodeWords(CompareBranch{label=ref labs, brNonZero, size, reg, length=ref BrShort} :: tail,
+                    wordNo, aConstNum, nonAConstNum) =
+            let
+                val dest = !(hd labs)
+                val offset = Word.toInt dest - Word.toInt wordNo
+                val _ = offset < 0x40000 orelse offset >= ~ 0x40000
                     orelse raise InternalError "CompareBranch: Offset to label address is too large"
-                val code =
-                    0wx34000000 orb (case size of WordSize64 => 0wx80000000 | WordSize32 => 0w0) orb
-                        (if brNonZero then 0wx01000000 else 0w0) orb
-                        ((offset andb 0wx7ffff) << 0w5) orb word8ToWord(xRegOnly reg)
+                val code = compareBranch(size, brNonZero, Word.fromInt offset, reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
@@ -1515,7 +1570,26 @@ struct
             in
                 printStream oper; printStream "\t";
                 printStream r; printStream(Word.fmt StringCvt.DEC (wordValue andb 0wx1f));
-                printStream ",";
+                printStream ",0x";
+                printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
+            end
+
+            else if (wordValue andb 0wx7e000000) = 0wx36000000
+            then (* Test bit and branch *)
+            let
+                val byteOffset =
+                    (wordValue andb 0wx00ffffe0) << (Word.fromInt Word.wordSize - 0w19) ~>>
+                        (Word.fromInt Word.wordSize - 0w16)
+                val oper =
+                    if (wordValue andb 0wx01000000) = 0w0
+                    then "tbz" else "tbnz"
+                val b40 = (wordValue >> 0w19) andb 0wx1f
+                val bitNo = b40 orb ((wordValue >> 0w26) andb 0wx20)
+                val r = if bitNo < 0w32 then "w" else "x"
+            in
+                printStream oper; printStream "\t";
+                printStream r; printStream(Word.fmt StringCvt.DEC (wordValue andb 0wx1f));
+                printStream ",#"; printStream(Word.fmt StringCvt.DEC bitNo); printStream ",0x";
                 printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
             end
 
