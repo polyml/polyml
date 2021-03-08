@@ -858,759 +858,9 @@ struct
 
             |   BICNullary {oper=BuiltIns.CPUPause} => gen(yield, cvec)
 
-            |   BICUnary { oper, arg1 } =>
-                let
-                    open BuiltIns
-                    val () = gencde (arg1, ToX0, NotEnd, loopAddr)
-                in
-                    case oper of
-                        NotBoolean =>
-                            (* Flip true to false and the reverse. *)
-                            gen(bitwiseXorImmediate{wordSize=WordSize32, bits=0w2, regN=X0, regD=X0}, cvec)
+            |   BICUnary { oper, arg1 } => genUnary(oper, arg1, loopAddr)
 
-                    |   IsTaggedValue =>
-                        (
-                            gen(testBitPattern(X0, 0w1), cvec);
-                            setBooleanCondition(X0, condNotEqual (*Non-zero*), cvec)
-                        )
-
-                    |   MemoryCellLength =>
-                        (
-                            (* Load the length word. *)
-                            gen(loadRegUnscaled{regT=X0, regN=X0, byteOffset= ~8}, cvec);
-                            (* Extract the length, excluding the flag bytes and shift by one bit. *)
-                            gen(unsignedBitfieldInsertinZeros
-                                {wordSize=WordSize64, lsb=0w1, width=0w56, regN=X0, regD=X0}, cvec);
-                            (* Set the tag bit. *)
-                            gen(bitwiseOrImmediate{wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
-                        )
-
-                    |   MemoryCellFlags =>
-                        (
-                            (* Load the flags byte. *)
-                            gen(loadRegUnscaledByte{regT=X0, regN=X0, byteOffset= ~1}, cvec);
-                            (* Tag the result. *)
-                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
-                            gen(bitwiseOrImmediate{wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
-                        )
-
-                    |   ClearMutableFlag =>
-                        (
-                            gen(loadRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec);
-                            gen(bitwiseAndImmediate{wordSize=WordSize32, bits=Word64.xorb(0wxffffffff, 0wx40), regN=X1, regD=X1}, cvec);
-                            gen(storeRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec)
-                        )
-
-                    |   AtomicReset =>
-                        (
-                            (* Clear the mutex. Simply setting it to tagged 0 will work.
-                               If another thread is in the ldaxr/stlxr loop it will see
-                               the value has changed and retry. *)
-                            genList(loadNonAddress(X1, taggedWord64 0w0), cvec);
-                            gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec)
-                        )
-
-                    |   LongWordToTagged =>
-                        (
-                            (* Load the value and tag it. *)
-                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                            (* Tag the result. *)
-                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
-                            gen(bitwiseOrImmediate{wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
-                        )
-                    |   SignedToLongWord =>
-                        (
-                            gen(arithmeticShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X1}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                    |   UnsignedToLongWord =>
-                        (
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X1}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-
-                    |   RealAbs PrecDouble =>
-                        (
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(absDouble{regN=V0, regD=V0}, cvec);
-                            boxDouble(V0, cvec)
-                        )
-                    |   RealNeg PrecDouble =>
-                        (
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(negDouble{regN=V0, regD=V0}, cvec);
-                            boxDouble(V0, cvec)
-                        )
-                    |   RealFixedInt PrecDouble =>
-                        (
-                            (* Shift to remove the tag. *)
-                            gen(arithmeticShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
-                            gen(convertIntToDouble{regN=X0, regD=V0}, cvec);
-                            boxDouble(V0, cvec)
-                        )
-                    |   RealAbs PrecSingle =>
-                        (
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(absFloat{regN=V0, regD=V0}, cvec);
-                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   RealNeg PrecSingle =>
-                        (
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(negFloat{regN=V0, regD=V0}, cvec);
-                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   RealFixedInt PrecSingle =>
-                        (
-                            (* Shift to remove the tag. *)
-                            gen(arithmeticShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
-                            gen(convertIntToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   FloatToDouble =>
-                        (
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(convertFloatToDouble{regN=V0, regD=V0}, cvec);
-                            boxDouble(V0, cvec)
-                        )
-                    |   DoubleToFloat =>
-                        (
-                            (* Convert double to float using current rounding mode. *)
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(convertDoubleToFloat{regN=V0, regD=V0}, cvec);
-                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   RealToInt (PrecDouble, rnding) =>
-                        (
-                            (* We could get an overflow in either the conversion to integer
-                               or in the conversion to a tagged value.  Fortunately if the
-                               conversion detects an overflow it sets the result to a
-                               value that will cause an overflow in the addition. *)
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(convertDoubleToInt rnding {regN=V0, regD=X0}, cvec);
-                            gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
-                            checkOverflow cvec
-                        )
-                    |   RealToInt (PrecSingle, rnding) =>
-                        (
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(convertFloatToInt rnding {regN=V0, regD=X0}, cvec);
-                            gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
-                            checkOverflow cvec
-                        )
-                    |   TouchAddress => topInX0 := false (* Discard this *)
-                    |   AllocCStack =>
-                        (
-                            (* Allocate space on the stack.  The higher levels have already aligned
-                               the size to a multiple of 16. *)
-                            (* Remove the tag and then use add-extended.  This can use SP unlike
-                               the shifted case. *)
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
-                            gen(subExtendedReg{regM=X0, regN=XSP, regD=XSP, extend=ExtUXTX 0w0}, cvec);
-                            (* The result is a large-word.  We can't box SP directly.
-                               We have to use add here to get the SP into X1 instead of the usual move. *)
-                            gen(addImmediate{regN=XSP, regD=X1, immed=0w0, shifted=false}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                end
-
-            |   BICBinary { oper, arg1, arg2 } =>
-                let
-                    open BuiltIns
-                    (* Generate the first argument to the stack and the second to X0. *)
-                    val () = gencde (arg1, ToStack, NotEnd, loopAddr)
-                    val () = gencde (arg2, ToX0, NotEnd, loopAddr)
-                    
-                    fun compareWords cond =
-                    (
-                        genPopReg(X1, cvec); (* First argument. *)
-                        compareRegs(X1, X0, cvec);
-                        setBooleanCondition(X0, cond, cvec)
-                    )
-                    and compareLargeWords cond =
-                    (
-                        (* The values are boxed so have to be loaded first. *)
-                        genPopReg(X1, cvec);
-                        gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                        compareRegs(X1, X0, cvec);
-                        setBooleanCondition(X0, cond, cvec)
-                    )
-                in
-                    case oper of
-                        WordComparison{test=TestEqual, ...} => compareWords condEqual
-                    |   WordComparison{test=TestLess, isSigned=true} => compareWords condSignedLess
-                    |   WordComparison{test=TestLessEqual, isSigned=true} => compareWords condSignedLessEq
-                    |   WordComparison{test=TestGreater, isSigned=true} => compareWords condSignedGreater
-                    |   WordComparison{test=TestGreaterEqual, isSigned=true} => compareWords condSignedGreaterEq
-                    |   WordComparison{test=TestLess, isSigned=false} => compareWords condCarryClear
-                    |   WordComparison{test=TestLessEqual, isSigned=false} => compareWords condUnsignedLowOrEq
-                    |   WordComparison{test=TestGreater, isSigned=false} => compareWords condUnsignedHigher
-                    |   WordComparison{test=TestGreaterEqual, isSigned=false} => compareWords condCarrySet
-                    |   WordComparison{test=TestUnordered, ...} => raise InternalError "WordComparison: TestUnordered"
-
-                    |   PointerEq => compareWords condEqual
-
-                    |   FixedPrecisionArith ArithAdd =>
-                        (
-                            (* Subtract the tag bit. *)
-                            gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
-                            genPopReg(X1, cvec);
-                            (* Add and set the flag bits *)
-                            gen(addSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
-                            checkOverflow cvec
-                        )
-                    |   FixedPrecisionArith ArithSub =>
-                        (
-                            (* Subtract the tag bit. *)
-                            gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
-                            genPopReg(X1, cvec);
-                            (* Subtract and set the flag bits *)
-                            gen(subSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
-                            checkOverflow cvec
-                        )
-                    |   FixedPrecisionArith ArithMult =>
-                        let
-                            (* There's no simple way of detecting overflow.  We have to compute the
-                               high-order word and then check that it is either all zeros with
-                               the sign bit zero or all ones with the sign bit one. *)
-                            val noOverflow = createLabel()
-                        in
-                            (* Compute the result in the same way as for Word.* apart from the
-                               arithmetic shift. *)
-                            genPopReg(X1, cvec);
-                            (* Shift to remove the tags on one argument suing . *)
-                            gen(arithmeticShiftRight{regN=X0, regD=X2, wordSize=WordSize64, shift=0w1}, cvec);
-                            (* Remove the tag on the other. *)
-                            gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
-                            gen(multiplyAndAdd{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
-                            (* Put back the tag. *)
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
-                            (* Compute the high order part into X2 *)
-                            gen(signedMultiplyHigh{regM=X1, regN=X2, regD=X2}, cvec);
-                            (* Compare with the sign bit of the result. *)
-                            gen(subSShiftedReg{regD=XZero, regN=X2, regM=X0, shift=ShiftASR 0w63}, cvec);
-                            gen(conditionalBranch(condEqual, noOverflow), cvec);
-                            gen(loadAddressConstant(X0, toMachineWord Overflow), cvec);
-                            gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
-                            gen(branchRegister X1, cvec);
-                            gen(setLabel noOverflow, cvec)
-                        end
-                    |   FixedPrecisionArith ArithQuot =>
-                        (
-                            (*raise Fallback ("ArithQuot: " ^ name);*)
-                            (* The word version avoids an extra shift.  Don't do that here at least
-                               for the moment.  Division by zero and overflow are checked for at
-                               the higher level. *)
-                            genPopReg(X1, cvec);
-                            (* Shift to remove the tags on the arguments *)
-                            gen(arithmeticShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                            gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
-                            gen(signedDivide{regM=X0, regN=X1, regD=X0}, cvec);
-                            (* Restore the tag. *)
-                            gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   FixedPrecisionArith ArithRem =>
-                        (
-                            (* For the moment we remove the tags and then retag afterwards.  The word
-                               version avoids this but at least for the moment we do it the longer way. *)
-                            (* There's no direct way to get the remainder - have to use divide and multiply. *)
-                            genPopReg(X1, cvec);
-                            (* Shift to remove the tags on the arguments *)
-                            gen(arithmeticShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                            gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
-                            gen(signedDivide{regM=X0, regN=X1, regD=X2}, cvec);
-                            (* X0 = X1 - (X2/X0)*X0 *)
-                            gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec);
-                            (* Restore the tag. *)
-                            gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   FixedPrecisionArith ArithDiv =>
-                            raise InternalError "unimplemented operation: FixedPrecisionArith ArithDiv"
-                    |   FixedPrecisionArith ArithMod =>
-                            raise InternalError "unimplemented operation: FixedPrecisionArith ArithMod"
-
-                    |   WordArith ArithAdd =>
-                        (
-                            (* Subtract the tag bit. *)
-                            gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
-                            genPopReg(X1, cvec);
-                            gen(addShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
-                        )
-                    |   WordArith ArithSub =>
-                        (
-                            (* Subtract the tag bit. *)
-                            gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
-                            genPopReg(X1, cvec);
-                            gen(subShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
-                        )
-                    |   WordArith ArithMult =>
-                        (
-                            genPopReg(X1, cvec);
-                            (* Shift to remove the tags on one argument. *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                            (* Remove the tag on the other. *)
-                            gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
-                            gen(multiplyAndAdd{regM=X1, regN=X0, regA=XZero, regD=X0}, cvec);
-                            (* Put back the tag. *)
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   WordArith ArithDiv =>
-                        (
-                            genPopReg(X1, cvec);
-                            (* Shift to remove the tag on the divisor *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                            (* Untag but don't shift the dividend. *)
-                            gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
-                            gen(unsignedDivide{regM=X0, regN=X1, regD=X0}, cvec);
-                            (* Restore the tag: Note: it may already be set depending on the result of
-                               the division. *)
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   WordArith ArithMod =>
-                        (
-                            (* There's no direct way to get the remainder - have to use divide and multiply. *)
-                            genPopReg(X1, cvec);
-                            (* Shift to remove the tag on the divisor *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
-                            (* Untag but don't shift the dividend. *)
-                            gen(bitwiseAndImmediate{regN=X1, regD=X2, wordSize=WordSize64, bits=tagBitMask}, cvec);
-                            gen(unsignedDivide{regM=X0, regN=X2, regD=X2}, cvec);
-                            (* Clear the bottom bit before the multiplication. *)
-                            gen(bitwiseAndImmediate{regN=X2, regD=X2, wordSize=WordSize64, bits=tagBitMask}, cvec);
-                            (* X0 = X1 - (X2/X0)*X0 *)
-                            gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec)
-                            (* Because we're subtracting from the original, tagged, dividend
-                               the result is tagged. *)
-                        )
-                    |   WordArith _ => raise InternalError "WordArith - unimplemented instruction"
-                
-                    |   WordLogical LogicalAnd =>
-                        (
-                            genPopReg(X1, cvec);
-                            (* Since they're both tagged the tag bit is preserved. *)
-                            gen(andShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
-                        )
-                    |   WordLogical LogicalOr =>
-                        (
-                            genPopReg(X1, cvec);
-                            (* Since they're both tagged the tag bit is preserved. *)
-                            gen(orrShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
-                        )
-                    |   WordLogical LogicalXor =>
-                        (
-                            genPopReg(X1, cvec);
-                            (* Have to restore the tag bit because that will be cleared. *)
-                            gen(eorShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-
-                        (* Shifts: ARM64 shifts are taken modulo the word length but that's
-                           dealt with at a higher level. *)
-                    |   WordShift ShiftLeft =>
-                        (
-                            genPopReg(X1, cvec);
-                            (* Remove the tag from value we're shifting. *)
-                            gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
-                            (* Untag the shift amount.  Can use 32-bit op here. *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
-                            gen(logicalShiftLeftVariable{regM=X0, regN=X1, regD=X0}, cvec);
-                            (* Put back the tag. *)
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   WordShift ShiftRightLogical =>
-                        (
-                            genPopReg(X1, cvec);
-                            (* Don't need to remove the tag. *)
-                            (* Untag the shift amount.  Can use 32-bit op here. *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
-                            gen(logicalShiftRightVariable{regM=X0, regN=X1, regD=X0}, cvec);
-                            (* Put back the tag. *)
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   WordShift ShiftRightArithmetic =>
-                        (
-                            genPopReg(X1, cvec);
-                            (* Don't need to remove the tag. *)
-                            (* Untag the shift amount.  Can use 32-bit op here. *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
-                            gen(arithmeticShiftRightVariable{regM=X0, regN=X1, regD=X0}, cvec);
-                            (* Put back the tag. *)
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                 
-                    |   AllocateByteMemory =>
-                        (* Allocate memory for byte data.  Unlike for word data it is not necessary to
-                           initialise it before any further allocation provided it has the mutable bit
-                           set. *)
-                        (
-                            (* Load and untag the size and flags.  The size is the number of words even
-                               though this is byte data. *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32 (*byte*), shift=0w1}, cvec);
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
-                            allocateVariableSize({sizeReg=X1, flagsReg=X0, resultReg=X2}, cvec);
-                            gen(moveRegToReg{sReg=X2, dReg=X0}, cvec)
-                        )
-                
-                    |   LargeWordComparison TestEqual => compareLargeWords condEqual
-                    |   LargeWordComparison TestLess => compareLargeWords condCarryClear
-                    |   LargeWordComparison TestLessEqual => compareLargeWords condUnsignedLowOrEq
-                    |   LargeWordComparison TestGreater => compareLargeWords condUnsignedHigher
-                    |   LargeWordComparison TestGreaterEqual => compareLargeWords condCarrySet
-                    |   LargeWordComparison TestUnordered => raise InternalError "LargeWordComparison: TestUnordered"
-                
-                    |   LargeWordArith ArithAdd =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            gen(addShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                    |   LargeWordArith ArithSub =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            gen(subShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                    |   LargeWordArith ArithMult =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            gen(multiplyAndAdd{regM=X1, regN=X0, regA=XZero, regD=X1}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                    |   LargeWordArith ArithDiv =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            gen(unsignedDivide{regM=X0, regN=X1, regD=X1}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                    |   LargeWordArith ArithMod =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            gen(unsignedDivide{regM=X0, regN=X1, regD=X2}, cvec);
-                            gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X1}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                    |   LargeWordArith _ => raise InternalError "LargeWordArith - unimplemented instruction"
-
-                    |   LargeWordLogical LogicalAnd =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            gen(andShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                    |   LargeWordLogical LogicalOr =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            gen(orrShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                    |   LargeWordLogical LogicalXor =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            gen(eorShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                        (* The shift is always a Word.word value i.e. tagged.  There is a check at the higher level
-                           that the shift does not exceed 32/64 bits. *)
-                    |   LargeWordShift ShiftLeft =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            (* Untag the shift amount.  Can use 32-bit op here. *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
-                            gen(logicalShiftLeftVariable{regM=X0, regN=X1, regD=X1}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                    |   LargeWordShift ShiftRightLogical =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            (* Untag the shift amount.  Can use 32-bit op here. *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
-                            gen(logicalShiftRightVariable{regM=X0, regN=X1, regD=X1}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                    |   LargeWordShift ShiftRightArithmetic =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
-                            (* Untag the shift amount.  Can use 32-bit op here. *)
-                            gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
-                            gen(arithmeticShiftRightVariable{regM=X0, regN=X1, regD=X1}, cvec);
-                            boxLargeWord(X1, cvec)
-                        )
-                        (* Floating point comparisons.
-                           The fcmp instruction differs from integer comparison.  If either
-                           argument is a NaN the overflow bit is set and the other bits are
-                           cleared.  That means that in order to get a true result only
-                           if the values are not NaNs we have to test that at least one of
-                           C, N, or Z are set.  We use unsigned tests for < and <=
-                           and signed tests for > and >=. *)
-                    |   RealComparison (TestEqual, PrecDouble) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
-                            gen(compareDouble{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condEqual, cvec)
-                        )
-                    |   RealComparison (TestLess, PrecDouble) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
-                            gen(compareDouble{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condCarryClear, cvec)
-                        )
-                    |   RealComparison (TestLessEqual, PrecDouble) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
-                            gen(compareDouble{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condUnsignedLowOrEq, cvec)
-                        )
-                    |   RealComparison (TestGreater, PrecDouble) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
-                            gen(compareDouble{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condSignedGreater, cvec)
-                        )
-                    |   RealComparison (TestGreaterEqual, PrecDouble) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
-                            gen(compareDouble{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condSignedGreaterEq, cvec)
-                        )
-                    |   RealComparison (TestUnordered, PrecDouble) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
-                            gen(compareDouble{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condOverflow, cvec)
-                        )
-
-                    |   RealComparison (TestEqual, PrecSingle) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
-                            gen(compareFloat{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condEqual, cvec)
-                        )
-                    |   RealComparison (TestLess, PrecSingle) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
-                            gen(compareFloat{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condCarryClear, cvec)
-                        )
-                    |   RealComparison (TestLessEqual, PrecSingle) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
-                            gen(compareFloat{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condUnsignedLowOrEq, cvec)
-                        )
-                    |   RealComparison (TestGreater, PrecSingle) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
-                            gen(compareFloat{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condSignedGreater, cvec)
-                        )
-                    |   RealComparison (TestGreaterEqual, PrecSingle) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
-                            gen(compareFloat{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condSignedGreaterEq, cvec)
-                        )
-                    |   RealComparison (TestUnordered, PrecSingle) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
-                            gen(compareFloat{regM=V0, regN=V1}, cvec);
-                            setBooleanCondition(X0, condOverflow, cvec)
-                        )
-
-                    |   RealArith (ArithAdd, PrecDouble) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
-                            gen(addDouble{regM=V0, regN=V1, regD=V0}, cvec);
-                            boxDouble(V0, cvec)
-                        )
-                    |   RealArith (ArithSub, PrecDouble) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
-                            gen(subtractDouble{regM=V0, regN=V1, regD=V0}, cvec);
-                            boxDouble(V0, cvec)
-                        )
-                    |   RealArith (ArithMult, PrecDouble) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
-                            gen(multiplyDouble{regM=V0, regN=V1, regD=V0}, cvec);
-                            boxDouble(V0, cvec)
-                        )
-                    |   RealArith (ArithDiv, PrecDouble) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                            gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
-                            gen(divideDouble{regM=V0, regN=V1, regD=V0}, cvec);
-                            boxDouble(V0, cvec)
-                        )
-
-                    |   RealArith (ArithAdd, PrecSingle) =>
-                        (
-                            (* 32-bit floats are represented as the value in the top 32-bits of
-                               a general register with the low-order word containing all zeros
-                               except the bottom bit which is one. *)
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
-                            gen(addFloat{regM=V0, regN=V1, regD=V0}, cvec);
-                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   RealArith (ArithSub, PrecSingle) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
-                            gen(subtractFloat{regM=V0, regN=V1, regD=V0}, cvec);
-                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   RealArith (ArithMult, PrecSingle) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
-                            gen(multiplyFloat{regM=V0, regN=V1, regD=V0}, cvec);
-                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-                    |   RealArith (ArithDiv, PrecSingle) =>
-                        (
-                            genPopReg(X1, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
-                            gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                            gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
-                            gen(divideFloat{regM=V0, regN=V1, regD=V0}, cvec);
-                            gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                            gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
-                            gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
-                        )
-
-                    |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
-                
-                    |   FreeCStack =>
-                        (* Free space on the C stack. This is a binary operation that takes the base address
-                           and the size.  The base address isn't used in this version. *)
-                        (
-                            genPopReg(X1, cvec); (* Pop and discard the address *)
-                            (* Can't use the shifted addition which would remove the tag as part of the add. *)
-                            gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
-                            gen(addExtendedReg{regM=X0, regN=XSP, regD=XSP, extend=ExtUXTX 0w0}, cvec)
-                        )
-                
-                    |   AtomicExchangeAdd =>
-                        (* The earliest versions of the Arm8 do not have the LDADD instruction which
-                           will do this directly.  To preserve compatibility we use LDAXR/STLXR
-                           which require a loop. *)
-                        let
-                            val loopLabel = createLabel()
-                        in
-                            genPopReg(X1, cvec); (* Address of mutex *)
-                            (* Untag the value to add. *)
-                            gen(subImmediate{regN=X0, regD=X3, immed=0w1, shifted=false}, cvec);
-                            gen(setLabel loopLabel, cvec);
-                            (* Get the original value into X0. *)
-                            gen(loadAcquireExclusiveRegister{regN=X1, regT=X0}, cvec);
-                            (* Add and put the result into X3 *)
-                            gen(addShiftedReg{regM=X0, regN=X3, regD=X2, shift=ShiftNone}, cvec);
-                            (* Store the result of the addition. W4 will be zero if this succeeded. *)
-                            gen(storeReleaseExclusiveRegister{regS=X4, regT=X2, regN=X1}, cvec);
-                            gen(compareBranchNonZero(X4, WordSize32, loopLabel), cvec);
-                            (* Put in the memory barrier. *)
-                            gen(dmbIsh, cvec)
-                        end
-                     ;
-                    decsp() (* Removes one item from the stack. *)
-                end
+            |   BICBinary { oper, arg1, arg2 } => genBinary(oper, arg1, arg2, loopAddr)
             
             |   BICAllocateWordMemory {numWords, flags, initial } =>
                 let
@@ -2122,11 +1372,798 @@ struct
                 end
         end (* gencde *)
 
+
+        and genUnary(BuiltIns.NotBoolean, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                (* Flip true to false and the reverse. *)
+                gen(bitwiseXorImmediate{wordSize=WordSize32, bits=0w2, regN=X0, regD=X0}, cvec)
+            )
+
+        |   genUnary(BuiltIns.IsTaggedValue, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(testBitPattern(X0, 0w1), cvec);
+                setBooleanCondition(X0, condNotEqual (*Non-zero*), cvec)
+            )
+
+        |   genUnary(BuiltIns.MemoryCellLength, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                (* Load the length word. *)
+                gen(loadRegUnscaled{regT=X0, regN=X0, byteOffset= ~8}, cvec);
+                (* Extract the length, excluding the flag bytes and shift by one bit. *)
+                gen(unsignedBitfieldInsertinZeros
+                    {wordSize=WordSize64, lsb=0w1, width=0w56, regN=X0, regD=X0}, cvec);
+                (* Set the tag bit. *)
+                gen(bitwiseOrImmediate{wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
+            )
+
+        |   genUnary(BuiltIns.MemoryCellFlags, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                (* Load the flags byte. *)
+                gen(loadRegUnscaledByte{regT=X0, regN=X0, byteOffset= ~1}, cvec);
+                (* Tag the result. *)
+                gen(logicalShiftLeft{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                gen(bitwiseOrImmediate{wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
+            )
+
+        |   genUnary(BuiltIns.ClearMutableFlag, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(loadRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec);
+                gen(bitwiseAndImmediate{wordSize=WordSize32, bits=Word64.xorb(0wxffffffff, 0wx40), regN=X1, regD=X1}, cvec);
+                gen(storeRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec)
+            )
+
+        |   genUnary(BuiltIns.AtomicReset, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                (* Clear the mutex. Simply setting it to tagged 0 will work.
+                   If another thread is in the ldaxr/stlxr loop it will see
+                   the value has changed and retry. *)
+                genList(loadNonAddress(X1, taggedWord64 0w0), cvec);
+                gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec)
+            )
+
+        |   genUnary(BuiltIns.LongWordToTagged, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                (* Load the value and tag it. *)
+                gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                (* Tag the result. *)
+                gen(logicalShiftLeft{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                gen(bitwiseOrImmediate{wordSize=WordSize64, bits=0w1, regN=X0, regD=X0}, cvec)
+            )
+
+        |   genUnary(BuiltIns.SignedToLongWord, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(arithmeticShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X1}, cvec);
+                boxLargeWord(X1, cvec)
+            )
+
+        |   genUnary(BuiltIns.UnsignedToLongWord, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X1}, cvec);
+                boxLargeWord(X1, cvec)
+            )
+
+        |   genUnary(BuiltIns.RealAbs BuiltIns.PrecDouble, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                gen(absDouble{regN=V0, regD=V0}, cvec);
+                boxDouble(V0, cvec)
+            )
+
+        |   genUnary(BuiltIns.RealNeg BuiltIns.PrecDouble, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                gen(negDouble{regN=V0, regD=V0}, cvec);
+                boxDouble(V0, cvec)
+            )
+
+        |   genUnary(BuiltIns.RealFixedInt BuiltIns.PrecDouble, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                (* Shift to remove the tag. *)
+                gen(arithmeticShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                gen(convertIntToDouble{regN=X0, regD=V0}, cvec);
+                boxDouble(V0, cvec)
+            )
+
+        |   genUnary(BuiltIns.RealAbs BuiltIns.PrecSingle, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                gen(absFloat{regN=V0, regD=V0}, cvec);
+                gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+            )
+
+        |   genUnary(BuiltIns.RealNeg BuiltIns.PrecSingle, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                gen(negFloat{regN=V0, regD=V0}, cvec);
+                gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+            )
+
+        |   genUnary(BuiltIns.RealFixedInt BuiltIns.PrecSingle, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                 (* Shift to remove the tag. *)
+                gen(arithmeticShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                gen(convertIntToFloat{regN=X0, regD=V0}, cvec);
+                gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+           )
+
+        |   genUnary(BuiltIns.FloatToDouble, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                gen(convertFloatToDouble{regN=V0, regD=V0}, cvec);
+                boxDouble(V0, cvec)
+            )
+
+        |   genUnary(BuiltIns.DoubleToFloat, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                (* Convert double to float using current rounding mode. *)
+                gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                gen(convertDoubleToFloat{regN=V0, regD=V0}, cvec);
+                gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+            )
+
+        |   genUnary(BuiltIns.RealToInt (BuiltIns.PrecDouble, rnding), arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                (* We could get an overflow in either the conversion to integer
+                   or in the conversion to a tagged value.  Fortunately if the
+                   conversion detects an overflow it sets the result to a
+                   value that will cause an overflow in the addition. *)
+                gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                gen(convertDoubleToInt rnding {regN=V0, regD=X0}, cvec);
+                gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec);
+                gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
+                checkOverflow cvec
+            )
+
+        |   genUnary(BuiltIns.RealToInt (BuiltIns.PrecSingle, rnding), arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                gen(convertFloatToInt rnding {regN=V0, regD=X0}, cvec);
+                gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec);
+                gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
+                checkOverflow cvec
+            )
+
+        |   genUnary(BuiltIns.TouchAddress, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                topInX0 := false (* Discard this *)
+            )
+
+        |   genUnary(BuiltIns.AllocCStack, arg1, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                (* Allocate space on the stack.  The higher levels have already aligned
+                   the size to a multiple of 16. *)
+                (* Remove the tag and then use add-extended.  This can use SP unlike
+                   the shifted case. *)
+                gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                gen(subExtendedReg{regM=X0, regN=XSP, regD=XSP, extend=ExtUXTX 0w0}, cvec);
+                (* The result is a large-word.  We can't box SP directly.
+                   We have to use add here to get the SP into X1 instead of the usual move. *)
+                gen(addImmediate{regN=XSP, regD=X1, immed=0w0, shifted=false}, cvec);
+                boxLargeWord(X1, cvec)
+            )
+
+        and genBinary(oper, arg1, arg2, loopAddr) =
+            let
+                open BuiltIns
+                (* Generate the first argument to the stack and the second to X0. *)
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg2, ToX0, NotEnd, loopAddr)
+                
+                fun compareWords cond =
+                (
+                    genPopReg(X1, cvec); (* First argument. *)
+                    compareRegs(X1, X0, cvec);
+                    setBooleanCondition(X0, cond, cvec)
+                )
+                and compareLargeWords cond =
+                (
+                    (* The values are boxed so have to be loaded first. *)
+                    genPopReg(X1, cvec);
+                    gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                    gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                    compareRegs(X1, X0, cvec);
+                    setBooleanCondition(X0, cond, cvec)
+                )
+            in
+                case oper of
+                    WordComparison{test=TestEqual, ...} => compareWords condEqual
+                |   WordComparison{test=TestLess, isSigned=true} => compareWords condSignedLess
+                |   WordComparison{test=TestLessEqual, isSigned=true} => compareWords condSignedLessEq
+                |   WordComparison{test=TestGreater, isSigned=true} => compareWords condSignedGreater
+                |   WordComparison{test=TestGreaterEqual, isSigned=true} => compareWords condSignedGreaterEq
+                |   WordComparison{test=TestLess, isSigned=false} => compareWords condCarryClear
+                |   WordComparison{test=TestLessEqual, isSigned=false} => compareWords condUnsignedLowOrEq
+                |   WordComparison{test=TestGreater, isSigned=false} => compareWords condUnsignedHigher
+                |   WordComparison{test=TestGreaterEqual, isSigned=false} => compareWords condCarrySet
+                |   WordComparison{test=TestUnordered, ...} => raise InternalError "WordComparison: TestUnordered"
+
+                |   PointerEq => compareWords condEqual
+
+                |   FixedPrecisionArith ArithAdd =>
+                    (
+                        (* Subtract the tag bit. *)
+                        gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                        genPopReg(X1, cvec);
+                        (* Add and set the flag bits *)
+                        gen(addSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                        checkOverflow cvec
+                    )
+                |   FixedPrecisionArith ArithSub =>
+                    (
+                        (* Subtract the tag bit. *)
+                        gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                        genPopReg(X1, cvec);
+                        (* Subtract and set the flag bits *)
+                        gen(subSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                        checkOverflow cvec
+                    )
+                |   FixedPrecisionArith ArithMult =>
+                    let
+                        (* There's no simple way of detecting overflow.  We have to compute the
+                           high-order word and then check that it is either all zeros with
+                           the sign bit zero or all ones with the sign bit one. *)
+                        val noOverflow = createLabel()
+                    in
+                        (* Compute the result in the same way as for Word.* apart from the
+                           arithmetic shift. *)
+                        genPopReg(X1, cvec);
+                        (* Shift to remove the tags on one argument suing . *)
+                        gen(arithmeticShiftRight{regN=X0, regD=X2, wordSize=WordSize64, shift=0w1}, cvec);
+                        (* Remove the tag on the other. *)
+                        gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                        gen(multiplyAndAdd{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
+                        (* Put back the tag. *)
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
+                        (* Compute the high order part into X2 *)
+                        gen(signedMultiplyHigh{regM=X1, regN=X2, regD=X2}, cvec);
+                        (* Compare with the sign bit of the result. *)
+                        gen(subSShiftedReg{regD=XZero, regN=X2, regM=X0, shift=ShiftASR 0w63}, cvec);
+                        gen(conditionalBranch(condEqual, noOverflow), cvec);
+                        gen(loadAddressConstant(X0, toMachineWord Overflow), cvec);
+                        gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
+                        gen(branchRegister X1, cvec);
+                        gen(setLabel noOverflow, cvec)
+                    end
+                |   FixedPrecisionArith ArithQuot =>
+                    (
+                        (*raise Fallback ("ArithQuot: " ^ name);*)
+                        (* The word version avoids an extra shift.  Don't do that here at least
+                           for the moment.  Division by zero and overflow are checked for at
+                           the higher level. *)
+                        genPopReg(X1, cvec);
+                        (* Shift to remove the tags on the arguments *)
+                        gen(arithmeticShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                        gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                        gen(signedDivide{regM=X0, regN=X1, regD=X0}, cvec);
+                        (* Restore the tag. *)
+                        gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+                |   FixedPrecisionArith ArithRem =>
+                    (
+                        (* For the moment we remove the tags and then retag afterwards.  The word
+                           version avoids this but at least for the moment we do it the longer way. *)
+                        (* There's no direct way to get the remainder - have to use divide and multiply. *)
+                        genPopReg(X1, cvec);
+                        (* Shift to remove the tags on the arguments *)
+                        gen(arithmeticShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                        gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                        gen(signedDivide{regM=X0, regN=X1, regD=X2}, cvec);
+                        (* X0 = X1 - (X2/X0)*X0 *)
+                        gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec);
+                        (* Restore the tag. *)
+                        gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+                |   FixedPrecisionArith ArithDiv =>
+                        raise InternalError "unimplemented operation: FixedPrecisionArith ArithDiv"
+                |   FixedPrecisionArith ArithMod =>
+                        raise InternalError "unimplemented operation: FixedPrecisionArith ArithMod"
+
+                |   WordArith ArithAdd =>
+                    (
+                        (* Subtract the tag bit. *)
+                        gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                        genPopReg(X1, cvec);
+                        gen(addShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
+                    )
+                |   WordArith ArithSub =>
+                    (
+                        (* Subtract the tag bit. *)
+                        gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
+                        genPopReg(X1, cvec);
+                        gen(subShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
+                    )
+                |   WordArith ArithMult =>
+                    (
+                        genPopReg(X1, cvec);
+                        (* Shift to remove the tags on one argument. *)
+                        gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                        (* Remove the tag on the other. *)
+                        gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                        gen(multiplyAndAdd{regM=X1, regN=X0, regA=XZero, regD=X0}, cvec);
+                        (* Put back the tag. *)
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+                |   WordArith ArithDiv =>
+                    (
+                        genPopReg(X1, cvec);
+                        (* Shift to remove the tag on the divisor *)
+                        gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                        (* Untag but don't shift the dividend. *)
+                        gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                        gen(unsignedDivide{regM=X0, regN=X1, regD=X0}, cvec);
+                        (* Restore the tag: Note: it may already be set depending on the result of
+                           the division. *)
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+                |   WordArith ArithMod =>
+                    (
+                        (* There's no direct way to get the remainder - have to use divide and multiply. *)
+                        genPopReg(X1, cvec);
+                        (* Shift to remove the tag on the divisor *)
+                        gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
+                        (* Untag but don't shift the dividend. *)
+                        gen(bitwiseAndImmediate{regN=X1, regD=X2, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                        gen(unsignedDivide{regM=X0, regN=X2, regD=X2}, cvec);
+                        (* Clear the bottom bit before the multiplication. *)
+                        gen(bitwiseAndImmediate{regN=X2, regD=X2, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                        (* X0 = X1 - (X2/X0)*X0 *)
+                        gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec)
+                        (* Because we're subtracting from the original, tagged, dividend
+                           the result is tagged. *)
+                    )
+                |   WordArith _ => raise InternalError "WordArith - unimplemented instruction"
+            
+                |   WordLogical LogicalAnd =>
+                    (
+                        genPopReg(X1, cvec);
+                        (* Since they're both tagged the tag bit is preserved. *)
+                        gen(andShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
+                    )
+                |   WordLogical LogicalOr =>
+                    (
+                        genPopReg(X1, cvec);
+                        (* Since they're both tagged the tag bit is preserved. *)
+                        gen(orrShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
+                    )
+                |   WordLogical LogicalXor =>
+                    (
+                        genPopReg(X1, cvec);
+                        (* Have to restore the tag bit because that will be cleared. *)
+                        gen(eorShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+
+                    (* Shifts: ARM64 shifts are taken modulo the word length but that's
+                       dealt with at a higher level. *)
+                |   WordShift ShiftLeft =>
+                    (
+                        genPopReg(X1, cvec);
+                        (* Remove the tag from value we're shifting. *)
+                        gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
+                        (* Untag the shift amount.  Can use 32-bit op here. *)
+                        gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                        gen(logicalShiftLeftVariable{regM=X0, regN=X1, regD=X0}, cvec);
+                        (* Put back the tag. *)
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+                |   WordShift ShiftRightLogical =>
+                    (
+                        genPopReg(X1, cvec);
+                        (* Don't need to remove the tag. *)
+                        (* Untag the shift amount.  Can use 32-bit op here. *)
+                        gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                        gen(logicalShiftRightVariable{regM=X0, regN=X1, regD=X0}, cvec);
+                        (* Put back the tag. *)
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+                |   WordShift ShiftRightArithmetic =>
+                    (
+                        genPopReg(X1, cvec);
+                        (* Don't need to remove the tag. *)
+                        (* Untag the shift amount.  Can use 32-bit op here. *)
+                        gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                        gen(arithmeticShiftRightVariable{regM=X0, regN=X1, regD=X0}, cvec);
+                        (* Put back the tag. *)
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+             
+                |   AllocateByteMemory =>
+                    (* Allocate memory for byte data.  Unlike for word data it is not necessary to
+                       initialise it before any further allocation provided it has the mutable bit
+                       set. *)
+                    (
+                        (* Load and untag the size and flags.  The size is the number of words even
+                           though this is byte data. *)
+                        gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32 (*byte*), shift=0w1}, cvec);
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
+                        allocateVariableSize({sizeReg=X1, flagsReg=X0, resultReg=X2}, cvec);
+                        gen(moveRegToReg{sReg=X2, dReg=X0}, cvec)
+                    )
+            
+                |   LargeWordComparison TestEqual => compareLargeWords condEqual
+                |   LargeWordComparison TestLess => compareLargeWords condCarryClear
+                |   LargeWordComparison TestLessEqual => compareLargeWords condUnsignedLowOrEq
+                |   LargeWordComparison TestGreater => compareLargeWords condUnsignedHigher
+                |   LargeWordComparison TestGreaterEqual => compareLargeWords condCarrySet
+                |   LargeWordComparison TestUnordered => raise InternalError "LargeWordComparison: TestUnordered"
+            
+                |   LargeWordArith ArithAdd =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        gen(addShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                |   LargeWordArith ArithSub =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        gen(subShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                |   LargeWordArith ArithMult =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        gen(multiplyAndAdd{regM=X1, regN=X0, regA=XZero, regD=X1}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                |   LargeWordArith ArithDiv =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        gen(unsignedDivide{regM=X0, regN=X1, regD=X1}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                |   LargeWordArith ArithMod =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        gen(unsignedDivide{regM=X0, regN=X1, regD=X2}, cvec);
+                        gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X1}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                |   LargeWordArith _ => raise InternalError "LargeWordArith - unimplemented instruction"
+
+                |   LargeWordLogical LogicalAnd =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        gen(andShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                |   LargeWordLogical LogicalOr =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        gen(orrShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                |   LargeWordLogical LogicalXor =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        gen(eorShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                    (* The shift is always a Word.word value i.e. tagged.  There is a check at the higher level
+                       that the shift does not exceed 32/64 bits. *)
+                |   LargeWordShift ShiftLeft =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        (* Untag the shift amount.  Can use 32-bit op here. *)
+                        gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                        gen(logicalShiftLeftVariable{regM=X0, regN=X1, regD=X1}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                |   LargeWordShift ShiftRightLogical =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        (* Untag the shift amount.  Can use 32-bit op here. *)
+                        gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                        gen(logicalShiftRightVariable{regM=X0, regN=X1, regD=X1}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                |   LargeWordShift ShiftRightArithmetic =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                        (* Untag the shift amount.  Can use 32-bit op here. *)
+                        gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize32, shift=0w1}, cvec);
+                        gen(arithmeticShiftRightVariable{regM=X0, regN=X1, regD=X1}, cvec);
+                        boxLargeWord(X1, cvec)
+                    )
+                    (* Floating point comparisons.
+                       The fcmp instruction differs from integer comparison.  If either
+                       argument is a NaN the overflow bit is set and the other bits are
+                       cleared.  That means that in order to get a true result only
+                       if the values are not NaNs we have to test that at least one of
+                       C, N, or Z are set.  We use unsigned tests for < and <=
+                       and signed tests for > and >=. *)
+                |   RealComparison (TestEqual, PrecDouble) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                        gen(compareDouble{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condEqual, cvec)
+                    )
+                |   RealComparison (TestLess, PrecDouble) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                        gen(compareDouble{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condCarryClear, cvec)
+                    )
+                |   RealComparison (TestLessEqual, PrecDouble) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                        gen(compareDouble{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condUnsignedLowOrEq, cvec)
+                    )
+                |   RealComparison (TestGreater, PrecDouble) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                        gen(compareDouble{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condSignedGreater, cvec)
+                    )
+                |   RealComparison (TestGreaterEqual, PrecDouble) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                        gen(compareDouble{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condSignedGreaterEq, cvec)
+                    )
+                |   RealComparison (TestUnordered, PrecDouble) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                        gen(compareDouble{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condOverflow, cvec)
+                    )
+
+                |   RealComparison (TestEqual, PrecSingle) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                        gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                        gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                        gen(compareFloat{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condEqual, cvec)
+                    )
+                |   RealComparison (TestLess, PrecSingle) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                        gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                        gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                        gen(compareFloat{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condCarryClear, cvec)
+                    )
+                |   RealComparison (TestLessEqual, PrecSingle) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                        gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                        gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                        gen(compareFloat{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condUnsignedLowOrEq, cvec)
+                    )
+                |   RealComparison (TestGreater, PrecSingle) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                        gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                        gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                        gen(compareFloat{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condSignedGreater, cvec)
+                    )
+                |   RealComparison (TestGreaterEqual, PrecSingle) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                        gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                        gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                        gen(compareFloat{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condSignedGreaterEq, cvec)
+                    )
+                |   RealComparison (TestUnordered, PrecSingle) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                        gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                        gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                        gen(compareFloat{regM=V0, regN=V1}, cvec);
+                        setBooleanCondition(X0, condOverflow, cvec)
+                    )
+
+                |   RealArith (ArithAdd, PrecDouble) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                        gen(addDouble{regM=V0, regN=V1, regD=V0}, cvec);
+                        boxDouble(V0, cvec)
+                    )
+                |   RealArith (ArithSub, PrecDouble) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                        gen(subtractDouble{regM=V0, regN=V1, regD=V0}, cvec);
+                        boxDouble(V0, cvec)
+                    )
+                |   RealArith (ArithMult, PrecDouble) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                        gen(multiplyDouble{regM=V0, regN=V1, regD=V0}, cvec);
+                        boxDouble(V0, cvec)
+                    )
+                |   RealArith (ArithDiv, PrecDouble) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
+                        gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                        gen(divideDouble{regM=V0, regN=V1, regD=V0}, cvec);
+                        boxDouble(V0, cvec)
+                    )
+
+                |   RealArith (ArithAdd, PrecSingle) =>
+                    (
+                        (* 32-bit floats are represented as the value in the top 32-bits of
+                           a general register with the low-order word containing all zeros
+                           except the bottom bit which is one. *)
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                        gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                        gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                        gen(addFloat{regM=V0, regN=V1, regD=V0}, cvec);
+                        gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                        gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+                |   RealArith (ArithSub, PrecSingle) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                        gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                        gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                        gen(subtractFloat{regM=V0, regN=V1, regD=V0}, cvec);
+                        gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                        gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+                |   RealArith (ArithMult, PrecSingle) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                        gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                        gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                        gen(multiplyFloat{regM=V0, regN=V1, regD=V0}, cvec);
+                        gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                        gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+                |   RealArith (ArithDiv, PrecSingle) =>
+                    (
+                        genPopReg(X1, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=X1, regD=X1}, cvec);
+                        gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                        gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                        gen(divideFloat{regM=V0, regN=V1, regD=V0}, cvec);
+                        gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
+                        gen(logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0}, cvec);
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                    )
+
+                |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
+            
+                |   FreeCStack =>
+                    (* Free space on the C stack. This is a binary operation that takes the base address
+                       and the size.  The base address isn't used in this version. *)
+                    (
+                        genPopReg(X1, cvec); (* Pop and discard the address *)
+                        (* Can't use the shifted addition which would remove the tag as part of the add. *)
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
+                        gen(addExtendedReg{regM=X0, regN=XSP, regD=XSP, extend=ExtUXTX 0w0}, cvec)
+                    )
+            
+                |   AtomicExchangeAdd =>
+                    (* The earliest versions of the Arm8 do not have the LDADD instruction which
+                       will do this directly.  To preserve compatibility we use LDAXR/STLXR
+                       which require a loop. *)
+                    let
+                        val loopLabel = createLabel()
+                    in
+                        genPopReg(X1, cvec); (* Address of mutex *)
+                        (* Untag the value to add. *)
+                        gen(subImmediate{regN=X0, regD=X3, immed=0w1, shifted=false}, cvec);
+                        gen(setLabel loopLabel, cvec);
+                        (* Get the original value into X0. *)
+                        gen(loadAcquireExclusiveRegister{regN=X1, regT=X0}, cvec);
+                        (* Add and put the result into X3 *)
+                        gen(addShiftedReg{regM=X0, regN=X3, regD=X2, shift=ShiftNone}, cvec);
+                        (* Store the result of the addition. W4 will be zero if this succeeded. *)
+                        gen(storeReleaseExclusiveRegister{regS=X4, regT=X2, regN=X1}, cvec);
+                        gen(compareBranchNonZero(X4, WordSize32, loopLabel), cvec);
+                        (* Put in the memory barrier. *)
+                        gen(dmbIsh, cvec)
+                    end
+                 ;
+                decsp() (* Removes one item from the stack. *)
+            end
+
        (* doNext is only used for mutually recursive functions where a
          function may not be able to fill in its closure if it does not have
          all the remaining declarations. *)
         (* TODO: This always creates the closure on the heap even when makeClosure is false. *) 
-       and genProc ({ closure=[], localCount, body, argTypes, name, ...}: bicLambdaForm, mutualDecs, doNext: unit -> unit) : unit =
+        and genProc ({ closure=[], localCount, body, argTypes, name, ...}: bicLambdaForm, mutualDecs, doNext: unit -> unit) : unit =
             let
                 (* Create a one word item for the closure.  This is returned for recursive references
                    and filled in with the address of the code when we've finished. *)
@@ -2208,43 +2245,8 @@ struct
 
         and genCond (testCode, thenCode, elseCode, whereto, tailKind, loopAddr) =
         let
-            (* andalso and orelse are turned into conditionals with constants.
-               Convert this into a series of tests. *)
-            fun genTest(BICConstnt(w, _), jumpOn, targetLabel) =
-                let
-                    val cVal = case toShort w of 0w0 => false | 0w1 => true | _ => raise InternalError "genTest"
-                in
-                    if cVal = jumpOn
-                    then gen(conditionalBranch (condAlways, targetLabel), cvec)
-                    else ()
-                end
-
-            |   genTest(BICUnary { oper=BuiltIns.NotBoolean, arg1 }, jumpOn, targetLabel) =
-                    genTest(arg1, not jumpOn, targetLabel)
-
-            |   genTest(BICCond (testPart, thenPart, elsePart), jumpOn, targetLabel) =
-                let
-                    val toElse = createLabel() and exitJump = createLabel()
-                in
-                    genTest(testPart, false, toElse);
-                    genTest(thenPart, jumpOn, targetLabel);
-                    gen(conditionalBranch (condAlways, exitJump), cvec);
-                    gen(setLabel toElse, cvec);
-                    genTest(elsePart, jumpOn, targetLabel);
-                    gen(setLabel exitJump, cvec)
-                end
-
-            |   genTest(testCode, jumpOn, targetLabel) =
-                (
-                    gencde (testCode, ToStack, NotEnd, loopAddr);
-                    genPopReg(X0, cvec);
-                    gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
-                    gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec);
-                    decsp() (* conditional branch pops a value. *)
-                )
-
             val toElse = createLabel() and exitJump = createLabel()
-            val () = genTest(testCode, false, toElse)
+            val () = genTest(testCode, false, toElse, loopAddr)
             val () = gencde (thenCode, whereto, tailKind, loopAddr)
             (* Get rid of the result from the stack. If there is a result then the
             ``else-part'' will push it. *)
@@ -2260,6 +2262,41 @@ struct
         in
             ()
         end (* genCond *)
+
+        (* andalso and orelse are turned into conditionals with constants.
+           Convert this into a series of tests. *)
+        and genTest(BICConstnt(w, _), jumpOn, targetLabel, _) =
+            let
+                val cVal = case toShort w of 0w0 => false | 0w1 => true | _ => raise InternalError "genTest"
+            in
+                if cVal = jumpOn
+                then gen(conditionalBranch (condAlways, targetLabel), cvec)
+                else ()
+            end
+
+        |   genTest(BICUnary { oper=BuiltIns.NotBoolean, arg1 }, jumpOn, targetLabel, loopAddr) =
+                genTest(arg1, not jumpOn, targetLabel, loopAddr)
+
+        |   genTest(BICCond (testPart, thenPart, elsePart), jumpOn, targetLabel, loopAddr) =
+            let
+                val toElse = createLabel() and exitJump = createLabel()
+            in
+                genTest(testPart, false, toElse, loopAddr);
+                genTest(thenPart, jumpOn, targetLabel, loopAddr);
+                gen(conditionalBranch (condAlways, exitJump), cvec);
+                gen(setLabel toElse, cvec);
+                genTest(elsePart, jumpOn, targetLabel, loopAddr);
+                gen(setLabel exitJump, cvec)
+            end
+
+        |   genTest(testCode, jumpOn, targetLabel, loopAddr) =
+            (
+                gencde (testCode, ToStack, NotEnd, loopAddr);
+                genPopReg(X0, cvec);
+                gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
+                gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec);
+                decsp() (* conditional branch pops a value. *)
+            )
 
         and genEval (eval, tailKind : tail) : unit =
         let
