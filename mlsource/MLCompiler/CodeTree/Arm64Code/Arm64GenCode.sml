@@ -2297,6 +2297,57 @@ struct
         |   genTest(BICUnary { oper=NotBoolean, arg1 }, jumpOn, targetLabel, loopAddr) =
                 genTest(arg1, not jumpOn, targetLabel, loopAddr)
 
+        |   genTest(BICUnary { oper=IsTaggedValue, arg1 }, jumpOn, targetLabel, loopAddr) =
+            (
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                topInX0 := false;
+                gen((if jumpOn then testBitBranchNonZero else testBitBranchZero)
+                    (X0, 0w0, targetLabel), cvec)
+            )
+
+        |   genTest(BICBinary{oper=WordComparison{test, isSigned}, arg1, arg2}, jumpOn, targetLabel, loopAddr) =
+            let
+                val (cond, condNot) =
+                    case (test, isSigned) of
+                        (TestEqual,         _) => (condEqual, condNotEqual)
+                    |   (TestLess,          true) => (condSignedLess, condSignedGreaterEq)
+                    |   (TestLessEqual,     true) => (condSignedLessEq, condSignedGreater)
+                    |   (TestGreater,       true) => (condSignedGreater, condSignedLessEq)
+                    |   (TestGreaterEqual,  true) => (condSignedGreaterEq, condSignedLess)
+                    |   (TestLess,          false) => (condCarryClear, condCarrySet)
+                    |   (TestLessEqual,     false) => (condUnsignedLowOrEq, condUnsignedHigher)
+                    |   (TestGreater,       false) => (condUnsignedHigher, condUnsignedLowOrEq)
+                    |   (TestGreaterEqual,  false) => (condCarrySet, condCarryClear)
+                    |   (TestUnordered,     _) => raise InternalError "WordComparison: TestUnordered"
+            in
+                gencde (arg1, ToStack, NotEnd, loopAddr);
+                gencde (arg2, ToX0, NotEnd, loopAddr);
+                decsp();
+                topInX0 := false;
+                genPopReg(X1, cvec); (* First argument. *)
+                compareRegs(X1, X0, cvec);
+                gen(conditionalBranch(if jumpOn then cond else condNot, targetLabel), cvec)
+            end
+
+        |   genTest(BICBinary{oper=PointerEq, arg1, arg2}, jumpOn, targetLabel, loopAddr) =
+            (
+                gencde (arg1, ToStack, NotEnd, loopAddr);
+                gencde (arg2, ToX0, NotEnd, loopAddr);
+                decsp();
+                topInX0 := false;
+                genPopReg(X1, cvec); (* First argument. *)
+                compareRegs(X1, X0, cvec);
+                gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec)
+            )
+
+        |   genTest(BICTagTest { test, tag=tagValue, ... }, jumpOn, targetLabel, loopAddr) =
+            (
+                gencde (test, ToX0, NotEnd, loopAddr);
+                topInX0 := false;
+                gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord tagValue, shifted=false}, cvec);
+                gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec)
+            )
+
         |   genTest(BICCond (testPart, thenPart, elsePart), jumpOn, targetLabel, loopAddr) =
             let
                 val toElse = createLabel() and exitJump = createLabel()
