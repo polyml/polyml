@@ -825,7 +825,6 @@ enable_libtool_lock
 enable_maintainer_mode
 enable_largefile
 with_gmp
-with_system_libffi
 enable_windows_gui
 with_x
 enable_native_codegeneration
@@ -1523,9 +1522,6 @@ Optional Packages:
                           compiler's sysroot if not specified).
   --with-gmp              use the GMP library for arbitrary precision
                           arithmetic [default=check]
-  --with-system-libffi    use the version of libffi installed on your system
-                          rather than the version supplied with poly
-                          [default=no]
   --with-x                use the X Window System
   --with-moduledir=DIR    directory for Poly/ML modules
 
@@ -19159,76 +19155,6 @@ fi
 
 fi
 
-# libffi - No longer used in native code - just retain this for backwards compatibility.
-
-# Check whether --with-system-libffi was given.
-if test "${with_system_libffi+set}" = set; then :
-  withval=$with_system_libffi;
-else
-  with_system_libffi=no
-fi
-
-
-# But libffi is needed if we want FFI in the interpreted version.
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for ffi_prep_closure_loc in -lffi" >&5
-$as_echo_n "checking for ffi_prep_closure_loc in -lffi... " >&6; }
-if ${ac_cv_lib_ffi_ffi_prep_closure_loc+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lffi  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char ffi_prep_closure_loc ();
-int
-main ()
-{
-return ffi_prep_closure_loc ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_ffi_ffi_prep_closure_loc=yes
-else
-  ac_cv_lib_ffi_ffi_prep_closure_loc=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ffi_ffi_prep_closure_loc" >&5
-$as_echo "$ac_cv_lib_ffi_ffi_prep_closure_loc" >&6; }
-if test "x$ac_cv_lib_ffi_ffi_prep_closure_loc" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBFFI 1
-_ACEOF
-
-  LIBS="-lffi $LIBS"
-
-fi
-
-for ac_header in ffi.h
-do :
-  ac_fn_c_check_header_mongrel "$LINENO" "ffi.h" "ac_cv_header_ffi_h" "$ac_includes_default"
-if test "x$ac_cv_header_ffi_h" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_FFI_H 1
-_ACEOF
-
-fi
-
-done
-
-
-
 # Special configuration for Windows or Unix.
 poly_windows_enablegui=false
 
@@ -22182,13 +22108,74 @@ if test "x$with_portable" = "xno" ; then
     fi
 fi
 
+# Check for libffi only if we're building the interpreted version
+if test "x$polyarch" = "xinterpret" ; then
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for ffi_prep_closure_loc in -lffi" >&5
+$as_echo_n "checking for ffi_prep_closure_loc in -lffi... " >&6; }
+if ${ac_cv_lib_ffi_ffi_prep_closure_loc+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lffi  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char ffi_prep_closure_loc ();
+int
+main ()
+{
+return ffi_prep_closure_loc ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_ffi_ffi_prep_closure_loc=yes
+else
+  ac_cv_lib_ffi_ffi_prep_closure_loc=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ffi_ffi_prep_closure_loc" >&5
+$as_echo "$ac_cv_lib_ffi_ffi_prep_closure_loc" >&6; }
+if test "x$ac_cv_lib_ffi_ffi_prep_closure_loc" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBFFI 1
+_ACEOF
+
+  LIBS="-lffi $LIBS"
+
+fi
+
+    for ac_header in ffi.h
+do :
+  ac_fn_c_check_header_mongrel "$LINENO" "ffi.h" "ac_cv_header_ffi_h" "$ac_includes_default"
+if test "x$ac_cv_header_ffi_h" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_FFI_H 1
+_ACEOF
+
+fi
+
+done
+
+fi
+
 if test  X"$ac_cv_sizeof_voidp" = X8 ; then
     bootstrap64="yes"
 else
     bootstrap64="no"
 fi
 
-# Build 32-bit in 64-bits.
+# Build 32-bit in 64-bits.  This is only allowed when building on native 64-bit X86.
 # Check whether --enable-compact32bit was given.
 if test "${enable_compact32bit+set}" = set; then :
   enableval=$enable_compact32bit;
