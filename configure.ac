@@ -153,18 +153,6 @@ if test "x$with_gmp" != "xno"; then
         ])
 fi
 
-# libffi - No longer used in native code - just retain this for backwards compatibility.
-AC_ARG_WITH([system-libffi],
-            [AS_HELP_STRING([--with-system-libffi],
-              [use the version of libffi installed on your system rather than the version supplied with poly @<:@default=no@:>@])],
-            [],
-            [with_system_libffi=no])
-
-# But libffi is needed if we want FFI in the interpreted version.
-AC_CHECK_LIB([ffi], [ffi_prep_closure_loc])
-AC_CHECK_HEADERS([ffi.h])
-
-
 # Special configuration for Windows or Unix.
 poly_windows_enablegui=false
 
@@ -486,6 +474,12 @@ if test "x$with_portable" = "xno" ; then
         AC_MSG_ERROR(
             [--enable-native-codegeneration was given but native code is not supported on this platform])
     fi
+fi
+
+# Check for libffi only if we're building the interpreted version
+if test "x$polyarch" = "xinterpret" ; then
+    AC_CHECK_LIB([ffi], [ffi_prep_closure_loc])
+    AC_CHECK_HEADERS([ffi.h])
 fi
 
 # Build 32-bit in 64-bits.  This is only allowed when building on native 64-bit X86.
