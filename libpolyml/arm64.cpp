@@ -280,6 +280,7 @@ void Arm64TaskData::GarbageCollect(ScanAddress *process)
 {
     TaskData::GarbageCollect(process);
     ByteCodeInterpreter::GarbageCollect(process);
+    assemblyInterface.threadId = threadObject; // threadObject updated by TaskData::GarbageCollect
 
     if (assemblyInterface.exceptionPacket.w().IsDataPtr())
     {
@@ -301,6 +302,15 @@ void Arm64TaskData::GarbageCollect(ScanAddress *process)
     {
         if (saveRegisterMask & (1 << i))
             ScanStackAddress(process, assemblyInterface.registers[i], stack);
+    }
+
+    // Make sure the code is still reachable. Code addresses aren't updated.
+    {
+        stackItem code;
+        code.codeAddr = (POLYCODEPTR)assemblyInterface.linkRegister;
+        ScanStackAddress(process, code, stack);
+        code.codeAddr = (POLYCODEPTR)assemblyInterface.entryPoint;
+        ScanStackAddress(process, code, stack);
     }
 }
 
