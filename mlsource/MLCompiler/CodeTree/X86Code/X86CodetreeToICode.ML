@@ -1925,16 +1925,18 @@ struct
 
         |   codeToICodeUnaryRev({oper=BuiltIns.RealFixedInt precision, arg1}, context, _, destination, tailCode) =
             let
+                open BuiltIns
                 val target = asTarget destination
                 val untagReg = newUReg() and fpReg = newUReg()
                 val (argCode, aReg1) = codeToPReg(arg1, context)
-                val floatOp = case fpMode of FPModeX87 => X87Float | FPModeSSE2 => SSE2Float
-                val boxFloat = case fpMode of FPModeX87 => BoxX87Double | FPModeSSE2 => BoxSSE2Double
-                val _ = precision = BuiltIns.PrecDouble orelse raise InternalError "RealFixedInt - single"
+                val floatOp =
+                    case fpMode of
+                        FPModeX87 => X87Float{ dest=fpReg, source=RegisterArgument untagReg}
+                    |   FPModeSSE2 => SSE2IntToReal{ dest=fpReg, source=RegisterArgument untagReg, isDouble=precision=PrecDouble}
                 val code = argCode @
                  [BlockSimple(UntagValue{source=aReg1, dest=untagReg, isSigned=true, cache=NONE, opSize=polyWordOpSize}),
-                  BlockSimple(floatOp{ dest=fpReg, source=RegisterArgument untagReg}),
-                  BlockSimple(BoxValue{boxKind=boxFloat, source=fpReg, dest=target, saveRegs=[]})]
+                  BlockSimple floatOp] @
+                  boxOrTagReal(fpReg, target, precision)
             in
                 (revApp(code, tailCode), RegisterArgument target, false)
             end

@@ -663,8 +663,10 @@ struct
     |   CQO_CDQ32 (* Sign extend before divide.. *)
     |   CQO_CDQ64 (* Sign extend before divide.. *)
     |   SSE2Ops of sse2Operations (* SSE2 instructions. *)
-    |   CVTSI2SD32
-    |   CVTSI2SD64
+    |   CVTSI2SD32 (* 32 bit int to double *)
+    |   CVTSI2SD64 (* 64 bit int to double *)
+    |   CVTSI2SS32 (* 32 bit int to single *)
+    |   CVTSI2SS64 (* 64 bit int to single *)
     |   HLT     (* End of code marker. *)
     |   IMUL_C8_32
     |   IMUL_C8_64
@@ -770,6 +772,8 @@ struct
     |   opToInt (SSE2Ops SSE2DoubleToFloat)  = 0wx5A (* Needs F2 0F escape. *)
     |   opToInt CVTSI2SD32      = 0wx2a (* Needs F2 0F escape. *)
     |   opToInt CVTSI2SD64      = 0wx2a (* Needs F2 0F escape. *)
+    |   opToInt CVTSI2SS32      = 0wx2a (* Needs F3 0F escape. *)
+    |   opToInt CVTSI2SS64      = 0wx2a (* Needs F3 0F escape. *)
     |   opToInt HLT             = 0wxf4
     |   opToInt IMUL_C8_32      = 0wx6b
     |   opToInt IMUL_C8_64      = 0wx6b
@@ -846,6 +850,8 @@ struct
     |   opcodePrefix(SSE2Ops SSE2FloatToDouble) = [0wxf3]
     |   opcodePrefix CVTSI2SD32                 = [0wxf2]
     |   opcodePrefix CVTSI2SD64                 = [0wxf2]
+    |   opcodePrefix CVTSI2SS32                 = [0wxf3]
+    |   opcodePrefix CVTSI2SS64                 = [0wxf3]
     |   opcodePrefix MOVDFromXMM                = [0wx66]
     |   opcodePrefix MOVQToXMM                  = [0wx66]
     |   opcodePrefix PSRLDQ                     = [0wx66]
@@ -878,6 +884,8 @@ struct
     |   escapePrefix(SSE2Ops _)                 = [0wx0f]
     |   escapePrefix CVTSI2SD32                 = [0wx0f]
     |   escapePrefix CVTSI2SD64                 = [0wx0f]
+    |   escapePrefix CVTSI2SS32                 = [0wx0f]
+    |   escapePrefix CVTSI2SS64                 = [0wx0f]
     |   escapePrefix MOVDFromXMM                = [0wx0f]
     |   escapePrefix MOVQToXMM                  = [0wx0f]
     |   escapePrefix PSRLDQ                     = [0wx0f]
@@ -929,6 +937,7 @@ struct
             |   LOCK_XADD64 => true (* Needed to ensure the result is 64-bits *)
             |   CQO_CDQ64 => true (* It's only CQO if there's a Rex prefix. *)
             |   CVTSI2SD64 => true (* This affects the size of the integer source. *)
+            |   CVTSI2SS64 => true (* This affects the size of the integer source. *)
             |   IMUL_C8_64 => true
             |   IMUL_C32_64 => true
             |   MOVQToXMM => true
@@ -1179,7 +1188,7 @@ struct
     |   MultiplyR of { source: genReg regOrMemoryArg, output: genReg, opSize: opSize }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
-    |   XMMConvertFromInt of { source: genReg, output: xmmReg, opSize: opSize }
+    |   XMMConvertFromInt of { source: genReg, output: xmmReg, opSize: opSize, precision: fpSize }
     |   SignExtendForDivide of opSize
     |   XChng of { reg: genReg, arg: genReg regOrMemoryArg, opSize: opSize }
     |   Negative of { output: genReg, opSize: opSize }
@@ -1391,9 +1400,10 @@ struct
             (
                 stream "MoveSingle "; printXMMReg toStore; stream " => "; printMemAddress address
             )
-        |   XMMConvertFromInt { source, output, opSize } =>
+        |   XMMConvertFromInt { source, output, opSize, precision } =>
             (
-                stream "ConvertFromInt "; stream(printOpSize opSize); stream " "; printGReg source; stream " => "; printXMMReg output
+                stream (case precision of DoublePrecision => "ConvertFromIntToDouble " | SinglePrecision => "ConvertFromIntToSingle ");
+                stream(printOpSize opSize); stream " "; printGReg source; stream " => "; printXMMReg output
             )
         |   SignExtendForDivide opSize => ( stream "SignExtendForDivide"; stream(printOpSize opSize) )
         |   XChng { reg, arg, opSize } =>
@@ -2214,12 +2224,17 @@ struct
                 mMXAddress(oper, LargeInt.fromInt offset, base, index, toStore)
             end
 
-        |   cgOp (XMMConvertFromInt { source, output=SSE2Reg rrC, opSize }) =
+        |   cgOp (XMMConvertFromInt { source, output=SSE2Reg rrC, opSize, precision }) =
             let
                 (* The source is a general register and the output a XMM register. *)
                 (* TODO: The source can be a memory location. *)
                 val (rbC, rbX) = getReg source
-                val oper = case opSize of OpSize64 => CVTSI2SD64 | OpSize32 => CVTSI2SD32
+                val oper =
+                    case (opSize, precision) of
+                        (OpSize64, DoublePrecision) => CVTSI2SD64
+                    |   (OpSize32, DoublePrecision) => CVTSI2SD32
+                    |   (OpSize64, SinglePrecision) => CVTSI2SS64
+                    |   (OpSize32, SinglePrecision) => CVTSI2SS32
             in
                 (* This is a special case with both an XMM and general register. *)
                 opcodePrefix oper @ rexByte(oper, false, rbX, false) @
@@ -3399,6 +3414,7 @@ struct
                             case opByte2 of
                                 0wx10 => ( print "movss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZDWord) )
                             |   0wx11 => ( print "movss\t"; printEAxmm(rex, SZDWord); print ","; print(xmmRegRepr reg)  )
+                            |   0wx2a => ( print "cvtsi2ss\t"; print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW)  )
                             |   0wx2c =>
                                     ( print "cvttss2si\t"; print (genRegRepr (mkReg(rr, rexR), sizeFromRexW)); print ","; printEAxmm(rex, sizeFromRexW)  )
                             |   0wx2d =>

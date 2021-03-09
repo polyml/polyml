@@ -1209,12 +1209,12 @@ struct
                             destCode @ X87Float{dest=destVal, source=sourceVal} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=SSE2Float{dest, source}, ...}, code) =
+                    |   pushRegisters({instr=SSE2IntToReal{dest, source, isDouble}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSource(source, movePolyWord)
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ SSE2Float{dest=destVal, source=sourceVal} :: sourceCode @ code
+                            destCode @ SSE2IntToReal{dest=destVal, source=sourceVal, isDouble=isDouble} :: sourceCode @ code
                         end
     
                     |   pushRegisters({instr=SSE2FPUnary{opc, resultReg, source}, ...}, code) =

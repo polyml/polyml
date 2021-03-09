@@ -267,7 +267,7 @@ struct
     |   getInstructionState(X87Float{dest, source}) =
             { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(SSE2Float{dest, source}) =
+    |   getInstructionState(SSE2IntToReal{dest, source, ...}) =
             { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(SSE2FPUnary{resultReg, source, ...}) =

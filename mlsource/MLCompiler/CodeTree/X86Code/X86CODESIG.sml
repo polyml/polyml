@@ -167,7 +167,7 @@ sig
     |   MultiplyR of { source: genReg regOrMemoryArg, output: genReg, opSize: opSize }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
-    |   XMMConvertFromInt of { source: genReg, output: xmmReg, opSize: opSize }
+    |   XMMConvertFromInt of { source: genReg, output: xmmReg, opSize: opSize, precision: fpSize }
     |   SignExtendForDivide of opSize
     |   XChng of { reg: genReg, arg: genReg regOrMemoryArg, opSize: opSize }
     |   Negative of { output: genReg, opSize: opSize }

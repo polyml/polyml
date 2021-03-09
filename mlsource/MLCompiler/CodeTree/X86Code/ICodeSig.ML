@@ -323,7 +323,7 @@ sig
     |   X87Float of { dest: preg, source: argument }
 
         (* Load a fixed point value as a floating point value. *)
-    |   SSE2Float of { dest: preg, source: argument }
+    |   SSE2IntToReal of { dest: preg, source: argument, isDouble: bool }
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPUnary of { opc: sse2UnaryOps, resultReg: preg, source: argument }

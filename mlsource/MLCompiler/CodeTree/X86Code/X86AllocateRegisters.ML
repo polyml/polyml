@@ -730,7 +730,7 @@ struct
         |   registerAllocate({instr=X87Float{dest=PReg resReg, source}, ...}) =
                 (allocateArgGeneral source; allocateRegister(resReg, NONE, floatingPtRegisters))
 
-        |   registerAllocate({instr=SSE2Float{dest=PReg resReg, source}, ...}) =
+        |   registerAllocate({instr=SSE2IntToReal{dest=PReg resReg, source, ...}, ...}) =
                 (allocateArgGeneral source; allocateRegister(resReg, NONE, floatingPtRegisters))
 
         |   registerAllocate({instr=SSE2FPUnary{resultReg=PReg resReg, source, ...}, ...}) =

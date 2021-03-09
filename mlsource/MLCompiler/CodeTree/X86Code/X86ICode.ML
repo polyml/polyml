@@ -297,7 +297,7 @@ struct
     |   X87Float of { dest: preg, source: argument }
 
         (* Load a fixed point value as a floating point value. *)
-    |   SSE2Float of { dest: preg, source: argument }
+    |   SSE2IntToReal of { dest: preg, source: argument, isDouble: bool }
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPUnary of { opc: sse2UnaryOps, resultReg: preg, source: argument }
@@ -803,8 +803,11 @@ struct
         |   printICode(X87Float{dest, source}, stream) =
                 (stream "\tX87Float\t"; printArg(source, stream); stream " => "; printReg(dest, stream))
 
-        |   printICode(SSE2Float{dest, source}, stream) =
-                (stream "\tSSE2Float\t"; printArg(source, stream); stream " => "; printReg(dest, stream))
+        |   printICode(SSE2IntToReal{dest, source, isDouble}, stream) =
+            (
+                stream "\tSSE2IntToReal"; stream(if isDouble then "Double\t" else "Float\t");
+                printArg(source, stream); stream " => "; printReg(dest, stream)
+            )
         
         |   printICode(SSE2FPUnary{opc, resultReg, source}, stream) =
             (
