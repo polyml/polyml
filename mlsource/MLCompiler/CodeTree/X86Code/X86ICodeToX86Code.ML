@@ -643,7 +643,7 @@ struct
             |   instructionUses(X87FPArith{arg1, arg2, ...}) = (used arg1; argUses arg2)
             |   instructionUses(X87FPUnaryOps{source, ...}) = used source
             |   instructionUses(X87Float{source, ...}) = argUses source
-            |   instructionUses(SSE2Float{source, ...}) = argUses source
+            |   instructionUses(SSE2IntToReal{source, ...}) = argUses source
             |   instructionUses(SSE2FPUnary{source, ...}) = argUses source
             |   instructionUses(SSE2FPBinary{arg1, arg2, ...}) = (used arg1; argUses arg2)
             |   instructionUses(TagFloat{source, dest, ...}) = if isUsed dest then used source else ()
@@ -1529,12 +1529,13 @@ struct
                 ResetStack{numWords=1, preserveCC=false} :: FPLoadInt{ base=esp, offset=0, opSize=polyWordOpSize } :: PushToStack intSource :: code
             end
 
-        |   codeExtended _ ({instr=SSE2Float{dest=PReg resReg, source}, ...}, code) =
+        |   codeExtended _ ({instr=SSE2IntToReal{dest=PReg resReg, source, isDouble}, ...}, code) =
             let
                 val xmmResReg = getAllocatedXMMReg resReg
                 val srcReg = case codeExtArgumentAsGenReg source of RegisterArg srcReg => srcReg | _ => raise InternalError "FloatFixedInt: not reg"
             in
-                XMMConvertFromInt{ output=xmmResReg, source=srcReg, opSize=polyWordOpSize} :: code
+                XMMConvertFromInt{ output=xmmResReg, source=srcReg, opSize=polyWordOpSize,
+                    precision=if isDouble then DoublePrecision else SinglePrecision} :: code
             end
 
         |   codeExtended _ ({instr=SSE2FPUnary{opc, resultReg=PReg resReg, source}, ...}, code) =
