@@ -909,6 +909,12 @@ struct
                     |   _ => (* Not constant. *) doAllocateAndInit()
                 end
 
+            |   BICLoadOperation { kind=LoadStoreMLWord {isImmutable=false}, address={base, index=NONE, offset=0}} =>
+                (
+                    gencde (base, ToX0, NotEnd, loopAddr);
+                    gen(loadAcquire{regN=X0, regT=X0}, cvec)
+                )
+
             |   BICLoadOperation { kind=LoadStoreMLWord _, address} =>
                 (
                     case genMLLoadAddress(address, Word.toInt wordSize) of
@@ -1029,6 +1035,15 @@ struct
                     (* Have to tag the result. *)
                     gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
                     gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
+                )
+
+            |   BICStoreOperation { kind=LoadStoreMLWord _, address={base, index=NONE, offset=0}, value } =>
+                (
+                    gencde (base, ToStack, NotEnd, loopAddr);
+                    gencde (value, ToX0, NotEnd, loopAddr);
+                    genPopReg(X1, cvec); (* Address *)
+                    decsp();
+                    gen(storeRelease{regN=X1, regT=X0}, cvec)
                 )
 
             |   BICStoreOperation { kind=LoadStoreMLWord _, address, value } =>
