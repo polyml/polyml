@@ -534,6 +534,20 @@ struct
         and storeRegIndexedDouble = loadStoreRegRegisterOffset(0w3, 0w1, 0w0, vReg)
     end
 
+    local
+        (* Loads and stores with special ordering. *)
+        fun loadStoreExclusive(size, o2, l, o1, o0) {regS, regT2, regN, regT} =
+            SimpleInstr(0wx08000000 orb (size << 0w30) orb (o2 << 0w23) orb (l << 0w22) orb
+                (o1 << 0w21) orb (word8ToWord(xRegOrXZ regS) << 0w16) orb (o0 << 0w15) orb
+                (word8ToWord(xRegOrXZ regT2) << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
+                 word8ToWord(xRegOrXZ regT))
+    in
+        fun loadAcquire{regN, regT} =
+            loadStoreExclusive(0w3, 0w1, 0w1, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
+        and storeRelease{regN, regT} =
+            loadStoreExclusive(0w3, 0w1, 0w0, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
+    end
+
     (* Addresses must go in the constant area at the end of the code where they
        can be found by the GC. *)
     fun loadAddressConstant(xReg, valu) = LoadAddressLiteral{reg=xReg, value=valu}
@@ -1329,6 +1343,27 @@ struct
                 printStream ","; printStream xr; printStream(Word.fmt StringCvt.DEC rM);
                 printStream extend; printStream indexShift;
                 printStream "]"
+            end
+
+            else if (wordValue andb 0wx3f000000) = 0wx08000000
+            then (* Loads and stores with special ordering. *)
+            let
+                val size = (wordValue >> 0w30) andb 0w3
+                and o2 = (wordValue >> 0w23) andb 0w1
+                and l = (wordValue >> 0w22) andb 0w1
+                and o1 = (wordValue >> 0w21) andb 0w1
+                and o0 = (wordValue >> 0w15) andb 0w1
+                val rT = wordValue andb 0wx1f
+                and rN = (wordValue >> 0w5) andb 0wx1f
+                val (opcode, r) =
+                    case (size, o2, l, o1, o0) of
+                        (0w3, 0w1, 0w1, 0w0, 0w1) => ("ldar", "x")
+                    |   (0w3, 0w1, 0w0, 0w0, 0w1) => ("stlr", "x")
+                    |   _ => ("??", "?")
+            in
+                printStream opcode; printStream "\t"; printStream r;
+                printStream(Word.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN); printStream "]"
             end
 
             else if (wordValue andb 0wxbf800000) = 0wx91000000
