@@ -155,7 +155,7 @@ static bool atomiclySetForwarding(LocalMemSpace *space, ptrasint *pt, ptrasint t
     uintptr_t result = InterlockedCompareExchange(address, update, testVal);
     return result == testVal;
 # endif
-#elif (defined(__GNUC__)
+#elif (defined(__GNUC__))
     return __sync_bool_compare_and_swap(pt - 1, testVal, update);
 #else
     // Fallback on other targets.
