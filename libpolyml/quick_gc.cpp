@@ -155,24 +155,8 @@ static bool atomiclySetForwarding(LocalMemSpace *space, ptrasint *pt, ptrasint t
     uintptr_t result = InterlockedCompareExchange(address, update, testVal);
     return result == testVal;
 # endif
-#elif((defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X32) || defined(HOSTARCHITECTURE_X86_64)) && (SIZEOF_POLYWORD == 4) && defined(__GNUC__))
-    uintptr_t result;
-    __asm__ __volatile__ (
-        "lock; cmpxchgl %1,%2"
-        :"=a"(result)
-        :"r"(update),"m"(pt[-1]),"0"(testVal)
-        :"memory", "cc"
-    );
-    return result == testVal;
-#elif(defined(HOSTARCHITECTURE_X86_64) && (SIZEOF_POLYWORD == 8) && defined(__GNUC__))
-    uintptr_t result;
-    __asm__ __volatile__ (
-        "lock; cmpxchgq %1,%2"
-        :"=a"(result)
-        :"r"(update),"m"(pt[-1]),"0"(testVal)
-        :"memory", "cc"
-    );
-    return result == testVal;
+#elif (defined(__GNUC__)
+    return __sync_bool_compare_and_swap(pt - 1, testVal, update);
 #else
     // Fallback on other targets.
     PLocker lock(&space->spaceLock);

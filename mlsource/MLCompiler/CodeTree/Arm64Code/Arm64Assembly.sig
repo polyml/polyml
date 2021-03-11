@@ -218,6 +218,10 @@ sig
     and loadRegPreIndexByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegPreIndexByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
 
+    (* Loads and stores with special ordering. *)
+    val loadAcquire: {regN: xReg, regT: xReg} -> instr
+    and storeRelease: {regN: xReg, regT: xReg} -> instr
+
     (* This word is put in after a call to the RTS trap-handler.  All the registers
        are saved and restored across a call to the trap-handler; the register
        mask contains those that may contain an address and so need to be scanned and

@@ -98,6 +98,8 @@ struct
                 (* C floating pt args *) [V0, V1, V2, V3, V4, V5, V6, V7]) @
             [
                 (* Move X30 to X24, a callee-save register. *)
+                (* Note: maybe we should push X24 just in case this is the only
+                   reachable reference to the code. *)
                 orrShiftedReg{regN=XZero, regM=X_LinkReg, regD=X24, shift=ShiftNone}
                 (* Clear the RTS exception before we enter.  "Full" RTS calls clear it anyway
                    but "fast" calls don't. *)
@@ -105,7 +107,6 @@ struct
                 loadNonAddress(X8, 0w1) @
             [
                 storeRegScaled{regT=X8, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset},
-                (* TODO: For floating pt we'll need to load and reorder the args here. *)
                 loadAddressConstant(X16, entryPointAddr), (* Load entry point *)
                 loadRegScaled{regT=X16, regN=X16, unitOffset=0}, (* Load the actual address. *)
                 (* Store the current heap allocation pointer. *)
