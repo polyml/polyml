@@ -546,6 +546,14 @@ struct
             loadStoreExclusive(0w3, 0w1, 0w1, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
         and storeRelease{regN, regT} =
             loadStoreExclusive(0w3, 0w1, 0w0, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
+
+        (* Acquire exclusive access to a memory location and load its current value *)
+        and loadAcquireExclusiveRegister{regN, regT} =
+            loadStoreExclusive(0w3, 0w0, 0w1, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
+        (* Release exclusive access and test whether it succeeded.  Sets regS to 0
+           if successful otherwise 1, in which case we have to repeat the operation. *)
+        and storeReleaseExclusiveRegister{regN, regS, regT} =
+            loadStoreExclusive(0w3, 0w0, 0w0, 0w0, 0w1) {regS=regS, regT2=XZero, regN=regN, regT=regT}
     end
 
     (* Addresses must go in the constant area at the end of the code where they
@@ -584,16 +592,6 @@ struct
     val yield = SimpleInstr 0wxD503203F (* Yield inside a spin-lock. *)
     and dmbIsh = SimpleInstr 0wxD5033BBF (* Memory barrier. *)
     
-    (* Acquire exclusive access to a memory location and load its current value *)
-    fun loadAcquireExclusiveRegister{regN, regT} =
-        SimpleInstr(0wxC85FFC00 orb (word8ToWord(xRegOrXSP regN) << 0w5) orb
-                word8ToWord(xRegOnly regT))
-    (* Release exclusive access and test whether it succeeded.  Sets regS to 0
-       if successful otherwise 1, in which case we have to repeat the operation. *)
-    and storeReleaseExclusiveRegister{regN, regS, regT} =
-        SimpleInstr(0wxC800FC00 orb (word8ToWord(xRegOnly regS) << 0w16) orb (word8ToWord(xRegOrXSP regN) << 0w5) orb
-                word8ToWord(xRegOnly regT))
-
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
     fun branchAndLinkReg(dest) =
@@ -867,17 +865,71 @@ struct
         putBytes(value, word64Addr << 0w3, seg, 0w0)
     end
 
+    (* Set the sizes of branches depending on the distance to the destination. *)
+    fun setLabelsAndSizes ops =
+    let
+        (* Set the labels and get the current size of the code. *)
+        fun setLabels(Label(ref labs) :: ops, ic) = (List.app(fn d => d := ic) labs; setLabels(ops, ic))
+        |   setLabels(oper :: ops, ic) = setLabels(ops, ic + Word.fromInt(codeSize oper))
+        |   setLabels([], ic) = ic
+
+        (* Set the labels and adjust the sizes, repeating until it never gets smaller *)
+        fun setLabAndSize(ops, lastSize) =
+        let
+            (* See if we can shorten any branches.  The "addr" is the original address since
+               that's what we've used to set the labels.  *)
+            fun adjust([], _) = ()
+
+            |   adjust(ConditionalBranch { length as ref BrExtended, label=ref labs, ...} :: instrs, addr) =
+                let
+                    val dest = !(hd labs)
+                    val offset = Word.toInt dest - Word.toInt addr
+                in
+                    if offset < Word.toInt(0w1 << 0w18) andalso offset >= ~ (Word.toInt(0w1 << 0w18))
+                    then length := BrShort
+                    else ();
+                    adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
+                end
+            
+            |   adjust(TestBitBranch { length as ref BrExtended, label=ref labs, ...} :: instrs, addr) =
+                let
+                    val dest = !(hd labs)
+                    val offset = Word.toInt dest - Word.toInt addr
+                in
+                    if offset < 0x2000 andalso offset >= ~ 0x2000
+                    then length := BrShort
+                    else ();
+                    adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
+                end
+
+            |   adjust(CompareBranch { length as ref BrExtended, label=ref labs, ...} :: instrs, addr) =
+                let
+                    val dest = !(hd labs)
+                    val offset = Word.toInt dest - Word.toInt addr
+                in
+                    if offset < 0x40000 andalso offset >= ~ 0x40000
+                    then length := BrShort
+                    else ();
+                    adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
+                end
+            
+            |   adjust(instr :: instrs, addr) = adjust(instrs, addr + Word.fromInt(codeSize instr))
+
+            val () = adjust(ops, 0w0)
+
+            val nextSize = setLabels(ops, 0w0)
+        in
+            if nextSize < lastSize then setLabAndSize(ops, nextSize)
+            else if nextSize = lastSize then lastSize
+            else raise InternalError "setLabAndSize - size increased"
+        end
+    in
+        setLabAndSize(ops, setLabels(ops, 0w0))
+    end
+
     fun genCode(ops, addressConsts, nonAddressConsts) =
     let
-        local
-            (* First pass - set the labels. *)
-            fun setLabels(Label(ref labs) :: ops, ic) = (List.app(fn d => d := ic) labs; setLabels(ops, ic))
-            |   setLabels(oper :: ops, ic) = setLabels(ops, ic + Word.fromInt(codeSize oper))
-            |   setLabels([], ic) = ic
-        in
-            val codeSize = setLabels(ops, 0w0) (* Number of 32-bit instructions *)
-        end
-
+        val codeSize = setLabelsAndSizes ops (* Number of 32-bit instructions *)
         val wordsOfCode = (codeSize + 0w1) div 0w2 (* Round up to 64-bits *)
         val paddingWord = if Word.andb(codeSize, 0w1) = 0w1 then [SimpleInstr nopCode] else []
         
@@ -1003,7 +1055,7 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
-                val _ = offset < 0x2000 orelse offset >= ~ 0x2000
+                val _ = (offset < 0x2000 andalso offset >= ~ 0x2000)
                     orelse raise InternalError "TestBitBranch: Offset to label address is too large"
                 val _ = bitNo <= 0w63 orelse
                     raise InternalError "TestBitBranch: bit number > 63"
@@ -1032,7 +1084,7 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
-                val _ = offset < 0x40000 orelse offset >= ~ 0x40000
+                val _ = (offset < 0x40000 andalso offset >= ~ 0x40000)
                     orelse raise InternalError "CompareBranch: Offset to label address is too large"
                 val code = compareBranch(size, brNonZero, Word.fromInt offset, reg)
             in
@@ -1355,13 +1407,20 @@ struct
                 and o0 = (wordValue >> 0w15) andb 0w1
                 val rT = wordValue andb 0wx1f
                 and rN = (wordValue >> 0w5) andb 0wx1f
+                and rS = (wordValue >> 0w16) andb 0wx1f
                 val (opcode, r) =
                     case (size, o2, l, o1, o0) of
                         (0w3, 0w1, 0w1, 0w0, 0w1) => ("ldar", "x")
                     |   (0w3, 0w1, 0w0, 0w0, 0w1) => ("stlr", "x")
+                    |   (0w3, 0w0, 0w1, 0w0, 0w1) => ("ldaxr", "x")
+                    |   (0w3, 0w0, 0w0, 0w0, 0w1) => ("stlxr", "x")
                     |   _ => ("??", "?")
             in
-                printStream opcode; printStream "\t"; printStream r;
+                printStream opcode; printStream "\t";
+                if opcode = "stlxr"
+                then (printStream "w"; printStream(Word.fmt StringCvt.DEC rS); printStream ",")
+                else ();
+                printStream r;
                 printStream(Word.fmt StringCvt.DEC rT);
                 printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN); printStream "]"
             end
@@ -1797,16 +1856,6 @@ struct
                 printStream r; printStream(Word.fmt StringCvt.DEC rM);
                 if rA = 0w31 then ()
                 else (printStream ","; printStream r; printStream(Word.fmt StringCvt.DEC rA))
-            end
-
-            else if (wordValue andb 0wxfffffc00) = 0wxC85FFC00
-            then
-            let
-                val rN = (wordValue >> 0w5) andb 0wx1f
-                val rT = wordValue andb 0wx1f
-            in
-                printStream "ldaxr\tx"; printStream(Word.fmt StringCvt.DEC rT);
-                printStream ".[x"; printStream(Word.fmt StringCvt.DEC rN); printStream "]"
             end
 
             else if (wordValue andb 0wxffe0fc00) = 0wxC800FC00
