@@ -400,11 +400,11 @@ struct
         mkInlproc(getCurrentThreadId, 1 (* Ignores argument *), "GetThreadId()", [], 0)
     
     val checkRTSException = Nullary{oper=BuiltIns.CheckRTSException}
-    
-    val cpuPause = Nullary{oper=BuiltIns.CPUPause}
-    val cpuPauseFn =
-        mkInlproc(cpuPause, 1 (* Ignores argument *), "CPUPause()", [], 0)
 
+    val createMutex = Nullary{oper=BuiltIns.CreateMutex}
+    val createMutexFn =
+        mkInlproc(createMutex, 1 (* Ignores argument *), "CreateMutex()", [], 0)
+    
     fun mkAllocateWordMemory (numWords, flags, initial) =
         AllocateWordMemory { numWords = numWords, flags = flags, initial = initial }
     val mkAllocateWordMemoryFn =

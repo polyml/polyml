@@ -78,10 +78,9 @@ public:
 
     virtual void InitStackFrame(TaskData *newTask, Handle proc);
 
-    // Atomic exchanege-and-add.
-    virtual POLYSIGNED AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr);
-    // Set a mutex to zero.
-    virtual void AtomicReset(PolyObject* mutexp);
+    virtual bool AtomicallyReleaseMutex(PolyObject* mutexp) {
+        return InterpreterReleaseMutex(mutexp);
+    }
 
     // Return the minimum space occupied by the stack.   Used when setting a limit.
     virtual uintptr_t currentStackSpace(void) const { return ((stackItem*)this->stack->top - this->taskSp) + OVERFLOW_STACK_SIZE; }
@@ -306,36 +305,6 @@ void IntTaskData::InterruptCode()
     // stack.  The thread we're interrupting could be growing the stack at this point.
     if (stack != 0)
         sl = (stackItem*)(stack->top - 1);
-}
-
-// As far as possible we want locking and unlocking an ML mutex to be fast so
-// we try to implement the code in the assembly code using appropriate
-// interlocked instructions.  That does mean that if we need to lock and
-// unlock an ML mutex in this code we have to use the same, machine-dependent,
-// code to do it.  These are defaults that are used where there is no
-// machine-specific code.
-
-// This lock is used to synchronise all atomic operations.
-// It is not needed in the X86 version because that can use a global
-// memory lock.
-static PLock mutexLock;
-
-POLYSIGNED IntTaskData::AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr)
-{
-    PLocker l(&mutexLock);
-    POLYSIGNED oldValue = mutexp->Get(0).AsSigned();
-    PolyWord newValue = PolyWord::FromSigned(oldValue + incr - TAGGED(0).AsSigned() /* Remove the tag */);
-    mutexp->Set(0, newValue);
-    return oldValue;
-}
-
-// Release a mutex.  We need to lock the mutex to ensure we don't
-// reset it in the time between one of atomic operations reading
-// and writing the mutex.
-void IntTaskData::AtomicReset(PolyObject* mutexp)
-{
-    PLocker l(&mutexLock);
-    mutexp->Set(0, TAGGED(0)); // Set this to released.
 }
 
 bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)

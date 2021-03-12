@@ -247,7 +247,10 @@ struct
     and ext_opcode_tail              = 0wx7c
     and ext_opcode_callFastRTSRtoR   = 0wx8f
     and ext_opcode_callFastRTSGtoR   = 0wx90
-    and ext_opcode_atomicExchAdd     = 0wx96
+    and ext_opcode_createMutex       = 0wx91
+    and ext_opcode_lockMutex         = 0wx92
+    and ext_opcode_tryLockMutex      = 0wx93
+    (*and ext_opcode_atomicExchAdd     = 0wx96*)
     and ext_opcode_atomicReset       = 0wx99
     and ext_opcode_longWToTagged     = 0wx9a
     and ext_opcode_signedToLongW     = 0wx9b
@@ -656,7 +659,9 @@ struct
                         |   0wx7c => (printOp (2, "tail\t"); printOp (2, ","))
                         |   0wx8f => printStream "callFastRTSRtoR"
                         |   0wx90 => printStream "callFastRTSGtoR"
-                        |   0wx96 => printStream "atomicExchAdd"
+                        |   0wx91 => printStream "createMutex"
+                        |   0wx92 => printStream "lockMutex"
+                        |   0wx93 => printStream "tryLockMutex"
                         |   0wx99 => printStream "atomicReset"
                         |   0wx9a => printStream "longWToTagged"
                         |   0wx9b => printStream "signedToLongW"
@@ -1680,7 +1685,9 @@ struct
     val opcode_cellLength       = SimpleCode [opcode_cellLength]
     and opcode_cellFlags        = SimpleCode [opcode_cellFlags]
     and opcode_clearMutable     = SimpleCode [opcode_clearMutable]
-    and opcode_atomicExchAdd    = SimpleCode [opcode_escape, ext_opcode_atomicExchAdd]
+    and opcode_createMutex      = SimpleCode [opcode_escape, ext_opcode_createMutex]
+    and opcode_lockMutex        = SimpleCode [opcode_escape, ext_opcode_lockMutex]
+    and opcode_tryLockMutex     = SimpleCode [opcode_escape, ext_opcode_tryLockMutex]
     and opcode_atomicReset      = SimpleCode [opcode_escape, ext_opcode_atomicReset]
     and opcode_longWToTagged    = SimpleCode [opcode_escape, ext_opcode_longWToTagged]
     and opcode_signedToLongW    = SimpleCode [opcode_escape, ext_opcode_signedToLongW]

@@ -28,7 +28,9 @@ sig
     val opcode_cellLength: opcode
     and opcode_cellFlags: opcode
     and opcode_clearMutable: opcode
-    and opcode_atomicExchAdd: opcode
+    and opcode_createMutex: opcode
+    and opcode_lockMutex: opcode
+    and opcode_tryLockMutex: opcode
     and opcode_atomicReset: opcode
     and opcode_longWToTagged: opcode
     and opcode_signedToLongW: opcode

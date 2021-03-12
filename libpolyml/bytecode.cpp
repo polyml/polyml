@@ -257,6 +257,8 @@ float ByteCodeInterpreter::unboxFloat(PolyWord p)
 #endif
 
 
+static PLock mutexLock;
+
 enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskData *taskData)
 /* (Re)-enter the Poly code from C. */
 {
@@ -803,16 +805,22 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
 
         case INSTR_atomicIncr:
         {
+            // This is legacy code.  Returns the result after the increment.
             PolyObject* p = (*sp).w().AsObjPtr();
-            POLYUNSIGNED newValue = taskData->AtomicIncrement(p);
+            PLocker pl(&mutexLock);
+            POLYUNSIGNED newValue = p->Get(0).AsUnsigned() + 2; // Add tagged 1 with the tag removed.
+            p->Set(0, PolyWord::FromUnsigned(newValue));
             *sp = PolyWord::FromUnsigned(newValue);
             break;
         }
 
         case INSTR_atomicDecr:
         {
-            PolyObject *p = (*sp).w().AsObjPtr();
-            POLYUNSIGNED newValue = taskData->AtomicDecrement(p);
+            // This is legacy code.  Returns the result after the increment.
+            PolyObject* p = (*sp).w().AsObjPtr();
+            PLocker pl(&mutexLock);
+            POLYUNSIGNED newValue = p->Get(0).AsUnsigned() - 2; // Subtract tagged 1 with the tag removed.
+            p->Set(0, PolyWord::FromUnsigned(newValue));
             *sp = PolyWord::FromUnsigned(newValue);
             break;
         }
@@ -1432,20 +1440,63 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
 
             case EXTINSTR_atomicExchAdd:
             {
+                // Now legacy code.
+                PLocker pl(&mutexLock);
                 PolyWord u = *sp++;
                 PolyObject* p = (*sp).w().AsObjPtr();
-                *sp = PolyWord::FromSigned(taskData->AtomicExchAdd(p, u.AsSigned()));
+                // Returns the old value.
+                PolyWord oldValue = p->Get(0);
+                *sp = oldValue;
+                p->Set(0, PolyWord::FromSigned(oldValue.AsSigned() + u.AsSigned() - 1));
+                break;
+            }
+
+            case EXTINSTR_createMutex:
+            {
+                // Allocate memory for a mutex.  We allocate a single mutable word initialised to tagged 0.
+                PolyObject* t = this->allocateMemory(taskData, 1, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(1, F_MUTABLE_BIT|F_NO_OVERWRITE|F_WEAK_BIT);
+                t->Set(0, TAGGED(0));
+                *(--sp) = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_lockMutex:
+            {
+                // TODO: We could put a spin-lock in here.
+                PolyObject* p = (*sp).w().AsObjPtr();
+                PLocker pl(&mutexLock);
+                // Lock the mutex by using an atomic increment.
+                PolyWord oldValue = p->Get(0);
+                *sp = oldValue.AsUnsigned() == TAGGED(0).AsUnsigned() ? True : False;
+                p->Set(0, PolyWord::FromSigned(oldValue.AsSigned() + 2));
+                break;
+            }
+
+            case EXTINSTR_tryLockMutex:
+            {
+                PolyObject* p = (*sp).w().AsObjPtr();
+                PLocker pl(&mutexLock);
+                POLYUNSIGNED oldValue = p->Get(0).AsUnsigned();
+                // If it is unlocked we lock it and return true otherwise we leave it and return false.
+                if (oldValue == TAGGED(0).AsUnsigned())
+                {
+                    *sp = True;
+                    p->Set(0, TAGGED(1));
+                }
+                else *sp = False;
                 break;
             }
 
             case EXTINSTR_atomicReset:
             {
-                // This is needed in the interpreted version otherwise there
-                // is a chance that we could set the value to zero while another
-                // thread is between getting the old value and setting it to the new value.
+                // Reset the mutex and return a boolean result indicating if this thread was the only locker.
+                PLocker pl(&mutexLock);
                 PolyObject* p = (*sp).w().AsObjPtr();
-                taskData->AtomicReset(p);
-                *sp = TAGGED(0); // Push the unit result
+                POLYUNSIGNED oldValue = p->Get(0).AsUnsigned();
+                p->Set(0, TAGGED(0));
+                *sp = oldValue == TAGGED(1).AsUnsigned() ? True: False; // Push the unit result
                 break;
             }
 
@@ -2350,6 +2401,15 @@ void ByteCodeInterpreter::GarbageCollect(ScanAddress* process)
         overflowPacket = process->ScanObjectAddress(overflowPacket);
     if (dividePacket != 0)
         dividePacket = process->ScanObjectAddress(dividePacket);
+}
+
+// RTS call to unlock a mutex.
+bool ByteCodeInterpreter::InterpreterReleaseMutex(PolyObject* mutexp)
+{
+    PLocker pl(&mutexLock);
+    POLYUNSIGNED oldValue = mutexp->Get(0).AsUnsigned();
+    mutexp->Set(0, TAGGED(0));
+    return oldValue == TAGGED(1).AsUnsigned();
 }
 
 extern "C" {

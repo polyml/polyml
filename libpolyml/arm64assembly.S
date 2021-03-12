@@ -187,23 +187,22 @@ Arm64AsmCallExtraRETURN_ENTER_INTERPRETER :
 
 
 
-// POLYUNSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject*, POLYSIGNED);
+// POLYUNSIGNED Arm64AsmAtomicExchange(PolyObject*, POLYSIGNED);
 // This is not actually used with the VS build.
 #ifdef ARMASMSYNTAX
-    EXPORT Arm64AsmAtomicExchangeAndAdd
-Arm64AsmAtomicExchangeAndAdd PROC
+    EXPORT Arm64AsmAtomicExchange
+Arm64AsmAtomicExchange PROC
 #else
-    .global Arm64AsmAtomicExchangeAndAdd
-Arm64AsmAtomicExchangeAndAdd:
+    .global Arm64AsmAtomicExchange
+Arm64AsmAtomicExchange:
 #endif
 
-// The easiest way to do this is with ldaddal but that is only available
+// The easiest way to do this is with swpal  but that is only available
 // in ARM 8.1 and above.  For the moment we use the old version.
-//  ldaddal x1,x0,[x0]
+//  swpal x0,xzr,[x0]
 LABEL(aaea1)
     ldaxr   x3,[x0]
-    add     x2,x3,x1
-    stlxr   w4,x2,[x0]
+    stlxr   w4,xzr,[x0]
     cbnz    w4,aaea1
     dmb     ish
     mov     x0,x3

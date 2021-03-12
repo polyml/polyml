@@ -858,7 +858,16 @@ struct
                     gen(setLabel noException, cvec)
                 end
 
-            |   BICNullary {oper=CPUPause} => gen(yield, cvec)
+            |   BICNullary {oper=CreateMutex} =>
+                let
+                    (* Allocate memory for a mutex.  Use a native word as a mutable, weak, no-overwrite, byte cell
+                       which is the same as a volatileRef. This ensures that it will always be cleared when it is
+                       loaded even if it was locked when it was saved. *)
+                    val flags = Word8.orb(F_mutable, Word8.orb(F_weak, Word8.orb(F_noOverwrite, F_bytes))) (* 0wx69 *)
+                in
+                    genAllocateFixedSize(1, flags, X0, X5, cvec);
+                    gen(storeRegScaled{regT=XZero, regN=X0, unitOffset=0}, cvec)
+                end
 
             |   BICUnary { oper, arg1 } => genUnary(oper, arg1, loopAddr)
 
@@ -1434,16 +1443,6 @@ struct
                 gen(storeRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec)
             )
 
-        |   genUnary(AtomicReset, arg1, loopAddr) =
-            (
-                gencde (arg1, ToX0, NotEnd, loopAddr);
-                (* Clear the mutex. Simply setting it to tagged 0 will work.
-                   If another thread is in the ldaxr/stlxr loop it will see
-                   the value has changed and retry. *)
-                genList(loadNonAddress(X1, taggedWord64 0w0), cvec);
-                gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec)
-            )
-
         |   genUnary(LongWordToTagged, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
@@ -1591,6 +1590,71 @@ struct
                 gen(addImmediate{regN=XSP, regD=X1, immed=0w0, shifted=false}, cvec);
                 boxLargeWord(X1, cvec)
             )
+
+        |   genUnary(LockMutex, arg1, loopAddr) =
+            (* The earliest versions of the Arm8 do not have the LDADD instruction which
+               will do this directly.  To preserve compatibility we use LDAXR/STLXR
+               which require a loop. *)
+            let
+                val loopLabel = createLabel()
+                (* For the moment don't try to use a spin lock. *)
+            in
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(setLabel loopLabel, cvec);
+                (* Get the original value into X1. *)
+                gen(loadAcquireExclusiveRegister{regN=X0, regT=X1}, cvec);
+                (* Add and put the result into X2 *)
+                gen(addImmediate{regN=X1, regD=X2, immed=0w1, shifted=false}, cvec);
+                (* Store the result of the addition. W4 will be zero if this succeeded. *)
+                gen(storeReleaseExclusiveRegister{regS=X4, regT=X2, regN=X0}, cvec);
+                gen(compareBranchNonZero(X4, WordSize32, loopLabel), cvec);
+                (* Put in the memory barrier. *)
+                gen(dmbIsh, cvec);
+                (* The result is true if the old value was zero. *)
+                gen(subSImmediate{regN=X1, regD=XZero, immed=0w0, shifted=false}, cvec);
+                setBooleanCondition(X0, condEqual, cvec)                
+            end
+
+        |   genUnary(TryLockMutex, arg1, loopAddr) =
+            (* Could use LDUMAXAL to set it the greater of the current value or 1. *)
+            let
+                val loopLabel = createLabel() and exitLabel = createLabel()
+            in
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(setLabel loopLabel, cvec);
+                (* Get the original value into X1. *)
+                gen(loadAcquireExclusiveRegister{regN=X0, regT=X1}, cvec);
+                (* If it is non-zero the lock is already taken. *)
+                gen(compareBranchNonZero(X1, WordSize64, exitLabel), cvec);
+                genList(loadNonAddress(X2, 0w1), cvec);
+                (* Store zero into the memory. W4 will be zero if this succeeded. *)
+                gen(storeReleaseExclusiveRegister{regS=X4, regT=X2, regN=X0}, cvec);
+                gen(compareBranchNonZero(X4, WordSize32, loopLabel), cvec);
+                gen(setLabel exitLabel, cvec);
+                gen(dmbIsh, cvec);
+                (* The result is true if the old value was zero. *)
+                gen(subSImmediate{regN=X1, regD=XZero, immed=0w0, shifted=false}, cvec);
+                setBooleanCondition(X0, condEqual, cvec)
+            end
+
+        |   genUnary(UnlockMutex, arg1, loopAddr) =
+            (* Could use SWAPAL *)
+            let
+                val loopLabel = createLabel()
+            in
+                gencde (arg1, ToX0, NotEnd, loopAddr);
+                gen(setLabel loopLabel, cvec);
+                (* Get the original value into X1. *)
+                gen(loadAcquireExclusiveRegister{regN=X0, regT=X1}, cvec);
+                (* Store zero into the memory. W4 will be zero if this succeeded. *)
+                gen(storeReleaseExclusiveRegister{regS=X4, regT=XZero, regN=X0}, cvec);
+                gen(compareBranchNonZero(X4, WordSize32, loopLabel), cvec);
+                (* Put in the memory barrier. *)
+                gen(dmbIsh, cvec);
+                (* The result is true if the old value was 1. *)
+                gen(subSImmediate{regN=X1, regD=XZero, immed=0w1, shifted=false}, cvec);
+                setBooleanCondition(X0, condEqual, cvec)
+            end
 
         and genBinary(WordComparison{test, isSigned}, arg1, arg2, loopAddr) =
             let
@@ -2168,31 +2232,6 @@ struct
                 gen(logicalShiftRight{wordSize=WordSize64, shift=0w1, regN=X0, regD=X0}, cvec);
                 gen(addExtendedReg{regM=X0, regN=XSP, regD=XSP, extend=ExtUXTX 0w0}, cvec)
             )
-
-        |   genBinary(AtomicExchangeAdd, arg1, arg2, loopAddr) =
-            (* The earliest versions of the Arm8 do not have the LDADD instruction which
-               will do this directly.  To preserve compatibility we use LDAXR/STLXR
-               which require a loop. *)
-            let
-                val loopLabel = createLabel()
-            in
-                gencde (arg1, ToStack, NotEnd, loopAddr);
-                gencde (arg2, ToX0, NotEnd, loopAddr);
-                decsp();
-                genPopReg(X1, cvec); (* Address of mutex *)
-                (* Untag the value to add. *)
-                gen(subImmediate{regN=X0, regD=X3, immed=0w1, shifted=false}, cvec);
-                gen(setLabel loopLabel, cvec);
-                (* Get the original value into X0. *)
-                gen(loadAcquireExclusiveRegister{regN=X1, regT=X0}, cvec);
-                (* Add and put the result into X3 *)
-                gen(addShiftedReg{regM=X0, regN=X3, regD=X2, shift=ShiftNone}, cvec);
-                (* Store the result of the addition. W4 will be zero if this succeeded. *)
-                gen(storeReleaseExclusiveRegister{regS=X4, regT=X2, regN=X1}, cvec);
-                gen(compareBranchNonZero(X4, WordSize32, loopLabel), cvec);
-                (* Put in the memory barrier. *)
-                gen(dmbIsh, cvec)
-            end
 
        (* doNext is only used for mutually recursive functions where a
          function may not be able to fill in its closure if it does not have

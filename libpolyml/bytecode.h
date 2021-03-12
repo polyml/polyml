@@ -51,6 +51,8 @@ protected:
     POLYCODEPTR     interpreterPc;
     stackItem       **stackPointerAddress, **stackLimitAddress;
 
+    bool InterpreterReleaseMutex(PolyObject* mutexp);
+
 private:
     PolyObject *overflowPacket, *dividePacket;
 

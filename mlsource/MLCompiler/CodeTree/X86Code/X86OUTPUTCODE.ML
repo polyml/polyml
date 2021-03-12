@@ -646,6 +646,8 @@ struct
     |   TEST_ACC8
     |   LOCK_XADD32
     |   LOCK_XADD64
+    |   LOCK_CMPXCHG32
+    |   LOCK_CMPXCHG64
     |   FPESC of Word8.word
     |   XCHNG32
     |   XCHNG64
@@ -736,6 +738,8 @@ struct
     |   opToInt TEST_ACC8       = 0wxa8
     |   opToInt LOCK_XADD32     = 0wxC1 (* Needs lock and escape prefixes. *)
     |   opToInt LOCK_XADD64     = 0wxC1 (* Needs lock and escape prefixes. *)
+    |   opToInt LOCK_CMPXCHG32  = 0wxB1 (* Needs lock and escape prefixes. *)
+    |   opToInt LOCK_CMPXCHG64  = 0wxB1 (* Needs lock and escape prefixes. *)
     |   opToInt (FPESC n)       = 0wxD8 orb8 n
     |   opToInt XCHNG32         = 0wx87
     |   opToInt XCHNG64         = 0wx87
@@ -825,6 +829,8 @@ struct
     (* Lock, Opsize and REPNE prefixes come before the REX. *)
     fun opcodePrefix LOCK_XADD32                = [0wxF0] (* Requires LOCK prefix. *)
     |   opcodePrefix LOCK_XADD64                = [0wxF0] (* Requires LOCK prefix. *)
+    |   opcodePrefix LOCK_CMPXCHG32             = [0wxF0] (* Requires LOCK prefix. *)
+    |   opcodePrefix LOCK_CMPXCHG64             = [0wxF0] (* Requires LOCK prefix. *)
     |   opcodePrefix MOVL_R_A16                 = [0wx66] (* Requires OPSIZE prefix. *)
     |   opcodePrefix SSE2StoreSingle            = [0wxf3]
     |   opcodePrefix SSE2StoreDouble            = [0wxf2]
@@ -869,6 +875,8 @@ struct
     |   escapePrefix MOVSXW64                   = [0wx0f]
     |   escapePrefix LOCK_XADD32                = [0wx0f]
     |   escapePrefix LOCK_XADD64                = [0wx0f]
+    |   escapePrefix LOCK_CMPXCHG32             = [0wx0f]
+    |   escapePrefix LOCK_CMPXCHG64             = [0wx0f]
     |   escapePrefix IMUL32                     = [0wx0f]
     |   escapePrefix IMUL64                     = [0wx0f]
     |   escapePrefix(CondJump32 _)              = [0wx0f]
@@ -927,6 +935,7 @@ struct
             |   MOVL_32_A64 => true (* Needed *)
             |   IMUL64 => true (* Needed to ensure the result is 64-bits *)
             |   LOCK_XADD64 => true (* Needed to ensure the result is 64-bits *)
+            |   LOCK_CMPXCHG64 => true (* Needed to ensure the result is 64-bits *)
             |   CQO_CDQ64 => true (* It's only CQO if there's a Rex prefix. *)
             |   CVTSI2SD64 => true (* This affects the size of the integer source. *)
             |   IMUL_C8_64 => true
@@ -1164,6 +1173,7 @@ struct
     |   DivideAccR of {arg: genReg, isSigned: bool, opSize: opSize }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool, opSize: opSize }
     |   AtomicXAdd of {address: memoryAddress, output: genReg, opSize: opSize }
+    |   AtomicCmpXChng of {address: memoryAddress, source: genReg, opSize: opSize }
     |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of { constant: machineWord, precision: fpSize }
@@ -1346,6 +1356,8 @@ struct
                 ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream(printOpSize opSize); stream " "; printBaseOffset(base, NoIndex, offset))
         |   AtomicXAdd{address, output, opSize} =>
                 (stream "LockedXAdd"; stream(printOpSize opSize); printMemAddress address; stream " <=> "; printGReg output)
+        |   AtomicCmpXChng{address, source, opSize} =>
+                (stream "LockedCmpXchng"; stream(printOpSize opSize); printMemAddress address; stream ", "; printGReg source)
         |   FPLoadFromMemory{address, precision=DoublePrecision} => (stream "FPLoadDouble "; printMemAddress address)
         |   FPLoadFromMemory{address, precision=SinglePrecision} => (stream "FPLoadSingle "; printMemAddress address)
         |   FPLoadFromFPReg {source, lastRef} =>
@@ -1845,6 +1857,11 @@ struct
         |   cgOp(AtomicXAdd{address={offset, base, index}, output, opSize}) =
                 (* Locked exchange-and-add.  We need the lock prefix before the REX prefix. *)
                 opAddress(case opSize of OpSize64 => LOCK_XADD64 | OpSize32 => LOCK_XADD32, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp(AtomicCmpXChng{address={offset, base, index}, source, opSize}) =
+                (* Locked compare and exchange. *)
+                opAddress(case opSize of OpSize64 => LOCK_CMPXCHG64 | OpSize32 => LOCK_CMPXCHG32, LargeInt.fromInt offset,
+                         base, index, source)
 
         |   cgOp(PushToStack(RegisterArg reg)) =
             let
@@ -3251,6 +3268,18 @@ struct
                             |   0wx4d => printcmov "cmovge"
                             |   0wx4e => printcmov "cmovle"
                             |   0wx4f => printcmov "cmovg"
+
+                            |   0wxB1 =>
+                                let
+                                    val nb = codeVecGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    (* The address argument comes first in the assembly code. *)
+                                    print "cmpxchg\t";
+                                    printEA (rex, sizeFromRexW);
+                                    print ",";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
+                                end
 
                             |   0wxC1 =>
                                 let

@@ -1,7 +1,7 @@
 /*
    Title:  Assembly code routines for the poly system.
    Author:    David Matthews
-   Copyright (c) David C. J. Matthews 2000-2020
+   Copyright (c) David C. J. Matthews 2000-2021
  
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -267,24 +267,16 @@ INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
 INLINE_ROUTINE(X86AsmCallExtraRETURN_ENTER_INTERPRETER)
     CALL_EXTRA(RETURN_ENTER_INTERPRETER)
 
-# Fallback exchange and add if we can't use inline.
-INLINE_ROUTINE(X86AsmAtomicExchangeAndAdd)
+# Fallback exchange if we can't use inline.
+# The mutex is a native word on 32-in-64
+INLINE_ROUTINE(X86AsmAtomicExchange)
 #ifdef _WIN32
 #  Windows calling conventions rcx,rdx
     movq    %rdx,%rax
-#ifdef POLYML32IN64
-    lock xaddl %eax,(%rcx)      # rax is an absolute address but this is only a word
-#else
-    lock xaddq %rax,(%rcx)
-#endif
+    xchgq   %rax,(%rcx)
 # Unix calling conventions rdi,rsi
 #else
     movq    %rsi,%rax
-#ifdef POLYML32IN64
-    lock xaddl %eax,(%rdi)      # rax is an absolute address but this is only a word
-#else
-    lock xaddq %rax,(%rdi)
-#endif
-
+    xchgq   %rax,(%rdi)
 #endif
     ret

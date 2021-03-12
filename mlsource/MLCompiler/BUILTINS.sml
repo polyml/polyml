@@ -52,7 +52,6 @@ sig
     |   MemoryCellLength (* Return the length of a memory cell (heap object) *)
     |   MemoryCellFlags (* Return the flags byte of a memory cell (heap object) *)
     |   ClearMutableFlag (* Remove the mutable flag from the flags byte *)
-    |   AtomicReset (* Set a value to (tagged) zero atomically. *)
     |   LongWordToTagged (* Convert a LargeWord.word to a Word.word or FixedInt.int. *)
     |   SignedToLongWord (* Convert a tagged value to a LargeWord with sign extension. *)
     |   UnsignedToLongWord (* Convert a tagged value to a LargeWord without sign extension. *)
@@ -65,6 +64,9 @@ sig
     |   RealToInt of precision * IEEEReal.rounding_mode (* Convert a double or float to a fixed precision int. *)
     |   TouchAddress (* Ensures that the cell is reachable. *)
     |   AllocCStack (* Allocate space on the C stack. *)
+    |   LockMutex (* Try to lock a mutex, returning true if it succeeded. If it failed the thread must block. *)
+    |   TryLockMutex (* Try to lock a mutex but if it failed the thread will not block. *)
+    |   UnlockMutex (* Unlock a mutex. Returns false if there are blocked threads that must be woken. *)
 
     and precision = PrecSingle | PrecDouble (* Single or double precision floating pt. *)
 
@@ -99,14 +101,14 @@ sig
            values are tagged. *)
     |   PointerEq
     |   FreeCStack  (* Free  space on the C stack. *)
-    |   AtomicExchangeAdd (* Add a value to a ref atomically and return the old value. *)
     
     and nullaryOps =
         (* Get the current thread id *)
         GetCurrentThreadId
         (* Check whether the last RTS call set the exception status and raise it if it had. *)
     |   CheckRTSException
-    |   CPUPause (* Pause a CPU while waiting for a spinlock. *)
+        (* Allocate memory for a mutex *)
+    |   CreateMutex
 
     val unaryRepr: unaryOps -> string
     and binaryRepr: binaryOps -> string

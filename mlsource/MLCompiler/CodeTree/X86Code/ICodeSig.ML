@@ -287,6 +287,18 @@ sig
            The destination is actually the word pointed at by "base". *)
     |   AtomicExchangeAndAdd of { base: preg, source: preg, resultReg: preg }
 
+        (* Atomic exchange.  Used to release a mutex.  The contents of the source
+           register are written to the address and the resultReg contains the
+           previous value. *)
+    |   AtomicExchange of { base: preg, source: preg, resultReg: preg }
+
+        (* Atomic compare-and-exchange.  Used to test a mutex and set it if it is currently unlocked.
+           Compares the current value with the contents of "compare" and sets the mutex to
+           "toStore" if it is equal.  If it is not it stores the current value of the
+           mutex in resultReg.  Both compare and resultReg are actually RAX/EAX.
+           Sets the condition codes to the results of the comparison. *)
+    |   AtomicCompareAndExchange of { base: preg, compare: preg, toStore: preg, resultReg: preg, ccRef: ccRef }
+
         (* Create a "box" of a single-word "byte" cell and store the source into it.
            This can be implemented using AllocateMemoryOperation but the idea is to
            allow the transform layer to recognise when a value is being boxed and

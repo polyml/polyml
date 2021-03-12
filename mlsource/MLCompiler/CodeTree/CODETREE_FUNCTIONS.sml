@@ -105,7 +105,6 @@ struct
                         (* MemoryCellFlags could return a different result if a mutable cell was locked. *)
                     |   MemoryCellFlags => applicative
                     |   ClearMutableFlag => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
-                    |   AtomicReset => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
                     |   LongWordToTagged => applicative
                     |   SignedToLongWord => applicative
                     |   UnsignedToLongWord => applicative
@@ -121,6 +120,9 @@ struct
                     |   RealToInt _ => PROPWORD_NOUPDATE orb PROPWORD_NODEREF
                     |   TouchAddress => PROPWORD_NORAISE (* Treat as updating a notional reference count. *)
                     |   AllocCStack => PROPWORD_NORAISE
+                    |   LockMutex => PROPWORD_NORAISE
+                    |   TryLockMutex => PROPWORD_NORAISE
+                    |   UnlockMutex => PROPWORD_NORAISE
             in
                 operProps andb codeProps arg1
             end
@@ -147,15 +149,13 @@ struct
                     |   RealArith _ => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                     |   FreeCStack => PROPWORD_NORAISE orb PROPWORD_NODEREF
                     |   PointerEq => applicative
-                    |   AtomicExchangeAdd => PROPWORD_NORAISE
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end
 
         |   codeProps (Nullary{oper=BuiltIns.GetCurrentThreadId}) = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
         |   codeProps (Nullary{oper=BuiltIns.CheckRTSException}) = PROPWORD_NOUPDATE
-            (* Although Pause does not affect the store directly it does have observable effects. *)
-        |   codeProps (Nullary{oper=BuiltIns.CPUPause}) = PROPWORD_NORAISE
+        |   codeProps (Nullary{oper=BuiltIns.CreateMutex}) = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
 
         |   codeProps (Arbitrary{shortCond, arg1, arg2, longCall, ...}) =
                 (* Arbitrary precision operations are applicative but the longCall is

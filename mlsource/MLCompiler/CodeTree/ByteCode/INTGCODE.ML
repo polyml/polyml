@@ -463,8 +463,10 @@ struct
             ( (* Do nothing.  This is done in the RTS call. *)
             )
 
-        |   BICNullary {oper=BuiltIns.CPUPause} =>
-            ( (* Do nothing.  It's really only a hint. *)
+        |   BICNullary {oper=BuiltIns.CreateMutex} =>
+            (
+                genOpcode(opcode_createMutex, cvec);
+                incsp()
             )
 
         |   BICUnary { oper, arg1 } =>
@@ -478,7 +480,6 @@ struct
                 |   MemoryCellLength => genOpcode(opcode_cellLength, cvec)
                 |   MemoryCellFlags => genOpcode(opcode_cellFlags, cvec)
                 |   ClearMutableFlag => genOpcode(opcode_clearMutable, cvec)
-                |   AtomicReset => genOpcode(opcode_atomicReset, cvec)
                 |   LongWordToTagged => genOpcode(opcode_longWToTagged, cvec)
                 |   SignedToLongWord => genOpcode(opcode_signedToLongW, cvec)
                 |   UnsignedToLongWord => genOpcode(opcode_unsignedToLongW, cvec)
@@ -494,6 +495,9 @@ struct
                 |   RealToInt (PrecSingle, rnding) => genFloatToInt(rnding, cvec)
                 |   TouchAddress => resetStack(1, false, cvec) (* Discard this *)
                 |   AllocCStack => genOpcode(opcode_allocCSpace, cvec)
+                |   LockMutex => genOpcode(opcode_lockMutex, cvec)
+                |   TryLockMutex => genOpcode(opcode_tryLockMutex, cvec)
+                |   UnlockMutex => genOpcode(opcode_atomicReset, cvec)
             end
 
         |   BICBinary { oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1, arg2=BICConstnt(w, _) } =>
@@ -603,8 +607,7 @@ struct
                 |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
                 
                 |   FreeCStack => genOpcode(opcode_freeCSpace, cvec)
-                
-                |   AtomicExchangeAdd => genOpcode(opcode_atomicExchAdd, cvec)
+
                  ;
                 decsp() (* Removes one item from the stack. *)
             end

@@ -237,6 +237,12 @@ struct
     |   getInstructionState(AtomicExchangeAndAdd{base, source, resultReg}) =
             { sources=[base, source], dests=[resultReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
+    |   getInstructionState(AtomicExchange{base, source, resultReg}) =
+            { sources=[base, source], dests=[resultReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(AtomicCompareAndExchange{base, compare, toStore, resultReg, ccRef}) =
+            { sources=[base, compare, toStore], dests=[resultReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+
     |   getInstructionState(BoxValue{source, dest, ...}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 

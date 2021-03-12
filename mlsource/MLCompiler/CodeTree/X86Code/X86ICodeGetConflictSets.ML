@@ -112,8 +112,10 @@ struct
                         (* Likewise for multiplication.  *)
                             destRegNos @ map regNo (argRegs operand2)
                     |   AtomicExchangeAndAdd{base, ...} =>
-                        (* and for atomic add. The base is always a memory address. *)
+                        (* and for atomic operations. The base is always a memory address. *)
                             regNo base :: destRegNos
+                    |   AtomicExchange{base, ...} => regNo base :: destRegNos
+                    |   AtomicCompareAndExchange{base, ...} => regNo base :: destRegNos
                             
                         (* TailRecursiveCall and JumpLoop may require a work register.
                            This is the only destination but if present it must be distinct
