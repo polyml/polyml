@@ -70,8 +70,8 @@
 * X27       ML Heap allocation pointer.  Non-volatile (C).
 * X28       ML Stack pointer. Non-volatile (C).
 * X29       Frame pointer (C). Not used in ML
-* X30       Link register.  Not used in ML.
-* X31       Stack pointer (C).  Not used in ML.  Also zero register.
+* X30       Link register.
+* X31       Stack pointer (C).  Only used when calling C.  Also zero register.
 * 
 * Floating point registers:
 * V0        First argument and return value
