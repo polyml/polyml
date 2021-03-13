@@ -66,11 +66,8 @@ struct
     fun rtsCallFastGeneral (functionName, argFormats, resultFormat, debugSwitches) =
     let
         val entryPointAddr = makeEntryPoint functionName
-        val nArgs = List.length argFormats
-        (* The maximum we currently have is five. *)
+        (* The maximum we currently have is five so we don't need to worry about stack args. *)
 
-        val noRtsException = createLabel()
-        
         fun loadArgs([], _, _, _) = []
         |   loadArgs(FastArgFixed :: argTypes, srcReg :: srcRegs, fixed :: fixedRegs, fpRegs) =
                 if srcReg = fixed
@@ -88,9 +85,6 @@ struct
                 loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
         |   loadArgs _ = raise InternalError "rtsCall: Too many arguments"
 
-        
-        (* Temporarily we need to check for RTS exceptions here.  The interpreter assumes they
-           are checked for as part of the RST call. *)
         val instructions =
             loadArgs(argFormats,
                 (* ML Arguments *) [X0, X1, X2, X3, X4, X5, X6, X7],
@@ -100,13 +94,7 @@ struct
                 (* Move X30 to X24, a callee-save register. *)
                 (* Note: maybe we should push X24 just in case this is the only
                    reachable reference to the code. *)
-                orrShiftedReg{regN=XZero, regM=X_LinkReg, regD=X24, shift=ShiftNone}
-                (* Clear the RTS exception before we enter.  "Full" RTS calls clear it anyway
-                   but "fast" calls don't. *)
-            ] @
-                loadNonAddress(X8, 0w1) @
-            [
-                storeRegScaled{regT=X8, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset},
+                orrShiftedReg{regN=XZero, regM=X_LinkReg, regD=X24, shift=ShiftNone},
                 loadAddressConstant(X16, entryPointAddr), (* Load entry point *)
                 loadRegScaled{regT=X16, regN=X16, unitOffset=0}, (* Load the actual address. *)
                 (* Store the current heap allocation pointer. *)
@@ -119,17 +107,7 @@ struct
                 loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
                 (* Load the heap allocation ptr and limit.  We could have GCed in the RTS call. *)
                 loadRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
-                loadRegScaled{regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset},
-                (* Check for RTS exception. *)
-                loadRegScaled{regT=X8, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset},
-                subSImmediate{regN=X8, regD=XZero, immed=0w1, shifted=false},
-                conditionalBranch(condEqual, noRtsException),
-                (* If it isn't then raise the exception. *)
-                orrShiftedReg{regN=XZero, regM=X8, regD=X0, shift=ShiftNone},
-                loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset},
-                loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0},
-                branchRegister X1,
-                setLabel noRtsException
+                loadRegScaled{regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset}
             ] @
             (
                 case resultFormat of
