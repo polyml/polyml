@@ -838,8 +838,7 @@ struct
             |   BICNullary {oper=GetCurrentThreadId} =>
                 (
                     gen(loadRegScaled{regT=X0, regN=X_MLAssemblyInt, unitOffset=threadIdOffset}, cvec);
-                    genPushReg(X0, cvec);
-                    incsp()
+                    topInX0 := true
                 )
 
             |   BICNullary {oper=CheckRTSException} =>
@@ -866,7 +865,8 @@ struct
                     val flags = Word8.orb(F_mutable, Word8.orb(F_weak, Word8.orb(F_noOverwrite, F_bytes))) (* 0wx69 *)
                 in
                     genAllocateFixedSize(1, flags, X0, X5, cvec);
-                    gen(storeRegScaled{regT=XZero, regN=X0, unitOffset=0}, cvec)
+                    gen(storeRegScaled{regT=XZero, regN=X0, unitOffset=0}, cvec);
+                    topInX0 := true
                 end
 
             |   BICUnary { oper, arg1 } => genUnary(oper, arg1, loopAddr)
