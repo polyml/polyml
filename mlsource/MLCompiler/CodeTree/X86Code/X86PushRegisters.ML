@@ -1108,6 +1108,28 @@ struct
                                 AtomicExchangeAndAdd{base=baseVal, source=sourceVal, resultReg=destVal} :: sourceCode @ baseCode @ code
                         end
 
+                    |   pushRegisters({instr=AtomicExchange{base, source, resultReg}, ...}, code) =
+                        let
+                            val (baseVal, baseCode) = mapSrcReg(base)
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @
+                                AtomicExchange{base=baseVal, source=sourceVal, resultReg=destVal} :: sourceCode @ baseCode @ code
+                        end
+
+                    |   pushRegisters({instr=AtomicCompareAndExchange{base, compare, toStore, resultReg, ccRef}, ...}, code) =
+                        let
+                            val (baseVal, baseCode) = mapSrcReg(base)
+                            val (compareVal, compareCode) = mapSrcReg compare
+                            val (toStoreVal, toStoreCode) = mapSrcReg toStore
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @
+                                AtomicCompareAndExchange{base=baseVal, compare=compareVal, toStore=toStoreVal, resultReg=destVal, ccRef=ccRef} ::
+                                    toStoreCode @ compareCode @ baseCode @ code
+                        end
+
                     |   pushRegisters({instr=BoxValue{boxKind, source, dest as PReg dReg, ...}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source

@@ -145,11 +145,8 @@ public:
 
     virtual void InitStackFrame(TaskData *newTask, Handle proc);
 
-    // Atomic exchange-and-add.  Used in the process module to release a mutex and in the
-    // interpreter.  It needs to use the same instruction that compiled code uses. 
-    virtual POLYSIGNED AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr);
-    // Set a mutex to zero.
-    virtual void AtomicReset(PolyObject* mutexp);
+    // Atomically release a mutex using hardware interlock.
+    virtual bool AtomicallyReleaseMutex(PolyObject* mutexp);
 
     // Return the minimum space occupied by the stack.  Used when setting a limit.
     // N.B. This is PolyWords not native words.
@@ -785,33 +782,27 @@ void Arm64TaskData::SaveMemRegisters()
 
 #if defined(_MSC_VER)
 // This saves having to define it in the MASM assembly code.
-static POLYSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED addend)
+static uintptr_t Arm64AsmAtomicExchange(PolyObject* mutexp, uintptr_t value)
 {
 #   if (SIZEOF_POLYWORD == 8)
-    return InterlockedExchangeAdd64((LONG64*)mutexp, addend);
+    return InterlockedExchange64((LONG64*)mutexp, value);
 #   else
-    return InterlockedExchangeAdd((LONG*)mutexp, addend);
+    return InterlockedExchange((LONG*)mutexp, value);
 #  endif
 }
 
 #else
 extern "C" {
     // This is only defined in the GAS assembly code
-    POLYSIGNED Arm64AsmAtomicExchangeAndAdd(PolyObject*, POLYSIGNED);
+    uintptr_t Arm646AsmAtomicExchange(PolyObject*, uintptr_t);
 }
 #endif
 
-// Do the exchange-and-add
-POLYSIGNED Arm64TaskData::AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr)
-{
-    return Arm64AsmAtomicExchangeAndAdd(mutexp, incr - TAGGED(0).AsSigned()/* Remove the tag */);
-}
 
-// Release a mutex.  Because the atomic increment and decrement
-// use the hardware atomic load-and-add we can simply set this to zero.
-void Arm64TaskData::AtomicReset(PolyObject* mutexp)
+bool Arm64TaskData::AtomicallyReleaseMutex(PolyObject* mutexp)
 {
-    mutexp->Set(0, TAGGED(0)); // Set this to released.
+    uintptr_t oldValue = Arm64AsmAtomicExchange(mutexp, 0);
+    return oldValue == 1;
 }
 
 bool Arm64TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)

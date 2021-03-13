@@ -220,7 +220,10 @@
 #define EXTINSTR_tail               0x7c
 #define EXTINSTR_callFastRtoR       0x8f
 #define EXTINSTR_callFastGtoR       0x90
-#define EXTINSTR_atomicExchAdd      0x96
+#define EXTINSTR_createMutex        0x91
+#define EXTINSTR_lockMutex          0x92
+#define EXTINSTR_tryLockMutex       0x93
+#define EXTINSTR_atomicExchAdd      0x96 // Legacy
 #define EXTINSTR_atomicReset        0x99
 #define EXTINSTR_longWToTagged      0x9a
 #define EXTINSTR_signedToLongW      0x9b

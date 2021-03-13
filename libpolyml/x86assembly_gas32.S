@@ -1,7 +1,7 @@
 /*
    Title:  Assembly code routines for the poly system.
    Author:    David Matthews
-   Copyright (c) David C. J. Matthews 2000-2020
+   Copyright (c) David C. J. Matthews 2000-2021
  
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -178,6 +178,6 @@ INLINE_ROUTINE(X86AsmAtomicExchangeAndAdd)
 # Use %ecx and %eax because they are volatile (unlike %ebx on X86/64/Unix)
     movl    4(%esp),%ecx
     movl    8(%esp),%eax
-    lock; xaddl %eax,(%ecx)
+    xchg    %eax,(%ecx)
     ret
 

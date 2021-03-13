@@ -947,15 +947,17 @@ struct
                     [DeclaredAt inBasis])
             val threadType = mkTypeConstruction ("thread", threadConstr, [], []);
             val selfFunction = mkGvar ("self", Unit ->> threadType, getCurrentThreadIdFn, declInBasis)
-            val atExAddFunction = mkGvar("atomicExchAdd", Ref Word ** Word ->> Word, mkBinaryFn BuiltIns.AtomicExchangeAdd, declInBasis)
-            val atResetFunction = mkGvar("atomicReset", Ref Word ->> Unit, mkUnaryFn BuiltIns.AtomicReset, declInBasis)
-            val cpuPauseFunction = mkGvar("cpuPause", Unit ->> Unit, cpuPauseFn, declInBasis)
+            val createMutexFunction = mkGvar("createMutex", Unit ->> Ref Word, createMutexFn, declInBasis)
+            and lockMutexFunction = mkGvar("lockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.LockMutex, declInBasis)
+            and tryLockMutexFunction = mkGvar("tryLockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.TryLockMutex, declInBasis)
+            and unlockMutexFunction = mkGvar("unlockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.UnlockMutex, declInBasis)
         in
             val () = #enterType threadEnv ("thread", TypeConstrSet(threadConstr, []))
             val () = #enterVal threadEnv ("self", selfFunction)
-            val () = #enterVal threadEnv ("atomicExchAdd", atExAddFunction)
-            val () = #enterVal threadEnv ("atomicReset", atResetFunction)
-            val () = #enterVal threadEnv ("cpuPause", cpuPauseFunction)
+            val () = #enterVal threadEnv ("createMutex", createMutexFunction)
+            val () = #enterVal threadEnv ("lockMutex", lockMutexFunction)
+            val () = #enterVal threadEnv ("tryLockMutex", tryLockMutexFunction)
+            val () = #enterVal threadEnv ("unlockMutex", unlockMutexFunction)
         end
 
         local

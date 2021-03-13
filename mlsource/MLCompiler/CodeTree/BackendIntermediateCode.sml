@@ -56,7 +56,6 @@ struct
         |   MemoryCellLength
         |   MemoryCellFlags
         |   ClearMutableFlag
-        |   AtomicReset
         |   LongWordToTagged
         |   SignedToLongWord
         |   UnsignedToLongWord
@@ -68,6 +67,9 @@ struct
         |   RealToInt of precision * IEEEReal.rounding_mode
         |   TouchAddress
         |   AllocCStack
+        |   LockMutex
+        |   TryLockMutex
+        |   UnlockMutex
 
         and precision = PrecSingle | PrecDouble
 
@@ -86,19 +88,17 @@ struct
         |   RealArith of arithmeticOperations * precision
         |   PointerEq
         |   FreeCStack
-        |   AtomicExchangeAdd
 
         and nullaryOps =
             GetCurrentThreadId
         |   CheckRTSException
-        |   CPUPause
+        |   CreateMutex
 
         fun unaryRepr NotBoolean = "NotBoolean"
         |   unaryRepr IsTaggedValue = "IsTaggedValue"
         |   unaryRepr MemoryCellLength = "MemoryCellLength"
         |   unaryRepr MemoryCellFlags = "MemoryCellFlags"
         |   unaryRepr ClearMutableFlag = "ClearMutableFlag"
-        |   unaryRepr AtomicReset = "AtomicReset"
         |   unaryRepr LongWordToTagged = "LongWordToTagged"
         |   unaryRepr SignedToLongWord = "SignedToLongWord"
         |   unaryRepr UnsignedToLongWord = "UnsignedToLongWord"
@@ -110,6 +110,9 @@ struct
         |   unaryRepr (RealToInt (prec, mode)) = "RealToInt" ^ precRepr prec ^ rndModeRepr mode
         |   unaryRepr TouchAddress = "TouchAddress"
         |   unaryRepr AllocCStack = "AllocCStack"
+        |   unaryRepr LockMutex = "LockMutex"
+        |   unaryRepr TryLockMutex = "TryLockMutex"
+        |   unaryRepr UnlockMutex = "UnlockMutex"
 
         and binaryRepr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
@@ -126,11 +129,10 @@ struct
         |   binaryRepr (RealArith (arithOp, prec)) = arithRepr arithOp ^ precRepr prec
         |   binaryRepr PointerEq = "PointerEq"
         |   binaryRepr FreeCStack = "FreeCStack"
-        |   binaryRepr AtomicExchangeAdd = "AtomicExchangeAdd"
         
         and nullaryRepr GetCurrentThreadId = "GetCurrentThreadId"
         |   nullaryRepr CheckRTSException = "CheckRTSException"
-        |   nullaryRepr CPUPause = "CPUPause"
+        |   nullaryRepr CreateMutex = "CreateMutex"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestLess           = "Less"

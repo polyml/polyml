@@ -83,7 +83,7 @@ val () = Bootstrap.use "basis/MATH.sml";
 structure LargeReal = struct type real = real end;
 val () = Bootstrap.use "basis/RealSignature.sml";
 val () = Bootstrap.use "basis/Real.sml";
-val () = Bootstrap.use "basis/Real32.sml";
+(*val () = Bootstrap.use "basis/Real32.sml";*)
 val () = Bootstrap.use "basis/Time.sml";
 val () = Bootstrap.use "basis/DATE.sig";
 val () = Bootstrap.use "basis/Date.sml";
@@ -113,11 +113,12 @@ val () = Bootstrap.use "basis/GenericSock.sml";
 val () = Bootstrap.use "basis/INetSock.sml";
 val () = Bootstrap.use "basis/INet6Sock.sml";
 val () = Bootstrap.use "basis/PackReal.sml";
+(*
 val () =
     if Word.wordSize = 31
     then Bootstrap.use "basis/PackReal32Boxed.sml"
     else Bootstrap.use "basis/PackReal32Tagged.sml";
-
+*)
 val () = Bootstrap.use "basis/PackWord.sml";
 val () = Bootstrap.use "basis/Array2Signature.sml";
 val () = Bootstrap.use "basis/Array2.sml";

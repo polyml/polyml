@@ -520,32 +520,85 @@ struct
     
     structure Mutex =
     struct
-        type mutex = Word.word ref (* This is a ref of some sort but may be a volatile byte or word ref. *)
-        open Thread  (* createMutex, lockMutex, tryLockMutex and unlockMutex are set up by Initialise. *)
-        
-        val mutex = createMutex
-        
-        (* lockMutex, tryLockMutex and unlockMutex are now architecture-specific code. *)
+        type mutex = Word.word ref
+        val mutex = LibrarySupport.volatileWordRef (* Initially 0=unlocked. *)
+        open Thread  (* atomicExchangeAdd, atomicReset and cpuPause are set up by Initialise. *)
         
         val threadMutexBlock: mutex -> unit = RunCall.rtsCallFull1 "PolyThreadMutexBlock"
         val threadMutexUnlock: mutex -> unit = RunCall.rtsCallFull1 "PolyThreadMutexUnlock"
 
+        (* A mutex is implemented as a Word.word ref.  It is initially set to 0 and locked
+           by atomically incrementing it.  If it was previously unlocked the result will
+           by one but if it was already locked it will be some positive value.  When it
+           is unlocked it is atomically decremented.  If there was no contention the result
+           will again be 0 but if some other thread tried to lock it the result will be
+           one or positive.  In that case the unlocking thread needs to call in to the
+           RTS to wake up the blocked thread.
+
+           The cost of contention on the lock is very high.  To try to avoid this we
+           first loop (spin) to see if we can get the lock without contention.  *)
+
+        val spin_cycle = 20000
+        fun spin (m: mutex, c: int) =
+           if atomicExchAdd(m, 0w0) = 0w0 then ()
+           else if c = spin_cycle then ()
+           else (cpuPause(); spin(m, c+1));
+
         fun lock (m: mutex): unit =
-            if lockMutex m
-            then ()
-            else (* It's locked.  We return some time after the lock is released. *)
+        let
+            val () = spin(m, 0)
+            val oldValue = atomicExchAdd(m, 0w1)
+        in
+            if oldValue = 0w0
+            then () (* We've acquired the lock. *)
+            else (* It's locked.  We return when we have the lock. *)
             (
                 threadMutexBlock m;
                 lock m (* Try again. *)
             )
+        end
 
         fun unlock (m: mutex): unit =
-            if unlockMutex m
+        let
+            val oldValue = atomicExchAdd(m, ~ 0w1)
+        in
+            if oldValue = 0w1
             then () (* No contention. *)
-            else (* Another thread has blocked and we have to release it. *)
-               threadMutexUnlock m
+            else
+                (* Another thread has blocked and we have to release it.  We can safely
+                   set the value to 0 here to release the lock.  If another thread
+                   acquires it before we have woken up the other threads that's fine.
+                   Equally, if another thread incremented the count and saw it was
+                   still locked it will enter the RTS and try to acquire the lock
+                   there.
+                   It's probably better to reset it here rather than within the RTS
+                   since it allows another thread to acquire the lock immediately
+                   rather than after the rather long process of entering the RTS.
+                   Resetting this needs to be atomic with respect to atomic increment
+                   and decrement.  That's not a problem on X86 so a simple assignment
+                   is sufficient but in the interpreter at least it's necessary to
+                   acquire a lock. *)
+            (
+                atomicReset m;
+                threadMutexUnlock m
+            )
+        end
 
-        val trylock = tryLockMutex
+        (* Try to lock the mutex.  If it was previously unlocked then lock it and
+           return true otherwise return false.  Because we don't block here there is
+           the possibility that the thread that has locked it could release the lock
+           shortly afterwards.  The check for atomicExchangeAdd(m, 0w0) = 0w0
+           is an optimisation and the idea is that we avoid the increment which will
+           cause the thread that actually has the lock to have to call into the
+           RTS to release the, non-existent, blocked threa.
+           There is a small chance that another thread could lock the mutex between the
+           test and the atomicIncr.  In that case the atomicIncr would
+           return a value > 1 and the function that locked the mutex will have to
+           call into the RTS to reset it when it is unlocked.  *)
+        fun trylock (m: mutex): bool =
+            if atomicExchAdd(m, 0w0) = 0w0 andalso atomicExchAdd(m, 0w1) = 0w0
+            then true (* We've acquired the lock. *)
+            else false (* The lock was taken. *)
     end
 
     structure ConditionVar =

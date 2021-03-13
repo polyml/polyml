@@ -215,9 +215,15 @@ struct
         
             |   addHints{instr=SSE2FPBinary{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
-            
+
             |   addHints{instr=AtomicExchangeAndAdd{resultReg=PReg resReg, source=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
+
+            |   addHints{instr=AtomicExchange{resultReg=PReg resReg, source=PReg op1Reg, ...}, ...} =
+                    addSourceAndDestinationHint{dst=resReg, src=op1Reg}
+
+            |   addHints{instr=AtomicCompareAndExchange{resultReg=PReg resReg, compare=PReg cmpReg, ...}, ...} =
+                    (addRealHint(resReg, GenReg eax); addRealHint(cmpReg, GenReg eax))
 
             |   addHints _ = ()
         
@@ -675,6 +681,18 @@ struct
 
         |   registerAllocate({instr=AtomicExchangeAndAdd{base=PReg bReg, source=PReg sReg, resultReg=PReg rReg}, ...}) =
                 (allocateGeneralReg sReg; allocateGeneralReg bReg; allocateGeneralReg rReg)
+
+        |   registerAllocate({instr=AtomicExchange{base=PReg bReg, source=PReg sReg, resultReg=PReg rReg}, ...}) =
+                (allocateGeneralReg sReg; allocateGeneralReg bReg; allocateGeneralReg rReg)
+
+        |   registerAllocate({instr=AtomicCompareAndExchange{base=PReg bReg, compare=PReg cReg,
+                                                             toStore=PReg tsReg, resultReg=PReg rReg, ...}, ...}) =
+            (
+                (* The value we're comparing with and the result are both RAX. *)
+                allocateRegister(cReg, SOME(GenReg eax), generalRegisters);
+                allocateRegister(rReg, SOME(GenReg eax), generalRegisters);
+                allocateGeneralReg tsReg; allocateGeneralReg bReg
+            )
 
         |   registerAllocate({instr=BoxValue{boxKind, source=PReg sReg, dest=PReg dReg, saveRegs}, ...}) =
             (

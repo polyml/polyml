@@ -1102,9 +1102,20 @@ struct
                 moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICodeRev(BICNullary{oper=BuiltIns.CPUPause}, _, _, destination, tailCode) =
-            (* Pause during spinlock phase of mutex locking. *)
-                moveIfNotAllowedRev(destination, BlockSimple PauseCPU :: tailCode, (* Unit result *) IntegerConstant(tag 0))
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CreateMutex}, _, _, destination, tailCode) =
+            let
+                (* Allocate memory for a mutex.  Use a native word as a mutable, weak, no-overwrite, byte cell
+                   which is the same as a volatileRef. This ensures that it will always be cleared when it is
+                   loaded even if it was locked when it was saved. *)
+                val target = asTarget destination
+                val flags = Word8.orb(F_mutable, Word8.orb(F_weak, Word8.orb(F_noOverwrite, F_bytes))) (* 0wx69 *)
+            in
+                (BlockSimple InitialisationComplete ::
+                 BlockSimple(StoreArgument{source=IntegerConstant 0, base=target, offset=0,
+                    index=memIndexOrObject, kind=moveNativeWord, isMutable=false }) ::
+                 BlockSimple(AllocateMemoryOperation{size=Word.toInt(nativeWordSize div wordSize), flags=flags, dest=target, saveRegs=[]}) ::
+                    tailCode, RegisterArgument target, false)
+            end
 
         |   codeToICodeRev(BICUnary instr, context, isTail, destination, tailCode) =
                 codeToICodeUnaryRev(instr, context, isTail, destination, tailCode)
@@ -1796,21 +1807,6 @@ struct
                 moveIfNotAllowedRev(destination, BlockSimple(LockMutable{addr=addrReg}) :: argCode, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.AtomicReset, arg1}, context, _, destination, tailCode) =
-            let
-                (* This is needed only for the interpreted version where we have a single real
-                   mutex to interlock atomic increment and decrement.  We have to use the same
-                   mutex to interlock clearing a mutex.  On the X86 we use hardware locking and
-                   the hardware guarantees that an assignment of a word will be atomic. *)
-                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
-                (* Store tagged 0 in the mutex.  This is the unlocked value. *)
-                val code =
-                    BlockSimple(StoreArgument{source=IntegerConstant(tag 0), base=addrReg, index=memIndexOrObject, offset=0, kind=movePolyWord, isMutable=true})
-                        :: argCode
-            in
-                moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
-            end
-
         |   codeToICodeUnaryRev({oper=BuiltIns.LongWordToTagged, arg1}, context, _, destination, tailCode) =
             let (* This is exactly the same as StringLengthWord at the moment.
                    TODO: introduce a new ICode entry so that the next stage can optimise
@@ -2087,7 +2083,52 @@ struct
             in
                 (code, RegisterArgument target, false)
             end
- 
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.LockMutex, arg1}, context, _, destination, tailCode) =
+            let
+                (* Temporarily don't bother with the spin-lock. *)
+                val incrReg = newUReg() and resultReg = newUReg() and ccRef = newCCRef()
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                val target = asTarget destination
+                val code =
+                    BlockSimple(CompareLiteral{arg1=RegisterArgument resultReg, arg2=0, opSize=nativeWordOpSize, ccRef=ccRef }) ::
+                    BlockSimple(AtomicExchangeAndAdd{base=addrReg, source=incrReg, resultReg=resultReg}) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant 1, dest=incrReg, kind=moveNativeWord}) ::
+                    argCode
+            in
+                (makeBoolResultRev(JE, ccRef, target, code), RegisterArgument target, false)
+            end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.TryLockMutex, arg1}, context, _, destination, tailCode) =
+            let
+                val toStoreReg = newUReg() and compareReg = newUReg() and resultReg = newUReg() and ccRef = newCCRef()
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                val target = asTarget destination
+                (* If the current value is zero (unlocked) set it to one (locked) otherwise do nothing. *)
+                val code =
+                    BlockSimple(AtomicCompareAndExchange{base=addrReg, compare=compareReg,
+                                                         toStore=toStoreReg, resultReg=resultReg, ccRef=ccRef}) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant 0, dest=compareReg, kind=moveNativeWord}) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant 1, dest=toStoreReg, kind=moveNativeWord}) ::
+                    argCode
+            in
+                (makeBoolResultRev(JE, ccRef, target, code), RegisterArgument target, false)
+            end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.UnlockMutex, arg1}, context, _, destination, tailCode) =
+            let (* Unlock a mutex - (atomically) exchange with 0 (unlock) and return true if the
+                   previous value was 1 i.e. only this thread has locked it. *)
+                val newValReg = newUReg() and resultReg = newUReg() and ccRef = newCCRef()
+                val (argCode, addrReg) = codeToPRegRev(arg1, context, tailCode)
+                val target = asTarget destination
+                val code =
+                    BlockSimple(CompareLiteral{arg1=RegisterArgument resultReg, arg2=1, opSize=nativeWordOpSize, ccRef=ccRef }) ::
+                    BlockSimple(AtomicExchange{base=addrReg, source=newValReg, resultReg=resultReg}) ::
+                    BlockSimple(LoadArgument{source=IntegerConstant 0, dest=newValReg, kind=moveNativeWord}) ::
+                    argCode
+            in
+                (makeBoolResultRev(JE, ccRef, target, code), RegisterArgument target, false)
+            end
 
         and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =
             let
@@ -3004,42 +3045,6 @@ struct
                     arg1Code
             in
                 moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
-            end
-
-        |   codeToICodeBinaryRev({oper=BuiltIns.AtomicExchangeAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination, tailCode) =
-            let
-                (* The value to be added is always a constant. *)
-                val target = asTarget destination
-                val incrReg = newUReg()
-                val (arg1Code, addrReg) = codeToPRegRev(arg1, context, tailCode)
-                (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
-                val constVal =
-                    if isShort value
-                    then semitag(Word.toLargeIntX(toShort value))
-                    else 0
-                val code =
-                    BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg, resultReg=target }) ::
-                    BlockSimple(LoadArgument{source=IntegerConstant constVal, dest=incrReg, kind=movePolyWord}) ::
-                    arg1Code
-            in
-                (code, RegisterArgument target, false)
-            end
-
-        |   codeToICodeBinaryRev({oper=BuiltIns.AtomicExchangeAdd, arg1, arg2}, context, _, destination, tailCode) =
-            let
-                (* This is only needed if the function is returned as a value. *)
-                val target = asTarget destination
-                val incrReg = newUReg()
-                val (arg1Code, addrReg) = codeToPRegRev(arg1, context, tailCode)
-                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
-                val code =
-                    BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg, resultReg=target }) ::
-                    (* Subtract the tag from the increment before the operation *)
-                    BlockSimple(ArithmeticFunction{oper=SUB, resultReg=incrReg, operand1=arg2Reg, operand2=IntegerConstant 1,
-                            ccRef=newCCRef(), opSize=polyWordOpSize}) ::
-                    arg2Code
-            in
-                (code, RegisterArgument target, false)
             end
         
         (* Multiply tagged word by a constant.  We're not concerned with overflow so it's possible to use

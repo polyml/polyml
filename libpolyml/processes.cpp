@@ -513,10 +513,8 @@ void Processes::WaitInfinite(TaskData *taskData, Handle hMutex)
     PLocker lock(&schedLock);
     // Atomically release the mutex.  This is atomic because we hold schedLock
     // so no other thread can call signal or broadcast.
-    Handle decrResult = taskData->saveVec.push(PolyWord::FromUnsigned(taskData->AtomicDecrement(hMutex->WordP())));
-    if (UNTAGGED(decrResult->Word()) != 0)
+    if (! taskData->AtomicallyReleaseMutex(hMutex->WordP()))
     {
-        taskData->AtomicReset(hMutex->WordP());
         // The mutex was locked so we have to release any waiters.
         // Unlock any waiters.
         for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
@@ -563,10 +561,8 @@ void Processes::WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hWakeTim
     PLocker lock(&schedLock);
     // Atomically release the mutex.  This is atomic because we hold schedLock
     // so no other thread can call signal or broadcast.
-    Handle decrResult = taskData->saveVec.push(PolyWord::FromUnsigned(taskData->AtomicDecrement(hMutex->WordP())));
-    if (UNTAGGED(decrResult->Word()) != 0)
+    if (!taskData->AtomicallyReleaseMutex(hMutex->WordP()))
     {
-        taskData->AtomicReset(hMutex->WordP());
         // The mutex was locked so we have to release any waiters.
         // Unlock any waiters.
         for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)

@@ -632,6 +632,8 @@ struct
             |   instructionUses(Multiplication{operand1, operand2, ...}) = (used operand1; argUses operand2)
             |   instructionUses(Division{dividend, divisor, ...}) = (used dividend; argUses divisor)
             |   instructionUses(AtomicExchangeAndAdd{base, source, ...}) = (used base; used source)
+            |   instructionUses(AtomicExchange{base, source, ...}) = (used base; used source)
+            |   instructionUses(AtomicCompareAndExchange{base, compare, toStore, ...}) = (used base; used compare; used toStore)
             |   instructionUses(BoxValue{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(CompareByteVectors{vec1Addr, vec2Addr, length, ...}) = (used vec1Addr; used vec2Addr; used length)
             |   instructionUses(BlockMove{srcAddr, destAddr, length, ...}) = (used srcAddr; used destAddr; used length)
@@ -1380,8 +1382,37 @@ struct
                     then {base=ebx, index=Index4 baseReg, offset=0}
                     else {base=baseReg, index=NoIndex, offset=0}
             in
-                AtomicXAdd{address=address, output=outReg, opSize=polyWordOpSize} ::
-                    moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg outReg, kind=movePolyWord}, code)
+                AtomicXAdd{address=address, output=outReg, opSize=nativeWordOpSize} ::
+                    moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg outReg, kind=moveNativeWord}, code)
+            end
+
+        |   codeExtended _ ({instr=AtomicExchange{base=PReg bReg, source=PReg sReg, resultReg = PReg rReg}, ...}, code) =
+            let
+                val baseReg = asGenReg (getAllocatedReg bReg) and outReg = asGenReg (getAllocatedReg rReg)
+                val address =
+                    if targetArch = ObjectId32Bit
+                    then {base=ebx, index=Index4 baseReg, offset=0}
+                    else {base=baseReg, index=NoIndex, offset=0}
+            in
+                XChng{arg=MemoryArg address, reg=outReg, opSize=nativeWordOpSize} ::
+                    moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg outReg, kind=moveNativeWord}, code)
+            end
+
+        |   codeExtended _ ({instr=AtomicCompareAndExchange{base=PReg bReg, compare=PReg cReg,
+                                        toStore=PReg tsReg, resultReg = PReg rReg, ...}, ...}, code) =
+            let
+                (* The comparison and result registers are both RAX. *)
+                val baseReg = asGenReg (getAllocatedReg bReg) and outReg = getAllocatedReg rReg
+                and compareReg = getAllocatedReg cReg and toStoreReg = asGenReg (getAllocatedReg tsReg)
+                val _ = baseReg <> eax orelse raise InternalError "codeGenICode: AtomicCompareAndExchange"
+                val address =
+                    if targetArch = ObjectId32Bit
+                    then {base=ebx, index=Index4 baseReg, offset=0}
+                    else {base=baseReg, index=NoIndex, offset=0}
+            in
+                moveIfNecessary({src=GenReg eax, dst=outReg, kind=moveNativeWord},
+                    AtomicCmpXChng{address=address, source=toStoreReg, opSize=nativeWordOpSize} ::
+                        moveIfNecessary({src=compareReg, dst=GenReg eax, kind=moveNativeWord}, code))
             end
 
         |   codeExtended _ ({instr=BoxValue{boxKind, source=PReg sReg, dest as PReg dReg, saveRegs}, ...}, code) =

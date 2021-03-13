@@ -119,26 +119,11 @@ public:
     virtual void InitStackFrame(TaskData *parentTask, Handle proc) = 0;
     virtual void SetException(poly_exn *exc) = 0;
 
-    // The scheduler needs versions of atomic decrement and atomic reset that
-    // work in exactly the same way as the code-generated versions (if any).
-    // Atomic increment isn't needed since the scheduler only ever releases a mutex.
-    virtual POLYUNSIGNED AtomicDecrement(PolyObject* mutexp)
-    {
-        POLYSIGNED prev = AtomicExchAdd(mutexp, TAGGED(-1).AsSigned());
-        return (POLYUNSIGNED)(prev - TAGGED(1).AsSigned() + TAGGED(0).AsSigned());
-    }
-    // Reset a mutex to one.  This needs to be atomic with respect to the
-    // atomic increment and decrement instructions.
-    virtual void AtomicReset(PolyObject* mutexp) = 0;
-    // This is actually only used in the interpreter.
-    virtual POLYUNSIGNED AtomicIncrement(PolyObject* mutexp)
-    {
-        POLYSIGNED prev = AtomicExchAdd(mutexp, TAGGED(1).AsSigned());
-        return (POLYUNSIGNED)(prev + TAGGED(1).AsSigned() - TAGGED(0).AsSigned());
-    }
-    // This is now used in the interpreter in place of AtomicIncrement and AtomicDecrement.
-    // It may be simpler to use it everywhere.
-    virtual POLYSIGNED AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr) = 0;
+    // Atomically release a mutex, returning false if the mutex was previously
+    // locked by more than one thread and we need to check for waiting threads.
+    // This is used in waiting for a condition variable.  It is important that
+    // the same atomic operations are used here as the code-generator uses,
+    virtual bool AtomicallyReleaseMutex(PolyObject *mutexp) = 0;
 
     virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length,
                                 StackObject *new_stack, uintptr_t new_length) = 0;

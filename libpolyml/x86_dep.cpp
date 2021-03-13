@@ -204,11 +204,8 @@ public:
     virtual void InitStackFrame(TaskData *parentTask, Handle proc);
     virtual void SetException(poly_exn *exc);
 
-    // Atomic exchange-and-add.  Used in the process module to release a mutex and in the
-    // interpreter.  It needs to use the same instruction that compiled code uses. 
-    virtual POLYSIGNED AtomicExchAdd(PolyObject* mutexp, POLYSIGNED incr);
-    // Reset a mutex to zero.  This needs to be atomic with respect to AtomicExchAdd.
-    virtual void AtomicReset(PolyObject* mutexp);
+    // Atomically release a mutex using hardware interlock.
+    virtual bool AtomicallyReleaseMutex(PolyObject* mutexp);
 
     // Return the minimum space occupied by the stack.  Used when setting a limit.
     // N.B. This is PolyWords not native words.
@@ -1322,6 +1319,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 pt++;
                 switch (*pt)
                 {
+                case 0xb1: // cmpxchg
                 case 0xb6: /* movzl */
                 case 0xb7: // movzw
                 case 0xbe: // movsx
@@ -1378,33 +1376,27 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
 #if defined(_MSC_VER)
 // This saves having to define it in the MASM assembly code.
-static POLYSIGNED X86AsmAtomicExchangeAndAdd(PolyObject* mutexp, POLYSIGNED addend)
+static uintptr_t X86AsmAtomicExchange(PolyObject* mutexp, uintptr_t value)
 {
 #   if (SIZEOF_POLYWORD == 8)
-    return InterlockedExchangeAdd64((LONG64*)mutexp, addend);
+    return InterlockedExchange64((LONG64*)mutexp, value);
 #   else
-    return InterlockedExchangeAdd((LONG*)mutexp, addend);
+    return InterlockedExchange((LONG*)mutexp, value);
 #  endif
 }
 
 #else
 extern "C" {
     // This is only defined in the GAS assembly code
-    POLYSIGNED X86AsmAtomicExchangeAndAdd(PolyObject*, POLYSIGNED);
+    uintptr_t X86AsmAtomicExchange(PolyObject*, uintptr_t);
 }
 #endif
 
-// Do the exchange-and-add
-POLYSIGNED X86TaskData::AtomicExchAdd(PolyObject *mutexp, POLYSIGNED incr)
+// Set the mutex to zero (released) and return true if no other thread is waiting.
+bool X86TaskData::AtomicallyReleaseMutex(PolyObject* mutexp)
 {
-    return X86AsmAtomicExchangeAndAdd(mutexp, incr - TAGGED(0).AsSigned()/* Remove the tag */);
-}
-
-// Release a mutex.  Because the atomic increment and decrement
-// use the hardware LOCK prefix we can simply set this to zero.
-void X86TaskData::AtomicReset(PolyObject* mutexp)
-{
-    mutexp->Set(0, TAGGED(0));
+    uintptr_t oldValue = X86AsmAtomicExchange(mutexp, 0);
+    return oldValue == 1;
 }
 
 extern "C" {

@@ -132,7 +132,7 @@ sig
     val getCurrentThreadId: codetree
     and getCurrentThreadIdFn: codetree
     and checkRTSException: codetree
-    and cpuPauseFn: codetree
+    and createMutexFn: codetree
 
     val mkAllocateWordMemory: codetree * codetree * codetree -> codetree
     and mkAllocateWordMemoryFn: codetree
