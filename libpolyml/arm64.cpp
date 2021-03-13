@@ -518,17 +518,6 @@ void Arm64TaskData::Interpret()
             return;
         }
 
-        case ReturnRaise:
-        {
-            // This never occurs with the normal bootstrap but can happen during development.
-            assemblyInterface.stackPtr = GetHandlerRegister();
-            arm64CodePointer cp = (arm64CodePointer)(assemblyInterface.stackPtr[0].codeAddr);
-            if (cp[0] == 0xAA1E03E9 && cp[1] == 0xF9400350 && cp[2] == 0xD63F0200)
-                continue;
-            interpreterPc = 0;
-
-            return;
-        }
         }
     }
 }

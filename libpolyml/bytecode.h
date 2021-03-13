@@ -2,7 +2,7 @@
 /*
     Title: bytecode.h - Header for common code for the byte-code interpreter
 
-    Copyright (c) 2006, 2015-17, 2020-21 David C.J. Matthews
+    Copyright (c) 2006, 2015-17, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -34,8 +34,7 @@ protected:
     enum _returnValue {
         ReturnTailCall,
         ReturnCall,
-        ReturnReturn,
-        ReturnRaise
+        ReturnReturn
     };
     enum _returnValue RunInterpreter(TaskData* taskData);
 

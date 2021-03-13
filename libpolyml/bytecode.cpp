@@ -275,13 +275,8 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
 
     LoadInterpreterState(pc, sp);
 
-    // IF we have raised an exception...
-    if (GetExceptionPacket().IsDataPtr())
-    {
-        sp = GetHandlerRegister();
-        pc = (*sp++).codeAddr;
-        SetHandlerRegister((*sp++).stackAddr);
-    }
+    // We may have taken an interrupt which has set an exception.
+    if (GetExceptionPacket().IsDataPtr()) goto RAISE_EXCEPTION;
 
     for(;;){ /* Each instruction */
 #if (0)
@@ -492,12 +487,10 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
             }
         RAISE_EXCEPTION:
             sp = GetHandlerRegister();
-            if (mixedCode)
-            {
-                SaveInterpreterState(pc, sp);
-                return ReturnRaise;
-            }
             pc = (*sp++).codeAddr;
+            // It is possible we could raise an exception to be
+            // handled by native code but that does not currently happen
+            // during the bootstrap.
             SetHandlerRegister((*sp++).stackAddr);
             break;
         }
