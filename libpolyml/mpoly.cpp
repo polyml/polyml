@@ -109,7 +109,8 @@ enum {
     OPT_DEBUGFILE,
     OPT_DDESERVICE,
     OPT_CODEPAGE,
-    OPT_REMOTESTATS
+    OPT_REMOTESTATS,
+    OPT_SINGLETHREAD
 };
 
 static struct __argtab {
@@ -130,10 +131,12 @@ static struct __argtab {
 #ifdef UNICODE
     { _T("--codepage"),     "Code-page to use for file-names etc in Windows",       OPT_CODEPAGE },
 #endif
-    { _T("-pServiceName"),  "DDE service name for remote interrupt in Windows",     OPT_DDESERVICE }
+    { _T("-pServiceName"),  "DDE service name for remote interrupt in Windows",     OPT_DDESERVICE },
 #else
-    { _T("--exportstats"),  "Enable another process to read the statistics",        OPT_REMOTESTATS }
+    { _T("--exportstats"),  "Enable another process to read the statistics",        OPT_REMOTESTATS },
 #endif
+    { _T("--singlethread"),  "Run on a single thread and disable thread creation",  OPT_SINGLETHREAD },
+
 };
 
 static struct __debugOpts {
@@ -340,6 +343,10 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
                     case OPT_REMOTESTATS:
                         // If set we export the statistics on Unix.
                         globalStats.exportStats = true;
+                        break;
+
+                    case OPT_SINGLETHREAD:
+                        processes->SetSingleThread();
                         break;
                     }
                     argUsed = true;

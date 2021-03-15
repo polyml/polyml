@@ -280,6 +280,8 @@ public:
     // fork, though, there is only one thread.
     bool singleThreaded;
 
+    virtual void SetSingleThread(void) { singleThreaded = true; }
+
     // Each thread has an entry in this vector.
     std::vector<TaskData*> taskArray;
 

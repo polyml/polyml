@@ -343,6 +343,8 @@ public:
     virtual void SignalArrived(void) = 0;
 
     virtual poly_exn* GetInterrupt(void) = 0;
+
+    virtual void SetSingleThread(void) = 0;
 };
 
 // Return the number of processors.  Used when configuring multi-threaded GC.
