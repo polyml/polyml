@@ -2,7 +2,7 @@
     Title:      Thread functions
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007,2008,2013-15, 2017, 2019, 2020 David C.J. Matthews
+    Copyright (c) 2007,2008,2013-15, 2017, 2019-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1239,7 +1239,7 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
     }
 
 #if (!defined(_WIN32))
-    initThreadSignals(taskData);
+    initThreadSignals(taskData, false);
     pthread_setspecific(tlsId, taskData);
 #else
     TlsSetValue(tlsId, taskData);
@@ -1262,7 +1262,7 @@ static void *NewThreadFunction(void *parameter)
     DuplicateHandle(thisProcess, GetCurrentThread(), thisProcess, 
         &(taskData->threadHandle), THREAD_ALL_ACCESS, FALSE, 0);
 #endif
-    initThreadSignals(taskData);
+    initThreadSignals(taskData, processesModule.singleThreaded);
     pthread_setspecific(processesModule.tlsId, taskData);
     taskData->saveVec.init(); // Remove initial data
     globalStats.incCount(PSC_THREADS);

@@ -253,7 +253,7 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
                 {
                     const TCHAR *p = 0;
                     TCHAR *endp = 0;
-                    if (argTable[j].argKey != OPT_REMOTESTATS)
+                    if (argTable[j].argKey != OPT_REMOTESTATS && argTable[j].argKey != OPT_SINGLETHREAD)
                     {
                         if (_tcslen(argv[i]) == argl)
                         { // If it has used all the argument pick the next

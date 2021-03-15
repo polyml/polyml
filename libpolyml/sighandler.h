@@ -1,7 +1,7 @@
 /*
     Title:  sighandler.h
 
-    Copyright (c) 2000-7, 2016, 2019 David C.J. Matthews
+    Copyright (c) 2000-7, 2016, 2019, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -41,7 +41,7 @@ typedef void (*signal_handler_type)(SIG_HANDLER_ARGS(s, c));
 
 extern bool setSignalHandler(int sig, signal_handler_type func);
 // Set up per-thread signal data: basically signal stack.
-extern void initThreadSignals(TaskData *taskData);
+extern void initThreadSignals(TaskData *taskData, bool isMainThread);
 
 #endif /* ! _WIN32 */
 

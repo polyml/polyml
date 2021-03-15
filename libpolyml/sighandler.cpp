@@ -2,7 +2,7 @@
     Title:      Signal handling
     Author:     David C.J. Matthews
 
-    Copyright (c) 2000-8, 2016, 2019 David C.J. Matthews
+    Copyright (c) 2000-8, 2016, 2019, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -345,7 +345,7 @@ POLYUNSIGNED PolyWaitForSignal(FirstArgument threadId)
 
 // Set up per-thread signal data: basically signal stack.
 // This is really only needed for profiling timer signals.
-void initThreadSignals(TaskData *taskData)
+void initThreadSignals(TaskData *taskData, bool isMainThread)
 {
 #if (!(defined(_WIN32)||defined(MACOSX)))
     // On the i386, at least, we need to set up a signal stack for
@@ -380,18 +380,22 @@ void initThreadSignals(TaskData *taskData)
 #endif
 #endif /* not the PC */
 #if (!defined(_WIN32))
-    // Block all signals except those marked as in use by the RTS so
-    // that they will only be picked up by the signal detection thread.
-    // Since the signal mask is inherited we really don't need to do
-    // this for every thread, just the initial one.
-    sigset_t sigset;
-    sigfillset(&sigset);
-    for (int i = 0; i < NSIG; i++)
+    if (! isMainThread)
     {
-        if (sigData[i].nonMaskable)
-            sigdelset(&sigset, i);
+        // Block all signals except those marked as in use by the RTS so
+        // that they will only be picked up by the signal detection thread.
+        // Since the signal mask is inherited we really don't need to do
+        // this for every thread, just the initial one.
+        // Don't do this if we're running single-threaded.
+        sigset_t sigset;
+        sigfillset(&sigset);
+        for (int i = 0; i < NSIG; i++)
+        {
+            if (sigData[i].nonMaskable)
+                sigdelset(&sigset, i);
+        }
+        pthread_sigmask(SIG_SETMASK, &sigset, NULL);
     }
-    pthread_sigmask(SIG_SETMASK, &sigset, NULL);
 #endif
 }
 
