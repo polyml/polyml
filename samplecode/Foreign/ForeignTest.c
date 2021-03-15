@@ -149,3 +149,9 @@ void ReturnFn(CB *v)
 {
     *v = acallBack;
 }
+
+/* Test for large number of arguments which requires the stack on ARM64. */
+int ManyArguments(int a, int b, int c, int d, int e, int f, int g, int h, int i, int j)
+{
+    return a + h *10 + i*100 + j*1000;
+}

@@ -810,8 +810,32 @@ bool Arm64TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 }
 
 extern "C" {
+    POLYEXTERNALSYMBOL void* PolyArm64GetThreadData();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedEnterIntMode();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function);
+}
+
+// Return the address of assembly data for the current thread.  This is normally in
+// X26 except if we are in a callback.
+void* PolyArm64GetThreadData()
+{
+    // We should get the task data for the thread that is running this code.
+    // If this thread has been created by the foreign code we will have to
+    // create a new one here.
+    TaskData* taskData = processes->GetTaskDataForThread();
+    if (taskData == 0)
+    {
+        try {
+            taskData = processes->CreateNewTaskData();
+        }
+        catch (std::bad_alloc&) {
+            ::Exit("Unable to create thread data - insufficient memory");
+        }
+        catch (MemoryException&) {
+            ::Exit("Unable to create thread data - insufficient memory");
+        }
+    }
+    return &((Arm64TaskData*)taskData)->assemblyInterface;
 }
 
 // Do we require EnterInt instructions and if so for which architecture?
@@ -842,6 +866,7 @@ POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function)
 // No machine-specific calls in the interpreter.
 struct _entrypts machineSpecificEPT[] =
 {
+    { "PolyArm64GetThreadData",         (polyRTSFunction)&PolyArm64GetThreadData },
     { "PolyInterpretedEnterIntMode",    (polyRTSFunction)&PolyInterpretedEnterIntMode },
     { "PolyEndBootstrapMode",           (polyRTSFunction)&PolyEndBootstrapMode },
     { NULL, NULL} // End of list.

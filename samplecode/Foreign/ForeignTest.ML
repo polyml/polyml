@@ -154,3 +154,10 @@ val updateArg =
 updateArg(5, r); (* Adds its first argument to the ref. *)
 
 !r;
+
+val manyArg =
+    buildCall10 (getSymbol mylib "ManyArguments", (cInt, cInt, cInt, cInt, cInt, cInt, cInt, cInt, cInt, cInt), cInt);
+
+
+manyArg(1, 0, 0, 0, 0, 0, 2, 3, 4, 5); (* Result should be 5431. *)
+

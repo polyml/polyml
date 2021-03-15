@@ -178,10 +178,15 @@ sig
     val loadRegUnscaled: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegUnscaled: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and loadRegUnscaledByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegUnscaledSignedByteTo64: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegUnscaledSignedByteTo32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegUnscaledByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and loadRegUnscaled16: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegUnscaledSigned16To64: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegUnscaledSigned16To32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegUnscaled16: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and loadRegUnscaled32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegUnscaledSigned32To64: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegUnscaled32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and loadRegUnscaledFloat: {regT: vReg, regN: xReg, byteOffset: int} -> instr
     and storeRegUnscaledFloat: {regT: vReg, regN: xReg, byteOffset: int} -> instr
