@@ -87,7 +87,7 @@ struct
                 else if lo = 0w0
                 then [moveZero32{regD=xReg, immediate=hi, shift=0w16}]
                 else if isEncodableBitPattern(value, WordSize32)
-                then [bitwiseOrImmediate{wordSize=WordSize32, bits=value, regN=XZero, regD=xReg}]
+                then [bitwiseOrImmediate32{bits=value, regN=XZero, regD=xReg}]
                 else (* Have to use two instructions *)
                     [
                         moveZero32{regD=xReg, immediate=lo, shift=0w0},

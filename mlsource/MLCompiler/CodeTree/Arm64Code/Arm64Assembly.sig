@@ -247,8 +247,10 @@ sig
     and testBitBranchZero: xReg * Word8.word * labels -> instr
     and testBitBranchNonZero: xReg * Word8.word * labels -> instr
     (* Compare a register with zero and branch if zero/nonzero *)
-    and compareBranchZero: xReg * wordSize * labels -> instr
-    and compareBranchNonZero: xReg * wordSize * labels -> instr
+    and compareBranchZero: xReg * labels -> instr
+    and compareBranchZero32: xReg * labels -> instr
+    and compareBranchNonZero: xReg * labels -> instr
+    and compareBranchNonZero32: xReg * labels -> instr
 
     (* Set the destination register to the value of the first reg if the
        condition is true otherwise to a, possibly modified, version of
@@ -264,16 +266,19 @@ sig
         {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
 
     (* Various shifts *)
-    val logicalShiftLeft: {wordSize: wordSize, shift: word, regN: xReg, regD: xReg} -> instr
-    and logicalShiftRight: {wordSize: wordSize, shift: word, regN: xReg, regD: xReg} -> instr
-    and arithmeticShiftRight: {wordSize: wordSize, shift: word, regN: xReg, regD: xReg} -> instr
+    val logicalShiftLeft: {shift: word, regN: xReg, regD: xReg} -> instr
+    and logicalShiftLeft32: {shift: word, regN: xReg, regD: xReg} -> instr
+    and logicalShiftRight: {shift: word, regN: xReg, regD: xReg} -> instr
+    and logicalShiftRight32: {shift: word, regN: xReg, regD: xReg} -> instr
+    and arithmeticShiftRight: {shift: word, regN: xReg, regD: xReg} -> instr
+    and arithmeticShiftRight32: {shift: word, regN: xReg, regD: xReg} -> instr
     (* Extract bits and set the rest of the register to zero. *)
-    and unsignedBitfieldInsertinZeros:
-        {wordSize: wordSize, lsb: word, width: word, regN: xReg, regD: xReg} -> instr
+    and unsignedBitfieldInsertinZeros: {lsb: word, width: word, regN: xReg, regD: xReg} -> instr
+    and unsignedBitfieldInsertinZeros32: {lsb: word, width: word, regN: xReg, regD: xReg} -> instr
     (* Extract bits but leave the rest of the register unchanged.  Can be used
        to clear a specific range of bits by using XZero as the source. *)
-    and bitfieldInsert:
-        {wordSize: wordSize, lsb: word, width: word, regN: xReg, regD: xReg} -> instr
+    and bitfieldInsert: {lsb: word, width: word, regN: xReg, regD: xReg} -> instr
+    and bitfieldInsert32: {lsb: word, width: word, regN: xReg, regD: xReg} -> instr
 
     (* Logical shift left Rd = Rn << (Rm mod 0w64) *)
     val logicalShiftLeftVariable: {regM: xReg, regN: xReg, regD: xReg} -> instr
@@ -284,10 +289,14 @@ sig
 
     (* Logical operations on bit patterns.  The pattern must be valid.
        ANDS is an AND that also sets the flags, typically used for a test. *)
-    val bitwiseAndImmediate: {wordSize: wordSize, bits: Word64.word, regN: xReg, regD: xReg} -> instr
-    and bitwiseOrImmediate: {wordSize: wordSize, bits: Word64.word, regN: xReg, regD: xReg} -> instr
-    and bitwiseXorImmediate: {wordSize: wordSize, bits: Word64.word, regN: xReg, regD: xReg} -> instr
-    and bitwiseAndSImmediate: {wordSize: wordSize, bits: Word64.word, regN: xReg, regD: xReg} -> instr
+    val bitwiseAndImmediate: {bits: Word64.word, regN: xReg, regD: xReg} -> instr
+    and bitwiseAndImmediate32: {bits: Word64.word, regN: xReg, regD: xReg} -> instr
+    and bitwiseOrImmediate: {bits: Word64.word, regN: xReg, regD: xReg} -> instr
+    and bitwiseOrImmediate32: {bits: Word64.word, regN: xReg, regD: xReg} -> instr
+    and bitwiseXorImmediate: {bits: Word64.word, regN: xReg, regD: xReg} -> instr
+    and bitwiseXorImmediate32: {bits: Word64.word, regN: xReg, regD: xReg} -> instr
+    and bitwiseAndSImmediate: {bits: Word64.word, regN: xReg, regD: xReg} -> instr
+    and bitwiseAndSImmediate32: {bits: Word64.word, regN: xReg, regD: xReg} -> instr
 
     (* Instructions involved in thread synchonisation. *)
     val yield: instr and dmbIsh: instr

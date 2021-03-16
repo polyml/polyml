@@ -627,10 +627,14 @@ struct
     and testBitBranchNonZero(reg, bit, label) =
         TestBitBranch{label=label, bitNo=bit, brNonZero=true, reg=reg, length=ref BrExtended}
     (* Compare a register with zero and branch if zero/nonzero *)
-    and compareBranchZero(reg, size, label) =
-        CompareBranch{label=label, brNonZero=false, size=size, reg=reg, length=ref BrExtended}
-    and compareBranchNonZero(reg, size, label) =
-        CompareBranch{label=label, brNonZero=true, size=size, reg=reg, length=ref BrExtended}
+    and compareBranchZero(reg,  label) =
+        CompareBranch{label=label, brNonZero=false, size=WordSize64, reg=reg, length=ref BrExtended}
+    and compareBranchNonZero(reg, label) =
+        CompareBranch{label=label, brNonZero=true, size=WordSize64, reg=reg, length=ref BrExtended}
+    and compareBranchZero32(reg, label) =
+        CompareBranch{label=label, brNonZero=false, size=WordSize32, reg=reg, length=ref BrExtended}
+    and compareBranchNonZero32(reg, label) =
+        CompareBranch{label=label, brNonZero=true, size=WordSize32, reg=reg, length=ref BrExtended}
     
 
     (* Set the destination register to the value of the first reg if the
@@ -674,33 +678,33 @@ struct
         and bitfieldMove64 = bitfield(0w1, 0w1, 0w1)
         and unsignedBitfieldMove64 = bitfield(0w1, 0w2, 0w1)
     in
-        fun logicalShiftLeft{wordSize=WordSize64, shift, regN, regD} =
+        fun logicalShiftLeft{shift, regN, regD} =
                 unsignedBitfieldMove64{immr=Word.~ shift mod 0w64,
                     imms=0w64-0w1-shift, regN=regN, regD=regD}
-        |   logicalShiftLeft{wordSize=WordSize32, shift, regN, regD} =
+        and logicalShiftLeft32{shift, regN, regD} =
                 unsignedBitfieldMove32{immr=Word.~ shift mod 0w32,
                     imms=0w32-0w1-shift, regN=regN, regD=regD}
 
-        and logicalShiftRight{wordSize=WordSize64, shift, regN, regD} =
+        and logicalShiftRight{shift, regN, regD} =
                 unsignedBitfieldMove64{immr=shift, imms=0wx3f, regN=regN, regD=regD}
-        |   logicalShiftRight{wordSize=WordSize32, shift, regN, regD} =
+        and logicalShiftRight32{shift, regN, regD} =
                 unsignedBitfieldMove32{immr=shift, imms=0wx1f, regN=regN, regD=regD}
 
-        and unsignedBitfieldInsertinZeros{wordSize=WordSize64, lsb, width, regN, regD} =
+        and unsignedBitfieldInsertinZeros{lsb, width, regN, regD} =
                 unsignedBitfieldMove64{immr=Word.~ lsb mod 0w64,
                     imms=width-0w1, regN=regN, regD=regD}
-        |   unsignedBitfieldInsertinZeros{wordSize=WordSize32, lsb, width, regN, regD} =
+        and unsignedBitfieldInsertinZeros32{lsb, width, regN, regD} =
                 unsignedBitfieldMove32{immr=Word.~ lsb mod 0w32,
                     imms=width-0w1, regN=regN, regD=regD}
 
-        and arithmeticShiftRight{wordSize=WordSize64, shift, regN, regD} =
+        and arithmeticShiftRight{shift, regN, regD} =
                 signedBitfieldMove64{immr=shift, imms=0wx3f, regN=regN, regD=regD}
-        |   arithmeticShiftRight{wordSize=WordSize32, shift, regN, regD} =
+        and arithmeticShiftRight32{shift, regN, regD} =
                 signedBitfieldMove32{immr=shift, imms=0wx1f, regN=regN, regD=regD}
 
-        and bitfieldInsert{wordSize=WordSize64, lsb, width, regN, regD} =
+        and bitfieldInsert{lsb, width, regN, regD} =
                 bitfieldMove64{immr=Word.~ lsb mod 0w64, imms=width-0w1, regN=regN, regD=regD}
-        |   bitfieldInsert{wordSize=WordSize32, lsb, width, regN, regD} =
+        and bitfieldInsert32{lsb, width, regN, regD} =
                 bitfieldMove32{immr=Word.~ lsb mod 0w32, imms=width-0w1, regN=regN, regD=regD}
     end
 
@@ -708,11 +712,10 @@ struct
         (* Logical immediates.  AND, OR, XOR and ANDS.  Assumes that the immediate value
            has already been checked as valid.  The non-flags versions can use SP as the
            destination. *)
-        fun logicalImmediate (opc, xD) {wordSize, bits, regN, regD} =
+        fun logicalImmediate (s, opc, xD) {bits, regN, regD} =
         let
-            val s = case wordSize of WordSize32 => 0w0 | WordSize64 => 0w1
             val {n, imms, immr} = 
-                case encodeBitPattern(bits, wordSize) of
+                case encodeBitPattern(bits, if s = 0w0 then WordSize32 else WordSize64) of
                     NONE => raise InternalError "testBitPattern: unable to encode bit pattern"
                 |   SOME res => res
         in
@@ -721,19 +724,20 @@ struct
                 word8ToWord(xD regD))
         end
     in
-        val bitwiseAndImmediate = logicalImmediate (0w0, xRegOrXSP)
-        and bitwiseOrImmediate = logicalImmediate (0w1, xRegOrXSP)
-        and bitwiseXorImmediate = logicalImmediate (0w2, xRegOrXSP)
-        and bitwiseAndSImmediate = logicalImmediate (0w3, xRegOrXZ)
+        val bitwiseAndImmediate = logicalImmediate (0w1, 0w0, xRegOrXSP)
+        and bitwiseOrImmediate = logicalImmediate (0w1, 0w1, xRegOrXSP)
+        and bitwiseXorImmediate = logicalImmediate (0w1, 0w2, xRegOrXSP)
+        and bitwiseAndSImmediate = logicalImmediate (0w1, 0w3, xRegOrXZ)
+        and bitwiseAndImmediate32 = logicalImmediate (0w0, 0w0, xRegOrXSP)
+        and bitwiseOrImmediate32 = logicalImmediate (0w0, 0w1, xRegOrXSP)
+        and bitwiseXorImmediate32 = logicalImmediate (0w0, 0w2, xRegOrXSP)
+        and bitwiseAndSImmediate32 = logicalImmediate (0w0, 0w3, xRegOrXZ)
         
         (* Test a bit pattern in a register.  If the pattern is within the low-order
            32-bits we use a 32-bit test. *)
         fun testBitPattern(reg, bits) =
-        let
-            val w = if bits <= 0wxffffffff then WordSize32 else WordSize64
-        in
-            bitwiseAndSImmediate({wordSize=w, bits=bits, regN=reg, regD=XZero})
-        end
+            (if bits <= 0wxffffffff then bitwiseAndSImmediate32 else bitwiseAndSImmediate)
+                {bits=bits, regN=reg, regD=XZero}
     end
 
     local

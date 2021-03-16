@@ -81,7 +81,7 @@ struct
                 loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
         |   loadArgs(FastArgFloat :: argTypes, srcReg :: srcRegs, fixedRegs, fp :: fpRegs) =
                 (* Untag and move into the fp reg *)
-                logicalShiftRight{wordSize=WordSize64, shift=0w32, regN=srcReg, regD=srcReg} ::
+                logicalShiftRight{shift=0w32, regN=srcReg, regD=srcReg} ::
                 moveGeneralToFloat{regN=srcReg, regD=fp} ::
                 loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
         |   loadArgs _ = raise InternalError "rtsCall: Too many arguments"
@@ -117,8 +117,8 @@ struct
                 |   FastArgFloat => (* This must be tagged *)
                     [
                         moveFloatToGeneral{regN=V0, regD=X0},
-                        logicalShiftLeft{wordSize=WordSize64, shift=0w32, regN=X0, regD=X0},
-                        bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}
+                        logicalShiftLeft{shift=0w32, regN=X0, regD=X0},
+                        bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}
                     ]
             ) @
             [
@@ -240,7 +240,7 @@ struct
         if size = 0w6 orelse size = 0w7
         then
         [
-            logicalShiftRight{ wordSize=WordSize64, regN=reg, regD=reg, shift=0w32 },
+            logicalShiftRight{regN=reg, regD=reg, shift=0w32 },
             storeRegUnscaled16{regT=reg, regN=base, byteOffset=offset+4}
         ]
         else []
@@ -249,7 +249,7 @@ struct
         if size = 0w3 orelse size = 0w5 orelse size = 0w7
         then
         [
-            logicalShiftRight{ wordSize=WordSize64, regN=reg, regD=reg, shift=(size-0w1)*0w8 },
+            logicalShiftRight{regN=reg, regD=reg, shift=(size-0w1)*0w8 },
             storeRegUnscaledByte{regT=reg, regN=base, byteOffset=Word.toInt(size-0w1)}
         ]
         else []
