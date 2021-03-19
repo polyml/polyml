@@ -796,13 +796,55 @@ bool Arm64TaskData::AtomicallyReleaseMutex(PolyObject* mutexp)
 
 bool Arm64TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 {
-    if (interpreterPc != 0)
+    stackItem* sp = 0;
+    POLYCODEPTR pc = 0;
+    if (context != 0)
+    {
+#if defined(HAVE_WINDOWS_H)
+        sp = (stackItem*)context->Sp;
+        pc = (POLYCODEPTR)context->Pc;
+#elif defined(HAVE_UCONTEXT_T)
+#ifdef HAVE_MCONTEXT_T_REGS
+        // Linux
+        sp = (stackItem*)context->uc_mcontext.sp;
+        pc = (POLYCODEPTR)context->uc_mcontext.pc;
+#endif
+#endif
+    }
+    if (pc != 0)
     {
         // See if the PC we've got is an ML code address.
-        MemSpace *space = gMem.SpaceForAddress(interpreterPc);
+        MemSpace* space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
-            incrementCountAsynch(interpreterPc);
+            incrementCountAsynch(pc);
+            return true;
+        }
+    }
+    // See if the sp value is in the current stack.
+    if (sp >= (stackItem*)this->stack->bottom && sp < (stackItem*)this->stack->top)
+    {
+        // We may be in the assembly code.  The top of the stack will be a return address.
+        pc = sp[0].w().AsCodePtr();
+        MemSpace* space = gMem.SpaceForAddress(pc);
+        if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
+        {
+            incrementCountAsynch(pc);
+            return true;
+        }
+    }
+    // See if the value of regSP is a valid stack pointer.
+    // This works if we happen to be in an RTS call using a "Full" call.
+    // It doesn't work if we've used a "Fast" call because that doesn't save the SP.
+    sp = assemblyInterface.stackPtr;
+    if (sp >= (stackItem*)this->stack->bottom && sp < (stackItem*)this->stack->top)
+    {
+        // We may be in the run-time system.
+        pc = sp[0].w().AsCodePtr();
+        MemSpace* space = gMem.SpaceForAddress(pc);
+        if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
+        {
+            incrementCountAsynch(pc);
             return true;
         }
     }
