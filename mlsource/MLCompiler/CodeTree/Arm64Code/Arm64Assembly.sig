@@ -227,6 +227,26 @@ sig
     val loadAcquire: {regN: xReg, regT: xReg} -> instr
     and storeRelease: {regN: xReg, regT: xReg} -> instr
 
+    (* Load and store pairs of registers.  The offsets are signed scaled values. *)
+    val storePairOffset: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairOffset: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and storePairPostIndexed: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPostIndexed: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and storePairPreIndexed: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPreIndexed: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and storePairOffsetFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairOffsetFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and storePairPostIndexedFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPostIndexesFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and storePairPreIndexedFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPreIndexesFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and storePairOffsetDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairOffsetDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and storePairPostIndexedDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPostIndexesDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and storePairPreIndexedDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPreIndexesDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+
     (* This word is put in after a call to the RTS trap-handler.  All the registers
        are saved and restored across a call to the trap-handler; the register
        mask contains those that may contain an address and so need to be scanned and
