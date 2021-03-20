@@ -235,7 +235,7 @@ struct
     let
         val storeOp =
             if size = 0w8 then storeRegUnscaled else if size >= 0w4 then storeRegUnscaled32
-            else if size >= 0w2 then storeRegUnscaled16 else loadRegUnscaledByte
+            else if size >= 0w2 then storeRegUnscaled16 else storeRegUnscaledByte
     in
         [storeOp{regT=reg, regN=base, byteOffset=offset}]
     end @
@@ -253,7 +253,7 @@ struct
         then
         [
             logicalShiftRight{regN=reg, regD=reg, shift=(size-0w1)*0w8 },
-            storeRegUnscaledByte{regT=reg, regN=base, byteOffset=Word.toInt(size-0w1)}
+            storeRegUnscaledByte{regT=reg, regN=base, byteOffset=offset+Word.toInt(size-0w1)}
         ]
         else []
     )
@@ -554,9 +554,28 @@ struct
                 val newArgOffset = alignUp(argOffset, align)
             in
                 case classifyArg(typeForm, size) of
-                    ArgClassHFA(numItems, isDouble) => raise Foreign "TODO: ArgClassHFA"
-                |   ArgLargeStruct =>  raise Foreign "TODO: ArgLargeStruct"
-                |   Arg9To16Bytes =>  raise Foreign "TODO: Arg9To16Bytes"
+                    ArgClassHFA(numItems, isDouble) =>
+                        if fpRegNo + numItems <= 0w8
+                        then
+                        let
+                            val scale = if isDouble then 0w8 else 0w4
+                            (* Store the values from the FP registers. *)
+                            fun storeFPRegs(0w0, _, _) = []
+                            |   storeFPRegs(0w1, fpRegNo, offset) =
+                                [(if isDouble then storeRegScaledDouble else storeRegScaledFloat)
+                                    {regT=VReg fpRegNo, regN=XSP, unitOffset=offset}]
+                            |   storeFPRegs(n, fpRegNo, offset) =
+                                (if isDouble then storePairOffsetDouble else storePairOffsetFloat)
+                                    {regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=XSP, unitOffset=offset} ::
+                                        storeFPRegs(n-0w2, fpRegNo+0w2, offset+2)
+                        in
+                            moveArgs(args, stackSpace, newArgOffset+size, gRegNo, fpRegNo+numItems,
+                                storeFPRegs(numItems, fpRegNo, Word.toInt(newArgOffset div scale)) @ moveFromStack)
+                        end
+                        else raise Foreign "TODO: ArgClassHFA on stack"
+
+                |   ArgLargeStruct => raise Foreign "TODO: ArgLargeStruct"
+                |   Arg9To16Bytes => raise Foreign "TODO: Arg9To16Bytes"
 
                 |   Arg1To8Bytes =>
                     (
@@ -583,13 +602,42 @@ struct
         local
             val {size, typeForm, ...} =  result
         in
+            (* Load the results from the result area except that if we're
+               passing the result structure by reference this is done by
+               the caller.  Generally similar to how arguments are passed
+               in a call. *)
             val (loadResults, resultByReference) =
                 if typeForm = CTypeVoid
                 then ([], false)
                 else case classifyArg(typeForm, size) of
-                    ArgClassHFA(numItems, isDouble) => raise Foreign "TODO ArgClassHFA"
+                    ArgClassHFA(numItems, isDouble) =>
+                        let
+                            val scale = if isDouble then 0w8 else 0w4
+                            (* Load the values to the floating point registers. *)
+                            fun loadFPRegs(0w0, _, _) = []
+                            |   loadFPRegs(0w1, fpRegNo, offset) =
+                                [(if isDouble then loadRegScaledDouble else loadRegScaledFloat)
+                                    {regT=VReg fpRegNo, regN=XSP, unitOffset=offset}]
+                            |   loadFPRegs(n, fpRegNo, offset) =
+                                (if isDouble then loadPairOffsetDouble else loadPairOffsetFloat)
+                                    {regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=XSP, unitOffset=offset} ::
+                                        loadFPRegs(n-0w2, fpRegNo+0w2, offset+2)
+                        in
+                            (loadFPRegs(numItems, 0w0, Word.toInt(argumentSpace div scale)), false)
+                        end
+
                 |   ArgLargeStruct => ([], true) (* Structures larger than 16 bytes are passed by reference. *)
-                |   Arg9To16Bytes => raise Foreign "TODO Arg9To16Bytes"
+                |   Arg9To16Bytes =>
+                    let
+                        (* Unlike the argument case this is always aligned. *)
+                        val code =
+                            if size = 0w16
+                            then [loadPairOffset{regT1=X0, regT2=X1, regN=XSP, unitOffset=Word.toInt(argumentSpace div 0w8)}]
+                            else loadRegScaled{regT=X0, regN=XSP, unitOffset=Word.toInt(argumentSpace div 0w8)} ::
+                                    loadUpTo8(X1, XSP, argumentSpace+0w8, size-0w8, X2)
+                    in
+                        (code, false)
+                    end
                 |   Arg1To8Bytes => (loadUpTo8(X0, XSP, argumentSpace, size, X2),false)
         end
 
