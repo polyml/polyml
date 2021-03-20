@@ -783,7 +783,7 @@ static uintptr_t Arm64AsmAtomicExchange(PolyObject* mutexp, uintptr_t value)
 #else
 extern "C" {
     // This is only defined in the GAS assembly code
-    uintptr_t Arm646AsmAtomicExchange(PolyObject*, uintptr_t);
+    uintptr_t Arm64AsmAtomicExchange(PolyObject*, uintptr_t);
 }
 #endif
 
