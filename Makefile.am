@@ -1,12 +1,10 @@
 AUTOMAKE_OPTIONS=foreign
 ACLOCAL_AMFLAGS= -I m4 --install
 
-BOOTSTRAP_OPTIONS =
-
 if INTINFISINT
-POLYIMPORT_OPTIONS = --intIsIntInf
+BOOTSTRAP_OPTIONS = --intIsIntInf
 else
-POLYIMPORT_OPTIONS =
+BOOTSTRAP_OPTIONS =
 endif
 
 DIST_SUBDIRS = libpolyml libpolymain modules
@@ -79,11 +77,11 @@ dist-hook:
 
 # Unix.
 polyexport.o: polyimport bootstrap/Stage1.sml $(POLYIMPORT)
-	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) -I $(srcdir) < $(srcdir)/bootstrap/Stage1.sml
+	./polyimport $(BOOTSTRAP_OPTIONS) $(POLYIMPORT) -I $(srcdir) < $(srcdir)/bootstrap/Stage1.sml
 
 # Windows.  When building on Windows make sure that we provide both stdin and stdout to suppress the GUI.
 polyexport.obj: polyimport$(EXEEXT) bootstrap/Stage1.sml $(POLYIMPORT)
-	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) -I $(srcdir) < $(srcdir)/bootstrap/Stage1.sml | cat
+	./polyimport $(BOOTSTRAP_OPTIONS) $(POLYIMPORT) -I $(srcdir) < $(srcdir)/bootstrap/Stage1.sml | cat
 
 polyresource.o: PolyML.rc poly.ico
 	$(WINDRES) -o polyresource.o $(srcdir)/PolyML.rc
@@ -94,7 +92,6 @@ polyresource.o: PolyML.rc poly.ico
 # Recompiler the compiler using the last step of the bootstrap process.
 compiler: all
 	./poly $(BOOTSTRAP_OPTIONS) --error-exit < bootstrap/Stage6.sml
-	$(MAKE)
 
 reboot: compiler
 	cp $(POLYIMPORT)
