@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2001-7, 2015, 2019
+    Copyright (c) 2001-7, 2015, 2019, 2021
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -3560,7 +3560,8 @@ WM_IME_KEYUP                    0x0291
             else getCallback hw (hw, msgId, wParam, lParam)
 
             val mainWinProc =
-                buildClosure4withAbi(mainCallbackFunction, winAbi, (cHWND, cUint, cUINT_PTRw, cUINT_PTRw), cUINT_PTRw)
+                buildCallback4withAbi(winAbi, (cHWND, cUint, cUINT_PTRw, cUINT_PTRw), cUINT_PTRw)
+                    mainCallbackFunction
             
             val WNDPROC: (HWND * int * SysWord.word * SysWord.word -> SysWord.word) closure conversion = cFunction
 
