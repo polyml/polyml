@@ -92,6 +92,7 @@ polyresource.o: PolyML.rc poly.ico
 # Recompiler the compiler using the last step of the bootstrap process.
 compiler: all
 	./poly $(BOOTSTRAP_OPTIONS) --error-exit < bootstrap/Stage6.sml
+	$(MAKE)
 
 reboot: compiler
 	cp $(POLYIMPORT)
