@@ -193,41 +193,20 @@ struct
     |   CTypeStruct of cType list | CTypeVoid
     withtype cType = { typeForm: cTypeForm, align: word, size: word }
 
-    (* Load a value into a register.  Normally the size will be 1, 2, 4 or 8 bytes and
-       this will just involve a simple load.  Structs, though, can be of any size up
-       to 8 bytes. *)
-    fun loadUpTo8(reg, base, offset, size, workReg) =
+    (* Load a byte, halfword, word or long *)
+    fun loadAlignedValue(reg, base, offset, size) =
     let
-        (* The argument is put in the least-significant bits implying we don't sign-extend. *)
+        val _ = offset mod size = 0w0 orelse raise InternalError "loadAlignedValue: not aligned"
         val loadOp =
-            if size = 0w8
-            then loadRegUnscaled
-            else if size >= 0w4
-            then loadRegUnscaled32
-            else if size >= 0w2
-            then loadRegUnscaled16
-            else loadRegUnscaledByte
+            case size of
+                0w8 => loadRegScaled
+            |   0w4 => loadRegScaled32
+            |   0w2 => loadRegScaled16
+            |   0w1 => loadRegScaledByte
+            |   _ => raise InternalError "loadAlignedValue: invalid length"
     in
-        [loadOp{regT=reg, regN=base, byteOffset=Word.toInt offset}]
-    end @
-    (
-        if size = 0w6 orelse size = 0w7
-        then
-        [
-            loadRegUnscaled16{regT=workReg, regN=base, byteOffset=Word.toInt offset + 4},
-            orrShiftedReg{regM=workReg, regN=reg, regD=reg, shift=ShiftLSL 0w32}
-        ]
-        else []
-    ) @
-    (
-        if size = 0w3 orelse size = 0w5 orelse size = 0w7
-        then
-        [
-            loadRegUnscaledByte{regT=workReg, regN=base, byteOffset=Word.toInt offset + Word.toInt(size-0w1)},
-            orrShiftedReg{regM=workReg, regN=reg, regD=reg, shift=ShiftLSL((size-0w1)*0w8)}
-        ]
-        else []
-    )
+        loadOp{regT=reg, regN=base, unitOffset=Word.toInt(offset div size)}
+    end
 
     (* Store a register into upto 8 bytes.  Most values will involve a single store but odd-sized
        structs can require shifts and multiple stores.  N.B.  May modify the source register. *)
@@ -266,8 +245,7 @@ struct
     datatype argClass =
         ArgClassHFA of Word8.word * bool (* 1 - 4 floating pt values *)
     |   ArgLargeStruct          (* > 16 bytes and not an HFA *)
-    |   Arg9To16Bytes           (* Two X registers *)
-    |   Arg1To8Bytes            (* One X register *)
+    |   ArgSmall                (* Scalars or small structures *)
 
     fun classifyArg(ctype, size) =
         case unwrap (ctype, size) of
@@ -289,8 +267,15 @@ struct
                 ArgClassHFA(0w4, true)
         |   _ =>
                 if size > 0w16 then ArgLargeStruct
-                else if size > 0w8 then Arg9To16Bytes
-                else Arg1To8Bytes
+                else ArgSmall
+
+    (* Can we load this in a single instruction? *)
+    fun alignedLoadStore(_, 0w1) = true
+    |   alignedLoadStore(addr, 0w2) = addr mod 0w2 = 0w0
+    |   alignedLoadStore(addr, 0w4) = addr mod 0w4 = 0w0
+    |   alignedLoadStore(addr, 0w8) = addr mod 0w8 = 0w0
+    |   alignedLoadStore(addr, 0w16) = addr mod 0w8 = 0w0 (* Can use load-pair. *)
+    |   alignedLoadStore _ = false
 
     (* This builds a piece of code that takes three arguments and returns a unit result.
        All three arguments are SysWord.word values i.e. ML addresses containing the address
@@ -369,61 +354,70 @@ struct
                             loadArgs(args, newStackOffset, newArgOffset+size, gRegNo, 0w8,
                                 copyToStack @ code, largeStructSpace)
                         end
-
-                |   ArgLargeStruct => (* Larger structures are passed by reference. *)
+             
+                |   _ =>
                     let
-                        (* Structures of other sizes are passed by reference.  They are first
-                           copied into new areas on the stack.  This ensures that the called function
-                           can update the structure without changing the original values. *)
-                        val newStructSpace = alignUp(largeStructSpace + size, 0w16)
-                        val loopLabel = createLabel()
-                        val argRegNo = if gRegNo < 0w8 then XReg gRegNo else argWorkReg
-                        (* Copy from the end back to the start. *)
-                        val argCode =
-                        [
-                            addImmediate{regN=structSpacePtr, regD=argRegNo, immed=largeStructSpace, shifted=false}, 
-                            addImmediate{regN=argRegNo, regD=argWorkReg2, immed=size, shifted=false}, (* End of dest area *)
-                            addImmediate{regN=argPtrReg, regD=argWorkReg3, immed=newArgOffset+size, shifted=false}, (* end of source *)
-                            setLabel loopLabel,
-                            loadRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg3, byteOffset= ~1},
-                            storeRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg2, byteOffset= ~1},
-                            subSShiftedReg{regM=argWorkReg2, regN=argRegNo, regD=XZero, shift=ShiftNone}, (* At start? *)
-                            conditionalBranch(condNotEqual, loopLabel)
-                        ]
+                        (* Load an aligned argument into one or two registers or copy it to the stack. *)
+                        fun loadArgumentValues(argSize, sourceOffset, sourceBase, newStructSpace, preCode) =
+                            if gRegNo <= 0w6 orelse (size <= 0w8 andalso gRegNo <= 0w7)
+                            then (* There are sufficient registers *)
+                            let
+                                val (loadInstr, nextGReg) =
+                                    if argSize = 0w16
+                                    then ([loadPairOffset{regT1=XReg gRegNo, regT2=XReg(gRegNo+0w1),
+                                                regN=sourceBase, unitOffset=Word.toInt(sourceOffset div 0w8)}], gRegNo+0w2)
+                                    else ([loadAlignedValue(XReg gRegNo, sourceBase, sourceOffset, size)], gRegNo+0w1)
+                            in
+                                loadArgs(args, stackOffset, newArgOffset+size, nextGReg, fpRegNo,
+                                        preCode @ loadInstr @ code, newStructSpace)
+                            end
+                            else if argSize = 0w16
+                            then loadArgs(args, stackOffset+2, newArgOffset+size, 0w8, fpRegNo,
+                                    preCode @
+                                    loadPairOffset{regT1=argWorkReg2, regT2=argWorkReg3, regN=sourceBase, unitOffset=Word.toInt(sourceOffset div 0w8)} ::
+                                    storePairOffset{regT1=argWorkReg2, regT2=argWorkReg3, regN=XSP, unitOffset=stackOffset} :: code, newStructSpace)
+                            else loadArgs(args, stackOffset+1, newArgOffset+size, 0w8, fpRegNo,
+                                    preCode @ loadAlignedValue(argWorkReg2, sourceBase, sourceOffset, argSize) ::
+                                    storeRegScaled{regT=argWorkReg2, regN=XSP, unitOffset=stackOffset} :: code, newStructSpace)
                     in
-                        if gRegNo < 0w8
-                        then loadArgs(args, stackOffset, newArgOffset+size, gRegNo+0w1, fpRegNo, argCode @ code, newStructSpace)
-                        else loadArgs(args, stackOffset+1, newArgOffset+size, 0w8, fpRegNo,
-                                argCode @ storeRegScaled{regT=argWorkReg, regN=XSP, unitOffset=stackOffset} :: code,
-                                newStructSpace)
+                        if alignedLoadStore(newArgOffset, size)
+                        then loadArgumentValues(size, newArgOffset, argPtrReg, largeStructSpace, [])
+
+                        else (* General case.  Either a large structure or a small structure that
+                                can't easily be loaded,  First copy it to the stack, and either pass
+                                the address or load it once it's aligned. *)
+                        let
+                            val newStructSpace = alignUp(largeStructSpace + size, 0w16)
+                            val loopLabel = createLabel()
+                            (* The address of the area we're copying to is in argRegNo. *)
+                            val argRegNo = if gRegNo < 0w8 then XReg gRegNo else argWorkReg
+                            (* Copy from the end back to the start. *)
+                            val copyToStructSpace =
+                            [
+                                addImmediate{regN=structSpacePtr, regD=argRegNo, immed=largeStructSpace, shifted=false}, 
+                                addImmediate{regN=argRegNo, regD=argWorkReg2, immed=size, shifted=false}, (* End of dest area *)
+                                addImmediate{regN=argPtrReg, regD=argWorkReg3, immed=newArgOffset+size, shifted=false}, (* end of source *)
+                                setLabel loopLabel,
+                                loadRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg3, byteOffset= ~1},
+                                storeRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg2, byteOffset= ~1},
+                                subSShiftedReg{regM=argWorkReg2, regN=argRegNo, regD=XZero, shift=ShiftNone}, (* At start? *)
+                                conditionalBranch(condNotEqual, loopLabel)
+                            ]
+                        in
+                            if size > 0w16
+                            then (* Large struct - pass by reference *)
+                            (
+                                if gRegNo < 0w8
+                                then loadArgs(args, stackOffset, newArgOffset+size, gRegNo+0w1, fpRegNo, copyToStructSpace @ code, newStructSpace)
+                                else loadArgs(args, stackOffset+1, newArgOffset+size, 0w8, fpRegNo,
+                                        copyToStructSpace @ storeRegScaled{regT=argWorkReg, regN=XSP, unitOffset=stackOffset} :: code,
+                                        newStructSpace)
+                            )
+                            else (* Small struct.  Since it's now in an area at least 16 bytes and properly aligned we can load it. *)
+                                (* argRegNo points to where we copied it *)
+                                loadArgumentValues(if size > 0w8 then 0w16 else 0w8, 0w0, argRegNo, newStructSpace, copyToStructSpace)
+                        end
                     end
-
-                |   Arg9To16Bytes =>
-                    (* Structs between 8 and 16 bytes require two registers. *)
-                        (* Note: If this is a struct the source value may not be aligned on any particular alignment.
-                           We ignore that and use 64-bit loads.  However that means we can't necessarily use a load-pair. *)
-                    (
-                        if gRegNo <= 0w6
-                        then loadArgs(args, stackOffset, newArgOffset+size, gRegNo + 0w2, fpRegNo,
-                                loadRegUnscaled{regT=XReg gRegNo, regN=argPtrReg, byteOffset=Word.toInt newArgOffset} ::
-                                loadUpTo8(XReg(gRegNo+0w1), argPtrReg, newArgOffset+0w8, size-0w8, argWorkReg) @ code, largeStructSpace)
-
-                        else loadArgs(args, stackOffset+2, newArgOffset+size, 0w8, fpRegNo,
-                                loadRegUnscaled{regT=argWorkReg2, regN=argPtrReg, byteOffset=Word.toInt newArgOffset} ::
-                                storeRegScaled{regT=argWorkReg2, regN=XSP, unitOffset=stackOffset} ::
-                                loadUpTo8(argWorkReg2, argPtrReg, newArgOffset+0w8, size-0w8, argWorkReg) @
-                                storeRegScaled{regT=argWorkReg2, regN=XSP, unitOffset=stackOffset + 1} :: code, largeStructSpace)
-                    )
-
-                |   Arg1To8Bytes =>
-                    (
-                        if gRegNo <= 0w7
-                        then loadArgs(args, stackOffset, newArgOffset+size, gRegNo + 0w1, fpRegNo,
-                                loadUpTo8(XReg gRegNo, argPtrReg, newArgOffset, size, argWorkReg) @ code, largeStructSpace)
-                        else loadArgs(args, stackOffset+1, newArgOffset+size, 0w8, fpRegNo,
-                                loadUpTo8(argWorkReg2, argPtrReg, newArgOffset, size, argWorkReg) @
-                                storeRegScaled{regT=argWorkReg2, regN=XSP, unitOffset=stackOffset} :: code, largeStructSpace)
-                    )
             end
     
         local
@@ -452,12 +446,13 @@ struct
                         end
 
                 |   ArgLargeStruct => ([], true) (* Structures larger than 16 bytes are passed by reference. *)
-                    (* Structures between 8 and 16 bytes are returned in X0/X1. *)
-                |   Arg9To16Bytes =>
+
+                |   _ =>
                         if size = 0w16
                         then ([storePairOffset{regT1=X0, regT2=X1, regN=resultAreaPtr, unitOffset=0}], false)
-                        else (storeRegScaled{regT=X0, regN=resultAreaPtr, unitOffset=0} :: storeResult(X1, 8, size-0w8), false)
-                |   Arg1To8Bytes => (storeResult(X0, 0, size), false)
+                        else if size > 0w8
+                        then (storeRegScaled{regT=X0, regN=resultAreaPtr, unitOffset=0} :: storeResult(X1, 8, size-0w8), false)
+                        else (storeResult(X0, 0, size), false)
         end
 
         val (argCode, argStack, largeStructSpace) =
@@ -542,6 +537,12 @@ struct
        SysWord.word value except that while it exists the code will not be GCed.  *)
     fun buildCallBack(_: abi, args: cType list, result: cType): Address.machineWord =
     let
+        val argWorkReg = X10 (* Used in loading arguments if necessary. *)
+        and argWorkReg2 = X11
+        and argWorkReg3 = X13
+        and argWorkReg4 = X14
+        
+        (* The stack contains a 32-byte result area then an aligned area for the arguments. *)
 
         (* Store the argument values to the structure that will be passed to the ML callback function. *)
         (* Note.  We've loaded the frame pointer with the original stack ptr-96 so we can
@@ -572,24 +573,90 @@ struct
                             moveArgs(args, stackSpace, newArgOffset+size, gRegNo, fpRegNo+numItems,
                                 storeFPRegs(numItems, fpRegNo, Word.toInt(newArgOffset div scale)) @ moveFromStack)
                         end
-                        else raise Foreign "TODO: ArgClassHFA on stack"
+                        else
+                        let
+                            (* Load the arguments from the stack and store into the result area. *)
+                            fun copyData(0w0, _, _) = []
+                            |   copyData(n, dstOffset, stackOffset) =
+                                if isDouble
+                                then loadRegScaled{regT=argWorkReg2, regN=X29, unitOffset=stackOffset} ::
+                                     storeRegScaled{regT=argWorkReg2, regN=XSP, unitOffset=dstOffset} ::
+                                     copyData(n-0w1, dstOffset+1, stackOffset+1)
+                                else loadRegScaled32{regT=argWorkReg2, regN=X29, unitOffset=stackOffset} ::
+                                     storeRegScaled32{regT=argWorkReg2, regN=XSP, unitOffset=dstOffset} ::
+                                     copyData(n-0w1, dstOffset+1, stackOffset+1)
 
-                |   ArgLargeStruct => raise Foreign "TODO: ArgLargeStruct"
-                |   Arg9To16Bytes => raise Foreign "TODO: Arg9To16Bytes"
+                            val copyFromStack =
+                                if isDouble
+                                then copyData(numItems, Word.toInt(newArgOffset div 0w8), stackSpace)
+                                else copyData(numItems, Word.toInt(newArgOffset div 0w4), stackSpace*2)
+                            (* The overall size is rounded up to a multiple of 8 *)
+                            val newStackOffset = stackSpace + Word.toInt(alignUp(size, 0w8) div 0w8)
+                        in
+                            moveArgs(args, newStackOffset, newArgOffset+size, gRegNo, 0w8,
+                                copyFromStack @ moveFromStack)
+                        end
 
-                |   Arg1To8Bytes =>
+                |   _ =>
+                    if alignedLoadStore(newArgOffset, size) andalso
+                        (gRegNo <= 0w6 orelse gRegNo = 0w7 andalso size <= 0w8)
+                    then (* Usual case: argument passed in one or two registers. *)
                     (
-                        if gRegNo <= 0w7
-                        then moveArgs(args, stackSpace, newArgOffset+size, gRegNo + 0w1, fpRegNo,
+                        if size > 0w8
+                        then moveArgs(args, stackSpace, newArgOffset+size, gRegNo + 0w2, fpRegNo,
+                                storePairOffset{regT1=XReg gRegNo, regT2=XReg(gRegNo+0w1), regN=XSP,
+                                    unitOffset=Word.toInt(newArgOffset div 0w8)} :: moveFromStack)
+                        else moveArgs(args, stackSpace, newArgOffset+size, gRegNo + 0w1, fpRegNo,
                                 storeUpTo8(XReg gRegNo, XSP, Word.toInt newArgOffset, size) @ moveFromStack)
-                        else (*moveArgs(args, stackOffset+1, newArgOffset+size, 0w8, fpRegNo,
-                                loadUpTo8(argWorkReg2, argPtrReg, newArgOffset, size, argWorkReg) @
-                                storeRegScaled{regT=argWorkReg2, regN=XSP, unitOffset=stackOffset} :: code, moveFromStack)*)
-                            raise Foreign "TODO: Stack arguments"
                     )
+                    else
+                    (* General case.  Store the argument registers if necessary and then use
+                       a byte copy to copy into the argument area.  This sorts out any odd alignments or
+                       lengths.  In some cases the source will be in memory already. *)
+                    let
+                        (* The source is either the register value or the value on the stack. *)
+                        val (argRegNo, nextGReg, newStack, loadArg) =
+                            if size > 0w16
+                            then
+                            (
+                                if gRegNo < 0w8
+                                then (XReg gRegNo, gRegNo + 0w1, stackSpace, [])
+                                else (argWorkReg, 0w8, stackSpace+1, [loadRegScaled{regT=argWorkReg, regN=X29, unitOffset=stackSpace}])
+                            )
+                            else
+                            let
+                                val regsNeeded = if size > 0w8 then 0w2 else 0w1
+                            in
+                                if gRegNo + regsNeeded <= 0w8
+                                then (XReg gRegNo, gRegNo+regsNeeded, stackSpace,
+                                        [if size > 0w8
+                                         then storePairOffset{regT1=XReg gRegNo, regT2=XReg(gRegNo+0w1), regN=XSP, unitOffset=2}
+                                         else storeRegScaled{regT=XReg gRegNo, regN=XSP, unitOffset=2},
+                                         addImmediate{regD=XReg gRegNo, regN=XSP, immed=0w16, shifted=false}])
+                                else (* Being passed on the stack *)
+                                    (argWorkReg, 0w8, stackSpace+Word8.toInt regsNeeded,
+                                        [addImmediate{regD=argWorkReg, regN=X29, immed=Word.fromInt stackSpace*0w8, shifted=false}])
+                            end
+
+                        val loopLabel = createLabel()
+
+                        val copyCode =
+                        [ 
+                            addImmediate{regN=argRegNo, regD=argWorkReg3, immed=size, shifted=false}, (* End of source area *)
+                            addImmediate{regN=XSP, regD=argWorkReg2, immed=newArgOffset+size, shifted=false}, (* end of dest *)
+                            setLabel loopLabel,
+                            loadRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg3, byteOffset= ~1},
+                            storeRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg2, byteOffset= ~1},
+                            subSShiftedReg{regM=argWorkReg3, regN=argRegNo, regD=XZero, shift=ShiftNone}, (* At start? *)
+                            conditionalBranch(condNotEqual, loopLabel)
+                        ]
+                    in
+                        moveArgs(args, newStack, newArgOffset+size, nextGReg, fpRegNo, loadArg @ copyCode @ moveFromStack)
+                    end
             end
 
-        val copyArgsFromRegsAndStack = moveArgs(args, 0, 0w0, 0w0, 0w0, [])
+        val copyArgsFromRegsAndStack =
+            moveArgs(args, 12 (* Offset to first stack arg *), 0w32 (* Size of result area *), 0w0, 0w0, [])
 
         local
             fun getNextSize (arg, argOffset) =
@@ -597,7 +664,6 @@ struct
         in
             val argumentSpace = alignUp(List.foldl getNextSize 0w0 args, 0w16)
         end
-        (* After the argument space there is a 32 byte area for the results. *)
 
         local
             val {size, typeForm, ...} =  result
@@ -612,7 +678,6 @@ struct
                 else case classifyArg(typeForm, size) of
                     ArgClassHFA(numItems, isDouble) =>
                         let
-                            val scale = if isDouble then 0w8 else 0w4
                             (* Load the values to the floating point registers. *)
                             fun loadFPRegs(0w0, _, _) = []
                             |   loadFPRegs(0w1, fpRegNo, offset) =
@@ -623,22 +688,17 @@ struct
                                     {regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=XSP, unitOffset=offset} ::
                                         loadFPRegs(n-0w2, fpRegNo+0w2, offset+2)
                         in
-                            (loadFPRegs(numItems, 0w0, Word.toInt(argumentSpace div scale)), false)
+                            (loadFPRegs(numItems, 0w0, 0 (* result area *)), false)
                         end
 
                 |   ArgLargeStruct => ([], true) (* Structures larger than 16 bytes are passed by reference. *)
-                |   Arg9To16Bytes =>
-                    let
-                        (* Unlike the argument case this is always aligned. *)
-                        val code =
-                            if size = 0w16
-                            then [loadPairOffset{regT1=X0, regT2=X1, regN=XSP, unitOffset=Word.toInt(argumentSpace div 0w8)}]
-                            else loadRegScaled{regT=X0, regN=XSP, unitOffset=Word.toInt(argumentSpace div 0w8)} ::
-                                    loadUpTo8(X1, XSP, argumentSpace+0w8, size-0w8, X2)
-                    in
-                        (code, false)
-                    end
-                |   Arg1To8Bytes => (loadUpTo8(X0, XSP, argumentSpace, size, X2),false)
+
+                |   _ =>
+                    (* We've allocated a 32-byte area aligned onto a 16-byte boundary so
+                       we can simply load one or two registers. *)
+                    if size > 0w8
+                    then ([loadPairOffset{regT1=X0, regT2=X1, regN=XSP, unitOffset=0}], false)
+                    else ([loadRegScaled{regT=X0, regN=XSP, unitOffset=0}], false)
         end
 
         val instructions =
@@ -650,16 +710,15 @@ struct
                 storePairOffset{regT1=X23, regT2=X24, regN=X29, unitOffset=6},
                 storePairOffset{regT1=X25, regT2=X26, regN=X29, unitOffset=8},
                 storePairOffset{regT1=X27, regT2=X28, regN=X29, unitOffset=10},
-                (* Reserve an area for any results returned in registers.  This could
-                   be up to 32 bytes.  Save X8 in it in case we're actually returning
-                   a result by reference. *)
-                storeRegPreIndex{regT=X8, regN=XSP, byteOffset= ~32},
-                (* Reserve space for the arguments. *)
-                subImmediate{regN=XSP, regD=XSP, immed=argumentSpace, shifted=false},
+                (* Reserve space for the arguments and results. *)
+                subImmediate{regN=XSP, regD=XSP, immed=argumentSpace+0w32, shifted=false},
                 (* We passed the function we're calling in X9 but we need to move
-                   it to a callee-save register. *)
+                   it to a callee-save register before we call the RTS. *)
                 moveRegToReg{sReg=X9, dReg=X20}
-            ] @ copyArgsFromRegsAndStack @
+            ] @
+                (* Save X8 if we're going to need it. *)
+            (if resultByReference then [storeRegScaled{regT=X8, regN=XSP, unitOffset=0}] else []) @
+            copyArgsFromRegsAndStack @
             [
                 (* Call into the RTS to get the thread data ptr. *)
                 loadAddressConstant(X0, getThreadDataCall),
@@ -670,17 +729,21 @@ struct
                 loadRegScaled{regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset},
                 loadRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
                 loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
-                (* Prepare the arguments.  They are both syswords so have to be boxed. *)
-                moveRegToReg{sReg=XSP, dReg=X2} (* Move to X2 before boxing *)
+                (* Prepare the arguments.  They are both syswords so have to be boxed.
+                   First load the address of the argument area which is after the
+                   32-byte result area. *)
+                addImmediate{regN=XSP, regD=X2, immed=0w32, shifted=false}
             ] @ boxSysWord(X2, X0, X3) @ (* Address of arguments. *)
             (
                 (* Result area pointer.  If we're returning by reference this is the original
                    value of X8 otherwise it's the address of the 32 bytes we've reserved. *)
                 if resultByReference
-                then [loadRegScaled{regT=X2, regN=XSP, unitOffset=Word.toInt(argumentSpace div 0w8)}]
-                else [addImmediate{regN=XSP, regD=X2, immed=argumentSpace, shifted=false}]
+                then [loadRegScaled{regT=X2, regN=XSP, unitOffset=0}]
+                else [moveRegToReg{sReg=XSP, dReg=X2}]
             ) @ boxSysWord(X2, X1, X3) @
             [
+                (* Put the ML closure pointer, originally in X9 now in X20, into the
+                   ML closure pointer register, X8.  Then call the ML code. *)
                 moveRegToReg{sReg=X20, dReg=X8},
                 loadRegScaled{regT=X16, regN=X8, unitOffset=0},
                 branchAndLinkReg X16,
