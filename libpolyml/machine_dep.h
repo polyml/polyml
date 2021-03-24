@@ -36,7 +36,8 @@ typedef enum {
     MA_I386,
     MA_X86_64,
     MA_X86_64_32,
-    MA_Arm64
+    MA_Arm64,
+    MA_Arm64_32
 } Architectures;
 
 // Machine-dependent module.

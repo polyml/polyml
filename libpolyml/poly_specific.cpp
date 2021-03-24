@@ -97,6 +97,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             case MA_X86_64:         version = "X86_64-" TextVersion; break;
             case MA_X86_64_32:      version = "X86_64_32-" TextVersion; break;
             case MA_Arm64:          version = "Arm64-" TextVersion; break;
+            case MA_Arm64_32:       version = "Arm64_32-" TextVersion; break;
             default:                version = "Unknown-" TextVersion; break;
             }
             return SAVE(C_string_to_Poly(taskData, version));
@@ -113,6 +114,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             case MA_X86_64:         arch = "X86_64"; break;
             case MA_X86_64_32:      arch = "X86_64_32"; break;
             case MA_Arm64:          arch = "Arm64"; break;
+            case MA_Arm64_32:       arch = "Arm64_32"; break;
             default:                arch = "Unknown"; break;
             }
             return SAVE(C_string_to_Poly(taskData, arch));

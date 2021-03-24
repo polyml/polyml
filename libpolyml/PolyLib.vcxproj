@@ -871,11 +871,11 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">true</ExcludedFromBuild>
@@ -1293,7 +1293,7 @@ armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
@@ -1301,7 +1301,7 @@ armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">cl /nologo /EP  /I. /DARMASMSYNTAX /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
@@ -1331,11 +1331,11 @@ armasm64 -o $(IntDir)%(Filename).obj $(IntDir)%(Filename).asm</Command>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|ARM64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">false</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">true</ExcludedFromBuild>

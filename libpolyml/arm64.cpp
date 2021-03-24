@@ -64,7 +64,8 @@
 * X9-X15    Volatile scratch registers
 * X16-17    Intra-procedure-call (C).  Only used for special cases in ML.
 * X18       Platform register. Not used in ML.
-* X19-X24   Non-volatile (C).  Scratch registers (ML).
+* X19-X23   Non-volatile (C).  Scratch registers (ML).
+* X24       Non-volatile (C).  Scratch register (ML).  Heap base in 32-in-64.
 * X25       ML Heap limit pointer
 * X26       ML assembly interface pointer.  Non-volatile (C).
 * X27       ML Heap allocation pointer.  Non-volatile (C).
@@ -211,7 +212,11 @@ Architectures Arm64Dependent::MachineArchitecture(void)
     // During the first phase of the bootstrap we
     // compile the interpreted version.
     if (mustInterpret) return MA_Interpreted;
+#if defined(POLYML32IN64)
+    return MA_Arm64_32;
+#else
     return MA_Arm64;
+#endif
 }
 
 // Values for the returnReason byte. These values are put into returnReason by the assembly code
@@ -342,7 +347,7 @@ void Arm64TaskData::ScanStackAddress(ScanAddress *process, stackItem& stackItem,
     // The -1 here is because we may have a zero-sized cell in the last
     // word of a space.
     MemSpace* space = gMem.SpaceForAddress(stackItem.codeAddr - 1);
-    if (space == 0) return; // In particular we may have one of the assembly code addresses.
+
     if (space->spaceType == ST_CODE)
     {
         PolyObject* obj = gMem.FindCodeObject(stackItem.codeAddr);
@@ -361,7 +366,6 @@ void Arm64TaskData::ScanStackAddress(ScanAddress *process, stackItem& stackItem,
         stackItem = val;
     }
 #endif
-
 }
 
 // Copy a stack
@@ -689,6 +693,12 @@ void Arm64TaskData::InitStackFrame(TaskData* parentTask, Handle proc)
     assemblyInterface.linkRegister = 0; // We never return
     // Have to set the register mask in case we get a GC before the thread starts.
     saveRegisterMask = (1 << 8) | 1; // X8 and X0
+
+#ifdef POLYML32IN64
+    // In 32-in-64 RBX always contains the heap base address.
+    assemblyInterface.registers[24].stackAddr = (stackItem*)globalHeapBase;
+#endif
+
 }
 
 // This is called from a different thread so we have to be careful.
@@ -827,6 +837,7 @@ extern "C" {
 
 // Do we require EnterInt instructions and if so for which architecture?
 // 0 = > None; 1 => X86_32, 2 => X86_64. 3 => X86_32_in_64. 4 => ARM_64.
+// ARM_64 in 32 is the same as ARM64.
 POLYUNSIGNED PolyInterpretedEnterIntMode()
 {
     return TAGGED(4).AsUnsigned();
