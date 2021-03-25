@@ -65,9 +65,9 @@ sig
     and condSignedLessEq: condition
 
     datatype shiftType =
-        ShiftLSL of word
-    |   ShiftLSR of word
-    |   ShiftASR of word
+        ShiftLSL of Word8.word
+    |   ShiftLSR of Word8.word
+    |   ShiftASR of Word8.word
     |   ShiftNone
 
     datatype wordSize = WordSize32 | WordSize64
@@ -129,10 +129,10 @@ sig
     and subSShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
     
     (* Add/subtract an extended register, optionally setting the flags. *)
-    val addExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
-    and addSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
-    and subExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
-    and subSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
+    val addExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend} -> instr
+    and addSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend} -> instr
+    and subExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend} -> instr
+    and subSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend} -> instr
 
     (* Multiplication *)
     (* regD = regA + regN * regM *)

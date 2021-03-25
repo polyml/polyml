@@ -290,4 +290,9 @@ struct
         Address.toMachineWord resultFunction
     end
 
+
+    (* Temporarily replace all of the above. *)
+    open FallBackCG.Foreign
+
+
 end;

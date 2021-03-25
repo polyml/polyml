@@ -690,7 +690,8 @@ void Arm64TaskData::InitStackFrame(TaskData* parentTask, Handle proc)
     // Store the argument and the closure.
     assemblyInterface.registers[8] = proc->Word(); // Closure
     assemblyInterface.registers[0] = TAGGED(0); // Argument
-    assemblyInterface.linkRegister = 0; // We never return
+    assemblyInterface.linkRegister = (arm64CodePointer)1; // We never return. Use a tagged value because it may be pushed
+    assemblyInterface.entryPoint = (arm64CodePointer)1;
     // Have to set the register mask in case we get a GC before the thread starts.
     saveRegisterMask = (1 << 8) | 1; // X8 and X0
 

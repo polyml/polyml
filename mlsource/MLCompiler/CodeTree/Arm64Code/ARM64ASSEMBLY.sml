@@ -29,12 +29,15 @@ struct
     infix 5 << <<+ <<- >> >>+ >>- ~>> ~>>+ ~>>- (* Shift operators *)
     infix 3 andb orb xorb andbL orbL xorbL andb8 orb8 xorb8
     
-    val op << = Word.<< and op >> = Word.>> and op ~>> = Word.~>>
-    and op andb = Word.andb and op orb = Word.orb
+    val op << = Word32.<< and op >> = Word32.>> and op ~>> = Word32.~>>
+    and op andb = Word32.andb and op orb = Word32.orb
 
-    val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
+    val word32ToWord8 = Word8.fromLargeWord o Word32.toLargeWord
+    and word8ToWord32 = Word32.fromLargeWord o Word8.toLargeWord
+    and word32ToWord = Word.fromLargeWord o Word32.toLargeWord
+    and wordToWord32 = Word32.fromLargeWord o Word.toLargeWord
     and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
-    
+   
     (* XReg is used for fixed point registers since X0 and W0 are
        the same register. *)
     datatype xReg = XReg of Word8.word | XZero | XSP
@@ -121,9 +124,9 @@ struct
 
     (* Some data instructions include a possible shift. *)
     datatype shiftType =
-        ShiftLSL of word
-    |   ShiftLSR of word
-    |   ShiftASR of word
+        ShiftLSL of Word8.word
+    |   ShiftLSR of Word8.word
+    |   ShiftASR of Word8.word
     |   ShiftNone
 
     local
@@ -267,17 +270,17 @@ struct
     let
         (* Find the highest bit set in N:NOT(imms) *)
         fun highestBitSet 0w0 = 0
-        |   highestBitSet n = 1+highestBitSet(Word.>>(n, 0w1))
-        val len = highestBitSet(Word.orb(Word.<<(n, 0w6), Word.xorb(imms, 0wx3f))) - 1
+        |   highestBitSet n = 1+highestBitSet(Word32.>>(n, 0w1))
+        val len = highestBitSet(Word32.orb(Word32.<<(n, 0w6), Word32.xorb(imms, 0wx3f))) - 1
         val _ = if len < 0 then raise InternalError "decodeBitPattern: invalid" else ()
-        val size = Word.<<(0w1, Word.fromInt len)
-        val r = Word.andb(immr, size-0w1)
-        and s = Word.andb(imms, size-0w1)
+        val size = Word32.<<(0w1, Word.fromInt len)
+        val r = Word32.andb(immr, size-0w1)
+        and s = Word32.andb(imms, size-0w1)
         val _ = if s = size-0w1 then raise InternalError "decodeBitPattern: invalid" else ()
-        val pattern = Word64.<<(0w1, s+0w1) - 0w1
+        val pattern = Word64.<<(0w1, word32ToWord(s+0w1)) - 0w1
         (* Rotate right: shift left and put the top bit in the high order bit*)
         fun ror elt =
-            Word64.orb((Word64.<<(Word64.andb(elt, 0w1), size-0w1),
+            Word64.orb((Word64.<<(Word64.andb(elt, 0w1), word32ToWord(size-0w1)),
                 Word64.>>(elt, 0w1)))
 
         fun rotateBits(value, 0w0) = value
@@ -291,7 +294,7 @@ struct
         fun replicate(pattern, size) =
             if size >= regSize
             then pattern
-            else replicate(Word64.orb(pattern, Word64.<<(pattern, size)), size * 0w2)
+            else replicate(Word64.orb(pattern, Word64.<<(pattern, word32ToWord size)), size * 0w2)
     in
         replicate(rotated, size)
     end
@@ -300,7 +303,7 @@ struct
 
 
     datatype instr =
-        SimpleInstr of word
+        SimpleInstr of Word32.word
     |   LoadAddressLiteral of {reg: xReg, value: machineWord}
     |   LoadNonAddressLiteral of {reg: xReg, value: Word64.word}
     |   Label of labels
@@ -327,8 +330,8 @@ struct
             SimpleInstr(
                 0wx11000000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
                 (if shifted then 0wx400000 else 0w0) orb
-                (immed << 0w10) orb (word8ToWord(xRegOrXSP regN) << 0w5) orb
-                word8ToWord(xdOp regD))
+                (wordToWord32 immed << 0w10) orb (word8ToWord32(xRegOrXSP regN) << 0w5) orb
+                word8ToWord32(xdOp regD))
         end
     in
         val addImmediate = addSubRegImmediate(0w1, 0w0, 0w0, xRegOrXSP)
@@ -345,9 +348,9 @@ struct
             val (shift, imm6) = shiftEncode shift
         in
             SimpleInstr(0wx0b000000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
-                (shift << 0w22) orb (word8ToWord(xRegOnly regM) << 0w16) orb
-                (imm6 << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
-                word8ToWord(xRegOrXZ regD))
+                (shift << 0w22) orb (word8ToWord32(xRegOnly regM) << 0w16) orb
+                (word8ToWord32 imm6 << 0w10) orb (word8ToWord32(xRegOrXZ regN) << 0w5) orb
+                word8ToWord32(xRegOrXZ regD))
         end
     in
         val addShiftedReg = addSubtractShiftedReg(0w1, 0w0, 0w0)
@@ -364,10 +367,10 @@ struct
             val (option, imm3) = extendArithEncode extend
         in
             SimpleInstr(0wx0b200000 orb (sf << 0w31) orb (oper << 0w30) orb (s << 0w29) orb
-                (opt << 0w22) orb (word8ToWord(xRegOnly regM) << 0w16) orb
-                (option << 0w13) orb (imm3 << 0w10) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb
-                word8ToWord(xD regD))
+                (opt << 0w22) orb (word8ToWord32(xRegOnly regM) << 0w16) orb
+                (option << 0w13) orb (word8ToWord32 imm3 << 0w10) orb
+                (word8ToWord32(xRegOrXSP regN) << 0w5) orb
+                word8ToWord32(xD regD))
         end
     in
         val addExtendedReg = addSubtractExtendedReg(0w1, 0w0, 0w0, 0w0, xRegOrXSP)
@@ -383,9 +386,9 @@ struct
             val (shift, imm6) = shiftEncode shift
         in
             SimpleInstr(0wx0a000000 orb (sf << 0w31) orb (oper << 0w29) orb
-                (shift << 0w22) orb (n << 0w21) orb (word8ToWord(xRegOrXZ regM) << 0w16) orb
-                (imm6 << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
-                word8ToWord(xRegOrXZ regD))
+                (shift << 0w22) orb (n << 0w21) orb (word8ToWord32(xRegOrXZ regM) << 0w16) orb
+                (word8ToWord32 imm6 << 0w10) orb (word8ToWord32(xRegOrXZ regN) << 0w5) orb
+                word8ToWord32(xRegOrXZ regD))
         end
     in
         val andShiftedReg = logicalShiftedReg(0w1, 0w0, 0w0)
@@ -400,9 +403,9 @@ struct
     local
         fun twoSourceInstr (sf, s, opcode) ({regM, regN, regD}) =
             SimpleInstr(0wx1ac00000 orb (sf << 0w31) orb (s << 0w29) orb
-                (word8ToWord(xRegOnly regM) << 0w16) orb (opcode << 0w10) orb
-                (word8ToWord(xRegOnly regN) << 0w5) orb
-                word8ToWord(xRegOnly regD))
+                (word8ToWord32(xRegOnly regM) << 0w16) orb (opcode << 0w10) orb
+                (word8ToWord32(xRegOnly regN) << 0w5) orb
+                word8ToWord32(xRegOnly regD))
     in
         (* Signed and unsigned division. *)
         val unsignedDivide   = twoSourceInstr(0w1, 0w0, 0wx2)
@@ -419,10 +422,10 @@ struct
     local
         fun threeSourceInstr (sf, op54, op31, o0) ({regM, regA, regN, regD}) =
             SimpleInstr(0wx1b000000 orb (sf << 0w31) orb (op54 << 0w29) orb
-                (op31 << 0w21) orb (word8ToWord(xRegOnly regM) << 0w16) orb
-                (o0 << 0w15) orb (word8ToWord(xRegOrXZ regA) << 0w10) orb
-                (word8ToWord(xRegOnly regN) << 0w5) orb
-                word8ToWord(xRegOnly regD))
+                (op31 << 0w21) orb (word8ToWord32(xRegOnly regM) << 0w16) orb
+                (o0 << 0w15) orb (word8ToWord32(xRegOrXZ regA) << 0w10) orb
+                (word8ToWord32(xRegOnly regN) << 0w5) orb
+                word8ToWord32(xRegOnly regD))
     in
         (* regD = regA + regN * regM *)
         val multiplyAndAdd = threeSourceInstr(0w1, 0w0, 0w0, 0w0)
@@ -444,8 +447,8 @@ struct
                 orelse raise InternalError "loadStoreRegScaled: value out of range"
         in
             SimpleInstr(0wx39000000 orb (size << 0w30) orb (opc << 0w22) orb
-                (v << 0w26) orb (Word.fromInt unitOffset << 0w10) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xD regT))
+                (v << 0w26) orb (Word32.fromInt unitOffset << 0w10) orb
+                (word8ToWord32(xRegOrXSP regN) << 0w5) orb word8ToWord32(xD regT))
         end
     in
         val loadRegScaled = loadStoreRegScaled(0w3, 0w0, 0w1, xRegOrXZ)
@@ -470,11 +473,11 @@ struct
         let
             val _ = (byteOffset >= ~256 andalso byteOffset < 256)
                 orelse raise InternalError "loadStoreUnscaled: value out of range"
-            val imm9 = Word.fromInt byteOffset andb 0wx1ff
+            val imm9 = Word32.fromInt byteOffset andb 0wx1ff
         in
             SimpleInstr(0wx38000000 orb (size << 0w30) orb (opc << 0w22) orb
                 (v << 0w26) orb (imm9 << 0w12) orb (op4 << 0w10) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xD regT))
+                (word8ToWord32(xRegOrXSP regN) << 0w5) orb word8ToWord32(xD regT))
         end
         
         val loadStoreUnscaled = loadStoreByteAddress (0w0, xRegOrXZ)
@@ -516,8 +519,8 @@ struct
                     (opt, ScaleOrShift) => (opt, 0w1) | (opt, NoScale) => (opt, 0w0)
         in
             SimpleInstr(0wx38200800 orb (size << 0w30) orb (v << 0w26) orb (opc << 0w22) orb
-                (word8ToWord(xRegOnly regM) << 0w16) orb (opt << 0w13) orb (s << 0w12) orb
-                (word8ToWord(xRegOrXSP regN) << 0w5) orb word8ToWord(xD regT))
+                (word8ToWord32(xRegOnly regM) << 0w16) orb (opt << 0w13) orb (s << 0w12) orb
+                (word8ToWord32(xRegOrXSP regN) << 0w5) orb word8ToWord32(xD regT))
         end
     in
         val loadRegIndexed = loadStoreRegRegisterOffset(0w3, 0w0, 0w1, xRegOrXZ)
@@ -538,9 +541,9 @@ struct
         (* Loads and stores with special ordering. *)
         fun loadStoreExclusive(size, o2, l, o1, o0) {regS, regT2, regN, regT} =
             SimpleInstr(0wx08000000 orb (size << 0w30) orb (o2 << 0w23) orb (l << 0w22) orb
-                (o1 << 0w21) orb (word8ToWord(xRegOrXZ regS) << 0w16) orb (o0 << 0w15) orb
-                (word8ToWord(xRegOrXZ regT2) << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
-                 word8ToWord(xRegOrXZ regT))
+                (o1 << 0w21) orb (word8ToWord32(xRegOrXZ regS) << 0w16) orb (o0 << 0w15) orb
+                (word8ToWord32(xRegOrXZ regT2) << 0w10) orb (word8ToWord32(xRegOrXZ regN) << 0w5) orb
+                 word8ToWord32(xRegOrXZ regT))
     in
         fun loadAcquire{regN, regT} =
             loadStoreExclusive(0w3, 0w1, 0w1, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
@@ -577,7 +580,7 @@ struct
                 immediate <= 0wxffff orelse raise InternalError "moveWideImmediate: immediate too large"
         in
             SimpleInstr(0wx12800000 orb (sf << 0w31) orb (opc << 0w29) orb
-                (hw << 0w21) orb (immediate << 0w5) orb word8ToWord(xRegOnly regD))
+                (hw << 0w21) orb (wordToWord32 immediate << 0w5) orb word8ToWord32(xRegOnly regD))
         end
     in
         val moveNot32 = moveWideImmediate(0w0, 0w0)
@@ -595,15 +598,15 @@ struct
     (* Jump to the address in the register and put the address of the
        next instruction into X30. *)
     fun branchAndLinkReg(dest) =
-        SimpleInstr(0wxD63F0000 orb (word8ToWord(xRegOnly dest) << 0w5))
+        SimpleInstr(0wxD63F0000 orb (word8ToWord32(xRegOnly dest) << 0w5))
 
     (* Jump to the address in the register. *)
     fun branchRegister(dest) =
-        SimpleInstr(0wxD61F0000 orb (word8ToWord(xRegOnly dest) << 0w5))
+        SimpleInstr(0wxD61F0000 orb (word8ToWord32(xRegOnly dest) << 0w5))
 
     (* Jump to the address in the register and hint this is a return. *)
     fun returnRegister(dest) =
-        SimpleInstr(0wxD65F0000 orb (word8ToWord(xRegOnly dest) << 0w5))
+        SimpleInstr(0wxD65F0000 orb (word8ToWord32(xRegOnly dest) << 0w5))
 
     (* Put a label into the code. *)
     val setLabel = Label
@@ -635,9 +638,9 @@ struct
     local
         fun conditionalSelect (sf, opc, op2) {regD, regFalse, regTrue, cond=CCode cond} =
             SimpleInstr(0wx1A800000 orb (sf << 0w31) orb (opc << 0w30) orb
-                (word8ToWord(xRegOrXZ regFalse) << 0w16) orb (word8ToWord cond << 0w12) orb
-                (op2 << 0w10) orb (word8ToWord(xRegOrXZ regTrue) << 0w5) orb
-                word8ToWord(xRegOrXZ regD))
+                (word8ToWord32(xRegOrXZ regFalse) << 0w16) orb (word8ToWord32 cond << 0w12) orb
+                (op2 << 0w10) orb (word8ToWord32(xRegOrXZ regTrue) << 0w5) orb
+                word8ToWord32(xRegOrXZ regD))
     in
         val conditionalSet = conditionalSelect(0w1, 0w0, 0w0)
         and conditionalSetIncrement = conditionalSelect(0w1, 0w0, 0w1)
@@ -659,8 +662,8 @@ struct
     local
         fun bitfield (sf, opc, n) {immr, imms, regN, regD} =
             SimpleInstr(0wx13000000 orb (sf << 0w31) orb (opc << 0w29) orb (n << 0w22) orb
-                (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
-                word8ToWord(xRegOrXZ regD))
+                (wordToWord32 immr << 0w16) orb (wordToWord32 imms << 0w10) orb (word8ToWord32(xRegOrXZ regN) << 0w5) orb
+                word8ToWord32(xRegOrXZ regD))
 
         val signedBitfieldMove32 = bitfield(0w0, 0w0, 0w0)
         and bitfieldMove32 = bitfield(0w0, 0w1, 0w0)
@@ -712,8 +715,8 @@ struct
                 |   SOME res => res
         in
             SimpleInstr(0wx12000000 orb (opc << 0w29) orb (s << 0w31) orb (n << 0w22) orb
-                (immr << 0w16) orb (imms << 0w10) orb (word8ToWord(xRegOrXZ regN) << 0w5) orb
-                word8ToWord(xD regD))
+                (wordToWord32 immr << 0w16) orb (wordToWord32 imms << 0w10) orb (word8ToWord32(xRegOrXZ regN) << 0w5) orb
+                word8ToWord32(xD regD))
         end
     in
         val bitwiseAndImmediate = logicalImmediate (0w0, xRegOrXSP)
@@ -734,8 +737,8 @@ struct
     local
         (* Floating point operations - 2 source *)
         fun floatingPoint2Source (pt, opc) {regM, regN, regD} =
-            SimpleInstr(0wx1E200800 orb (pt << 0w22) orb (word8ToWord(vReg regM) << 0w16) orb
-                (opc << 0w12) orb (word8ToWord(vReg regN) << 0w5) orb word8ToWord(vReg regD))
+            SimpleInstr(0wx1E200800 orb (pt << 0w22) orb (word8ToWord32(vReg regM) << 0w16) orb
+                (opc << 0w12) orb (word8ToWord32(vReg regN) << 0w5) orb word8ToWord32(vReg regD))
     in
         val multiplyFloat = floatingPoint2Source(0w0, 0wx0)
         and divideFloat = floatingPoint2Source(0w0, 0wx1)
@@ -752,7 +755,7 @@ struct
         fun fmoveGeneral (sf, s, ptype, mode, opcode, rN, rD) {regN, regD} =
             SimpleInstr(0wx1E200000 orb (sf << 0w31) orb (s << 0w29) orb (ptype << 0w22) orb
                 (mode << 0w19) orb (opcode << 0w16) orb
-                (word8ToWord(rN regN) << 0w5) orb word8ToWord(rD regD))
+                (word8ToWord32(rN regN) << 0w5) orb word8ToWord32(rD regD))
         open IEEEReal
     in
         (* Moves without conversion *)
@@ -786,7 +789,7 @@ struct
     local
         fun floatingPtCompare(ptype, opc) {regM, regN} =
             SimpleInstr(0wx1E202000 orb (ptype << 0w22) orb
-                (word8ToWord(vReg regM) << 0w16) orb (word8ToWord(vReg regN) << 0w5) orb
+                (word8ToWord32(vReg regM) << 0w16) orb (word8ToWord32(vReg regN) << 0w5) orb
                 (opc << 0w3))
     in
         val compareFloat = floatingPtCompare(0w0, 0w0) (* fcmp *)
@@ -798,7 +801,7 @@ struct
         (* Floating point single source. *)
         fun floatingPtSingle (ptype, opc) {regN, regD} =
             SimpleInstr(0wx1E204000 orb (ptype << 0w22) orb (opc << 0w15) orb
-                (word8ToWord(vReg regN) << 0w5) orb word8ToWord(vReg regD))
+                (word8ToWord32(vReg regN) << 0w5) orb word8ToWord32(vReg regD))
     in
         val moveFloatToFloat = floatingPtSingle(0w0, 0wx0)
         and absFloat = floatingPtSingle(0w0, 0wx1)
@@ -844,11 +847,11 @@ struct
         if i = 0w4 then ()
         else
         (
-            byteVecSet(seg, a+i, wordToWord8(value andb 0wxff));
+            byteVecSet(seg, a+i, word32ToWord8(value andb 0wxff));
             putBytes(value >> 0w8, a, seg, i+0w1)
         )
     in
-        putBytes(value, wordAddr << 0w2, seg, 0w0)
+        putBytes(value, Word.<<(wordAddr, 0w2), seg, 0w0)
     end
     
     (* Store a 64-bit constant in the code area. *)
@@ -862,7 +865,7 @@ struct
             putBytes(Word64.>>(value, 0w8), a, seg, i+0w1)
         )
     in
-        putBytes(value, word64Addr << 0w3, seg, 0w0)
+        putBytes(value, Word.<<(word64Addr, 0w3), seg, 0w0)
     end
 
     (* Set the sizes of branches depending on the distance to the destination. *)
@@ -885,7 +888,7 @@ struct
                     val dest = !(hd labs)
                     val offset = Word.toInt dest - Word.toInt addr
                 in
-                    if offset < Word.toInt(0w1 << 0w18) andalso offset >= ~ (Word.toInt(0w1 << 0w18))
+                    if offset < Word32.toInt(0w1 << 0w18) andalso offset >= ~ (Word32.toInt(0w1 << 0w18))
                     then length := BrShort
                     else ();
                     adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
@@ -942,12 +945,12 @@ struct
         fun testBit(bitNo, brNonZero, offset, reg) =
             0wx36000000 orb (if bitNo >= 0w32 then 0wx80000000 else 0w0) orb
                 (if brNonZero then 0wx01000000 else 0w0) orb
-                (word8ToWord(Word8.andb(bitNo, 0wx3f)) << 0w19) orb
-                ((offset andb 0wx3fff) << 0w5) orb word8ToWord(xRegOnly reg)
+                (word8ToWord32(Word8.andb(bitNo, 0wx3f)) << 0w19) orb
+                ((offset andb 0wx3fff) << 0w5) orb word8ToWord32(xRegOnly reg)
         and compareBranch(size, brNonZero, offset, reg) =
             0wx34000000 orb (case size of WordSize64 => 0wx80000000 | WordSize32 => 0w0) orb
                 (if brNonZero then 0wx01000000 else 0w0) orb
-                ((offset andb 0wx7ffff) << 0w5) orb word8ToWord(xRegOnly reg)
+                ((offset andb 0wx7ffff) << 0w5) orb word8ToWord32(xRegOnly reg)
 
         fun genCodeWords([], _ , _, _) = ()
 
@@ -964,7 +967,7 @@ struct
                 val offsetOfConstant =
                     (wordsOfCode+numNonAddrConsts+0w3+aConstNum)*0w2 - wordNo
                 val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
-                val code = 0wx58000000 orb (offsetOfConstant << 0w5) orb word8ToWord(xRegOnly reg)
+                val code = 0wx58000000 orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum+0w1, nonAConstNum)
@@ -975,7 +978,7 @@ struct
                 (* The offset is in 32-bit words. *)
                 val offsetOfConstant = (wordsOfCode+nonAConstNum)*0w2 - wordNo
                 val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
-                val code = 0wx58000000 orb (offsetOfConstant << 0w5) orb word8ToWord(xRegOnly reg)
+                val code = 0wx58000000 orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum+0w1)
@@ -988,10 +991,10 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
-                val _ = (offset < Word.toInt(0w1 << 0w25) andalso offset >= ~ (Word.toInt(0w1 << 0w25)))
+                val _ = (offset < Word32.toInt(0w1 << 0w25) andalso offset >= ~ (Word32.toInt(0w1 << 0w25)))
                     orelse raise InternalError "genCodeWords: branch too far";
             in
-                writeInstr(0wx14000000 orb (Word.fromInt offset andb 0wx03ffffff), wordNo, codeVec);
+                writeInstr(0wx14000000 orb (Word32.fromInt offset andb 0wx03ffffff), wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
 
@@ -1000,11 +1003,11 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
-                val _ = (offset < Word.toInt(0w1 << 0w18) andalso offset >= ~ (Word.toInt(0w1 << 0w18)))
+                val _ = (offset < Word32.toInt(0w1 << 0w18) andalso offset >= ~ (Word32.toInt(0w1 << 0w18)))
                         orelse raise InternalError "genCodeWords: branch too far"
             in
-                writeInstr(0wx54000000 orb ((Word.fromInt offset andb 0wx07ffff) << 0w5)
-                        orb word8ToWord cond, wordNo, codeVec);
+                writeInstr(0wx54000000 orb ((Word32.fromInt offset andb 0wx07ffff) << 0w5)
+                        orb word8ToWord32 cond, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
 
@@ -1013,12 +1016,12 @@ struct
             let (* Long form - put a conditional branch with reversed sense round an unconditional branch. *)
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt (wordNo + 0w1) (* Next instruction. *)
-                val _ = (offset < Word.toInt(0w1 << 0w25) andalso offset >= ~ (Word.toInt(0w1 << 0w25)))
+                val _ = (offset < Word32.toInt(0w1 << 0w25) andalso offset >= ~ (Word32.toInt(0w1 << 0w25)))
                     orelse raise InternalError "genCodeWords: branch too far"
                 val revCond = Word8.xorb(cond, 0w1)
             in
-                writeInstr(0wx54000000 orb (0w2 << 0w5) orb word8ToWord revCond, wordNo, codeVec);
-                writeInstr(0wx14000000 orb (Word.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);
+                writeInstr(0wx54000000 orb (0w2 << 0w5) orb word8ToWord32 revCond, wordNo, codeVec);
+                writeInstr(0wx14000000 orb (Word32.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);
                 genCodeWords(tail, wordNo+0w2, aConstNum, nonAConstNum)
             end
 
@@ -1028,7 +1031,7 @@ struct
                 val offset = Word.toInt dest - Word.toInt wordNo
                 val _ = offset < 0x100000 orelse offset >= ~ 0x100000
                     orelse raise InternalError "Offset to label address is too large"
-                val code = 0wx10000000 orb ((Word.fromInt offset andb 0wx7ffff) << 0w5) orb word8ToWord(xRegOnly reg)
+                val code = 0wx10000000 orb ((Word32.fromInt offset andb 0wx7ffff) << 0w5) orb word8ToWord32(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
@@ -1039,14 +1042,14 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt (wordNo + 0w1) (* Next instruction *)
-                val _ = (offset < Word.toInt(0w1 << 0w25) andalso offset >= ~ (Word.toInt(0w1 << 0w25)))
+                val _ = (offset < Word32.toInt(0w1 << 0w25) andalso offset >= ~ (Word32.toInt(0w1 << 0w25)))
                     orelse raise InternalError "genCodeWords: branch too far"
                 val _ = bitNo <= 0w63 orelse
                     raise InternalError "TestBitBranch: bit number > 63"
                 val code = testBit(bitNo, (* Invert test *) not brNonZero, 0w2 (* Skip branch *), reg)
             in
                 writeInstr(code, wordNo, codeVec);
-                writeInstr(0wx14000000 orb (Word.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);
+                writeInstr(0wx14000000 orb (Word32.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);
                 genCodeWords(tail, wordNo+0w2, aConstNum, nonAConstNum)
             end
 
@@ -1059,7 +1062,7 @@ struct
                     orelse raise InternalError "TestBitBranch: Offset to label address is too large"
                 val _ = bitNo <= 0w63 orelse
                     raise InternalError "TestBitBranch: bit number > 63"
-                val code = testBit(bitNo, brNonZero, Word.fromInt offset, reg)
+                val code = testBit(bitNo, brNonZero, Word32.fromInt offset, reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
@@ -1070,12 +1073,12 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt (wordNo+0w1)
-                val _ = (offset < Word.toInt(0w1 << 0w25) andalso offset >= ~ (Word.toInt(0w1 << 0w25)))
+                val _ = (offset < Word32.toInt(0w1 << 0w25) andalso offset >= ~ (Word32.toInt(0w1 << 0w25)))
                     orelse raise InternalError "genCodeWords: branch too far"
                 val code = compareBranch(size, (* Invert test *) not brNonZero, 0w2, reg)
             in
                 writeInstr(code, wordNo, codeVec);
-                writeInstr(0wx14000000 orb (Word.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);
+                writeInstr(0wx14000000 orb (Word32.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);
                 genCodeWords(tail, wordNo+0w2, aConstNum, nonAConstNum)
             end
 
@@ -1086,7 +1089,7 @@ struct
                 val offset = Word.toInt dest - Word.toInt wordNo
                 val _ = (offset < 0x40000 andalso offset >= ~ 0x40000)
                     orelse raise InternalError "CompareBranch: Offset to label address is too large"
-                val code = compareBranch(size, brNonZero, Word.fromInt offset, reg)
+                val code = compareBranch(size, brNonZero, Word32.fromInt offset, reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
@@ -1146,32 +1149,32 @@ struct
 
         (* Normal XReg with 31 being XZ *)
         fun prXReg 0w31 = printStream "xz"
-        |   prXReg r = printStream("x" ^ Word.fmt StringCvt.DEC r)
+        |   prXReg r = printStream("x" ^ Word32.fmt StringCvt.DEC r)
 
         (* XReg when 31 is SP *)
         fun prXRegOrSP 0w31 = printStream "sp"
-        |   prXRegOrSP r = printStream("x" ^ Word.fmt StringCvt.DEC r)
+        |   prXRegOrSP r = printStream("x" ^ Word32.fmt StringCvt.DEC r)
 
         (* Normal WReg with 31 being WZ *)
         fun prWReg 0w31 = printStream "wz"
-        |   prWReg r = printStream("w" ^ Word.fmt StringCvt.DEC r)
+        |   prWReg r = printStream("w" ^ Word32.fmt StringCvt.DEC r)
 
         (* WReg when 31 is WSP *)
         fun prWRegOrSP 0w31 = printStream "wsp"
-        |   prWRegOrSP r = printStream("w" ^ Word.fmt StringCvt.DEC r)
+        |   prWRegOrSP r = printStream("w" ^ Word32.fmt StringCvt.DEC r)
 
         (* Each instruction is 32-bytes. *)
         fun printWordAt wordNo =
         let
-            val byteNo = wordNo << 0w2
+            val byteNo = Word.<<(wordNo, 0w2)
             val () = printHex(byteNo, 6)  (* Address *)
             val () = printStream "\t"
             val wordValue =
-                word8ToWord (codeVecGet (codeVec, byteNo)) orb
-                (word8ToWord (codeVecGet (codeVec, byteNo+0w1)) << 0w8) orb
-                (word8ToWord (codeVecGet (codeVec, byteNo+0w2)) << 0w16) orb
-                (word8ToWord (codeVecGet (codeVec, byteNo+0w3)) << 0w24)
-            val () = printHex(wordValue, 8) (* Instr as hex *)
+                word8ToWord32 (codeVecGet (codeVec, byteNo)) orb
+                (word8ToWord32 (codeVecGet (codeVec, byteNo+0w1)) << 0w8) orb
+                (word8ToWord32 (codeVecGet (codeVec, byteNo+0w2)) << 0w16) orb
+                (word8ToWord32 (codeVecGet (codeVec, byteNo+0w3)) << 0w24)
+            val () = printHex(word32ToWord wordValue, 8) (* Instr as hex *)
             val () = printStream "\t"
         in
             if (wordValue andb 0wxfffffc1f) = 0wxD61F0000
@@ -1180,7 +1183,7 @@ struct
                 val rN = (wordValue andb 0wx3e0) >> 0w5
             in
                 printStream "br\tx";
-                printStream(Word.fmt StringCvt.DEC rN)
+                printStream(Word32.fmt StringCvt.DEC rN)
             end
 
             else if (wordValue andb 0wxfffffc1f) = 0wxD63F0000
@@ -1189,7 +1192,7 @@ struct
                 val rN = (wordValue andb 0wx3e0) >> 0w5
             in
                 printStream "blr\tx";
-                printStream(Word.fmt StringCvt.DEC rN)
+                printStream(Word32.fmt StringCvt.DEC rN)
             end
 
             else if (wordValue andb 0wxfffffc1f) = 0wxD65F0000
@@ -1198,7 +1201,7 @@ struct
                 val rN = (wordValue andb 0wx3e0) >> 0w5
             in
                 printStream "ret\tx";
-                printStream(Word.fmt StringCvt.DEC rN)
+                printStream(Word32.fmt StringCvt.DEC rN)
             end
 
             else if wordValue = 0wxD503201F
@@ -1212,19 +1215,19 @@ struct
             then (* Move of constants.  Includes movn and movk. *)
             let
                 val rD = wordValue andb 0wx1f
-                val imm16 = Word.toInt((wordValue >> 0w5) andb 0wxffff)
+                val imm16 = Word32.toInt((wordValue >> 0w5) andb 0wxffff)
                 val isXReg = (wordValue andb 0wx80000000) <> 0w0
                 val opc = (wordValue >> 0w29) andb 0w3
                 val shift = (wordValue >> 0w21) andb 0w3
             in
                 printStream (if opc = 0w3 then "movk\t" else "mov\t");
                 printStream (if isXReg then "x" else "w");
-                printStream(Word.fmt StringCvt.DEC rD);
+                printStream(Word32.fmt StringCvt.DEC rD);
                 printStream ",#";
                 printStream(Int.toString(if opc = 0w0 then ~1 - imm16 else imm16));
                 if shift = 0w0
                 then ()
-                else (printStream ",lsl #"; printStream(Word.fmt StringCvt.DEC (shift*0w16)))
+                else (printStream ",lsl #"; printStream(Word32.fmt StringCvt.DEC (shift*0w16)))
             end
 
             else if (wordValue andb 0wx3b000000) = 0wx39000000
@@ -1253,9 +1256,9 @@ struct
                     |   (0w3, 0w1, 0w1) => ("ldr", "d", 0w8)
                     |   _ => ("??", "?", 0w1)
             in
-                printStream opcode; printStream "\t"; printStream r; printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ",#"; printStream(Word.fmt StringCvt.DEC(imm12*scale));
+                printStream opcode; printStream "\t"; printStream r; printStream(Word32.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word32.fmt StringCvt.DEC rN);
+                printStream ",#"; printStream(Word32.fmt StringCvt.DEC(imm12*scale));
                 printStream "]"
             end
 
@@ -1270,8 +1273,8 @@ struct
                 and imm9 = (wordValue andb 0wx1ff000) >> 0w12
                 val imm9Text =
                     if imm9 > 0wxff
-                    then "-" ^ Word.fmt StringCvt.DEC (0wx200 - imm9)
-                    else Word.fmt StringCvt.DEC imm9
+                    then "-" ^ Word32.fmt StringCvt.DEC (0wx200 - imm9)
+                    else Word32.fmt StringCvt.DEC imm9
                 val (opcode, r) =
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strub", "w")
@@ -1289,8 +1292,8 @@ struct
                     |   _ => ("???", "?")
             in
                 printStream opcode; printStream "\t"; printStream r;
-                printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream(Word32.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word32.fmt StringCvt.DEC rN);
                 printStream ",#"; printStream imm9Text; printStream "]"
             end
 
@@ -1305,8 +1308,8 @@ struct
                 and imm9 = (wordValue andb 0wx1ff000) >> 0w12
                 val imm9Text =
                     if imm9 > 0wxff
-                    then "-" ^ Word.fmt StringCvt.DEC (0wx200 - imm9)
-                    else Word.fmt StringCvt.DEC imm9
+                    then "-" ^ Word32.fmt StringCvt.DEC (0wx200 - imm9)
+                    else Word32.fmt StringCvt.DEC imm9
                 val (opcode, r) =
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strb", "w")
@@ -1316,8 +1319,8 @@ struct
                     |   _ => ("???", "?")
             in
                 printStream opcode; printStream "\t"; printStream r;
-                printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream(Word32.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word32.fmt StringCvt.DEC rN);
                 printStream "],#"; printStream imm9Text
             end
 
@@ -1332,8 +1335,8 @@ struct
                 and imm9 = (wordValue andb 0wx1ff000) >> 0w12
                 val imm9Text =
                     if imm9 > 0wxff
-                    then "-" ^ Word.fmt StringCvt.DEC (0wx200 - imm9)
-                    else Word.fmt StringCvt.DEC imm9
+                    then "-" ^ Word32.fmt StringCvt.DEC (0wx200 - imm9)
+                    else Word32.fmt StringCvt.DEC imm9
                 val (opcode, r) =
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strb", "w")
@@ -1343,8 +1346,8 @@ struct
                     |   _ => ("???", "?")
             in
                 printStream opcode; printStream "\t"; printStream r;
-                printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
+                printStream(Word32.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word32.fmt StringCvt.DEC rN);
                 printStream ",#"; printStream imm9Text; printStream "]!"
             end
 
@@ -1390,9 +1393,9 @@ struct
                     |   _ => ""
             in
                 printStream opcode; printStream "\t"; printStream r;
-                printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ","; printStream xr; printStream(Word.fmt StringCvt.DEC rM);
+                printStream(Word32.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word32.fmt StringCvt.DEC rN);
+                printStream ","; printStream xr; printStream(Word32.fmt StringCvt.DEC rM);
                 printStream extend; printStream indexShift;
                 printStream "]"
             end
@@ -1418,11 +1421,11 @@ struct
             in
                 printStream opcode; printStream "\t";
                 if opcode = "stlxr"
-                then (printStream "w"; printStream(Word.fmt StringCvt.DEC rS); printStream ",")
+                then (printStream "w"; printStream(Word32.fmt StringCvt.DEC rS); printStream ",")
                 else ();
                 printStream r;
-                printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",[x"; printStream(Word.fmt StringCvt.DEC rN); printStream "]"
+                printStream(Word32.fmt StringCvt.DEC rT);
+                printStream ",[x"; printStream(Word32.fmt StringCvt.DEC rN); printStream "]"
             end
 
             else if (wordValue andb 0wxbf800000) = 0wx91000000
@@ -1438,7 +1441,7 @@ struct
             in
                 printStream opr; printStream "\t"; prXRegOrSP rD;
                 printStream ","; prXRegOrSP rN;
-                printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
+                printStream ",#"; printStream(Word32.fmt StringCvt.DEC imm)
             end
 
             else if (wordValue andb 0wxff800000) = 0wxF1000000
@@ -1454,7 +1457,7 @@ struct
                 if rD = 0w31
                 then printStream "cmp\t"
                 else (printStream "subs\t"; prXReg rD; printStream ",");
-                prXRegOrSP rN; printStream ",#"; printStream(Word.fmt StringCvt.DEC imm)
+                prXRegOrSP rN; printStream ",#"; printStream(Word32.fmt StringCvt.DEC imm)
             end
 
             else if (wordValue andb 0wx7fe0ffe0) = 0wx2A0003E0
@@ -1463,9 +1466,9 @@ struct
                 val reg = if (wordValue andb 0wx80000000) <> 0w0 then "x" else "w"
             in
                 printStream "mov\t"; printStream reg;
-                printStream(Word.fmt StringCvt.DEC(wordValue andb 0wx1f));
+                printStream(Word32.fmt StringCvt.DEC(wordValue andb 0wx1f));
                 printStream ","; printStream reg;
-                printStream(Word.fmt StringCvt.DEC((wordValue >> 0w16) andb 0wx1f))
+                printStream(Word32.fmt StringCvt.DEC((wordValue >> 0w16) andb 0wx1f))
             end
 
             else if (wordValue andb 0wx1f000000) = 0wx0A000000
@@ -1490,9 +1493,9 @@ struct
             in
                 printStream opcode; printStream"\t";
                 printStream reg;
-                printStream(Word.fmt StringCvt.DEC rD); printStream ",";
-                printStream reg; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ","; printStream reg; printStream(Word.fmt StringCvt.DEC rM);
+                printStream(Word32.fmt StringCvt.DEC rD); printStream ",";
+                printStream reg; printStream(Word32.fmt StringCvt.DEC rN);
+                printStream ","; printStream reg; printStream(Word32.fmt StringCvt.DEC rM);
                 if imm6 <> 0w0
                 then
                 (
@@ -1501,7 +1504,7 @@ struct
                     |   0w1 => printStream ",lsr #"
                     |   0w2 => printStream ",asr #"
                     |   _ => printStream ",?? #";
-                    printStream(Word.fmt StringCvt.DEC imm6)
+                    printStream(Word32.fmt StringCvt.DEC imm6)
                 )
                 else ()
             end
@@ -1536,7 +1539,7 @@ struct
                     |   0w1 => printStream ",lsr #"
                     |   0w2 => printStream ",asr #"
                     |   _ => printStream ",?? #";
-                    printStream(Word.fmt StringCvt.DEC imm6)
+                    printStream(Word32.fmt StringCvt.DEC imm6)
                 )
                 else ()
             end
@@ -1577,7 +1580,7 @@ struct
                 |   _ => printStream "?";
                
                 if amount <> 0w0
-                then printStream(" #" ^ Word.fmt StringCvt.DEC amount)
+                then printStream(" #" ^ Word32.fmt StringCvt.DEC amount)
                 else ()
             end
 
@@ -1588,8 +1591,8 @@ struct
                    address constant area or the non-address constant area. *)
                 val rT = wordValue andb 0wx1f
                 (* The offset is in 32-bit words *)
-                val byteAddr = ((wordValue andb 0wx00ffffe0) >> (0w5-0w2)) + byteNo
-                val word64Addr = byteAddr >> 0w3
+                val byteAddr = word32ToWord(((wordValue andb 0wx00ffffe0) >> (0w5-0w2))) + byteNo
+                val word64Addr = Word.>>(byteAddr, 0w3)
                 (* We must NOT use codeVecGetWord if this is in the non-address
                    area.  It may well not be a tagged value. *)
                 local
@@ -1608,7 +1611,7 @@ struct
                         else stringOfWord(codeVecGetWord(codeVec, word64Addr))
                 end
             in
-                printStream "ldr\tx"; printStream(Word.fmt StringCvt.DEC rT);
+                printStream "ldr\tx"; printStream(Word32.fmt StringCvt.DEC rT);
                 printStream ",0x"; printStream(Word.fmt StringCvt.HEX byteAddr);
                 printStream "\t// "; printStream constantValue
             end
@@ -1622,8 +1625,8 @@ struct
                     ((wordValue andb 0wx00ffffe0) << (Word.fromInt Word.wordSize - 0w23) ~>>
                         (Word.fromInt Word.wordSize - 0w20)) + ((wordValue >> 0w29) andb 0w3)
             in
-                printStream "adr\tx"; printStream(Word.fmt StringCvt.DEC rT);
-                printStream ",0x"; printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
+                printStream "adr\tx"; printStream(Word32.fmt StringCvt.DEC rT);
+                printStream ",0x"; printStream(Word.fmt StringCvt.HEX (byteNo+word32ToWord byteOffset))
             end
 
             else if (wordValue andb 0wxfc000000) = 0wx14000000
@@ -1635,7 +1638,7 @@ struct
                         (Word.fromInt Word.wordSize - 0w28)
             in
                 printStream "b\t0x";
-                printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
+                printStream(Word.fmt StringCvt.HEX (byteNo+word32ToWord byteOffset))
             end
 
             else if (wordValue andb 0wxff000000) = 0wx54000000
@@ -1648,7 +1651,7 @@ struct
                 printStream "b.";
                 printCondition(wordValue andb 0wxf);
                 printStream "\t0x";
-                printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
+                printStream(Word.fmt StringCvt.HEX (byteNo+word32ToWord byteOffset))
             end
 
             else if (wordValue andb 0wx7e000000) = 0wx34000000
@@ -1663,9 +1666,9 @@ struct
                 val r = if (wordValue andb 0wx80000000) = 0w0 then "w" else "x"
             in
                 printStream oper; printStream "\t";
-                printStream r; printStream(Word.fmt StringCvt.DEC (wordValue andb 0wx1f));
+                printStream r; printStream(Word32.fmt StringCvt.DEC (wordValue andb 0wx1f));
                 printStream ",0x";
-                printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
+                printStream(Word.fmt StringCvt.HEX (byteNo+word32ToWord byteOffset))
             end
 
             else if (wordValue andb 0wx7e000000) = 0wx36000000
@@ -1682,9 +1685,9 @@ struct
                 val r = if bitNo < 0w32 then "w" else "x"
             in
                 printStream oper; printStream "\t";
-                printStream r; printStream(Word.fmt StringCvt.DEC (wordValue andb 0wx1f));
-                printStream ",#"; printStream(Word.fmt StringCvt.DEC bitNo); printStream ",0x";
-                printStream(Word.fmt StringCvt.HEX (byteNo+byteOffset))
+                printStream r; printStream(Word32.fmt StringCvt.DEC (wordValue andb 0wx1f));
+                printStream ",#"; printStream(Word32.fmt StringCvt.DEC bitNo); printStream ",0x";
+                printStream(Word.fmt StringCvt.HEX (byteNo+word32ToWord byteOffset))
             end
 
             else if (wordValue andb 0wx3fe00000) = 0wx1A800000
@@ -1707,9 +1710,9 @@ struct
                 val r = if sf = 0w0 then "w" else "x"
             in
                 printStream opcode; printStream "\t";
-                printStream r; printStream(Word.fmt StringCvt.DEC rT);
-                printStream ","; printStream r; printStream(Word.fmt StringCvt.DEC rN);
-                printStream ","; printStream r; printStream(Word.fmt StringCvt.DEC rM);
+                printStream r; printStream(Word32.fmt StringCvt.DEC rT);
+                printStream ","; printStream r; printStream(Word32.fmt StringCvt.DEC rN);
+                printStream ","; printStream r; printStream(Word32.fmt StringCvt.DEC rM);
                 printStream ","; printCondition cond
             end
 
@@ -1729,16 +1732,16 @@ struct
                 then printStream "asr\t"
                 else printStream "sbfm\t";
                 printStream r;
-                printStream(Word.fmt StringCvt.DEC rD);
+                printStream(Word32.fmt StringCvt.DEC rD);
                 printStream ",";
                 printStream r;
-                printStream(Word.fmt StringCvt.DEC rN);
+                printStream(Word32.fmt StringCvt.DEC rN);
                 if imms = wordSize - 0w1
-                then (printStream ",#0x"; printStream(Word.toString immr))
+                then (printStream ",#0x"; printStream(Word32.toString immr))
                 else
                 (
-                    printStream ",#0x"; printStream(Word.toString immr);
-                    printStream ",#0x"; printStream(Word.toString imms)
+                    printStream ",#0x"; printStream(Word32.toString immr);
+                    printStream ",#0x"; printStream(Word32.toString imms)
                 )
             end
 
@@ -1760,18 +1763,18 @@ struct
                 then printStream "lsr\t"
                 else printStream "ubfm\t";
                 printStream r;
-                printStream(Word.fmt StringCvt.DEC rD);
+                printStream(Word32.fmt StringCvt.DEC rD);
                 printStream ",";
                 printStream r;
-                printStream(Word.fmt StringCvt.DEC rN);
+                printStream(Word32.fmt StringCvt.DEC rN);
                 if imms + 0w1 = immr
-                then (printStream ",#0x"; printStream(Word.toString(wordSize - immr)))
+                then (printStream ",#0x"; printStream(Word32.toString(wordSize - immr)))
                 else if imms = wordSize - 0w1
-                then (printStream ",#0x"; printStream(Word.toString immr))
+                then (printStream ",#0x"; printStream(Word32.toString immr))
                 else
                 (
-                    printStream ",#0x"; printStream(Word.toString immr);
-                    printStream ",#0x"; printStream(Word.toString imms)
+                    printStream ",#0x"; printStream(Word32.toString immr);
+                    printStream ",#0x"; printStream(Word32.toString imms)
                 )
             end
 
@@ -1799,8 +1802,8 @@ struct
             in
                 printStream opcode;
                 printStream "\t";
-                printStream r; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
-                printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",#0x";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rD); printStream ",";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rN); printStream ",#0x";
                 printStream(Word64.toString(decodeBitPattern{sf=sf, n=nBit, immr=immr, imms=imms}))
             end
 
@@ -1824,9 +1827,9 @@ struct
             in
                 printStream oper;
                 printStream "\t";
-                printStream r; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
-                printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
-                printStream r; printStream(Word.fmt StringCvt.DEC rM)
+                printStream r; printStream(Word32.fmt StringCvt.DEC rD); printStream ",";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rN); printStream ",";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rM)
             end
 
             else if (wordValue andb 0wx1f000000) = 0wx1b000000
@@ -1851,11 +1854,11 @@ struct
             in
                 printStream oper;
                 printStream "\t";
-                printStream r; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
-                printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
-                printStream r; printStream(Word.fmt StringCvt.DEC rM);
+                printStream r; printStream(Word32.fmt StringCvt.DEC rD); printStream ",";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rN); printStream ",";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rM);
                 if rA = 0w31 then ()
-                else (printStream ","; printStream r; printStream(Word.fmt StringCvt.DEC rA))
+                else (printStream ","; printStream r; printStream(Word32.fmt StringCvt.DEC rA))
             end
 
             else if (wordValue andb 0wxffe0fc00) = 0wxC800FC00
@@ -1865,9 +1868,9 @@ struct
                 val rN = (wordValue >> 0w5) andb 0wx1f
                 val rT = wordValue andb 0wx1f
             in
-                printStream "stlxr\tw"; printStream(Word.fmt StringCvt.DEC rS);
-                printStream ",x"; printStream(Word.fmt StringCvt.DEC rT);
-                printStream ".[x"; printStream(Word.fmt StringCvt.DEC rN); printStream "]"
+                printStream "stlxr\tw"; printStream(Word32.fmt StringCvt.DEC rS);
+                printStream ",x"; printStream(Word32.fmt StringCvt.DEC rT);
+                printStream ".[x"; printStream(Word32.fmt StringCvt.DEC rN); printStream "]"
             end
             
             else if (wordValue andb 0wx7f20fc00) = 0wx1E200000
@@ -1899,8 +1902,8 @@ struct
                     |   _ => ("?", "?", "?")
             in
                 printStream opc; printStream "\t";
-                printStream dr; printStream(Word.fmt StringCvt.DEC rD); printStream ",";
-                printStream nr; printStream(Word.fmt StringCvt.DEC rN)
+                printStream dr; printStream(Word32.fmt StringCvt.DEC rD); printStream ",";
+                printStream nr; printStream(Word32.fmt StringCvt.DEC rN)
             end
             
             else if (wordValue andb 0wxff200c00) = 0wx1E200800
@@ -1924,9 +1927,9 @@ struct
                     |   _ => ("??", "?")
             in
                 printStream opcode; printStream "\t";
-                printStream r; printStream(Word.fmt StringCvt.DEC rT); printStream ",";
-                printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
-                printStream r; printStream(Word.fmt StringCvt.DEC rM)
+                printStream r; printStream(Word32.fmt StringCvt.DEC rT); printStream ",";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rN); printStream ",";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rM)
             end
 
             else if (wordValue andb 0wxff207c00) = 0wx1E204000
@@ -1949,8 +1952,8 @@ struct
                     |   _ => ("??", "?", "?")
             in
                 printStream opcode; printStream "\t";
-                printStream rD; printStream(Word.fmt StringCvt.DEC rT); printStream ",";
-                printStream rS; printStream(Word.fmt StringCvt.DEC rN)
+                printStream rD; printStream(Word32.fmt StringCvt.DEC rT); printStream ",";
+                printStream rS; printStream(Word32.fmt StringCvt.DEC rN)
             end
 
             else if (wordValue andb 0wxff20fc07) = 0wx1E202000
@@ -1969,8 +1972,8 @@ struct
                     |   _ => ("??", "?")
             in
                 printStream opcode; printStream "\t";
-                printStream r; printStream(Word.fmt StringCvt.DEC rN); printStream ",";
-                printStream r; printStream(Word.fmt StringCvt.DEC rM)
+                printStream r; printStream(Word32.fmt StringCvt.DEC rN); printStream ",";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rM)
             end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000
