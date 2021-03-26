@@ -362,6 +362,10 @@ struct
         and addSShiftedReg = addSubtractShiftedReg(0w1, 0w0, 0w1)
         and subShiftedReg = addSubtractShiftedReg(0w1, 0w1, 0w0)
         and subSShiftedReg = addSubtractShiftedReg(0w1, 0w1, 0w1)
+        and addShiftedReg32 = addSubtractShiftedReg(0w0, 0w0, 0w0)
+        and addSShiftedReg32 = addSubtractShiftedReg(0w0, 0w0, 0w1)
+        and subShiftedReg32 = addSubtractShiftedReg(0w0, 0w1, 0w0)
+        and subSShiftedReg32 = addSubtractShiftedReg(0w0, 0w1, 0w1)
     end
 
     (* Add/subtract an extended register, optionally setting the flags. *)
@@ -421,6 +425,7 @@ struct
         and logicalShiftRightVariable = twoSourceInstr(0w1, 0w0, 0wx9)
         (* Arithmetic shift right Rd = Rn ~>> (Rm mod 0w64) *)
         and arithmeticShiftRightVariable = twoSourceInstr(0w1, 0w0, 0wxa)
+        and logicalShiftLeftVariable32 = twoSourceInstr(0w0, 0w0, 0wx8)
     end
 
     (* Three source operations.  These are all variations of multiply. *)
@@ -506,6 +511,8 @@ struct
 
         val loadRegPostIndex = loadStorePostIndex (0w3, 0w0, 0w1)
         and storeRegPostIndex = loadStorePostIndex (0w3, 0w0, 0w0)
+        and loadRegPostIndex32 = loadStorePostIndex (0w2, 0w0, 0w1)
+        and storeRegPostIndex32 = loadStorePostIndex (0w2, 0w0, 0w0)
         and loadRegPostIndexByte = loadStorePostIndex (0w0, 0w0, 0w1)
         and storeRegPostIndexByte = loadStorePostIndex (0w0, 0w0, 0w0)
 
@@ -554,6 +561,10 @@ struct
             loadStoreExclusive(0w3, 0w1, 0w1, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
         and storeRelease{regN, regT} =
             loadStoreExclusive(0w3, 0w1, 0w0, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
+        and loadAcquire32{regN, regT} =
+            loadStoreExclusive(0w2, 0w1, 0w1, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
+        and storeRelease32{regN, regT} =
+            loadStoreExclusive(0w2, 0w1, 0w0, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
 
         (* Acquire exclusive access to a memory location and load its current value *)
         and loadAcquireExclusiveRegister{regN, regT} =

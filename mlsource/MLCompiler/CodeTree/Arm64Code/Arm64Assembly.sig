@@ -128,6 +128,10 @@ sig
     and addSShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
     and subShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
     and subSShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and addShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and addSShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and subShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and subSShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
     
     (* Add/subtract an extended register, optionally setting the flags. *)
     val addExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend} -> instr
@@ -210,6 +214,8 @@ sig
        the value has been loaded, e.g. pop. *)
     val loadRegPostIndex: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegPostIndex: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegPostIndex32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and storeRegPostIndex32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and loadRegPostIndexByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegPostIndexByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
 
@@ -222,6 +228,8 @@ sig
     (* Loads and stores with special ordering. *)
     val loadAcquire: {regN: xReg, regT: xReg} -> instr
     and storeRelease: {regN: xReg, regT: xReg} -> instr
+    and loadAcquire32: {regN: xReg, regT: xReg} -> instr
+    and storeRelease32: {regN: xReg, regT: xReg} -> instr
 
     (* This word is put in after a call to the RTS trap-handler.  All the registers
        are saved and restored across a call to the trap-handler; the register
@@ -277,6 +285,7 @@ sig
     and logicalShiftRightVariable: {regM: xReg, regN: xReg, regD: xReg} -> instr
     (* Arithmetic shift right Rd = Rn ~>> (Rm mod 0w64) *)
     and arithmeticShiftRightVariable: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and logicalShiftLeftVariable32: {regM: xReg, regN: xReg, regD: xReg} -> instr
 
     (* Logical operations on bit patterns.  The pattern must be valid.
        ANDS is an AND that also sets the flags, typically used for a test. *)
