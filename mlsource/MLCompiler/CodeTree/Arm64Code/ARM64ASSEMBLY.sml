@@ -24,6 +24,10 @@ functor ARM64ASSEMBLY (
 struct
     open CodeArray Address
     
+    val is32in64 = Address.wordSize = 0w4
+    
+    val wordsPerNativeWord: word = Address.nativeWordSize div Address.wordSize
+    
     exception InternalError = Misc.InternalError
 
     infix 5 << <<+ <<- >> >>+ >>- ~>> ~>>+ ~>>- (* Shift operators *)
@@ -116,6 +120,7 @@ struct
     and X_MLHeapAllocPtr    = X27 (* ML Heap allocation pointer. *)
     and X_MLStackPtr        = X28 (* ML Stack pointer. *)
     and X_LinkReg           = X30 (* Link reg - return address *)
+    and X_Base32in64        = X24 (* X24 is used for the heap base in 32-in-64. *)
     
     fun vReg(VReg v) = v
     (* Only the first eight registers are currently used by ML. *)
@@ -937,9 +942,11 @@ struct
         val paddingWord = if Word.andb(codeSize, 0w1) = 0w1 then [SimpleInstr nopCode] else []
         
         val numNonAddrConsts = Word.fromInt(List.length nonAddressConsts)
-        and numAddrConsts = Word.fromInt(List.length addressConsts)
+        and numAddrConsts = Word.fromInt(List.length addressConsts) (* 32-bit words. *)
 
-        val segSize = wordsOfCode + numAddrConsts + numNonAddrConsts + 0w4 (* 4 extra words *)
+        (* Segment size in Poly words. *)
+        val segSize =
+            (wordsOfCode + numNonAddrConsts) * wordsPerNativeWord + numAddrConsts + 0w4 (* 4 extra words *)
         val codeVec = byteVecMake segSize
         
         fun testBit(bitNo, brNonZero, offset, reg) =
@@ -963,11 +970,14 @@ struct
         |   genCodeWords(LoadAddressLiteral{reg, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 (* The offset is in 32-bit words.  The first of the constants is
-                   at offset wordsOfCode+3 *)
+                   at offset wordsOfCode+3.  Non-address constants are always 8 bytes but
+                   address constants are 4 bytes in 32-in-64. *)
+                val s = if is32in64 then 0w0 else 0w1 (* Load 64-bit word in 64-bit mode and 32-bits in 32-in-64. *)
                 val offsetOfConstant =
-                    (wordsOfCode+numNonAddrConsts+0w3+aConstNum)*0w2 - wordNo
+                    (wordsOfCode+numNonAddrConsts)*0w2 + (0w3+aConstNum)*(Address.wordSize div 0w4) - wordNo
                 val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
-                val code = 0wx58000000 orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
+                val code =
+                    0wx18000000 orb (s << 0w30) orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum+0w1, nonAConstNum)
@@ -975,7 +985,7 @@ struct
 
         |   genCodeWords(LoadNonAddressLiteral{reg, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
-                (* The offset is in 32-bit words. *)
+                (* The offset is in 32-bit words.  These are always 64-bits. *)
                 val offsetOfConstant = (wordsOfCode+nonAConstNum)*0w2 - wordNo
                 val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
                 val code = 0wx58000000 orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
@@ -1101,12 +1111,12 @@ struct
         (codeVec (* Return the completed code. *), wordsOfCode+numNonAddrConsts (* And the size in 64-bit words. *))
     end
 
-    (* Store a 64-bit value in the code *)
-    fun set64(value, wordNo, seg) =
+    (* Store a word, either 64-bit or 32-bit *)
+    fun setWord(value, wordNo, seg) =
     let
-        val addrs = wordNo * 0w8
+        val addrs = wordNo * Address.wordSize
         fun putBytes(value, a, seg, i) =
-        if i = 0w8 then ()
+        if i = Address.wordSize then ()
         else
         (
             byteVecSet(seg, a+i, Word8.fromInt(value mod 256));
@@ -1120,7 +1130,7 @@ struct
     (* Print the instructions in the code. *)
     fun printCode (codeVec, functionName, wordsOfCode, printStream) =
     let
-        val numInstructions = wordsOfCode * 0w2 (* Words is number of 64-bit words *)
+        val numInstructions = wordsOfCode * (Address.wordSize div 0w4)
     
         fun printHex (v, n) =
         let
@@ -1584,15 +1594,16 @@ struct
                 else ()
             end
 
-            else if (wordValue andb 0wxff000000) = 0wx58000000
+            else if (wordValue andb 0wxbf000000) = 0wx18000000
             then
             let
                 (* Load from a PC-relative address.  This may refer to the
                    address constant area or the non-address constant area. *)
                 val rT = wordValue andb 0wx1f
+                val s = (wordValue >> 0w30) andb 0w1
                 (* The offset is in 32-bit words *)
                 val byteAddr = word32ToWord(((wordValue andb 0wx00ffffe0) >> (0w5-0w2))) + byteNo
-                val word64Addr = Word.>>(byteAddr, 0w3)
+                val wordAddr = byteAddr div wordSize
                 (* We must NOT use codeVecGetWord if this is in the non-address
                    area.  It may well not be a tagged value. *)
                 local
@@ -1606,12 +1617,13 @@ struct
                         end
                 in
                     val constantValue =
-                        if word64Addr <= wordsOfCode
+                        if wordAddr <= wordsOfCode
                         then "0x" ^ Word64.toString(getConstant(0w0, 0w8)) (* It's a non-address constant *)
-                        else stringOfWord(codeVecGetWord(codeVec, word64Addr))
+                        else stringOfWord(codeVecGetWord(codeVec, wordAddr))
                 end
             in
-                printStream "ldr\tx"; printStream(Word32.fmt StringCvt.DEC rT);
+                printStream "ldr\t"; printStream (if s = 0w0 then "w" else "x");
+                printStream(Word32.fmt StringCvt.DEC rT);
                 printStream ",0x"; printStream(Word.fmt StringCvt.HEX byteAddr);
                 printStream "\t// "; printStream constantValue
             end
@@ -2026,7 +2038,8 @@ struct
             and nonAddressConsts = List.rev nonAddrConsts
         end
         
-        val (byteVec, wordsOfCode) = genCode(instrs, addressConsts, nonAddressConsts)
+        val (byteVec, nativeWordsOfCode) = genCode(instrs, addressConsts, nonAddressConsts)
+        val wordsOfCode = nativeWordsOfCode * wordsPerNativeWord
 
         (* +3 for profile count, function name and constants count *)
         val numOfConst = List.length addressConsts
@@ -2038,10 +2051,10 @@ struct
         local
             val lastWord = segSize - 0w1
         in
-            val () = set64(numOfConst + 2, wordsOfCode, byteVec)
+            val () = setWord(numOfConst + 2, wordsOfCode, byteVec)
             (* Set the last word of the code to the (negative) byte offset of the start of the code area
                from the end of this word. *)
-            val () = set64((numOfConst + 3) * ~8, lastWord, byteVec) 
+            val () = setWord((numOfConst + 3) * ~(Word.toInt Address.wordSize), lastWord, byteVec) 
         end
 
         (* Now we've filled in all the size info we need to convert the segment

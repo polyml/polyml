@@ -319,19 +319,17 @@ void Arm64TaskData::GarbageCollect(ScanAddress *process)
 // Process a value within the stack.
 void Arm64TaskData::ScanStackAddress(ScanAddress *process, stackItem& stackItem, StackSpace *stack)
 {
-    // We may have return addresses on the stack which could look like
-// tagged values.  Check whether the value is in the code area before
-// checking whether it is untagged.
+    // Code addresses on the ARM are always even, unlike the X86, so if it's tagged
+    // it can't be an address.
+    if (stackItem.w().IsTagged()) return;
+
 #ifdef POLYML32IN64
-    // In 32-in-64 return addresses always have the top 32 bits non-zero. 
+    // In 32-in-64 we can have either absolute addresses or object indexes.
+    // Absolute addresses always have the top 32-bits non-zero
     if (stackItem.argValue < ((uintptr_t)1 << 32))
     {
-        // It's either a tagged integer or an object pointer.
-        if (stackItem.w().IsDataPtr())
-        {
-            PolyWord val = process->ScanObjectAddress(stackItem.w().AsObjPtr());
-            stackItem = val;
-        }
+        PolyWord val = process->ScanObjectAddress(stackItem.w().AsObjPtr());
+        stackItem = val;
     }
     else
     {
@@ -344,22 +342,15 @@ void Arm64TaskData::ScanStackAddress(ScanAddress *process, stackItem& stackItem,
         process->ScanObjectAddress(obj);
     }
 #else
-    // The -1 here is because we may have a zero-sized cell in the last
-    // word of a space.
     MemSpace* space = gMem.SpaceForAddress(stackItem.codeAddr - 1);
 
     if (space->spaceType == ST_CODE)
     {
         PolyObject* obj = gMem.FindCodeObject(stackItem.codeAddr);
-        // If it is actually an integer it might be outside a valid code object.
-        if (obj == 0)
-        {
-            ASSERT(stackItem.w().IsTagged()); // It must be an integer
-        }
-        else // Process the address of the start.  Don't update anything.
-            process->ScanObjectAddress(obj);
+        // Process the address of the start.  Don't update anything.
+        process->ScanObjectAddress(obj);
     }
-    else if (space->spaceType == ST_LOCAL && stackItem.w().IsDataPtr())
+    else if (space->spaceType == ST_LOCAL)
         // Local values must be word addresses.
     {
         PolyWord val = process->ScanObjectAddress(stackItem.w().AsObjPtr());

@@ -75,6 +75,11 @@ struct
 
     val loadScaledWord = loadScaledOffset(8, loadRegScaled, loadRegIndexed)
     and storeScaledWord = storeScaledOffset(8, storeRegScaled, storeRegIndexed)
+    
+    val storeScaledPolyWord =
+        if is32in64
+        then storeScaledOffset(4, storeRegScaled32, storeRegIndexed32)
+        else storeScaledOffset(8, storeRegScaled, storeRegIndexed)
 
     (* Add a constant word to the source register and put the result in the
        destination.  regW is used as a work register if necessary.  This is used
@@ -136,20 +141,25 @@ struct
         )
     |   resetStack(nItems, false, code) =
             addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
-                value=Word64.fromLarge(Word.toLarge wordSize) * Word64.fromInt nItems}, code)
+                value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt nItems}, code)
 
     fun compareRegs(reg1, reg2, code) =
         gen(subSShiftedReg{regM=reg2, regN=reg1, regD=XZero, shift=ShiftNone}, code)
 
     (* Sequence to allocate on the heap.  The words are not initialised
-       apart from the length word. *)
+       apart from the length word.  Returns the absolute address. *)
     fun genAllocateFixedSize(words, flags, resultReg, workReg, code) =
     let
         val label = createLabel()
+        val wordsRequired =
+            if is32in64
+            then (* Have to round this up to 8 bytes *)
+                Word64.andb(Word64.fromInt(words+2), ~ 0w2)
+            else Word64.fromInt(words+1)
     in
         (* Subtract the number of bytes required from the heap pointer and put in X0. *)
         addConstantWord({regS=X_MLHeapAllocPtr, regD=X0, regW=X3,
-            value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * Word64.fromInt(words+1)}, code);
+            value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * wordsRequired}, code);
         compareRegs(resultReg, X_MLHeapLimit, code);
         gen(conditionalBranch(condCarrySet, label), code);
         gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
@@ -158,9 +168,12 @@ struct
         gen(setLabel label, code);
         gen(moveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
         genList(loadNonAddress(workReg,
-            Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags), 0w56))), code);
+            Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags),
+                if is32in64 then 0w24 else 0w56))), code);
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
-        gen(storeRegUnscaled{regT=workReg, regN=resultReg, byteOffset= ~8}, code)
+        if is32in64
+        then gen(storeRegUnscaled32{regT=workReg, regN=resultReg, byteOffset= ~4}, code)
+        else gen(storeRegUnscaled{regT=workReg, regN=resultReg, byteOffset= ~8}, code)
     end
 
     (* Allocate space on the heap for a vector, string etc.  sizeReg and flagsReg
@@ -230,7 +243,7 @@ struct
             (
                 (* This is only used at the start of the code.  X9 is wired into the RTS. *)
                 addConstantWord({regS=X_MLStackPtr, regD=X9, regW=regW,
-                    value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * Word64.fromInt space}, code);
+                    value= ~ (Word64.fromLarge(Word.toLarge nativeWordSize)) * Word64.fromInt space}, code);
                 (X9, stackOverflowXCallOffset)
             )
     in
@@ -754,10 +767,18 @@ struct
                     List.foldl(fn (_, w) =>
                         (
                             genPopReg(X1, cvec);
-                            genList(storeScaledWord{store=X1, base=X0, work=X16, offset=w-1}, cvec);
+                            genList(storeScaledPolyWord{store=X1, base=X0, work=X16, offset=w-1}, cvec);
                             w-1)
                         )
                         size recList;
+                    (* If it's 32-in-64 this has to be converted to an object pointer. *)
+                    if is32in64
+                    then
+                    (
+                        gen(subShiftedReg{regM=X_Base32in64, regN=X0, regD=X0, shift=ShiftNone}, cvec);
+                        gen(logicalShiftRight{wordSize=WordSize64, shift=0w2, regN=X0, regD=X0}, cvec)
+                    )
+                    else ();
                     topInX0 := true;
                     realstackptr := !realstackptr - size
                 end
@@ -2493,7 +2514,14 @@ struct
                     val () = loadArg(6, X6)
                     val () = loadArg(7, X7)
                 in
-                    gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
+                    if is32in64
+                    then
+                    (
+                        (* Can't use an indexed load because the only options for scaling are either 1 or 8. *)
+                        gen(addShiftedReg{regM=X8, regN=X_Base32in64, regD=X9, shift=ShiftLSL 0w2}, cvec);
+                        gen(loadRegScaled{regT=X9, regN=X9, unitOffset=0}, cvec) (* Entry point *)
+                    )
+                    else gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
                     gen(branchAndLinkReg X9, cvec);
                     (* We have popped the closure pointer.  The caller has popped the stack
                        arguments and we have pushed the result value. The register arguments
@@ -2544,7 +2572,13 @@ struct
                     val () = moveStackArg 8
                 in
                     resetStack(itemsOnStack - Int.max(argsToPass-8, 0), false, cvec);
-                    gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
+                    if is32in64
+                    then
+                    (
+                        gen(addShiftedReg{regM=X8, regN=X_Base32in64, regD=X9, shift=ShiftLSL 0w2}, cvec);
+                        gen(loadRegScaled{regT=X9, regN=X9, unitOffset=0}, cvec) (* Entry point *)
+                    )
+                    else gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
                     gen(branchRegister X9, cvec)
                     (* Since we're not returning we can ignore the stack pointer value. *)
                 end
