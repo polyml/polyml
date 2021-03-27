@@ -518,6 +518,8 @@ struct
 
         val loadRegPreIndex = loadStorePreIndex (0w3, 0w0, 0w1)
         and storeRegPreIndex = loadStorePreIndex (0w3, 0w0, 0w0)
+        and loadRegPreIndex32 = loadStorePreIndex (0w2, 0w0, 0w1)
+        and storeRegPreIndex32 = loadStorePreIndex (0w2, 0w0, 0w0)
         and loadRegPreIndexByte = loadStorePreIndex (0w0, 0w0, 0w1)
         and storeRegPreIndexByte = loadStorePreIndex (0w0, 0w0, 0w0)
     end
@@ -782,6 +784,8 @@ struct
         (* Moves with conversion - signed.  The argument is a 64-bit value. *)
         and convertIntToFloat = fmoveGeneral(0w1, 0w0, 0w0, 0w0, 0w2, xRegOrXZ, vReg)
         and convertIntToDouble = fmoveGeneral(0w1, 0w0, 0w1, 0w0, 0w2, xRegOrXZ, vReg)
+        and convertInt32ToFloat = fmoveGeneral(0w0, 0w0, 0w0, 0w0, 0w2, xRegOrXZ, vReg)
+        and convertInt32ToDouble = fmoveGeneral(0w0, 0w0, 0w1, 0w0, 0w2, xRegOrXZ, vReg)
 
         fun convertFloatToInt TO_NEAREST =
                 fmoveGeneral(0w1, 0w0, 0w0, 0w0, 0w4, vReg, xRegOnly) (* fcvtas *)
@@ -800,6 +804,24 @@ struct
                 fmoveGeneral(0w1, 0w0, 0w1, 0w1, 0w0, vReg, xRegOnly) (* fcvtps *)
         |   convertDoubleToInt TO_ZERO =
                 fmoveGeneral(0w1, 0w0, 0w1, 0w3, 0w0, vReg, xRegOnly) (* fcvtzs *)
+
+        and convertFloatToInt32 TO_NEAREST =
+                fmoveGeneral(0w0, 0w0, 0w0, 0w0, 0w4, vReg, xRegOnly) (* fcvtas *)
+        |   convertFloatToInt32 TO_NEGINF =
+                fmoveGeneral(0w0, 0w0, 0w0, 0w2, 0w0, vReg, xRegOnly) (* fcvtms *)
+        |   convertFloatToInt32 TO_POSINF =
+                fmoveGeneral(0w0, 0w0, 0w0, 0w1, 0w0, vReg, xRegOnly) (* fcvtps *)
+        |   convertFloatToInt32 TO_ZERO =
+                fmoveGeneral(0w0, 0w0, 0w0, 0w3, 0w0, vReg, xRegOnly) (* fcvtzs *)
+
+        and convertDoubleToInt32 TO_NEAREST =
+                fmoveGeneral(0w0, 0w0, 0w1, 0w0, 0w4, vReg, xRegOnly) (* fcvtas *)
+        |   convertDoubleToInt32 TO_NEGINF =
+                fmoveGeneral(0w0, 0w0, 0w1, 0w2, 0w0, vReg, xRegOnly) (* fcvtms *)
+        |   convertDoubleToInt32 TO_POSINF =
+                fmoveGeneral(0w0, 0w0, 0w1, 0w1, 0w0, vReg, xRegOnly) (* fcvtps *)
+        |   convertDoubleToInt32 TO_ZERO =
+                fmoveGeneral(0w0, 0w0, 0w1, 0w3, 0w0, vReg, xRegOnly) (* fcvtzs *)
     end
 
     local
@@ -1335,6 +1357,8 @@ struct
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strb", "w")
                     |   (0w0, 0w0, 0w1) => ("ldrb", "w")
+                    |   (0w2, 0w0, 0w0) => ("str", "w")
+                    |   (0w2, 0w0, 0w1) => ("ldr", "w")
                     |   (0w3, 0w0, 0w0) => ("str", "x")
                     |   (0w3, 0w0, 0w1) => ("ldr", "x")
                     |   _ => ("???", "?")
@@ -1362,6 +1386,8 @@ struct
                     case (size, v, opc) of
                         (0w0, 0w0, 0w0) => ("strb", "w")
                     |   (0w0, 0w0, 0w1) => ("ldrb", "w")
+                    |   (0w2, 0w0, 0w0) => ("str", "w")
+                    |   (0w2, 0w0, 0w1) => ("ldr", "w")
                     |   (0w3, 0w0, 0w0) => ("str", "x")
                     |   (0w3, 0w0, 0w1) => ("ldr", "x")
                     |   _ => ("???", "?")
@@ -1436,6 +1462,8 @@ struct
                     case (size, o2, l, o1, o0) of
                         (0w3, 0w1, 0w1, 0w0, 0w1) => ("ldar", "x")
                     |   (0w3, 0w1, 0w0, 0w0, 0w1) => ("stlr", "x")
+                    |   (0w2, 0w1, 0w1, 0w0, 0w1) => ("ldar", "w")
+                    |   (0w2, 0w1, 0w0, 0w0, 0w1) => ("stlr", "w")
                     |   (0w3, 0w0, 0w1, 0w0, 0w1) => ("ldaxr", "x")
                     |   (0w3, 0w0, 0w0, 0w0, 0w1) => ("stlxr", "x")
                     |   _ => ("??", "?")
@@ -1645,11 +1673,11 @@ struct
                 (* Put a pc-relative address into a register. *)
                 val rT = wordValue andb 0wx1f
                 val byteOffset =
-                    ((wordValue andb 0wx00ffffe0) << (Word.fromInt Word.wordSize - 0w23) ~>>
-                        (Word.fromInt Word.wordSize - 0w20)) + ((wordValue >> 0w29) andb 0w3)
+                    ((wordValue andb 0wx00ffffe0) << (Word.fromInt Word32.wordSize - 0w23) ~>>
+                        (Word.fromInt Word32.wordSize - 0w20)) + ((wordValue >> 0w29) andb 0w3)
             in
                 printStream "adr\tx"; printStream(Word32.fmt StringCvt.DEC rT);
-                printStream ",0x"; printStream(Word.fmt StringCvt.HEX (byteNo+word32ToWord byteOffset))
+                printStream ",0x"; printStream(Word32.fmt StringCvt.HEX (wordToWord32 byteNo+byteOffset))
             end
 
             else if (wordValue andb 0wxfc000000) = 0wx14000000
@@ -1657,32 +1685,32 @@ struct
             let
                 (* The offset is signed and the destination may be earlier. *)
                 val byteOffset =
-                    (wordValue andb 0wx03ffffff) << (Word.fromInt Word.wordSize - 0w26) ~>>
-                        (Word.fromInt Word.wordSize - 0w28)
+                    (wordValue andb 0wx03ffffff) << (Word.fromInt Word32.wordSize - 0w26) ~>>
+                        (Word.fromInt Word32.wordSize - 0w28)
             in
                 printStream "b\t0x";
-                printStream(Word.fmt StringCvt.HEX (byteNo+word32ToWord byteOffset))
+                printStream(Word32.fmt StringCvt.HEX (wordToWord32 byteNo + byteOffset))
             end
 
             else if (wordValue andb 0wxff000000) = 0wx54000000
             then (* Conditional branch *)
             let
                 val byteOffset =
-                    (wordValue andb 0wx00ffffe0) << (Word.fromInt Word.wordSize - 0w24) ~>>
-                        (Word.fromInt Word.wordSize - 0w21)
+                    (wordValue andb 0wx00ffffe0) << (Word.fromInt Word32.wordSize - 0w24) ~>>
+                        (Word.fromInt Word32.wordSize - 0w21)
             in
                 printStream "b.";
                 printCondition(wordValue andb 0wxf);
                 printStream "\t0x";
-                printStream(Word.fmt StringCvt.HEX (byteNo+word32ToWord byteOffset))
+                printStream(Word32.fmt StringCvt.HEX (wordToWord32 byteNo+byteOffset))
             end
 
             else if (wordValue andb 0wx7e000000) = 0wx34000000
             then (* Compare and branch *)
             let
                 val byteOffset =
-                    (wordValue andb 0wx00ffffe0) << (Word.fromInt Word.wordSize - 0w24) ~>>
-                        (Word.fromInt Word.wordSize - 0w21)
+                    (wordValue andb 0wx00ffffe0) << (Word.fromInt Word32.wordSize - 0w24) ~>>
+                        (Word.fromInt Word32.wordSize - 0w21)
                 val oper =
                     if (wordValue andb 0wx01000000) = 0w0
                     then "cbz" else "cbnz"
@@ -1691,7 +1719,7 @@ struct
                 printStream oper; printStream "\t";
                 printStream r; printStream(Word32.fmt StringCvt.DEC (wordValue andb 0wx1f));
                 printStream ",0x";
-                printStream(Word.fmt StringCvt.HEX (byteNo+word32ToWord byteOffset))
+                printStream(Word32.fmt StringCvt.HEX (wordToWord32 byteNo+byteOffset))
             end
 
             else if (wordValue andb 0wx7e000000) = 0wx36000000
@@ -1912,16 +1940,28 @@ struct
                     |   (0w0, 0w0, 0w0, 0w0, 0w6) => ("fmov", "w", "s") (* s -> w *)
                     |   (0w1, 0w0, 0w1, 0w0, 0w7) => ("fmov", "d", "x") (* d -> x *)
                     |   (0w1, 0w0, 0w1, 0w0, 0w6) => ("fmov", "x", "d") (* x -> d *)
+                    |   (0w0, 0w0, 0w0, 0w0, 0w2) => ("scvtf", "w", "s")
+                    |   (0w0, 0w0, 0w1, 0w0, 0w2) => ("scvtf", "w", "d")
                     |   (0w1, 0w0, 0w0, 0w0, 0w2) => ("scvtf", "x", "s")
                     |   (0w1, 0w0, 0w1, 0w0, 0w2) => ("scvtf", "x", "d")
-                    |   (0w1, 0w0, 0w0, 0w0, 0w4) => ("fcvtas", "w", "s") (* s -> w *)
-                    |   (0w1, 0w0, 0w0, 0w2, 0w0) => ("fcvtms", "w", "s") (* s -> w *)
-                    |   (0w1, 0w0, 0w0, 0w1, 0w0) => ("fcvtps", "w", "s") (* s -> w *)
-                    |   (0w1, 0w0, 0w0, 0w3, 0w0) => ("fcvtzs", "w", "s") (* s -> w *)
-                    |   (0w1, 0w0, 0w1, 0w0, 0w4) => ("fcvtas", "x", "s") (* s -> x *)
-                    |   (0w1, 0w0, 0w1, 0w2, 0w0) => ("fcvtms", "x", "s") (* s -> x *)
-                    |   (0w1, 0w0, 0w1, 0w1, 0w0) => ("fcvtps", "x", "s") (* s -> x *)
-                    |   (0w1, 0w0, 0w1, 0w3, 0w0) => ("fcvtzs", "x", "s") (* s -> x *)
+
+                    |   (0w0, 0w0, 0w0, 0w0, 0w4) => ("fcvtas", "w", "s") (* s -> w *)
+                    |   (0w0, 0w0, 0w0, 0w2, 0w0) => ("fcvtms", "w", "s") (* s -> w *)
+                    |   (0w0, 0w0, 0w0, 0w1, 0w0) => ("fcvtps", "w", "s") (* s -> w *)
+                    |   (0w0, 0w0, 0w0, 0w3, 0w0) => ("fcvtzs", "w", "s") (* s -> w *)
+                    |   (0w0, 0w0, 0w1, 0w0, 0w4) => ("fcvtas", "w", "d") (* d -> w *)
+                    |   (0w0, 0w0, 0w1, 0w2, 0w0) => ("fcvtms", "w", "d") (* d -> w *)
+                    |   (0w0, 0w0, 0w1, 0w1, 0w0) => ("fcvtps", "w", "d") (* d -> w *)
+                    |   (0w0, 0w0, 0w1, 0w3, 0w0) => ("fcvtzs", "w", "d") (* d -> w *)
+
+                    |   (0w1, 0w0, 0w0, 0w0, 0w4) => ("fcvtas", "x", "s") (* s -> x *)
+                    |   (0w1, 0w0, 0w0, 0w2, 0w0) => ("fcvtms", "x", "s") (* s -> x *)
+                    |   (0w1, 0w0, 0w0, 0w1, 0w0) => ("fcvtps", "x", "s") (* s -> x *)
+                    |   (0w1, 0w0, 0w0, 0w3, 0w0) => ("fcvtzs", "x", "s") (* s -> x *)
+                    |   (0w1, 0w0, 0w1, 0w0, 0w4) => ("fcvtas", "x", "d") (* d -> x *)
+                    |   (0w1, 0w0, 0w1, 0w2, 0w0) => ("fcvtms", "x", "d") (* d -> x *)
+                    |   (0w1, 0w0, 0w1, 0w1, 0w0) => ("fcvtps", "x", "d") (* d -> x *)
+                    |   (0w1, 0w0, 0w1, 0w3, 0w0) => ("fcvtzs", "x", "d") (* d -> x *)
                     |   _ => ("?", "?", "?")
             in
                 printStream opc; printStream "\t";

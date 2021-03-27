@@ -222,6 +222,8 @@ sig
     (* Load/Store a value using a signed byte offset and pre-indexing (pre-increment). *)
     val loadRegPreIndex: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegPreIndex: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegPreIndex32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and storeRegPreIndex32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and loadRegPreIndexByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegPreIndexByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
 
@@ -309,6 +311,10 @@ sig
     and convertIntToFloat: {regN: xReg, regD: vReg} -> instr
     and convertFloatToInt: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
     and convertDoubleToInt: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
+    and convertInt32ToDouble: {regN: xReg, regD: vReg} -> instr
+    and convertInt32ToFloat: {regN: xReg, regD: vReg} -> instr
+    and convertFloatToInt32: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
+    and convertDoubleToInt32: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
    
     (* Floating point operations. *)
     val multiplyFloat: {regM: vReg, regN: vReg, regD: vReg} -> instr
