@@ -34,7 +34,6 @@ struct
     open BuiltIns
     
     exception InternalError = Misc.InternalError
-    exception Fallback of string
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
@@ -1908,7 +1907,6 @@ struct
                    high-order word and then check that it is either all zeros with
                    the sign bit zero or all ones with the sign bit one. *)
                 val noOverflow = createLabel()
-                val _ = raise Fallback "multiply"
             in
                 gencde (arg1, ToStack, NotEnd, loopAddr);
                 gencde (arg2, ToX0, NotEnd, loopAddr);
@@ -1916,17 +1914,32 @@ struct
                 (* Compute the result in the same way as for Word.* apart from the
                    arithmetic shift. *)
                 genPopReg(X1, cvec);
-                (* Shift to remove the tags on one argument suing . *)
+                (* Shift to remove the tags on one argument. *)
                 gen(arithmeticShiftRight{regN=X0, regD=X2, wordSize=WordSize64, shift=0w1}, cvec);
                 (* Remove the tag on the other. *)
                 gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
-                gen(multiplyAndAdd{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
-                (* Put back the tag. *)
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
-                (* Compute the high order part into X2 *)
-                gen(signedMultiplyHigh{regM=X1, regN=X2, regD=X2}, cvec);
-                (* Compare with the sign bit of the result. *)
-                gen(subSShiftedReg{regD=XZero, regN=X2, regM=X0, shift=ShiftASR 0w63}, cvec);
+                if is32in64
+                then
+                (
+                    (* Multiply two 32-bit quantities. *)
+                    gen(signedMultiplyAndAddLong{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
+                    (* Get the top word which should be either all ones or all zeros. *)
+                    gen(arithmeticShiftRight{wordSize=WordSize64, shift=0w32, regN=X0, regD=X2}, cvec);
+                    (* The result is in X0 *)
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize32 (* just 32  bits *), bits=0w1}, cvec);
+                    (* Compare with the sign bit of the result. *)
+                    gen(subSShiftedReg32{regD=XZero, regN=X2, regM=X0, shift=ShiftASR 0w31}, cvec)
+                )
+                else
+                (
+                    gen(multiplyAndAdd{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
+                    (* Put back the tag. *)
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec);
+                    (* Compute the high order part into X2 *)
+                    gen(signedMultiplyHigh{regM=X1, regN=X2, regD=X2}, cvec);
+                    (* Compare with the sign bit of the result. *)
+                    gen(subSShiftedReg{regD=XZero, regN=X2, regM=X0, shift=ShiftASR 0w63}, cvec)
+                );
                 gen(conditionalBranch(condEqual, noOverflow), cvec);
                 gen(loadAddressConstant(X0, toMachineWord Overflow), cvec);
                 gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
@@ -1937,7 +1950,6 @@ struct
 
         |   genBinary(FixedPrecisionArith ArithQuot, arg1, arg2, loopAddr) =
             (
-                raise Fallback "quot";
                 gencde (arg1, ToStack, NotEnd, loopAddr);
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
@@ -1948,7 +1960,7 @@ struct
                 (* Shift to remove the tags on the arguments *)
                 gen(arithmeticShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
                 gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
-                gen(signedDivide{regM=X0, regN=X1, regD=X0}, cvec);
+                gen((if is32in64 then signedDivide32 else signedDivide){regM=X0, regN=X1, regD=X0}, cvec);
                 (* Restore the tag. *)
                 gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
@@ -1956,7 +1968,6 @@ struct
 
         |   genBinary(FixedPrecisionArith ArithRem, arg1, arg2, loopAddr) =
             (
-                raise Fallback "rem";
                 gencde (arg1, ToStack, NotEnd, loopAddr);
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
@@ -1967,9 +1978,9 @@ struct
                 (* Shift to remove the tags on the arguments *)
                 gen(arithmeticShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
                 gen(arithmeticShiftRight{regN=X1, regD=X1, wordSize=WordSize64, shift=0w1}, cvec);
-                gen(signedDivide{regM=X0, regN=X1, regD=X2}, cvec);
+                gen((if is32in64 then signedDivide32 else signedDivide){regM=X0, regN=X1, regD=X2}, cvec);
                 (* X0 = X1 - (X2/X0)*X0 *)
-                gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec);
+                gen((if is32in64 then multiplyAndSub32 else multiplyAndSub){regM=X2, regN=X0, regA=X1, regD=X0}, cvec);
                 (* Restore the tag. *)
                 gen(logicalShiftLeft{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
@@ -2005,7 +2016,6 @@ struct
 
         |   genBinary(WordArith ArithMult, arg1, arg2, loopAddr) =
             (
-                raise Fallback "mult";
                 gencde (arg1, ToStack, NotEnd, loopAddr);
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
@@ -2014,14 +2024,14 @@ struct
                 gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
                 (* Remove the tag on the other. *)
                 gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
-                gen(multiplyAndAdd{regM=X1, regN=X0, regA=XZero, regD=X0}, cvec);
+                gen((if is32in64 then multiplyAndAdd32 else multiplyAndAdd)
+                    {regM=X1, regN=X0, regA=XZero, regD=X0}, cvec);
                 (* Put back the tag. *)
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
             )
 
         |   genBinary(WordArith ArithDiv, arg1, arg2, loopAddr) =
             (
-                raise Fallback "div";
                 gencde (arg1, ToStack, NotEnd, loopAddr);
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
@@ -2030,7 +2040,7 @@ struct
                 gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
                 (* Untag but don't shift the dividend. *)
                 gen(bitwiseAndImmediate{regN=X1, regD=X1, wordSize=WordSize64, bits=tagBitMask}, cvec);
-                gen(unsignedDivide{regM=X0, regN=X1, regD=X0}, cvec);
+                gen((if is32in64 then unsignedDivide32 else unsignedDivide){regM=X0, regN=X1, regD=X0}, cvec);
                 (* Restore the tag: Note: it may already be set depending on the result of
                    the division. *)
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, wordSize=WordSize64, bits=0w1}, cvec)
@@ -2038,7 +2048,6 @@ struct
 
         |   genBinary(WordArith ArithMod, arg1, arg2, loopAddr) =
             (
-                raise Fallback "mod";
                 gencde (arg1, ToStack, NotEnd, loopAddr);
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
@@ -2048,11 +2057,11 @@ struct
                 gen(logicalShiftRight{regN=X0, regD=X0, wordSize=WordSize64, shift=0w1}, cvec);
                 (* Untag but don't shift the dividend. *)
                 gen(bitwiseAndImmediate{regN=X1, regD=X2, wordSize=WordSize64, bits=tagBitMask}, cvec);
-                gen(unsignedDivide{regM=X0, regN=X2, regD=X2}, cvec);
+                gen((if is32in64 then unsignedDivide32 else unsignedDivide){regM=X0, regN=X2, regD=X2}, cvec);
                 (* Clear the bottom bit before the multiplication. *)
                 gen(bitwiseAndImmediate{regN=X2, regD=X2, wordSize=WordSize64, bits=tagBitMask}, cvec);
                 (* X0 = X1 - (X2/X0)*X0 *)
-                gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec)
+                gen((if is32in64 then multiplyAndSub32 else multiplyAndSub){regM=X2, regN=X0, regA=X1, regD=X0}, cvec)
                 (* Because we're subtracting from the original, tagged, dividend
                    the result is tagged. *)
             )
@@ -2813,13 +2822,9 @@ struct
     end (* codegen *)
 
     fun gencodeLambda(lambda as { name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-    if false andalso Debug.getParameter Debug.compilerDebugTag parameters = 0
+    if (*false andalso*) Debug.getParameter Debug.compilerDebugTag parameters = 0
     then FallBackCG.gencodeLambda(lambda, parameters, closure)
-    else
-    (
-        codegen (body, name, closure, List.length argTypes, localCount, parameters)
-           handle Fallback _ => FallBackCG.gencodeLambda(lambda, parameters, closure)
-    )
+    else codegen (body, name, closure, List.length argTypes, localCount, parameters)
 
     structure Foreign = Arm64Foreign
 

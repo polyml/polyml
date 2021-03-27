@@ -419,6 +419,8 @@ struct
         (* Signed and unsigned division. *)
         val unsignedDivide   = twoSourceInstr(0w1, 0w0, 0wx2)
         and signedDivide     = twoSourceInstr(0w1, 0w0, 0wx3)
+        and unsignedDivide32 = twoSourceInstr(0w0, 0w0, 0wx2)
+        and signedDivide32   = twoSourceInstr(0w0, 0w0, 0wx3)
         (* Logical shift left Rd = Rn << (Rm mod 0w64) *)
         and logicalShiftLeftVariable = twoSourceInstr(0w1, 0w0, 0wx8)
         (* Logical shift right Rd = Rn >> (Rm mod 0w64) *)
@@ -441,6 +443,11 @@ struct
         val multiplyAndAdd = threeSourceInstr(0w1, 0w0, 0w0, 0w0)
         (* regD = regA - regN * regM *)
         and multiplyAndSub = threeSourceInstr(0w1, 0w0, 0w0, 0w1)
+        and multiplyAndAdd32 = threeSourceInstr(0w0, 0w0, 0w0, 0w0)
+        and multiplyAndSub32 = threeSourceInstr(0w0, 0w0, 0w0, 0w1)
+        (* Multiply two 32-bit quantities and add/subtract a 64-bit quantity. *)
+        and signedMultiplyAndAddLong = threeSourceInstr(0w1, 0w0, 0w1, 0w0)
+        and signedMultiplyAndSubLong = threeSourceInstr(0w1, 0w0, 0w1, 0w1)
         (* Return the high-order part of a signed multiplication. *)
         fun signedMultiplyHigh({regM, regN, regD}) =
             threeSourceInstr(0w1, 0w0, 0w2, 0w0) { regM=regM, regN=regN, regD=regD, regA=XZero}
@@ -1871,7 +1878,10 @@ struct
                     case (sf, s, opcode) of
                         (0w1, 0w0, 0wx2) => ("udiv", "x")
                     |   (0w1, 0w0, 0wx3) => ("sdiv", "x")
+                    |   (0w0, 0w0, 0wx2) => ("udiv", "w")
+                    |   (0w0, 0w0, 0wx3) => ("sdiv", "w")
                     |   (0w1, 0w0, 0wx8) => ("lsl", "x")
+                    |   (0w0, 0w0, 0wx8) => ("lsl", "w")
                     |   (0w1, 0w0, 0wx9) => ("lsr", "x")
                     |   (0w1, 0w0, 0wxa) => ("asr", "x")
                     |   _ => ("??", "?")
@@ -1894,22 +1904,27 @@ struct
                 val rA = (wordValue >> 0w10) andb 0wx1f
                 val rN = (wordValue >> 0w5) andb 0wx1f
                 val rD = wordValue andb 0wx1f
-                val (oper, r) =
+                val (oper, r1, r2) =
                     case (sf, op54, op31, o0, rA) of
-                        (0w1, 0w0, 0w0, 0w0, 0w31) => ("mul", "x")
-                    |   (0w1, 0w0, 0w0, 0w0, _)    => ("madd", "x")
-                    |   (0w1, 0w0, 0w0, 0w1, 0w31) => ("mneg", "x")
-                    |   (0w1, 0w0, 0w0, 0w1, _)    => ("msub", "x")
-                    |   (0w1, 0w0, 0w2, 0w0, 0w31) => ("smulh", "x")
-                    |   _ => ("??", "?")
+                        (0w1, 0w0, 0w0, 0w0, 0w31) => ("mul", "x", "x")
+                    |   (0w1, 0w0, 0w0, 0w0, _)    => ("madd", "x", "x")
+                    |   (0w1, 0w0, 0w0, 0w1, 0w31) => ("mneg", "x", "x")
+                    |   (0w1, 0w0, 0w0, 0w1, _)    => ("msub", "x", "x")
+                    |   (0w0, 0w0, 0w0, 0w0, _)    => ("madd", "w", "w")
+                    |   (0w0, 0w0, 0w0, 0w1, _)    => ("msub", "w", "w")
+                    |   (0w1, 0w0, 0w2, 0w0, 0w31) => ("smulh", "x", "x")
+                    |   (0w1, 0w0, 0w1, 0w0, 0w31) => ("smull", "x", "w")
+                    |   (0w1, 0w0, 0w1, 0w0, _)    => ("smaddl", "x", "w")
+                    |   (0w1, 0w0, 0w1, 0w1, _)    => ("smsubl", "x", "w")
+                    |   _ => ("??", "?", "?")
             in
                 printStream oper;
                 printStream "\t";
-                printStream r; printStream(Word32.fmt StringCvt.DEC rD); printStream ",";
-                printStream r; printStream(Word32.fmt StringCvt.DEC rN); printStream ",";
-                printStream r; printStream(Word32.fmt StringCvt.DEC rM);
+                printStream r1; printStream(Word32.fmt StringCvt.DEC rD); printStream ",";
+                printStream r2; printStream(Word32.fmt StringCvt.DEC rN); printStream ",";
+                printStream r2; printStream(Word32.fmt StringCvt.DEC rM);
                 if rA = 0w31 then ()
-                else (printStream ","; printStream r; printStream(Word32.fmt StringCvt.DEC rA))
+                else (printStream ","; printStream r1; printStream(Word32.fmt StringCvt.DEC rA))
             end
 
             else if (wordValue andb 0wxffe0fc00) = 0wxC800FC00

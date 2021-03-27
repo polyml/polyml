@@ -146,10 +146,17 @@ sig
     and multiplyAndSub: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
     (* Return the high-order part of a signed multiplication. *)
     and signedMultiplyHigh: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and multiplyAndAdd32: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
+    and multiplyAndSub32: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
+    (* Multiply two 32-bit quantities and add/subtract a 64-bit quantity. *)
+    and signedMultiplyAndAddLong: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
+    and signedMultiplyAndSubLong: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
 
     (* Division *)
     val unsignedDivide: {regM: xReg, regN: xReg, regD: xReg} -> instr
     and signedDivide: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and unsignedDivide32: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and signedDivide32: {regM: xReg, regN: xReg, regD: xReg} -> instr
 
     (* Logical operations on a shifted register, optionally setting the flags. *)
     val andShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
