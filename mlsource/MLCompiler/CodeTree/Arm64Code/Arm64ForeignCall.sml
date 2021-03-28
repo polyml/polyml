@@ -35,15 +35,31 @@ struct
 
     val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
 
+    fun absoluteAddressToIndex reg =
+    if is32in64
+    then
+    [
+        subShiftedReg{regM=X_Base32in64, regN=reg, regD=reg, shift=ShiftNone},
+        logicalShiftRight{shift=0w2, regN=reg, regD=reg}
+    ]
+    else []
+    
+    (* Turn an index into an absolute address. *)
+    and indexToAbsoluteAddress(iReg, absReg) =
+    if is32in64
+    then [addShiftedReg{regM=iReg, regN=X_Base32in64, regD=absReg, shift=ShiftLSL 0w2}]
+    else if iReg = absReg
+    then []
+    else [moveRegToReg{sReg=iReg, dReg=absReg}]
+
     local
-        (* Both doubles and sysword values occupy a single heap cell. *)
-        fun allocateAWord(fixedReg, workReg) =
+        fun allocateWords(fixedReg, workReg, words, bytes) =
         let
             val label = createLabel()
         in
             [
                 (* Subtract the number of bytes required from the heap pointer. *)
-                subImmediate{regN=X_MLHeapAllocPtr, regD=fixedReg, immed=0w16, shifted=false},
+                subImmediate{regN=X_MLHeapAllocPtr, regD=fixedReg, immed=bytes, shifted=false},
                 (* Compare the result with the heap limit. *)
                 subSShiftedReg{regM=X_MLHeapLimit, regN=fixedReg, regD=XZero, shift=ShiftNone},
                 conditionalBranch(condCarrySet, label),
@@ -55,7 +71,8 @@ struct
                 moveRegToReg{sReg=fixedReg, dReg=X_MLHeapAllocPtr}
             ] @
                 loadNonAddress(workReg,
-                    Word64.orb(0w1, Word64.<<(Word64.fromLarge(Word8.toLarge Address.F_bytes), 0w56)))
+                    Word64.orb(words, Word64.<<(Word64.fromLarge(Word8.toLarge Address.F_bytes),
+                        if is32in64 then 0w24 else 0w56)))
             @
             [
                 (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
@@ -64,12 +81,42 @@ struct
         end
     in
         fun boxDouble(floatReg, fixedReg, workReg) =
-            allocateAWord(fixedReg, workReg) @
-                [storeRegScaledDouble{regT=floatReg, regN=fixedReg, unitOffset=0}]
+            allocateWords(fixedReg, workReg, if is32in64 then 0w2 else 0w1, 0w16) @
+                storeRegScaledDouble{regT=floatReg, regN=fixedReg, unitOffset=0} ::
+                absoluteAddressToIndex fixedReg
         and boxSysWord(toBoxReg, fixedReg, workReg) =
-            allocateAWord(fixedReg, workReg) @
-                [storeRegScaled{regT=toBoxReg, regN=fixedReg, unitOffset=0}]
+            allocateWords(fixedReg, workReg, if is32in64 then 0w2 else 0w1, 0w16) @
+                storeRegScaled{regT=toBoxReg, regN=fixedReg, unitOffset=0} ::
+                absoluteAddressToIndex fixedReg
+        
+        fun boxOrTagFloat(floatReg, fixedReg, workReg) =
+        if is32in64
+        then
+            allocateWords(fixedReg, workReg, 0w1, 0w8) @
+            storeRegScaledFloat{regT=floatReg, regN=fixedReg, unitOffset=0} ::
+            absoluteAddressToIndex fixedReg
+        else
+        [
+            moveFloatToGeneral{regN=floatReg, regD=fixedReg},
+            logicalShiftLeft{shift=0w32, regN=fixedReg, regD=fixedReg},
+            bitwiseOrImmediate{regN=fixedReg, regD=fixedReg, bits=0w1}
+        ]
     end
+
+    fun unboxDouble(addrReg, workReg, valReg) =
+    if is32in64
+    then indexToAbsoluteAddress(addrReg, workReg) @
+        [loadRegScaledDouble{regT=valReg, regN=workReg, unitOffset=0}]
+    else [loadRegScaledDouble{regT=valReg, regN=addrReg, unitOffset=0}]
+
+    fun unboxOrUntagSingle(addrReg, workReg, valReg) =
+    if is32in64
+    then [loadRegIndexedFloat{regN=X_Base32in64, regM=addrReg, regT=valReg, option=ExtUXTX ScaleOrShift}]
+    else
+    [
+        logicalShiftRight{shift=0w32, regN=addrReg, regD=workReg},
+        moveGeneralToFloat{regN=workReg, regD=valReg}
+    ]
 
     fun rtsCallFastGeneral (functionName, argFormats, resultFormat, debugSwitches) =
     let
@@ -84,12 +131,11 @@ struct
                         loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
         |   loadArgs(FastArgDouble :: argTypes, srcReg :: srcRegs, fixedRegs, fp :: fpRegs) =
                 (* Unbox the value into a fp reg. *)
-                loadRegScaledDouble{regT=fp, regN=srcReg, unitOffset=0} ::
+                unboxDouble(srcReg, srcReg, fp) @
                 loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
         |   loadArgs(FastArgFloat :: argTypes, srcReg :: srcRegs, fixedRegs, fp :: fpRegs) =
                 (* Untag and move into the fp reg *)
-                logicalShiftRight{shift=0w32, regN=srcReg, regD=srcReg} ::
-                moveGeneralToFloat{regN=srcReg, regD=fp} ::
+                unboxOrUntagSingle(srcReg, srcReg, fp) @
                 loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
         |   loadArgs _ = raise InternalError "rtsCall: Too many arguments"
 
@@ -99,11 +145,13 @@ struct
                 (* C fixed pt args *) [X0, X1, X2, X3, X4, X5, X6, X7],
                 (* C floating pt args *) [V0, V1, V2, V3, V4, V5, V6, V7]) @
             [
-                (* Move X30 to X24, a callee-save register. *)
+                (* Move X30 to X23, a callee-save register. *)
                 (* Note: maybe we should push X24 just in case this is the only
                    reachable reference to the code. *)
-                orrShiftedReg{regN=XZero, regM=X_LinkReg, regD=X24, shift=ShiftNone},
-                loadAddressConstant(X16, entryPointAddr), (* Load entry point *)
+                orrShiftedReg{regN=XZero, regM=X_LinkReg, regD=X23, shift=ShiftNone},
+                loadAddressConstant(X16, entryPointAddr) (* Load entry point *)
+            ] @ indexToAbsoluteAddress(X16, X16) @
+            [
                 loadRegScaled{regT=X16, regN=X16, unitOffset=0}, (* Load the actual address. *)
                 (* Store the current heap allocation pointer. *)
                 storeRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
@@ -121,15 +169,10 @@ struct
                 case resultFormat of
                     FastArgFixed => []
                 |   FastArgDouble => (* This must be boxed. *) boxDouble(V0, X0, X1)
-                |   FastArgFloat => (* This must be tagged *)
-                    [
-                        moveFloatToGeneral{regN=V0, regD=X0},
-                        logicalShiftLeft{shift=0w32, regN=X0, regD=X0},
-                        bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}
-                    ]
+                |   FastArgFloat => (* This must be tagged or boxed *) boxOrTagFloat(V0, X0, X1)
             ) @
             [
-                returnRegister X24
+                returnRegister X23
             ]
         val closure = makeConstantClosure()
         val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure}
@@ -468,16 +511,17 @@ struct
                 there's a very small chance that this could be the last reference to a piece of code. *)
              storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8},
              (* Save heap ptr.  Needed in case we have a callback. *)
-             storeRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
+             storeRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset}
+            ] @ indexToAbsoluteAddress(X0, X0) @
              (* Load the entry point address. *)
-             loadRegScaled{regT=entryPtReg, regN=X0, unitOffset=0}] @
+             loadRegScaled{regT=entryPtReg, regN=X0, unitOffset=0} ::
             (
                 (* Unbox the address of the result area into a callee save resgister.  This is where
                    the result will be stored on return if it is anything other than a struct.
                    We have to put the C address in there now because an ML address wouldn't be updated
                    by a possible GC in a callback. *)
                 if #typeForm(result) <> CTypeVoid
-                then [loadRegScaled{regT=resultAreaPtr, regN=X2, unitOffset=0}]
+                then indexToAbsoluteAddress(X2, X2) @ [loadRegScaled{regT=resultAreaPtr, regN=X2, unitOffset=0}]
                 else []
             ) @
             [storeRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset}] @ (* Save the stack pointer. *)
@@ -497,7 +541,7 @@ struct
                    with the actual arguments in it. *)
                 if null args
                 then []
-                else [loadRegScaled{regT=argPtrReg, regN=X1, unitOffset=0}]
+                else indexToAbsoluteAddress(X1, X1) @ [loadRegScaled{regT=argPtrReg, regN=X1, unitOffset=0}]
             ) @ argCode @
             [branchAndLinkReg X16] @ (* Call the function. *)
             (* Restore the C stack value in case it's been changed by a callback. *)
@@ -537,6 +581,7 @@ struct
        SysWord.word value except that while it exists the code will not be GCed.  *)
     fun buildCallBack(_: abi, args: cType list, result: cType): Address.machineWord =
     let
+        val _ = if is32in64 then raise Foreign "Callbacks not yet implemented in compact 32-bit ARM" else ()
         val argWorkReg = X10 (* Used in loading arguments if necessary. *)
         and argWorkReg2 = X11
         and argWorkReg3 = X13
