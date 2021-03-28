@@ -1439,7 +1439,8 @@ struct
                     genPopReg(X1, cvec);
                     decsp();
                     (* Add and set the flag bits *)
-                    gen(addSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                    gen((if is32in64 then addSShiftedReg32 else addSShiftedReg)
+                        {regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
                     (* If there's no overflow skip to the end otherwise drop into
                        the call to the RTS. *)
                     gen(conditionalBranch(condNoOverflow, resultLabel), cvec);
@@ -1465,7 +1466,8 @@ struct
                     genPopReg(X1, cvec);
                     decsp();
                     (* Subtract and set the flag bits *)
-                    gen(subSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                    gen((if is32in64 then subSShiftedReg32 else subSShiftedReg)
+                        {regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
                     gen(conditionalBranch(condNoOverflow, resultLabel), cvec);
                     gen(setLabel startLong, cvec);
                     topInX0 := false;
@@ -1958,7 +1960,6 @@ struct
                 (* Shift to remove the tags on the arguments *)
                 gen(arithmeticShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
                 gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
-                gen(signedDivide{regM=X0, regN=X1, regD=X0}, cvec);
                 gen((if is32in64 then signedDivide32 else signedDivide){regM=X0, regN=X1, regD=X0}, cvec);
                 (* Restore the tag. *)
                 gen(logicalShiftLeft{regN=X0, regD=X0, shift=0w1}, cvec);
