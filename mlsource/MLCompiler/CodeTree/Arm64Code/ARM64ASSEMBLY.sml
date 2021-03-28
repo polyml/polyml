@@ -1198,7 +1198,7 @@ struct
         (codeVec (* Return the completed code. *), wordsOfCode+numNonAddrConsts (* And the size in 64-bit words. *))
     end
 
-    (* Store a word, either 64-bit or 32-bit *)
+    (* Store a word, either 64-bit or 32-bit. *)
     fun setWord(value, wordNo, seg) =
     let
         val addrs = wordNo * Address.wordSize
@@ -1206,8 +1206,8 @@ struct
         if i = Address.wordSize then ()
         else
         (
-            byteVecSet(seg, a+i, Word8.fromInt(value mod 256));
-            putBytes(value div 256, a, seg, i+0w1)
+            byteVecSet(seg, a+i, Word8.fromLarge value);
+            putBytes(LargeWord.>>(value, 0w8), a, seg, i+0w1)
         )
     in
         putBytes(value, addrs, seg, 0w0)
@@ -1354,7 +1354,7 @@ struct
                     |   _ => ("??", "?", 0w1)
             in
                 printStream opcode; printStream "\t"; printStream r; printStream(Word32.fmt StringCvt.DEC rT);
-                printStream ",[x"; prXRegOrSP rN;
+                printStream ",["; prXRegOrSP rN;
                 printStream ",#"; printStream(Word32.fmt StringCvt.DEC(imm12*scale));
                 printStream "]"
             end
@@ -1422,6 +1422,7 @@ struct
                     |   (0w3, 0w0, 0w1) => ("ldr", "x")
                     |   _ => ("???", "?")
             in
+                printStream opcode; printStream "\t"; printStream r;
                 printStream(Word32.fmt StringCvt.DEC rT);
                 printStream ",["; prXRegOrSP rN;
                 printStream "],#"; printStream imm9Text
@@ -2202,10 +2203,10 @@ struct
         local
             val lastWord = segSize - 0w1
         in
-            val () = setWord(numOfConst + 2, wordsOfCode, byteVec)
+            val () = setWord(LargeWord.fromInt(numOfConst + 2), wordsOfCode, byteVec)
             (* Set the last word of the code to the (negative) byte offset of the start of the code area
                from the end of this word. *)
-            val () = setWord((numOfConst + 3) * ~(Word.toInt Address.wordSize), lastWord, byteVec) 
+            val () = setWord(LargeWord.fromInt(numOfConst + 3) * ~(Word.toLarge Address.wordSize), lastWord, byteVec) 
         end
 
         (* Now we've filled in all the size info we need to convert the segment
