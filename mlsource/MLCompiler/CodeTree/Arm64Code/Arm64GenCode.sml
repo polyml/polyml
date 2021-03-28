@@ -74,6 +74,16 @@ struct
 
     val loadScaledWord = loadScaledOffset(8, loadRegScaled, loadRegIndexed)
     and storeScaledWord = storeScaledOffset(8, storeRegScaled, storeRegIndexed)
+    
+    val loadScaledPolyWord =
+        if is32in64
+        then loadScaledOffset(4, loadRegScaled32, loadRegIndexed32)
+        else loadScaledOffset(8, loadRegScaled, loadRegIndexed)
+
+    and storeScaledPolyWord =
+        if is32in64
+        then storeScaledOffset(4, storeRegScaled32, storeRegIndexed32)
+        else storeScaledOffset(8, storeRegScaled, storeRegIndexed)
 
     (* Add a constant word to the source register and put the result in the
        destination.  regW is used as a work register if necessary.  This is used
@@ -135,20 +145,76 @@ struct
         )
     |   resetStack(nItems, false, code) =
             addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
-                value=Word64.fromLarge(Word.toLarge wordSize) * Word64.fromInt nItems}, code)
+                value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt nItems}, code)
 
     fun compareRegs(reg1, reg2, code) =
         gen(subSShiftedReg{regM=reg2, regN=reg1, regD=XZero, shift=ShiftNone}, code)
+    
+    (* Compare registers using 32-bit operation on 323-in-64. *)
+    fun comparePolyRegs(reg1, reg2, code) =
+        gen((if is32in64 then subSShiftedReg32 else subSShiftedReg){regM=reg2, regN=reg1, regD=XZero, shift=ShiftNone}, code)
+
+    (* Turn an absolute address into an object index. Does nothing in
+       native mode. *)
+    fun absoluteAddressToIndex(reg, cvec) =
+    if is32in64
+    then
+    (
+        gen(subShiftedReg{regM=X_Base32in64, regN=reg, regD=reg, shift=ShiftNone}, cvec);
+        gen(logicalShiftRight{shift=0w2, regN=reg, regD=reg}, cvec)
+    )
+    else ()
+    
+    (* Turn an index into an absolute address. *)
+    and indexToAbsoluteAddress(iReg, absReg, cvec) =
+    if is32in64
+    then gen(addShiftedReg{regM=iReg, regN=X_Base32in64, regD=absReg, shift=ShiftLSL 0w2}, cvec)
+    else if iReg = absReg
+    then ()
+    else gen(moveRegToReg{sReg=iReg, dReg=absReg}, cvec)
+
+    (* Get a large word value from a "box". *)
+    fun unboxLargeWord(addrReg, valReg, cvec) =
+    if is32in64
+    then
+    (
+        indexToAbsoluteAddress(addrReg, valReg, cvec);
+        gen(loadRegScaled{regT=valReg, regN=valReg, unitOffset=0}, cvec)
+    )
+    else gen(loadRegScaled{regT=valReg, regN=addrReg, unitOffset=0}, cvec)
+
+    fun unboxDouble(addrReg, workReg, valReg, cvec) =
+    if is32in64
+    then
+    (
+        indexToAbsoluteAddress(addrReg, workReg, cvec);
+        gen(loadRegScaledDouble{regT=valReg, regN=workReg, unitOffset=0}, cvec)
+    )
+    else gen(loadRegScaledDouble{regT=valReg, regN=addrReg, unitOffset=0}, cvec)
+
+    fun unboxOrUntagSingle(addrReg, workReg, valReg, cvec) =
+    if is32in64
+    then gen(loadRegIndexedFloat{regN=X_Base32in64, regM=addrReg, regT=valReg, option=ExtUXTX ScaleOrShift}, cvec)
+    else
+    (
+        gen(logicalShiftRight{shift=0w32, regN=addrReg, regD=workReg}, cvec);
+        gen(moveGeneralToFloat{regN=workReg, regD=valReg}, cvec)
+    )
 
     (* Sequence to allocate on the heap.  The words are not initialised
-       apart from the length word. *)
+       apart from the length word.  Returns the absolute address. *)
     fun genAllocateFixedSize(words, flags, resultReg, workReg, code) =
     let
         val label = createLabel()
+        val wordsRequired =
+            if is32in64
+            then (* Have to round this up to 8 bytes *)
+                Word64.andb(Word64.fromInt(words+2), ~ 0w2)
+            else Word64.fromInt(words+1)
     in
         (* Subtract the number of bytes required from the heap pointer and put in X0. *)
         addConstantWord({regS=X_MLHeapAllocPtr, regD=X0, regW=X3,
-            value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * Word64.fromInt(words+1)}, code);
+            value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * wordsRequired}, code);
         compareRegs(resultReg, X_MLHeapLimit, code);
         gen(conditionalBranch(condCarrySet, label), code);
         gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
@@ -157,9 +223,12 @@ struct
         gen(setLabel label, code);
         gen(moveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
         genList(loadNonAddress(workReg,
-            Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags), 0w56))), code);
+            Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags),
+                if is32in64 then 0w24 else 0w56))), code);
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
-        gen(storeRegUnscaled{regT=workReg, regN=resultReg, byteOffset= ~8}, code)
+        if is32in64
+        then gen(storeRegUnscaled32{regT=workReg, regN=resultReg, byteOffset= ~4}, code)
+        else gen(storeRegUnscaled{regT=workReg, regN=resultReg, byteOffset= ~8}, code)
     end
 
     (* Allocate space on the heap for a vector, string etc.  sizeReg and flagsReg
@@ -171,9 +240,21 @@ struct
         val trapLabel = createLabel() and noTrapLabel = createLabel()
     in
         (* Subtract the size as a number of bytes from the allocation ptr. *)
-        gen(subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=resultReg, shift=ShiftLSL 0w3}, code);
-        (* Subtract another 8 to allow for the length word. *)
-        gen(subImmediate{regN=resultReg, regD=resultReg, immed=0w8, shifted=false}, code);
+        if is32in64
+        then
+        (
+            gen(subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=resultReg, shift=ShiftLSL 0w2}, code);
+            (* Subtract another 4 to allow for the length word. *)
+            gen(subImmediate{regN=resultReg, regD=resultReg, immed=0w4, shifted=false}, code);
+            (* Round this down to an 8-byte boundary. *)
+            gen(bitwiseAndImmediate{bits= ~ 0w8, regN=resultReg, regD=resultReg}, code)
+        )
+        else
+        (
+            gen(subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=resultReg, shift=ShiftLSL 0w3}, code);
+            (* Subtract another 8 to allow for the length word. *)
+            gen(subImmediate{regN=resultReg, regD=resultReg, immed=0w8, shifted=false}, code)
+        );
         (* If the size is large enough it is possible that this could wrap round.  To check for that
            we trap if either the result is less than the limit or if it is now greater than
            the allocation pointer. *)
@@ -188,9 +269,12 @@ struct
         gen(setLabel noTrapLabel, code);
         gen(moveRegToReg{sReg=resultReg, dReg=X_MLHeapAllocPtr}, code);
         (* Combine the size with the flags in the top byte. *)
-        gen(orrShiftedReg{regM=flagsReg, regN=sizeReg, regD=flagsReg, shift=ShiftLSL 0w56}, code);
+        gen(orrShiftedReg{regM=flagsReg, regN=sizeReg, regD=flagsReg,
+            shift=ShiftLSL(if is32in64 then 0w24 else 0w56)}, code);
         (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
-        gen(storeRegUnscaled{regT=flagsReg, regN=resultReg, byteOffset= ~8}, code)
+        if is32in64
+        then gen(storeRegUnscaled32{regT=flagsReg, regN=resultReg, byteOffset= ~4}, code)
+        else gen(storeRegUnscaled{regT=flagsReg, regN=resultReg, byteOffset= ~8}, code)
     end
 
     (* Set a register to either tagged(1) i.e. true or tagged(0) i.e. false. *)
@@ -229,7 +313,7 @@ struct
             (
                 (* This is only used at the start of the code.  X9 is wired into the RTS. *)
                 addConstantWord({regS=X_MLStackPtr, regD=X9, regW=regW,
-                    value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * Word64.fromInt space}, code);
+                    value= ~ (Word64.fromLarge(Word.toLarge nativeWordSize)) * Word64.fromInt space}, code);
                 (X9, stackOverflowXCallOffset)
             )
     in
@@ -252,16 +336,35 @@ struct
     fun boxLargeWord(reg, code) =
     (
         reg <> X0 orelse raise InternalError "boxLargeWord: X0";
-        genAllocateFixedSize(1, F_bytes, X0, X5, code);
-        gen(storeRegScaled{regT=reg, regN=X0, unitOffset=0}, code)
+        genAllocateFixedSize(Word.toInt(nativeWordSize div wordSize), F_bytes, X0, X5, code);
+        gen(storeRegScaled{regT=reg, regN=X0, unitOffset=0}, code);
+        absoluteAddressToIndex(X0, code)
     )
     
     (* Allocate a single byte cell for a "real" i.e. double-precision floating
        point number. *)
     fun boxDouble(reg, code) =
     (
+        genAllocateFixedSize(Word.toInt(0w8 div wordSize), F_bytes, X0, X5, code);
+        gen(storeRegScaledDouble{regT=reg, regN=X0, unitOffset=0}, code);
+        absoluteAddressToIndex(X0, code)
+    )
+    
+    (* Single precision floats are shifted and tagged in native 64-bit but
+       boxed in 32-in-64. *)
+    fun boxOrTagFloat(reg, code) =
+    if is32in64
+    then
+    (
         genAllocateFixedSize(1, F_bytes, X0, X5, code);
-        gen(storeRegScaledDouble{regT=reg, regN=X0, unitOffset=0}, code)
+        gen(storeRegScaledFloat{regT=reg, regN=X0, unitOffset=0}, code);
+        absoluteAddressToIndex(X0, code)
+    )
+    else
+    (
+        gen(moveFloatToGeneral{regN=V0, regD=X0}, code);
+        gen(logicalShiftLeft{shift=0w32, regN=X0, regD=X0}, code);
+        gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, code)
     )
 
     type caseForm =
@@ -359,6 +462,7 @@ struct
                 (* The index, if any, is a constant. *)
                 (
                     gencde (base, ToX0, NotEnd, loopAddr);
+                    indexToAbsoluteAddress(X0, X0, cvec);
                     (X0, MLLoadOffset(offset div scale))
                 )
             
@@ -375,6 +479,7 @@ struct
                         value=Word64.fromInt (* unsigned *)(offset div scale)}, cvec);
                     genPopReg(X1, cvec); (* Pop base reg into X1. *)
                     decsp();
+                    indexToAbsoluteAddress(X1, X1, cvec);
                     (X1, MLLoadReg X0)
                 )
 
@@ -386,6 +491,7 @@ struct
             fun genCLoadAddress({base, index=NONE, offset}, scale) =
                 (
                     gencde (base, ToX0, NotEnd, loopAddr);
+                    indexToAbsoluteAddress(X0, X0, cvec);
                     gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
                     (X0, MLLoadOffset(offset div scale))
                 )
@@ -399,6 +505,7 @@ struct
                     addConstantWord({regS=X0, regD=X0, regW=X3,
                         value=Word64.fromInt (* unsigned *)(offset div scale)}, cvec);
                     genPopReg(X1, cvec); (* Pop base reg into X1. *)
+                    indexToAbsoluteAddress(X1, X1, cvec);
                     gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
                     decsp();
                     (X1, MLLoadReg X0)
@@ -416,10 +523,12 @@ struct
                 gencde (length, ToX0, NotEnd, loopAddr);
                 genPopReg(X2, cvec); (* right arg index - tagged value. *)
                 genPopReg(X1, cvec); (* right arg base address. *)
+                indexToAbsoluteAddress(X1, X1, cvec);
                 (* Add in the index N.B. ML index values are unsigned. *)
                 gen(addShiftedReg{regM=X2, regN=X1, regD=X1, shift=ShiftLSR 0w1}, cvec);
                 genPopReg(X3, cvec); (* left index *)
                 genPopReg(X2, cvec);
+                indexToAbsoluteAddress(X2, X2, cvec);
                 decsp(); decsp(); decsp(); decsp();
                 gen(addShiftedReg{regM=X3, regN=X2, regD=X2, shift=ShiftLSR 0w1}, cvec);
                 (* Untag the length *)
@@ -472,8 +581,10 @@ struct
                     |   BICLoadClosure locn =>
                         (
                             loadLocalStackValue ~1; (* The closure itself. *)
-                            genList (loadScaledWord{dest=X0, base=X0, work=X16,
-                                offset=locn+1 (* The first word is the code *)}, cvec)
+                            indexToAbsoluteAddress(X0, X0, cvec);
+                            genList(loadScaledPolyWord{dest=X0, base=X0, work=X16,
+                                 (* The first word is the code. This is two poly words in 32-in-64. *)
+                                offset=if is32in64 then locn+2 else locn+1}, cvec)
                         )
                     |   BICLoadRecursive =>
                             loadLocalStackValue ~1 (* The closure itself - first value on the stack. *)
@@ -482,7 +593,19 @@ struct
             |   BICField {base, offset} =>
                 (
                     gencde (base, ToX0, NotEnd, loopAddr);
-                    genList (loadScaledWord{dest=X0, base=X0, work=X16, offset=offset}, cvec)
+                    if is32in64
+                    then
+                    (
+                        (* Can use an indexed load if the offset is zero otherwise it takes two instrs. *)
+                        if offset = 0
+                        then gen(loadRegIndexed32{regN=X_Base32in64, regM=X0, regT=X0, option=ExtUXTX ScaleOrShift}, cvec)
+                        else
+                        (
+                            indexToAbsoluteAddress(X0, X0, cvec);
+                            genList (loadScaledPolyWord{dest=X0, base=X0, work=X16, offset=offset}, cvec)
+                        )
+                    )
+                    else genList (loadScaledPolyWord{dest=X0, base=X0, work=X16, offset=offset}, cvec)
                 )
 
             |   BICLoadContainer {base, offset} =>
@@ -753,10 +876,12 @@ struct
                     List.foldl(fn (_, w) =>
                         (
                             genPopReg(X1, cvec);
-                            genList(storeScaledWord{store=X1, base=X0, work=X16, offset=w-1}, cvec);
+                            genList(storeScaledPolyWord{store=X1, base=X0, work=X16, offset=w-1}, cvec);
                             w-1)
                         )
                         size recList;
+                    (* If it's 32-in-64 this has to be converted to an object pointer. *)
+                    absoluteAddressToIndex(X0, cvec);
                     topInX0 := true;
                     realstackptr := !realstackptr - size
                 end
@@ -801,6 +926,7 @@ struct
                             val () = gencde (tuple, ToStack, NotEnd, loopAddr)
                             val () = gencde (container, ToX0, NotEnd, loopAddr)
                             val () = genPopReg(X1, cvec)
+                            val () = indexToAbsoluteAddress(X1, X1, cvec)
                             val () = decsp()
                             (* Container address is in X0, tuple in X1. *)
                             
@@ -811,7 +937,7 @@ struct
                                 then
                                 (
                                     (* Load the value in the tuple. *)
-                                    genList(loadScaledWord{dest=X2, base=X1, work=X16, offset=sourceOffset}, cvec);
+                                    genList(loadScaledPolyWord{dest=X2, base=X1, work=X16, offset=sourceOffset}, cvec);
                                     (* Store into the container. *)
                                     genList(storeScaledWord{store=X2, base=X0, work=X16, offset=destOffset}, cvec);
                                     if sourceOffset = last
@@ -863,8 +989,9 @@ struct
                        loaded even if it was locked when it was saved. *)
                     val flags = Word8.orb(F_mutable, Word8.orb(F_weak, Word8.orb(F_noOverwrite, F_bytes))) (* 0wx69 *)
                 in
-                    genAllocateFixedSize(1, flags, X0, X5, cvec);
+                    genAllocateFixedSize(Word.toInt(nativeWordSize div wordSize), flags, X0, X5, cvec);
                     gen(storeRegScaled{regT=XZero, regN=X0, unitOffset=0}, cvec);
+                    absoluteAddressToIndex(X0, cvec);
                     topInX0 := true
                 end
 
@@ -889,14 +1016,18 @@ struct
                         allocateVariableSize({sizeReg=X1, flagsReg=X2, resultReg=X0}, cvec);
                         genPopReg(X3, cvec); (* Pop initialiser. *)
                         (* Add the length in bytes so we point at the end. *)
-                        gen(addShiftedReg{regM=X1, regN=X0, regD=X1, shift=ShiftLSL 0w3}, cvec);
+                        gen(addShiftedReg{regM=X1, regN=X0, regD=X1,
+                            shift=ShiftLSL(if is32in64 then 0w2 else 0w3)}, cvec);
                         (* Loop to initialise. *)
                         gen(setLabel loopLabel, cvec);
                         compareRegs(X1, X0, cvec); (* Are we at the start? *)
                         gen(conditionalBranch(condEqual, exitLabel), cvec);
-                        gen(storeRegPreIndex{regT=X3, regN=X1, byteOffset= ~8}, cvec);
+                        if is32in64
+                        then gen(storeRegPreIndex32{regT=X3, regN=X1, byteOffset= ~4}, cvec)
+                        else gen(storeRegPreIndex{regT=X3, regN=X1, byteOffset= ~8}, cvec);
                         gen(unconditionalBranch loopLabel, cvec);
                         gen(setLabel exitLabel, cvec);
+                        absoluteAddressToIndex(X0, cvec);
                         decsp(); decsp()
                     end
                 in
@@ -910,7 +1041,8 @@ struct
                                 gencde (initial, ToStack, NotEnd, loopAddr); (* Initialiser. *)
                                 genAllocateFixedSize(1, flagByte, X0, X1, cvec);
                                 genPopReg(X1, cvec);
-                                gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec);
+                                gen((if is32in64 then storeRegScaled32 else storeRegScaled){regT=X1, regN=X0, unitOffset=0}, cvec);
+                                absoluteAddressToIndex(X0, cvec);
                                 decsp(); topInX0 := true
                             end
                             else (* Constant but not a single. *) doAllocateAndInit()
@@ -920,16 +1052,18 @@ struct
             |   BICLoadOperation { kind=LoadStoreMLWord {isImmutable=false}, address={base, index=NONE, offset=0}} =>
                 (
                     gencde (base, ToX0, NotEnd, loopAddr);
-                    gen(loadAcquire{regN=X0, regT=X0}, cvec)
+                    indexToAbsoluteAddress(X0, X0, cvec);
+                    gen((if is32in64 then loadAcquire32 else loadAcquire){regN=X0, regT=X0}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreMLWord _, address} =>
                 (
                     case genMLLoadAddress(address, Word.toInt wordSize) of
                         (base, MLLoadOffset offset) =>
-                            genList(loadScaledWord{dest=X0, base=base, work=X16, offset=offset}, cvec)
+                            genList(loadScaledPolyWord{dest=X0, base=base, work=X16, offset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            gen(loadRegIndexed{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec)
+                            gen((if is32in64 then loadRegIndexed32 else loadRegIndexed)
+                                {regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec)
                 )
 
             |   BICLoadOperation { kind=LoadStoreMLByte _, address} =>
@@ -1036,9 +1170,10 @@ struct
                 (
                     case genMLLoadAddress(address, Word.toInt wordSize) of
                         (base, MLLoadOffset offset) =>
-                            gen(loadRegScaled{regT=X0, regN=base, unitOffset=offset}, cvec)
+                            genList(loadScaledPolyWord{dest=X0, base=base, work=X16, offset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            gen(loadRegIndexed{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                            gen((if is32in64 then loadRegIndexed32 else loadRegIndexed)
+                                {regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
 
                     (* Have to tag the result. *)
                     gen(logicalShiftLeft{regN=X0, regD=X0, shift=0w1}, cvec);
@@ -1050,8 +1185,9 @@ struct
                     gencde (base, ToStack, NotEnd, loopAddr);
                     gencde (value, ToX0, NotEnd, loopAddr);
                     genPopReg(X1, cvec); (* Address *)
+                    indexToAbsoluteAddress(X1, X1, cvec);
                     decsp();
-                    gen(storeRelease{regN=X1, regT=X0}, cvec)
+                    gen((if is32in64 then storeRelease32 else storeRelease){regN=X1, regT=X0}, cvec)
                 )
 
             |   BICStoreOperation { kind=LoadStoreMLWord _, address, value } =>
@@ -1065,7 +1201,9 @@ struct
                        a displacement and the only options are to scale by either 1 or 8. *)
                     gen(logicalShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address. *)
-                    gen(storeRegIndexed{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    indexToAbsoluteAddress(X2, X2, cvec);
+                    gen((if is32in64 then storeRegIndexed32 else storeRegIndexed)
+                        {regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
                     (* Don't put the unit result in; it probably isn't needed, *)
                     decsp(); decsp(); decsp()
                 )
@@ -1083,6 +1221,7 @@ struct
                        a displacement and the only options are to scale by either 1 or 8. *)
                     gen(logicalShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address. *)
+                    indexToAbsoluteAddress(X2, X2, cvec);
                     gen(storeRegIndexedByte{regN=X2, regM=X1, regT=X0, option=ExtUXTX NoScale}, cvec);
                     (* Don't put the unit result in; it probably isn't needed, *)
                     decsp(); decsp(); decsp()
@@ -1097,6 +1236,7 @@ struct
                     (* Untag.  C indexes are signed. *)
                     gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
                     gen(storeRegIndexedByte{regN=X2, regM=X1, regT=X0, option=ExtUXTX NoScale}, cvec);
                     topInX0 := false;
@@ -1112,6 +1252,7 @@ struct
                     (* Untag.  C indexes are signed. *)
                     gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
                     gen(storeRegIndexed16{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
                     topInX0 := false;
@@ -1127,6 +1268,7 @@ struct
                     (* Untag.  C indexes are signed. *)
                     gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
                     gen(storeRegIndexed32{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
                     topInX0 := false;
@@ -1142,6 +1284,7 @@ struct
                     (* Untag.  C indexes are signed. *)
                     gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
                     gen(storeRegIndexed{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
                     topInX0 := false;
@@ -1159,6 +1302,7 @@ struct
                     (* Untag.  C indexes are signed. *)
                     gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
                     gen(storeRegIndexedFloat{regN=X2, regM=X1, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
                     topInX0 := false;
@@ -1175,6 +1319,7 @@ struct
                     (* Untag.  C indexes are signed. *)
                     gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
+                    indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
                     gen(storeRegIndexedDouble{regN=X2, regM=X1, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
                     topInX0 := false;
@@ -1196,7 +1341,9 @@ struct
                        a displacement and the only options are to scale by either 1 or 8. *)
                     gen(logicalShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address. *)
-                    gen(storeRegIndexed{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    indexToAbsoluteAddress(X2, X2, cvec);
+                    gen((if is32in64 then storeRegIndexed32 else storeRegIndexed)
+                            {regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
                     (* Don't put the unit result in; it probably isn't needed, *)
                     decsp(); decsp(); decsp()
                 )
@@ -1210,10 +1357,12 @@ struct
                     gencde (length, ToX0, NotEnd, loopAddr); (* Length *)
                     genPopReg(X2, cvec); (* Dest index - tagged value. *)
                     genPopReg(X1, cvec); (* Dest base address. *)
+                    indexToAbsoluteAddress(X1, X1, cvec);
                     (* Add in the index N.B. ML index values are unsigned. *)
                     gen(addShiftedReg{regM=X2, regN=X1, regD=X1, shift=ShiftLSR 0w1}, cvec);
                     genPopReg(X3, cvec); (* Source index *)
                     genPopReg(X2, cvec);
+                    indexToAbsoluteAddress(X2, X2, cvec);
                     gen(addShiftedReg{regM=X3, regN=X2, regD=X2, shift=ShiftLSR 0w1}, cvec);
                     (* Untag the length *)
                     gen(logicalShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
@@ -1226,6 +1375,12 @@ struct
                     (
                         gen(loadRegPostIndexByte{regT=X3, regN=X2, byteOffset=1}, cvec);
                         gen(storeRegPostIndexByte{regT=X3, regN=X1, byteOffset=1}, cvec)
+                    )
+                    else if is32in64
+                    then
+                    (
+                        gen(loadRegPostIndex32{regT=X3, regN=X2, byteOffset=4}, cvec);
+                        gen(storeRegPostIndex32{regT=X3, regN=X1, byteOffset=4}, cvec)
                     )
                     else
                     (
@@ -1415,11 +1570,21 @@ struct
         |   genUnary(MemoryCellLength, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
+                indexToAbsoluteAddress(X0, X0, cvec);
                 (* Load the length word. *)
-                gen(loadRegUnscaled{regT=X0, regN=X0, byteOffset= ~8}, cvec);
-                (* Extract the length, excluding the flag bytes and shift by one bit. *)
-                gen(unsignedBitfieldInsertinZeros
-                    {lsb=0w1, width=0w56, regN=X0, regD=X0}, cvec);
+                if is32in64
+                then
+                (
+                    gen(loadRegUnscaled32{regT=X0, regN=X0, byteOffset= ~4}, cvec);
+                    (* Extract the length, excluding the flag bytes and shift by one bit. *)
+                    gen(unsignedBitfieldInsertinZeros32{lsb=0w1, width=0w24, regN=X0, regD=X0}, cvec)
+                )
+                else
+                (
+                    gen(loadRegUnscaled{regT=X0, regN=X0, byteOffset= ~8}, cvec);
+                    (* Extract the length, excluding the flag bytes and shift by one bit. *)
+                    gen(unsignedBitfieldInsertinZeros{lsb=0w1, width=0w56, regN=X0, regD=X0}, cvec)
+                );
                 (* Set the tag bit. *)
                 gen(bitwiseOrImmediate{bits=0w1, regN=X0, regD=X0}, cvec)
             )
@@ -1427,6 +1592,7 @@ struct
         |   genUnary(MemoryCellFlags, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
+                indexToAbsoluteAddress(X0, X0, cvec);
                 (* Load the flags byte. *)
                 gen(loadRegUnscaledByte{regT=X0, regN=X0, byteOffset= ~1}, cvec);
                 (* Tag the result. *)
@@ -1437,6 +1603,7 @@ struct
         |   genUnary(ClearMutableFlag, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
+                indexToAbsoluteAddress(X0, X0, cvec);
                 gen(loadRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec);
                 gen(bitwiseAndImmediate32{bits=Word64.xorb(0wxffffffff, 0wx40), regN=X1, regD=X1}, cvec);
                 gen(storeRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec)
@@ -1445,6 +1612,7 @@ struct
         |   genUnary(LongWordToTagged, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
+                indexToAbsoluteAddress(X0, X0, cvec);
                 (* Load the value and tag it. *)
                 gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
                 (* Tag the result. *)
@@ -1469,6 +1637,7 @@ struct
         |   genUnary(RealAbs PrecDouble, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
+                unboxDouble(X0, X0, V0, cvec);
                 gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
                 gen(absDouble{regN=V0, regD=V0}, cvec);
                 boxDouble(V0, cvec)
@@ -1477,6 +1646,7 @@ struct
         |   genUnary(RealNeg PrecDouble, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
+                unboxDouble(X0, X0, V0, cvec);
                 gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
                 gen(negDouble{regN=V0, regD=V0}, cvec);
                 boxDouble(V0, cvec)
@@ -1494,41 +1664,32 @@ struct
         |   genUnary(RealAbs PrecSingle, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
-                gen(logicalShiftRight{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                unboxOrUntagSingle(X0, X0, V0, cvec);
                 gen(absFloat{regN=V0, regD=V0}, cvec);
-                gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                gen(logicalShiftLeft{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                boxOrTagFloat(V0, cvec)
             )
 
         |   genUnary(RealNeg PrecSingle, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
-                gen(logicalShiftRight{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                unboxOrUntagSingle(X0, X0, V0, cvec);
                 gen(negFloat{regN=V0, regD=V0}, cvec);
-                gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                gen(logicalShiftLeft{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                boxOrTagFloat(V0, cvec)
             )
 
         |   genUnary(RealFixedInt PrecSingle, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
-                 (* Shift to remove the tag. *)
+                (* Shift to remove the tag. *)
                 gen(arithmeticShiftRight{shift=0w1, regN=X0, regD=X0}, cvec);
-                gen(convertIntToFloat{regN=X0, regD=V0}, cvec);
-                gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                gen(logicalShiftLeft{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                gen((if is32in64 then convertInt32ToFloat else convertIntToFloat){regN=X0, regD=V0}, cvec);
+                boxOrTagFloat(V0, cvec)
            )
 
         |   genUnary(FloatToDouble, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
-                gen(logicalShiftRight{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
+                unboxOrUntagSingle(X0, X0, V0, cvec);
                 gen(convertFloatToDouble{regN=V0, regD=V0}, cvec);
                 boxDouble(V0, cvec)
             )
@@ -1537,11 +1698,10 @@ struct
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
                 (* Convert double to float using current rounding mode. *)
+                unboxDouble(X0, X0, V0, cvec);
                 gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
                 gen(convertDoubleToFloat{regN=V0, regD=V0}, cvec);
-                gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                gen(logicalShiftLeft{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                boxOrTagFloat(V0, cvec)
             )
 
         |   genUnary(RealToInt (PrecDouble, rnding), arg1, loopAddr) =
@@ -1551,9 +1711,19 @@ struct
                    or in the conversion to a tagged value.  Fortunately if the
                    conversion detects an overflow it sets the result to a
                    value that will cause an overflow in the addition. *)
+                unboxDouble(X0, X0, V0, cvec);
                 gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                gen(convertDoubleToInt rnding {regN=V0, regD=X0}, cvec);
-                gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec);
+                if is32in64
+                then
+                (
+                    gen(convertDoubleToInt32 rnding {regN=V0, regD=X0}, cvec);
+                    gen(addSShiftedReg32{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec)
+                )
+                else
+                (
+                    gen(convertDoubleToInt rnding {regN=V0, regD=X0}, cvec);
+                    gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec)
+                );
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec);
                 checkOverflow cvec
             )
@@ -1561,9 +1731,18 @@ struct
         |   genUnary(RealToInt (PrecSingle, rnding), arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
-                gen(logicalShiftRight{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                gen(convertFloatToInt rnding {regN=V0, regD=X0}, cvec);
+                unboxOrUntagSingle(X0, X0, V0, cvec);
+                if is32in64
+                then
+                (
+                    gen(convertFloatToInt32 rnding {regN=V0, regD=X0}, cvec);
+                    gen(addSShiftedReg32{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec)
+                )
+                else
+                (
+                    gen(convertFloatToInt rnding {regN=V0, regD=X0}, cvec);
+                    gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec)
+                );
                 gen(addSShiftedReg{regM=X0, regN=X0, regD=X0, shift=ShiftNone}, cvec);
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec);
                 checkOverflow cvec
@@ -1599,6 +1778,7 @@ struct
                 (* For the moment don't try to use a spin lock. *)
             in
                 gencde (arg1, ToX0, NotEnd, loopAddr);
+                indexToAbsoluteAddress(X0, X0, cvec);
                 gen(setLabel loopLabel, cvec);
                 (* Get the original value into X1. *)
                 gen(loadAcquireExclusiveRegister{regN=X0, regT=X1}, cvec);
@@ -1620,6 +1800,7 @@ struct
                 val loopLabel = createLabel() and exitLabel = createLabel()
             in
                 gencde (arg1, ToX0, NotEnd, loopAddr);
+                indexToAbsoluteAddress(X0, X0, cvec);
                 gen(setLabel loopLabel, cvec);
                 (* Get the original value into X1. *)
                 gen(loadAcquireExclusiveRegister{regN=X0, regT=X1}, cvec);
@@ -1642,6 +1823,7 @@ struct
                 val loopLabel = createLabel()
             in
                 gencde (arg1, ToX0, NotEnd, loopAddr);
+                indexToAbsoluteAddress(X0, X0, cvec);
                 gen(setLabel loopLabel, cvec);
                 (* Get the original value into X1. *)
                 gen(loadAcquireExclusiveRegister{regN=X0, regT=X1}, cvec);
@@ -1674,7 +1856,7 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec); (* First argument. *)
-                compareRegs(X1, X0, cvec);
+                comparePolyRegs(X1, X0, cvec);
                 setBooleanCondition(X0, cond, cvec)
             end
 
@@ -1684,7 +1866,7 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec); (* First argument. *)
-                compareRegs(X1, X0, cvec);
+                comparePolyRegs(X1, X0, cvec);
                 setBooleanCondition(X0, condEqual, cvec)
             )
 
@@ -1697,7 +1879,8 @@ struct
                 gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                 genPopReg(X1, cvec);
                 (* Add and set the flag bits *)
-                gen(addSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                gen((if is32in64 then addSShiftedReg32 else addSShiftedReg)
+                    {regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
                 checkOverflow cvec
             )
 
@@ -1710,7 +1893,8 @@ struct
                 gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                 genPopReg(X1, cvec);
                 (* Subtract and set the flag bits *)
-                gen(subSShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
+                gen((if is32in64 then subSShiftedReg32 else subSShiftedReg)
+                    {regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
                 checkOverflow cvec
             )
 
@@ -1727,17 +1911,33 @@ struct
                 (* Compute the result in the same way as for Word.* apart from the
                    arithmetic shift. *)
                 genPopReg(X1, cvec);
-                (* Shift to remove the tags on one argument suing . *)
+
+                (* Shift to remove the tags on one argument. *)
                 gen(arithmeticShiftRight{regN=X0, regD=X2, shift=0w1}, cvec);
                 (* Remove the tag on the other. *)
                 gen(bitwiseAndImmediate{regN=X1, regD=X1, bits=tagBitMask}, cvec);
-                gen(multiplyAndAdd{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
-                (* Put back the tag. *)
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec);
-                (* Compute the high order part into X2 *)
-                gen(signedMultiplyHigh{regM=X1, regN=X2, regD=X2}, cvec);
-                (* Compare with the sign bit of the result. *)
-                gen(subSShiftedReg{regD=XZero, regN=X2, regM=X0, shift=ShiftASR 0w63}, cvec);
+                if is32in64
+                then
+                (
+                    (* Multiply two 32-bit quantities. *)
+                    gen(signedMultiplyAndAddLong{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
+                    (* Get the top word which should be either all ones or all zeros. *)
+                    gen(arithmeticShiftRight{shift=0w32, regN=X0, regD=X2}, cvec);
+                    (* The result is in X0. Use a 32-bit operation to clear the top word. *)
+                    gen(bitwiseOrImmediate32{regN=X0, regD=X0, bits=0w1}, cvec);
+                    (* Compare with the sign bit of the result. *)
+                    gen(subSShiftedReg32{regD=XZero, regN=X2, regM=X0, shift=ShiftASR 0w31}, cvec)
+                )
+                else
+                (
+                    gen(multiplyAndAdd{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
+                    (* Put back the tag. *)
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec);
+                    (* Compute the high order part into X2 *)
+                    gen(signedMultiplyHigh{regM=X1, regN=X2, regD=X2}, cvec);
+                    (* Compare with the sign bit of the result. *)
+                    gen(subSShiftedReg{regD=XZero, regN=X2, regM=X0, shift=ShiftASR 0w63}, cvec)
+                );
                 gen(conditionalBranch(condEqual, noOverflow), cvec);
                 gen(loadAddressConstant(X0, toMachineWord Overflow), cvec);
                 gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
@@ -1759,6 +1959,7 @@ struct
                 gen(arithmeticShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
                 gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                 gen(signedDivide{regM=X0, regN=X1, regD=X0}, cvec);
+                gen((if is32in64 then signedDivide32 else signedDivide){regM=X0, regN=X1, regD=X0}, cvec);
                 (* Restore the tag. *)
                 gen(logicalShiftLeft{regN=X0, regD=X0, shift=0w1}, cvec);
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
@@ -1776,9 +1977,9 @@ struct
                 (* Shift to remove the tags on the arguments *)
                 gen(arithmeticShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
                 gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
-                gen(signedDivide{regM=X0, regN=X1, regD=X2}, cvec);
+                gen((if is32in64 then signedDivide32 else signedDivide){regM=X0, regN=X1, regD=X2}, cvec);
                 (* X0 = X1 - (X2/X0)*X0 *)
-                gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec);
+                gen((if is32in64 then multiplyAndSub32 else multiplyAndSub){regM=X2, regN=X0, regA=X1, regD=X0}, cvec);
                 (* Restore the tag. *)
                 gen(logicalShiftLeft{regN=X0, regD=X0, shift=0w1}, cvec);
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
@@ -1798,7 +1999,7 @@ struct
                 (* Subtract the tag bit. *)
                 gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                 genPopReg(X1, cvec);
-                gen(addShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
+                gen((if is32in64 then addShiftedReg32 else addShiftedReg){regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
             )
 
         |   genBinary(WordArith ArithSub, arg1, arg2, loopAddr) =
@@ -1809,7 +2010,7 @@ struct
                 (* Subtract the tag bit. *)
                 gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                 genPopReg(X1, cvec);
-                gen(subShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
+                gen((if is32in64 then subShiftedReg32 else subShiftedReg){regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec)
             )
 
         |   genBinary(WordArith ArithMult, arg1, arg2, loopAddr) =
@@ -1822,7 +2023,8 @@ struct
                 gen(logicalShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
                 (* Remove the tag on the other. *)
                 gen(bitwiseAndImmediate{regN=X1, regD=X1, bits=tagBitMask}, cvec);
-                gen(multiplyAndAdd{regM=X1, regN=X0, regA=XZero, regD=X0}, cvec);
+                gen((if is32in64 then multiplyAndAdd32 else multiplyAndAdd)
+                    {regM=X1, regN=X0, regA=XZero, regD=X0}, cvec);
                 (* Put back the tag. *)
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
             )
@@ -1837,7 +2039,7 @@ struct
                 gen(logicalShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
                 (* Untag but don't shift the dividend. *)
                 gen(bitwiseAndImmediate{regN=X1, regD=X1, bits=tagBitMask}, cvec);
-                gen(unsignedDivide{regM=X0, regN=X1, regD=X0}, cvec);
+                gen((if is32in64 then unsignedDivide32 else unsignedDivide){regM=X0, regN=X1, regD=X0}, cvec);
                 (* Restore the tag: Note: it may already be set depending on the result of
                    the division. *)
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
@@ -1854,11 +2056,11 @@ struct
                 gen(logicalShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
                 (* Untag but don't shift the dividend. *)
                 gen(bitwiseAndImmediate{regN=X1, regD=X2, bits=tagBitMask}, cvec);
-                gen(unsignedDivide{regM=X0, regN=X2, regD=X2}, cvec);
+                gen((if is32in64 then unsignedDivide32 else unsignedDivide){regM=X0, regN=X2, regD=X2}, cvec);
                 (* Clear the bottom bit before the multiplication. *)
                 gen(bitwiseAndImmediate{regN=X2, regD=X2, bits=tagBitMask}, cvec);
                 (* X0 = X1 - (X2/X0)*X0 *)
-                gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec)
+                gen((if is32in64 then multiplyAndSub32 else multiplyAndSub){regM=X2, regN=X0, regA=X1, regD=X0}, cvec)
                 (* Because we're subtracting from the original, tagged, dividend
                    the result is tagged. *)
             )
@@ -1908,7 +2110,8 @@ struct
                 gen(bitwiseAndImmediate{regN=X1, regD=X1, bits=tagBitMask}, cvec);
                 (* Untag the shift amount.  Can use 32-bit op here. *)
                 gen(logicalShiftRight32{regN=X0, regD=X0, shift=0w1}, cvec);
-                gen(logicalShiftLeftVariable{regM=X0, regN=X1, regD=X0}, cvec);
+                gen((if is32in64 then logicalShiftLeftVariable32 else logicalShiftLeftVariable)
+                    {regM=X0, regN=X1, regD=X0}, cvec);
                 (* Put back the tag. *)
                 gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
             )
@@ -1955,7 +2158,8 @@ struct
                 genPopReg(X1, cvec);
                 gen(logicalShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
                 allocateVariableSize({sizeReg=X1, flagsReg=X0, resultReg=X2}, cvec);
-                gen(moveRegToReg{sReg=X2, dReg=X0}, cvec)
+                gen(moveRegToReg{sReg=X2, dReg=X0}, cvec);
+                absoluteAddressToIndex(X0, cvec)
             )
 
         |   genBinary(LargeWordComparison test, arg1, arg2, loopAddr) =
@@ -1974,8 +2178,8 @@ struct
                 decsp();
                 (* The values are boxed so have to be loaded first. *)
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X0, X0, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 compareRegs(X1, X0, cvec);
                 setBooleanCondition(X0, cond, cvec)
             end
@@ -1986,8 +2190,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X0, X0, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 gen(addShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
                 boxLargeWord(X1, cvec)
             )
@@ -1998,8 +2202,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X0, X0, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 gen(subShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
                 boxLargeWord(X1, cvec)
             )
@@ -2010,8 +2214,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X0, X0, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 gen(multiplyAndAdd{regM=X1, regN=X0, regA=XZero, regD=X1}, cvec);
                 boxLargeWord(X1, cvec)
             )
@@ -2022,8 +2226,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X0, X0, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 gen(unsignedDivide{regM=X0, regN=X1, regD=X1}, cvec);
                 boxLargeWord(X1, cvec)
             )
@@ -2034,8 +2238,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X0, X0, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 gen(unsignedDivide{regM=X0, regN=X1, regD=X2}, cvec);
                 gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X1}, cvec);
                 boxLargeWord(X1, cvec)
@@ -2050,8 +2254,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X0, X0, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 gen(andShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
                 boxLargeWord(X1, cvec)
             )
@@ -2062,8 +2266,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X0, X0, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 gen(orrShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
                 boxLargeWord(X1, cvec)
             )
@@ -2074,8 +2278,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X0, X0, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 gen(eorShiftedReg{regN=X1, regM=X0, regD=X1, shift=ShiftNone}, cvec);
                 boxLargeWord(X1, cvec)
             )
@@ -2088,7 +2292,7 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 (* Untag the shift amount.  Can use 32-bit op here. *)
                 gen(logicalShiftRight32{regN=X0, regD=X0, shift=0w1}, cvec);
                 gen(logicalShiftLeftVariable{regM=X0, regN=X1, regD=X1}, cvec);
@@ -2101,7 +2305,7 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 (* Untag the shift amount.  Can use 32-bit op here. *)
                 gen(logicalShiftRight32{regN=X0, regD=X0, shift=0w1}, cvec);
                 gen(logicalShiftRightVariable{regM=X0, regN=X1, regD=X1}, cvec);
@@ -2114,7 +2318,7 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec);
+                unboxLargeWord(X1, X1, cvec);
                 (* Untag the shift amount.  Can use 32-bit op here. *)
                 gen(logicalShiftRight32{regN=X0, regD=X0, shift=0w1}, cvec);
                 gen(arithmeticShiftRightVariable{regM=X0, regN=X1, regD=X1}, cvec);
@@ -2143,8 +2347,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                unboxDouble(X0, X0, V0, cvec);
+                unboxDouble(X1, X1, V1, cvec);
                 gen(compareDouble{regM=V0, regN=V1}, cvec);
                 setBooleanCondition(X0, cond, cvec)
             end
@@ -2164,10 +2368,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(logicalShiftRight{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(logicalShiftRight{shift=0w32, regN=X1, regD=X1}, cvec);
-                gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                unboxOrUntagSingle(X0, X0, V0, cvec);
+                unboxOrUntagSingle(X1, X1, V1, cvec);
                 gen(compareFloat{regM=V0, regN=V1}, cvec);
                 setBooleanCondition(X0, cond, cvec)
             end
@@ -2186,8 +2388,8 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
-                gen(loadRegScaledDouble{regT=V1, regN=X1, unitOffset=0}, cvec);
+                unboxDouble(X0, X0, V0, cvec);
+                unboxDouble(X1, X1, V1, cvec);
                 gen(operation{regM=V0, regN=V1, regD=V0}, cvec);
                 boxDouble(V0, cvec)
             end
@@ -2209,14 +2411,10 @@ struct
                 gencde (arg2, ToX0, NotEnd, loopAddr);
                 decsp();
                 genPopReg(X1, cvec);
-                gen(logicalShiftRight{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(logicalShiftRight{shift=0w32, regN=X1, regD=X1}, cvec);
-                gen(moveGeneralToFloat{regN=X0, regD=V0}, cvec);
-                gen(moveGeneralToFloat{regN=X1, regD=V1}, cvec);
+                unboxOrUntagSingle(X0, X0, V0, cvec);
+                unboxOrUntagSingle(X1, X1, V1, cvec);
                 gen(operation{regM=V0, regN=V1, regD=V0}, cvec);
-                gen(moveFloatToGeneral{regN=V0, regD=X0}, cvec);
-                gen(logicalShiftLeft{shift=0w32, regN=X0, regD=X0}, cvec);
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                boxOrTagFloat(V0, cvec)
             end
 
         |   genBinary(FreeCStack, arg1, arg2, loopAddr) =
@@ -2255,16 +2453,25 @@ struct
                 val resClosure = makeConstantClosure()
                 (* Code-gen function. *)
                 val () = codegen (body, name, resClosure, List.length argTypes, localCount, parameters)
-                (* Since we're using native words rather than 32-in-64 we can load this now. *)
-                val codeAddr = codeAddressFromClosure resClosure
                 val closureVars = List.length closure (* Size excluding the code address *)
+                (* The first native word is the code address. *)
+                val firstEntry = Word.toInt(nativeWordSize div wordSize)
             in
                 if mutualDecs
                 then
                 let (* Have to make the closure now and fill it in later. *)
-                    val () = genAllocateFixedSize(closureVars+1, F_mutable, X0, X1, cvec)
-                    val () = gen(loadAddressConstant(X1, codeAddr), cvec);
+                    val () = genAllocateFixedSize(closureVars+firstEntry, Word8.orb(F_mutable, F_closure), X0, X1, cvec)
+                    val () =
+                        if is32in64
+                        then (* Have to get the code address at run-time. *)
+                        (
+                            gen(loadAddressConstant(X1, toMachineWord resClosure), cvec);
+                            indexToAbsoluteAddress(X1, X1, cvec);
+                            gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec)
+                        )
+                        else gen(loadAddressConstant(X1, codeAddressFromClosure resClosure), cvec)
                     val () = gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec)
+                    val () = absoluteAddressToIndex(X0, cvec)
                     val () = genPushReg(X0, cvec)
                     val () = incsp ()
            
@@ -2276,6 +2483,7 @@ struct
                     (* Reload the address of the vector - If we have processed other
                        closures the closure will no longer be on the top of the stack. *)
                     val () = genList(loadScaledWord{dest=X1, base=X_MLStackPtr, work=X16, offset= !realstackptr - entryAddr}, cvec)
+                    val () = indexToAbsoluteAddress(X1, X1, cvec)
 
                     (* Load items for the closure. *)
                     fun loadItems ([], _) = ()
@@ -2284,15 +2492,22 @@ struct
                         (* Generate an item and move it into the closure *)
                         gencde (BICExtract v, ToX0, NotEnd, NONE);
                         (* The closure "address" excludes the code address. *)
-                        genList(storeScaledWord{store=X0, base=X1, work=X16, offset=addr+1}, cvec);
+                        genList(storeScaledPolyWord{store=X0, base=X1, work=X16, offset=addr+firstEntry}, cvec);
                         topInX0 := false;
                         loadItems (vs, addr + 1)
                     )
              
                     val () = loadItems (closure, 0)
 
-                    (* Lock it by setting the top byte to zero. *)
-                    val () = gen(storeRegUnscaledByte{regT=XZero, regN=X1, byteOffset= ~1}, cvec)
+                    (* Lock it by setting the top byte to the zero or the closure bit. *)
+                    val () =
+                        if is32in64
+                        then
+                        (
+                            genList(loadNonAddress(X16, Word64.fromLargeWord(Word8.toLargeWord F_closure)), cvec);
+                            gen(storeRegUnscaledByte{regT=X16, regN=X1, byteOffset= ~1}, cvec)
+                        )
+                        else gen(storeRegUnscaledByte{regT=XZero, regN=X1, byteOffset= ~1}, cvec)
                 in
                     () (* Don't need to do anything now. *)
                 end
@@ -2301,16 +2516,24 @@ struct
                 let
                     val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
                 in
-                    genAllocateFixedSize(closureVars+1, 0w0, X0, X1, cvec);
+                    genAllocateFixedSize(closureVars+firstEntry, if is32in64 then F_closure else 0w0, X0, X1, cvec);
                     List.foldl(fn (_, w) =>
                         (
                             genPopReg(X1, cvec);
-                            genList(storeScaledWord{store=X1, base=X0, work=X16, offset=w-1}, cvec);
+                            genList(storeScaledPolyWord{store=X1, base=X0, work=X16, offset=w-1}, cvec);
                             w-1
                         )
-                    ) (closureVars+1) closure;
-                    gen(loadAddressConstant(X1, codeAddr), cvec);
+                    ) (closureVars+firstEntry) closure;
+                    if is32in64
+                    then (* Have to get the code address at run-time. *)
+                    (
+                        gen(loadAddressConstant(X1, toMachineWord resClosure), cvec);
+                        indexToAbsoluteAddress(X1, X1, cvec);
+                        gen(loadRegScaled{regT=X1, regN=X1, unitOffset=0}, cvec)
+                    )
+                    else gen(loadAddressConstant(X1, codeAddressFromClosure resClosure), cvec);
                     gen(storeRegScaled{regT=X1, regN=X0, unitOffset=0}, cvec);
+                    absoluteAddressToIndex(X0, cvec);
                     genPushReg(X0, cvec);
                     realstackptr := !realstackptr - closureVars + 1 (* Popped the closure vars and pushed the address. *)
                 end
@@ -2378,7 +2601,7 @@ struct
                 decsp();
                 topInX0 := false;
                 genPopReg(X1, cvec); (* First argument. *)
-                compareRegs(X1, X0, cvec);
+                comparePolyRegs(X1, X0, cvec);
                 gen(conditionalBranch(if jumpOn then cond else condNot, targetLabel), cvec)
             end
 
@@ -2492,7 +2715,14 @@ struct
                     val () = loadArg(6, X6)
                     val () = loadArg(7, X7)
                 in
-                    gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
+                    if is32in64
+                    then
+                    (
+                        (* Can't use an indexed load because the only options for scaling are either 1 or 8. *)
+                        indexToAbsoluteAddress(X8, X9, cvec);
+                        gen(loadRegScaled{regT=X9, regN=X9, unitOffset=0}, cvec) (* Entry point *)
+                    )
+                    else gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
                     gen(branchAndLinkReg X9, cvec);
                     (* We have popped the closure pointer.  The caller has popped the stack
                        arguments and we have pushed the result value. The register arguments
@@ -2543,7 +2773,13 @@ struct
                     val () = moveStackArg 8
                 in
                     resetStack(itemsOnStack - Int.max(argsToPass-8, 0), false, cvec);
-                    gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
+                    if is32in64
+                    then
+                    (
+                        indexToAbsoluteAddress(X8, X9, cvec);
+                        gen(loadRegScaled{regT=X9, regN=X9, unitOffset=0}, cvec) (* Entry point *)
+                    )
+                    else gen(loadRegScaled{regT=X9, regN=X8, unitOffset=0}, cvec); (* Entry point *)
                     gen(branchRegister X9, cvec)
                     (* Since we're not returning we can ignore the stack pointer value. *)
                 end

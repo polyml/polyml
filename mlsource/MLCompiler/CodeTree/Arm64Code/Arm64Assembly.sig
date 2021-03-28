@@ -44,6 +44,7 @@ sig
     and X_MLHeapAllocPtr: xReg (* ML Heap allocation pointer. *)
     and X_MLStackPtr: xReg (* ML Stack pointer. *)
     and X_LinkReg: xReg (* Link reg - return address *)
+    and X_Base32in64: xReg (* X24 is used for the heap base in 32-in-64. *)
     
     val V0:  vReg   and V1:  vReg   and V2:  vReg   and V3: vReg
     and V4:  vReg   and V5:  vReg   and V6:  vReg   and V7: vReg
@@ -65,9 +66,9 @@ sig
     and condSignedLessEq: condition
 
     datatype shiftType =
-        ShiftLSL of word
-    |   ShiftLSR of word
-    |   ShiftASR of word
+        ShiftLSL of Word8.word
+    |   ShiftLSR of Word8.word
+    |   ShiftASR of Word8.word
     |   ShiftNone
 
     datatype wordSize = WordSize32 | WordSize64
@@ -127,12 +128,16 @@ sig
     and addSShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
     and subShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
     and subSShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and addShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and addSShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and subShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and subSShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
     
     (* Add/subtract an extended register, optionally setting the flags. *)
-    val addExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
-    and addSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
-    and subExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
-    and subSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: word extend} -> instr
+    val addExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend} -> instr
+    and addSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend} -> instr
+    and subExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend} -> instr
+    and subSExtendedReg: {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend} -> instr
 
     (* Multiplication *)
     (* regD = regA + regN * regM *)
@@ -141,10 +146,17 @@ sig
     and multiplyAndSub: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
     (* Return the high-order part of a signed multiplication. *)
     and signedMultiplyHigh: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and multiplyAndAdd32: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
+    and multiplyAndSub32: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
+    (* Multiply two 32-bit quantities and add/subtract a 64-bit quantity. *)
+    and signedMultiplyAndAddLong: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
+    and signedMultiplyAndSubLong: {regM: xReg, regN: xReg, regA: xReg, regD: xReg} -> instr
 
     (* Division *)
     val unsignedDivide: {regM: xReg, regN: xReg, regD: xReg} -> instr
     and signedDivide: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and unsignedDivide32: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and signedDivide32: {regM: xReg, regN: xReg, regD: xReg} -> instr
 
     (* Logical operations on a shifted register, optionally setting the flags. *)
     val andShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
@@ -214,18 +226,24 @@ sig
        the value has been loaded, e.g. pop. *)
     val loadRegPostIndex: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegPostIndex: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegPostIndex32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and storeRegPostIndex32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and loadRegPostIndexByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegPostIndexByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
 
     (* Load/Store a value using a signed byte offset and pre-indexing (pre-increment). *)
     val loadRegPreIndex: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegPreIndex: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and loadRegPreIndex32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
+    and storeRegPreIndex32: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and loadRegPreIndexByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
     and storeRegPreIndexByte: {regT: xReg, regN: xReg, byteOffset: int} -> instr
 
     (* Loads and stores with special ordering. *)
     val loadAcquire: {regN: xReg, regT: xReg} -> instr
     and storeRelease: {regN: xReg, regT: xReg} -> instr
+    and loadAcquire32: {regN: xReg, regT: xReg} -> instr
+    and storeRelease32: {regN: xReg, regT: xReg} -> instr
 
     (* Load and store pairs of registers.  The offsets are signed scaled values. *)
     val storePairOffset: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
@@ -306,6 +324,7 @@ sig
     and logicalShiftRightVariable: {regM: xReg, regN: xReg, regD: xReg} -> instr
     (* Arithmetic shift right Rd = Rn ~>> (Rm mod 0w64) *)
     and arithmeticShiftRightVariable: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and logicalShiftLeftVariable32: {regM: xReg, regN: xReg, regD: xReg} -> instr
 
     (* Logical operations on bit patterns.  The pattern must be valid.
        ANDS is an AND that also sets the flags, typically used for a test. *)
@@ -333,6 +352,10 @@ sig
     and convertIntToFloat: {regN: xReg, regD: vReg} -> instr
     and convertFloatToInt: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
     and convertDoubleToInt: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
+    and convertInt32ToDouble: {regN: xReg, regD: vReg} -> instr
+    and convertInt32ToFloat: {regN: xReg, regD: vReg} -> instr
+    and convertFloatToInt32: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
+    and convertDoubleToInt32: IEEEReal.rounding_mode -> {regN: vReg, regD: xReg} -> instr
    
     (* Floating point operations. *)
     val multiplyFloat: {regM: vReg, regN: vReg, regD: vReg} -> instr
@@ -373,6 +396,8 @@ sig
     and heapLimitPtrOffset: int
     and heapAllocPtrOffset: int
     and mlStackPtrOffset: int
+
+    val is32in64: bool
 
     structure Sharing:
     sig

@@ -60,7 +60,13 @@ Arm64AsmEnterCompiledCode:
     mov     x26,x0      // Copy the address of the assembly-code section into X26
     ldr     x0,[x26, RegisterArray]             // Argument
     ldr     x8,[x26, RegisterArray+8*8]         // Closure address
+#ifdef  POLYML32IN64
+    ldr     x24,[x26, RegisterArray+24 * 8]
+    add     x16,x24,x8,LSL #2
+    ldr     x16,[x16]
+#else
     ldr     x16,[x8]                            // Code address - first word of closure
+#endif
     ldr     x25,[x26, LocalMBottom]             // Limit of heap
     ldp     x27,x28,[x26, LocalMPointer]        // Allocation pointer and stack pointer
     ldr     x30,[x26, LinkRegister]             // Link register - always zero because we don't return
