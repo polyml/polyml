@@ -747,7 +747,7 @@ void Arm64TaskData::SetMemRegisters()
     if (profileMode == kProfileStoreAllocation)
         assemblyInterface.localMbottom = assemblyInterface.localMpointer;
 
-    assemblyInterface.threadId = threadObject;
+    assemblyInterface.threadId = stackItem(threadObject);
 }
 
 // This is called whenever we have returned from ML to C.
