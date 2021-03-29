@@ -32,6 +32,11 @@
     .balign 4
 #endif
 
+#ifdef HAVE_CONFIG_H
+// Specifically for POLYML32IN64
+#include "config.h"
+#endif
+
 // Offsets into the assembly code interface
 #define TrapHandlerEntry    32
 #define HandlerRegister     40
@@ -60,7 +65,7 @@ Arm64AsmEnterCompiledCode:
     mov     x26,x0      // Copy the address of the assembly-code section into X26
     ldr     x0,[x26, RegisterArray]             // Argument
     ldr     x8,[x26, RegisterArray+8*8]         // Closure address
-#ifdef  POLYML32IN64
+#ifdef POLYML32IN64
     ldr     x24,[x26, RegisterArray+24 * 8]
     add     x16,x24,x8,LSL #2
     ldr     x16,[x16]
