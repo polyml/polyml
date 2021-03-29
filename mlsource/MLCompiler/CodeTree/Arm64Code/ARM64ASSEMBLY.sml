@@ -343,6 +343,10 @@ struct
         and addSImmediate = addSubRegImmediate(0w1, 0w0, 0w1, xRegOrXZ)
         and subImmediate = addSubRegImmediate(0w1, 0w1, 0w0, xRegOrXSP)
         and subSImmediate = addSubRegImmediate(0w1, 0w1, 0w1, xRegOrXZ)
+        and addImmediate32 = addSubRegImmediate(0w0, 0w0, 0w0, xRegOrXSP)
+        and addSImmediate32 = addSubRegImmediate(0w0, 0w0, 0w1, xRegOrXZ)
+        and subImmediate32 = addSubRegImmediate(0w0, 0w1, 0w0, xRegOrXSP)
+        and subSImmediate32 = addSubRegImmediate(0w0, 0w1, 0w1, xRegOrXZ)
     end
 
     (* Add/subtract a shifted register, optionally setting the flags. *)
@@ -1579,41 +1583,45 @@ struct
                 |   _ => printStream "??"
             end
 
-            else if (wordValue andb 0wxbf800000) = 0wx91000000
+            else if (wordValue andb 0wx3f800000) = 0wx11000000
             then
             let
                 (* Add/Subtract a 12-bit immediate with possible shift. *)
+                val sf = (wordValue >> 0w31) andb 0w1
                 val rD = wordValue andb 0wx1f
                 and rN = (wordValue andb 0wx3e0) >> 0w5
                 and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
                 and shiftBit = wordValue andb 0wx400000
                 val imm = if shiftBit <> 0w0 then imm12 << 0w12 else imm12
                 val opr = if (wordValue andb 0wx40000000) = 0w0 then "add" else "sub"
+                val prReg = if sf = 0w1 then prXRegOrSP else prWRegOrSP
             in
                 if imm12 = 0w0 andalso (rN = 0w31 orelse rD = 0w31)
-                then (printStream "mov\t"; prXRegOrSP rD; printStream ","; prXRegOrSP rN)
+                then (printStream "mov\t"; prReg rD; printStream ","; prReg rN)
                 else
                 (
-                    printStream opr; printStream "\t"; prXRegOrSP rD;
-                    printStream ","; prXRegOrSP rN;
+                    printStream opr; printStream "\t"; prReg rD;
+                    printStream ","; prReg rN;
                     printStream ",#"; printStream(Word32.fmt StringCvt.DEC imm)
                 )
             end
 
-            else if (wordValue andb 0wxff800000) = 0wxF1000000
+            else if (wordValue andb 0wx7f800000) = 0wx71000000
             then
             let
                 (* Subtract a 12-bit immediate with possible shift, setting flags. *)
+                val sf = (wordValue >> 0w31) andb 0w1
                 val rD = wordValue andb 0wx1f
                 and rN = (wordValue andb 0wx3e0) >> 0w5
                 and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
                 and shiftBit = wordValue andb 0wx400000
                 val imm = if shiftBit <> 0w0 then imm12 << 0w12 else imm12
+                val prReg = if sf = 0w1 then prXRegOrSP else prWRegOrSP
             in
                 if rD = 0w31
                 then printStream "cmp\t"
-                else (printStream "subs\t"; prXReg rD; printStream ",");
-                prXRegOrSP rN; printStream ",#"; printStream(Word32.fmt StringCvt.DEC imm)
+                else (printStream "subs\t"; prReg rD; printStream ",");
+                prReg rN; printStream ",#"; printStream(Word32.fmt StringCvt.DEC imm)
             end
 
             else if (wordValue andb 0wx7fe0ffe0) = 0wx2A0003E0

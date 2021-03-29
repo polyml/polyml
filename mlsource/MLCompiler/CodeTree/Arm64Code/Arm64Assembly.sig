@@ -122,6 +122,10 @@ sig
     and addSImmediate: {regN: xReg, regD: xReg, immed: word, shifted: bool} -> instr
     and subImmediate: {regN: xReg, regD: xReg, immed: word, shifted: bool} -> instr
     and subSImmediate: {regN: xReg, regD: xReg, immed: word, shifted: bool} -> instr
+    and addImmediate32: {regN: xReg, regD: xReg, immed: word, shifted: bool} -> instr
+    and addSImmediate32: {regN: xReg, regD: xReg, immed: word, shifted: bool} -> instr
+    and subImmediate32: {regN: xReg, regD: xReg, immed: word, shifted: bool} -> instr
+    and subSImmediate32: {regN: xReg, regD: xReg, immed: word, shifted: bool} -> instr
 
     (* Add/subtract a shifted register, optionally setting the flags. *)
     val addShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr

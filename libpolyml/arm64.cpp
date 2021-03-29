@@ -112,7 +112,7 @@ public:
     stackItem*      handlerRegister;   // Current exception handler
     stackItem*      stackLimit;        // Lower limit of stack
     stackItem       exceptionPacket;    // Set if there is an exception
-    PolyWord        threadId;           // My thread id.  Saves having to call into RTS for it.
+    stackItem       threadId;           // My thread id.  Saves having to call into RTS for it. (stackItem so it's 64-bits)
     stackItem       registers[25];      // Save/load area for registers X0-X24 inclusive
     double          fpRegisters[8];     // Save/load area for floating point regs D0-D7
     PolyWord*       localMbottom;      // Base of memory + 1 word
@@ -282,7 +282,7 @@ void Arm64TaskData::GarbageCollect(ScanAddress *process)
 {
     TaskData::GarbageCollect(process);
     ByteCodeInterpreter::GarbageCollect(process);
-    assemblyInterface.threadId = threadObject; // threadObject updated by TaskData::GarbageCollect
+    assemblyInterface.threadId = stackItem(threadObject); // threadObject updated by TaskData::GarbageCollect
 
     if (assemblyInterface.exceptionPacket.w().IsDataPtr())
     {

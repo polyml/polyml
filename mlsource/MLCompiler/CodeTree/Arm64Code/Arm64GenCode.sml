@@ -2678,7 +2678,7 @@ struct
                 decsp();
                 topInX0 := false;
                 genPopReg(X1, cvec); (* First argument. *)
-                compareRegs(X1, X0, cvec);
+                comparePolyRegs(X1, X0, cvec);
                 gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec)
             )
 
@@ -2686,7 +2686,8 @@ struct
             (
                 gencde (test, ToX0, NotEnd, loopAddr);
                 topInX0 := false;
-                gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord tagValue, shifted=false}, cvec);
+                gen((if is32in64 then subSImmediate32 else subSImmediate)
+                    {regN=X0, regD=XZero, immed=taggedWord tagValue, shifted=false}, cvec);
                 gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec)
             )
 
@@ -2706,7 +2707,8 @@ struct
             (
                 gencde (testCode, ToStack, NotEnd, loopAddr);
                 genPopReg(X0, cvec);
-                gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
+                gen((if is32in64 then subSImmediate32 else subSImmediate)
+                    {regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
                 gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec);
                 decsp() (* conditional branch pops a value. *)
             )
