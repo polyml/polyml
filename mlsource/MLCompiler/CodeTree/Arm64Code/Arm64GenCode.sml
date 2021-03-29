@@ -500,7 +500,8 @@ struct
                     gencde (base, ToStack, NotEnd, loopAddr); (* Push base addr to stack. *)
                     gencde (indexVal, ToX0, NotEnd, loopAddr);
                     (* Shift right to remove the tag.  C indexes are SIGNED. *)
-                    gen(arithmeticShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
+                    gen((if is32in64 then arithmeticShiftRight32 else arithmeticShiftRight)
+                        {regN=X0, regD=X0, shift=0w1}, cvec);
                     (* Add any constant offset.  Does nothing if it's zero. *)
                     addConstantWord({regS=X0, regD=X0, regW=X3,
                         value=Word64.fromInt (* unsigned *)(offset div scale)}, cvec);
@@ -1234,7 +1235,8 @@ struct
                     gen(logicalShiftRight32{regN=X0, regD=X0, shift=0w1}, cvec); (* Untag it *)
                     genPopReg(X1, cvec); (* Index: a tagged value. *)
                     (* Untag.  C indexes are signed. *)
-                    gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
+                    gen((if is32in64 then arithmeticShiftRight32 else arithmeticShiftRight)
+                        {regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
@@ -1250,7 +1252,8 @@ struct
                     gen(logicalShiftRight32{regN=X0, regD=X0, shift=0w1}, cvec); (* Untag it *)
                     genPopReg(X1, cvec); (* Index: a tagged value. *)
                     (* Untag.  C indexes are signed. *)
-                    gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
+                    gen((if is32in64 then arithmeticShiftRight32 else arithmeticShiftRight)
+                        {regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
@@ -1266,7 +1269,8 @@ struct
                     gen(logicalShiftRight{regN=X0, regD=X0, shift=0w1}, cvec); (* Untag it *)
                     genPopReg(X1, cvec); (* Index: a tagged value. *)
                     (* Untag.  C indexes are signed. *)
-                    gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
+                    gen((if is32in64 then arithmeticShiftRight32 else arithmeticShiftRight)
+                        {regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
@@ -1282,7 +1286,8 @@ struct
                     gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
                     genPopReg(X1, cvec); (* Index: a tagged value. *)
                     (* Untag.  C indexes are signed. *)
-                    gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
+                    gen((if is32in64 then arithmeticShiftRight32 else arithmeticShiftRight)
+                        {regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
@@ -1300,7 +1305,8 @@ struct
                     gen(convertDoubleToFloat{regN=V0, regD=V0}, cvec);
                     genPopReg(X1, cvec); (* Index: a tagged value. *)
                     (* Untag.  C indexes are signed. *)
-                    gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
+                    gen((if is32in64 then arithmeticShiftRight32 else arithmeticShiftRight)
+                        {regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
@@ -1317,7 +1323,8 @@ struct
                     gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec); (* Untag it *)
                     genPopReg(X1, cvec); (* Index: a tagged value. *)
                     (* Untag.  C indexes are signed. *)
-                    gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
+                    gen((if is32in64 then arithmeticShiftRight32 else arithmeticShiftRight)
+                        {regN=X1, regD=X1, shift=0w1}, cvec);
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
@@ -1619,13 +1626,21 @@ struct
                 gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
                 (* Tag the result. *)
                 gen(logicalShiftLeft{shift=0w1, regN=X0, regD=X0}, cvec);
-                gen(bitwiseOrImmediate{bits=0w1, regN=X0, regD=X0}, cvec)
+                gen((if is32in64 then bitwiseOrImmediate32 else bitwiseOrImmediate)
+                    {bits=0w1, regN=X0, regD=X0}, cvec)
             )
 
         |   genUnary(SignedToLongWord, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
-                gen(arithmeticShiftRight{shift=0w1, regN=X0, regD=X1}, cvec);
+                if is32in64
+                then
+                (
+                    (* TODO: This can be done with a single instruction. *)
+                    gen(logicalShiftLeft{shift=0w32, regN=X0, regD=X1}, cvec);
+                    gen(arithmeticShiftRight{shift=0w33, regN=X1, regD=X1}, cvec)
+                )
+                else gen(arithmeticShiftRight{shift=0w1, regN=X0, regD=X1}, cvec);
                 boxLargeWord(X1, cvec)
             )
 
@@ -1914,13 +1929,13 @@ struct
                    arithmetic shift. *)
                 genPopReg(X1, cvec);
 
-                (* Shift to remove the tags on one argument. *)
-                gen(arithmeticShiftRight{regN=X0, regD=X2, shift=0w1}, cvec);
-                (* Remove the tag on the other. *)
-                gen(bitwiseAndImmediate{regN=X1, regD=X1, bits=tagBitMask}, cvec);
                 if is32in64
                 then
                 (
+                    (* Shift to remove the tags on one argument. *)
+                    gen(arithmeticShiftRight32{regN=X0, regD=X2, shift=0w1}, cvec);
+                    (* Remove the tag on the other. *)
+                    gen(bitwiseAndImmediate32{regN=X1, regD=X1, bits=tagBitMask}, cvec);
                     (* Multiply two 32-bit quantities. *)
                     gen(signedMultiplyAndAddLong{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
                     (* Get the top word which should be either all ones or all zeros. *)
@@ -1932,6 +1947,10 @@ struct
                 )
                 else
                 (
+                    (* Shift to remove the tags on one argument. *)
+                    gen(arithmeticShiftRight{regN=X0, regD=X2, shift=0w1}, cvec);
+                    (* Remove the tag on the other. *)
+                    gen(bitwiseAndImmediate{regN=X1, regD=X1, bits=tagBitMask}, cvec);
                     gen(multiplyAndAdd{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
                     (* Put back the tag. *)
                     gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec);
@@ -1957,13 +1976,27 @@ struct
                    for the moment.  Division by zero and overflow are checked for at
                    the higher level. *)
                 genPopReg(X1, cvec);
-                (* Shift to remove the tags on the arguments *)
-                gen(arithmeticShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
-                gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
-                gen((if is32in64 then signedDivide32 else signedDivide){regM=X0, regN=X1, regD=X0}, cvec);
-                (* Restore the tag. *)
-                gen(logicalShiftLeft{regN=X0, regD=X0, shift=0w1}, cvec);
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                if is32in64
+                then
+                (
+                    (* Shift to remove the tags on the arguments *)
+                    gen(arithmeticShiftRight32{regN=X0, regD=X0, shift=0w1}, cvec);
+                    gen(arithmeticShiftRight32{regN=X1, regD=X1, shift=0w1}, cvec);
+                    gen(signedDivide32{regM=X0, regN=X1, regD=X0}, cvec);
+                    (* Restore the tag. *)
+                    gen(logicalShiftLeft32{regN=X0, regD=X0, shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate32{regN=X0, regD=X0, bits=0w1}, cvec)
+                )
+                else
+                (
+                    (* Shift to remove the tags on the arguments *)
+                    gen(arithmeticShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
+                    gen(signedDivide{regM=X0, regN=X1, regD=X0}, cvec);
+                    (* Restore the tag. *)
+                    gen(logicalShiftLeft{regN=X0, regD=X0, shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                )
             )
 
         |   genBinary(FixedPrecisionArith ArithRem, arg1, arg2, loopAddr) =
@@ -1976,14 +2009,29 @@ struct
                 (* There's no direct way to get the remainder - have to use divide and multiply. *)
                 genPopReg(X1, cvec);
                 (* Shift to remove the tags on the arguments *)
-                gen(arithmeticShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
-                gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
-                gen((if is32in64 then signedDivide32 else signedDivide){regM=X0, regN=X1, regD=X2}, cvec);
-                (* X0 = X1 - (X2/X0)*X0 *)
-                gen((if is32in64 then multiplyAndSub32 else multiplyAndSub){regM=X2, regN=X0, regA=X1, regD=X0}, cvec);
-                (* Restore the tag. *)
-                gen(logicalShiftLeft{regN=X0, regD=X0, shift=0w1}, cvec);
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                if is32in64
+                then
+                (
+                    gen(arithmeticShiftRight32{regN=X0, regD=X0, shift=0w1}, cvec);
+                    gen(arithmeticShiftRight32{regN=X1, regD=X1, shift=0w1}, cvec);
+                    gen(signedDivide32{regM=X0, regN=X1, regD=X2}, cvec);
+                    (* X0 = X1 - (X2/X0)*X0 *)
+                    gen(multiplyAndSub32{regM=X2, regN=X0, regA=X1, regD=X0}, cvec);
+                    (* Restore the tag. *)
+                    gen(logicalShiftLeft32{regN=X0, regD=X0, shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate32{regN=X0, regD=X0, bits=0w1}, cvec)
+                )
+                else
+                (
+                    gen(arithmeticShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
+                    gen(arithmeticShiftRight{regN=X1, regD=X1, shift=0w1}, cvec);
+                    gen(signedDivide{regM=X0, regN=X1, regD=X2}, cvec);
+                    (* X0 = X1 - (X2/X0)*X0 *)
+                    gen(multiplyAndSub{regM=X2, regN=X0, regA=X1, regD=X0}, cvec);
+                    (* Restore the tag. *)
+                    gen(logicalShiftLeft{regN=X0, regD=X0, shift=0w1}, cvec);
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                )
             )
 
         |   genBinary(FixedPrecisionArith ArithDiv, _, _, _) =
@@ -2027,7 +2075,8 @@ struct
                 gen((if is32in64 then multiplyAndAdd32 else multiplyAndAdd)
                     {regM=X1, regN=X0, regA=XZero, regD=X0}, cvec);
                 (* Put back the tag. *)
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                gen((if is32in64 then bitwiseOrImmediate32 else bitwiseOrImmediate)
+                    {regN=X0, regD=X0, bits=0w1}, cvec)
             )
 
         |   genBinary(WordArith ArithDiv, arg1, arg2, loopAddr) =
@@ -2043,7 +2092,8 @@ struct
                 gen((if is32in64 then unsignedDivide32 else unsignedDivide){regM=X0, regN=X1, regD=X0}, cvec);
                 (* Restore the tag: Note: it may already be set depending on the result of
                    the division. *)
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                gen((if is32in64 then bitwiseOrImmediate32 else bitwiseOrImmediate)
+                    {regN=X0, regD=X0, bits=0w1}, cvec)
             )
 
         |   genBinary(WordArith ArithMod, arg1, arg2, loopAddr) =
@@ -2096,7 +2146,8 @@ struct
                 genPopReg(X1, cvec);
                 (* Have to restore the tag bit because that will be cleared. *)
                 gen(eorShiftedReg{regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                gen((if is32in64 then bitwiseOrImmediate32 else bitwiseOrImmediate)
+                    {regN=X0, regD=X0, bits=0w1}, cvec)
             )
 
             (* Shifts: ARM64 shifts are taken modulo the word length but that's
@@ -2114,7 +2165,8 @@ struct
                 gen((if is32in64 then logicalShiftLeftVariable32 else logicalShiftLeftVariable)
                     {regM=X0, regN=X1, regD=X0}, cvec);
                 (* Put back the tag. *)
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                gen((if is32in64 then bitwiseOrImmediate32 else bitwiseOrImmediate)
+                    {regN=X0, regD=X0, bits=0w1}, cvec)
             )
 
         |   genBinary(WordShift ShiftRightLogical, arg1, arg2, loopAddr) =
@@ -2128,7 +2180,8 @@ struct
                 gen(logicalShiftRight32{regN=X0, regD=X0, shift=0w1}, cvec);
                 gen(logicalShiftRightVariable{regM=X0, regN=X1, regD=X0}, cvec);
                 (* Put back the tag. *)
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                gen((if is32in64 then bitwiseOrImmediate32 else bitwiseOrImmediate)
+                    {regN=X0, regD=X0, bits=0w1}, cvec)
             )
 
         |   genBinary(WordShift ShiftRightArithmetic, arg1, arg2, loopAddr) =
@@ -2140,9 +2193,20 @@ struct
                 (* Don't need to remove the tag. *)
                 (* Untag the shift amount.  Can use 32-bit op here. *)
                 gen(logicalShiftRight32{regN=X0, regD=X0, shift=0w1}, cvec);
-                gen(arithmeticShiftRightVariable{regM=X0, regN=X1, regD=X0}, cvec);
-                (* Put back the tag. *)
-                gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                if is32in64
+                then
+                (
+                    (* Must use a 32 bit shift here. *)
+                    gen(arithmeticShiftRightVariable32{regM=X0, regN=X1, regD=X0}, cvec);
+                    (* Put back the tag. *)
+                    gen(bitwiseOrImmediate32{regN=X0, regD=X0, bits=0w1}, cvec)
+                )
+                else
+                (
+                    gen(arithmeticShiftRightVariable{regM=X0, regN=X1, regD=X0}, cvec);
+                    (* Put back the tag. *)
+                    gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                )
             )
 
         |   genBinary(AllocateByteMemory, arg1, arg2, loopAddr) =

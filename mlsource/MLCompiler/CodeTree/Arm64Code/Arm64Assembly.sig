@@ -325,6 +325,8 @@ sig
     (* Arithmetic shift right Rd = Rn ~>> (Rm mod 0w64) *)
     and arithmeticShiftRightVariable: {regM: xReg, regN: xReg, regD: xReg} -> instr
     and logicalShiftLeftVariable32: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and logicalShiftRightVariable32: {regM: xReg, regN: xReg, regD: xReg} -> instr
+    and arithmeticShiftRightVariable32: {regM: xReg, regN: xReg, regD: xReg} -> instr
 
     (* Logical operations on bit patterns.  The pattern must be valid.
        ANDS is an AND that also sets the flags, typically used for a test. *)

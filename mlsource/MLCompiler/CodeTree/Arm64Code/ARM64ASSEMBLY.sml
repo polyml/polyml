@@ -428,6 +428,8 @@ struct
         (* Arithmetic shift right Rd = Rn ~>> (Rm mod 0w64) *)
         and arithmeticShiftRightVariable = twoSourceInstr(0w1, 0w0, 0wxa)
         and logicalShiftLeftVariable32 = twoSourceInstr(0w0, 0w0, 0wx8)
+        and logicalShiftRightVariable32 = twoSourceInstr(0w0, 0w0, 0wx9)
+        and arithmeticShiftRightVariable32 = twoSourceInstr(0w0, 0w0, 0wxa)
     end
 
     (* Three source operations.  These are all variations of multiply. *)
@@ -1882,7 +1884,7 @@ struct
                 val imms = (wordValue >> 0w10) andb 0wx3f
                 val rN = (wordValue >> 0w5) andb 0wx1f
                 val rD = wordValue andb 0wx1f
-                val (r, wordSize) = if sf = 0w0 then ("w", 0w32) else ("x", 0w64)
+                val (r, wordSize) = if sf = 0w0 then ("w", 0w32) else if sf = 0w1 then ("x", 0w64) else raise InternalError "Neither"
             in
                 if imms = wordSize - 0w1
                 then printStream "asr\t"
@@ -1981,7 +1983,9 @@ struct
                     |   (0w1, 0w0, 0wx8) => ("lsl", "x")
                     |   (0w0, 0w0, 0wx8) => ("lsl", "w")
                     |   (0w1, 0w0, 0wx9) => ("lsr", "x")
+                    |   (0w0, 0w0, 0wx9) => ("lsr", "w")
                     |   (0w1, 0w0, 0wxa) => ("asr", "x")
+                    |   (0w0, 0w0, 0wxa) => ("asr", "w")
                     |   _ => ("??", "?")
             in
                 printStream oper;
