@@ -309,7 +309,7 @@ void PExport::exportStore(void)
         arch = 'I'; break;
     case MA_I386: case MA_X86_64: case MA_X86_64_32:
         arch = 'X'; break;
-    case MA_Arm64:
+    case MA_Arm64: case MA_Arm64_32:
         arch = 'A'; break;
     }
     fprintf(exportFile, "Root\t%" PRI_SIZET " %c %u\n", getIndex(rootFunction), arch, (unsigned)sizeof(PolyWord));
