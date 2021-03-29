@@ -76,7 +76,9 @@ struct
             @
             [
                 (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
-                storeRegUnscaled{regT=workReg, regN=fixedReg, byteOffset= ~8}
+                if is32in64
+                then storeRegUnscaled32{regT=workReg, regN=fixedReg, byteOffset= ~4}
+                else storeRegUnscaled{regT=workReg, regN=fixedReg, byteOffset= ~8}
             ]
         end
     in
