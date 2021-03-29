@@ -42,6 +42,7 @@ struct
     and taggedWord64 w: Word64.word = w * 0w2 + 0w1
     
     val tagBitMask = Word64.<<(Word64.fromInt ~1, 0w1)
+    val tagBitMask32 = Word64.andb(tagBitMask, 0wxffffffff)
     
     fun gen(instr, code) = code := instr :: !code
 
@@ -1935,7 +1936,7 @@ struct
                     (* Shift to remove the tags on one argument. *)
                     gen(arithmeticShiftRight32{regN=X0, regD=X2, shift=0w1}, cvec);
                     (* Remove the tag on the other. *)
-                    gen(bitwiseAndImmediate32{regN=X1, regD=X1, bits=tagBitMask}, cvec);
+                    gen(bitwiseAndImmediate32{regN=X1, regD=X1, bits=tagBitMask32}, cvec);
                     (* Multiply two 32-bit quantities. *)
                     gen(signedMultiplyAndAddLong{regM=X1, regN=X2, regA=XZero, regD=X0}, cvec);
                     (* Get the top word which should be either all ones or all zeros. *)
