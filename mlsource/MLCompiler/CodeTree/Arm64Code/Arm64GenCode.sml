@@ -1116,14 +1116,19 @@ struct
                     case genCLoadAddress(address, 4) of
                         (base, MLLoadOffset offset) =>
                             if offset < 0 (* C offsets can be negative. *)
-                            then gen(loadRegUnscaled32{regT=X0, regN=base, byteOffset=offset*4}, cvec)
-                            else gen(loadRegScaled32{regT=X0, regN=base, unitOffset=offset}, cvec)
+                            then gen(loadRegUnscaled32{regT=X1, regN=base, byteOffset=offset*4}, cvec)
+                            else gen(loadRegScaled32{regT=X1, regN=base, unitOffset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            gen(loadRegIndexed32{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                            gen(loadRegIndexed32{regN=base, regM=indexR, regT=X1, option=ExtUXTX ScaleOrShift}, cvec);
 
-                    (* Have to tag the result. *)
-                    gen(logicalShiftLeft{regN=X0, regD=X0, shift=0w1}, cvec);
-                    gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                    (* Tag this in native 64-bits but box it in 32-in-64 *)
+                    if is32in64
+                    then boxLargeWord(X1, cvec)
+                    else
+                    (
+                        gen(logicalShiftLeft{regN=X1, regD=X0, shift=0w1}, cvec);
+                        gen(bitwiseOrImmediate{regN=X0, regD=X0, bits=0w1}, cvec)
+                    )
                 )
 
             |   BICLoadOperation { kind=LoadStoreC64, address} =>
@@ -1267,7 +1272,14 @@ struct
                 (
                     genCAddress(address, 4);
                     gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
-                    gen(logicalShiftRight{regN=X0, regD=X0, shift=0w1}, cvec); (* Untag it *)
+                    (* This is tagged in 64-bit but boxed in 32-bit *)
+                    if is32in64
+                    then
+                    (
+                        indexToAbsoluteAddress(X0, X0, cvec);
+                        gen(loadRegScaled32{regT=X0, regN=X0, unitOffset=0}, cvec)
+                    )
+                    else gen(logicalShiftRight{regN=X0, regD=X0, shift=0w1}, cvec); (* Untag it *)
                     genPopReg(X1, cvec); (* Index: a tagged value. *)
                     (* Untag.  C indexes are signed. *)
                     gen((if is32in64 then arithmeticShiftRight32 else arithmeticShiftRight)
@@ -1284,6 +1296,7 @@ struct
                 (
                     genCAddress(address, 8);
                     gencde (value, ToX0, NotEnd, loopAddr); (* Value to store. This is boxed. *)
+                    indexToAbsoluteAddress(X0, X0, cvec);
                     gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
                     genPopReg(X1, cvec); (* Index: a tagged value. *)
                     (* Untag.  C indexes are signed. *)
@@ -1302,7 +1315,8 @@ struct
                     genCAddress(address, 4);
                     gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
                     (* This is a boxed double.  It needs to be converted to a float. *)
-                    gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec); (* Untag it *)
+                    indexToAbsoluteAddress(X0, X0, cvec);
+                    gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
                     gen(convertDoubleToFloat{regN=V0, regD=V0}, cvec);
                     genPopReg(X1, cvec); (* Index: a tagged value. *)
                     (* Untag.  C indexes are signed. *)
@@ -1321,7 +1335,8 @@ struct
                     genCAddress(address, 8);
                     gencde (value, ToX0, NotEnd, loopAddr); (* Value to store *)
                     (* This is a boxed double. *)
-                    gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec); (* Untag it *)
+                    indexToAbsoluteAddress(X0, X0, cvec);
+                    gen(loadRegScaledDouble{regT=V0, regN=X0, unitOffset=0}, cvec);
                     genPopReg(X1, cvec); (* Index: a tagged value. *)
                     (* Untag.  C indexes are signed. *)
                     gen((if is32in64 then arithmeticShiftRight32 else arithmeticShiftRight)
