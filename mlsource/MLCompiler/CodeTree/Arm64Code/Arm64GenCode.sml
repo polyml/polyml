@@ -513,6 +513,9 @@ struct
                     (X1, MLLoadReg X0)
                 )
 
+            (* Have to sign-extend 32-bit signed index in 32-in64. *)
+            val cIndexFactor = (if is32in64 then ExtSXTW else ExtUXTX)
+
             (* Compare a block of bytes.  Jumps to labelEqual if all the bytes are
                equal up to the length.  Otherwise it drops through with the condition
                code set to the last byte comparison that tested unequal. *)
@@ -1089,7 +1092,7 @@ struct
                             then gen(loadRegUnscaledByte{regT=X0, regN=base, byteOffset=offset}, cvec)
                             else gen(loadRegScaledByte{regT=X0, regN=base, unitOffset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            gen(loadRegIndexedByte{regN=base, regM=indexR, regT=X0, option=ExtUXTX NoScale}, cvec);
+                            gen(loadRegIndexedByte{regN=base, regM=indexR, regT=X0, option=cIndexFactor NoScale}, cvec);
 
                     (* Have to tag the result. *)
                     gen(logicalShiftLeft32{regN=X0, regD=X0, shift=0w1}, cvec);
@@ -1104,7 +1107,7 @@ struct
                             then gen(loadRegUnscaled16{regT=X0, regN=base, byteOffset=offset*2}, cvec)
                             else gen(loadRegScaled16{regT=X0, regN=base, unitOffset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            gen(loadRegIndexed16{regN=base, regM=indexR, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                            gen(loadRegIndexed16{regN=base, regM=indexR, regT=X0, option=cIndexFactor ScaleOrShift}, cvec);
 
                     (* Have to tag the result. *)
                     gen(logicalShiftLeft32{regN=X0, regD=X0, shift=0w1}, cvec);
@@ -1119,7 +1122,7 @@ struct
                             then gen(loadRegUnscaled32{regT=X1, regN=base, byteOffset=offset*4}, cvec)
                             else gen(loadRegScaled32{regT=X1, regN=base, unitOffset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            gen(loadRegIndexed32{regN=base, regM=indexR, regT=X1, option=ExtUXTX ScaleOrShift}, cvec);
+                            gen(loadRegIndexed32{regN=base, regM=indexR, regT=X1, option=cIndexFactor ScaleOrShift}, cvec);
 
                     (* Tag this in native 64-bits but box it in 32-in-64 *)
                     if is32in64
@@ -1139,7 +1142,7 @@ struct
                             then gen(loadRegUnscaled{regT=X1, regN=base, byteOffset=offset*8}, cvec)
                             else gen(loadRegScaled{regT=X1, regN=base, unitOffset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            gen(loadRegIndexed{regN=base, regM=indexR, regT=X1, option=ExtUXTX ScaleOrShift}, cvec);
+                            gen(loadRegIndexed{regN=base, regM=indexR, regT=X1, option=cIndexFactor ScaleOrShift}, cvec);
 
                     (* Load the value at the address and box it. *)
                     boxLargeWord(X1, cvec)
@@ -1153,7 +1156,7 @@ struct
                             then gen(loadRegUnscaledFloat{regT=V0, regN=base, byteOffset=offset*4}, cvec)
                             else gen(loadRegScaledFloat{regT=V0, regN=base, unitOffset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            gen(loadRegIndexedFloat{regN=base, regM=indexR, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                            gen(loadRegIndexedFloat{regN=base, regM=indexR, regT=V0, option=cIndexFactor ScaleOrShift}, cvec);
                     (* This is defined to return a "real" i.e. a double so we need to convert it
                        to a double and then box the result. *)
                     gen(convertFloatToDouble{regN=V0, regD=V0}, cvec);
@@ -1168,7 +1171,7 @@ struct
                             then gen(loadRegUnscaledDouble{regT=V0, regN=base, byteOffset=offset*8}, cvec)
                             else gen(loadRegScaledDouble{regT=V0, regN=base, unitOffset=offset}, cvec)
                     |   (base, MLLoadReg indexR) =>
-                            gen(loadRegIndexedDouble{regN=base, regM=indexR, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                            gen(loadRegIndexedDouble{regN=base, regM=indexR, regT=V0, option=cIndexFactor ScaleOrShift}, cvec);
                     (* Box the result. *)
                     boxDouble(V0, cvec)
                 )
@@ -1246,7 +1249,7 @@ struct
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
-                    gen(storeRegIndexedByte{regN=X2, regM=X1, regT=X0, option=ExtUXTX NoScale}, cvec);
+                    gen(storeRegIndexedByte{regN=X2, regM=X1, regT=X0, option=cIndexFactor NoScale}, cvec);
                     topInX0 := false;
                     decsp(); decsp()
                 )
@@ -1263,7 +1266,7 @@ struct
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
-                    gen(storeRegIndexed16{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    gen(storeRegIndexed16{regN=X2, regM=X1, regT=X0, option=cIndexFactor ScaleOrShift}, cvec);
                     topInX0 := false;
                     decsp(); decsp()
                 )
@@ -1287,7 +1290,7 @@ struct
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
-                    gen(storeRegIndexed32{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    gen(storeRegIndexed32{regN=X2, regM=X1, regT=X0, option=cIndexFactor ScaleOrShift}, cvec);
                     topInX0 := false;
                     decsp(); decsp()
                 )
@@ -1305,7 +1308,7 @@ struct
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
-                    gen(storeRegIndexed{regN=X2, regM=X1, regT=X0, option=ExtUXTX ScaleOrShift}, cvec);
+                    gen(storeRegIndexed{regN=X2, regM=X1, regT=X0, option=cIndexFactor ScaleOrShift}, cvec);
                     topInX0 := false;
                     decsp(); decsp()
                 )
@@ -1325,7 +1328,7 @@ struct
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
-                    gen(storeRegIndexedFloat{regN=X2, regM=X1, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                    gen(storeRegIndexedFloat{regN=X2, regM=X1, regT=V0, option=cIndexFactor ScaleOrShift}, cvec);
                     topInX0 := false;
                     decsp(); decsp()
                 )
@@ -1344,7 +1347,7 @@ struct
                     genPopReg(X2, cvec); (* Base address as a SysWord.word value. *)
                     indexToAbsoluteAddress(X2, X2, cvec);
                     gen(loadRegScaled{regT=X2, regN=X2, unitOffset=0}, cvec); (* Actual address *)
-                    gen(storeRegIndexedDouble{regN=X2, regM=X1, regT=V0, option=ExtUXTX ScaleOrShift}, cvec);
+                    gen(storeRegIndexedDouble{regN=X2, regM=X1, regT=V0, option=cIndexFactor ScaleOrShift}, cvec);
                     topInX0 := false;
                     decsp(); decsp()
                 )
