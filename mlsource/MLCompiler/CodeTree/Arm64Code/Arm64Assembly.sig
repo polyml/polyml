@@ -314,13 +314,18 @@ sig
     and logicalShiftRight32: {shift: word, regN: xReg, regD: xReg} -> instr
     and arithmeticShiftRight: {shift: word, regN: xReg, regD: xReg} -> instr
     and arithmeticShiftRight32: {shift: word, regN: xReg, regD: xReg} -> instr
-    (* Extract bits and set the rest of the register to zero. *)
+    (* Extract "width" least significant bits and place at offset "lsb" in the destination
+       setting the rest of the register to zero. *)
     and unsignedBitfieldInsertinZeros: {lsb: word, width: word, regN: xReg, regD: xReg} -> instr
     and unsignedBitfieldInsertinZeros32: {lsb: word, width: word, regN: xReg, regD: xReg} -> instr
     (* Extract bits but leave the rest of the register unchanged.  Can be used
        to clear a specific range of bits by using XZero as the source. *)
     and bitfieldInsert: {lsb: word, width: word, regN: xReg, regD: xReg} -> instr
     and bitfieldInsert32: {lsb: word, width: word, regN: xReg, regD: xReg} -> instr
+    (* Extract "width" bits starting from "lsb" in the source and place in the
+       least significant bits of the destination, setting the high order bits to the
+       sign bit. *)
+    and signedBitfieldExtract: {lsb: word, width: word, regN: xReg, regD: xReg} -> instr
 
     (* Logical shift left Rd = Rn << (Rm mod 0w64) *)
     val logicalShiftLeftVariable: {regM: xReg, regN: xReg, regD: xReg} -> instr

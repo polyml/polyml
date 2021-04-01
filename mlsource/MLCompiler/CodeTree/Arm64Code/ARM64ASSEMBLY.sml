@@ -773,6 +773,8 @@ struct
                 signedBitfieldMove64{immr=shift, imms=0wx3f, regN=regN, regD=regD}
         and arithmeticShiftRight32{shift, regN, regD} =
                 signedBitfieldMove32{immr=shift, imms=0wx1f, regN=regN, regD=regD}
+        and signedBitfieldExtract{lsb, width, regN, regD} =
+                signedBitfieldMove64{immr=lsb, imms=lsb+width-0w1, regN=regN, regD=regD}
 
         and bitfieldInsert{lsb, width, regN, regD} =
                 bitfieldMove64{immr=Word.~ lsb mod 0w64, imms=width-0w1, regN=regN, regD=regD}

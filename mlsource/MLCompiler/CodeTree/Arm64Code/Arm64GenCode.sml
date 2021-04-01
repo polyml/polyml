@@ -1652,13 +1652,10 @@ struct
         |   genUnary(SignedToLongWord, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
+                (* We want to generate a 64-bit signed value. In 32-in-64 we use a
+                   64-bit SBFX to do the right shift and set the sign bits. *)
                 if is32in64
-                then
-                (
-                    (* TODO: This can be done with a single instruction. *)
-                    gen(logicalShiftLeft{shift=0w32, regN=X0, regD=X1}, cvec);
-                    gen(arithmeticShiftRight{shift=0w33, regN=X1, regD=X1}, cvec)
-                )
+                then gen(signedBitfieldExtract{lsb=0w1, width=0w31, regN=X0, regD=X1}, cvec)
                 else gen(arithmeticShiftRight{shift=0w1, regN=X0, regD=X1}, cvec);
                 boxLargeWord(X1, cvec)
             )
