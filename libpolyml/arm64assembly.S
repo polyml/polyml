@@ -37,6 +37,14 @@
 #include "config.h"
 #endif
 
+#ifdef SYMBOLS_REQUIRE_UNDERSCORE
+#define EXTNAME(x)  _##x
+#else
+#define EXTNAME(x)  x
+#endif
+
+
+
 // Offsets into the assembly code interface
 #define TrapHandlerEntry    32
 #define HandlerRegister     40
@@ -55,8 +63,8 @@
     EXPORT Arm64AsmEnterCompiledCode
 Arm64AsmEnterCompiledCode PROC
 #else
-    .global Arm64AsmEnterCompiledCode
-Arm64AsmEnterCompiledCode:
+    .global EXTNAME(Arm64AsmEnterCompiledCode)
+EXTNAME(Arm64AsmEnterCompiledCode):
 #endif
 // This is called once the thread has been initialised to run the ML code.
 // It never returns.  The RTS may be entered either by a compiled RTS call
@@ -87,8 +95,8 @@ Arm64AsmEnterCompiledCode:
     EXPORT Arm64AsmCallExtraRETURN_HEAP_OVERFLOW
 Arm64AsmCallExtraRETURN_HEAP_OVERFLOW PROC
 #else
-    .global Arm64AsmCallExtraRETURN_HEAP_OVERFLOW
-Arm64AsmCallExtraRETURN_HEAP_OVERFLOW :
+    .global EXTNAME(Arm64AsmCallExtraRETURN_HEAP_OVERFLOW)
+EXTNAME(Arm64AsmCallExtraRETURN_HEAP_OVERFLOW) :
 #endif
 
     mov     x16, 1
@@ -156,8 +164,8 @@ LABEL(raiseexcept)
     EXPORT Arm64AsmCallExtraRETURN_STACK_OVERFLOW
 Arm64AsmCallExtraRETURN_STACK_OVERFLOW PROC
 #else
-    .global Arm64AsmCallExtraRETURN_STACK_OVERFLOW
-Arm64AsmCallExtraRETURN_STACK_OVERFLOW :
+    .global EXTNAME(Arm64AsmCallExtraRETURN_STACK_OVERFLOW)
+EXTNAME(Arm64AsmCallExtraRETURN_STACK_OVERFLOW) :
 #endif
 
     mov     x16, 2
@@ -171,8 +179,8 @@ Arm64AsmCallExtraRETURN_STACK_OVERFLOW :
     EXPORT Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX
 Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX PROC
 #else
-    .global Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX
-Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX :
+    .global EXTNAME(Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX)
+EXTNAME(Arm64AsmCallExtraRETURN_STACK_OVERFLOWEX) :
 #endif
 
     mov     x16, 3
@@ -204,8 +212,8 @@ Arm64AsmCallExtraRETURN_ENTER_INTERPRETER :
     EXPORT Arm64AsmAtomicExchange
 Arm64AsmAtomicExchange PROC
 #else
-    .global Arm64AsmAtomicExchange
-Arm64AsmAtomicExchange:
+    .global EXTNAME(Arm64AsmAtomicExchange)
+EXTNAME(Arm64AsmAtomicExchange):
 #endif
 
 // The easiest way to do this is with swpal  but that is only available

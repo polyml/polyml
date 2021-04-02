@@ -270,7 +270,7 @@ void Arm64Dependent::FlushInstructionCache(void* p, POLYUNSIGNED bytes)
 #ifdef _WIN32
     ::FlushInstructionCache(GetCurrentProcess(), p, bytes);
 #elif defined (__GNUC__)
-    __builtin___clear_cache(p, (char*)p + bytes);
+    __builtin___clear_cache((char*)p, (char*)p + bytes);
 #elif (defined (__clang__) && defined (__APPLE__))
     sys_icache_invalidate(p, bytes);
 #else
