@@ -291,6 +291,9 @@ void MachoExport::exportStore(void)
 #elif defined(HOSTARCHITECTURE_X86_64)
     fhdr.cputype = CPU_TYPE_X86_64;
     fhdr.cpusubtype = CPU_SUBTYPE_X86_64_ALL;
+#elif defined(HOSTARCHITECTURE_AARCH64)
+    fhdr.cputype = CPU_TYPE_ARM64;
+    fhdr.cpusubtype = CPU_SUBTYPE_ARM64_ALL;
 #else
 #error "No support for exporting on this architecture"
 #endif
