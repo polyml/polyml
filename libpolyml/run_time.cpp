@@ -331,15 +331,20 @@ void CheckAndGrowStack(TaskData *taskData, uintptr_t minSize)
 
 Handle Make_fixed_precision(TaskData *taskData, int val)
 {
+#if (SIZEOF_INT >= SIZEOF_POLYWORD)
+    // This range check may produce a warning if int is 32 bits and PolyWord is 64-bits.
     if (val > MAXTAGGED || val < -MAXTAGGED-1)
         raise_exception0(taskData, EXC_overflow);
+#endif
     return taskData->saveVec.push(TAGGED(val));
 }
 
 Handle Make_fixed_precision(TaskData *taskData, unsigned uval)
 {
+#if (SIZEOF_INT >= SIZEOF_POLYWORD)
     if (uval > MAXTAGGED)
         raise_exception0(taskData, EXC_overflow);
+#endif
     return taskData->saveVec.push(TAGGED(uval));
 }
 
