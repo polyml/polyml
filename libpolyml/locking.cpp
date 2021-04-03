@@ -244,7 +244,7 @@ PSemaphore::PSemaphore()
 PSemaphore::~PSemaphore()
 {
 #if (!defined(_WIN32))
-#ifndef MAXOSX
+#ifndef MACOSX
     if (sema && isLocal) sem_destroy(sema);
     else
 #endif
