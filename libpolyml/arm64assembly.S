@@ -25,11 +25,13 @@
 #define LABEL(x) x:
 #endif
 
+#ifndef MACOSX
 #ifdef ARMASMSYNTAX
     AREA |.text|, CODE, READONLY
 #else
     .section .text,"x"
     .balign 4
+#endif
 #endif
 
 #ifdef HAVE_CONFIG_H

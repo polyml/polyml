@@ -185,6 +185,10 @@ POLYUNSIGNED PolyCopyByteVecToClosure(FirstArgument threadId, PolyWord byteVec, 
     Handle pushedClosure = taskData->saveVec.push(closure);
     PolyObject *result = 0;
 
+#ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
+    pthread_jit_write_protect_np(false);
+#endif
+
     try {
         if (!pushedByteVec->WordP()->IsByteObject())
             raise_fail(taskData, "Not byte data area");
@@ -212,6 +216,10 @@ POLYUNSIGNED PolyCopyByteVecToClosure(FirstArgument threadId, PolyWord byteVec, 
     // Lock the closure.
     pushedClosure->WordP()->SetLengthWord(pushedClosure->WordP()->LengthWord() & ~_OBJ_MUTABLE_BIT);
 
+#ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
+    pthread_jit_write_protect_np(true);
+#endif
+
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
     return TAGGED(0).AsUnsigned();
@@ -228,6 +236,10 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, P
     Handle reset = taskData->saveVec.mark();
     PolyObject *codeObj = *(PolyObject**)(closure.AsObjPtr());
 
+#ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
+    pthread_jit_write_protect_np(false);
+#endif
+
     try {
         if (!codeObj->IsCodeObject() || !codeObj->IsMutable())
             raise_fail(taskData, "Not mutable code area");
@@ -241,6 +253,10 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, P
     }
     catch (...) {} // If an ML exception is raised
 
+#ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
+    pthread_jit_write_protect_np(true);
+#endif
+
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
     return TAGGED(0).AsUnsigned();
@@ -253,6 +269,10 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, P
 POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWord, PolyWord flags)
 {
     byte *pointer;
+#ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
+    pthread_jit_write_protect_np(false);
+#endif
+
     // Previously we passed the code address in here and we need to
     // retain that for legacy code.  This is now the closure.
     if (closure.AsObjPtr()->IsCodeObject())
@@ -315,6 +335,11 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
             break;
         }
     }
+
+#ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
+    pthread_jit_write_protect_np(true);
+#endif
+
     return TAGGED(0).AsUnsigned();
 }
 

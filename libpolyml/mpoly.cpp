@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development copyright David C.J. Matthews 2001-12, 2015, 2017-19
+    Further development copyright David C.J. Matthews 2001-12, 2015, 2017-19, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -388,6 +388,10 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
 
 #if (defined(_WIN32))
     SetupDDEHandler(lpszServiceName); // Windows: Start the DDE handler now we processed any service name.
+#endif
+
+#ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
+    pthread_jit_write_protect_np(false); // This may well write to exec memory.
 #endif
 
     // Initialise the run-time system before creating the heap.
