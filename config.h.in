@@ -216,6 +216,9 @@
 /* Define to 1 if you have the <pthread.h> header file. */
 #undef HAVE_PTHREAD_H
 
+/* Define to 1 if you have the `pthread_jit_write_protect_np' function. */
+#undef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
+
 /* Define to 1 if you have the <pwd.h> header file. */
 #undef HAVE_PWD_H
 

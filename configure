@@ -21816,6 +21816,17 @@ _ACEOF
 fi
 done
 
+for ac_func in pthread_jit_write_protect_np
+do :
+  ac_fn_c_check_func "$LINENO" "pthread_jit_write_protect_np" "ac_cv_func_pthread_jit_write_protect_np"
+if test "x$ac_cv_func_pthread_jit_write_protect_np" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_PTHREAD_JIT_WRITE_PROTECT_NP 1
+_ACEOF
+
+fi
+done
+
 
 # Where are the registers when we get a signal?  Used in time profiling.
 #Linux:
@@ -21982,11 +21993,19 @@ $as_echo "#define HOSTARCHITECTURE_X32 1" >>confdefs.h
                 polyarch=interpret
             fi
             ;;
-      aarch64*)
+      aarch64* | arm*)
+            # MacOS seems to return "arm" on 64-bit ARM.
+            if test X"$ac_cv_sizeof_voidp" = X8; then
 
 $as_echo "#define HOSTARCHITECTURE_AARCH64 1" >>confdefs.h
 
-            polyarch=aarch64
+                polyarch=aarch64
+            else
+
+$as_echo "#define HOSTARCHITECTURE_ARM 1" >>confdefs.h
+
+                polyarch=interpret
+            fi
             ;;
       sparc64*)
 
@@ -22009,12 +22028,6 @@ $as_echo "#define HOSTARCHITECTURE_PPC64 1" >>confdefs.h
       power* | ppc*)
 
 $as_echo "#define HOSTARCHITECTURE_PPC 1" >>confdefs.h
-
-            polyarch=interpret
-            ;;
-      arm*)
-
-$as_echo "#define HOSTARCHITECTURE_ARM 1" >>confdefs.h
 
             polyarch=interpret
             ;;
