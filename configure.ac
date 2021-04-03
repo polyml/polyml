@@ -337,6 +337,7 @@ AC_CHECK_FUNCS([sysctl sysctlbyname])
 AC_CHECK_FUNCS([localtime_r gmtime_r])
 AC_CHECK_FUNCS([ctermid tcdrain])
 AC_CHECK_FUNCS([_ftelli64])
+AC_CHECK_FUNCS([pthread_jit_write_protect_np])
 
 # Where are the registers when we get a signal?  Used in time profiling.
 #Linux:
@@ -383,9 +384,15 @@ case "${host_cpu}" in
                 polyarch=interpret
             fi
             ;;
-      aarch64*)
-            AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64-bit)])
-            polyarch=aarch64
+      aarch64* | arm*)
+            # MacOS seems to return "arm" on 64-bit ARM.
+            if test X"$ac_cv_sizeof_voidp" = X8; then
+                AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64-bit)])
+                polyarch=aarch64
+            else
+                AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32-bit)])
+                polyarch=interpret
+            fi
             ;;
       sparc64*)
             AC_DEFINE([HOSTARCHITECTURE_SPARC64], [1], [Define if the host is a Sparc (64-bit)])
@@ -401,10 +408,6 @@ case "${host_cpu}" in
             ;;
       power* | ppc*)
             AC_DEFINE([HOSTARCHITECTURE_PPC], [1], [Define if the host is a PowerPC (32-bit)])
-            polyarch=interpret
-            ;;
-      arm*)
-            AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32-bit)])
             polyarch=interpret
             ;;
       hppa*)
