@@ -202,30 +202,13 @@
 #error "No configuration file"
 #endif
 
-#ifdef HAVE_SYS_PARAM_H
-#include <sys/param.h>
-#endif
-
 #include "realconv.h"
 #include "locking.h"
 
-// Try to determine the byte order to set either IEEE_8087 or IEEE_MC68k
-#ifdef __BYTE_ORDER
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-#define IEEE_8087   // Little endian
-#elif __BYTE_ORDER == __BIG_ENDIAN
+#ifdef WORDS_BIGENDIAN
 #define IEEE_MC68k // Big endian
-#endif
-#endif
-
-#if !defined(IEEE_8087) && ! defined(IEEE_MC68k)
-#if defined(_WIN32) || defined(HOSTARCHITECTURE_X86) || defined (__i386__) || defined (_M_IX86) || \
-        defined (vax) || defined (__alpha) || defined(HOSTARCHITECTURE_X86_64) || \
-        defined(HOSTARCHITECTURE_X32)
-#define IEEE_8087
 #else
-#define IEEE_MC68k
-#endif
+#define IEEE_8087   // Little endian
 #endif
 
 #if (SIZEOF_LONG == 8)
