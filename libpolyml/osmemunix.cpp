@@ -179,7 +179,9 @@ bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBas
     if (simpleMmap)
     {
         // Don't require shadow area.  Can use mmap
-        memBase = (char*)mmap(0, space, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+        int flags = MAP_PRIVATE | MAP_ANON;
+        if (usage == UsageExecutableCode) flags |= MAP_JIT;
+        memBase = (char*)mmap(0, space, PROT_NONE, flags, -1, 0);
         if (memBase == MAP_FAILED) return false;
         // We need the heap to be such that the top 32-bits are non-zero.
         if ((uintptr_t)memBase < ((uintptr_t)1 << 32))
@@ -297,13 +299,8 @@ void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
     {
         char *baseAddr = memBase + offset;
         int prot = PROT_READ | PROT_WRITE;
-        int flags = MAP_FIXED | MAP_PRIVATE | MAP_ANON;
-        if (memUsage == UsageExecutableCode)
-        {
-            prot |= PROT_EXEC;
-            flags |= MAP_JIT;
-        }
-        if (mmap(baseAddr, space, prot, flags, -1, 0) == MAP_FAILED)
+        if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
+        if (mprotect(baseAddr, space, prot) != 0)
             return 0;
         msync(baseAddr, space, MS_SYNC | MS_INVALIDATE);
         shadowArea = baseAddr;

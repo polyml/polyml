@@ -32,6 +32,8 @@
     .section .text,"x"
     .balign 4
 #endif
+#else
+.align 4
 #endif
 
 #ifdef HAVE_CONFIG_H
