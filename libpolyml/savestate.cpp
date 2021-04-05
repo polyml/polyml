@@ -1,7 +1,7 @@
 /*
     Title:  savestate.cpp - Save and Load state
 
-    Copyright (c) 2007, 2015, 2017-19 David C.J. Matthews
+    Copyright (c) 2007, 2015, 2017-19, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1080,6 +1080,26 @@ void LoadRelocate::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanR
     }
 }
 
+// Work around bug in Mac OS when reading into MAP_JIT memory.
+static size_t readData(void *ptr, size_t size, FILE *stream)
+{
+#ifndef MACOSX
+    return fread(ptr, size, stream);
+#else
+    char buff[1024];
+    for (size_t s = 0; s < size; )
+    {
+        size_t unit = sizeof(buff);
+        if (size - s < unit) unit = size-s;
+        if (fread(buff, unit, 1, stream) != 1)
+            return 0;
+        memcpy((char*)ptr+s, buff, unit);
+        s += unit;
+    }
+    return 1; // Succeeded
+#endif
+}
+
 // Load a saved state file.  Calls itself to handle parent files.
 bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
 {
@@ -1271,8 +1291,12 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
 
             PolyWord *mem  = newSpace->bottom;
             PolyWord* writeAble = newSpace->writeAble(mem);
-            if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0 ||
-                fread(writeAble, descr->segmentSize, 1, loadFile) != 1)
+            if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0)
+            {
+                errorResult = "Unable to seek segment";
+                return false;
+            }
+            if (readData(writeAble, descr->segmentSize, loadFile) != 1)
             {
                 errorResult = "Unable to read segment";
                 return false;
@@ -1959,8 +1983,12 @@ void ModuleLoader::Perform()
                 space = lSpace;
                 lSpace->lowerAllocPtr = (PolyWord*)((byte*)lSpace->bottom + descr->segmentSize);
             }
-            if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0 ||
-                fread(space->bottom, descr->segmentSize, 1, loadFile) != 1)
+            if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0)
+            {
+                errorResult = "Unable to seek to segment";
+                return;
+            }
+            if (readData(space->bottom, descr->segmentSize, loadFile) != 1)
             {
                 errorResult = "Unable to read segment";
                 return;
