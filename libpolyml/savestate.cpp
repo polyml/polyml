@@ -1084,7 +1084,7 @@ void LoadRelocate::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanR
 static size_t readData(void *ptr, size_t size, FILE *stream)
 {
 #ifndef MACOSX
-    return fread(ptr, size, stream);
+    return fread(ptr, size, 1, stream);
 #else
     char buff[1024];
     for (size_t s = 0; s < size; )
