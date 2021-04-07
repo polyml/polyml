@@ -1,7 +1,7 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006-7, 2015, 2016-20 David C.J. Matthews
+    Copyright (c) 2006-7, 2015, 2016-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -347,18 +347,19 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     POLYUNSIGNED originalLengthWord = lengthWord;
     POLYUNSIGNED words = OBJ_OBJECT_LENGTH(lengthWord);
 
-    bool isMutableObj = obj->IsMutable();
-    bool isNoOverwrite = false;
-    bool isByteObj = obj->IsByteObject();
-    bool isCodeObj = false;
-    if (isMutableObj)
-        isNoOverwrite = obj->IsNoOverwriteObject();
-    else isCodeObj = obj->IsCodeObject();
+    enum _newAddrType naType;
+    if (obj->IsMutable())
+    {
+        if (obj->IsNoOverwriteObject()) naType = NANoOverwriteMutable; else naType = NAMutable;
+    }
+    else if (obj->IsCodeObject()) naType = NACode;
+    else if (obj->IsByteObject()) naType = NAByte;
+    else naType = NAWord;
     PolyObject* newObj;
 #if(defined(HOSTARCHITECTURE_X86_64) && ! defined(POLYML32IN64))
     // Split the constant area off into a separate object.  This allows us to create a
     // position-independent executable.
-    if (isCodeObj && hierarchy == 0)
+    if (obj->IsCodeObject() && hierarchy == 0)
     {
         PolyWord* constPtr;
         POLYUNSIGNED numConsts;
@@ -369,12 +370,12 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         POLYUNSIGNED codeAreaSize = words;
         if (constsWereIncluded)
             codeAreaSize -= numConsts + 1;
-        newObj = newAddressForObject(codeAreaSize, false, false, false, true);
+        newObj = newAddressForObject(codeAreaSize, NACode);
         PolyObject* writable = gMem.SpaceForObjectAddress(newObj)->writeAble(newObj);
         writable->SetLengthWord(codeAreaSize, F_CODE_OBJ); // set length word
         lengthWord = newObj->LengthWord(); // Get the actual length word used
         memcpy(writable, obj, codeAreaSize * sizeof(PolyWord));
-        PolyObject* newConsts = newAddressForObject(numConsts, false, false, false, false);
+        PolyObject* newConsts = newAddressForObject(numConsts, NACodeConst);
         newConsts->SetLengthWord(numConsts);
         memcpy(newConsts, constPtr, numConsts * sizeof(PolyWord));
         // Set the last word of the new area to the offset of the constants from the end of
@@ -387,11 +388,11 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     else
 #endif
     {
-        newObj = newAddressForObject(words, isMutableObj, isNoOverwrite, isByteObj, isCodeObj);
+        newObj = newAddressForObject(words, naType);
         PolyObject* writAble = gMem.SpaceForObjectAddress(newObj)->writeAble(newObj);
         writAble->SetLengthWord(lengthWord); // copy length word
 
-        if (hierarchy == 0 /* Exporting object module */ && isNoOverwrite && isMutableObj && !isByteObj)
+        if (hierarchy == 0 /* Exporting object module */ && obj->IsNoOverwriteObject() && ! obj->IsByteObject())
         {
             // These are not exported. They are used for special values e.g. mutexes
             // that should be set to 0/nil/NONE at start-up.
@@ -432,7 +433,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         }
         ASSERT(m < tombs); // Should be there.
     }
-    else if (isCodeObj)
+    else if (naType == NACode)
 #ifdef POLYML32IN64
     // If this is a code address we can't use the usual forwarding pointer format.
     // Instead we have to compute the offset relative to the base of the code.
@@ -445,7 +446,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #endif
     else obj->SetForwardingPtr(newObj); // Put forwarding pointer in old object.
 
-    if (isCodeObj)
+    if (naType == NACode)
     {
         // We should flush the instruction cache here since we will execute the code
         // at this location if this is a saved state.
@@ -464,17 +465,24 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     return lengthWord;  // This new object needs to be scanned.
 }
 
-PolyObject* CopyScan::newAddressForObject(POLYUNSIGNED words, bool isMutableObj, bool isNoOverwrite, bool isByteObj, bool isCodeObj)
+PolyObject* CopyScan::newAddressForObject(POLYUNSIGNED words, enum _newAddrType naType)
 {
     PolyObject* newObj = 0;
     // Allocate a new address for the object.
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
         PermanentMemSpace* space = *i;
-        if (isMutableObj == space->isMutable &&
-            isNoOverwrite == space->noOverwrite &&
-            isByteObj == space->byteOnly &&
-            isCodeObj == space->isCode)
+        bool match = false;
+        switch (naType)
+        {
+        case NAWord: match = !space->isMutable && !space->byteOnly && !space->isCode;
+        case NAMutable: match = space->isMutable && !space->noOverwrite; break;
+        case NANoOverwriteMutable: match = space->isMutable && space->noOverwrite; break;
+        case NAByte: match = !space->isMutable && space->byteOnly; break;
+        case NACode: match = !space->isMutable && space->isCode && !space->constArea; break;
+        case NACodeConst: match = !space->isMutable && space->isCode && space->constArea; break;
+        }
+        if (match)
         {
             ASSERT(space->topPointer <= space->top && space->topPointer >= space->bottom);
             size_t spaceLeft = space->top - space->topPointer;
@@ -497,21 +505,21 @@ PolyObject* CopyScan::newAddressForObject(POLYUNSIGNED words, bool isMutableObj,
     if (newObj == 0)
     {
         // Didn't find room in the existing spaces.  Create a new space.
-        uintptr_t spaceWords;
-        if (isMutableObj)
+        uintptr_t spaceWords = defaultImmSize;
+        switch (naType)
         {
-            if (isNoOverwrite) spaceWords = defaultNoOverSize;
-            else spaceWords = defaultMutSize;
-        }
-        else
-        {
-            if (isCodeObj) spaceWords = defaultCodeSize;
-            else spaceWords = defaultImmSize;
+        case NAMutable: spaceWords = defaultMutSize; break;
+        case NANoOverwriteMutable: spaceWords = defaultNoOverSize; break;
+        case NACode: spaceWords = defaultCodeSize; break;
+        case NACodeConst: spaceWords = defaultCodeSize; break;
         }
         if (spaceWords <= words)
             spaceWords = words + 1; // Make sure there's space for this object.
-        PermanentMemSpace* space = gMem.NewExportSpace(spaceWords, isMutableObj, isNoOverwrite, isCodeObj);
-        if (isByteObj) space->byteOnly = true;
+        PermanentMemSpace* space =
+            gMem.NewExportSpace(spaceWords, naType == NAMutable || naType == NANoOverwriteMutable, naType == NANoOverwriteMutable,
+                    naType == NACode || naType == NACodeConst);
+        if (naType == NAByte) space->byteOnly = true;
+        if (naType == NACodeConst) space->constArea = true;
         if (space == 0)
         {
             if (debugOptions & DEBUG_SAVING)
@@ -751,7 +759,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
             entry->mtFlags = MTF_WRITEABLE;
             if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
         }
-        if (space->isCode) entry->mtFlags |= MTF_EXECUTABLE;
+        if (space->isCode && !space->constArea) entry->mtFlags |= MTF_EXECUTABLE;
         if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
     }
 

@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006-8, 2010-12, 2016-18, 2020 David C. J. Matthews
+    Copyright (c) 2006-8, 2010-12, 2016-18, 2020, 2021 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -118,13 +118,14 @@ class PermanentMemSpace: public MemSpace
 {
 protected:
     PermanentMemSpace(OSMem *alloc): MemSpace(alloc), index(0), hierarchy(0), noOverwrite(false),
-        byteOnly(false), topPointer(0) {}
+        byteOnly(false), constArea(false), topPointer(0) {}
 
 public:
     unsigned    index;      // An identifier for the space.  Used when saving and loading.
     unsigned    hierarchy;  // The hierarchy number: 0=from executable, 1=top level saved state, ...
     bool        noOverwrite; // Don't save this in deeper hierarchies.
     bool        byteOnly; // Only contains byte data - no need to scan for addresses.
+    bool        constArea; // Contains constants rather than code.  Special case for exporting PIE.
 
     // When exporting or saving state we copy data into a new area.
     // This area grows upwards unlike the local areas that grow down.
