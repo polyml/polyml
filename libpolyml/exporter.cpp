@@ -505,13 +505,14 @@ PolyObject* CopyScan::newAddressForObject(POLYUNSIGNED words, enum _newAddrType 
     if (newObj == 0)
     {
         // Didn't find room in the existing spaces.  Create a new space.
-        uintptr_t spaceWords = defaultImmSize;
+        uintptr_t spaceWords;
         switch (naType)
         {
         case NAMutable: spaceWords = defaultMutSize; break;
         case NANoOverwriteMutable: spaceWords = defaultNoOverSize; break;
         case NACode: spaceWords = defaultCodeSize; break;
         case NACodeConst: spaceWords = defaultCodeSize; break;
+        default: spaceWords = defaultImmSize;
         }
         if (spaceWords <= words)
             spaceWords = words + 1; // Make sure there's space for this object.
