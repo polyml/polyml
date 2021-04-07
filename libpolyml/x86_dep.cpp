@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-20
+    Further work copyright David C. J. Matthews 2011-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -298,6 +298,22 @@ public:
 
     // During the first bootstrap phase this is interpreted.
     bool mustInterpret;
+
+    // Override for X86-64
+    // Find the start of the constant section for a piece of code.
+    virtual void GetConstSegmentForCode(PolyObject* obj, POLYUNSIGNED obj_length, PolyWord*& cp, POLYUNSIGNED& count) const
+    {
+        PolyWord* last_word = obj->Offset(obj_length - 1); // Last word in the code
+#ifdef HOSTARCHITECTURE_X86_64
+        // Only the low order 32-bits are valid since this may be
+        // set by a 32-bit relative relocation.
+        int32_t offset = (int32_t)last_word->AsSigned();
+#else
+        POLYSIGNED offset = last_word->AsSigned();
+#endif
+        cp = last_word + 1 + offset / sizeof(PolyWord);
+        count = cp[-1].AsUnsigned();
+    }
 };
 
 static X86Dependent x86Dependent;

@@ -2,7 +2,7 @@
     Title:     Export and import memory in a portable format
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006-7, 2015-8, 2020 David C. J. Matthews
+    Copyright (c) 2006-7, 2015-8, 2020-21 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -196,7 +196,7 @@ void PExport::printObject(PolyObject *p)
         ASSERT(! p->IsMutable() );
         /* Work out the number of bytes in the code and the
            number of constants. */
-        p->GetConstSegmentForCode(cp, constCount);
+        machineDependent->GetConstSegmentForCode(p, cp, constCount);
         /* The byte count is the length of the segment minus the
            number of constants minus one for the constant count.
            It includes the marker word, byte count, profile count

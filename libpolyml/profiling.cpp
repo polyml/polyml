@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development copyright (c) David C.J. Matthews 2011, 2015, 2020
+    Further development copyright (c) David C.J. Matthews 2011, 2015, 2020-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -57,6 +57,7 @@
 #include "run_time.h"
 #include "sys.h"
 #include "rtsentry.h"
+#include "machine_dep.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyProfiling(FirstArgument threadId, PolyWord mode);
@@ -197,7 +198,7 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
     ASSERT(code->IsCodeObject());
     PolyWord *consts;
     POLYUNSIGNED constCount;
-    code->GetConstSegmentForCode(consts, constCount);
+    machineDependent->GetConstSegmentForCode(code, consts, constCount);
     if (constCount < 2 || consts[1].AsUnsigned() == 0 || ! consts[1].IsDataPtr()) return 0;
     PolyObject *profObject = consts[1].AsObjPtr();
     if (profObject->IsMutable() && profObject->IsByteObject() && profObject->Length() == 1)
@@ -266,7 +267,7 @@ void ProfileRequest::getProfileResults(PolyWord *bottom, PolyWord *top)
 
             if (obj->IsCodeObject())
             {
-                PolyWord *firstConstant = obj->ConstPtrForCode();
+                PolyWord *firstConstant = machineDependent->ConstPtrForCode(obj);
                 PolyWord name = firstConstant[0];
                 PolyObject *profCount = getProfileObjectForCode(obj);
                 if (profCount)

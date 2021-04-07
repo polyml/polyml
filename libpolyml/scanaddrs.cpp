@@ -1,7 +1,7 @@
 /*
     Title:      Address scanner
 
-    Copyright (c) 2006-8, 2012, 2019 David C.J. Matthews
+    Copyright (c) 2006-8, 2012, 2019, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -81,7 +81,7 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
             // Scan constants within the code.
             machineDependent->ScanConstantsWithinCode(obj, length, this);
             // Skip to the constants and get ready to scan them.
-            obj->GetConstSegmentForCode(length, baseAddr, length);
+            machineDependent->GetConstSegmentForCode(obj, length, baseAddr, length);
             // Adjust to the read-write area if necessary.
             baseAddr = gMem.SpaceForAddress(baseAddr)->writeAble(baseAddr);
         }

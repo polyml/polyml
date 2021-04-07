@@ -363,7 +363,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     {
         PolyWord* constPtr;
         POLYUNSIGNED numConsts;
-        obj->GetConstSegmentForCode(constPtr, numConsts);
+        machineDependent->GetConstSegmentForCode(obj, constPtr, numConsts);
         // Newly generated code will have the constants included with the code
         // but if this is in the executable the constants will have been extracted before.
         bool constsWereIncluded = constPtr > (PolyWord*)obj && constPtr < ((PolyWord*)obj) + words;
@@ -457,8 +457,8 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         // is the only point where we have both the old and the new addresses.
         PolyWord *oldConstAddr;
         POLYUNSIGNED count;
-        obj->GetConstSegmentForCode(OBJ_OBJECT_LENGTH(originalLengthWord), oldConstAddr, count);
-        PolyWord *newConstAddr = newObj->ConstPtrForCode();
+        machineDependent->GetConstSegmentForCode(obj, OBJ_OBJECT_LENGTH(originalLengthWord), oldConstAddr, count);
+        PolyWord *newConstAddr = machineDependent->ConstPtrForCode(newObj);
         machineDependent->ScanConstantsWithinCode(newObj, obj, words, newConstAddr, oldConstAddr, count, this);
     }
     *pt = newObj; // Update it to the newly copied object.
@@ -598,7 +598,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
             {
                 PolyWord* constPtr;
                 POLYUNSIGNED numConsts;
-                forwardedTo->GetConstSegmentForCode(constPtr, numConsts);
+                machineDependent->GetConstSegmentForCode(forwardedTo, constPtr, numConsts);
                 if (!(constPtr > (PolyWord*)forwardedTo && constPtr < ((PolyWord*)forwardedTo) + OBJ_OBJECT_LENGTH(length)))
                     length += numConsts + 1;
             }
@@ -935,7 +935,7 @@ void Exporter::relocateObject(PolyObject *p)
         POLYUNSIGNED constCount;
         PolyWord *cp;
         ASSERT(! p->IsMutable() );
-        p->GetConstSegmentForCode(cp, constCount);
+        machineDependent->GetConstSegmentForCode(p, cp, constCount);
         /* Now the constants. */
         for (POLYUNSIGNED i = 0; i < constCount; i++) relocateValue(&(cp[i]));
     }

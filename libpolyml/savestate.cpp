@@ -1,7 +1,7 @@
 /*
     Title:  savestate.cpp - Save and Load state
 
-    Copyright (c) 2007, 2015, 2017-19 David C.J. Matthews
+    Copyright (c) 2007, 2015, 2017-19, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1036,7 +1036,7 @@ void LoadRelocate::RelocateObject(PolyObject *p)
         POLYUNSIGNED constCount;
         PolyWord *cp;
         ASSERT(! p->IsMutable() );
-        p->GetConstSegmentForCode(cp, constCount);
+        machineDependent->GetConstSegmentForCode(p, cp, constCount);
         /* Now the constant area. */
         for (POLYUNSIGNED i = 0; i < constCount; i++) RelocateAddressAt(&(cp[i]));
         // Saved states and modules have relocation entries for constants in the code.

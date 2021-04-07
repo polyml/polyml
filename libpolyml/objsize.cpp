@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development David C.J. Matthews 2016, 2017
+    Further development David C.J. Matthews 2016, 2017, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -203,7 +203,7 @@ void ProcessVisitAddresses::ShowCode(PolyObject *start)
     if (start->IsMutable()) fprintf(polyStdout, "MUTABLE ");
 
     char buffer[MAXNAME+1];
-    PolyWord *consts = start->ConstPtrForCode();
+    PolyWord *consts = machineDependent->ConstPtrForCode(start);
     PolyWord string = consts[0];
             
     if (string == TAGGED(0))
@@ -329,7 +329,7 @@ POLYUNSIGNED ProcessVisitAddresses::ShowObject(PolyObject *p)
     {
         PolyWord *cp;
         POLYUNSIGNED const_count;
-        p->GetConstSegmentForCode(cp, const_count);
+        machineDependent->GetConstSegmentForCode(p, cp, const_count);
         
         if (show_size)
             ShowCode(p);

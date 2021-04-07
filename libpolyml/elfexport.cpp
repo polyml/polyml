@@ -2,7 +2,7 @@
     Title:     Write out a database as an ELF object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011, 2016-18, 2020 David C. J. Matthews
+    Copyright (c) 2006-7, 2011, 2016-18, 2020-21 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -687,7 +687,7 @@ void ELFExport::exportStore(void)
                 PolyWord* cp;
                 // Get the constant area pointer first because ScanConstantsWithinCode
                 // may alter it.
-                obj->GetConstSegmentForCode(cp, constCount);
+                machineDependent->GetConstSegmentForCode(obj, cp, constCount);
                 // Update any constants before processing the object
                 // We need that for relative jumps/calls in X86/64.
                 machineDependent->ScanConstantsWithinCode(obj, this);
