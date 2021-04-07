@@ -105,37 +105,37 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">true</ExcludedFromBuild>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
@@ -171,37 +171,37 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">false</ExcludedFromBuild>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|Win32'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInt32in64|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseInterpreted|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='DebugInterpreted|x64'">cd ..
-$(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
+$(OutDir)PolyImport.exe "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &lt; bootstrap\Stage1.sml</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugInt32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release32in64|Win32'">$(IntDir)polyexport.obj</Outputs>
