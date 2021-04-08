@@ -321,6 +321,7 @@ struct
     and brLength = BrShort | BrExtended
 
     val nopCode  = 0wxD503201F
+    and undefCode = 0wx00000000 (* Permanently undefined instruction. *)
 
     (* Add/subtract an optionally shifted 12-bit immediate (i.e. constant) to/from a register.
        The constant is zero-extended.  The versions that do not set the flags can use XSP as
@@ -928,7 +929,7 @@ struct
 
     (* Size of each code word. *)
     fun codeSize (SimpleInstr _) = 1 (* Number of 32-bit words *)
-    |   codeSize (LoadAddressLiteral _) = 1
+    |   codeSize (LoadAddressLiteral _) = if is32in64 then 1 else 2
     |   codeSize (LoadNonAddressLiteral _) = 1
     |   codeSize (Label _) = 0
     |   codeSize (UnconditionalBranch _) = 1
@@ -1034,7 +1035,9 @@ struct
     let
         val codeSize = setLabelsAndSizes ops (* Number of 32-bit instructions *)
         val wordsOfCode = (codeSize + 0w1) div 0w2 (* Round up to 64-bits *)
-        val paddingWord = if Word.andb(codeSize, 0w1) = 0w1 then [SimpleInstr nopCode] else []
+        (* Put one or two UDF instructions at the end as markers. *)
+        val endOfCodeWords =
+            if Word.andb(codeSize, 0w1) = 0w0 then [SimpleInstr undefCode, SimpleInstr undefCode] else [SimpleInstr undefCode]
         
         val numNonAddrConsts = Word.fromInt(List.length nonAddressConsts)
         and numAddrConsts = Word.fromInt(List.length addressConsts) (* 32-bit words. *)
@@ -1075,7 +1078,16 @@ struct
                     0wx18000000 orb (s << 0w30) orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
-                genCodeWords(tail, wordNo+0w1, aConstNum+0w1, nonAConstNum)
+                (* On native ARM64 we may need to split off the constant area so that the
+                   code area is position-independent.  That requires references to the
+                   constant area to be patched to use ADRP+LDR. *)
+                if is32in64
+                then genCodeWords(tail, wordNo+0w1, aConstNum+0w1, nonAConstNum)
+                else
+                (
+                    writeInstr(nopCode, wordNo+0w1, codeVec);
+                    genCodeWords(tail, wordNo+0w2, aConstNum+0w1, nonAConstNum)
+                )
             end
 
         |   genCodeWords(LoadNonAddressLiteral{reg, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
@@ -1200,7 +1212,7 @@ struct
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
     in
-        genCodeWords (ops @ paddingWord, 0w0, 0w0, 0w0);
+        genCodeWords (ops @ endOfCodeWords, 0w0, 0w0, 0w0);
         (* Copy in the non-address constants. *)
         List.foldl(fn (cVal, addr) => (write64Bit(cVal, addr, codeVec); addr+0w1)) wordsOfCode nonAddressConsts;
         (codeVec (* Return the completed code. *), wordsOfCode+numNonAddrConsts (* And the size in 64-bit words. *))
