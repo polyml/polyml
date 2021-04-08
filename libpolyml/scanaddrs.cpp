@@ -1,7 +1,7 @@
 /*
     Title:      Address scanner
 
-    Copyright (c) 2006-8, 2012, 2019 David C.J. Matthews
+    Copyright (c) 2006-8, 2012, 2019, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -79,10 +79,9 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
         if (OBJ_IS_CODE_OBJECT(lengthWord))
         {
             // Scan constants within the code.
-            machineDependent->ScanConstantsWithinCode(obj, obj, length, this);
-        
+            machineDependent->ScanConstantsWithinCode(obj, length, this);
             // Skip to the constants and get ready to scan them.
-            obj->GetConstSegmentForCode(length, baseAddr, length);
+            machineDependent->GetConstSegmentForCode(obj, length, baseAddr, length);
             // Adjust to the read-write area if necessary.
             baseAddr = gMem.SpaceForAddress(baseAddr)->writeAble(baseAddr);
         }
@@ -199,7 +198,7 @@ void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
 }
 
 // Extract a constant from the code.
-PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, PolyWord *base)
+PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement)
 {
     switch (code)
     {
@@ -221,7 +220,7 @@ PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocatio
             // Get the displacement. This is signed.
             if (pt[3] & 0x80) disp = -1; else disp = 0; // Set the sign just in case.
             for(unsigned i = 4; i > 0; i--) disp = (disp << 8) | pt[i-1];
-            byte *absAddr = pt + disp + 4; // The address is relative to AFTER the constant
+            byte *absAddr = pt + disp + 4 + displacement; // The address is relative to AFTER the constant
             return (PolyObject*)absAddr;
         }
     default:
@@ -259,14 +258,17 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
                 addressToWrite[i] = (byte)(newDisp & 0xff);
                 newDisp >>= 8;
             }
+            // When we have shifted it 32-bits the result there should
+            // be no significant bits left.
+            ASSERT(newDisp == 0 || newDisp == -1);
         }
         break;
     }
 }
 
-void ScanAddress::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
+void ScanAddress::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement)
 {
-    PolyObject *p = GetConstantValue(addressOfConstant, code);
+    PolyObject *p = GetConstantValue(addressOfConstant, code, displacement);
 
     if (p != 0)
     {

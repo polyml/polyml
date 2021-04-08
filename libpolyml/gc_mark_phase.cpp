@@ -96,7 +96,7 @@ public:
     void ScanAddressesInObject(PolyObject *base)
         { ScanAddressesInObject(base, base->LengthWord()); }
 
-    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code);
+    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement);
     // ScanCodeAddressAt should never be called.
     POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { ASSERT(0); return 0; }
 
@@ -554,7 +554,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
 // Process a constant within the code.  This is a direct copy of ScanAddress::ScanConstant
 // with the addition of the locking.
-void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
+void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement)
 {
     // If we have newly compiled code the constants may be in the
     // local heap.  MTGCProcessMarkPointers::ScanObjectAddress can
@@ -571,7 +571,7 @@ void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfCons
 
     if (lock != 0)
         lock->Lock();
-    PolyObject *p = GetConstantValue(addressOfConstant, code);
+    PolyObject *p = GetConstantValue(addressOfConstant, code, displacement);
     if (lock != 0)
         lock->Unlock();
 

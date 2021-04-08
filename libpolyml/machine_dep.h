@@ -51,10 +51,45 @@ public:
     virtual unsigned InitialStackSize(void) { return 128; } // Initial size of a stack 
     // Must be > 40 (i.e. 2*min_stack_check) + base area in each stack frame
 
+    // Find the start of the constant section for a piece of code.
+    // This is the default version which uses the whole of the last word as a
+    // byte offset.
+    // Normally the constant area is located within the code object and the offset is a small
+    // negative value.  When creating position-independent code we need to put the constants in a
+    // separate area.  We have to use a relative offset to the constants rather than an absolute
+    // address to ensure that the code is position-independent.
+    virtual void GetConstSegmentForCode(PolyObject *obj, POLYUNSIGNED obj_length, PolyWord*& cp, POLYUNSIGNED& count) const
+    {
+        PolyWord* last_word = obj->Offset(obj_length - 1); // Last word in the code
+        POLYSIGNED offset = last_word->AsSigned();
+        cp = last_word + 1 + offset / sizeof(PolyWord);
+        count = cp[-1].AsUnsigned();
+    }
+    void GetConstSegmentForCode(PolyObject* obj, PolyWord*& cp, POLYUNSIGNED& count) const
+    {
+        GetConstSegmentForCode(obj, obj->Length(), cp, count);
+    }
+    PolyWord* ConstPtrForCode(PolyObject* obj) const
+    {
+        PolyWord* cp; POLYUNSIGNED count;
+        GetConstSegmentForCode(obj, cp, count);
+        return cp;
+    }
+
     /* ScanConstantsWithinCode - update addresses within a code segment.*/
-    virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process) {}
-    void  ScanConstantsWithinCode(PolyObject *addr, ScanAddress *process)
-        { ScanConstantsWithinCode(addr, addr, addr->Length(), process); } // Common case
+    virtual void ScanConstantsWithinCode(PolyObject* addr, PolyObject* old, POLYUNSIGNED length,
+        PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress* process) {}
+
+    void ScanConstantsWithinCode(PolyObject* addr, POLYUNSIGNED length, ScanAddress* process)
+    {
+        PolyWord* constAddr;
+        POLYUNSIGNED count;
+        GetConstSegmentForCode(addr, length, constAddr, count);
+        ScanConstantsWithinCode(addr, addr, length, constAddr, constAddr, count, process);
+    }
+
+    void ScanConstantsWithinCode(PolyObject* addr, ScanAddress* process)
+        { ScanConstantsWithinCode(addr, addr->Length(), process); } // Common case
 
     virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes) {}
     virtual Architectures MachineArchitecture(void) = 0;

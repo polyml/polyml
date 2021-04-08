@@ -1,7 +1,7 @@
 /*
     Title:  exporter.h - Export a function as an object or C file
 
-    Copyright (c) 2006, 2015-17, 2020 David C.J. Matthews
+    Copyright (c) 2006, 2015-17, 2020-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -103,6 +103,17 @@ protected:
     // Have to follow pointers from closures into code.
     virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt);
     POLYUNSIGNED ScanAddress(PolyObject **pt);
+private:
+    enum _newAddrType {
+        NAWord,
+        NAMutable,
+        NANoOverwriteMutable,
+        NAByte,
+        NACode,
+        NACodeConst
+    };
+
+    PolyObject* newAddressForObject(POLYUNSIGNED words, enum _newAddrType naType);
 
 public:
     virtual PolyObject *ScanObjectAddress(PolyObject *base);

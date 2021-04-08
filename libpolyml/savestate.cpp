@@ -311,7 +311,7 @@ public:
 
 private:
     // ScanAddress overrides
-    virtual void ScanConstant(PolyObject *base, byte *addrOfConst, ScanRelocationKind code);
+    virtual void ScanConstant(PolyObject *base, byte *addrOfConst, ScanRelocationKind code, intptr_t displacement);
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
 
@@ -353,9 +353,9 @@ PolyWord SaveStateExport::createRelocation(PolyWord p, void *relocAddr)
 /* This is called for each constant within the code. 
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
+void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code, intptr_t displacement)
 {
-    PolyObject *p = GetConstantValue(addr, code);
+    PolyObject *p = GetConstantValue(addr, code, displacement);
 
     if (p == 0)
         return;
@@ -924,7 +924,7 @@ public:
 
     void RelocateObject(PolyObject *p);
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { ASSERT(0); return base; } // Not used
-    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code);
+    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement);
     void RelocateAddressAt(PolyWord *pt);
     PolyObject *RelocateAddress(PolyObject *obj);
     void AddTreeRange(SpaceBTree **t, unsigned index, uintptr_t startS, uintptr_t endS);
@@ -1036,17 +1036,14 @@ void LoadRelocate::RelocateObject(PolyObject *p)
         POLYUNSIGNED constCount;
         PolyWord *cp;
         ASSERT(! p->IsMutable() );
-        p->GetConstSegmentForCode(cp, constCount);
+        machineDependent->GetConstSegmentForCode(p, cp, constCount);
         /* Now the constant area. */
         for (POLYUNSIGNED i = 0; i < constCount; i++) RelocateAddressAt(&(cp[i]));
         // Saved states and modules have relocation entries for constants in the code.
         // We can't use them when loading object files in 32-in-64 so have to process the
         // constants here.
         if (processCodeConstants)
-        {
-            POLYUNSIGNED length = p->Length();
-            machineDependent->ScanConstantsWithinCode(p, p, length, this);
-        }
+            machineDependent->ScanConstantsWithinCode(p, this);
     }
     else if (p->IsClosureObject())
     {
@@ -1064,9 +1061,9 @@ void LoadRelocate::RelocateObject(PolyObject *p)
 }
 
 // Update addresses as constants within the code.
-void LoadRelocate::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
+void LoadRelocate::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement)
 {
-    PolyObject *p = GetConstantValue(addressOfConstant, code, originalBaseAddr);
+    PolyObject *p = GetConstantValue(addressOfConstant, code, displacement);
 
     if (p != 0)
     {

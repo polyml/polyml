@@ -355,7 +355,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(FirstArgument threadId, Poly
         if (pt->IsCodeObject()) /* Should now be a code object. */
         {
             /* Compiled code.  This is the first constant in the constant area. */
-            PolyWord *codePt = pt->ConstPtrForCode();
+            PolyWord *codePt = machineDependent->ConstPtrForCode(pt);
             PolyWord name = codePt[0];
             /* May be zero indicating an anonymous segment - return null string. */
             if (name == PolyWord::FromUnsigned(0))

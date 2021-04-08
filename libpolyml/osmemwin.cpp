@@ -40,17 +40,15 @@
 // Use Windows memory management.
 #include <windows.h>
 
-#ifdef POLYML32IN64
-OSMem::OSMem()
-{
-    memBase = 0;
-}
-
-OSMem::~OSMem()
+OSMemInRegion::OSMemInRegion(): memBase(0)
 {
 }
 
-bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBase /* = 0 */)
+OSMemInRegion::~OSMemInRegion()
+{
+}
+
+bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBase /* = 0 */)
 {
     memUsage = usage;
     // Get the page size and round up to that multiple.
@@ -87,7 +85,7 @@ bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBas
     return true;
 }
 
-void* OSMem::AllocateDataArea(size_t& space)
+void* OSMemInRegion::AllocateDataArea(size_t& space)
 {
     char* baseAddr;
     {
@@ -108,7 +106,7 @@ void* OSMem::AllocateDataArea(size_t& space)
     return VirtualAlloc(baseAddr, space, MEM_COMMIT, PAGE_READWRITE);
 }
 
-bool OSMem::FreeDataArea(void* p, size_t space)
+bool OSMemInRegion::FreeDataArea(void* p, size_t space)
 {
     char* addr = (char*)p;
     uintptr_t offset = (addr - memBase) / pageSize;
@@ -124,7 +122,7 @@ bool OSMem::FreeDataArea(void* p, size_t space)
     return true;
 }
 
-void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
+void* OSMemInRegion::AllocateCodeArea(size_t& space, void*& shadowArea)
 {
     char* baseAddr;
     {
@@ -149,7 +147,7 @@ void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
     return dataArea;
 }
 
-bool OSMem::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
+bool OSMemInRegion::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
 {
     ASSERT(codeAddr == dataAddr);
     char* addr = (char*)codeAddr;
@@ -166,13 +164,13 @@ bool OSMem::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
     return true;
 }
 
-bool OSMem::EnableWrite(bool enable, void* p, size_t space)
+bool OSMemInRegion::EnableWrite(bool enable, void* p, size_t space)
 {
     DWORD oldProtect;
     return VirtualProtect(p, space, enable ? PAGE_READWRITE : PAGE_READONLY, &oldProtect) == TRUE;
 }
 
-bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
+bool OSMemInRegion::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
     ASSERT(codeAddr == dataAddr);
     DWORD oldProtect;
@@ -180,18 +178,12 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
         memUsage == UsageExecutableCode ? PAGE_EXECUTE_READ : PAGE_READONLY, &oldProtect) == TRUE;
 }
 
-#else
+// These are needed in Unix but not in Windows.
+OSMemUnrestricted::OSMemUnrestricted() {}
 
-// Native address versions
-OSMem::OSMem()
-{
-}
+OSMemUnrestricted::~OSMemUnrestricted() {}
 
-OSMem::~OSMem()
-{
-}
-
-bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBase /* = 0 */)
+bool OSMemUnrestricted::Initialise(enum _MemUsage usage)
 {
     memUsage = usage;
     // Get the page size and round up to that multiple.
@@ -206,7 +198,7 @@ bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBas
 // Allocate space and return a pointer to it.  The size is the minimum
 // size requested and it is updated with the actual space allocated.
 // Returns NULL if it cannot allocate the space.
-void *OSMem::AllocateDataArea(size_t &space)
+void *OSMemUnrestricted::AllocateDataArea(size_t &space)
 {
     space = (space + pageSize - 1) & ~(pageSize - 1);
     DWORD options = MEM_RESERVE | MEM_COMMIT;
@@ -215,20 +207,20 @@ void *OSMem::AllocateDataArea(size_t &space)
 
 // Release the space previously allocated.  This must free the whole of
 // the segment.  The space must be the size actually allocated.
-bool OSMem::FreeDataArea(void *p, size_t space)
+bool OSMemUnrestricted::FreeDataArea(void *p, size_t space)
 {
     return VirtualFree(p, 0, MEM_RELEASE) == TRUE;
 }
 
 // Adjust the permissions on a segment.  This must apply to the
 // whole of a segment.
-bool OSMem::EnableWrite(bool enable, void* p, size_t space)
+bool OSMemUnrestricted::EnableWrite(bool enable, void* p, size_t space)
 {
     DWORD oldProtect;
     return VirtualProtect(p, space, enable ? PAGE_READWRITE: PAGE_READONLY, &oldProtect) == TRUE;
 }
 
-void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
+void* OSMemUnrestricted::AllocateCodeArea(size_t& space, void*& shadowArea)
 {
     space = (space + pageSize - 1) & ~(pageSize - 1);
     DWORD options = MEM_RESERVE | MEM_COMMIT;
@@ -238,19 +230,16 @@ void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
     return dataAddr;
 }
 
-bool OSMem::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
+bool OSMemUnrestricted::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
 {
     ASSERT(codeAddr == dataAddr);
     return VirtualFree(codeAddr, 0, MEM_RELEASE) == TRUE;
 }
 
-bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
+bool OSMemUnrestricted::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
     ASSERT(codeAddr == dataAddr);
     DWORD oldProtect;
     return VirtualProtect(codeAddr, space,
         memUsage == UsageExecutableCode ? PAGE_EXECUTE_READ : PAGE_READONLY, &oldProtect) == TRUE;
 }
-
-#endif
-

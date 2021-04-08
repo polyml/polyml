@@ -2,7 +2,7 @@
     Title:     Write out a database as an ELF object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011, 2016-18, 2020 David C. J. Matthews
+    Copyright (c) 2006-7, 2011, 2016-18, 2020-21 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -118,6 +118,8 @@
 #include "version.h"
 #include "polystring.h"
 #include "timing.h"
+#include "memmgr.h"
+
 
 #define sym_last_local_sym sym_data_section
 
@@ -344,10 +346,10 @@ PolyWord ELFExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsign
 /* This is called for each constant within the code. 
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
+void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code, intptr_t displacement)
 {
 #ifndef POLYML32IN64
-    PolyObject *p = GetConstantValue(addr, code);
+    PolyObject *p = GetConstantValue(addr, code, displacement);
 
     if (p == 0)
         return;
@@ -385,6 +387,8 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
 #endif
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
+            // We seem to need to subtract 4 bytes to get the correct offset in ELF
+            offset -= 4;
 #if USE_RELA
             ElfXX_Rela reloc;
             reloc.r_addend = offset;
@@ -392,17 +396,16 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
             ElfXX_Rel reloc;
 #endif
             setRelocationAddress(addr, &reloc.r_offset);
-            // We seem to need to subtract 4 bytes to get the correct offset in ELF
-            offset -= 4;
             reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PC_RELATIVE);
+            byte *writAble = gMem.SpaceForAddress(addr)->writeAble(addr);
 #if USE_RELA
             // Clear the field.  Even though it's not supposed to be used with Rela the
             // Linux linker at least seems to add the value in here sometimes.
-            memset(addr, 0, 4);
+            memset(writAble, 0, 4);
 #else
             for (unsigned i = 0; i < 4; i++)
             {
-                addr[i] = (byte)(offset & 0xff);
+                writAble[i] = (byte)(offset & 0xff);
                 offset >>= 8;
             }
 #endif
@@ -678,11 +681,23 @@ void ELFExport::exportStore(void)
             p++;
             PolyObject *obj = (PolyObject*)p;
             POLYUNSIGNED length = obj->Length();
-            // Update any constants before processing the object
-            // We need that for relative jumps/calls in X86/64.
             if (length != 0 && obj->IsCodeObject())
+            {
+                POLYUNSIGNED constCount;
+                PolyWord* cp;
+                // Get the constant area pointer first because ScanConstantsWithinCode
+                // may alter it.
+                machineDependent->GetConstSegmentForCode(obj, cp, constCount);
+                // Update any constants before processing the object
+                // We need that for relative jumps/calls in X86/64.
                 machineDependent->ScanConstantsWithinCode(obj, this);
-            relocateObject(obj);
+                if (cp > (PolyWord*)obj && cp < ((PolyWord*)obj) + length)
+                {
+                    // Process the constants if they're in the area but not if they've been moved.
+                    for (POLYUNSIGNED i = 0; i < constCount; i++) relocateValue(&(cp[i]));
+                }
+            }
+            else relocateObject(obj);
             p += length;
         }
         sections[relocSection].sh_size =

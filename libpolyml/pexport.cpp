@@ -196,7 +196,7 @@ void PExport::printObject(PolyObject *p)
         ASSERT(! p->IsMutable() );
         /* Work out the number of bytes in the code and the
            number of constants. */
-        p->GetConstSegmentForCode(cp, constCount);
+        machineDependent->GetConstSegmentForCode(p, cp, constCount);
         /* The byte count is the length of the segment minus the
            number of constants minus one for the constant count.
            It includes the marker word, byte count, profile count
@@ -253,9 +253,9 @@ void PExport::printObject(PolyObject *p)
 /* This is called for each constant within the code. 
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void PExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
+void PExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code, intptr_t displacement)
 {
-    PolyObject *p = GetConstantValue(addr, code);
+    PolyObject *p = GetConstantValue(addr, code, displacement);
     if (p == 0) return; // Don't put in tagged constants
 
     // Put in the byte offset and the relocation type code.

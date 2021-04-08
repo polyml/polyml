@@ -329,25 +329,6 @@ public:
 
     bool ContainsNormalLengthWord(void) const { return OBJ_IS_LENGTH(LengthWord()); }
 
-    // Find the start of the constant section for a piece of code.
-    // The first of these is really only needed because we may have objects whose length
-    // words have been overwritten.
-    void GetConstSegmentForCode(POLYUNSIGNED obj_length, PolyWord * &cp, POLYUNSIGNED &count) const
-    {
-        PolyWord *last_word  = Offset(obj_length - 1); // Last word in the code
-        cp = last_word + 1 + last_word->AsSigned() / sizeof(PolyWord);
-        count = cp[-1].AsUnsigned();
-    }
-    void GetConstSegmentForCode(PolyWord * &cp, POLYUNSIGNED &count) const
-    {
-        GetConstSegmentForCode(Length(), cp, count);
-    }
-    PolyWord *ConstPtrForCode(void) const
-    {
-        PolyWord *cp; POLYUNSIGNED count;
-        GetConstSegmentForCode(cp, count);
-        return cp;
-    }
     // Follow a chain of forwarding pointers
     PolyObject *FollowForwardingChain(void)
     {

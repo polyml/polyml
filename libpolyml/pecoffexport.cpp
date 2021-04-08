@@ -2,7 +2,7 @@
     Title:     Export memory as a PE/COFF object
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006, 2011, 2016-18 David C. J. Matthews
+    Copyright (c) 2006, 2011, 2016-18, 2020-21 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -159,11 +159,11 @@ void PECOFFExport::writeSymbol(const char *symbolName, __int32 value, int sectio
 /* This is called for each constant within the code. 
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
+void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code, intptr_t displacement)
 {
 #ifndef POLYML32IN64
     IMAGE_RELOCATION reloc;
-    PolyObject *p = GetConstantValue(addr, code);
+    PolyObject *p = GetConstantValue(addr, code, displacement);
 
     if (p == 0)
         return;
@@ -286,11 +286,23 @@ void PECOFFExport::exportStore(void)
             p++;
             PolyObject *obj = (PolyObject*)p;
             POLYUNSIGNED length = obj->Length();
-            // Update any constants before processing the object
-            // We need that for relative jumps/calls in X86/64.
             if (length != 0 && obj->IsCodeObject())
+            {
+                POLYUNSIGNED constCount;
+                PolyWord* cp;
+                // Get the constant area pointer first because ScanConstantsWithinCode
+                // may alter it.
+                machineDependent->GetConstSegmentForCode(obj, cp, constCount);
+                // Update any constants before processing the object
+                // We need that for relative jumps/calls in X86/64.
                 machineDependent->ScanConstantsWithinCode(obj, this);
-            relocateObject(obj);
+                if (cp > (PolyWord*)obj && cp < ((PolyWord*)obj) + length)
+                {
+                    // Process the constants if they're in the area but not if they've been moved.
+                    for (POLYUNSIGNED i = 0; i < constCount; i++) relocateValue(&(cp[i]));
+                }
+            }
+            else relocateObject(obj);
             p += length;
         }
             // If there are more than 64k relocations set this bit and set the value to 64k-1.

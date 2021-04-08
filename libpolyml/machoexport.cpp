@@ -2,7 +2,7 @@
     Title:     Write out a database as a Mach object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011-2, 2016-18, 2020 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-2, 2016-18, 2020-21 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -141,10 +141,10 @@ PolyWord MachoExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsi
 /* This is called for each constant within the code. 
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
+void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code, intptr_t displacement)
 {
 #ifndef POLYML32IN64
-    PolyObject *p = GetConstantValue(addr, code);
+    PolyObject *p = GetConstantValue(addr, code, displacement);
 
     if (p == 0)
         return;
@@ -401,8 +401,22 @@ void MachoExport::exportStore(void)
             PolyObject *obj = (PolyObject*)p;
             POLYUNSIGNED length = obj->Length();
             if (length != 0 && obj->IsCodeObject())
+            {
+                POLYUNSIGNED constCount;
+                PolyWord* cp;
+                // Get the constant area pointer first because ScanConstantsWithinCode
+                // may alter it.
+                machineDependent->GetConstSegmentForCode(obj, cp, constCount);
+                // Update any constants before processing the object
+                // We need that for relative jumps/calls in X86/64.
                 machineDependent->ScanConstantsWithinCode(obj, this);
-            relocateObject(obj);
+                if (cp > (PolyWord*)obj && cp < ((PolyWord*)obj) + length)
+                {
+                    // Process the constants if they're in the area but not if they've been moved.
+                    for (POLYUNSIGNED i = 0; i < constCount; i++) relocateValue(&(cp[i]));
+                }
+            }
+            else relocateObject(obj);
             p += length;
         }
         sections[i].nreloc = relocationCount;

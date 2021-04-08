@@ -147,18 +147,18 @@ static int createTemporaryFile()
     return -1;
 }
 
-#ifdef POLYML32IN64
-OSMem::OSMem()
+OSMemInRegion::OSMemInRegion()
 {
     memBase = 0;
     shadowFd = -1;
 }
 
-OSMem::~OSMem()
+OSMemInRegion::~OSMemInRegion()
 {
+    if (shadowFd != -1) close(shadowFd);
 }
 
-bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBase /* = 0 */)
+bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBase /* = 0 */)
 {
     memUsage = usage;
     pageSize = getpagesize();
@@ -228,7 +228,7 @@ bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBas
     return true;
 }
 
-void* OSMem::AllocateDataArea(size_t& space)
+void* OSMemInRegion::AllocateDataArea(size_t& space)
 {
     char* baseAddr;
     {
@@ -259,7 +259,7 @@ void* OSMem::AllocateDataArea(size_t& space)
     return baseAddr;
 }
 
-bool OSMem::FreeDataArea(void* p, size_t space)
+bool OSMemInRegion::FreeDataArea(void* p, size_t space)
 {
     char* addr = (char*)p;
     uintptr_t offset = (addr - memBase) / pageSize;
@@ -277,7 +277,7 @@ bool OSMem::FreeDataArea(void* p, size_t space)
     return true;
 }
 
-void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
+void* OSMemInRegion::AllocateCodeArea(size_t& space, void*& shadowArea)
 {
     uintptr_t offset;
     {
@@ -321,7 +321,7 @@ void* OSMem::AllocateCodeArea(size_t& space, void*& shadowArea)
     }
 }
 
-bool OSMem::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
+bool OSMemInRegion::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
 {
     // Free areas by mapping them with PROT_NONE.
     uintptr_t offset = ((char*)codeAddr - memBase) / pageSize;
@@ -348,13 +348,13 @@ bool OSMem::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
     return true;
 }
 
-bool OSMem::EnableWrite(bool enable, void* p, size_t space)
+bool OSMemInRegion::EnableWrite(bool enable, void* p, size_t space)
 {
     int res = mprotect(FIXTYPE p, space, enable ? PROT_READ|PROT_WRITE: PROT_READ);
     return res != -1;
 }
 
-bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
+bool OSMemInRegion::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
     int prot = PROT_READ;
     if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
@@ -362,22 +362,20 @@ bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
     return res != -1;
 }
 
-#else
-
 // Native address versions
 
-OSMem::OSMem()
+OSMemUnrestricted::OSMemUnrestricted()
 {
     allocPtr = 0;
     shadowFd = -1;
 }
 
-OSMem::~OSMem()
+OSMemUnrestricted::~OSMemUnrestricted()
 {
     if (shadowFd != -1) close(shadowFd);
 }
 
-bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBase /* = 0 */)
+bool OSMemUnrestricted::Initialise(enum _MemUsage usage)
 {
     memUsage = usage;
     pageSize = getpagesize();
@@ -406,7 +404,7 @@ bool OSMem::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void **pBas
 // Allocate space and return a pointer to it.  The size is the minimum
 // size requested and it is updated with the actual space allocated.
 // Returns NULL if it cannot allocate the space.
-void *OSMem::AllocateDataArea(size_t &space)
+void *OSMemUnrestricted::AllocateDataArea(size_t &space)
 {
     // Round up to an integral number of pages.
     space = (space + pageSize-1) & ~(pageSize-1);
@@ -426,18 +424,18 @@ void *OSMem::AllocateDataArea(size_t &space)
 
 // Release the space previously allocated.  This must free the whole of
 // the segment.  The space must be the size actually allocated.
-bool OSMem::FreeDataArea(void *p, size_t space)
+bool OSMemUnrestricted::FreeDataArea(void *p, size_t space)
 {
     return munmap(FIXTYPE p, space) == 0;
 }
 
-bool OSMem::EnableWrite(bool enable, void* p, size_t space)
+bool OSMemUnrestricted::EnableWrite(bool enable, void* p, size_t space)
 {
     int res = mprotect(FIXTYPE p, space, enable ? PROT_READ|PROT_WRITE: PROT_READ);
     return res != -1;
 }
 
-void *OSMem::AllocateCodeArea(size_t &space, void*& shadowArea)
+void *OSMemUnrestricted::AllocateCodeArea(size_t &space, void*& shadowArea)
 {
     // Round up to an integral number of pages.
     space = (space + pageSize-1) & ~(pageSize-1);
@@ -482,19 +480,17 @@ void *OSMem::AllocateCodeArea(size_t &space, void*& shadowArea)
     return readExec;
 }
 
-bool OSMem::FreeCodeArea(void *codeArea, void *dataArea, size_t space)
+bool OSMemUnrestricted::FreeCodeArea(void *codeArea, void *dataArea, size_t space)
 {
     bool freeCode = munmap(FIXTYPE codeArea, space) == 0;
     if (codeArea == dataArea) return freeCode;
     return (munmap(FIXTYPE dataArea, space) == 0) & freeCode;
 }
 
-bool OSMem::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
+bool OSMemUnrestricted::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space)
 {
     int prot = PROT_READ;
     if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
     int res = mprotect(FIXTYPE codeAddr, space, prot);
     return res != -1;
 }
-
-#endif

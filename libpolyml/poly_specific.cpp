@@ -315,7 +315,7 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
                 target = cWord.AsCodePtr();
             else target = *(POLYCODEPTR*)(cWord.AsObjPtr());
             size_t c = target - pointer - 4;
-            for (unsigned i = 0; i < sizeof(PolyWord); i++)
+            for (unsigned i = 0; i < 4; i++)
             {
                 writeable[i] = (byte)(c & 255);
                 c >>= 8;
