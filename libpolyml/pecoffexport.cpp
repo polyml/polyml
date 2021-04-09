@@ -168,34 +168,64 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
     if (p == 0)
         return;
 
-    void *a = p;
-    unsigned aArea = findArea(a);
-
-    // We don't need a relocation if this is relative to the current segment
-    // since the relative address will already be right.
-    if (code == PROCESS_RELOC_I386RELATIVE && aArea == findArea(addr))
-        return;
-
+    unsigned aArea = findArea(p);
     setRelocationAddress(addr, &reloc.VirtualAddress);
     // Set the value at the address to the offset relative to the symbol.
-    uintptr_t offset = (char*)a - (char*)memTable[aArea].mtOriginalAddr;
+    uintptr_t offset = (char*)p - (char*)memTable[aArea].mtOriginalAddr;
     reloc.SymbolTableIndex = aArea;
 
-    // The value we store here is the offset whichever relocation method
-    // we're using.
-    unsigned maxSize = code == PROCESS_RELOC_I386RELATIVE ? 4: sizeof(PolyWord);
-    for (unsigned i = 0; i < maxSize; i++)
+    switch (code)
     {
-        addr[i] = (byte)(offset & 0xff);
-        offset >>= 8;
+    case PROCESS_RELOC_DIRECT:
+    {
+        // The value we store here is the offset whichever relocation method
+        // we're using.
+        for (unsigned i = 0; i < sizeof(PolyWord); i++)
+        {
+            addr[i] = (byte)(offset & 0xff);
+            offset >>= 8;
+        }
+        reloc.Type = DIRECT_WORD_RELOCATION;
+        writeRelocation(&reloc);
+        break;
     }
 
-    if (code == PROCESS_RELOC_I386RELATIVE)
+    case PROCESS_RELOC_I386RELATIVE:
+    {
+        // We don't need a relocation if this is relative to the current segment
+        // since the relative address will already be right.
+        if (aArea == findArea(addr)) return;
+        for (unsigned i = 0; i < 4; i++)
+        {
+            addr[i] = (byte)(offset & 0xff);
+            offset >>= 8;
+        }
         reloc.Type = RELATIVE_32BIT_RELOCATION;
-    else
-        reloc.Type = DIRECT_WORD_RELOCATION;
+        writeRelocation(&reloc);
+        break;
+    }
 
-    writeRelocation(&reloc);
+    case PROCESS_RELOC_ARM64ADRPLDR:
+    {
+        // The first word is the ADRP, the second is LDR
+        reloc.Type = IMAGE_REL_ARM64_PAGEBASE_REL21;
+        writeRelocation(&reloc);
+        setRelocationAddress(addr+4, &reloc.VirtualAddress);
+        reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12L;
+        writeRelocation(&reloc);
+        // There doesn't seem to be any documentation to say how to
+        // fill in the target.  Assume that it's relative to the base.
+        uint32_t* pt = (uint32_t*)addr;
+        uintptr_t disp = offset >> 12;
+        pt[1] = (pt[1] & 0xffc003ff) | (((offset & 0xfff) / 8) << 10);
+        pt[0] = (pt[0] & 0x9f00001f) | ((disp & 3) << 29) | ((disp / 4) << 5);
+        break;
+    }
+
+    default:
+        ASSERT(0); // Unknown code
+    }
+
 #endif
 }
 

@@ -223,6 +223,24 @@ PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocatio
             byte *absAddr = pt + disp + 4 + displacement; // The address is relative to AFTER the constant
             return (PolyObject*)absAddr;
         }
+    case PROCESS_RELOC_ARM64ADRPLDR:
+        {
+            // This is a pair of instructions.
+            uint32_t* pt = (uint32_t*)addressOfConstant;
+            ASSERT((pt[0] & 0x9f000000) == 0x90000000);
+            ASSERT((pt[1] & 0xffc00000) == 0xf9400000); // The next should be the Load
+            // ADRP: This is complicated. The offset is encoded in two parts.
+            intptr_t disp = pt[0] & 0x00800000 ? -1 : 0; // Sign bit
+            disp = (disp << 19) + ((pt[0] & 0x00ffffe0) >> 5); // Add in immhi
+            disp = (disp << 2) + ((pt[0] >> 29) & 3); // Add in immlo
+            disp = disp << 12; // It's a page address
+            // The second word is LDR with a 12-bit unsigned offset.
+            // This is a scaled offset so the value is actually the offset / 8.
+            disp += ((pt[1] >> 10) & 0xfff) * 8;
+            uintptr_t addr = (uintptr_t)addressOfConstant;
+            addr = addr & -4096; // Clear the bottom 12 bits
+            return (PolyObject*)(addr + disp);
+        }
     default:
         ASSERT(false);
         return 0;
@@ -261,6 +279,21 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
             // When we have shifted it 32-bits the result there should
             // be no significant bits left.
             ASSERT(newDisp == 0 || newDisp == -1);
+        }
+        break;
+        case PROCESS_RELOC_ARM64ADRPLDR:
+        {
+            // This is a pair of instructions.
+            uint32_t* pt = (uint32_t*)addressOfConstant;
+            ASSERT((pt[0] & 0x9f000000) == 0x90000000);
+            ASSERT((pt[1] & 0xffc00000) == 0xf9400000); // The next should be the Load
+            intptr_t target = (intptr_t)p;
+            // LDR: The offset we put in here is a number of 8-byte words relative to
+            // the 4k-page.
+            pt[1] = (pt[1] & 0xffc003ff) | (((target & 0xfff) / 8) << 10);
+            // ADRP - 4k page address relative to the instruction.
+            intptr_t disp = (target >> 12) - ((intptr_t)addressOfConstant >> 12);
+            pt[0] = (pt[0] & 0x9f00001f) | ((disp & 3) << 29) | (((disp >> 2) & 0x7ffff) << 5);
         }
         break;
     }

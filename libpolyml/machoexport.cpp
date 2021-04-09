@@ -56,6 +56,7 @@
 #include <mach-o/reloc.h>
 #include <mach-o/nlist.h>
 #include <mach-o/x86_64/reloc.h>
+#include <mach-o/arm64/reloc.h>
 
 #ifdef HAVE_STRING_H
 #include <string.h>
@@ -126,11 +127,10 @@ PolyWord MachoExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsi
     relInfo.r_pcrel = 0;
 #if (SIZEOF_VOIDP == 8)
     relInfo.r_length = 3; // 8 bytes
-    relInfo.r_type = X86_64_RELOC_UNSIGNED;
 #else
     relInfo.r_length = 2; // 4 bytes
-    relInfo.r_type = GENERIC_RELOC_VANILLA;
 #endif
+    relInfo.r_type = GENERIC_RELOC_VANILLA;
     relInfo.r_extern = isExtern ? 1 : 0;
 
     fwrite(&relInfo, sizeof(relInfo), 1, exportFile);
@@ -158,19 +158,18 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
 
     switch (code)
     {
-    case PROCESS_RELOC_DIRECT: // 32 bit address of target
+    case PROCESS_RELOC_DIRECT: // 32/64 bit address of target
         {
             struct relocation_info reloc;
             setRelocationAddress(addr, &reloc.r_address);
             reloc.r_symbolnum = aArea+1; // Section numbers start at 1
             reloc.r_pcrel = 0;
-#if (defined(HOSTARCHITECTURE_X86_64))
+#if (SIZEOF_VOIDP == 8)
             reloc.r_length = 3; // 8 bytes
-            reloc.r_type = X86_64_RELOC_UNSIGNED;
 #else
             reloc.r_length = 2; // 4 bytes
-            reloc.r_type = GENERIC_RELOC_VANILLA;
 #endif
+            reloc.r_type = GENERIC_RELOC_VANILLA;
             reloc.r_extern = 0; // r_symbolnum is a section number.  It should be 1 if we make the IO area a common.
 
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
@@ -196,7 +195,7 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
                 reloc.r_pcrel = 1;
                 reloc.r_length = 2; // 4 bytes
 #if (defined(HOSTARCHITECTURE_X86_64))
-                reloc.r_type = X86_64_RELOC_SIGNED;
+                reloc.r_type = X86_64_RELOC_SIGNED; // Or X86_64_RELOC_BRANCH ?
 #else
                 reloc.r_type = GENERIC_RELOC_VANILLA;
 #endif
@@ -214,6 +213,31 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
                     offset >>= 8;
                 }
             }
+        }
+        break;
+     case PROCESS_RELOC_ARM64ADRPLDR:
+         {
+            unsigned addrArea = findArea(addr);
+            struct relocation_info reloc;
+            // The first instruction is ADRP
+            setRelocationAddress(addr, &reloc.r_address);
+            reloc.r_symbolnum = aArea + 1; // Section numbers start at 1
+            reloc.r_pcrel = 1;
+            reloc.r_length = 2; // 4 bytes
+            reloc.r_rtype = ARM64_RELOC_PAGE21;
+            reloc.r_extern = 0; // r_symbolnum is a section number.
+            fwrite(&reloc, sizeof(reloc), 1, exportFile);
+            relocationCount++;
+            // The second instruction is LDR
+            setRelocationAddress(addr+4, &reloc.r_address);
+            reloc.r_pcrel = 0; // This is an absolute 12-bit value
+            reloc.r_rtype = ARM64_RELOC_PAGEOFF12;
+            fwrite(&reloc, sizeof(reloc), 1, exportFile);
+            relocationCount++;
+            // Now we've found the target we can zero the data in the instructions.
+            uint32_t* instrAddr = (uint32_t*)addr;
+            addr[0] &= 0x9f00001f;
+            addr[1] &= 0xffc003ff;
         }
         break;
 #endif
@@ -240,11 +264,10 @@ void MachoExport::createStructsRelocation(unsigned sect, size_t offset)
     reloc.r_pcrel = 0;
 #if (SIZEOF_VOIDP == 8)
     reloc.r_length = 3; // 8 bytes
-    reloc.r_type = X86_64_RELOC_UNSIGNED;
 #else
     reloc.r_length = 2; // 4 bytes
-    reloc.r_type = GENERIC_RELOC_VANILLA;
 #endif
+    reloc.r_type = GENERIC_RELOC_VANILLA;
     reloc.r_extern = 0; // r_symbolnum is a section number.
 
     fwrite(&reloc, sizeof(reloc), 1, exportFile);

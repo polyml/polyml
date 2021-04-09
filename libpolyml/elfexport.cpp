@@ -414,6 +414,24 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
         }
         break;
 #endif
+     case PROCESS_RELOC_ARM64ADRPLDR: // ADRP/LDR pair
+        {
+             ElfXX_Rela reloc;
+             reloc.r_addend = offset;
+             setRelocationAddress(addr, &reloc.r_offset);
+             reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_AARCH64_ADR_PREL_PG_HI21);
+             fwrite(&reloc, sizeof(reloc), 1, exportFile);
+             relocationCount++;
+             setRelocationAddress(addr+4, &reloc.r_offset);
+             reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_AARCH64_LDST64_ABS_LO12_NC);
+             fwrite(&reloc, sizeof(reloc), 1, exportFile);
+             relocationCount++;
+             // Clear the offsets within the instruction just in case 
+             uint32_t* writAble = (uint32_t *)gMem.SpaceForAddress(addr)->writeAble(addr);
+             writAble[0] = (writAble[0] & 0x9f00001f);
+             writAble[1] = (writAble[1] & 0xffc003ff);
+        }
+        break;
         default:
             ASSERT(0); // Wrong type of relocation for this architecture.
     }

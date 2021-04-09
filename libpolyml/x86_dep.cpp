@@ -288,21 +288,28 @@ public:
     // During the first bootstrap phase this is interpreted.
     bool mustInterpret;
 
-    // Override for X86-64
+    // Override for X86-64 because of the need for position-independent code.
+#if (defined(HOSTARCHITECTURE_X86_64) && !defined(POLYML32IN64))
     // Find the start of the constant section for a piece of code.
     virtual void GetConstSegmentForCode(PolyObject* obj, POLYUNSIGNED obj_length, PolyWord*& cp, POLYUNSIGNED& count) const
     {
         PolyWord* last_word = obj->Offset(obj_length - 1); // Last word in the code
-#ifdef HOSTARCHITECTURE_X86_64
         // Only the low order 32-bits are valid since this may be
         // set by a 32-bit relative relocation.
         int32_t offset = (int32_t)last_word->AsSigned();
-#else
         POLYSIGNED offset = last_word->AsSigned();
-#endif
         cp = last_word + 1 + offset / sizeof(PolyWord);
         count = cp[-1].AsUnsigned();
     }
+    // Set the address of the constant area.  The default is a relative byte offset.
+    virtual void SetAddressOfConstants(PolyObject* objAddr, PolyObject* writable, POLYUNSIGNED length, PolyWord* constAddr)
+    {
+        int64_t offset = (byte*)constAddr - (byte*)objAddr - length * sizeof(PolyWord);
+        ASSERT(offset >= -(int64_t)0x80000000 && offset <= (int64_t)0x7fffffff);
+        ASSERT(offset < ((int64_t)1) << 32 && offset >((int64_t)(-1)) << 32);
+        writable->Set(length - 1, PolyWord::FromSigned(offset & 0xffffffff));
+    }
+#endif
 };
 
 static X86Dependent x86Dependent;

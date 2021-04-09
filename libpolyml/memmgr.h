@@ -437,9 +437,11 @@ private:
     OSMemInRegion osHeapAlloc, osStackAlloc, osCodeAlloc;
 #else
     OSMemUnrestricted osHeapAlloc, osStackAlloc;
-#ifdef HOSTARCHITECTURE_X86_64
-    // For X86/64 put the code in a 2GB area so it is always
-    // possible to use 32-bit relative displacements.
+#if (defined(HOSTARCHITECTURE_X86_64) || defined(HOSTARCHITECTURE_AARCH64))
+    // On the X86/64 and the ARM64 we need to put the code in a 2GB area.
+    // This allows 32-bit relative displacements for branches in X86 and
+    // also ensures that if we split the constant area for PIC the offsets
+    // are within the range.
     OSMemInRegion osCodeAlloc;
 #else
     OSMemUnrestricted osCodeAlloc;

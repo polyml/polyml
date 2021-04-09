@@ -763,7 +763,7 @@ bool PImport::DoImport()
                 break;
             }
 
-        case 'D':
+//      case 'D':
         case 'F':
             {
                 bool newForm = ch == 'F';
@@ -788,7 +788,7 @@ bool PImport::DoImport()
                 if (newForm)
                 {
                     wr->Set(length - nWords - 2, PolyWord::FromUnsigned(nWords));
-                    wr->Set(length - 1, PolyWord::FromSigned((0-nWords-1)*sizeof(PolyWord)));
+                    machineDependent->SetAddressOfConstants(p, wr, length, p->Offset(length - nWords - 1));
                 }
                 else wr->Set(length-1, PolyWord::FromUnsigned(nWords));
                 /* Read in the constants. */

@@ -356,7 +356,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     else if (obj->IsByteObject()) naType = NAByte;
     else naType = NAWord;
     PolyObject* newObj;
-#if(defined(HOSTARCHITECTURE_X86_64) && ! defined(POLYML32IN64))
+#if((defined(HOSTARCHITECTURE_X86_64) || defined(HOSTARCHITECTURE_AARCH64)) && ! defined(POLYML32IN64))
     // Split the constant area off into a separate object.  This allows us to create a
     // position-independent executable.
     if (obj->IsCodeObject() && hierarchy == 0)
@@ -378,12 +378,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         PolyObject* newConsts = newAddressForObject(numConsts, NACodeConst);
         newConsts->SetLengthWord(numConsts);
         memcpy(newConsts, constPtr, numConsts * sizeof(PolyWord));
-        // Set the last word of the new area to the offset of the constants from the end of
-        // the code.
-        int64_t offset = (byte*)newConsts - (byte*)newObj - codeAreaSize * sizeof(PolyWord);
-        ASSERT(offset >= -(int64_t)0x80000000 && offset <= (int64_t)0x7fffffff);
-        ASSERT(offset < ((int64_t)1) << 32 && offset > ((int64_t)(-1)) << 32);
-        writable->Set(codeAreaSize - 1, PolyWord::FromSigned(offset));
+        machineDependent->SetAddressOfConstants(newObj, writable, codeAreaSize, (PolyWord*)newConsts);
     }
     else
 #endif

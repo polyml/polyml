@@ -192,6 +192,9 @@ public:
     // Create a task data object.
     virtual TaskData* CreateTaskData(void) { return new Arm64TaskData(); }
 
+    virtual void ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAddr, POLYUNSIGNED length,
+        PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress* process);
+
     virtual Architectures MachineArchitecture(void);
 
     virtual void SetBootArchitecture(char arch, unsigned wordLength);
@@ -201,6 +204,19 @@ public:
 
     // During the first bootstrap phase this is interpreted.
     bool mustInterpret;
+
+    // Address of the constant segment from the code segment.  This is complicated because
+    // some OSs require the code to position-independent which means the code can only
+    // contain relative offsets.
+
+    // Set the address of the constant area.  The default is a relative byte offset.
+    virtual void SetAddressOfConstants(PolyObject* objAddr, PolyObject* writable, POLYUNSIGNED length, PolyWord* constAddr)
+    {
+        int64_t offset = (byte*)constAddr - (byte*)objAddr - length * sizeof(PolyWord);
+        ASSERT(offset >= -(int64_t)0x80000000 && offset <= (int64_t)0x7fffffff);
+        ASSERT(offset < ((int64_t)1) << 32 && offset >((int64_t)(-1)) << 32);
+        writable->Set(length - 1, PolyWord::FromSigned(offset));
+    }
 };
 
 static Arm64Dependent arm64Dependent;
@@ -762,6 +778,50 @@ void Arm64TaskData::SaveMemRegisters()
     allocWords = 0;
     assemblyInterface.exceptionPacket = TAGGED(0);
     saveRegisterMask = 0;
+}
+
+// Process addresses in the code.  The only case where we need to do that on the ARM64 is to deal
+// with spltting the constant area from the code in order to make the code position-independent.
+// We need to convert pc-relative LDR instructions into ADRP/LDR pairs.
+void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAddr, POLYUNSIGNED length,
+    PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress* process)
+{
+#ifndef POLYML32IN64
+    arm64CodePointer pt = (arm64CodePointer)addr;
+    // We only need a split if the constant area is not at the original offset.
+    intptr_t constAdjustment =
+        (PolyObject*)newConstAddr - (PolyObject*)addr - ((PolyObject*)oldConstAddr - (PolyObject*)oldAddr);
+    while (*pt != 0) // The code ends with a UDF instruction (0)
+    {
+        if ((*pt & 0xbf000000) == 0x18000000) // LDR with pc-relative offset
+        {
+            // This could be a reference to the constant area or to the non-address area.
+            // References to the constant area are followed by a nop
+            if (constAdjustment != 0 && pt[1] == 0xd503201f)
+            {
+                unsigned reg = pt[0] & 0x1f;
+                // The displacement is a signed multiple of 4 bytes but it will always be +ve
+                ASSERT((pt[0] & 0x00800000) == 0);
+                PolyObject* p = (PolyObject*)(pt + ((pt[0] >> 5) & 0x7fff));
+                p += constAdjustment;
+                pt[0] = 0x90000000 + reg; // ADRP Xn, 0
+                pt[1] = 0xf9400000 + (reg << 5) + reg; // LDR Xn,[Xn+#0]
+                ScanAddress::SetConstantValue((byte*)pt, p, PROCESS_RELOC_ARM64ADRPLDR);
+                PolyObject *check = ScanAddress::GetConstantValue((byte*)pt, PROCESS_RELOC_ARM64ADRPLDR, 0);
+                ASSERT(check == p);
+            }
+        }
+        else if ((*pt & 0x9f000000) == 0x90000000) // ADRP instruction
+        {
+            // These only occur after we have converted LDRs above
+            ASSERT((pt[1] & 0xffc00000) == 0xf9400000); // The next should be the Load
+            // For the moment assume that this does not require a move.
+            ASSERT(addr == oldAddr && newConstAddr == oldConstAddr);
+            process->RelocateOnly(addr, (byte*)pt, PROCESS_RELOC_ARM64ADRPLDR);
+        }
+        pt++;
+    }
+#endif
 }
 
 // As far as possible we want locking and unlocking an ML mutex to be fast so

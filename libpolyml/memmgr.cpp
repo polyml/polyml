@@ -169,7 +169,7 @@ bool MemMgr::Initialise()
     if (!osHeapAlloc.Initialise(OSMem::UsageData) || !osStackAlloc.Initialise(OSMem::UsageStack))
         return false;
 #endif
-#if (defined(POLYML32IN64) || defined(HOSTARCHITECTURE_X86_64))
+#if (defined(POLYML32IN64) || defined(HOSTARCHITECTURE_X86_64) || defined(HOSTARCHITECTURE_AARCH64))
     // Reserve a 2G area for the code.
     void* codeBase;
     if (!osCodeAlloc.Initialise(executableCodeWhereNecessary,
