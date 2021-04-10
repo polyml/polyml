@@ -1034,7 +1034,7 @@ struct
     fun genCode(ops, addressConsts, nonAddressConsts) =
     let
         val codeSize = setLabelsAndSizes ops (* Number of 32-bit instructions *)
-        val wordsOfCode = (codeSize + 0w1) div 0w2 (* Round up to 64-bits *)
+        val wordsOfCode = (codeSize + 0w2) div 0w2 (* Round up to 64-bits with the UDF marker(s) added. *)
         (* Put one or two UDF instructions at the end as markers. *)
         val endOfCodeWords =
             if Word.andb(codeSize, 0w1) = 0w0 then [SimpleInstr undefCode, SimpleInstr undefCode] else [SimpleInstr undefCode]

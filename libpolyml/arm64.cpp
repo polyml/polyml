@@ -788,9 +788,12 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
 {
 #ifndef POLYML32IN64
     arm64CodePointer pt = (arm64CodePointer)addr;
+     // If it begins with the enter-int sequence it's interpreted code.
+    if (pt[0] == 0xAA1E03E9 && pt[1] == 0xF9400350 && pt[2] == 0xD63F0200)
+        return;
     // We only need a split if the constant area is not at the original offset.
-    intptr_t constAdjustment =
-        (PolyObject*)newConstAddr - (PolyObject*)addr - ((PolyObject*)oldConstAddr - (PolyObject*)oldAddr);
+    POLYSIGNED constAdjustment =
+        (byte*)newConstAddr - (byte*)addr - ((byte*)oldConstAddr - (byte*)oldAddr);
     while (*pt != 0) // The code ends with a UDF instruction (0)
     {
         if ((*pt & 0xbf000000) == 0x18000000) // LDR with pc-relative offset
@@ -802,13 +805,12 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
                 unsigned reg = pt[0] & 0x1f;
                 // The displacement is a signed multiple of 4 bytes but it will always be +ve
                 ASSERT((pt[0] & 0x00800000) == 0);
-                PolyObject* p = (PolyObject*)(pt + ((pt[0] >> 5) & 0x7fff));
-                p += constAdjustment;
+                // The constant address is relative to the new location of the code.
+                byte* constAddress = (byte*)(pt + ((pt[0] >> 5) & 0x7ffff));
+                byte* newAddress = (byte*)constAddress + constAdjustment;
                 pt[0] = 0x90000000 + reg; // ADRP Xn, 0
                 pt[1] = 0xf9400000 + (reg << 5) + reg; // LDR Xn,[Xn+#0]
-                ScanAddress::SetConstantValue((byte*)pt, p, PROCESS_RELOC_ARM64ADRPLDR);
-                PolyObject *check = ScanAddress::GetConstantValue((byte*)pt, PROCESS_RELOC_ARM64ADRPLDR, 0);
-                ASSERT(check == p);
+                ScanAddress::SetConstantValue((byte*)pt, (PolyObject*)newAddress, PROCESS_RELOC_ARM64ADRPLDR);
             }
         }
         else if ((*pt & 0x9f000000) == 0x90000000) // ADRP instruction

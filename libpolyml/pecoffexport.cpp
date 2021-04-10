@@ -216,7 +216,7 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
         // There doesn't seem to be any documentation to say how to
         // fill in the target.  Assume that it's relative to the base.
         uint32_t* pt = (uint32_t*)addr;
-        uintptr_t disp = offset >> 12;
+        uint32_t disp = (uint32_t)(offset >> 12);
         pt[1] = (pt[1] & 0xffc003ff) | (((offset & 0xfff) / 8) << 10);
         pt[0] = (pt[0] & 0x9f00001f) | ((disp & 3) << 29) | ((disp / 4) << 5);
         break;
