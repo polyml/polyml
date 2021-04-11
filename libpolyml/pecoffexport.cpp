@@ -208,17 +208,21 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
     case PROCESS_RELOC_ARM64ADRPLDR:
     {
         // The first word is the ADRP, the second is LDR
+        setRelocationAddress(addr, &reloc.VirtualAddress);
         reloc.Type = IMAGE_REL_ARM64_PAGEBASE_REL21;
         writeRelocation(&reloc);
         setRelocationAddress(addr+4, &reloc.VirtualAddress);
         reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12L;
         writeRelocation(&reloc);
         // There doesn't seem to be any documentation to say how to
-        // fill in the target.  Assume that it's relative to the base.
+        // fill in the target.  It turns out that the offset relative to
+        // the symbol is encoded in the ADRP as a BYTE offset, despite the
+        // final value, after relocation, being a page offset.  The low-order
+        // bits of the offset are encoded in the LDR as a normal page offset.
+        ASSERT(offset <= 0x1fffff);
         uint32_t* pt = (uint32_t*)addr;
-        uint32_t disp = (uint32_t)(offset >> 12);
+        pt[0] = (pt[0] & 0x9f00001f) | ((offset & 3) << 29) | ((offset >> 2) << 5);
         pt[1] = (pt[1] & 0xffc003ff) | (((offset & 0xfff) / 8) << 10);
-        pt[0] = (pt[0] & 0x9f00001f) | ((disp & 3) << 29) | ((disp / 4) << 5);
         break;
     }
 
