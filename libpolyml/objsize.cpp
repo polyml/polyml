@@ -227,6 +227,10 @@ void ProcessVisitAddresses::ShowCode(PolyObject *start)
         }
     }
 
+    // TODO: This will only print the constants if they are part of
+    // the code.  If they have been split off they will still be scanned
+    // but they won't be printed and their size won't be included.
+
     if (i != 0) putc('\n', polyStdout);
 }
 
