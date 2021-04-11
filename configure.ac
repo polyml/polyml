@@ -41,7 +41,6 @@ poly_need_macosopt=no
 case "${host_os}" in
     darwin*)
         AC_SUBST([OSFLAG], [-DMACOSX])
-        poly_need_macosopt=yes
         ;;
     sunos* | solaris*)
         AC_SUBST([OSFLAG], [-DSOLARIS])
@@ -537,8 +536,6 @@ AM_CONDITIONAL([WINDOWSCALLCONV], [test "$poly_use_windowscc" = yes])
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
 AM_CONDITIONAL([WINDOWSGUI], [test x$poly_windows_enablegui = xtrue])
-
-AM_CONDITIONAL([MACOSLDOPTS], [test "$poly_need_macosopt" = yes ])
 
 # If we're building only the static version of libpolyml
 # then polyc and polyml.pc have to include the dependent libraries.

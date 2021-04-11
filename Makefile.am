@@ -56,10 +56,6 @@ POLYOBJECTFILE = polyexport.o
 OBJECTSUFFIX=o
 endif
 
-if MACOSLDOPTS
-poly_LDFLAGS += -Wl,-no_pie
-endif
-
 poly_SOURCES = 
 poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
 

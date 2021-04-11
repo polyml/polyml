@@ -99,7 +99,6 @@ bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT)
 @NATIVE_WINDOWS_TRUE@@WINDOWSGUI_FALSE@am__append_6 = -mconsole
 @NATIVE_WINDOWS_TRUE@am__append_7 = $(EXTRALDFLAGS)
 @NATIVE_WINDOWS_TRUE@am__append_8 = polyresource.o
-@MACOSLDOPTS_TRUE@am__append_9 = -Wl,-no_pie
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
@@ -447,7 +446,7 @@ man_MANS = poly.1 polyimport.1 polyc.1
 # Select the pre-built compiler
 @BOOT64_TRUE@POLYIMPORT = $(srcdir)/bootstrap/bootstrap64.txt
 noinst_HEADERS = polyexports.h
-poly_LDFLAGS = $(am__append_7) $(am__append_9)
+poly_LDFLAGS = $(am__append_7)
 polyimport_LDFLAGS = $(am__append_4) $(am__append_6)
 POLYRESOURCES = $(am__append_8)
 EXTRALDFLAGS = $(am__append_1) $(am__append_2) $(am__append_3) \

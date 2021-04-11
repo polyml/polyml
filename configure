@@ -642,8 +642,6 @@ polyc_CFLAGS
 GIT_VERSION
 gitinstalled
 dependentlibs
-MACOSLDOPTS_FALSE
-MACOSLDOPTS_TRUE
 WINDOWSGUI_FALSE
 WINDOWSGUI_TRUE
 NO_UNDEFINED_FALSE
@@ -5084,7 +5082,6 @@ case "${host_os}" in
     darwin*)
         OSFLAG=-DMACOSX
 
-        poly_need_macosopt=yes
         ;;
     sunos* | solaris*)
         OSFLAG=-DSOLARIS
@@ -22302,15 +22299,6 @@ else
 fi
 
 
- if test "$poly_need_macosopt" = yes ; then
-  MACOSLDOPTS_TRUE=
-  MACOSLDOPTS_FALSE='#'
-else
-  MACOSLDOPTS_TRUE='#'
-  MACOSLDOPTS_FALSE=
-fi
-
-
 # If we're building only the static version of libpolyml
 # then polyc and polyml.pc have to include the dependent libraries.
 dependentlibs=""
@@ -22623,10 +22611,6 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${WINDOWSGUI_TRUE}" && test -z "${WINDOWSGUI_FALSE}"; then
   as_fn_error $? "conditional \"WINDOWSGUI\" was never defined.
-Usually this means the macro was only invoked conditionally." "$LINENO" 5
-fi
-if test -z "${MACOSLDOPTS_TRUE}" && test -z "${MACOSLDOPTS_FALSE}"; then
-  as_fn_error $? "conditional \"MACOSLDOPTS\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${INTINFISINT_TRUE}" && test -z "${INTINFISINT_FALSE}"; then
