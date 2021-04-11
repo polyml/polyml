@@ -297,7 +297,6 @@ public:
         // Only the low order 32-bits are valid since this may be
         // set by a 32-bit relative relocation.
         int32_t offset = (int32_t)last_word->AsSigned();
-        POLYSIGNED offset = last_word->AsSigned();
         cp = last_word + 1 + offset / sizeof(PolyWord);
         count = cp[-1].AsUnsigned();
     }

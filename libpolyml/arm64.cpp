@@ -205,18 +205,75 @@ public:
     // During the first bootstrap phase this is interpreted.
     bool mustInterpret;
 
+#if (! defined(POLYML32IN64))
     // Address of the constant segment from the code segment.  This is complicated because
     // some OSs require the code to position-independent which means the code can only
-    // contain relative offsets.
+    // contain relative offsets.  This isn't a problem for 32-in-64 because the code is
+    // copied before it is executed.
 
+    // Set the address of the constant area.  If this is within the code segment itself we use the
+    // default, negative, byte offset.  If the constant area has been split off we use a pair of
+    // dummy ADRP/LDR instructions.  They aren't ever executed but allow us to use relative addressing.
+    virtual void SetAddressOfConstants(PolyObject* objAddr, PolyObject* writable, POLYUNSIGNED length, PolyWord* constAddr)
+    {
+        if (constAddr > (PolyWord*)objAddr && constAddr < (PolyWord*)objAddr + length)
+        {
+            int64_t offset = (byte*)constAddr - (byte*)objAddr - length * sizeof(PolyWord);
+            writable->Set(length - 1, PolyWord::FromSigned(offset));
+        }
+        else
+        {
+            PolyWord* last_word = objAddr->Offset(length - 1); // Last word in the code
+            MemSpace* space = gMem.SpaceForAddress(last_word);
+            uint32_t* pt = (uint32_t*)space->writeAble(last_word);
+            pt[0] = 0x90000000; // Insert dummy ADRP and LDR
+            pt[1] = 0xf9400000;
+            ScanAddress::SetConstantValue((byte*)last_word, (PolyObject*)constAddr, PROCESS_RELOC_ARM64ADRPLDR);
+        }
+    }
+
+    virtual void GetConstSegmentForCode(PolyObject* obj, POLYUNSIGNED obj_length, PolyWord*& cp, POLYUNSIGNED& count) const
+    {
+        PolyWord* last_word = obj->Offset(obj_length - 1); // Last word in the code
+        if ((last_word[0].AsUnsigned() >> 56) == 0xff)
+        {
+            // If the high-order byte is 0xff it's a (-ve) byte offset.
+            POLYSIGNED offset = last_word->AsSigned();
+            cp = last_word + 1 + offset / sizeof(PolyWord);
+            count = cp[-1].AsUnsigned();
+        }
+        else
+        {
+            PolyObject* addr = ScanAddress::GetConstantValue((byte*)last_word, PROCESS_RELOC_ARM64ADRPLDR, 0);
+            cp = (PolyWord*)addr;
+            count = addr->Length();
+        }
+
+    }
+#endif
+
+    // Override for X86-64 because of the need for position-independent code.
+#if (defined(HOSTARCHITECTURE_X86_64) && !defined(POLYML32IN64))
+    // Find the start of the constant section for a piece of code.
+    virtual void GetConstSegmentForCode(PolyObject* obj, POLYUNSIGNED obj_length, PolyWord*& cp, POLYUNSIGNED& count) const
+    {
+        PolyWord* last_word = obj->Offset(obj_length - 1); // Last word in the code
+        // Only the low order 32-bits are valid since this may be
+        // set by a 32-bit relative relocation.
+        int32_t offset = (int32_t)last_word->AsSigned();
+        POLYSIGNED offset = last_word->AsSigned();
+        cp = last_word + 1 + offset / sizeof(PolyWord);
+        count = cp[-1].AsUnsigned();
+    }
     // Set the address of the constant area.  The default is a relative byte offset.
     virtual void SetAddressOfConstants(PolyObject* objAddr, PolyObject* writable, POLYUNSIGNED length, PolyWord* constAddr)
     {
         int64_t offset = (byte*)constAddr - (byte*)objAddr - length * sizeof(PolyWord);
         ASSERT(offset >= -(int64_t)0x80000000 && offset <= (int64_t)0x7fffffff);
         ASSERT(offset < ((int64_t)1) << 32 && offset >((int64_t)(-1)) << 32);
-        writable->Set(length - 1, PolyWord::FromSigned(offset));
+        writable->Set(length - 1, PolyWord::FromSigned(offset & 0xffffffff));
     }
+#endif
 };
 
 static Arm64Dependent arm64Dependent;
@@ -794,6 +851,11 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
     // We only need a split if the constant area is not at the original offset.
     POLYSIGNED constAdjustment =
         (byte*)newConstAddr - (byte*)addr - ((byte*)oldConstAddr - (byte*)oldAddr);
+    // If we have replaced the offset with a dummy ADRP/LDR pair we have to add a relocation.
+    PolyWord* end = addr->Offset(length - 1);
+    if ((end[0].AsUnsigned() >> 56) != 0xff)
+        process->RelocateOnly(addr, (byte*)end, PROCESS_RELOC_ARM64ADRPLDR);
+
     while (*pt != 0) // The code ends with a UDF instruction (0)
     {
         if ((*pt & 0xbf000000) == 0x18000000) // LDR with pc-relative offset

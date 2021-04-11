@@ -356,9 +356,13 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     else if (obj->IsByteObject()) naType = NAByte;
     else naType = NAWord;
     PolyObject* newObj;
-#if((defined(HOSTARCHITECTURE_X86_64) || defined(HOSTARCHITECTURE_AARCH64)) && ! defined(POLYML32IN64))
-    // Split the constant area off into a separate object.  This allows us to create a
-    // position-independent executable.
+#if((defined(HOSTARCHITECTURE_X86_64) || defined(HOSTARCHITECTURE_AARCH64)) && ! defined(POLYML32IN64) && !defined(CODEISNOTEXECUTABLE) && !defined(_WIN32))
+    // SELinux, OpenBSD and Mac OS, at least on the ARM, require or prefer executavle code segments without
+    // absolute addresses: position-independent code.
+    // That means the constant area cannot be in the same segment as the code.  We have to split the constant area
+    // out and put it into the read-only, non-executable area.
+    // Interpreted code and code for 32-in-64 aren't executable (32-in-64 code is copied during start-up).
+    // We also don't need this on Windows, thankfully.
     if (obj->IsCodeObject() && hierarchy == 0)
     {
         PolyWord* constPtr;
@@ -454,7 +458,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         POLYUNSIGNED count;
         machineDependent->GetConstSegmentForCode(obj, OBJ_OBJECT_LENGTH(originalLengthWord), oldConstAddr, count);
         PolyWord *newConstAddr = machineDependent->ConstPtrForCode(newObj);
-        machineDependent->ScanConstantsWithinCode(newObj, obj, words, newConstAddr, oldConstAddr, count, this);
+        machineDependent->ScanConstantsWithinCode(newObj, obj, newObj->Length(), newConstAddr, oldConstAddr, count, this);
     }
     *pt = newObj; // Update it to the newly copied object.
     return lengthWord;  // This new object needs to be scanned.
