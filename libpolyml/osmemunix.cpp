@@ -98,11 +98,6 @@
 #define FIXTYPE
 #endif
 
-// MAP_JIT is needed on Mac OS with hardened kernel
-#ifndef MAP_JIT
-#define MAP_JIT 0
-#endif
-
 // Open a temporary file, unlink it and return the file descriptor.
 static int openTmpFile(const char* dirName)
 {
@@ -167,7 +162,11 @@ bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, voi
     else
     {
         // Can we allocate memory with write+execute?
-        void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON|MAP_JIT, -1, 0);
+        void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
+#ifdef MAP_JIT
+        if (test == MAP_FAILED)
+            test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON|MAP_JIT, -1, 0);
+#endif
         if (test != MAP_FAILED)
         {
             munmap(FIXTYPE test, pageSize);
@@ -381,7 +380,11 @@ bool OSMemUnrestricted::Initialise(enum _MemUsage usage)
     pageSize = getpagesize();
     if (usage != UsageExecutableCode) return true;
     // Can we allocate memory with write+execute?
-    void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_JIT|MAP_PRIVATE|MAP_ANON, -1, 0);
+    void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
+#ifdef MAP_JIT
+    if (test == MAP_FAILED)
+        test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_JIT|MAP_PRIVATE|MAP_ANON, -1, 0);
+#endif
     if (test != MAP_FAILED)
     {
         // Don't require shadow area
@@ -444,13 +447,13 @@ void *OSMemUnrestricted::AllocateCodeArea(size_t &space, void*& shadowArea)
     {
         int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
         int prot = PROT_READ | PROT_WRITE;
-        int flags = MAP_PRIVATE|MAP_ANON;
         if (memUsage == UsageExecutableCode)
-        {
             prot |= PROT_EXEC;
-            flags |= MAP_JIT;
-        }
-        void *result = mmap(0, space, prot, flags, fd, 0);
+        void *result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON, fd, 0);
+#ifdef MAP_JIT
+        if (result == MAP_FAILED && memUsage == UsageExecutableCode)
+            result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON|MAP_JIT, fd, 0);
+#endif
         // Convert MAP_FAILED (-1) into NULL
         if (result == MAP_FAILED)
             return 0;
