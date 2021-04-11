@@ -414,7 +414,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
                 PolyWord *tombAddr = g->graves + ((PolyWord*)obj - g->startAddr);
                 PolyObject *tombObject = (PolyObject*)tombAddr;
 #ifdef POLYML32IN64
-                if (isCodeObj)
+                if (naType == NACode)
                 {
                     POLYUNSIGNED ll = (POLYUNSIGNED)(((PolyWord*)newObj - globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT);
                     tombObject->SetLengthWord(ll);

@@ -163,7 +163,7 @@ bool MemMgr::Initialise()
     // Allocate a 4 gbyte area for the stacks.
     // It's important that the stack and code areas have addresses with
     // non-zero top 32-bits.
-    if (!osStackAlloc.Initialise(OSMem::UsageStack, (size_t)4 * 1024 * 1024 * 1024))
+    if (!osStackAlloc.Initialise(OSMem::UsageStack, (size_t)4 * 1024 * 1024 * 1024, 0))
         return false;
 #else
     if (!osHeapAlloc.Initialise(OSMem::UsageData) || !osStackAlloc.Initialise(OSMem::UsageStack))

@@ -154,7 +154,6 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
 
     // Set the value at the address to the offset relative to the symbol.
     size_t offset = (char*)a - (char*)memTable[aArea].mtOriginalAddr;
-    adjustOffset(aArea, offset);
 
     switch (code)
     {
@@ -171,6 +170,8 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
 #endif
             reloc.r_type = GENERIC_RELOC_VANILLA;
             reloc.r_extern = 0; // r_symbolnum is a section number.  It should be 1 if we make the IO area a common.
+            // Adjust offset since this is section-relative
+            adjustOffset(aArea, offset);
 
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
             {
@@ -203,6 +204,8 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
                 fwrite(&reloc, sizeof(reloc), 1, exportFile);
                 relocationCount++;
 
+                // Adjust offset since this is section-relative
+                adjustOffset(aArea, offset);
                 size_t addrOffset = (char*)addr - (char*)memTable[addrArea].mtOriginalAddr;
                 adjustOffset(addrArea, addrOffset);
                 offset -= addrOffset + 4;
@@ -215,29 +218,45 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
             }
         }
         break;
+#endif
+#if (defined(HOSTARCHITECTURE_AARCH64))
      case PROCESS_RELOC_ARM64ADRPLDR:
          {
+            // This seems to be completely undocumented and has been worked out
+            // by some reverse-engineering and trial-and-error.  Have to use
+            // symbol-relative addressing with the offset provided by a
+            // ARM64_RELOC_ADDEND "relocation" that affects the next entry.
             unsigned addrArea = findArea(addr);
             struct relocation_info reloc;
+            // We need four relocations here.
             // The first instruction is ADRP
             setRelocationAddress(addr, &reloc.r_address);
-            reloc.r_symbolnum = aArea + 1; // Section numbers start at 1
             reloc.r_pcrel = 1;
             reloc.r_length = 2; // 4 bytes
-            reloc.r_rtype = ARM64_RELOC_PAGE21;
-            reloc.r_extern = 0; // r_symbolnum is a section number.
+            reloc.r_type = ARM64_RELOC_ADDEND;
+            reloc.r_symbolnum = offset; // Used for offset
+            reloc.r_extern = 1; // Needed for ARM64_RELOC_PAGE21 and ARM64_RELOC_PAGEOFF12
+            fwrite(&reloc, sizeof(reloc), 1, exportFile);
+            relocationCount++;
+            reloc.r_type = ARM64_RELOC_PAGE21;
+            reloc.r_symbolnum = aArea+1; // Symbol number
             fwrite(&reloc, sizeof(reloc), 1, exportFile);
             relocationCount++;
             // The second instruction is LDR
             setRelocationAddress(addr+4, &reloc.r_address);
             reloc.r_pcrel = 0; // This is an absolute 12-bit value
-            reloc.r_rtype = ARM64_RELOC_PAGEOFF12;
+            reloc.r_type = ARM64_RELOC_ADDEND;
+            reloc.r_symbolnum = offset; // Used for offset
+            fwrite(&reloc, sizeof(reloc), 1, exportFile);
+            relocationCount++;
+            reloc.r_type = ARM64_RELOC_PAGEOFF12;
+            reloc.r_symbolnum = aArea+1; // Symbol number
             fwrite(&reloc, sizeof(reloc), 1, exportFile);
             relocationCount++;
             // Now we've found the target we can zero the data in the instructions.
             uint32_t* instrAddr = (uint32_t*)addr;
-            addr[0] &= 0x9f00001f;
-            addr[1] &= 0xffc003ff;
+            instrAddr[0] &= 0x9f00001f;
+            instrAddr[1] &= 0xffc003ff;
         }
         break;
 #endif
@@ -322,7 +341,7 @@ void MachoExport::exportStore(void)
 #endif
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
 
-    symbolNum = 1; // The first symbol is poly_exports
+    symbolNum = memTableEntries+1; // Symbols start after table entries and poly_exports
 
     // Segment header.
     memset(&sHdr, 0, sizeof(sHdr));
@@ -470,6 +489,7 @@ void MachoExport::exportStore(void)
     // The symbol table.
 
     symTab.symoff = ftell(exportFile);
+
     // Global symbols: Just one.
     {
 #if (SIZEOF_VOIDP == 8)
@@ -482,6 +502,29 @@ void MachoExport::exportStore(void)
         symbol.n_type = N_EXT | N_SECT;
         symbol.n_sect = memTableEntries+1; // Sections count from 1.
         symbol.n_desc = REFERENCE_FLAG_DEFINED;
+        fwrite(&symbol, sizeof(symbol), 1, exportFile);
+    }
+
+    // Create a symbol entry for each memTable entry.
+    // ARM relocations need to be relative to an external.
+    for (i = 0; i < memTableEntries; i++)
+    {
+#if (SIZEOF_VOIDP == 8)
+        struct nlist_64 symbol;
+#else
+        struct nlist symbol;
+#endif
+        memset(&symbol, 0, sizeof(symbol)); // Zero unused fields
+        char symName[100];
+        sprintf(symName, "area%d", i);
+        symbol.n_un.n_strx = stringTable.makeEntry(symName);
+        symbol.n_type = N_SECT;
+        symbol.n_sect = i+1; // Sections count from 1.
+        symbol.n_desc = REFERENCE_FLAG_PRIVATE_DEFINED;
+        symbol.n_value = 0;
+        size_t offset = 0;
+        adjustOffset(i, offset);
+        symbol.n_value = offset;
         fwrite(&symbol, sizeof(symbol), 1, exportFile);
     }
 
