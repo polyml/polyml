@@ -474,7 +474,7 @@ PolyObject* CopyScan::newAddressForObject(POLYUNSIGNED words, enum _newAddrType 
         bool match = false;
         switch (naType)
         {
-        case NAWord: match = !space->isMutable && !space->byteOnly && !space->isCode;
+        case NAWord: match = !space->isMutable && !space->byteOnly && !space->isCode; break;
         case NAMutable: match = space->isMutable && !space->noOverwrite; break;
         case NANoOverwriteMutable: match = space->isMutable && space->noOverwrite; break;
         case NAByte: match = !space->isMutable && space->byteOnly; break;
