@@ -94,7 +94,7 @@ public:
     // Set the address of the constant area.  The default is a relative byte offset.
     virtual void SetAddressOfConstants(PolyObject* objAddr, PolyObject* writable, POLYUNSIGNED length, PolyWord* constAddr)
     {
-        POLYSIGNED offset = (constAddr - (PolyWord*)objAddr - length) * sizeof(PolyWord);
+        POLYSIGNED offset = (POLYSIGNED)((constAddr - (PolyWord*)objAddr - length) * sizeof(PolyWord));
         writable->Set(length - 1, PolyWord::FromSigned(offset));
     }
 
