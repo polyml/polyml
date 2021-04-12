@@ -178,7 +178,14 @@ POLYUNSIGNED PolyCreateEntryPointObject(FirstArgument threadId, PolyWord arg)
     try {
         result = creatEntryPointObject(taskData, pushedArg, true /* Always functions */);
         if (!setEntryPoint(result->WordP()))
-            raise_fail(taskData, "entry point not found");
+        {
+            // Include the name of the symbol.  It's often helpful.
+            char buff[100];
+            strncpy(buff, "entry point not found: ", sizeof(buff) - 1);
+            size_t length = strlen(buff);
+            Poly_string_to_C(pushedArg->Word(), buff+ length, sizeof(buff) - length-1);
+            raise_fail(taskData, buff);
+        }
     } catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
