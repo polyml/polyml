@@ -843,8 +843,19 @@ void Arm64TaskData::SaveMemRegisters()
 void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAddr, POLYUNSIGNED length,
     PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress* process)
 {
-#ifndef POLYML32IN64
     arm64CodePointer pt = (arm64CodePointer)addr;
+#ifdef POLYML32IN64
+    // The only case we have to consider in 32-in-64 is the special hack for
+    // the global heap base in callbacks.
+    if (pt[0] == 0xD503201F && (pt[1] & 0xff000000) == 0x58000000)
+    {
+        // nop (special marker) followed by LDR Xn,pc-relative
+        uint32_t pcOffset = (pt[1] >> 5) & 0x3ffff; // This is a number of 32-bit words
+        PolyWord* gHeapAddr = ((PolyWord*)addr) + pcOffset + 1; // PolyWords are 32-bits
+        if (((PolyWord**)gHeapAddr)[0] != globalHeapBase)
+            ((PolyWord**)gMem.SpaceForAddress(gHeapAddr)->writeAble(gHeapAddr))[0] = globalHeapBase;
+    }
+#else
      // If it begins with the enter-int sequence it's interpreted code.
     if (pt[0] == 0xAA1E03E9 && pt[1] == 0xF9400350 && pt[2] == 0xD63F0200)
         return;

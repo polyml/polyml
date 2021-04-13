@@ -926,6 +926,22 @@ struct
         SimpleInstr(0wx02000000 (* Reserved instr range. *) orb maskWord)
     end
     
+    (* This is a bit of a hack but is the only way to get round the problem that when
+       a callback (FFI closure) is called the code has none of the global registers.
+       This isn't a problem in the native addressing version because we have
+       absolute addresses but in 32-in-64 we need at least one absolute address to
+       begin.  This embeds the global heap base pointer as a constant in the
+       non-address constant area.  It requires the RTS to be able to find it and
+       update it when the code is loaded.  We insert a nop followed by the
+       pc-relative load.  This MUST be the first instruction in the code. *)
+    local
+        val getHeapBase: unit -> LargeWord.word = RunCall.rtsCallFull0 "PolyGetHeapBase"
+    in
+        fun loadGlobalHeapBaseInCallback reg =
+            if is32in64
+            then [SimpleInstr nopCode, loadNonAddressConstant(reg, getHeapBase())]
+            else raise InternalError "loadGlobalHeapBaseInCallback called with native addressing"
+    end
 
     (* Size of each code word. *)
     fun codeSize (SimpleInstr _) = 1 (* Number of 32-bit words *)

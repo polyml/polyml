@@ -389,6 +389,10 @@ sig
     and absDouble: {regN: vReg, regD: vReg} -> instr
     and negDouble: {regN: vReg, regD: vReg} -> instr
     and convertDoubleToFloat: {regN: vReg, regD: vReg} -> instr
+    
+    (* Special hack for callbacks in 32-in-64.  Must appear as
+       the first instructions in the callback. *)
+    val loadGlobalHeapBaseInCallback: xReg -> instr list
 
     (* Create the vector of code from the list of instructions and update the
        closure reference to point to it. *)

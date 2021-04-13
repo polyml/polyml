@@ -583,7 +583,6 @@ struct
        SysWord.word value except that while it exists the code will not be GCed.  *)
     fun buildCallBack(_: abi, args: cType list, result: cType): Address.machineWord =
     let
-        val _ = if is32in64 then raise Foreign "Callbacks not yet implemented in compact 32-bit ARM" else ()
         val argWorkReg = X10 (* Used in loading arguments if necessary. *)
         and argWorkReg2 = X11
         and argWorkReg3 = X13
@@ -765,10 +764,17 @@ struct
             ] @
                 (* Save X8 if we're going to need it. *)
             (if resultByReference then [storeRegScaled{regT=X8, regN=XSP, unitOffset=0}] else []) @
+            (* Now we've saved X24 we can move the global heap base into it. *)
+            (if is32in64 then [moveRegToReg{sReg=X10, dReg=X_Base32in64}] else []) @
             copyArgsFromRegsAndStack @
+            [loadAddressConstant(X0, getThreadDataCall)] @
+            (
+                if is32in64
+                then [addShiftedReg{regM=X0, regN=X_Base32in64, regD=X0, shift=ShiftLSL 0w2}]
+                else []
+            ) @
             [
                 (* Call into the RTS to get the thread data ptr. *)
-                loadAddressConstant(X0, getThreadDataCall),
                 loadRegScaled{regT=X0, regN=X0, unitOffset=0},
                 branchAndLinkReg X0,
                 moveRegToReg{sReg=X0, dReg=X_MLAssemblyInt},
@@ -788,11 +794,19 @@ struct
                 then [loadRegScaled{regT=X2, regN=XSP, unitOffset=0}]
                 else [moveRegToReg{sReg=XSP, dReg=X2}]
             ) @ boxSysWord(X2, X1, X3) @
-            [
                 (* Put the ML closure pointer, originally in X9 now in X20, into the
                    ML closure pointer register, X8.  Then call the ML code. *)
-                moveRegToReg{sReg=X20, dReg=X8},
-                loadRegScaled{regT=X16, regN=X8, unitOffset=0},
+            [moveRegToReg{sReg=X20, dReg=X8}] @
+            (
+                if is32in64
+                then
+                [
+                    addShiftedReg{regM=X8, regN=X_Base32in64, regD=X16, shift=ShiftLSL 0w2},
+                    loadRegScaled{regT=X16, regN=X16, unitOffset=0}
+                ]
+                else [loadRegScaled{regT=X16, regN=X8, unitOffset=0}]
+            ) @
+            [
                 branchAndLinkReg X16,
                 (* Save the ML stack and heap pointers.  We could have allocated or
                    grown the stack.  The limit pointer is maintained by the RTS. *)
@@ -819,19 +833,36 @@ struct
         val closure = makeConstantClosure()
         val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure}
         val stage2Code = closureAsAddress closure
-
+        
         fun resultFunction f =
         let
             (* Generate a small function to load the address of f into a register and then jump to stage2.
                The idea is that it should be possible to generate this eventually in a single RTS call.
                That could be done by using a version of this as a model. *)
-            val codeAddress = Address.loadWord(Address.toAddress stage2Code, 0w0)
             val instructions =
-                [
-                    loadAddressConstant(X9, Address.toMachineWord f),
-                    loadAddressConstant(X16, codeAddress),
-                    branchRegister X16
-                ]
+                if is32in64
+                then
+                    (* Get the global heap base into X10. *)
+                    loadGlobalHeapBaseInCallback X10 @
+                    [
+                        loadAddressConstant(X9, Address.toMachineWord f),
+                        (* Have to load the actual address at run-time. *)
+                        loadAddressConstant(X16, stage2Code),
+                        addShiftedReg{regM=X16, regN=X10, regD=X16, shift=ShiftLSL 0w2},
+                        loadRegScaled{regT=X16, regN=X16, unitOffset=0},
+                        branchRegister X16
+                    ]
+                else
+                let
+                    (* We can extract the actual code address in the native address version. *)
+                    val codeAddress = Address.loadWord(Address.toAddress stage2Code, 0w0)
+                in
+                    [
+                        loadAddressConstant(X9, Address.toMachineWord f),
+                        loadAddressConstant(X16, codeAddress),
+                        branchRegister X16
+                    ]
+                end
             val functionName = "foreignCallBack(1)"
             val debugSwitches =
                 [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),

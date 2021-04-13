@@ -66,6 +66,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(PolyWord closure, PolyWord offset, PolyWord c);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeByte(PolyWord closure, PolyWord offset);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(PolyWord array);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetHeapBase(FirstArgument threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest4(FirstArgument threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest5(FirstArgument threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4, PolyWord arg5);
 }
@@ -410,6 +411,29 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(PolyWord array)
     return (TAGGED(1)).AsUnsigned();
 }
 
+// Return the value of globalHeapBase as a SysWord value.
+// This is used in just one place: when compiling an FFI callback stub in ARM 32-in-64.
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetHeapBase(FirstArgument threadId)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle result = 0;
+
+    try {
+#ifdef POLYML32IN64
+        result = Make_sysword(taskData, (uintptr_t)globalHeapBase);
+#else
+        result = Make_sysword(taskData, 0);
+#endif
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest4(FirstArgument threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4)
 {
     switch (arg1.UnTaggedUnsigned())
@@ -448,6 +472,7 @@ struct _entrypts polySpecificEPT[] =
     { "PolySetCodeByte",                (polyRTSFunction)&PolySetCodeByte },
     { "PolyGetCodeByte",                (polyRTSFunction)&PolyGetCodeByte },
     { "PolySortArrayOfAddresses",       (polyRTSFunction)&PolySortArrayOfAddresses },
+    { "PolyGetHeapBase",                (polyRTSFunction)&PolyGetHeapBase },
     { "PolyTest4",                      (polyRTSFunction)&PolyTest4 },
     { "PolyTest5",                      (polyRTSFunction)&PolyTest5 },
 
