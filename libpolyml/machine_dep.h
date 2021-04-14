@@ -102,6 +102,10 @@ public:
     virtual Architectures MachineArchitecture(void) = 0;
 
     virtual void SetBootArchitecture(char arch, unsigned wordLength) {}
+
+    // Update the global heap base in ARM64 32-in-64 FFI callbacks.
+    // This is a very special case.
+    virtual void UpdateGlobalHeapReference(PolyObject* addr) {}
 };
 
 extern MachineDependent *machineDependent;

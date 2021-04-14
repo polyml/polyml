@@ -205,7 +205,9 @@ public:
     // During the first bootstrap phase this is interpreted.
     bool mustInterpret;
 
-#if (! defined(POLYML32IN64))
+#if defined(POLYML32IN64)
+    virtual void UpdateGlobalHeapReference(PolyObject* addr);
+#else
     // Address of the constant segment from the code segment.  This is complicated because
     // some OSs require the code to position-independent which means the code can only
     // contain relative offsets.  This isn't a problem for 32-in-64 because the code is
@@ -249,29 +251,6 @@ public:
             count = addr->Length();
         }
 
-    }
-#endif
-
-    // Override for X86-64 because of the need for position-independent code.
-#if (defined(HOSTARCHITECTURE_X86_64) && !defined(POLYML32IN64))
-    // Find the start of the constant section for a piece of code.
-    virtual void GetConstSegmentForCode(PolyObject* obj, POLYUNSIGNED obj_length, PolyWord*& cp, POLYUNSIGNED& count) const
-    {
-        PolyWord* last_word = obj->Offset(obj_length - 1); // Last word in the code
-        // Only the low order 32-bits are valid since this may be
-        // set by a 32-bit relative relocation.
-        int32_t offset = (int32_t)last_word->AsSigned();
-        POLYSIGNED offset = last_word->AsSigned();
-        cp = last_word + 1 + offset / sizeof(PolyWord);
-        count = cp[-1].AsUnsigned();
-    }
-    // Set the address of the constant area.  The default is a relative byte offset.
-    virtual void SetAddressOfConstants(PolyObject* objAddr, PolyObject* writable, POLYUNSIGNED length, PolyWord* constAddr)
-    {
-        int64_t offset = (byte*)constAddr - (byte*)objAddr - length * sizeof(PolyWord);
-        ASSERT(offset >= -(int64_t)0x80000000 && offset <= (int64_t)0x7fffffff);
-        ASSERT(offset < ((int64_t)1) << 32 && offset >((int64_t)(-1)) << 32);
-        writable->Set(length - 1, PolyWord::FromSigned(offset & 0xffffffff));
     }
 #endif
 };
@@ -843,20 +822,9 @@ void Arm64TaskData::SaveMemRegisters()
 void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAddr, POLYUNSIGNED length,
     PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress* process)
 {
+#ifndef POLYML32IN64
     arm64CodePointer pt = (arm64CodePointer)addr;
-#ifdef POLYML32IN64
-    // The only case we have to consider in 32-in-64 is the special hack for
-    // the global heap base in callbacks.
-    if (pt[0] == 0xD503201F && (pt[1] & 0xff000000) == 0x58000000)
-    {
-        // nop (special marker) followed by LDR Xn,pc-relative
-        uint32_t pcOffset = (pt[1] >> 5) & 0x3ffff; // This is a number of 32-bit words
-        PolyWord* gHeapAddr = ((PolyWord*)addr) + pcOffset + 1; // PolyWords are 32-bits
-        if (((PolyWord**)gHeapAddr)[0] != globalHeapBase)
-            ((PolyWord**)gMem.SpaceForAddress(gHeapAddr)->writeAble(gHeapAddr))[0] = globalHeapBase;
-    }
-#else
-     // If it begins with the enter-int sequence it's interpreted code.
+    // If it begins with the enter-int sequence it's interpreted code.
     if (pt[0] == 0xAA1E03E9 && pt[1] == 0xF9400350 && pt[2] == 0xD63F0200)
         return;
     // We only need a split if the constant area is not at the original offset.
@@ -898,6 +866,23 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
     }
 #endif
 }
+
+// This is a special hack for FFI callbacks in 32-in-64.  This is called
+// 
+#ifdef POLYML32IN64
+void Arm64Dependent::UpdateGlobalHeapReference(PolyObject* addr)
+{
+    arm64CodePointer pt = (arm64CodePointer)addr;
+    if (pt[0] == 0xD503201F && (pt[1] & 0xff000000) == 0x58000000)
+    {
+        // nop (special marker) followed by LDR Xn,pc-relative
+        uint32_t pcOffset = (pt[1] >> 5) & 0x3ffff; // This is a number of 32-bit words
+        PolyWord* gHeapAddr = ((PolyWord*)addr) + pcOffset + 1; // PolyWords are 32-bits
+        if (((PolyWord**)gHeapAddr)[0] != globalHeapBase)
+            ((PolyWord**)gMem.SpaceForAddress(gHeapAddr)->writeAble(gHeapAddr))[0] = globalHeapBase;
+    }
+}
+#endif
 
 // As far as possible we want locking and unlocking an ML mutex to be fast so
 // we try to implement the code in the assembly code using appropriate

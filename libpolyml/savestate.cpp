@@ -1044,6 +1044,8 @@ void LoadRelocate::RelocateObject(PolyObject *p)
         // constants here.
         if (processCodeConstants)
             machineDependent->ScanConstantsWithinCode(p, this);
+        // On 32-in-64 ARM we may have to update the global heap base in an FFI callback.
+        machineDependent->UpdateGlobalHeapReference(p);
     }
     else if (p->IsClosureObject())
     {
