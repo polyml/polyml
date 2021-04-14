@@ -125,9 +125,6 @@ class OSMemInRegion: public OSMem {
 public:
     OSMemInRegion() {
         memBase = shadowBase = 0;
-#ifndef _WIN32
-        allocPtr = 0;
-#endif
     }
 
     bool Initialise(enum _MemUsage usage, size_t space, void** pBase);

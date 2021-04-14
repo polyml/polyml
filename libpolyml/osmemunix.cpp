@@ -400,15 +400,6 @@ bool OSMemInRegion::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t s
 }
 
 // Native address versions
-OSMemUnrestricted::OSMemUnrestricted()
-{
-    allocPtr = 0;
-}
-
-bool OSMemUnrestricted::Initialise(enum _MemUsage usage)
-{
-    return OSMem::Initialise(usage);
-}
 
 // Allocate space and return a pointer to it.  The size is the minimum
 // size requested and it is updated with the actual space allocated.
