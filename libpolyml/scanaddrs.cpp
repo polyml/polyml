@@ -305,7 +305,10 @@ void ScanAddress::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRe
 
     if (p != 0)
     {
-        PolyObject *oldValue = p;
+        // If this is relative and the displacement is non-zero i.e. the
+        // constant itself has moved, we may have to update it
+        // even if it actually goes to the same place.
+        PolyObject *oldValue = GetConstantValue(addressOfConstant, code, 0);
         // If this was a relative address we must have a code address.
         if (code == PROCESS_RELOC_I386RELATIVE)
             ScanCodeAddressAt(&p);
