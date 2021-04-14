@@ -45,6 +45,10 @@
 #include <string.h>
 #endif
 
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
+
 /*
 #ifdef HAVE_FLOAT_H
 #include <float.h>
