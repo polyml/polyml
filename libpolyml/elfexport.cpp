@@ -414,6 +414,7 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
         }
         break;
 #endif
+#if defined(HOSTARCHITECTURE_AARCH64)
      case PROCESS_RELOC_ARM64ADRPLDR: // ADRP/LDR pair
         {
              ElfXX_Rela reloc;
@@ -432,6 +433,7 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
              writAble[1] = (writAble[1] & 0xffc003ff);
         }
         break;
+#endif
         default:
             ASSERT(0); // Wrong type of relocation for this architecture.
     }
