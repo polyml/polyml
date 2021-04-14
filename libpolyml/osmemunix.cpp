@@ -142,44 +142,71 @@ static int createTemporaryFile()
     return -1;
 }
 
-OSMemInRegion::OSMemInRegion()
+OSMem::OSMem()
 {
-    memBase = 0;
+    wxFix = WXFixNone;
     shadowFd = -1;
 }
 
-OSMemInRegion::~OSMemInRegion()
+OSMem::~OSMem()
 {
     if (shadowFd != -1) close(shadowFd);
 }
 
-bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBase /* = 0 */)
+// Initialise and test whether we need to use special handling for
+// code areas.
+bool OSMem::Initialise(enum _MemUsage usage)
 {
     memUsage = usage;
     pageSize = getpagesize();
-    bool simpleMmap;
-    if (usage != UsageExecutableCode) simpleMmap = true;
+    if (usage != UsageExecutableCode)
+        wxFix = WXFixNone;
     else
     {
         // Can we allocate memory with write+execute?
-        void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
-#ifdef MAP_JIT
-        if (test == MAP_FAILED)
-            test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON|MAP_JIT, -1, 0);
-#endif
+        void* test = mmap(0, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON, -1, 0);
         if (test != MAP_FAILED)
+            wxFix = WXFixNone;
+#ifdef MAP_JIT
+        else test = mmap(0, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
+        if (test != MAP_FAILED)
+            wxFix = WXFixMapJit;
+#endif
+        else
         {
-            munmap(FIXTYPE test, pageSize);
-            simpleMmap = true;
+            if (errno != ENOTSUP && errno != EACCES) // Fails with ENOTSUPP on OpenBSD and EACCES in SELinux.
+                return false;
+            // Check that read-write works.
+            test = mmap(0, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+            if (test == MAP_FAILED)
+                return false; // There's a problem.
+            wxFix = WXFixDualArea;
         }
-        else simpleMmap = false;
+        if (test != MAP_FAILED)
+            munmap(FIXTYPE test, pageSize);
     }
+
+    if (wxFix == WXFixDualArea)
+    {
+        shadowFd = createTemporaryFile();
+        if (shadowFd == -1)
+            return false;
+    }
+    return true;
+}
+
+bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBase /* = 0 */)
+{
+    if (!OSMem::Initialise(usage))
+        return false;
     
-    if (simpleMmap)
+    if (wxFix != WXFixDualArea)
     {
         // Don't require shadow area.  Can use mmap
         int flags = MAP_PRIVATE | MAP_ANON;
-        if (usage == UsageExecutableCode) flags |= MAP_JIT;
+#ifdef MAP_JIT
+        if (usage == UsageExecutableCode && wxFix == WXFixMapJit) flags |= MAP_JIT;
+#endif
         memBase = (char*)mmap(0, space, PROT_NONE, flags, -1, 0);
         if (memBase == MAP_FAILED) return false;
         // We need the heap to be such that the top 32-bits are non-zero.
@@ -195,9 +222,6 @@ bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, voi
     }
     else
     {
-        // More difficult - require file mapping
-        shadowFd = createTemporaryFile();
-        if (shadowFd == -1) return false;
         if (ftruncate(shadowFd, space) == -1) return false;
         void *readWrite = mmap(0, space, PROT_NONE, MAP_SHARED, shadowFd, 0);
         if (readWrite == MAP_FAILED) return 0;
@@ -294,13 +318,26 @@ void* OSMemInRegion::AllocateCodeArea(size_t& space, void*& shadowArea)
         offset = free * pageSize;
     }
     
-    if (shadowFd == -1)
+    if (wxFix != WXFixDualArea)
     {
         char *baseAddr = memBase + offset;
         int prot = PROT_READ | PROT_WRITE;
         if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
-        if (mprotect(baseAddr, space, prot) != 0)
-            return 0;
+        if (wxFix == WXFixMapJit && memUsage == UsageExecutableCode)
+        {
+            // If we have to use MAP_JIT the only option is to use mprotect
+            // here to enable the pages.  MAP_JIT|MAP_FIXED is not allowed.
+            if (mprotect(baseAddr, space, prot) != 0)
+                return 0;
+        }
+        else
+        {
+            // Enable the pages with mmap.  The idea is that if we no longer want the pages
+            // we don't care about their previous contents and if we map that area again we're
+            // happy if they are zeroed.
+            if (mmap(baseAddr, space, prot, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0) == MAP_FAILED)
+                return 0;
+        }
         msync(baseAddr, space, MS_SYNC | MS_INVALIDATE);
         shadowArea = baseAddr;
         return baseAddr;
@@ -324,14 +361,15 @@ bool OSMemInRegion::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
 {
     // Free areas by mapping them with PROT_NONE.
     uintptr_t offset = ((char*)codeAddr - memBase) / pageSize;
-    if (shadowFd == -1)
+    if (wxFix != WXFixDualArea)
     {
-        mmap(codeAddr, space, PROT_NONE, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
+        if (wxFix == WXFixMapJit && memUsage == UsageExecutableCode)
+            mprotect(codeAddr, space, PROT_NONE);
+        else mmap(codeAddr, space, PROT_NONE, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
         msync(codeAddr, space, MS_SYNC | MS_INVALIDATE);
     }
     else
     {
-
         mmap(codeAddr, space, PROT_NONE, MAP_SHARED, shadowFd, offset);
         msync(codeAddr, space, MS_SYNC | MS_INVALIDATE);
         mmap(dataAddr, space, PROT_NONE, MAP_SHARED, shadowFd, offset);
@@ -362,46 +400,14 @@ bool OSMemInRegion::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t s
 }
 
 // Native address versions
-
 OSMemUnrestricted::OSMemUnrestricted()
 {
     allocPtr = 0;
-    shadowFd = -1;
-}
-
-OSMemUnrestricted::~OSMemUnrestricted()
-{
-    if (shadowFd != -1) close(shadowFd);
 }
 
 bool OSMemUnrestricted::Initialise(enum _MemUsage usage)
 {
-    memUsage = usage;
-    pageSize = getpagesize();
-    if (usage != UsageExecutableCode) return true;
-    // Can we allocate memory with write+execute?
-    void *test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
-#ifdef MAP_JIT
-    if (test == MAP_FAILED)
-        test = mmap(0, pageSize, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_JIT|MAP_PRIVATE|MAP_ANON, -1, 0);
-#endif
-    if (test != MAP_FAILED)
-    {
-        // Don't require shadow area
-        munmap(FIXTYPE test, pageSize);
-        return true;
-    }
-    if (errno != ENOTSUP && errno != EACCES) // Fails with ENOTSUPP on OpenBSD and EACCES in SELinux.
-        return false;
-    // Check that read-write works.
-    test = mmap(0, pageSize, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, -1, 0);
-    if (test == MAP_FAILED)
-        return false; // There's a problem.
-    munmap(FIXTYPE test, pageSize);
-    // Need to create a file descriptor for mapping.
-    shadowFd = createTemporaryFile();
-    if (shadowFd != -1) return true;
-    return false;
+    return OSMem::Initialise(usage);
 }
 
 // Allocate space and return a pointer to it.  The size is the minimum
@@ -445,14 +451,13 @@ void *OSMemUnrestricted::AllocateCodeArea(size_t &space, void*& shadowArea)
 
     if (shadowFd == -1)
     {
-        int fd = -1; // This value is required by FreeBSD.  Linux doesn't care
         int prot = PROT_READ | PROT_WRITE;
         if (memUsage == UsageExecutableCode)
             prot |= PROT_EXEC;
-        void *result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON, fd, 0);
+        void *result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON, -1, 0);
 #ifdef MAP_JIT
         if (result == MAP_FAILED && memUsage == UsageExecutableCode)
-            result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON|MAP_JIT, fd, 0);
+            result = mmap(0, space, prot, MAP_PRIVATE|MAP_ANON|MAP_JIT, -1, 0);
 #endif
         // Convert MAP_FAILED (-1) into NULL
         if (result == MAP_FAILED)

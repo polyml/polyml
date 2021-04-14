@@ -43,8 +43,8 @@
 class OSMem {
 
 public:
-    OSMem() {}
-    virtual ~OSMem() {}
+    OSMem();
+    virtual ~OSMem();
 
     enum _MemUsage {
         UsageData,          // Data or code in the interpreted version
@@ -80,42 +80,55 @@ public:
 protected:
     size_t pageSize;
     enum _MemUsage memUsage;
-
+    bool Initialise(enum _MemUsage usage);
+#ifndef _WIN32
+    // Various Unix systems have restrictions on pages having both write and
+    // execute permissions.  To get round this we either have to use the MAP_JIT
+    // flag on Mac OS or map a dummy file as two separate areas in SELInux and
+    // OpenBSD.  We can only test this at run-time.
+    enum {
+        WXFixNone,
+        WXFixDualArea,
+        WXFixMapJit
+    } wxFix;
+    int shadowFd; // 
+#endif
 };
 
 // Allows the system to allocate pages.
 class OSMemUnrestricted: public OSMem {
-
 public:
-    OSMemUnrestricted();
-    virtual ~OSMemUnrestricted();
-
-    bool Initialise(enum _MemUsage usage);
+    OSMemUnrestricted() {
+#ifndef _WIN32
+        allocPtr = 0;
+#endif
+    }
+public:
+    bool Initialise(enum _MemUsage usage) { return OSMem::Initialise(usage); }
     virtual void* AllocateDataArea(size_t& bytes);
     virtual bool FreeDataArea(void* p, size_t space);
     virtual bool EnableWrite(bool enable, void* p, size_t space);
     virtual void* AllocateCodeArea(size_t& bytes, void*& shadowArea);
     virtual bool FreeCodeArea(void* codeAddr, void* dataAddr, size_t space);
     virtual bool DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space);
-
-protected:
-
 #ifndef _WIN32
-    // If we need to use dual areas because WRITE+EXECUTE permission is not allowed.
-    int shadowFd;
+    // Used if wxFix is WXFixDualArea but now only in x86/32.
     PLock allocLock;
     size_t allocPtr;
 #endif
-
 };
 
 // Pages are allocated within a region.  This is used for 32-in-64 and
-// for code in native X86 64-bit.
+// for code in native X86/64 and ARM64.
 class OSMemInRegion: public OSMem {
 
 public:
-    OSMemInRegion();
-    virtual ~OSMemInRegion();
+    OSMemInRegion() {
+        memBase = shadowBase = 0;
+#ifndef _WIN32
+        allocPtr = 0;
+#endif
+    }
 
     bool Initialise(enum _MemUsage usage, size_t space, void** pBase);
     virtual void* AllocateDataArea(size_t& bytes);
@@ -126,14 +139,6 @@ public:
     virtual bool DisableWriteForCode(void* codeAddr, void* dataAddr, size_t space);
 
 protected:
-
-#ifndef _WIN32
-    // If we need to use dual areas because WRITE+EXECUTE permission is not allowed.
-    int shadowFd;
-    PLock allocLock;
-    size_t allocPtr;
-#endif
-
     Bitmap pageMap;
     uintptr_t lastAllocated;
     char* memBase, * shadowBase;

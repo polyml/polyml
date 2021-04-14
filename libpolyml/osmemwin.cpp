@@ -40,15 +40,15 @@
 // Use Windows memory management.
 #include <windows.h>
 
-OSMemInRegion::OSMemInRegion(): memBase(0)
+OSMem::OSMem()
 {
 }
 
-OSMemInRegion::~OSMemInRegion()
+OSMem::~OSMem()
 {
 }
 
-bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBase /* = 0 */)
+bool OSMem::Initialise(enum _MemUsage usage)
 {
     memUsage = usage;
     // Get the page size and round up to that multiple.
@@ -57,6 +57,13 @@ bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, voi
     // Get the page size.  Put it in a size_t variable otherwise the rounding
     // up of "space" may go wrong on 64-bits.
     pageSize = sysInfo.dwPageSize;
+    return true;
+}
+
+bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, void** pBase /* = 0 */)
+{
+    if (!OSMem::Initialise(usage))
+        return false;
 
     memBase = (char*)VirtualAlloc(0, space, MEM_RESERVE, PAGE_NOACCESS);
     if (memBase == 0) return 0;
@@ -176,23 +183,6 @@ bool OSMemInRegion::DisableWriteForCode(void* codeAddr, void* dataAddr, size_t s
     DWORD oldProtect;
     return VirtualProtect(codeAddr, space,
         memUsage == UsageExecutableCode ? PAGE_EXECUTE_READ : PAGE_READONLY, &oldProtect) == TRUE;
-}
-
-// These are needed in Unix but not in Windows.
-OSMemUnrestricted::OSMemUnrestricted() {}
-
-OSMemUnrestricted::~OSMemUnrestricted() {}
-
-bool OSMemUnrestricted::Initialise(enum _MemUsage usage)
-{
-    memUsage = usage;
-    // Get the page size and round up to that multiple.
-    SYSTEM_INFO sysInfo;
-    GetSystemInfo(&sysInfo);
-    // Get the page size.  Put it in a size_t variable otherwise the rounding
-    // up of "space" may go wrong on 64-bits.
-    pageSize = sysInfo.dwPageSize;
-    return true;
 }
 
 // Allocate space and return a pointer to it.  The size is the minimum
