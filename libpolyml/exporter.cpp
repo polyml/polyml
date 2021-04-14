@@ -375,14 +375,15 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         if (constsWereIncluded)
             codeAreaSize -= numConsts + 1;
         newObj = newAddressForObject(codeAreaSize, NACode);
-        PolyObject* writable = gMem.SpaceForObjectAddress(newObj)->writeAble(newObj);
-        writable->SetLengthWord(codeAreaSize, F_CODE_OBJ); // set length word
+        PolyObject* writableObj = gMem.SpaceForObjectAddress(newObj)->writeAble(newObj);
+        writableObj->SetLengthWord(codeAreaSize, F_CODE_OBJ); // set length word
         lengthWord = newObj->LengthWord(); // Get the actual length word used
-        memcpy(writable, obj, codeAreaSize * sizeof(PolyWord));
+        memcpy(writableObj, obj, codeAreaSize * sizeof(PolyWord));
         PolyObject* newConsts = newAddressForObject(numConsts, NACodeConst);
-        newConsts->SetLengthWord(numConsts);
-        memcpy(newConsts, constPtr, numConsts * sizeof(PolyWord));
-        machineDependent->SetAddressOfConstants(newObj, writable, codeAreaSize, (PolyWord*)newConsts);
+        PolyObject* writableConsts = gMem.SpaceForObjectAddress(newConsts)->writeAble(newConsts);
+        writableConsts->SetLengthWord(numConsts);
+        memcpy(writableConsts, constPtr, numConsts * sizeof(PolyWord));
+        machineDependent->SetAddressOfConstants(newObj, writableObj, codeAreaSize, (PolyWord*)newConsts);
     }
     else
 #endif
