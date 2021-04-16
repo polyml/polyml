@@ -139,6 +139,16 @@ struct
     in
         fun executeInEnv(cmd, args, env) =
         let
+            open Posix
+            (* Test first for presence of the file and then that we
+               have correct access rights.  This allows us to report the
+               problem in the call rather than having exec fail. *)
+            val s = FileSys.stat cmd (* Raises SysErr if the file doesn't exist. *)
+            val () =
+                if not (FileSys.ST.isReg s) orelse not (FileSys.access(cmd, [FileSys.A_EXEC]))
+                then raise OS.SysErr(OS.errorMsg Error.acces, SOME Error.acces)
+                else ()
+
             val (pid, toChild, fromChild) = unixExec(cmd, args, env)
         in
             {pid=pid, infd=fromChild, outfd=toChild, result = ref NONE}
