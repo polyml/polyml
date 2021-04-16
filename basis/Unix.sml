@@ -87,6 +87,7 @@ struct
        arguments includes the command or not.  Assume that only the "real"
        arguments are provided and pass the last component of the command
        name in the exece call. *)
+(*
     fun executeInEnv (cmd, args, env) =
     let
         open Posix
@@ -127,6 +128,21 @@ struct
             IO.close(#outfd fromChild);
             {pid=pid, infd= #infd fromChild, outfd= #outfd toChild, result = ref NONE}
             )
+    end
+*)
+
+    (* The ML code proved problematic so it has been replaced with C code.
+       It's not clear what the problem was but it could be with garbage collection in
+       the child before the exec. *)
+    local
+        val unixExec = RunCall.rtsCallFull3 "PolyUnixExecute"
+    in
+        fun executeInEnv(cmd, args, env) =
+        let
+            val (pid, toChild, fromChild) = unixExec(cmd, args, env)
+        in
+            {pid=pid, infd=fromChild, outfd=toChild, result = ref NONE}
+        end
     end
 
     fun execute (cmd, args) =

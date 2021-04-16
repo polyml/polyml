@@ -1,7 +1,7 @@
 /*
     Title:      Operating Specific functions: Unix version.
 
-    Copyright (c) 2000-8, 2016-17, 2019, 2020 David C. J. Matthews
+    Copyright (c) 2000-8, 2016-17, 2019, 2020, 2021 David C. J. Matthews
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
 
@@ -134,6 +134,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixSleep(FirstArgument threadId, PolyWord maxTime, PolyWord sigCount);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyUnixExecute(FirstArgument threadId, PolyWord cmd, PolyWord args, PolyWord env);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -2000,12 +2001,80 @@ static int findPathVar(TaskData *taskData, PolyWord ps)
     raise_syscall(taskData, "pathconf argument not found", EINVAL);
 }
 
+// Unix.executeInEnv.  This was previously implemented in ML but
+// there were problems, possibly associated with garbage collection.
+// Generally, the state after fork is problematic for the rest of the
+// run-time system so it is generally better to avoid Posix.Process.fork,
+POLYUNSIGNED PolyUnixExecute(FirstArgument threadId, PolyWord cmd, PolyWord args, PolyWord env)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCmd = taskData->saveVec.push(cmd);
+    Handle pushedArgs = taskData->saveVec.push(args);
+    Handle pushedEnv = taskData->saveVec.push(env);
+    char* path = Poly_string_to_C_alloc(pushedCmd->WordP());
+    char** argl = stringListToVector(pushedArgs);
+    char** envl = stringListToVector(pushedEnv);
+    Handle result = 0;
+    int toChild[2] = { -1, -1 }, fromChild[2] = { -1, -1 };
+
+    try {
+        // Create input and output pipes
+        if (pipe(toChild) < 0) raise_syscall(taskData, "pipe failed", errno);
+        if (pipe(fromChild) < 0) raise_syscall(taskData, "pipe failed", errno);
+        pid_t pid = fork();
+        if (pid < 0) raise_syscall(taskData, "fork failed", errno);
+        if (pid == 0)
+        {
+            // In the child
+            close(toChild[1]); // Write side to child - this is used in parent
+            close(fromChild[0]); // Read side from child  - this is used in parent
+            dup2(toChild[0], 0); // Read side becomes stdin
+            dup2(fromChild[1], 1); // Write side becomes stdout
+            close(toChild[0]);
+            close(fromChild[1]);
+            execve(path, argl, envl);
+            // If we get here the exec must have failed and we must stop with 126.
+            _exit(126);
+        }
+        // In the parent
+        close(toChild[0]); // These are used in the child
+        close(fromChild[1]);
+        Handle childPid = Make_fixed_precision(taskData, pid);
+        Handle writeStr = wrapFileDescriptor(taskData, toChild[1]);
+        Handle readStr = wrapFileDescriptor(taskData, fromChild[0]);
+        result = ALLOC(3);
+        DEREFHANDLE(result)->Set(0, childPid->Word());
+        DEREFHANDLE(result)->Set(1, writeStr->Word());
+        DEREFHANDLE(result)->Set(2, readStr->Word());
+    }
+    catch (...)
+    {
+        // If an ML exception is raised
+        if (toChild[0] != -1) close(toChild[0]);
+        if (toChild[1] != -1) close(toChild[1]);
+        if (fromChild[0] != -1) close(fromChild[0]);
+        if (fromChild[1] != -1) close(fromChild[1]);
+    }
+    free(path);
+    freeStringVector(argl);
+    freeStringVector(envl);
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 struct _entrypts osSpecificEPT[] =
 {
     { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
     { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
     { "PolyPosixSleep",                 (polyRTSFunction)&PolyPosixSleep},
-    
+    { "PolyUnixExecute",                (polyRTSFunction)&PolyUnixExecute},
+
     { NULL, NULL} // End of list.
 };
 
