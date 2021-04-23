@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008-9, 2013, 2015-16, 2020.
+    Modified David C.J. Matthews 2008-9, 2013, 2015-16, 2020-21.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -766,8 +766,7 @@ struct
             (* The parameter is the reference used to control the print depth
                when the value is actually printed. *)
             val prettyOut = getPrintOutput (LEX.debugParams lex)
-        in
-            mkProc(
+            val printFun =
                 mkProc(
                     CODETREE.mkEnv
                     (
@@ -780,8 +779,11 @@ struct
                         ],
                         arg1 (* Returns its argument. *)
                     ),
-                    1, "print()", [], 0),
-                1, "print(P)", [], 0)
+                    1, "print()", [], 0)            
+        in
+            if justForEqualityTypes
+            then printFun
+            else mkProc(printFun, 1, "print(P)", [], 0)
         end
 
   |  codeVal (Value{access = Overloaded Print, ...}, level: level, typeVarMap, [{value=argType, ...}], lex, _) =
@@ -822,10 +824,14 @@ struct
         raise InternalError "Overloaded Print - wrong instance type"
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, [], _, _) =
+        let
         (* If this appears in a structure produce a default version. *)
-            mkInlproc(
-                mkProc(mkConst(toMachineWord "?"), 1, "makestring()", [], 0),
-                1, "makestring(P)", [], 0)
+            val makestringFn = mkProc(mkConst(toMachineWord "?"), 1, "makestring()", [], 0)
+        in
+            if justForEqualityTypes
+            then makestringFn
+            else mkProc(makestringFn, 1, "makestring(P)", [], 0)
+        end
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, level: level, typeVarMap, [{value=argType, ...}], _, _) =
         let
@@ -864,11 +870,16 @@ struct
         raise InternalError "Overloaded GetPretty - wrong instance type"
 
   |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, [], _, _) =
-        (* If this appears in a structure create a function that raises an exception if run. *)
-        mkProc(
-            mkConst (toMachineWord
-                        (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction")),
-            1, "AddPretty(P)", [], 0)
+        let
+            (* If this appears in a structure create a function that raises an exception if run. *)
+            val defAddPretty =
+                mkConst (toMachineWord
+                        (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
+        in
+            if justForEqualityTypes
+            then defAddPretty
+            else mkProc(defAddPretty, 1, "AddPretty(P)", [], 0)
+        end
 
   |  codeVal (Value{access = Overloaded AddPretty, ...}, level: level, _, [{value=installType, ...}, {value=argPrints, ...}], lex, loc) =
         let 
