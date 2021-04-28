@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015-16, 2020 David C.J. Matthews
+    Copyright (c) 2009, 2013, 2015-16, 2020-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -586,7 +586,8 @@ struct
             end
         in
             val contextConstr =
-                buildBasisDatatype("context", "PolyML.context", [], false, makeConstructors)
+            (* This is currently an eqtype so must be marked as such. *)
+                buildBasisDatatype("context", "PolyML.context", [], true, makeConstructors)
         end
 
         local
@@ -621,7 +622,8 @@ struct
             end
         in
             val prettyConstr =
-                buildBasisDatatype("pretty", "PolyML.pretty", [], false, makeConstructors)
+            (* This is currently an eqtype so must be marked as such. *)
+                buildBasisDatatype("pretty", "PolyML.pretty", [], true, makeConstructors)
         end
     end
 
