@@ -888,7 +888,7 @@ struct
                     TypeId{idKind=Bound { offset, ... }, ...} =>
                     (
                         case realId(offset-initTypeId) of
-                            VariableSlot {boundId=varId as TypeId{idKind=Bound{eqType, offset, isDatatype, ...}, ...}, ... } =>
+                            VariableSlot {boundId=varId as TypeId{idKind=Bound{eqType, offset, isDatatype, arity=vArity, ...}, ...}, ... } =>
                             (
                                (* The rule for "where type" says that we must check that an eqtype
                                   is only set to a type that permits equality and that the result
@@ -914,7 +914,10 @@ struct
                                                |    id => FreeSlot id (* Free *)
                                         in
                                             case linkedId of
-                                                VariableSlot _ => linkFlexibleTypeIds(typeId, varId)
+                                                VariableSlot{boundId=TypeId{idKind=Bound{arity=tArity, ...}, ...}, ... } =>
+                                                if tArity <> vArity
+                                                then cantSet ("has arity " ^ Int.toString tArity ^ " but", " has arity " ^ Int.toString vArity)
+                                                else linkFlexibleTypeIds(typeId, varId)
                                             |   _ => StretchArray.update(mapArray, offset-initTypeId, linkedId)
                                         end
                                 |   NONE =>
