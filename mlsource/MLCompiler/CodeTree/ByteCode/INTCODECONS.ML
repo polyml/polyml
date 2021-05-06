@@ -42,12 +42,10 @@ struct
     (* Typically the compiler is built on a little-endian machine but it could
        be run on a machine with either endian-ness.  We have to find out the
        endian-ness when we run.  There are separate versions of the compiler
-       for 32-bit and 64-bit so that can be a constant.  *)
-    local
-        val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
-    in
-        val isBigEndian = isBigEndian()
-    end
+       for 32-bit and 64-bit so that can be a constant.
+       N.B. The RTS call must only be called when the code is being compiled,
+       not when the structure is being defined. *)
+    val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
 
     val opcode_jump              = 0wx02    (* 8-bit unsigned jump forward. *)
     and opcode_jumpFalse         = 0wx03    (* Test top of stack. Take 8-bit unsigned jump if false. *)
@@ -1206,23 +1204,6 @@ struct
         (codeVec (* Return the completed code. *), endIC (* And the size. *))
     end
 
-    fun setLong (value, addrs, seg) =
-    let
-        val wordLength = wordSize
-        
-        fun putBytes(value, a, seg, i) =
-        if i = wordLength then ()
-        else
-        (
-            byteVecSet(seg,
-                if not isBigEndian then a+i else a+wordLength-i-0w1,
-                Word8.fromInt(value mod 256));
-            putBytes(value div 256, a, seg, i+0w1)
-        )
-    in
-        putBytes(value, addrs, seg, 0w0)
-    end
-
     (* Peephole optimisation. *)
     local
         fun peepHole([], _, output) = List.rev output
@@ -1342,6 +1323,22 @@ struct
         (* Put in the number of constants. This must go in before
            we actually put in any constants. *)
         local
+            val isBigEndian = isBigEndian ()
+
+            fun setLong (value, addrs, seg) =
+            let
+                fun putBytes(value, a, seg, i) =
+                if i = wordSize then ()
+                else
+                (
+                    byteVecSet(seg,
+                        if not isBigEndian then a+i else a+wordSize-i-0w1,
+                        Word8.fromInt(value mod 256));
+                    putBytes(value div 256, a, seg, i+0w1)
+                )
+            in
+                putBytes(value, addrs, seg, 0w0)
+            end
             val lastWord = (segSize - 0w1) * wordLength
         in
             val () = setLong(numOfConst + 2, endIC, byteVec)
