@@ -56,28 +56,37 @@ in
         end
 
         fun subVec(v, i) =
-            wordAsR32((w8ToWord(Word8Vector.sub(v, i)) << shift0) orb
-                (w8ToWord(Word8Vector.sub(v, i+1)) << shift1) orb
-                (w8ToWord(Word8Vector.sub(v, i+2)) << shift2) orb
-                (w8ToWord(Word8Vector.sub(v, i+3)) << shift3))
+        let
+            val iW = i * bytesPerElem
+        in
+            wordAsR32((w8ToWord(Word8Vector.sub(v, iW)) << shift0) orb
+                (w8ToWord(Word8Vector.sub(v, iW+1)) << shift1) orb
+                (w8ToWord(Word8Vector.sub(v, iW+2)) << shift2) orb
+                (w8ToWord(Word8Vector.sub(v, iW+3)) << shift3))
+        end
 
         fun fromBytes v = subVec(v, 0)
 
         fun subArr(v, i) =
-            wordAsR32((w8ToWord(Word8Array.sub(v, i)) << shift0) orb
-                (w8ToWord(Word8Array.sub(v, i+1)) << shift1) orb
-                (w8ToWord(Word8Array.sub(v, i+2)) << shift2) orb
-                (w8ToWord(Word8Array.sub(v, i+3)) << shift3))
+        let
+            val iW = i * bytesPerElem
+        in
+            wordAsR32((w8ToWord(Word8Array.sub(v, iW)) << shift0) orb
+                (w8ToWord(Word8Array.sub(v, iW+1)) << shift1) orb
+                (w8ToWord(Word8Array.sub(v, iW+2)) << shift2) orb
+                (w8ToWord(Word8Array.sub(v, iW+3)) << shift3))
+        end
 
         fun update(v, i, r) =
         let
             val w: word = r32AsWord r
             open Word8Array
+            val iW = i * bytesPerElem
         in
-            Word8Array.update(v, i, wordToW8(w >> shift0));
-            Word8Array.update(v, i+1, wordToW8(w >> shift1));
-            Word8Array.update(v, i+2, wordToW8(w >> shift2));
-            Word8Array.update(v, i+3, wordToW8(w >> shift3))
+            Word8Array.update(v, iW, wordToW8(w >> shift0));
+            Word8Array.update(v, iW+1, wordToW8(w >> shift1));
+            Word8Array.update(v, iW+2, wordToW8(w >> shift2));
+            Word8Array.update(v, iW+3, wordToW8(w >> shift3))
         end
     end
 
@@ -96,28 +105,37 @@ in
         end
 
         fun subVec(v, i) =
-            wordAsR32((w8ToWord(Word8Vector.sub(v, i)) << shift3) orb
-                (w8ToWord(Word8Vector.sub(v, i+1)) << shift2) orb
-                (w8ToWord(Word8Vector.sub(v, i+2)) << shift1) orb
-                (w8ToWord(Word8Vector.sub(v, i+3)) << shift0))
+        let
+            val iW = i * bytesPerElem
+        in
+            wordAsR32((w8ToWord(Word8Vector.sub(v, iW)) << shift3) orb
+                (w8ToWord(Word8Vector.sub(v, iW+1)) << shift2) orb
+                (w8ToWord(Word8Vector.sub(v, iW+2)) << shift1) orb
+                (w8ToWord(Word8Vector.sub(v, iW+3)) << shift0))
+        end
 
         fun fromBytes v = subVec(v, 0)
 
         fun subArr(v, i) =
-            wordAsR32((w8ToWord(Word8Array.sub(v, i)) << shift3) orb
-                (w8ToWord(Word8Array.sub(v, i+1)) << shift2) orb
-                (w8ToWord(Word8Array.sub(v, i+2)) << shift1) orb
-                (w8ToWord(Word8Array.sub(v, i+3)) << shift0))
+        let
+            val iW = i * bytesPerElem
+        in
+            wordAsR32((w8ToWord(Word8Array.sub(v, iW)) << shift3) orb
+                (w8ToWord(Word8Array.sub(v, iW+1)) << shift2) orb
+                (w8ToWord(Word8Array.sub(v, iW+2)) << shift1) orb
+                (w8ToWord(Word8Array.sub(v, iW+3)) << shift0))
+        end
 
         fun update(v, i, r) =
         let
             val w: word = r32AsWord r
             open Word8Array
+            val iW = i * bytesPerElem
         in
-            Word8Array.update(v, i, wordToW8(w >> shift3));
-            Word8Array.update(v, i+1, wordToW8(w >> shift2));
-            Word8Array.update(v, i+2, wordToW8(w >> shift1));
-            Word8Array.update(v, i+3, wordToW8(w >> shift0))
+            Word8Array.update(v, iW, wordToW8(w >> shift3));
+            Word8Array.update(v, iW+1, wordToW8(w >> shift2));
+            Word8Array.update(v, iW+2, wordToW8(w >> shift1));
+            Word8Array.update(v, iW+3, wordToW8(w >> shift0))
         end
     end
 
