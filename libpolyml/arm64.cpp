@@ -858,8 +858,18 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
         {
             // These only occur after we have converted LDRs above
             ASSERT((pt[1] & 0xffc00000) == 0xf9400000); // The next should be the Load
-            // For the moment assume that this does not require a move.
-            ASSERT(addr == oldAddr && newConstAddr == oldConstAddr);
+            // If we're exporting code that has previously been exported we will
+            // have already converted the LDR instructions.
+            if (addr != oldAddr || newConstAddr != oldConstAddr)
+            {
+                // Look at the instruction at the original location, before it was copied, to
+                // find out the address it referred to.
+                byte* oldInstrAddress = (byte*)pt - (byte*)addr + (byte*)oldAddr;
+                byte* constAddress = (byte*)ScanAddress::GetConstantValue(oldInstrAddress, PROCESS_RELOC_ARM64ADRPLDR, 0);
+                // Convert that into an address in the new constant area before updating the copied code.
+                byte* newAddress = (byte*)newConstAddr + (constAddress - (byte*)oldConstAddr);
+                ScanAddress::SetConstantValue((byte*)pt, (PolyObject*)newAddress, PROCESS_RELOC_ARM64ADRPLDR);
+            }
             process->RelocateOnly(addr, (byte*)pt, PROCESS_RELOC_ARM64ADRPLDR);
         }
         pt++;
