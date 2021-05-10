@@ -120,12 +120,6 @@
 /* Define to 1 if you have the `ffi' library (-lffi). */
 #undef HAVE_LIBFFI
 
-/* Define to 1 if you have the `gcc' library (-lgcc). */
-#undef HAVE_LIBGCC
-
-/* Define to 1 if you have the `gcc_s' library (-lgcc_s). */
-#undef HAVE_LIBGCC_S
-
 /* Define to 1 if you have the `gdi32' library (-lgdi32). */
 #undef HAVE_LIBGDI32
 

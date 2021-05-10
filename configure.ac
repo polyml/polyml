@@ -83,8 +83,6 @@ AM_PROG_AS
 AC_SYS_LARGEFILE
 
 # Checks for libraries.
-AC_CHECK_LIB(gcc, main)
-AC_CHECK_LIB(gcc_s, main)
 AC_CHECK_LIB(stdc++, main)
 
 # These can sometimes be in the standard libraries
