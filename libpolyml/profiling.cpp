@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development copyright (c) David C.J. Matthews 2011, 2015, 2020
+    Further development copyright (c) David C.J. Matthews 2011, 2015, 2020-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -118,31 +118,7 @@ static TaskData *singleThreadProfile = 0;
 
 static long queuePtr = 0;
 static POLYCODEPTR pcQueue[PCQUEUESIZE];
-
-// Increment, returning the original value.
-static int incrAtomically(long & p)
-{
-#if (defined(HAVE_SYNC_FETCH))
-    return __sync_fetch_and_add(&p, 1);
-#elif (defined(_WIN32))
-    long newValue = InterlockedIncrement(&p);
-    return newValue - 1;
-#else
-    return p++;
-#endif
-}
-
-// Decrement and return new value.
-static int decrAtomically(long & p)
-{
-#if (defined(HAVE_SYNC_FETCH))
-     return __sync_sub_and_fetch(&p, 1);
-#elif (defined(_WIN32))
-    return InterlockedDecrement(&p);
-#else
-    return --p;
-#endif
-}
+static PLock queueLock;
 
 typedef struct _PROFENTRY
 {
@@ -215,15 +191,17 @@ void addSynchronousCount(POLYCODEPTR fpc, POLYUNSIGNED incr)
     if (codeObj)
     {
         PolyObject *profObject = getProfileObjectForCode(codeObj);
-        PLocker locker(&countLock);
         if (profObject)
+        {
+            PLocker locker(&countLock);
             profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
-        return;
+        }
     }
     // Didn't find it.
+    else
     {
         PLocker locker(&countLock);
-        incrAtomically(mainThreadCounts[MTP_USER_CODE]);
+        mainThreadCounts[MTP_USER_CODE]++;
     }
 }
 
@@ -375,21 +353,31 @@ Handle ProfileRequest::extractAsList(TaskData *taskData)
 // we're in a signal handler.
 void incrementCountAsynch(POLYCODEPTR pc)
 {
-    int q = incrAtomically(queuePtr);
+    PLocker locker(&queueLock);
+    int q = queuePtr++;
     if (q < PCQUEUESIZE) pcQueue[q] = pc;
 }
 
 // Called by the main thread to process the queue of PC values
 void processProfileQueue()
 {
-    if (queuePtr == 0) return;
     while (1)
     {
-        int q = queuePtr;
-        if (q >= PCQUEUESIZE)
-            incrAtomically(mainThreadCounts[MTP_USER_CODE]);
-        else addSynchronousCount(pcQueue[q], 1);
-        if (decrAtomically(queuePtr) == 0) break;
+        POLYCODEPTR pc = 0;
+        {
+            PLocker locker(&queueLock);
+            if (queuePtr == 0) return;
+            if (queuePtr < PCQUEUESIZE)
+                pc = pcQueue[queuePtr];
+            queuePtr--;
+        }
+        if (pc != 0)
+            addSynchronousCount(pc, 1);
+        else
+        {
+            PLocker locker(&countLock);
+            mainThreadCounts[MTP_USER_CODE]++;
+        }
     }
 }
 
@@ -402,16 +390,21 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
     if (singleThreadProfile != 0 && singleThreadProfile != taskData)
         return;
 
-    /* If we are in the garbage-collector add the count to "gc_count"
-        otherwise try to find out where we are. */
     if (mainThreadPhase == MTP_USER_CODE)
     {
-        if (taskData == 0 || ! taskData->AddTimeProfileCount(context))
-            incrAtomically(mainThreadCounts[MTP_USER_CODE]);
+        if (taskData == 0 || !taskData->AddTimeProfileCount(context))
+        {
+            PLocker lock(&countLock);
+            mainThreadCounts[MTP_USER_CODE]++;
+        }
         // On Mac OS X all virtual timer interrupts seem to be directed to the root thread
         // so all the counts will be "unknown".
     }
-    else incrAtomically(mainThreadCounts[mainThreadPhase]);
+    else
+    {
+        PLocker lock(&countLock);
+        mainThreadCounts[mainThreadPhase]++;
+    }
 }
 
 // Called from the GC when allocation profiling is on.
