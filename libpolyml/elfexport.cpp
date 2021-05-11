@@ -439,8 +439,8 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
              relocationCount++;
              // Clear the offsets within the instruction just in case 
              uint32_t* writAble = (uint32_t *)gMem.SpaceForAddress(addr)->writeAble(addr);
-             writAble[0] = (writAble[0] & 0x9f00001f);
-             writAble[1] = (writAble[1] & 0xffc003ff);
+             writAble[0] = toARMInstr(fromARMInstr(writAble[0]) & 0x9f00001f);
+             writAble[1] = toARMInstr(fromARMInstr(writAble[1]) & 0xffc003ff);
         }
         break;
 #endif

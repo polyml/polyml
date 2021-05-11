@@ -255,8 +255,8 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
             relocationCount++;
             // Now we've found the target we can zero the data in the instructions.
             uint32_t* instrAddr = (uint32_t*)addr;
-            instrAddr[0] &= 0x9f00001f;
-            instrAddr[1] &= 0xffc003ff;
+            instrAddr[0] = toArmInstr(fromArmInstr(instrAddr[0]) & 0x9f00001f);
+            instrAddr[1] = toArmInstr(fromArmInstr(instrAddr[1]) & 0xffc003ff);
         }
         break;
 #endif

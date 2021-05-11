@@ -221,8 +221,8 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
         // bits of the offset are encoded in the LDR as a normal page offset.
         ASSERT(offset <= 0x1fffff);
         uint32_t* pt = (uint32_t*)addr;
-        pt[0] = (pt[0] & 0x9f00001f) | ((offset & 3) << 29) | ((offset >> 2) << 5);
-        pt[1] = (pt[1] & 0xffc003ff) | (((offset & 0xfff) / 8) << 10);
+        pt[0] = toARMInstr((fromARMInstr(pt[0]) & 0x9f00001f) | ((offset & 3) << 29) | ((offset >> 2) << 5));
+        pt[1] = toARMInstr((fromARMInstr(pt[1]) & 0xffc003ff) | (((offset & 0xfff) / 8) << 10));
         break;
     }
 
