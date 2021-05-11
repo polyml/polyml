@@ -588,7 +588,7 @@ void Arm64TaskData::HandleTrap()
     {
         // The heap has overflowed.
         // The register mask is the word after the return.
-        saveRegisterMask = *assemblyInterface.entryPoint++;
+        saveRegisterMask = fromARMInstr(*assemblyInterface.entryPoint++);
         // The generated code first subtracts the space required from x27 and puts the
         // result into a separate register.  It then compares this with x25 and comes here if
         // it is not above that.  Either way it is going to execute an instruction to put
@@ -609,7 +609,7 @@ void Arm64TaskData::HandleTrap()
     case RETURN_STACK_OVERFLOWEX:
     {
         // The register mask is the word after the return.
-        saveRegisterMask = *assemblyInterface.entryPoint++;
+        saveRegisterMask = fromARMInstr(*assemblyInterface.entryPoint++);
         uintptr_t min_size = 0; // Size in PolyWords
         if (assemblyInterface.returnReason == RETURN_STACK_OVERFLOW)
         {
