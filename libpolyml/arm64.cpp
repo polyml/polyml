@@ -509,7 +509,7 @@ void Arm64TaskData::Interpret()
             PolyWord closureWord = *assemblyInterface.stackPtr++;
             PolyObject* closure = closureWord.AsObjPtr();
             arm64CodePointer cp = *(arm64CodePointer*)closure;
-            if (cp[0] == 0xAA1E03E9 && cp[1] == 0xF9400350 && cp[2] == 0xD63F0200)
+            if (fromARMInstr(cp[0]) == 0xAA1E03E9 && fromARMInstr(cp[1]) == 0xF9400350 && fromARMInstr(cp[2]) == 0xD63F0200)
             {
                 // If the code we're going to is interpreted push back the closure and
                 // continue.
@@ -556,7 +556,7 @@ void Arm64TaskData::Interpret()
             if ((uintptr_t)interpreterPc & 3) // ARM64 addresses will always be 4-byte aligned.
                 continue;
             arm64CodePointer cp = (arm64CodePointer)interpreterPc;
-            if (cp[0] == 0xAA1E03E9 && cp[1] == 0xF9400350 && cp[2] == 0xD63F0200)
+            if (fromARMInstr(cp[0]) == 0xAA1E03E9 && fromARMInstr(cp[1]) == 0xF9400350 && fromARMInstr(cp[2]) == 0xD63F0200)
                 continue;
             // Pop the value we're returning.  Set the entry point to the code we're returning to.
             assemblyInterface.registers[0] = *assemblyInterface.stackPtr++;
@@ -594,7 +594,7 @@ void Arm64TaskData::HandleTrap()
         // it is not above that.  Either way it is going to execute an instruction to put
         // this value back into x27.
         // Look at that instruction to find out the register.
-        arm64Instr moveInstr = *assemblyInterface.entryPoint;
+        arm64Instr moveInstr = fromARMInstr(*assemblyInterface.entryPoint);
         ASSERT((moveInstr & 0xffe0ffff) == 0xaa0003fb); // mov x27,xN
         allocReg = (moveInstr >> 16) & 0x1f;
         allocWords = (allocPointer - (PolyWord*)assemblyInterface.registers[allocReg].stackAddr) + 1;
@@ -825,7 +825,7 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
 #ifndef POLYML32IN64
     arm64CodePointer pt = (arm64CodePointer)addr;
     // If it begins with the enter-int sequence it's interpreted code.
-    if (pt[0] == 0xAA1E03E9 && pt[1] == 0xF9400350 && pt[2] == 0xD63F0200)
+    if (fromARMInstr(pt[0]) == 0xAA1E03E9 && fromARMInstr(pt[1]) == 0xF9400350 && fromARMInstr(pt[2]) == 0xD63F0200)
         return;
     // We only need a split if the constant area is not at the original offset.
     POLYSIGNED constAdjustment =
@@ -837,27 +837,28 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
 
     while (*pt != 0) // The code ends with a UDF instruction (0)
     {
-        if ((*pt & 0xbf000000) == 0x18000000) // LDR with pc-relative offset
+        arm64Instr instr0 = fromARMInstr(pt[0]);
+        if ((instr0 & 0xbf000000) == 0x18000000) // LDR with pc-relative offset
         {
             // This could be a reference to the constant area or to the non-address area.
             // References to the constant area are followed by a nop
-            if (constAdjustment != 0 && pt[1] == 0xd503201f)
+            if (constAdjustment != 0 && fromARMInstr(pt[1]) == 0xd503201f)
             {
-                unsigned reg = pt[0] & 0x1f;
+                unsigned reg = instr0 & 0x1f;
                 // The displacement is a signed multiple of 4 bytes but it will always be +ve
-                ASSERT((pt[0] & 0x00800000) == 0);
+                ASSERT((instr0 & 0x00800000) == 0);
                 // The constant address is relative to the new location of the code.
-                byte* constAddress = (byte*)(pt + ((pt[0] >> 5) & 0x7ffff));
+                byte* constAddress = (byte*)(pt + ((instr0 >> 5) & 0x7ffff));
                 byte* newAddress = (byte*)constAddress + constAdjustment;
-                pt[0] = 0x90000000 + reg; // ADRP Xn, 0
-                pt[1] = 0xf9400000 + (reg << 5) + reg; // LDR Xn,[Xn+#0]
+                pt[0] = toARMInstr(0x90000000 + reg); // ADRP Xn, 0
+                pt[1] = toARMInstr(0xf9400000 + (reg << 5) + reg); // LDR Xn,[Xn+#0]
                 ScanAddress::SetConstantValue((byte*)pt, (PolyObject*)newAddress, PROCESS_RELOC_ARM64ADRPLDR);
             }
         }
-        else if ((*pt & 0x9f000000) == 0x90000000) // ADRP instruction
+        else if ((instr0 & 0x9f000000) == 0x90000000) // ADRP instruction
         {
             // These only occur after we have converted LDRs above
-            ASSERT((pt[1] & 0xffc00000) == 0xf9400000); // The next should be the Load
+            ASSERT((fromARMInstr(pt[1]) & 0xffc00000) == 0xf9400000); // The next should be the Load
             // If we're exporting code that has previously been exported we will
             // have already converted the LDR instructions.
             if (addr != oldAddr || newConstAddr != oldConstAddr)
@@ -883,10 +884,10 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
 void Arm64Dependent::UpdateGlobalHeapReference(PolyObject* addr)
 {
     arm64CodePointer pt = (arm64CodePointer)addr;
-    if (pt[0] == 0xD503201F && (pt[1] & 0xff000000) == 0x58000000)
+    if (fromARMInstr(pt[0]) == 0xD503201F && (fromARMInstr(pt[1]) & 0xff000000) == 0x58000000)
     {
         // nop (special marker) followed by LDR Xn,pc-relative
-        uint32_t pcOffset = (pt[1] >> 5) & 0x3ffff; // This is a number of 32-bit words
+        uint32_t pcOffset = (fromARMInstr(pt[1]) >> 5) & 0x3ffff; // This is a number of 32-bit words
         PolyWord* gHeapAddr = ((PolyWord*)addr) + pcOffset + 1; // PolyWords are 32-bits
         if (((PolyWord**)gHeapAddr)[0] != globalHeapBase)
             ((PolyWord**)gMem.SpaceForAddress(gHeapAddr)->writeAble(gHeapAddr))[0] = globalHeapBase;

@@ -2,7 +2,7 @@
     Title:  Globals for the system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright David C. J. Matthews 2017-20
+    Copyright David C. J. Matthews 2017-21
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
@@ -404,6 +404,23 @@ typedef PolyException poly_exn;
 #define ZERO_X  "0x"
 #else
 #define ZERO_X  ""
+#endif
+
+
+// ARM instructions are always little-endian even in big-endian mode
+#ifdef WORDS_BIGENDIAN
+inline uint32_t reverseBytes32(uint32_t value)
+{
+    return (((value & 0x000000ff) << 24) |
+        ((value & 0x0000ff00) << 8) |
+        ((value & 0x00ff0000) >> 8) |
+        ((value & 0xff000000) >> 24));
+}
+inline uint32_t fromARMInstr(uint32_t instr) { return reverseBytes32(instr); }
+inline uint32_t toARMInstr(uint32_t instr) { return reverseBytes32(instr); }
+#else
+inline uint32_t fromARMInstr(uint32_t instr) { return instr; }
+inline uint32_t toARMInstr(uint32_t instr) { return instr; }
 #endif
 
 #endif
