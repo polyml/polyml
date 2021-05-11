@@ -228,8 +228,8 @@ public:
             PolyWord* last_word = objAddr->Offset(length - 1); // Last word in the code
             MemSpace* space = gMem.SpaceForAddress(last_word);
             uint32_t* pt = (uint32_t*)space->writeAble(last_word);
-            pt[0] = 0x90000000; // Insert dummy ADRP and LDR
-            pt[1] = 0xf9400000;
+            pt[0] = toARMInstr(0x90000000); // Insert dummy ADRP and LDR
+            pt[1] = toARMInstr(0xf9400000);
             ScanAddress::SetConstantValue((byte*)last_word, (PolyObject*)constAddr, PROCESS_RELOC_ARM64ADRPLDR);
         }
     }
