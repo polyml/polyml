@@ -412,7 +412,7 @@ sig
     and heapAllocPtrOffset: int
     and mlStackPtrOffset: int
 
-    val is32in64: bool
+    val is32in64: bool and isBigEndian: bool
 
     structure Sharing:
     sig

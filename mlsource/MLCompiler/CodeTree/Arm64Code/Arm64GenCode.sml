@@ -387,6 +387,10 @@ struct
         EndOfProc
     |   NotEnd
 
+
+    (* The flags byte is the high-order byte of length word. *)
+    val flagsByteOffset = if isBigEndian then 1-Word.toInt wordSize else ~1
+
     (* Code generate a function or global declaration *)
     fun codegen (pt, name, resultClosure, numOfArgs, localCount, parameters) =
     let
@@ -1622,7 +1626,7 @@ struct
                 gencde (arg1, ToX0, NotEnd, loopAddr);
                 indexToAbsoluteAddress(X0, X0, cvec);
                 (* Load the flags byte. *)
-                gen(loadRegUnscaledByte{regT=X0, regN=X0, byteOffset= ~1}, cvec);
+                gen(loadRegUnscaledByte{regT=X0, regN=X0, byteOffset=flagsByteOffset}, cvec);
                 (* Tag the result. *)
                 gen(logicalShiftLeft{shift=0w1, regN=X0, regD=X0}, cvec);
                 gen(bitwiseOrImmediate{bits=0w1, regN=X0, regD=X0}, cvec)
@@ -1632,9 +1636,9 @@ struct
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
                 indexToAbsoluteAddress(X0, X0, cvec);
-                gen(loadRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec);
+                gen(loadRegUnscaledByte{regT=X1, regN=X0, byteOffset=flagsByteOffset}, cvec);
                 gen(bitwiseAndImmediate32{bits=Word64.xorb(0wxffffffff, 0wx40), regN=X1, regD=X1}, cvec);
-                gen(storeRegUnscaledByte{regT=X1, regN=X0, byteOffset= ~1}, cvec)
+                gen(storeRegUnscaledByte{regT=X1, regN=X0, byteOffset=flagsByteOffset}, cvec)
             )
 
         |   genUnary(LongWordToTagged, arg1, loopAddr) =
@@ -2586,9 +2590,9 @@ struct
                         then
                         (
                             genList(loadNonAddress(X16, Word64.fromLargeWord(Word8.toLargeWord F_closure)), cvec);
-                            gen(storeRegUnscaledByte{regT=X16, regN=X1, byteOffset= ~1}, cvec)
+                            gen(storeRegUnscaledByte{regT=X16, regN=X1, byteOffset=flagsByteOffset}, cvec)
                         )
-                        else gen(storeRegUnscaledByte{regT=XZero, regN=X1, byteOffset= ~1}, cvec)
+                        else gen(storeRegUnscaledByte{regT=XZero, regN=X1, byteOffset=flagsByteOffset}, cvec)
                 in
                     () (* Don't need to do anything now. *)
                 end
