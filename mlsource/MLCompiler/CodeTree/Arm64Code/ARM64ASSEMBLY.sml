@@ -28,6 +28,17 @@ struct
     
     val wordsPerNativeWord: word = Address.nativeWordSize div Address.wordSize
     
+    local
+        (* Almost every ARM64 platform is little-endian but it is possible to
+           run it in big-endian mode.  Instructions are always little-endian.
+           The value of isBigEndian will be determined when the structure is
+           constructed.  That's not a problem since it will be build on the
+           target machine. *)
+        val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
+    in
+        val isBigEndian = isBigEndian()
+    end
+    
     exception InternalError = Misc.InternalError
 
     infix 5 << <<+ <<- >> >>+ >>- ~>> ~>>+ ~>>- (* Shift operators *)
@@ -957,7 +968,7 @@ struct
     |   codeSize (CompareBranch { length=ref BrShort, ...}) = 1
     |   codeSize (CompareBranch { length=ref BrExtended, ...}) = 2
 
-    (* Store a 32-bit value in the code *)
+    (* Store a 32-bit value in the code.  Always little-endian. *)
     fun writeInstr(value, wordAddr, seg) =
     let
         fun putBytes(value, a, seg, i) =
@@ -978,7 +989,9 @@ struct
         if i = 0w8 then ()
         else
         (
-            byteVecSet(seg, a+i, Word8.fromLarge(Word64.toLarge value));
+            byteVecSet(seg,
+                if not isBigEndian then a+i else a+0w8-i-0w1,
+                Word8.fromLarge(Word64.toLarge value));
             putBytes(Word64.>>(value, 0w8), a, seg, i+0w1)
         )
     in
@@ -1242,7 +1255,9 @@ struct
         if i = Address.wordSize then ()
         else
         (
-            byteVecSet(seg, a+i, Word8.fromLarge value);
+            byteVecSet(seg,
+                if not isBigEndian then a+i else a+wordSize-i-0w1,
+                Word8.fromLarge value);
             putBytes(LargeWord.>>(value, 0w8), a, seg, i+0w1)
         )
     in
