@@ -104,8 +104,8 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetSignalHandler(FirstArgument threadId, PolyWord signalNo, PolyWord action);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWaitForSignal(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetSignalHandler(POLYUNSIGNED threadId, POLYUNSIGNED signalNo, POLYUNSIGNED action);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWaitForSignal(POLYUNSIGNED threadId);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -266,7 +266,7 @@ static Handle waitForSignal(TaskData *taskData)
     }
 }
 
-POLYUNSIGNED PolySetSignalHandler(FirstArgument threadId, PolyWord signalNo, PolyWord action)
+POLYUNSIGNED PolySetSignalHandler(POLYUNSIGNED threadId, POLYUNSIGNED signalNo, POLYUNSIGNED action)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -285,7 +285,7 @@ POLYUNSIGNED PolySetSignalHandler(FirstArgument threadId, PolyWord signalNo, Pol
                 PLocker locker(&sigLock);
                 // We have to pass this to the main thread to 
                 // set up the signal handler.
-                sign = get_C_int(taskData, signalNo);
+                sign = get_C_int(taskData, PolyWord::FromUnsigned(signalNo));
                 /* Decode the action if it is Ignore or Default. */
                 if (pushedAction->Word().IsTagged())
                     action = (int)pushedAction->Word().UnTagged();
@@ -321,7 +321,7 @@ POLYUNSIGNED PolySetSignalHandler(FirstArgument threadId, PolyWord signalNo, Pol
 }
 
 // Called by the signal handler thread.  Blocks until a signal is available.
-POLYUNSIGNED PolyWaitForSignal(FirstArgument threadId)
+POLYUNSIGNED PolyWaitForSignal(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

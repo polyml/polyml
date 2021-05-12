@@ -987,7 +987,7 @@ bool Arm64TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 extern "C" {
     POLYEXTERNALSYMBOL void* PolyArm64GetThreadData();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedEnterIntMode();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(POLYUNSIGNED threadId, POLYUNSIGNED function);
 }
 
 // Return the address of assembly data for the current thread.  This is normally in
@@ -1024,7 +1024,7 @@ POLYUNSIGNED PolyInterpretedEnterIntMode()
 // End the first stage of bootstrap mode and run a new function.
 // The first stage is always interpreted.  Once that is complete every function will have
 // at least an executable "enter-interpreter" stub so it can be called as machine code.
-POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function)
+POLYUNSIGNED PolyEndBootstrapMode(POLYUNSIGNED threadId, POLYUNSIGNED function)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

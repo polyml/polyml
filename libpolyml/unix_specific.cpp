@@ -131,10 +131,10 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixSleep(FirstArgument threadId, PolyWord maxTime, PolyWord sigCount);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyUnixExecute(FirstArgument threadId, PolyWord cmd, PolyWord args, PolyWord env);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixSleep(POLYUNSIGNED threadId, POLYUNSIGNED maxTime, POLYUNSIGNED sigCount);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyUnixExecute(POLYUNSIGNED threadId, POLYUNSIGNED cmd, POLYUNSIGNED args, POLYUNSIGNED env);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -1130,7 +1130,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
 // General interface to Unix OS-specific.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyOSSpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyOSSpecificGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1178,7 +1178,7 @@ public:
 // This waits for a period of up to a second.  The actual time calculations are
 // done in ML.  Takes the signal count as an argument and returns the last signal
 // count.  This ensures that it does not miss any signals that arrive while in ML.
-POLYUNSIGNED PolyPosixSleep(FirstArgument threadId, PolyWord maxMillisecs, PolyWord sigCount)
+POLYUNSIGNED PolyPosixSleep(POLYUNSIGNED threadId, POLYUNSIGNED maxMillisecs, POLYUNSIGNED sigCount)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2005,7 +2005,7 @@ static int findPathVar(TaskData *taskData, PolyWord ps)
 // there were problems, possibly associated with garbage collection.
 // Generally, the state after fork is problematic for the rest of the
 // run-time system so it is generally better to avoid Posix.Process.fork,
-POLYUNSIGNED PolyUnixExecute(FirstArgument threadId, PolyWord cmd, PolyWord args, PolyWord env)
+POLYUNSIGNED PolyUnixExecute(POLYUNSIGNED threadId, POLYUNSIGNED cmd, POLYUNSIGNED args, POLYUNSIGNED env)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

@@ -46,20 +46,4 @@ typedef struct _entrypts {
 #endif
 #endif
 
-#ifdef POLYML32IN64
-// This is needed for legacy only.  RTS calls previously passed the
-// real address of the thread ID.  They now pass a PolyWord containing
-// the thread ID.
-// Once we've fully bootstrapped FirstArgument can be replaced with PolyWord.
-union firstArgFull
-{
-    operator PolyWord()
-    { if (value >= 0x100000000) return (PolyWord)((PolyObject*)value); else return PolyWord::FromUnsigned((POLYUNSIGNED)value); }
-    uintptr_t value;
-};
-typedef union firstArgFull FirstArgument;
-#else
-typedef PolyWord  FirstArgument;
-#endif
-
 #endif

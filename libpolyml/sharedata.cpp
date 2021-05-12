@@ -121,7 +121,7 @@ at the cost of increasing the total memory requirement.
 */
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShareCommonData(FirstArgument threadId, PolyWord root);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShareCommonData(POLYUNSIGNED threadId, POLYUNSIGNED root);
 }
 
 // The depth is stored in the length field.  If the Weak bit is set but the Mutable bit
@@ -1091,7 +1091,7 @@ void ShareData(TaskData *taskData, Handle root)
 }
 
 // RTS call entry.
-POLYUNSIGNED PolyShareCommonData(FirstArgument threadId, PolyWord root)
+POLYUNSIGNED PolyShareCommonData(POLYUNSIGNED threadId, POLYUNSIGNED root)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1099,7 +1099,7 @@ POLYUNSIGNED PolyShareCommonData(FirstArgument threadId, PolyWord root)
     Handle reset = taskData->saveVec.mark();
 
     try {
-        if (! root.IsDataPtr())
+        if (!PolyWord::FromUnsigned(root).IsDataPtr())
             return TAGGED(0).AsUnsigned(); // Nothing to do.
 
         // Request the main thread to do the sharing.

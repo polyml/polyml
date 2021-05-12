@@ -160,10 +160,10 @@ DCJM May 2000.
 #endif
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(FirstArgument threadId, PolyWord code, PolyWord strm, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(FirstArgument threadId, PolyWord streamVec, PolyWord bitVec, PolyWord maxMillisecs);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(FirstArgument threadId, PolyWord fd);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED strm, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(POLYUNSIGNED threadId, POLYUNSIGNED streamVec, POLYUNSIGNED bitVec, POLYUNSIGNED maxMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(POLYUNSIGNED threadId, POLYUNSIGNED fd);
 }
 
 static bool isAvailable(TaskData *taskData, int ioDesc)
@@ -480,7 +480,7 @@ void WaitPoll::Wait(unsigned maxMillisecs)
     if (pollResult < 0) errorResult = ERRORNUMBER;
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(FirstArgument threadId, PolyWord streamVector, PolyWord bitVector, PolyWord maxMillisecs)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(POLYUNSIGNED threadId, POLYUNSIGNED streamVector, POLYUNSIGNED bitVector, POLYUNSIGNED maxMillisecs)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -612,7 +612,7 @@ static Handle change_dirc(TaskData *taskData, Handle name)
 }
 
 // External call
-POLYUNSIGNED PolyChDir(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyChDir(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1063,7 +1063,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 
 // General interface to IO.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyBasicIOGeneral(FirstArgument threadId, PolyWord code, PolyWord strm, PolyWord arg)
+POLYUNSIGNED PolyBasicIOGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED strm, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1089,7 +1089,7 @@ POLYUNSIGNED PolyBasicIOGeneral(FirstArgument threadId, PolyWord code, PolyWord 
 }
 
 // Create a persistent file descriptor value for Posix.FileSys.stdin etc.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(FirstArgument threadId, PolyWord fd)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(POLYUNSIGNED threadId, POLYUNSIGNED fd)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

@@ -117,20 +117,20 @@
 #include "mpoly.h" // For polyStderr
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingTicksPerMicroSec(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetNow(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingBaseYear(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingYearOffset(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingLocalOffset(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingSummerApplies(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingConvertDateStuct(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetUser(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetSystem(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetGCUser(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetReal(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetChildUser(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetChildSystem(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetGCSystem(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingTicksPerMicroSec(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetNow(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingBaseYear(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingYearOffset(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingLocalOffset(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingSummerApplies(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingConvertDateStuct(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetUser(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetSystem(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetGCUser(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetReal(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetChildUser(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetChildSystem(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGetGCSystem(POLYUNSIGNED threadId);
 }
 
 #if (defined(_WIN32))
@@ -182,7 +182,7 @@ static PLock timeLock("Timing");
 
 
 // Get ticks per microsecond.
-POLYUNSIGNED PolyTimingTicksPerMicroSec(FirstArgument threadId)
+POLYUNSIGNED PolyTimingTicksPerMicroSec(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -202,7 +202,7 @@ POLYUNSIGNED PolyTimingTicksPerMicroSec(FirstArgument threadId)
 }
 
 /* Return time since the time base. */
-POLYUNSIGNED PolyTimingGetNow(FirstArgument threadId)
+POLYUNSIGNED PolyTimingGetNow(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -231,7 +231,7 @@ POLYUNSIGNED PolyTimingGetNow(FirstArgument threadId)
 }
 
 /* Return the base year.  This is the year which corresponds to zero in the timing sequence. */
-POLYUNSIGNED PolyTimingBaseYear(FirstArgument threadId)
+POLYUNSIGNED PolyTimingBaseYear(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -260,7 +260,7 @@ POLYUNSIGNED PolyTimingBaseYear(FirstArgument threadId)
     we are running on a system with a different base.  It
     returns the number of seconds after 1st January of the
     base year that corresponds to zero of the time base. */
-POLYUNSIGNED PolyTimingYearOffset(FirstArgument threadId)
+POLYUNSIGNED PolyTimingYearOffset(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -280,7 +280,7 @@ POLYUNSIGNED PolyTimingYearOffset(FirstArgument threadId)
 }
 
 /* Return the time offset which applied/will apply at the specified time (in seconds). */
-POLYUNSIGNED PolyTimingLocalOffset(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyTimingLocalOffset(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -351,7 +351,7 @@ POLYUNSIGNED PolyTimingLocalOffset(FirstArgument threadId, PolyWord arg)
 }
 
 /* Find out if Summer Time (daylight saving) was/will be in effect. */
-POLYUNSIGNED PolyTimingSummerApplies(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyTimingSummerApplies(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -396,7 +396,7 @@ POLYUNSIGNED PolyTimingSummerApplies(FirstArgument threadId, PolyWord arg)
 }
 
 /* Call strftime.  It would be possible to do much of this in  ML except that it requires the current locale. */
-POLYUNSIGNED PolyTimingConvertDateStuct(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyTimingConvertDateStuct(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -449,7 +449,7 @@ POLYUNSIGNED PolyTimingConvertDateStuct(FirstArgument threadId, PolyWord arg)
 }
 
 /* Return User CPU time since the start. */
-POLYUNSIGNED PolyTimingGetUser(FirstArgument threadId)
+POLYUNSIGNED PolyTimingGetUser(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -480,7 +480,7 @@ POLYUNSIGNED PolyTimingGetUser(FirstArgument threadId)
 }
 
 /* Return System CPU time since the start. */
-POLYUNSIGNED PolyTimingGetSystem(FirstArgument threadId)
+POLYUNSIGNED PolyTimingGetSystem(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -511,7 +511,7 @@ POLYUNSIGNED PolyTimingGetSystem(FirstArgument threadId)
 }
 
 /* Return GC time since the start. */
-POLYUNSIGNED PolyTimingGetGCUser(FirstArgument threadId)
+POLYUNSIGNED PolyTimingGetGCUser(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -531,7 +531,7 @@ POLYUNSIGNED PolyTimingGetGCUser(FirstArgument threadId)
 }
 
 /* Return real time since the start. */
-POLYUNSIGNED PolyTimingGetReal(FirstArgument threadId)
+POLYUNSIGNED PolyTimingGetReal(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -562,7 +562,7 @@ POLYUNSIGNED PolyTimingGetReal(FirstArgument threadId)
 }
 
 /* Return User CPU time used by child processes.  (Posix only) */
-POLYUNSIGNED PolyTimingGetChildUser(FirstArgument threadId)
+POLYUNSIGNED PolyTimingGetChildUser(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -590,7 +590,7 @@ POLYUNSIGNED PolyTimingGetChildUser(FirstArgument threadId)
 }
 
 /* Return System CPU time used by child processes. (Posix only) */
-POLYUNSIGNED PolyTimingGetChildSystem(FirstArgument threadId)
+POLYUNSIGNED PolyTimingGetChildSystem(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -618,7 +618,7 @@ POLYUNSIGNED PolyTimingGetChildSystem(FirstArgument threadId)
 }
 
 /* Return GC system time since the start. */
-POLYUNSIGNED PolyTimingGetGCSystem(FirstArgument threadId)
+POLYUNSIGNED PolyTimingGetGCSystem(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

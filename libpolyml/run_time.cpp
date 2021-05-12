@@ -60,7 +60,7 @@
 #include "memmgr.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFullGC(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFullGC(POLYUNSIGNED threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyIsBigEndian();
 }
 
@@ -105,7 +105,7 @@ Handle alloc_and_save(TaskData *taskData, uintptr_t size, unsigned flags)
     return taskData->saveVec.push(alloc(taskData, size, flags));
 }
 
-POLYUNSIGNED PolyFullGC(FirstArgument threadId)
+POLYUNSIGNED PolyFullGC(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

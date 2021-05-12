@@ -140,11 +140,11 @@
 #endif
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(FirstArgument threadId, PolyWord code, PolyWord strm, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(FirstArgument threadId, PolyWord streamVec, PolyWord bitVec, PolyWord maxMillisecs);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForInput(FirstArgument threadId, PolyWord strm, PolyWord waitMillisecs);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForOutput(FirstArgument threadId, PolyWord strm, PolyWord waitMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED strm, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(POLYUNSIGNED threadId, POLYUNSIGNED streamVec, POLYUNSIGNED bitVec, POLYUNSIGNED maxMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForInput(POLYUNSIGNED threadId, POLYUNSIGNED strm, POLYUNSIGNED waitMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForOutput(POLYUNSIGNED threadId, POLYUNSIGNED strm, POLYUNSIGNED waitMillisecs);
 }
 
 // References to the standard streams.  They are only needed if we are compiling
@@ -670,18 +670,18 @@ Handle pollTest(TaskData *taskData, Handle stream)
 // and a time to wait and returns a vector of results.
 // Windows: This is messy because "select" only works on sockets.
 // Do the best we can.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(FirstArgument threadId, PolyWord streamVector, PolyWord bitVector, PolyWord maxMillisecs)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(POLYUNSIGNED threadId, POLYUNSIGNED streamVector, POLYUNSIGNED bitVector, POLYUNSIGNED maxMillisecs)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    unsigned maxMilliseconds = (unsigned)maxMillisecs.UnTaggedUnsigned();
+    unsigned maxMilliseconds = (unsigned)PolyWord::FromUnsigned(maxMillisecs).UnTaggedUnsigned();
     Handle result = 0;
 
     try {
-        PolyObject  *strmVec = streamVector.AsObjPtr();
-        PolyObject  *bitVec = bitVector.AsObjPtr();
+        PolyObject  *strmVec = PolyWord::FromUnsigned(streamVector).AsObjPtr();
+        PolyObject  *bitVec = PolyWord::FromUnsigned(bitVector).AsObjPtr();
         POLYUNSIGNED nDesc = strmVec->Length();
         ASSERT(nDesc == bitVec->Length());
         // We should check for interrupts even if we're not going to block.
@@ -838,7 +838,7 @@ static Handle change_dirc(TaskData *taskData, Handle name)
 }
 
 // External call
-POLYUNSIGNED PolyChDir(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyChDir(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1332,7 +1332,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 
 // General interface to IO.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolyBasicIOGeneral(FirstArgument threadId, PolyWord code, PolyWord strm, PolyWord arg)
+POLYUNSIGNED PolyBasicIOGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED strm, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1357,7 +1357,7 @@ POLYUNSIGNED PolyBasicIOGeneral(FirstArgument threadId, PolyWord code, PolyWord 
     else return result->Word().AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForInput(FirstArgument threadId, PolyWord strm, PolyWord waitMillisecs)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForInput(POLYUNSIGNED threadId, POLYUNSIGNED strm, POLYUNSIGNED waitMillisecs)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1366,9 +1366,9 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForInput(FirstArgument threadId, PolyWor
     bool result = false;
 
     try {
-        WinStream *stream = *(WinStream **)(strm.AsObjPtr());
+        WinStream *stream = *(WinStream **)(PolyWord::FromUnsigned(strm).AsObjPtr());
         if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        result = stream->testForInput(taskData, (unsigned)waitMillisecs.UnTaggedUnsigned());
+        result = stream->testForInput(taskData, (unsigned)PolyWord::FromUnsigned(waitMillisecs).UnTaggedUnsigned());
     }
     catch (KillException &) {
         processes->ThreadExit(taskData); // TestAnyEvents may test for kill
@@ -1380,7 +1380,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForInput(FirstArgument threadId, PolyWor
     return TAGGED(result? 1: 0).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForOutput(FirstArgument threadId, PolyWord strm, PolyWord waitMillisecs)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForOutput(POLYUNSIGNED threadId, POLYUNSIGNED strm, POLYUNSIGNED waitMillisecs)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1389,9 +1389,9 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyTestForOutput(FirstArgument threadId, PolyWo
     bool result = false;
 
     try {
-        WinStream *stream = *(WinStream **)(strm.AsObjPtr());
+        WinStream *stream = *(WinStream **)(PolyWord::FromUnsigned(strm).AsObjPtr());
         if (stream == 0) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
-        result = stream->testForOutput(taskData, (unsigned)waitMillisecs.UnTaggedUnsigned());
+        result = stream->testForOutput(taskData, (unsigned)PolyWord::FromUnsigned(waitMillisecs).UnTaggedUnsigned());
     }
     catch (KillException &) {
         processes->ThreadExit(taskData); // TestAnyEvents may test for kill

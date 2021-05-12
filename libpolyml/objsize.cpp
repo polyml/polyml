@@ -67,9 +67,9 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjSize(FirstArgument threadId, PolyWord obj);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowSize(FirstArgument threadId, PolyWord obj);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjProfile(FirstArgument threadId, PolyWord obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjSize(POLYUNSIGNED threadId, POLYUNSIGNED obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowSize(POLYUNSIGNED threadId, POLYUNSIGNED obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjProfile(POLYUNSIGNED threadId, POLYUNSIGNED obj);
 }
 
 extern FILE *polyStdout;
@@ -378,28 +378,28 @@ static void printfprof(unsigned *counts)
     }
 }
 
-POLYUNSIGNED PolyObjSize(FirstArgument threadId, PolyWord obj)
+POLYUNSIGNED PolyObjSize(POLYUNSIGNED threadId, POLYUNSIGNED obj)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
 
     ProcessVisitAddresses process(false);
-    if (!obj.IsTagged()) process.ScanObjectAddress(obj.AsObjPtr());
+    if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
     Handle result = Make_arbitrary_precision(taskData, process.total_length);
 
     taskData->PostRTSCall();
     return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyShowSize(FirstArgument threadId, PolyWord obj)
+POLYUNSIGNED PolyShowSize(POLYUNSIGNED threadId, POLYUNSIGNED obj)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
 
     ProcessVisitAddresses process(true);
-    if (!obj.IsTagged()) process.ScanObjectAddress(obj.AsObjPtr());
+    if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
     fflush(polyStdout); /* We need this for Windows at least. */
     Handle result = Make_arbitrary_precision(taskData, process.total_length);
 
@@ -407,14 +407,14 @@ POLYUNSIGNED PolyShowSize(FirstArgument threadId, PolyWord obj)
     return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyObjProfile(FirstArgument threadId, PolyWord obj)
+POLYUNSIGNED PolyObjProfile(POLYUNSIGNED threadId, POLYUNSIGNED obj)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
 
     ProcessVisitAddresses process(false);
-    if (!obj.IsTagged()) process.ScanObjectAddress(obj.AsObjPtr());
+    if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
     fprintf(polyStdout, "\nImmutable object sizes and counts\n");
     printfprof(process.iprofile);
     fprintf(polyStdout, "\nMutable object sizes and counts\n");

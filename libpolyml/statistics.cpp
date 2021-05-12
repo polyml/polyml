@@ -134,9 +134,9 @@
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetUserStatsCount();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(FirstArgument threadId, PolyWord index, PolyWord value);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(FirstArgument threadId, PolyWord procId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(POLYUNSIGNED threadId, POLYUNSIGNED index, POLYUNSIGNED value);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(POLYUNSIGNED threadId, POLYUNSIGNED procId);
 }
 
 #define STATS_SPACE 4096 // Enough for all the statistics
@@ -812,7 +812,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetUserStatsCount()
     return TAGGED(N_PS_USER).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(FirstArgument threadId, PolyWord indexVal, PolyWord valueVal)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(POLYUNSIGNED threadId, POLYUNSIGNED indexVal, POLYUNSIGNED valueVal)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -820,10 +820,10 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(FirstArgument threadId, PolyWord
     Handle reset = taskData->saveVec.mark();
 
     try {
-        unsigned index = get_C_unsigned(taskData, indexVal);
+        unsigned index = get_C_unsigned(taskData, PolyWord::FromUnsigned(indexVal));
         if (index >= N_PS_USER)
             raise_exception0(taskData, EXC_subscript);
-        POLYSIGNED value = getPolySigned(taskData, valueVal);
+        POLYSIGNED value = getPolySigned(taskData, PolyWord::FromUnsigned(valueVal));
         globalStats.setUserCounter(index, value);
     }
     catch (...) {} // If an ML exception is raised
@@ -834,7 +834,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolySetUserStat(FirstArgument threadId, PolyWord
     return TAGGED(0).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(FirstArgument threadId)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -854,7 +854,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetLocalStats(FirstArgument threadId)
     else return result->Word().AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(FirstArgument threadId, PolyWord procId)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(POLYUNSIGNED threadId, POLYUNSIGNED procId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -863,7 +863,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetRemoteStats(FirstArgument threadId, PolyW
     Handle result = 0;
 
     try {
-        result = globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, procId));
+        result = globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, PolyWord::FromUnsigned(procId)));
     }
     catch (...) {} // If an ML exception is raised
 

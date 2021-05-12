@@ -89,17 +89,17 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeShort();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeInt();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeLong();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetError(PolyWord addr);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(PolyWord err);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtData(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL void PolyFFICallbackException(PolyWord exnMessage);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIMalloc(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIFree(PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFILoadLibrary(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFILoadExecutable(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIUnloadLibrary(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetSymbolAddress(FirstArgument threadId, PolyWord moduleAddress, PolyWord symbolName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetError(POLYUNSIGNED addr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(POLYUNSIGNED err);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtData(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL void PolyFFICallbackException(POLYUNSIGNED exnMessage);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIMalloc(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIFree(POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFILoadLibrary(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFILoadExecutable(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIUnloadLibrary(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetSymbolAddress(POLYUNSIGNED threadId, POLYUNSIGNED moduleAddress, POLYUNSIGNED symbolName);
 }
 static Handle toSysWord(TaskData *taskData, void *p)
 {
@@ -107,7 +107,7 @@ static Handle toSysWord(TaskData *taskData, void *p)
 }
 
 // Malloc memory - Needs to allocate the SysWord.word value on the heap.
-POLYUNSIGNED PolyFFIMalloc(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyFFIMalloc(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -116,7 +116,7 @@ POLYUNSIGNED PolyFFIMalloc(FirstArgument threadId, PolyWord arg)
     Handle result = 0;
 
     try {
-        POLYUNSIGNED size = getPolyUnsigned(taskData, arg);
+        POLYUNSIGNED size = getPolyUnsigned(taskData, PolyWord::FromUnsigned(arg));
         result = toSysWord(taskData, malloc(size));
     }
     catch (...) {} // If an ML exception is raised
@@ -128,14 +128,14 @@ POLYUNSIGNED PolyFFIMalloc(FirstArgument threadId, PolyWord arg)
 }
 
 // Free memory.  Not currently used: freed memory is just added back to the free list.
-POLYUNSIGNED PolyFFIFree(PolyWord arg)
+POLYUNSIGNED PolyFFIFree(POLYUNSIGNED arg)
 {
-    void* mem = *(void**)(arg.AsObjPtr());
+    void* mem = *(void**)(PolyWord::FromUnsigned(arg).AsObjPtr());
     free(mem);
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyFFILoadLibrary(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyFFILoadLibrary(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -144,7 +144,7 @@ POLYUNSIGNED PolyFFILoadLibrary(FirstArgument threadId, PolyWord arg)
     Handle result = 0;
 
     try {
-        TempString libName(arg);
+        TempString libName(PolyWord::FromUnsigned(arg));
 #if (defined(_WIN32))
         HINSTANCE lib = LoadLibrary(libName);
         if (lib == NULL)
@@ -179,7 +179,7 @@ POLYUNSIGNED PolyFFILoadLibrary(FirstArgument threadId, PolyWord arg)
 }
 
 // Get the address of the executable as a library.
-POLYUNSIGNED PolyFFILoadExecutable(FirstArgument threadId)
+POLYUNSIGNED PolyFFILoadExecutable(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -211,7 +211,7 @@ POLYUNSIGNED PolyFFILoadExecutable(FirstArgument threadId)
 }
 
 // Unload library - Is this actually going to be used?
-POLYUNSIGNED PolyFFIUnloadLibrary(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyFFIUnloadLibrary(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -220,11 +220,11 @@ POLYUNSIGNED PolyFFIUnloadLibrary(FirstArgument threadId, PolyWord arg)
 
     try {
 #if (defined(_WIN32))
-        HMODULE hMod = *(HMODULE*)(arg.AsObjPtr());
+        HMODULE hMod = *(HMODULE*)(PolyWord::FromUnsigned(arg).AsObjPtr());
         if (!FreeLibrary(hMod))
             raise_syscall(taskData, "FreeLibrary failed", GetLastError());
 #else
-        void* lib = *(void**)(arg.AsObjPtr());
+        void* lib = *(void**)(PolyWord::FromUnsigned(arg).AsObjPtr());
         if (dlclose(lib) != 0)
         {
             char buf[256];
@@ -242,7 +242,7 @@ POLYUNSIGNED PolyFFIUnloadLibrary(FirstArgument threadId, PolyWord arg)
 }
 
 // Load the address of a symbol from a library.
-POLYUNSIGNED PolyFFIGetSymbolAddress(FirstArgument threadId, PolyWord moduleAddress, PolyWord symbolName)
+POLYUNSIGNED PolyFFIGetSymbolAddress(POLYUNSIGNED threadId, POLYUNSIGNED moduleAddress, POLYUNSIGNED symbolName)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -251,9 +251,9 @@ POLYUNSIGNED PolyFFIGetSymbolAddress(FirstArgument threadId, PolyWord moduleAddr
     Handle result = 0;
 
     try {
-        TempCString symName(symbolName);
+        TempCString symName(PolyWord::FromUnsigned(symbolName));
 #if (defined(_WIN32))
-        HMODULE hMod = *(HMODULE*)(moduleAddress.AsObjPtr());
+        HMODULE hMod = *(HMODULE*)(PolyWord::FromUnsigned(moduleAddress).AsObjPtr());
         void* sym = (void*)GetProcAddress(hMod, symName);
         if (sym == NULL)
         {
@@ -263,7 +263,7 @@ POLYUNSIGNED PolyFFIGetSymbolAddress(FirstArgument threadId, PolyWord moduleAddr
             raise_exception_string(taskData, EXC_foreign, buf);
         }
 #else
-        void* lib = *(void**)(moduleAddress.AsObjPtr());
+        void* lib = *(void**)(PolyWord::FromUnsigned(moduleAddress).AsObjPtr());
         void* sym = dlsym(lib, symName);
         if (sym == NULL)
         {
@@ -310,23 +310,23 @@ POLYUNSIGNED PolySizeLong()
 }
 
 // Get either errno or GetLastError
-POLYUNSIGNED PolyFFIGetError(PolyWord addr)
+POLYUNSIGNED PolyFFIGetError(POLYUNSIGNED addr)
 {
 #if (defined(_WIN32))
-    addr.AsObjPtr()->Set(0, PolyWord::FromUnsigned(GetLastError()));
+    PolyWord::FromUnsigned(addr).AsObjPtr()->Set(0, PolyWord::FromUnsigned(GetLastError()));
 #else
-    addr.AsObjPtr()->Set(0, PolyWord::FromUnsigned((POLYUNSIGNED)errno));
+    PolyWord::FromUnsigned(addr).AsObjPtr()->Set(0, PolyWord::FromUnsigned((POLYUNSIGNED)errno));
 #endif
     return 0;
 }
 
 // The argument is a SysWord.word value i.e. the address of a byte cell.
-POLYUNSIGNED PolyFFISetError(PolyWord err)
+POLYUNSIGNED PolyFFISetError(POLYUNSIGNED err)
 {
 #if (defined(_WIN32))
-    SetLastError((DWORD)(err.AsObjPtr()->Get(0).AsUnsigned()));
+    SetLastError((DWORD)(PolyWord::FromUnsigned(err).AsObjPtr()->Get(0).AsUnsigned()));
 #else
-    errno = err.AsObjPtr()->Get(0).AsSigned();
+    errno = PolyWord::FromUnsigned(err).AsObjPtr()->Get(0).AsSigned();
 #endif
     return 0;
 }
@@ -335,7 +335,7 @@ POLYUNSIGNED PolyFFISetError(PolyWord err)
 // an address followed by the name of the external symbol.  Because the
 // address comes at the beginning it can be used in the same way as the
 // SysWord value returned by the get-symbol call from a library.
-POLYUNSIGNED PolyFFICreateExtFn(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyFFICreateExtFn(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -357,7 +357,7 @@ POLYUNSIGNED PolyFFICreateExtFn(FirstArgument threadId, PolyWord arg)
 
 // Create an external reference to data.  On a small number of platforms
 // different forms of relocation are needed for data and for functions.
-POLYUNSIGNED PolyFFICreateExtData(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyFFICreateExtData(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -380,9 +380,9 @@ POLYUNSIGNED PolyFFICreateExtData(FirstArgument threadId, PolyWord arg)
 
 // Called if a callback raises an exception.  There's nothing we
 // can do because we don't have anything to pass back to C.
-void PolyFFICallbackException(PolyWord exnMessage)
+void PolyFFICallbackException(POLYUNSIGNED exnMessage)
 {
-    TempCString exception(exnMessage);
+    TempCString exception(PolyWord::FromUnsigned(exnMessage));
     Crash("An ML function called from foreign code raised an exception: (%s).  Unable to continue.", (const char *)exception);
 }
 

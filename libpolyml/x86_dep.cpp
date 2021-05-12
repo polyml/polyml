@@ -1464,7 +1464,7 @@ bool X86TaskData::AtomicallyReleaseMutex(PolyObject* mutexp)
 extern "C" {
     POLYEXTERNALSYMBOL void *PolyX86GetThreadData();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedEnterIntMode();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(POLYUNSIGNED threadId, POLYUNSIGNED function);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyX86IsLocalCode(PolyObject* destination);
 }
 
@@ -1505,7 +1505,7 @@ POLYUNSIGNED PolyInterpretedEnterIntMode()
 }
 
 // End bootstrap mode and run a new function.
-POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function)
+POLYUNSIGNED PolyEndBootstrapMode(POLYUNSIGNED threadId, POLYUNSIGNED function)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

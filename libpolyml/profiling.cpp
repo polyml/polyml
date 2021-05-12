@@ -60,7 +60,7 @@
 #include "machine_dep.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProfiling(FirstArgument threadId, PolyWord mode);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProfiling(POLYUNSIGNED threadId, POLYUNSIGNED mode);
 }
 
 static long mainThreadCounts[MTP_MAXENTRY];
@@ -501,7 +501,7 @@ static Handle profilerc(TaskData *taskData, Handle mode_handle)
     return request.extractAsList(taskData);
 }
 
-POLYUNSIGNED PolyProfiling(FirstArgument threadId, PolyWord mode)
+POLYUNSIGNED PolyProfiling(POLYUNSIGNED threadId, POLYUNSIGNED mode)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

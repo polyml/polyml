@@ -156,6 +156,11 @@ public:
         return *(TaskData**)(((ThreadObject*)taskId.AsObjPtr())->threadRef.AsObjPtr());
     }
 
+    // Overloading for usual RTS call case.
+    static TaskData* FindTaskForId(POLYUNSIGNED taskId) {
+        return FindTaskForId(PolyWord::FromUnsigned(taskId));
+    }
+
 private:
     // If a thread has to block it will block on this.
     PCondVar threadLock;

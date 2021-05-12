@@ -128,21 +128,21 @@
 #include "gc_progress.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexBlock(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexUnlock(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWait(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWaitUntil(FirstArgument threadId, PolyWord lockArg, PolyWord timeArg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWake(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadForkThread(FirstArgument threadId, PolyWord function, PolyWord attrs, PolyWord stack);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadBroadcastInterrupt(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(FirstArgument threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexBlock(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexUnlock(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWait(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWaitUntil(POLYUNSIGNED threadId, POLYUNSIGNED lockArg, POLYUNSIGNED timeArg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWake(POLYUNSIGNED targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadForkThread(POLYUNSIGNED threadId, POLYUNSIGNED function, POLYUNSIGNED attrs, POLYUNSIGNED stack);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadIsActive(POLYUNSIGNED targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadInterruptThread(POLYUNSIGNED targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillThread(POLYUNSIGNED targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadBroadcastInterrupt(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(POLYUNSIGNED threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumProcessors();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumPhysicalProcessors();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(FirstArgument threadId, PolyWord newSize);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(POLYUNSIGNED threadId, POLYUNSIGNED newSize);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -344,7 +344,7 @@ static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
     return UNTAGGED_UNSIGNED(taskData->threadObject->flags);
 }
 
-POLYUNSIGNED PolyThreadMutexBlock(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyThreadMutexBlock(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -368,7 +368,7 @@ POLYUNSIGNED PolyThreadMutexBlock(FirstArgument threadId, PolyWord arg)
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadMutexUnlock(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyThreadMutexUnlock(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -458,7 +458,7 @@ void Processes::MutexUnlock(TaskData *taskData, Handle hMutex)
     }
 }
 
-POLYUNSIGNED PolyThreadCondVarWait(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyThreadCondVarWait(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -479,7 +479,7 @@ POLYUNSIGNED PolyThreadCondVarWait(FirstArgument threadId, PolyWord arg)
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadCondVarWaitUntil(FirstArgument threadId, PolyWord lockArg, PolyWord timeArg)
+POLYUNSIGNED PolyThreadCondVarWaitUntil(POLYUNSIGNED threadId, POLYUNSIGNED lockArg, POLYUNSIGNED timeArg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -607,29 +607,29 @@ bool Processes::WakeThread(PolyObject *targetThread)
     return result;
 }
 
-POLYUNSIGNED PolyThreadCondVarWake(PolyWord targetThread)
+POLYUNSIGNED PolyThreadCondVarWake(POLYUNSIGNED targetThread)
 {
-    if (processesModule.WakeThread(targetThread.AsObjPtr()))
+    if (processesModule.WakeThread(PolyWord::FromUnsigned(targetThread).AsObjPtr()))
         return TAGGED(1).AsUnsigned();
     else return TAGGED(0).AsUnsigned();
 }
 
 // Test if a thread is active.
-POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread)
+POLYUNSIGNED PolyThreadIsActive(POLYUNSIGNED targetThread)
 {
     // There's a race here: the thread may be exiting but since we're not doing
     // anything with the TaskData object we don't need a lock.
-    TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
+    TaskData *p = processesModule.TaskForIdentifier(PolyWord::FromUnsigned(targetThread).AsObjPtr());
     if (p != 0) return TAGGED(1).AsUnsigned();
     else return TAGGED(0).AsUnsigned();
 }
 
 // Send an interrupt to a specific thread
-POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread)
+POLYUNSIGNED PolyThreadInterruptThread(POLYUNSIGNED targetThread)
 {
     // Must lock here because the thread may be exiting.
     processesModule.schedLock.Lock();
-    TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
+    TaskData *p = processesModule.TaskForIdentifier(PolyWord::FromUnsigned(targetThread).AsObjPtr());
     if (p) processesModule.MakeRequest(p, kRequestInterrupt);
     processesModule.schedLock.Unlock();
     // If the thread cannot be identified return false.
@@ -639,10 +639,10 @@ POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread)
 }
 
 // Kill a specific thread
-POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread)
+POLYUNSIGNED PolyThreadKillThread(POLYUNSIGNED targetThread)
 {
     processesModule.schedLock.Lock();
-    TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
+    TaskData *p = processesModule.TaskForIdentifier(PolyWord::FromUnsigned(targetThread).AsObjPtr());
     if (p) processesModule.MakeRequest(p, kRequestKill);
     processesModule.schedLock.Unlock();
     // If the thread cannot be identified return false.
@@ -651,13 +651,13 @@ POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread)
     else return TAGGED(1).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadBroadcastInterrupt(FirstArgument /*threadId*/)
+POLYUNSIGNED PolyThreadBroadcastInterrupt(POLYUNSIGNED /*threadId*/)
 {
     processesModule.BroadcastInterrupt();
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadTestInterrupt(FirstArgument threadId)
+POLYUNSIGNED PolyThreadTestInterrupt(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -697,12 +697,13 @@ POLYUNSIGNED PolyThreadNumPhysicalProcessors(void)
 }
 
 // Set the maximum stack size.
-POLYUNSIGNED PolyThreadMaxStackSize(FirstArgument threadId, PolyWord newSize)
+POLYUNSIGNED PolyThreadMaxStackSize(POLYUNSIGNED threadId, POLYUNSIGNED newSizeU)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
+    PolyWord newSize = PolyWord::FromUnsigned(newSizeU);
 
     try {
             taskData->threadObject->mlStackSize = newSize;
@@ -1068,7 +1069,7 @@ Handle exitThread(TaskData *taskData)
 }
 
 // Terminate the current thread.  Never returns.
-POLYUNSIGNED PolyThreadKillSelf(FirstArgument threadId)
+POLYUNSIGNED PolyThreadKillSelf(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1592,7 +1593,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction, PolyWord
     }
 }
 
-POLYUNSIGNED PolyThreadForkThread(FirstArgument threadId, PolyWord function, PolyWord attrs, PolyWord stack)
+POLYUNSIGNED PolyThreadForkThread(POLYUNSIGNED threadId, POLYUNSIGNED function, POLYUNSIGNED attrs, POLYUNSIGNED stack)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1602,7 +1603,7 @@ POLYUNSIGNED PolyThreadForkThread(FirstArgument threadId, PolyWord function, Pol
     Handle result = 0;
 
     try {
-        result = processesModule.ForkThread(taskData, pushedFunction, attrs, stack);
+        result = processesModule.ForkThread(taskData, pushedFunction, PolyWord::FromUnsigned(attrs), PolyWord::FromUnsigned(stack));
     }
     catch (KillException &) {
         processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill

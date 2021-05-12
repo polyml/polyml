@@ -144,50 +144,50 @@ typedef int SOCKET;
 #include "timing.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddrList(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSockTypeList(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateSocket(FirstArgument threadId, PolyWord af, PolyWord st, PolyWord prot);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSetOption(FirstArgument threadId, PolyWord code, PolyWord sock, PolyWord opt);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetOption(FirstArgument threadId, PolyWord code, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSetLinger(FirstArgument threadId, PolyWord sock, PolyWord linger);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetLinger(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetPeerName(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSockName(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkBytesAvailable(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAtMark(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkBind(FirstArgument threadId, PolyWord sock, PolyWord addr);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkListen(FirstArgument threadId, PolyWord sock, PolyWord back);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkShutdown(FirstArgument threadId, PolyWord skt, PolyWord smode);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateSocketPair(FirstArgument threadId, PolyWord af, PolyWord st, PolyWord prot);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkUnixPathToSockAddr(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkUnixSockAddrToPath(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByName(FirstArgument threadId, PolyWord servName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(FirstArgument threadId, PolyWord servName, PolyWord protName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPort(FirstArgument threadId, PolyWord portNo);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(FirstArgument threadId, PolyWord portNo, PolyWord protName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByName(FirstArgument threadId, PolyWord protocolName);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByNo(FirstArgument threadId, PolyWord protoNo);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostName(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddrInfo(FirstArgument threadId, PolyWord hostName, PolyWord addrFamily);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetNameInfo(FirstArgument threadId, PolyWord sockAddr);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(FirstArgument threadId, PolyWord fdVecTriple, PolyWord maxMillisecs);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSocketError(FirstArgument threadId, PolyWord skt);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(FirstArgument threadId, PolyWord skt, PolyWord addr);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(FirstArgument threadId, PolyWord skt);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(FirstArgument threadId, PolyWord args);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(FirstArgument threadId, PolyWord args);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(FirstArgument threadId, PolyWord args);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(FirstArgument threadId, PolyWord args);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetFamilyFromAddress(PolyWord sockAddress);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP4(FirstArgument threadId, PolyWord sockAddress);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP4Address(FirstArgument threadId, PolyWord ip4Address, PolyWord portNumber);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP4AddressAny(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP6(FirstArgument threadId, PolyWord sockAddress);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP6Address(FirstArgument threadId, PolyWord ip6Address, PolyWord portNumber);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP6AddressAny(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkIP6AddressToString(FirstArgument threadId, PolyWord ip6Address);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkStringToIP6Address(FirstArgument threadId, PolyWord stringRep);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddrList(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSockTypeList(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateSocket(POLYUNSIGNED threadId, POLYUNSIGNED af, POLYUNSIGNED st, POLYUNSIGNED prot);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSetOption(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED sock, POLYUNSIGNED opt);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetOption(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSetLinger(POLYUNSIGNED threadId, POLYUNSIGNED sock, POLYUNSIGNED linger);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetLinger(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetPeerName(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSockName(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkBytesAvailable(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAtMark(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkBind(POLYUNSIGNED threadId, POLYUNSIGNED sock, POLYUNSIGNED addr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkListen(POLYUNSIGNED threadId, POLYUNSIGNED sock, POLYUNSIGNED back);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkShutdown(POLYUNSIGNED threadId, POLYUNSIGNED skt, POLYUNSIGNED smode);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateSocketPair(POLYUNSIGNED threadId, POLYUNSIGNED af, POLYUNSIGNED st, POLYUNSIGNED prot);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkUnixPathToSockAddr(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkUnixSockAddrToPath(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByName(POLYUNSIGNED threadId, POLYUNSIGNED servName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(POLYUNSIGNED threadId, POLYUNSIGNED servName, POLYUNSIGNED protName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPort(POLYUNSIGNED threadId, POLYUNSIGNED portNo);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(POLYUNSIGNED threadId, POLYUNSIGNED portNo, POLYUNSIGNED protName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByName(POLYUNSIGNED threadId, POLYUNSIGNED protocolName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByNo(POLYUNSIGNED threadId, POLYUNSIGNED protoNo);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostName(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddrInfo(POLYUNSIGNED threadId, POLYUNSIGNED hostName, POLYUNSIGNED addrFamily);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetNameInfo(POLYUNSIGNED threadId, POLYUNSIGNED sockAddr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCloseSocket(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(POLYUNSIGNED threadId, POLYUNSIGNED fdVecTriple, POLYUNSIGNED maxMillisecs);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetSocketError(POLYUNSIGNED threadId, POLYUNSIGNED skt);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(POLYUNSIGNED threadId, POLYUNSIGNED skt, POLYUNSIGNED addr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(POLYUNSIGNED threadId, POLYUNSIGNED skt);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(POLYUNSIGNED threadId, POLYUNSIGNED args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(POLYUNSIGNED threadId, POLYUNSIGNED args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(POLYUNSIGNED threadId, POLYUNSIGNED args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(POLYUNSIGNED threadId, POLYUNSIGNED args);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetFamilyFromAddress(POLYUNSIGNED sockAddress);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP4(POLYUNSIGNED threadId, POLYUNSIGNED sockAddress);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP4Address(POLYUNSIGNED threadId, POLYUNSIGNED ip4Address, POLYUNSIGNED portNumber);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP4AddressAny(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP6(POLYUNSIGNED threadId, POLYUNSIGNED sockAddress);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP6Address(POLYUNSIGNED threadId, POLYUNSIGNED ip6Address, POLYUNSIGNED portNumber);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP6AddressAny(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkIP6AddressToString(POLYUNSIGNED threadId, POLYUNSIGNED ip6Address);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkStringToIP6Address(POLYUNSIGNED threadId, POLYUNSIGNED stringRep);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -733,7 +733,7 @@ static Handle getSocketOption(TaskData *taskData, Handle args, int level, int op
 }
 
 // Get and clear the error state for the socket.  Returns a SysWord.word value.
-POLYUNSIGNED PolyNetworkGetSocketError(FirstArgument threadId, PolyWord skt)
+POLYUNSIGNED PolyNetworkGetSocketError(POLYUNSIGNED threadId, POLYUNSIGNED skt)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -742,7 +742,7 @@ POLYUNSIGNED PolyNetworkGetSocketError(FirstArgument threadId, PolyWord skt)
     Handle result = 0;
 
     try {
-        SOCKET sock = getStreamSocket(taskData, skt);
+        SOCKET sock = getStreamSocket(taskData, PolyWord::FromUnsigned(skt));
         int intVal = 0;
         socklen_t size = sizeof(int);
         if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&intVal, &size) != 0)
@@ -798,14 +798,14 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, WaitS
 /* Wrapper for "select" call.  The arguments are arrays of socket ids.  These arrays are
    updated so that "active" sockets are left unchanged and inactive sockets are set to
    minus one.  */
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(FirstArgument threadId, PolyWord fdVecTriple, PolyWord maxMillisecs)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(POLYUNSIGNED threadId, POLYUNSIGNED fdVecTriple, POLYUNSIGNED maxMillisecs)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
     Handle result = 0;
-    POLYUNSIGNED maxMilliseconds = maxMillisecs.UnTaggedUnsigned();
+    POLYUNSIGNED maxMilliseconds = PolyWord::FromUnsigned(maxMillisecs).UnTaggedUnsigned();
     Handle fdVecTripleHandle = taskData->saveVec.push(fdVecTriple);
     /* Set up the bitmaps for the select call from the arrays. */
 
@@ -844,15 +844,15 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(FirstArgument threadId, PolyWo
 
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(FirstArgument threadId, PolyWord skt, PolyWord addr)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(POLYUNSIGNED threadId, POLYUNSIGNED skt, POLYUNSIGNED addr)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
     try {
-        SOCKET sock = getStreamSocket(taskData, skt);
-        PolyStringObject * psAddr = (PolyStringObject *)(addr.AsObjPtr());
+        SOCKET sock = getStreamSocket(taskData, PolyWord::FromUnsigned(skt));
+        PolyStringObject * psAddr = (PolyStringObject *)(PolyWord::FromUnsigned(addr).AsObjPtr());
         struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
         // Begin the connection.  The socket is always non-blocking so this will return immediately.
         if (connect(sock, psock, (int)psAddr->length) != 0)
@@ -865,7 +865,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkConnect(FirstArgument threadId, PolyW
     return TAGGED(0).AsUnsigned(); // Always returns unit
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(FirstArgument threadId, PolyWord skt)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(POLYUNSIGNED threadId, POLYUNSIGNED skt)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -874,7 +874,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(FirstArgument threadId, PolyWo
     Handle result = 0;
 
     try {
-        SOCKET sock = getStreamSocket(taskData, skt);
+        SOCKET sock = getStreamSocket(taskData, PolyWord::FromUnsigned(skt));
         struct sockaddr_storage resultAddr;
         socklen_t addrLen = sizeof(resultAddr);
         SOCKET resultSkt = accept(sock, (struct sockaddr*)&resultAddr, &addrLen);
@@ -896,7 +896,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkAccept(FirstArgument threadId, PolyWo
     else return result->Word().AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(FirstArgument threadId, PolyWord argsAsWord)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(POLYUNSIGNED threadId, POLYUNSIGNED argsAsWord)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -935,7 +935,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSend(FirstArgument threadId, PolyWord
     return TAGGED(sent).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(FirstArgument threadId, PolyWord argsAsWord)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(POLYUNSIGNED threadId, POLYUNSIGNED argsAsWord)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -977,7 +977,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSendTo(FirstArgument threadId, PolyWo
     return TAGGED(sent).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(FirstArgument threadId, PolyWord argsAsWord)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(POLYUNSIGNED threadId, POLYUNSIGNED argsAsWord)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1016,7 +1016,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceive(FirstArgument threadId, PolyW
     return TAGGED(recvd).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(FirstArgument threadId, PolyWord argsAsWord)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(POLYUNSIGNED threadId, POLYUNSIGNED argsAsWord)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1069,7 +1069,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReceiveFrom(FirstArgument threadId, P
 }
 
 /* Return a list of known address families. */
-POLYUNSIGNED PolyNetworkGetAddrList(FirstArgument threadId)
+POLYUNSIGNED PolyNetworkGetAddrList(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1090,7 +1090,7 @@ POLYUNSIGNED PolyNetworkGetAddrList(FirstArgument threadId)
 }
 
 /* Return a list of known socket types. */
-POLYUNSIGNED PolyNetworkGetSockTypeList(FirstArgument threadId)
+POLYUNSIGNED PolyNetworkGetSockTypeList(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1112,16 +1112,16 @@ POLYUNSIGNED PolyNetworkGetSockTypeList(FirstArgument threadId)
 }
 
 // Create a socket */
-POLYUNSIGNED PolyNetworkCreateSocket(FirstArgument threadId, PolyWord family, PolyWord st, PolyWord prot)
+POLYUNSIGNED PolyNetworkCreateSocket(POLYUNSIGNED threadId, POLYUNSIGNED family, POLYUNSIGNED st, POLYUNSIGNED prot)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
     Handle result = 0;
-    int af = (int)family.UnTagged();
-    int type = (int)st.UnTagged();
-    int proto = (int)prot.UnTagged();
+    int af = (int)PolyWord::FromUnsigned(family).UnTagged();
+    int type = (int)PolyWord::FromUnsigned(st).UnTagged();
+    int proto = (int)PolyWord::FromUnsigned(prot).UnTagged();
 
     try {
         SOCKET skt = 0;
@@ -1158,7 +1158,7 @@ POLYUNSIGNED PolyNetworkCreateSocket(FirstArgument threadId, PolyWord family, Po
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkSetOption(FirstArgument threadId, PolyWord code, PolyWord sock, PolyWord opt)
+POLYUNSIGNED PolyNetworkSetOption(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED sock, POLYUNSIGNED opt)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1168,7 +1168,7 @@ POLYUNSIGNED PolyNetworkSetOption(FirstArgument threadId, PolyWord code, PolyWor
     Handle pushedOpt = taskData->saveVec.push(opt);
 
     try {
-        switch (UNTAGGED(code))
+        switch (UNTAGGED(PolyWord::FromUnsigned(code)))
         {
         case 15: /* Set TCP No-delay option. */
             setSocketOption(taskData, pushedSock, pushedOpt, IPPROTO_TCP, TCP_NODELAY);
@@ -1217,7 +1217,7 @@ POLYUNSIGNED PolyNetworkSetOption(FirstArgument threadId, PolyWord code, PolyWor
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetOption(FirstArgument threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolyNetworkGetOption(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1227,7 +1227,7 @@ POLYUNSIGNED PolyNetworkGetOption(FirstArgument threadId, PolyWord code, PolyWor
     Handle result = 0;
 
     try {
-        switch (UNTAGGED(code))
+        switch (UNTAGGED(PolyWord::FromUnsigned(code)))
         {
         case 16: /* Get TCP No-delay option. */
             result = getSocketOption(taskData, pushedArg, IPPROTO_TCP, TCP_NODELAY);
@@ -1282,7 +1282,7 @@ POLYUNSIGNED PolyNetworkGetOption(FirstArgument threadId, PolyWord code, PolyWor
 }
 
 /* Set Linger time. */
-POLYUNSIGNED PolyNetworkSetLinger(FirstArgument threadId, PolyWord sock, PolyWord lingerTime)
+POLYUNSIGNED PolyNetworkSetLinger(POLYUNSIGNED threadId, POLYUNSIGNED sock, POLYUNSIGNED lingerTime)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1290,8 +1290,8 @@ POLYUNSIGNED PolyNetworkSetLinger(FirstArgument threadId, PolyWord sock, PolyWor
     Handle reset = taskData->saveVec.mark();
 
     try {
-        SOCKET skt = getStreamSocket(taskData, sock);
-        int lTime = get_C_int(taskData, lingerTime);
+        SOCKET skt = getStreamSocket(taskData, PolyWord::FromUnsigned(sock));
+        int lTime = get_C_int(taskData, PolyWord::FromUnsigned(lingerTime));
         struct linger linger;
         /* We pass in a negative value to turn the option off,
            zero or positive to turn it on. */
@@ -1317,7 +1317,7 @@ POLYUNSIGNED PolyNetworkSetLinger(FirstArgument threadId, PolyWord sock, PolyWor
 }
 
 /* Get Linger time. */
-POLYUNSIGNED PolyNetworkGetLinger(FirstArgument threadId, PolyWord sock)
+POLYUNSIGNED PolyNetworkGetLinger(POLYUNSIGNED threadId, POLYUNSIGNED sock)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1326,7 +1326,7 @@ POLYUNSIGNED PolyNetworkGetLinger(FirstArgument threadId, PolyWord sock)
     Handle result = 0;
 
     try {
-        SOCKET skt = getStreamSocket(taskData, sock);
+        SOCKET skt = getStreamSocket(taskData, PolyWord::FromUnsigned(sock));
         socklen_t size = sizeof(linger);
         int lTime = 0;
         struct linger linger;
@@ -1346,7 +1346,7 @@ POLYUNSIGNED PolyNetworkGetLinger(FirstArgument threadId, PolyWord sock)
 }
 
 /* Get peer name. */
-POLYUNSIGNED PolyNetworkGetPeerName(FirstArgument threadId, PolyWord sock)
+POLYUNSIGNED PolyNetworkGetPeerName(POLYUNSIGNED threadId, POLYUNSIGNED sock)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1355,7 +1355,7 @@ POLYUNSIGNED PolyNetworkGetPeerName(FirstArgument threadId, PolyWord sock)
     Handle result = 0;
 
     try {
-        SOCKET skt = getStreamSocket(taskData, sock);
+        SOCKET skt = getStreamSocket(taskData, PolyWord::FromUnsigned(sock));
         struct sockaddr_storage sockA;
         socklen_t size = sizeof(sockA);
         if (getpeername(skt, (struct sockaddr*) & sockA, &size) != 0)
@@ -1373,7 +1373,7 @@ POLYUNSIGNED PolyNetworkGetPeerName(FirstArgument threadId, PolyWord sock)
 }
 
 /* Get socket name. */
-POLYUNSIGNED PolyNetworkGetSockName(FirstArgument threadId, PolyWord sock)
+POLYUNSIGNED PolyNetworkGetSockName(POLYUNSIGNED threadId, POLYUNSIGNED sock)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1382,7 +1382,7 @@ POLYUNSIGNED PolyNetworkGetSockName(FirstArgument threadId, PolyWord sock)
     Handle result = 0;
 
     try {
-        SOCKET skt = getStreamSocket(taskData, sock);
+        SOCKET skt = getStreamSocket(taskData, PolyWord::FromUnsigned(sock));
         struct sockaddr_storage sockA;
         socklen_t   size = sizeof(sockA);
         if (getsockname(skt, (struct sockaddr*) & sockA, &size) != 0)
@@ -1399,7 +1399,7 @@ POLYUNSIGNED PolyNetworkGetSockName(FirstArgument threadId, PolyWord sock)
 }
 
 /* Find number of bytes available. */
-POLYUNSIGNED PolyNetworkBytesAvailable(FirstArgument threadId, PolyWord sock)
+POLYUNSIGNED PolyNetworkBytesAvailable(POLYUNSIGNED threadId, POLYUNSIGNED sock)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1408,7 +1408,7 @@ POLYUNSIGNED PolyNetworkBytesAvailable(FirstArgument threadId, PolyWord sock)
     Handle result = 0;
 
     try {
-        SOCKET skt = getStreamSocket(taskData, sock);
+        SOCKET skt = getStreamSocket(taskData, PolyWord::FromUnsigned(sock));
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         unsigned long readable;
         if (ioctlsocket(skt, FIONREAD, &readable) != 0)
@@ -1429,7 +1429,7 @@ POLYUNSIGNED PolyNetworkBytesAvailable(FirstArgument threadId, PolyWord sock)
 }
 
 /* Find out if we are at the mark. */
-POLYUNSIGNED PolyNetworkGetAtMark(FirstArgument threadId, PolyWord sock)
+POLYUNSIGNED PolyNetworkGetAtMark(POLYUNSIGNED threadId, POLYUNSIGNED sock)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1438,7 +1438,7 @@ POLYUNSIGNED PolyNetworkGetAtMark(FirstArgument threadId, PolyWord sock)
     Handle result = 0;
 
     try {
-        SOCKET skt = getStreamSocket(taskData, sock);
+        SOCKET skt = getStreamSocket(taskData, PolyWord::FromUnsigned(sock));
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         unsigned long atMark;
         if (ioctlsocket(skt, SIOCATMARK, &atMark) != 0)
@@ -1459,7 +1459,7 @@ POLYUNSIGNED PolyNetworkGetAtMark(FirstArgument threadId, PolyWord sock)
 }
 
 /* Bind an address to a socket. */
-POLYUNSIGNED PolyNetworkBind(FirstArgument threadId, PolyWord sock, PolyWord addr)
+POLYUNSIGNED PolyNetworkBind(POLYUNSIGNED threadId, POLYUNSIGNED sock, POLYUNSIGNED addr)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1467,8 +1467,8 @@ POLYUNSIGNED PolyNetworkBind(FirstArgument threadId, PolyWord sock, PolyWord add
     Handle reset = taskData->saveVec.mark();
 
     try {
-        SOCKET skt = getStreamSocket(taskData, sock);
-        PolyStringObject* psAddr = (PolyStringObject*)addr.AsObjPtr();
+        SOCKET skt = getStreamSocket(taskData, PolyWord::FromUnsigned(sock));
+        PolyStringObject* psAddr = (PolyStringObject*)PolyWord::FromUnsigned(addr).AsObjPtr();
         struct sockaddr* psock = (struct sockaddr*) & psAddr->chars;
         if (bind(skt, psock, (int)psAddr->length) != 0)
             raise_syscall(taskData, "bind failed", GETERROR);
@@ -1481,7 +1481,7 @@ POLYUNSIGNED PolyNetworkBind(FirstArgument threadId, PolyWord sock, PolyWord add
 }
 
 /* Put socket into listening mode. */
-POLYUNSIGNED PolyNetworkListen(FirstArgument threadId, PolyWord skt, PolyWord back)
+POLYUNSIGNED PolyNetworkListen(POLYUNSIGNED threadId, POLYUNSIGNED skt, POLYUNSIGNED back)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1489,8 +1489,8 @@ POLYUNSIGNED PolyNetworkListen(FirstArgument threadId, PolyWord skt, PolyWord ba
     Handle reset = taskData->saveVec.mark();
 
     try {
-         SOCKET sock = getStreamSocket(taskData, skt);
-         int backlog = get_C_int(taskData, back);
+         SOCKET sock = getStreamSocket(taskData, PolyWord::FromUnsigned(skt));
+         int backlog = get_C_int(taskData, PolyWord::FromUnsigned(back));
          if (listen(sock, backlog) != 0)
              raise_syscall(taskData, "listen failed", GETERROR);
     }
@@ -1502,7 +1502,7 @@ POLYUNSIGNED PolyNetworkListen(FirstArgument threadId, PolyWord skt, PolyWord ba
 }
 
 /* Shutdown the socket. */
-POLYUNSIGNED PolyNetworkShutdown(FirstArgument threadId, PolyWord skt, PolyWord smode)
+POLYUNSIGNED PolyNetworkShutdown(POLYUNSIGNED threadId, POLYUNSIGNED skt, POLYUNSIGNED smode)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1510,9 +1510,9 @@ POLYUNSIGNED PolyNetworkShutdown(FirstArgument threadId, PolyWord skt, PolyWord 
     Handle reset = taskData->saveVec.mark();
 
     try {
-        SOCKET sock = getStreamSocket(taskData, skt);
+        SOCKET sock = getStreamSocket(taskData, PolyWord::FromUnsigned(skt));
         int mode = 0;
-        switch (get_C_ulong(taskData, smode))
+        switch (get_C_ulong(taskData, PolyWord::FromUnsigned(smode)))
         {
         case 1: mode = SHUT_RD; break;
         case 2: mode = SHUT_WR; break;
@@ -1529,7 +1529,7 @@ POLYUNSIGNED PolyNetworkShutdown(FirstArgument threadId, PolyWord skt, PolyWord 
 }
 
 /* Create a socket pair. */
-POLYUNSIGNED PolyNetworkCreateSocketPair(FirstArgument threadId, PolyWord family, PolyWord st, PolyWord prot)
+POLYUNSIGNED PolyNetworkCreateSocketPair(POLYUNSIGNED threadId, POLYUNSIGNED family, POLYUNSIGNED st, POLYUNSIGNED prot)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1581,7 +1581,7 @@ POLYUNSIGNED PolyNetworkCreateSocketPair(FirstArgument threadId, PolyWord family
 }
 
 /* Create a Unix socket address from a string. */
-POLYUNSIGNED PolyNetworkUnixPathToSockAddr(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyNetworkUnixPathToSockAddr(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1615,7 +1615,7 @@ POLYUNSIGNED PolyNetworkUnixPathToSockAddr(FirstArgument threadId, PolyWord arg)
 }
 
 /* Get the file name from a Unix socket address. */
-POLYUNSIGNED PolyNetworkUnixSockAddrToPath(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyNetworkUnixSockAddrToPath(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1641,7 +1641,7 @@ POLYUNSIGNED PolyNetworkUnixSockAddrToPath(FirstArgument threadId, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetServByName(FirstArgument threadId, PolyWord serviceName)
+POLYUNSIGNED PolyNetworkGetServByName(POLYUNSIGNED threadId, POLYUNSIGNED serviceName)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1649,7 +1649,7 @@ POLYUNSIGNED PolyNetworkGetServByName(FirstArgument threadId, PolyWord serviceNa
     Handle reset = taskData->saveVec.mark();
 
     /* Get service given service name only. */
-    TempCString servName(Poly_string_to_C_alloc(serviceName));
+    TempCString servName(Poly_string_to_C_alloc(PolyWord::FromUnsigned(serviceName)));
     struct servent *serv = getservbyname (servName, NULL);
     // If this fails the ML function returns NONE
     Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
@@ -1660,7 +1660,7 @@ POLYUNSIGNED PolyNetworkGetServByName(FirstArgument threadId, PolyWord serviceNa
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(FirstArgument threadId, PolyWord serviceName, PolyWord protName)
+POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(POLYUNSIGNED threadId, POLYUNSIGNED serviceName, POLYUNSIGNED protName)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1668,8 +1668,8 @@ POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(FirstArgument threadId, PolyWor
     Handle reset = taskData->saveVec.mark();
 
     /* Get service given service name and protocol name. */
-    TempCString servName(Poly_string_to_C_alloc(serviceName));
-    TempCString protoName(Poly_string_to_C_alloc(protName));
+    TempCString servName(Poly_string_to_C_alloc(PolyWord::FromUnsigned(serviceName)));
+    TempCString protoName(Poly_string_to_C_alloc(PolyWord::FromUnsigned(protName)));
     struct servent *serv = getservbyname (servName, protoName);
     Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
 
@@ -1679,7 +1679,7 @@ POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(FirstArgument threadId, PolyWor
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetServByPort(FirstArgument threadId, PolyWord portNo)
+POLYUNSIGNED PolyNetworkGetServByPort(POLYUNSIGNED threadId, POLYUNSIGNED portNo)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1687,7 +1687,7 @@ POLYUNSIGNED PolyNetworkGetServByPort(FirstArgument threadId, PolyWord portNo)
     Handle reset = taskData->saveVec.mark();
 
     /* Get service given port number only. */
-    long port = htons(get_C_ushort(taskData, portNo));
+    long port = htons(get_C_ushort(taskData, PolyWord::FromUnsigned(portNo)));
     struct servent *serv = getservbyport(port, NULL);
     Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
 
@@ -1697,7 +1697,7 @@ POLYUNSIGNED PolyNetworkGetServByPort(FirstArgument threadId, PolyWord portNo)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(FirstArgument threadId, PolyWord portNo, PolyWord protName)
+POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(POLYUNSIGNED threadId, POLYUNSIGNED portNo, POLYUNSIGNED protName)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1705,8 +1705,8 @@ POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(FirstArgument threadId, PolyWor
     Handle reset = taskData->saveVec.mark();
 
     /* Get service given port number and protocol name. */
-    long port = htons(get_C_ushort(taskData, portNo));
-    TempCString protoName(Poly_string_to_C_alloc(protName));
+    long port = htons(get_C_ushort(taskData, PolyWord::FromUnsigned(portNo)));
+    TempCString protoName(Poly_string_to_C_alloc(PolyWord::FromUnsigned(protName)));
     struct servent *serv = getservbyport (port, protoName);
     Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
 
@@ -1716,7 +1716,7 @@ POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(FirstArgument threadId, PolyWor
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetProtByName(FirstArgument threadId, PolyWord protocolName)
+POLYUNSIGNED PolyNetworkGetProtByName(POLYUNSIGNED threadId, POLYUNSIGNED protocolName)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1724,7 +1724,7 @@ POLYUNSIGNED PolyNetworkGetProtByName(FirstArgument threadId, PolyWord protocolN
     Handle reset = taskData->saveVec.mark();
 
     /* Look up protocol entry. */
-    TempCString protoName(Poly_string_to_C_alloc(protocolName));
+    TempCString protoName(Poly_string_to_C_alloc(PolyWord::FromUnsigned(protocolName)));
     struct protoent *proto = getprotobyname(protoName);
     // If this fails the ML function returns NONE
     Handle result = proto == NULL ? 0 : makeProtoEntry(taskData, proto);
@@ -1735,7 +1735,7 @@ POLYUNSIGNED PolyNetworkGetProtByName(FirstArgument threadId, PolyWord protocolN
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetProtByNo(FirstArgument threadId, PolyWord protoNo)
+POLYUNSIGNED PolyNetworkGetProtByNo(POLYUNSIGNED threadId, POLYUNSIGNED protoNo)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1743,7 +1743,7 @@ POLYUNSIGNED PolyNetworkGetProtByNo(FirstArgument threadId, PolyWord protoNo)
     Handle reset = taskData->saveVec.mark();
 
     /* Look up protocol entry. */
-    int pNum = get_C_int(taskData, protoNo);
+    int pNum = get_C_int(taskData, PolyWord::FromUnsigned(protoNo));
     struct protoent *proto = getprotobynumber(pNum);
     Handle result = proto == NULL ? 0 : makeProtoEntry(taskData, proto);
 
@@ -1753,7 +1753,7 @@ POLYUNSIGNED PolyNetworkGetProtByNo(FirstArgument threadId, PolyWord protoNo)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetHostName(FirstArgument threadId)
+POLYUNSIGNED PolyNetworkGetHostName(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1784,7 +1784,7 @@ POLYUNSIGNED PolyNetworkGetHostName(FirstArgument threadId)
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkGetNameInfo(FirstArgument threadId, PolyWord sockAddr)
+POLYUNSIGNED PolyNetworkGetNameInfo(POLYUNSIGNED threadId, POLYUNSIGNED sockAddr)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1793,7 +1793,7 @@ POLYUNSIGNED PolyNetworkGetNameInfo(FirstArgument threadId, PolyWord sockAddr)
     Handle result = 0;
 
     try {
-        PolyStringObject* psAddr = (PolyStringObject*)sockAddr.AsObjPtr();
+        PolyStringObject* psAddr = (PolyStringObject*)PolyWord::FromUnsigned(sockAddr).AsObjPtr();
         struct sockaddr* psock = (struct sockaddr*) & psAddr->chars;
         // Since the maximum length of a FQDN is 256 bytes it should fit in the buffer.
         char hostName[1024];
@@ -1851,7 +1851,7 @@ static Handle extractAddrInfo(TaskData *taskData, struct addrinfo *ainfo)
     return taskData->saveVec.push(next);
 }
 
-POLYUNSIGNED PolyNetworkGetAddrInfo(FirstArgument threadId, PolyWord hName, PolyWord addrFamily)
+POLYUNSIGNED PolyNetworkGetAddrInfo(POLYUNSIGNED threadId, POLYUNSIGNED hName, POLYUNSIGNED addrFamily)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1861,10 +1861,10 @@ POLYUNSIGNED PolyNetworkGetAddrInfo(FirstArgument threadId, PolyWord hName, Poly
     struct addrinfo *resAddr = 0;
 
     try {
-        TempCString hostName(Poly_string_to_C_alloc(hName));
+        TempCString hostName(Poly_string_to_C_alloc(PolyWord::FromUnsigned(hName)));
         struct addrinfo hints;
         memset(&hints, 0, sizeof(hints));
-        hints.ai_family = (int)UNTAGGED(addrFamily); // AF_INET or AF_INET6 or, possibly, AF_UNSPEC.
+        hints.ai_family = (int)UNTAGGED(PolyWord::FromUnsigned(addrFamily)); // AF_INET or AF_INET6 or, possibly, AF_UNSPEC.
         hints.ai_flags = AI_CANONNAME;
 
         int gaiRes = getaddrinfo(hostName, 0, &hints, &resAddr);
@@ -1891,7 +1891,7 @@ POLYUNSIGNED PolyNetworkGetAddrInfo(FirstArgument threadId, PolyWord hName, Poly
     else return result->Word().AsUnsigned();
 }
 
-POLYUNSIGNED PolyNetworkCloseSocket(FirstArgument threadId, PolyWord strm)
+POLYUNSIGNED PolyNetworkCloseSocket(POLYUNSIGNED threadId, POLYUNSIGNED strm)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1932,16 +1932,16 @@ POLYUNSIGNED PolyNetworkCloseSocket(FirstArgument threadId, PolyWord strm)
 }
 
 // Return the family 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetFamilyFromAddress(PolyWord sockAddress)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetFamilyFromAddress(POLYUNSIGNED sockAddress)
 {
-    PolyStringObject* psAddr = (PolyStringObject*)sockAddress.AsObjPtr();
+    PolyStringObject* psAddr = (PolyStringObject*)PolyWord::FromUnsigned(sockAddress).AsObjPtr();
     struct sockaddr* psock = (struct sockaddr*) & psAddr->chars;
     return TAGGED(psock->sa_family).AsUnsigned();
 }
 
 // Return internet address and port from an internet socket address.
 // Assumes that we've already checked the address family.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP4(FirstArgument threadId, PolyWord sockAddress)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP4(POLYUNSIGNED threadId, POLYUNSIGNED sockAddress)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1950,7 +1950,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP4(FirstArgumen
     Handle result = 0;
 
     try {
-        PolyStringObject* psAddr = (PolyStringObject*)sockAddress.AsObjPtr();
+        PolyStringObject* psAddr = (PolyStringObject*)PolyWord::FromUnsigned(sockAddress).AsObjPtr();
         struct sockaddr_in* psock = (struct sockaddr_in*) & psAddr->chars;
         Handle ipAddr = Make_arbitrary_precision(taskData, ntohl(psock->sin_addr.s_addr)); // IPv4 addr is LargeInt.int
         result = alloc_and_save(taskData, 2);
@@ -1966,7 +1966,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP4(FirstArgumen
 }
 
 // Create a socket address from a port number and internet address.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP4Address(FirstArgument threadId, PolyWord ip4Address, PolyWord portNumber)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP4Address(POLYUNSIGNED threadId, POLYUNSIGNED ip4Address, POLYUNSIGNED portNumber)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1978,8 +1978,8 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP4Address(FirstArgument thread
         struct sockaddr_in sockaddr;
         memset(&sockaddr, 0, sizeof(sockaddr));
         sockaddr.sin_family = AF_INET;
-        sockaddr.sin_port = htons(get_C_ushort(taskData, portNumber));
-        sockaddr.sin_addr.s_addr = htonl(get_C_unsigned(taskData, ip4Address));
+        sockaddr.sin_port = htons(get_C_ushort(taskData, PolyWord::FromUnsigned(portNumber)));
+        sockaddr.sin_addr.s_addr = htonl(get_C_unsigned(taskData, PolyWord::FromUnsigned(ip4Address)));
         result = SAVE(C_string_to_Poly(taskData, (char*)&sockaddr, sizeof(sockaddr)));
     }
     catch (...) {} // If an ML exception is raised
@@ -1991,7 +1991,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP4Address(FirstArgument thread
 }
 
 // Return the value of INADDR_ANY.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP4AddressAny(FirstArgument threadId)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP4AddressAny(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2010,7 +2010,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP4AddressAny(FirstArgument thr
     else return result->Word().AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP6(FirstArgument threadId, PolyWord sockAddress)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP6(POLYUNSIGNED threadId, POLYUNSIGNED sockAddress)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2019,7 +2019,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP6(FirstArgumen
     Handle result = 0;
 
     try {
-        PolyStringObject* psAddr = (PolyStringObject*)sockAddress.AsObjPtr();
+        PolyStringObject* psAddr = (PolyStringObject*)PolyWord::FromUnsigned(sockAddress).AsObjPtr();
         if (psAddr->length != sizeof(struct sockaddr_in6))
             raise_fail(taskData, "Invalid length");
         struct sockaddr_in6* psock = (struct sockaddr_in6*) & psAddr->chars;
@@ -2037,7 +2037,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP6(FirstArgumen
     else return result->Word().AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP6Address(FirstArgument threadId, PolyWord ip6Address, PolyWord portNumber)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP6Address(POLYUNSIGNED threadId, POLYUNSIGNED ip6Address, POLYUNSIGNED portNumber)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2050,8 +2050,8 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP6Address(FirstArgument thread
         memset(&addr, 0, sizeof(addr));
         result = SAVE(C_string_to_Poly(taskData, (const char*)&addr, sizeof(struct in6_addr)));
         addr.sin6_family = AF_INET6;
-        addr.sin6_port = htons(get_C_ushort(taskData, portNumber));
-        PolyStringObject* addrAsString = (PolyStringObject*)ip6Address.AsObjPtr();
+        addr.sin6_port = htons(get_C_ushort(taskData, PolyWord::FromUnsigned(portNumber)));
+        PolyStringObject* addrAsString = (PolyStringObject*)PolyWord::FromUnsigned(ip6Address).AsObjPtr();
         if (addrAsString->length != sizeof(addr.sin6_addr))
             raise_fail(taskData, "Invalid address length");
         memcpy(&addr.sin6_addr, addrAsString->chars, sizeof(addr.sin6_addr));
@@ -2065,7 +2065,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkCreateIP6Address(FirstArgument thread
     else return result->Word().AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP6AddressAny(FirstArgument threadId)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP6AddressAny(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2086,7 +2086,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkReturnIP6AddressAny(FirstArgument thr
 
 // Convert an IPV6 address to string.  This could be done in ML but the rules
 // for converting zeros to double-colon are complicated.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkIP6AddressToString(FirstArgument threadId, PolyWord ip6Address)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkIP6AddressToString(POLYUNSIGNED threadId, POLYUNSIGNED ip6Address)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2096,7 +2096,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkIP6AddressToString(FirstArgument thre
 
     try {
         char buffer[80]; // 40 should actually be enough: 32 hex bytes, 7 colons and a null.
-        PolyStringObject* addrAsString = (PolyStringObject*)ip6Address.AsObjPtr();
+        PolyStringObject* addrAsString = (PolyStringObject*)PolyWord::FromUnsigned(ip6Address).AsObjPtr();
         if (addrAsString->length != sizeof(struct in6_addr))
             raise_fail(taskData, "Invalid address length");
         if (inet_ntop(AF_INET6, addrAsString->chars, buffer, sizeof(buffer)) == 0)
@@ -2112,7 +2112,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkIP6AddressToString(FirstArgument thre
 }
 
 // Convert a string to an IPv6 address.  The parsing has to be done in ML.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkStringToIP6Address(FirstArgument threadId, PolyWord stringRep)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkStringToIP6Address(POLYUNSIGNED threadId, POLYUNSIGNED stringRep)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2122,7 +2122,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkStringToIP6Address(FirstArgument thre
 
     try {
         struct in6_addr address;
-        TempCString stringAddr(Poly_string_to_C_alloc(stringRep));
+        TempCString stringAddr(Poly_string_to_C_alloc(PolyWord::FromUnsigned(stringRep)));
         if (inet_pton(AF_INET6, stringAddr, &address) != 1)
             raise_fail(taskData, "Invalid IPv6 address");
         result = taskData->saveVec.push(C_string_to_Poly(taskData, (const char *)&address, sizeof(struct in6_addr)));

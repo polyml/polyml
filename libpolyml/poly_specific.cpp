@@ -57,18 +57,18 @@
 #include "rtsentry.h"
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySpecificGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetABI();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, PolyWord closure);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyCopyByteVecToClosure(FirstArgument threadId, PolyWord byteVec, PolyWord closure);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord c, PolyWord flags);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeConstant(PolyWord closure, PolyWord offset, PolyWord flags);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(PolyWord closure, PolyWord offset, PolyWord c);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeByte(PolyWord closure, PolyWord offset);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(PolyWord array);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetHeapBase(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest4(FirstArgument threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest5(FirstArgument threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4, PolyWord arg5);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(POLYUNSIGNED threadId, POLYUNSIGNED closure);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyCopyByteVecToClosure(POLYUNSIGNED threadId, POLYUNSIGNED byteVec, POLYUNSIGNED closure);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(POLYUNSIGNED closure, POLYUNSIGNED offset, POLYUNSIGNED c, POLYUNSIGNED flags);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeConstant(POLYUNSIGNED closure, POLYUNSIGNED offset, POLYUNSIGNED flags);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(POLYUNSIGNED closure, POLYUNSIGNED offset, POLYUNSIGNED c);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeByte(POLYUNSIGNED closure, POLYUNSIGNED offset);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(POLYUNSIGNED array);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetHeapBase(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest4(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2, POLYUNSIGNED arg3, POLYUNSIGNED arg4);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest5(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2, POLYUNSIGNED arg3, POLYUNSIGNED arg4, POLYUNSIGNED arg5);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -136,7 +136,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
 // General interface to poly-specific.  Ideally the various cases will be made into
 // separate functions.
-POLYUNSIGNED PolySpecificGeneral(FirstArgument threadId, PolyWord code, PolyWord arg)
+POLYUNSIGNED PolySpecificGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -176,7 +176,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetABI()
 // a mutable code segment.
 
 // Copy the byte vector into code space.
-POLYUNSIGNED PolyCopyByteVecToClosure(FirstArgument threadId, PolyWord byteVec, PolyWord closure)
+POLYUNSIGNED PolyCopyByteVecToClosure(POLYUNSIGNED threadId, POLYUNSIGNED byteVec, POLYUNSIGNED closure)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -229,13 +229,13 @@ POLYUNSIGNED PolyCopyByteVecToClosure(FirstArgument threadId, PolyWord byteVec, 
 // Code generation - Lock a mutable code segment and return the original address.
 // Currently this does not allocate so other than the exception it could
 // be a fast call.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, PolyWord closure)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(POLYUNSIGNED threadId, POLYUNSIGNED closure)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    PolyObject *codeObj = *(PolyObject**)(closure.AsObjPtr());
+    PolyObject *codeObj = *(PolyObject**)(PolyWord::FromUnsigned(closure).AsObjPtr());
 
 #ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
     pthread_jit_write_protect_np(false);
@@ -267,7 +267,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(FirstArgument threadId, P
 // This is in the RTS both because we pass a closure in here and cannot have
 // code addresses in 32-in-64 and also because we need to ensure there is no
 // possibility of a GC while the code is an inconsistent state.
-POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWord, PolyWord flags)
+POLYUNSIGNED PolySetCodeConstant(POLYUNSIGNED closure, POLYUNSIGNED offset, POLYUNSIGNED cWord, POLYUNSIGNED flags)
 {
     byte *pointer;
 #ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
@@ -276,19 +276,19 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
 
     // Previously we passed the code address in here and we need to
     // retain that for legacy code.  This is now the closure.
-    if (closure.AsObjPtr()->IsCodeObject())
-        pointer = closure.AsCodePtr();
-    else pointer = *(POLYCODEPTR*)(closure.AsObjPtr());
+    if (PolyWord::FromUnsigned(closure).AsObjPtr()->IsCodeObject())
+        pointer = PolyWord::FromUnsigned(closure).AsCodePtr();
+    else pointer = *(POLYCODEPTR*)(PolyWord::FromUnsigned(closure).AsObjPtr());
     // pointer is the start of the code segment.
     // c will usually be an address.
     // offset is a byte offset
-    pointer += offset.UnTaggedUnsigned();
+    pointer += PolyWord::FromUnsigned(offset).UnTaggedUnsigned();
     byte* writeable = gMem.SpaceForAddress(pointer)->writeAble(pointer);
-    switch (UNTAGGED(flags))
+    switch (UNTAGGED(PolyWord::FromUnsigned(flags)))
     {
         case 0: // Absolute constant - size PolyWord
         {
-            POLYUNSIGNED c = cWord.AsUnsigned();
+            POLYUNSIGNED c = PolyWord::FromUnsigned(cWord).AsUnsigned();
 #ifdef WORDS_BIGENDIAN
             // This is used to store constants in the constant area
             // on the interpreted version. 
@@ -312,9 +312,9 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
             byte *target;
             // In 32-in-64 we pass in the closure address here
             // rather than the code address.
-            if (cWord.AsObjPtr()->IsCodeObject())
-                target = cWord.AsCodePtr();
-            else target = *(POLYCODEPTR*)(cWord.AsObjPtr());
+            if (PolyWord::FromUnsigned(cWord).AsObjPtr()->IsCodeObject())
+                target = PolyWord::FromUnsigned(cWord).AsCodePtr();
+            else target = *(POLYCODEPTR*)(PolyWord::FromUnsigned(cWord).AsObjPtr());
             size_t c = target - pointer - 4;
             for (unsigned i = 0; i < 4; i++)
             {
@@ -327,7 +327,7 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
             // This is the same as case 0 except in 32-in-64 when
             // it is an absolute address rather than an object pointer.
         {
-            uintptr_t c = (uintptr_t)(cWord.AsObjPtr());
+            uintptr_t c = (uintptr_t)(PolyWord::FromUnsigned(cWord).AsObjPtr());
             for (unsigned i = 0; i < sizeof(uintptr_t); i++)
             {
                 pointer[i] = (byte)(c & 255);
@@ -345,12 +345,12 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
 }
 
 // Get a code constant.  This is only used for debugging.
-POLYUNSIGNED PolyGetCodeConstant(PolyWord closure, PolyWord offset, PolyWord flags)
+POLYUNSIGNED PolyGetCodeConstant(POLYUNSIGNED closure, POLYUNSIGNED offset, POLYUNSIGNED flags)
 {
-    byte* pointer = *(POLYCODEPTR*)(closure.AsObjPtr());
+    byte* pointer = *(POLYCODEPTR*)(PolyWord::FromUnsigned(closure).AsObjPtr());
     // offset is a byte offset
-    pointer += offset.UnTaggedUnsigned();
-    switch (UNTAGGED(flags))
+    pointer += PolyWord::FromUnsigned(offset).UnTaggedUnsigned();
+    switch (UNTAGGED(PolyWord::FromUnsigned(flags)))
     {
     case 0: // Absolute constant - size PolyWord
     {
@@ -370,18 +370,18 @@ POLYUNSIGNED PolyGetCodeConstant(PolyWord closure, PolyWord offset, PolyWord fla
 }
 
 // Set a code byte.  This needs to be in the RTS because it uses the closure
-POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(PolyWord closure, PolyWord offset, PolyWord cWord)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeByte(POLYUNSIGNED closure, POLYUNSIGNED offset, POLYUNSIGNED cWord)
 {
-    byte *pointer = *(POLYCODEPTR*)(closure.AsObjPtr());
+    byte *pointer = *(POLYCODEPTR*)(PolyWord::FromUnsigned(closure).AsObjPtr());
     byte* writable = gMem.SpaceForAddress(pointer)->writeAble(pointer);
-    writable[UNTAGGED_UNSIGNED(offset)] = (byte)UNTAGGED_UNSIGNED(cWord);
+    writable[UNTAGGED_UNSIGNED(PolyWord::FromUnsigned(offset))] = (byte)UNTAGGED_UNSIGNED(PolyWord::FromUnsigned(cWord));
     return TAGGED(0).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeByte(PolyWord closure, PolyWord offset)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetCodeByte(POLYUNSIGNED closure, POLYUNSIGNED offset)
 {
-    byte *pointer = *(POLYCODEPTR*)(closure.AsObjPtr());
-    return TAGGED(pointer[UNTAGGED_UNSIGNED(offset)]).AsUnsigned();
+    byte *pointer = *(POLYCODEPTR*)(PolyWord::FromUnsigned(closure).AsObjPtr());
+    return TAGGED(pointer[UNTAGGED_UNSIGNED(PolyWord::FromUnsigned(offset))]).AsUnsigned();
 }
 
 static int compare(const void *a, const void *b)
@@ -401,10 +401,10 @@ static int compare(const void *a, const void *b)
 // Sort an array of addresses.  This is used in the code-generator to search for
 // duplicates in the address area.  The argument is an array of pairs.  The first
 // item of each pair is an address, the second is an identifier of some kind.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(PolyWord array)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(POLYUNSIGNED array)
 {
-    if (!array.IsDataPtr()) return(TAGGED(0)).AsUnsigned();
-    PolyObject *arrayP = array.AsObjPtr();
+    if (!PolyWord::FromUnsigned(array).IsDataPtr()) return(TAGGED(0)).AsUnsigned();
+    PolyObject *arrayP = PolyWord::FromUnsigned(array).AsObjPtr();
     POLYUNSIGNED numberOfItems = arrayP->Length();
     if (!arrayP->IsMutable()) return(TAGGED(0)).AsUnsigned();
     qsort(arrayP, numberOfItems, sizeof(PolyWord), compare);
@@ -413,7 +413,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolySortArrayOfAddresses(PolyWord array)
 
 // Return the value of globalHeapBase as a SysWord value.
 // This is used in just one place: when compiling an FFI callback stub in ARM 32-in-64.
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetHeapBase(FirstArgument threadId)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetHeapBase(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -434,27 +434,27 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetHeapBase(FirstArgument threadId)
     else return result->Word().AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest4(FirstArgument threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest4(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2, POLYUNSIGNED arg3, POLYUNSIGNED arg4)
 {
-    switch (arg1.UnTaggedUnsigned())
+    switch (PolyWord::FromUnsigned(arg1).UnTaggedUnsigned())
     {
-    case 1: return arg1.AsUnsigned();
-    case 2: return arg2.AsUnsigned();
-    case 3: return arg3.AsUnsigned();
-    case 4: return arg4.AsUnsigned();
+    case 1: return arg1;
+    case 2: return arg2;
+    case 3: return arg3;
+    case 4: return arg4;
     default: return TAGGED(0).AsUnsigned();
     }
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest5(FirstArgument threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4, PolyWord arg5)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyTest5(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2, POLYUNSIGNED arg3, POLYUNSIGNED arg4, POLYUNSIGNED arg5)
 {
-    switch (arg1.UnTaggedUnsigned())
+    switch (PolyWord::FromUnsigned(arg1).UnTaggedUnsigned())
     {
-    case 1: return arg1.AsUnsigned();
-    case 2: return arg2.AsUnsigned();
-    case 3: return arg3.AsUnsigned();
-    case 4: return arg4.AsUnsigned();
-    case 5: return arg5.AsUnsigned();
+    case 1: return arg1;
+    case 2: return arg2;
+    case 3: return arg3;
+    case 4: return arg4;
+    case 5: return arg5;
     default: return TAGGED(0).AsUnsigned();
     }
 

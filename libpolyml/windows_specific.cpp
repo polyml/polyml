@@ -82,13 +82,13 @@
 #define SIZEOF(x) (sizeof(x)/sizeof(word))
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsExecute(FirstArgument threadId, PolyWord command, PolyWord argument);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsOpenProcessHandle(FirstArgument threadId, PolyWord arg, PolyWord isRead, PolyWord isText);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsGetProcessResult(FirstArgument threadId, PolyWord arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsSimpleExecute(FirstArgument threadId, PolyWord command, PolyWord argument);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsDDEStartDialogue(FirstArgument threadId, PolyWord service, PolyWord topic);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsDDEExecute(FirstArgument threadId, PolyWord info, PolyWord commd);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsDDEClose(FirstArgument threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsExecute(POLYUNSIGNED threadId, POLYUNSIGNED command, POLYUNSIGNED argument);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsOpenProcessHandle(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED isRead, POLYUNSIGNED isText);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsGetProcessResult(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsSimpleExecute(POLYUNSIGNED threadId, POLYUNSIGNED command, POLYUNSIGNED argument);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsDDEStartDialogue(POLYUNSIGNED threadId, POLYUNSIGNED service, POLYUNSIGNED topic);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsDDEExecute(POLYUNSIGNED threadId, POLYUNSIGNED info, POLYUNSIGNED commd);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsDDEClose(POLYUNSIGNED threadId, POLYUNSIGNED arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyWindowsGetCodePage();
 }
@@ -98,7 +98,7 @@ typedef struct {
 } PROCESSDATA;
 
 // Start DDE dialogue.
-POLYUNSIGNED PolyWindowsDDEStartDialogue(FirstArgument threadId, PolyWord service, PolyWord topic)
+POLYUNSIGNED PolyWindowsDDEStartDialogue(POLYUNSIGNED threadId, POLYUNSIGNED service, POLYUNSIGNED topic)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -107,8 +107,8 @@ POLYUNSIGNED PolyWindowsDDEStartDialogue(FirstArgument threadId, PolyWord servic
     Handle result = 0;
 
     try {
-        TCHAR* serviceName = Poly_string_to_T_alloc(service);
-        TCHAR* topicName = Poly_string_to_T_alloc(topic);
+        TCHAR* serviceName = Poly_string_to_T_alloc(PolyWord::FromUnsigned(service));
+        TCHAR* topicName = Poly_string_to_T_alloc(PolyWord::FromUnsigned(topic));
         /* Send a request to the main thread to do the work. */
         HCONV hcDDEConv = StartDDEConversation(serviceName, topicName);
         free(serviceName); free(topicName);
@@ -129,7 +129,7 @@ POLYUNSIGNED PolyWindowsDDEStartDialogue(FirstArgument threadId, PolyWord servic
 }
 
 // Send DDE execute request.
-POLYUNSIGNED PolyWindowsDDEExecute(FirstArgument threadId, PolyWord info, PolyWord commd)
+POLYUNSIGNED PolyWindowsDDEExecute(POLYUNSIGNED threadId, POLYUNSIGNED info, POLYUNSIGNED commd)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -138,9 +138,9 @@ POLYUNSIGNED PolyWindowsDDEExecute(FirstArgument threadId, PolyWord info, PolyWo
     LRESULT res = 0;
 
     try {
-        HCONV hcDDEConv = *(HCONV*)(info.AsObjPtr());
+        HCONV hcDDEConv = *(HCONV*)(PolyWord::FromUnsigned(info).AsObjPtr());
         if (hcDDEConv == 0) raise_syscall(taskData, "DDE Conversation is closed", 0);
-        char* command = Poly_string_to_C_alloc(commd);
+        char* command = Poly_string_to_C_alloc(PolyWord::FromUnsigned(commd));
         // Send a request to the main thread to do the work.
         // The result is -1 if an error, 0 if busy, 1 if success
         res = ExecuteDDE(command, hcDDEConv);
@@ -155,7 +155,7 @@ POLYUNSIGNED PolyWindowsDDEExecute(FirstArgument threadId, PolyWord info, PolyWo
     return TAGGED(res == 1 ? 1 : 0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyWindowsDDEClose(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyWindowsDDEClose(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -163,11 +163,11 @@ POLYUNSIGNED PolyWindowsDDEClose(FirstArgument threadId, PolyWord arg)
     Handle reset = taskData->saveVec.mark();
 
     try {
-        HCONV hcDDEConv = *(HCONV*)(arg.AsObjPtr());
+        HCONV hcDDEConv = *(HCONV*)(PolyWord::FromUnsigned(arg).AsObjPtr());
         if (hcDDEConv != 0)
         {
             CloseDDEConversation(hcDDEConv);
-            *(void**)(arg.AsObjPtr()) = 0;
+            *(void**)(PolyWord::FromUnsigned(arg).AsObjPtr()) = 0;
         }
     }
     catch (...) {} // If an ML exception is raised
@@ -318,7 +318,7 @@ error:
 }
 
 // Execute a command.
-POLYUNSIGNED PolyWindowsExecute(FirstArgument threadId, PolyWord command, PolyWord argument)
+POLYUNSIGNED PolyWindowsExecute(POLYUNSIGNED threadId, POLYUNSIGNED command, POLYUNSIGNED argument)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -327,7 +327,7 @@ POLYUNSIGNED PolyWindowsExecute(FirstArgument threadId, PolyWord command, PolyWo
     Handle result = 0;
 
     try {
-        result = execute(taskData, command, argument);
+        result = execute(taskData, PolyWord::FromUnsigned(command), PolyWord::FromUnsigned(argument));
     }
     catch (KillException&) {
         processes->ThreadExit(taskData); // Call 1005 may test for kill
@@ -400,7 +400,7 @@ static Handle simpleExecute(TaskData *taskData, PolyWord command, PolyWord argum
     return(MakeVolatileWord(taskData, pProcData));
 }
 
-POLYUNSIGNED PolyWindowsSimpleExecute(FirstArgument threadId, PolyWord command, PolyWord argument)
+POLYUNSIGNED PolyWindowsSimpleExecute(POLYUNSIGNED threadId, POLYUNSIGNED command, POLYUNSIGNED argument)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -409,7 +409,7 @@ POLYUNSIGNED PolyWindowsSimpleExecute(FirstArgument threadId, PolyWord command, 
     Handle result = 0;
 
     try {
-        result = simpleExecute(taskData, command, argument);
+        result = simpleExecute(taskData, PolyWord::FromUnsigned(command), PolyWord::FromUnsigned(argument));
     }
     catch (...) {} // If an ML exception is raised
 
@@ -420,7 +420,7 @@ POLYUNSIGNED PolyWindowsSimpleExecute(FirstArgument threadId, PolyWord command, 
 }
 
 /* Return a stream, either text or binary, connected to an open process. */
-POLYUNSIGNED PolyWindowsOpenProcessHandle(FirstArgument threadId, PolyWord arg, PolyWord isRead, PolyWord isText)
+POLYUNSIGNED PolyWindowsOpenProcessHandle(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED isRead, POLYUNSIGNED isText)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -431,7 +431,7 @@ POLYUNSIGNED PolyWindowsOpenProcessHandle(FirstArgument threadId, PolyWord arg, 
     Handle result = 0;
 
     try {
-        PROCESSDATA* hnd = *(PROCESSDATA * *)(arg.AsObjPtr());
+        PROCESSDATA* hnd = *(PROCESSDATA * *)(PolyWord::FromUnsigned(arg).AsObjPtr());
         if (hnd == 0)
             raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
         // We allow multiple streams on the handles.  Since they are duplicated by openHandle that's safe.
@@ -441,8 +441,9 @@ POLYUNSIGNED PolyWindowsOpenProcessHandle(FirstArgument threadId, PolyWord arg, 
         {
             WinInOutStream* stream = new WinInOutStream;
             bool fResult;
-            if (isRead.UnTagged()) fResult = stream->openHandle(hnd->hInput, OPENREAD, isText.UnTagged());
-            else fResult = stream->openHandle(hnd->hOutput, OPENWRITE, isText.UnTagged());
+            if (PolyWord::FromUnsigned(isRead).UnTagged())
+                fResult = stream->openHandle(hnd->hInput, OPENREAD, PolyWord::FromUnsigned(isText).UnTagged());
+            else fResult = stream->openHandle(hnd->hOutput, OPENWRITE, PolyWord::FromUnsigned(isText).UnTagged());
             if (!fResult)
             {
                 delete(stream);
@@ -469,7 +470,7 @@ POLYUNSIGNED PolyWindowsOpenProcessHandle(FirstArgument threadId, PolyWord arg, 
 }
 
 /* Get result of process. */
-POLYUNSIGNED PolyWindowsGetProcessResult(FirstArgument threadId, PolyWord arg)
+POLYUNSIGNED PolyWindowsGetProcessResult(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -480,8 +481,8 @@ POLYUNSIGNED PolyWindowsGetProcessResult(FirstArgument threadId, PolyWord arg)
     Handle result = 0;
 
     try {
-        PROCESSDATA* hnd = *(PROCESSDATA * *)(arg.AsObjPtr());
-        *(PROCESSDATA * *)(arg.AsObjPtr()) = 0; // Mark as inaccessible.
+        PROCESSDATA* hnd = *(PROCESSDATA * *)(PolyWord::FromUnsigned(arg).AsObjPtr());
+        *(PROCESSDATA * *)(PolyWord::FromUnsigned(arg).AsObjPtr()) = 0; // Mark as inaccessible.
         if (hnd == 0)
             raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
         // Close the streams. Either of them may have been

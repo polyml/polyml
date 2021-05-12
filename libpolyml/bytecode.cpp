@@ -150,11 +150,11 @@ ByteCodeInterpreter::~ByteCodeInterpreter()
 
 extern "C" {
     typedef POLYUNSIGNED(*callFastRts0)();
-    typedef POLYUNSIGNED(*callFastRts1)(intptr_t);
-    typedef POLYUNSIGNED(*callFastRts2)(intptr_t, intptr_t);
-    typedef POLYUNSIGNED(*callFastRts3)(intptr_t, intptr_t, intptr_t);
-    typedef POLYUNSIGNED(*callFastRts4)(intptr_t, intptr_t, intptr_t, intptr_t);
-    typedef POLYUNSIGNED(*callFastRts5)(intptr_t, intptr_t, intptr_t, intptr_t, intptr_t);
+    typedef POLYUNSIGNED(*callFastRts1)(POLYUNSIGNED);
+    typedef POLYUNSIGNED(*callFastRts2)(POLYUNSIGNED, POLYUNSIGNED);
+    typedef POLYUNSIGNED(*callFastRts3)(POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED);
+    typedef POLYUNSIGNED(*callFastRts4)(POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED);
+    typedef POLYUNSIGNED(*callFastRts5)(POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED);
     typedef double (*callRTSRtoR) (double);
     typedef double (*callRTSRRtoR) (double, double);
     typedef double (*callRTSGtoR) (intptr_t);
@@ -694,7 +694,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         case INSTR_callFastRTS1:
             {
                 callFastRts1 doCall = *(callFastRts1*)(*sp++).w().AsObjPtr();
-                intptr_t rtsArg1 = (*sp++).argValue;
+                POLYUNSIGNED rtsArg1 = (*sp++).w().AsUnsigned();
                 ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1);
@@ -708,8 +708,8 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         case INSTR_callFastRTS2:
             {
                 callFastRts2 doCall = *(callFastRts2*)(*sp++).w().AsObjPtr();
-                intptr_t rtsArg2 = (*sp++).argValue; // Pop off the args, last arg first.
-                intptr_t rtsArg1 = (*sp++).argValue;
+                POLYUNSIGNED rtsArg2 = (*sp++).w().AsUnsigned(); // Pop off the args, last arg first.
+                POLYUNSIGNED rtsArg1 = (*sp++).w().AsUnsigned();
                 ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2);
@@ -723,9 +723,9 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         case INSTR_callFastRTS3:
             {
                 callFastRts3 doCall = *(callFastRts3*)(*sp++).w().AsObjPtr();
-                intptr_t rtsArg3 = (*sp++).argValue; // Pop off the args, last arg first.
-                intptr_t rtsArg2 = (*sp++).argValue;
-                intptr_t rtsArg1 = (*sp++).argValue;
+                POLYUNSIGNED rtsArg3 = (*sp++).w().AsUnsigned(); // Pop off the args, last arg first.
+                POLYUNSIGNED rtsArg2 = (*sp++).w().AsUnsigned();
+                POLYUNSIGNED rtsArg1 = (*sp++).w().AsUnsigned();
                 ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3);
@@ -739,10 +739,10 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         case INSTR_callFastRTS4:
             {
                 callFastRts4 doCall = *(callFastRts4*)(*sp++).w().AsObjPtr();
-                intptr_t rtsArg4 = (*sp++).argValue; // Pop off the args, last arg first.
-                intptr_t rtsArg3 = (*sp++).argValue;
-                intptr_t rtsArg2 = (*sp++).argValue;
-                intptr_t rtsArg1 = (*sp++).argValue;
+                POLYUNSIGNED rtsArg4 = (*sp++).w().AsUnsigned(); // Pop off the args, last arg first.
+                POLYUNSIGNED rtsArg3 = (*sp++).w().AsUnsigned();
+                POLYUNSIGNED rtsArg2 = (*sp++).w().AsUnsigned();
+                POLYUNSIGNED rtsArg1 = (*sp++).w().AsUnsigned();
                 ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4);
@@ -756,11 +756,11 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
         case INSTR_callFastRTS5:
             {
                 callFastRts5 doCall = *(callFastRts5*)(*sp++).w().AsObjPtr();
-                intptr_t rtsArg5 = (*sp++).argValue; // Pop off the args, last arg first.
-                intptr_t rtsArg4 = (*sp++).argValue;
-                intptr_t rtsArg3 = (*sp++).argValue;
-                intptr_t rtsArg2 = (*sp++).argValue;
-                intptr_t rtsArg1 = (*sp++).argValue;
+                POLYUNSIGNED rtsArg5 = (*sp++).w().AsUnsigned(); // Pop off the args, last arg first.
+                POLYUNSIGNED rtsArg4 = (*sp++).w().AsUnsigned();
+                POLYUNSIGNED rtsArg3 = (*sp++).w().AsUnsigned();
+                POLYUNSIGNED rtsArg2 = (*sp++).w().AsUnsigned();
+                POLYUNSIGNED rtsArg1 = (*sp++).w().AsUnsigned();
                 ClearExceptionPacket();
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4, rtsArg5);
@@ -2410,9 +2410,9 @@ bool ByteCodeInterpreter::InterpreterReleaseMutex(PolyObject* mutexp)
 }
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedGetAbiList(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCreateCIF(POLYUNSIGNED threadId, POLYUNSIGNED abiValue, POLYUNSIGNED resultType, POLYUNSIGNED argTypes);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedCallFunction(POLYUNSIGNED threadId, POLYUNSIGNED cifAddr, POLYUNSIGNED cFunAddr, POLYUNSIGNED resAddr, POLYUNSIGNED argVec);
 }
 
 // FFI
@@ -2546,29 +2546,29 @@ static ffi_type* decodeType(PolyWord pType)
 // representations used by the compiler.
 // This mallocs space for the CIF and the types.  The space is never freed.
 // 
-POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes)
+POLYUNSIGNED PolyInterpretedCreateCIF(POLYUNSIGNED threadId, POLYUNSIGNED abiValue, POLYUNSIGNED resultType, POLYUNSIGNED argTypes)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
     Handle result = 0;
-    ffi_abi abi = (ffi_abi)get_C_ushort(taskData, abiValue);
+    ffi_abi abi = (ffi_abi)get_C_ushort(taskData, PolyWord::FromUnsigned(abiValue));
 
     try {
         unsigned nArgs = 0;
-        for (PolyWord p = argTypes; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
+        for (PolyWord p = PolyWord::FromUnsigned(argTypes); !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
             nArgs++;
         // Allocate space for the cif followed by the argument type vector
         size_t space = sizeof(ffi_cif) + nArgs * sizeof(ffi_type*);
         ffi_cif* cif = (ffi_cif*)malloc(space);
         if (cif == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-        ffi_type* rtype = decodeType(resultType);
+        ffi_type* rtype = decodeType(PolyWord::FromUnsigned(resultType));
         if (rtype == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
         ffi_type** atypes = (ffi_type**)(cif + 1);
         // Copy the arguments types.
         ffi_type** at = atypes;
-        for (PolyWord p = argTypes; !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
+        for (PolyWord p = PolyWord::FromUnsigned(argTypes); !ML_Cons_Cell::IsNull(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
         {
             PolyWord e = ((ML_Cons_Cell*)p.AsObjPtr())->h;
             ffi_type* atype = decodeType(e);
@@ -2593,12 +2593,12 @@ POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue,
 }
 
 // Call a function.
-POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
+POLYUNSIGNED PolyInterpretedCallFunction(POLYUNSIGNED threadId, POLYUNSIGNED cifAddr, POLYUNSIGNED cFunAddr, POLYUNSIGNED resAddr, POLYUNSIGNED argVec)
 {
-    ffi_cif* cif = *(ffi_cif**)cifAddr.AsAddress();
-    void* f = *(void**)cFunAddr.AsAddress();
-    void* res = *(void**)resAddr.AsAddress();
-    void* arg = *(void**)argVec.AsAddress();
+    ffi_cif* cif = *(ffi_cif**)PolyWord::FromUnsigned(cifAddr).AsAddress();
+    void* f = *(void**)PolyWord::FromUnsigned(cFunAddr).AsAddress();
+    void* res = *(void**)PolyWord::FromUnsigned(resAddr).AsAddress();
+    void* arg = *(void**)PolyWord::FromUnsigned(argVec).AsAddress();
     // Poly passes the arguments as values, effectively a single struct.
     // Libffi wants a vector of addresses.
     void** argVector = (void**)calloc(cif->nargs + 1, sizeof(void*));
@@ -2637,7 +2637,7 @@ static struct _abiTable { const char* abiName; int abiCode; } abiTable[] =
 
 // Don't raise an exception at this point so we can build calls.
 // Have to create a sysword result.
-POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue, PolyWord resultType, PolyWord argTypes)
+POLYUNSIGNED PolyInterpretedCreateCIF(POLYUNSIGNED threadId, POLYUNSIGNED abiValue, POLYUNSIGNED resultType, POLYUNSIGNED argTypes)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -2655,7 +2655,7 @@ POLYUNSIGNED PolyInterpretedCreateCIF(FirstArgument threadId, PolyWord abiValue,
 
 }
 
-POLYUNSIGNED PolyInterpretedCallFunction(FirstArgument threadId, PolyWord cifAddr, PolyWord cFunAddr, PolyWord resAddr, PolyWord argVec)
+POLYUNSIGNED PolyInterpretedCallFunction(POLYUNSIGNED threadId, POLYUNSIGNED cifAddr, POLYUNSIGNED cFunAddr, POLYUNSIGNED resAddr, POLYUNSIGNED argVec)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     try {
@@ -2680,7 +2680,7 @@ static Handle mkAbitab(TaskData* taskData, void* arg, char* p)
 }
 
 // Get ABI list.  This is called once only before the basis library is built.
-POLYUNSIGNED PolyInterpretedGetAbiList(FirstArgument threadId)
+POLYUNSIGNED PolyInterpretedGetAbiList(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
