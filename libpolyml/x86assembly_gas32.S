@@ -173,8 +173,8 @@ INLINE_ROUTINE(X86AsmCallExtraRETURN_ENTER_INTERPRETER)
 
 # Additional assembly code routines
 
-# Fallback exchange and add if we can't use inline.
-INLINE_ROUTINE(X86AsmAtomicExchangeAndAdd)
+# Fallback exchange if we can't use inline.
+INLINE_ROUTINE(X86AsmAtomicExchange)
 # Use %ecx and %eax because they are volatile (unlike %ebx on X86/64/Unix)
     movl    4(%esp),%ecx
     movl    8(%esp),%eax
