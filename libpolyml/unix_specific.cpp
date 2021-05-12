@@ -1184,10 +1184,10 @@ POLYUNSIGNED PolyPosixSleep(POLYUNSIGNED threadId, POLYUNSIGNED maxMillisecs, PO
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    POLYUNSIGNED maxMilliseconds = maxMillisecs.UnTaggedUnsigned();
+    POLYUNSIGNED maxMilliseconds = PolyWord::FromUnsigned(maxMillisecs).UnTaggedUnsigned();
 
     try {
-        if (UNTAGGED_UNSIGNED(sigCount) == receivedSignalCount)
+        if (UNTAGGED_UNSIGNED(PolyWord::FromUnsigned(sigCount)) == receivedSignalCount)
         {
             WaitUpto waiter(maxMilliseconds);
             processes->ThreadPauseForIO(taskData, &waiter);

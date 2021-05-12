@@ -1542,9 +1542,9 @@ POLYUNSIGNED PolyNetworkCreateSocketPair(POLYUNSIGNED threadId, POLYUNSIGNED fam
         /* Not implemented. */
        raise_syscall(taskData, "socketpair not implemented", WSAEAFNOSUPPORT);
 #else
-        int af = family.UnTagged();
-        int type = st.UnTagged();
-        int proto = prot.UnTagged();
+        int af = PolyWord::FromUnsigned(family).UnTagged();
+        int type = PolyWord::FromUnsigned(st).UnTagged();
+        int proto = PolyWord::FromUnsigned(prot).UnTagged();
         SOCKET skt[2];
         int skPRes = 0;
 
@@ -1600,7 +1600,7 @@ POLYUNSIGNED PolyNetworkUnixPathToSockAddr(POLYUNSIGNED threadId, POLYUNSIGNED a
 #ifdef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
         addr.sun_len = sizeof(addr); // Used in FreeBSD only.
 #endif
-        POLYUNSIGNED length = Poly_string_to_C(arg, addr.sun_path, sizeof(addr.sun_path));
+        POLYUNSIGNED length = Poly_string_to_C(PolyWord::FromUnsigned(arg), addr.sun_path, sizeof(addr.sun_path));
         if (length > (int)sizeof(addr.sun_path))
             raise_syscall(taskData, "Address too long", ENAMETOOLONG);
         result = SAVE(C_string_to_Poly(taskData, (char*)& addr, sizeof(addr)));
@@ -1628,7 +1628,7 @@ POLYUNSIGNED PolyNetworkUnixSockAddrToPath(POLYUNSIGNED threadId, POLYUNSIGNED a
         /* Not implemented. */
         raise_syscall(taskData, "Unix addresses not implemented", WSAEAFNOSUPPORT);
 #else
-        PolyStringObject* psAddr = (PolyStringObject*)arg.AsObjPtr();
+        PolyStringObject* psAddr = (PolyStringObject*)PolyWord::FromUnsigned(arg).AsObjPtr();
         struct sockaddr_un* psock = (struct sockaddr_un*) & psAddr->chars;
         result = SAVE(C_string_to_Poly(taskData, psock->sun_path));
 #endif

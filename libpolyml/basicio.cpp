@@ -486,12 +486,12 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyPollIODescriptors(POLYUNSIGNED threadId, POL
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    POLYUNSIGNED maxMilliseconds = maxMillisecs.UnTaggedUnsigned();
+    POLYUNSIGNED maxMilliseconds = PolyWord::FromUnsigned(maxMillisecs).UnTaggedUnsigned();
     Handle result = 0;
 
     try {
-        PolyObject  *strmVec = streamVector.AsObjPtr();
-        PolyObject  *bitVec = bitVector.AsObjPtr();
+        PolyObject  *strmVec = PolyWord::FromUnsigned(streamVector).AsObjPtr();
+        PolyObject  *bitVec = PolyWord::FromUnsigned(bitVector).AsObjPtr();
         POLYUNSIGNED nDesc = strmVec->Length();
         ASSERT(nDesc == bitVec->Length());
 
@@ -1100,7 +1100,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyPosixCreatePersistentFD(POLYUNSIGNED threadI
     try {
         result = alloc_and_save(taskData,
             WORDS(SIZEOF_VOIDP), F_BYTE_OBJ | F_MUTABLE_BIT | F_NO_OVERWRITE);
-        *(POLYSIGNED*)(result->Word().AsCodePtr()) = fd.UnTagged() + 1;
+        *(POLYSIGNED*)(result->Word().AsCodePtr()) = PolyWord::FromUnsigned(fd).UnTagged() + 1;
     }
     catch (...) { } // If an ML exception is raised - could have run out of memory
 
