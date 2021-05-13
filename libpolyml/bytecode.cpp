@@ -1504,7 +1504,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                 // then mask.
                 uintptr_t wx = *(uintptr_t*)(*sp).w().AsObjPtr();
 #ifdef POLYML32IN64
-                *sp = TAGGED(wx & 0xffffff);
+                *sp = TAGGED(wx & 0xffffffff);
 #else
                 *sp = TAGGED(wx);
 #endif
