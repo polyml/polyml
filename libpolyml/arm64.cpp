@@ -292,7 +292,7 @@ extern "C" {
     // This is declared here and called from the assembly code.
     // It avoids having a call to an external in the assembly code
     // which sometimes gives problems with position-indepent code.
-    void  Arm64TrapHandler(PolyWord threadId);
+    void  Arm64TrapHandler(stackItem threadId);
 };
 
 Arm64TaskData::Arm64TaskData() : ByteCodeInterpreter(&assemblyInterface.stackPtr, &assemblyInterface.stackLimit),
@@ -571,7 +571,9 @@ void Arm64TaskData::Interpret()
 
 // Called from the assembly code as a result of a trap i.e. a request for
 // a GC or to extend the stack.
-void Arm64TrapHandler(PolyWord threadId)
+// N.B. Argument must be stackItem not PolyWord so that it's compatible with
+// big-endian 32-in-64.
+void Arm64TrapHandler(stackItem threadId)
 {
     Arm64TaskData* taskData = (Arm64TaskData*)TaskData::FindTaskForId(threadId);
     taskData->HandleTrap();
