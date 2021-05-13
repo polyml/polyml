@@ -1499,9 +1499,15 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
 
             case EXTINSTR_longWToTagged:
             {
-                // Extract the first word and return it as a tagged value.  This loses the top-bit
-                POLYUNSIGNED wx = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
+                // Extract the first word and return it as a tagged value.  This loses the top-bit.
+                // To get this right for 32-in-64 on big-endian we need to load the whole word and
+                // then mask.
+                uintptr_t wx = *(uintptr_t*)(*sp).w().AsObjPtr();
+#ifdef POLYML32IN64
+                *sp = TAGGED(wx & 0xffffff);
+#else
                 *sp = TAGGED(wx);
+#endif
                 break;
             }
 
