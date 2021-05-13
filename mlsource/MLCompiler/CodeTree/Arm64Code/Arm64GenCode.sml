@@ -389,7 +389,7 @@ struct
 
 
     (* The flags byte is the high-order byte of length word. *)
-    val flagsByteOffset = if isBigEndian then 1-Word.toInt wordSize else ~1
+    val flagsByteOffset = if isBigEndian then ~ (Word.toInt wordSize) else ~1
 
     (* Code generate a function or global declaration *)
     fun codegen (pt, name, resultClosure, numOfArgs, localCount, parameters) =
