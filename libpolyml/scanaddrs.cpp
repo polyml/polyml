@@ -292,10 +292,11 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
             intptr_t target = (intptr_t)p;
             // LDR: The offset we put in here is a number of 8-byte words relative to
             // the 4k-page.
-            pt[1] = toARMInstr((instr1 & 0xffc003ff) | (((target & 0xfff) / 8) << 10));
+            uint32_t* ptW = (uint32_t*)addressToWrite;
+            ptW[1] = toARMInstr((instr1 & 0xffc003ff) | (((target & 0xfff) / 8) << 10));
             // ADRP - 4k page address relative to the instruction.
             intptr_t disp = (target >> 12) - ((intptr_t)addressOfConstant >> 12);
-            pt[0] = toARMInstr((instr0 & 0x9f00001f) | ((disp & 3) << 29) | (((disp >> 2) & 0x7ffff) << 5));
+            ptW[0] = toARMInstr((instr0 & 0x9f00001f) | ((disp & 3) << 29) | (((disp >> 2) & 0x7ffff) << 5));
         }
         break;
     }

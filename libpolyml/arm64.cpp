@@ -852,8 +852,9 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
                 // The constant address is relative to the new location of the code.
                 byte* constAddress = (byte*)(pt + ((instr0 >> 5) & 0x7ffff));
                 byte* newAddress = (byte*)constAddress + constAdjustment;
-                pt[0] = toARMInstr(0x90000000 + reg); // ADRP Xn, 0
-                pt[1] = toARMInstr(0xf9400000 + (reg << 5) + reg); // LDR Xn,[Xn+#0]
+                arm64CodePointer ptW = (arm64CodePointer)gMem.SpaceForAddress(pt)->writeAble((byte*)pt);
+                ptW[0] = toARMInstr(0x90000000 + reg); // ADRP Xn, 0
+                ptW[1] = toARMInstr(0xf9400000 + (reg << 5) + reg); // LDR Xn,[Xn+#0]
                 ScanAddress::SetConstantValue((byte*)pt, (PolyObject*)newAddress, PROCESS_RELOC_ARM64ADRPLDR);
             }
         }
