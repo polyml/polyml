@@ -324,7 +324,7 @@ bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyInterpretedEnterIntMode();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyEndBootstrapMode(POLYUNSIGNED threadId, POLYUNSIGNED function);
 }
 
 // Do we require EnterInt instructions and if so for which architecture?
@@ -335,7 +335,7 @@ POLYUNSIGNED PolyInterpretedEnterIntMode()
 }
 
 // This has no effect in the interpreted version.
-POLYUNSIGNED PolyEndBootstrapMode(FirstArgument threadId, PolyWord function)
+POLYUNSIGNED PolyEndBootstrapMode(POLYUNSIGNED threadId, POLYUNSIGNED function)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
