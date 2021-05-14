@@ -93,6 +93,10 @@
 #include <signal.h>
 #endif
 
+#ifdef HAVE_TIME_H
+#include <time.h>
+#endif
+
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -1163,11 +1167,12 @@ public:
     WaitUpto(unsigned mSecs) : maxTime(mSecs), result(0), errcode(0) {}
     virtual void Wait(unsigned maxMillisecs)
     {
-        useconds_t usec;
+        struct timespec tWait;
         if (maxTime < maxMillisecs)
-            usec = maxTime * 1000;
-        else usec = maxMillisecs * 1000;
-        result = usleep(usec);
+            maxMillisecs = maxTime;
+        tWait.tv_sec = maxMillisecs / 1000;
+        tWait.tv_nsec = (maxMillisecs % 1000) * 1000 * 1000;
+        result = nanosleep(&tWait, NULL);
         if (result != 0) errcode = errno;
     }
     unsigned maxTime;
