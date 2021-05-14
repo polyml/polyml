@@ -226,7 +226,6 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
             // by some reverse-engineering and trial-and-error.  Have to use
             // symbol-relative addressing with the offset provided by a
             // ARM64_RELOC_ADDEND "relocation" that affects the next entry.
-            unsigned addrArea = findArea(addr);
             struct relocation_info reloc;
             // We need four relocations here.
             // The first instruction is ADRP
@@ -255,8 +254,8 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
             relocationCount++;
             // Now we've found the target we can zero the data in the instructions.
             uint32_t* instrAddr = (uint32_t*)addr;
-            instrAddr[0] = toArmInstr(fromArmInstr(instrAddr[0]) & 0x9f00001f);
-            instrAddr[1] = toArmInstr(fromArmInstr(instrAddr[1]) & 0xffc003ff);
+            instrAddr[0] = toARMInstr(fromARMInstr(instrAddr[0]) & 0x9f00001f);
+            instrAddr[1] = toARMInstr(fromARMInstr(instrAddr[1]) & 0xffc003ff);
         }
         break;
 #endif
