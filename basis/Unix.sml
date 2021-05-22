@@ -149,7 +149,7 @@ struct
                 then raise OS.SysErr(OS.errorMsg Error.acces, SOME Error.acces)
                 else ()
 
-            val (pid, toChild, fromChild) = unixExec(cmd, args, env)
+            val (pid, toChild, fromChild) = unixExec(cmd, OS.Path.file cmd :: args, env)
         in
             {pid=pid, infd=fromChild, outfd=toChild, result = ref NONE}
         end
