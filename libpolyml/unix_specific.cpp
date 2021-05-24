@@ -2040,6 +2040,7 @@ POLYUNSIGNED PolyUnixExecute(POLYUNSIGNED threadId, POLYUNSIGNED cmd, POLYUNSIGN
             dup2(fromChild[1], 1); // Write side becomes stdout
             close(toChild[0]);
             close(fromChild[1]);
+            restoreSignals(); // The child inherits the parent's mask.
             execve(path, argl, envl);
             // If we get here the exec must have failed and we must stop with 126.
             _exit(126);
