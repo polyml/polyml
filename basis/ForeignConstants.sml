@@ -29,12 +29,16 @@ struct
         and sizeShort: word     = RunCall.rtsCallFast1 "PolySizeShort" ()
         and sizeInt: word       = RunCall.rtsCallFast1 "PolySizeInt" ()
         and sizeLong: word      = RunCall.rtsCallFast1 "PolySizeLong" ()
+        and sizeSsize: word     = RunCall.rtsCallFast1 "PolySizeSsize" ()
+        and sizeSize: word      = RunCall.rtsCallFast1 "PolySizeSize" ()
     in
         val saFloat     = {size=sizeFloat, align=sizeFloat}
         and saDouble    = {size=sizeDouble, align=sizeDouble}
         and saShort     = {size=sizeShort, align=sizeShort}
         and saInt       = {size=sizeInt, align=sizeInt}
         and saLong      = {size=sizeLong, align=sizeLong}
+        and saSsize     = {size=sizeSsize, align=sizeSsize}
+        and saSize      = {size=sizeSize, align=sizeSize}
     end
 
     val bigEndian : bool = LibrarySupport.bigEndian
