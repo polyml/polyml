@@ -582,12 +582,12 @@ struct
             val cTypeInt =
                 { size= #size saInt, align= #align saInt, typeForm = CTypeSignedInt }
             val cTypeUint =
-                { size= #size saInt, align= #align saInt, typeForm = CTypeSignedInt }
+                { size= #size saInt, align= #align saInt, typeForm = CTypeUnsignedInt }
             (* long: 8 bytes on X86/64 Unix but 4 on X86 Windows. *)
             val cTypeLong =
                 { size= #size saLong, align= #align saLong, typeForm = CTypeSignedInt }
             val cTypeUlong =
-                { size= #size saLong, align= #align saLong, typeForm = CTypeSignedInt }
+                { size= #size saLong, align= #align saLong, typeForm = CTypeUnsignedInt }
             (* Float: 4 on X86 *)
             val cTypeFloat =
                 { size= #size saFloat, align= #align saFloat, typeForm = CTypeFloatingPt }
