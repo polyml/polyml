@@ -89,6 +89,8 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeShort();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeInt();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeLong();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeSsize();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeSize();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetError(POLYUNSIGNED addr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(POLYUNSIGNED err);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(POLYUNSIGNED threadId, POLYUNSIGNED arg);
@@ -309,6 +311,16 @@ POLYUNSIGNED PolySizeLong()
     return TAGGED((POLYSIGNED)sizeof(long)).AsUnsigned();
 }
 
+POLYUNSIGNED PolySizeSsize()
+{
+    return TAGGED((POLYSIGNED)sizeof(ssize_t)).AsUnsigned();
+}
+
+POLYUNSIGNED PolySizeSize()
+{
+    return TAGGED((POLYSIGNED)sizeof(size_t)).AsUnsigned();
+}
+
 // Get either errno or GetLastError
 POLYUNSIGNED PolyFFIGetError(POLYUNSIGNED addr)
 {
@@ -393,6 +405,8 @@ struct _entrypts polyFFIEPT[] =
     { "PolySizeShort",                  (polyRTSFunction)&PolySizeShort},
     { "PolySizeInt",                    (polyRTSFunction)&PolySizeInt},
     { "PolySizeLong",                   (polyRTSFunction)&PolySizeLong},
+    { "PolySizeSsize",                  (polyRTSFunction)&PolySizeSsize},
+    { "PolySizeSize",                   (polyRTSFunction)&PolySizeSize},
     { "PolyFFIGetError",                (polyRTSFunction)&PolyFFIGetError},
     { "PolyFFISetError",                (polyRTSFunction)&PolyFFISetError},
     { "PolyFFICreateExtFn",             (polyRTSFunction)&PolyFFICreateExtFn},

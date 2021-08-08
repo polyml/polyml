@@ -145,6 +145,8 @@ sig
         and cTypeUint: cType
         and cTypeLong: cType
         and cTypeUlong: cType
+        and cTypeSsize: cType
+        and cTypeSize: cType
         and cTypeFloat: cType
         and cTypeDouble: cType
         
@@ -207,6 +209,10 @@ sig
     val cUintLarge: LargeInt.int conversion
     val cLongLarge: LargeInt.int conversion
     val cUlongLarge: LargeInt.int conversion
+    val cSsize: int conversion
+    val cSize: int conversion
+    val cSsizeLarge: LargeInt.int conversion
+    val cSizeLarge: LargeInt.int conversion
     val cString: string conversion
     val cByteArray: Word8Vector.vector conversion
     val cFloat: real conversion
@@ -588,6 +594,12 @@ struct
                 { size= #size saLong, align= #align saLong, typeForm = CTypeSignedInt }
             val cTypeUlong =
                 { size= #size saLong, align= #align saLong, typeForm = CTypeUnsignedInt }
+            (* ssize_t *)
+            val cTypeSsize =
+                { size= #size saSsize, align= #align saSsize, typeForm = CTypeSignedInt }
+            (* size_t *)
+            val cTypeSize =
+                { size= #size saSize, align= #align saSize, typeForm = CTypeUnsignedInt }
             (* Float: 4 on X86 *)
             val cTypeFloat =
                 { size= #size saFloat, align= #align saFloat, typeForm = CTypeFloatingPt }
@@ -957,6 +969,26 @@ struct
             if #size saLong = #size (#ctype cUint32Large) then cUint32Large
             else if #size saLong = #size (#ctype cUint64Large) then cUint64Large
             else raise Foreign "Unable to find type for unsigned long"
+
+        val cSsize =
+            if #size saSsize = #size (#ctype cInt32) then cInt32
+            else if #size saSsize = #size (#ctype cInt64) then cInt64
+            else raise Foreign "Unable to find type for ssize_t"
+
+        val cSsizeLarge =
+            if #size saSsize = #size (#ctype cInt32Large) then cInt32Large
+            else if #size saSsize = #size (#ctype cInt64Large) then cInt64Large
+            else raise Foreign "Unable to find type for ssize_t"
+
+        val cSize =
+            if #size saSize = #size (#ctype cUint32) then cUint32
+            else if #size saSize = #size (#ctype cUint64) then cUint64
+            else raise Foreign "Unable to find type for size_t"
+
+        val cSizeLarge =
+            if #size saSize = #size (#ctype cUint32Large) then cUint32Large
+            else if #size saSize = #size (#ctype cUint64Large) then cUint64Large
+            else raise Foreign "Unable to find type for size_t"
 
         local
             fun load(s: voidStar): string =
