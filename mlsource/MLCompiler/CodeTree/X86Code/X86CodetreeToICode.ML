@@ -164,6 +164,11 @@ struct
             val profileObject = toMachineWord v
         end
 
+        (* Switch to indicate if we want to trace where live data has been allocated. *)
+        (* TODO: This should be used in AllocateMemoryOperation and BoxValue and possibly AllocateMemoryVariable. *)
+        val addAllocatingFunction =
+            DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
+
         fun constantAsArgument value =
             if isShort value
             then IntegerConstant(tag(Word.toLargeIntX(toShort value)))
