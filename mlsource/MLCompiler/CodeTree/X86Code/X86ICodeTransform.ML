@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-17, 2020
+    Copyright David C. J. Matthews 2016-17, 2020-1
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -146,7 +146,7 @@ struct
      
     type triple = {instr: x86ICode, current: intSet, active: intSet}
 
-    fun codeICodeFunctionToX86{blocks, functionName, pregProps, ccCount, debugSwitches, resultClosure, ...} =
+    fun codeICodeFunctionToX86{blocks, functionName, pregProps, ccCount, debugSwitches, resultClosure, profileObject, ...} =
     let
        (*val maxPRegs = Vector.length pregProps*)
         val icodeTabs = [8, 20, 60]
@@ -299,7 +299,8 @@ struct
                                 (
                                     if wantPrintCode then printRegisters allocatedRegs else ();
                                     icodeToX86Code{blocks=identified, functionName=functionName, allocatedRegisters=allocatedRegs,
-                                               stackRequired=maxStack, debugSwitches=debugSwitches, resultClosure=resultClosure}
+                                               stackRequired=maxStack, debugSwitches=debugSwitches, resultClosure=resultClosure,
+                                               profileObject=profileObject}
                                 )
                        |    AllocateFailure fails =>
                             let

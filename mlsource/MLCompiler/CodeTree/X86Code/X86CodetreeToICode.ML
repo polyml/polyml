@@ -154,6 +154,16 @@ struct
         val ccRefCounter = ref 0
         fun newCCRef() = CcRef(!ccRefCounter) before ccRefCounter := !ccRefCounter + 1
 
+        (* The profile object is a single mutable with the F_bytes bit set. *)
+        local
+            val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
+            fun clear 0w0 = ()
+            |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
+            val () = clear wordSize
+        in
+            val profileObject = toMachineWord v
+        end
+
         fun constantAsArgument value =
             if isShort value
             then IntegerConstant(tag(Word.toLargeIntX(toShort value)))
@@ -4047,7 +4057,8 @@ struct
         val pregProperties = Vector.fromList(List.rev(! pregPropList))
     in
         codeICodeFunctionToX86{blocks = resultVector, functionName = name, pregProps = pregProperties,
-            ccCount= ! ccRefCounter, debugSwitches = debugSwitches, resultClosure = resultClosure}
+            ccCount= ! ccRefCounter, debugSwitches = debugSwitches, resultClosure = resultClosure,
+            profileObject = profileObject}
     end
 
     fun gencodeLambda(lambda, debugSwitches, closure) =

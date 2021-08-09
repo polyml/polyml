@@ -84,7 +84,7 @@ struct
 
     fun opSizeToMove OpSize32 = Move32 | opSizeToMove OpSize64 = Move64
 
-    fun icodeToX86Code{blocks, functionName, stackRequired, debugSwitches, allocatedRegisters, resultClosure, ...} =
+    fun icodeToX86Code{blocks, functionName, stackRequired, debugSwitches, allocatedRegisters, resultClosure, profileObject, ...} =
     let        
         fun argAsGenReg(RegisterArg(GenReg r)) = r
         |   argAsGenReg _ = raise InternalError "argAsGenReg"
@@ -499,51 +499,29 @@ struct
                 in label end
             |   n => Label{labelNo=n}
 
-        (* The profile object is a single mutable with the F_bytes bit set. *)
-        local
-            val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
-            fun clear 0w0 = ()
-            |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
-            val () = clear wordSize
-        in
-            val profileObject = toMachineWord v
-        end
-        (* Switch to indicate if we want to trace where live data has been allocated. *)
-        val addAllocatingFunction =
-            DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
-
         fun llAllocateMemoryOperation ({ size, flags, dest, saveRegs}, code) =
         let
             val toReg = asGenReg dest
             val preserve = saveRegs
 
             (* Allocate memory.  N.B. Instructions are in reverse order. *)
-            fun allocStore{size, flags, output, preserve} =
+            val allocCode =
             if targetArch = Native64Bit andalso flags <> 0w0
             then
-                [Move{moveSize=Move8, source=NonAddressConstArg(Word8.toLargeInt flags), destination=MemoryArg {offset= ~1, base=output, index=NoIndex}},
+                [Move{moveSize=Move8, source=NonAddressConstArg(Word8.toLargeInt flags), destination=MemoryArg {offset= ~1, base=toReg, index=NoIndex}},
                  Move{source=NonAddressConstArg(LargeInt.fromInt size),
-                      destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=output, index=NoIndex},
+                      destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=toReg, index=NoIndex},
                       moveSize=opSizeToMove polyWordOpSize},
-                 AllocStore{size=size, output=output, saveRegs=preserve}]
+                 AllocStore{size=size, output=toReg, saveRegs=preserve}]
             else
             let
                 val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
             in
-                [Move{source=NonAddressConstArg lengthWord, destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=output, index=NoIndex},
+                [Move{source=NonAddressConstArg lengthWord, destination=MemoryArg {offset= ~ (Word.toInt wordSize), base=toReg, index=NoIndex},
                       moveSize=opSizeToMove polyWordOpSize},
-                 AllocStore{size=size, output=output, saveRegs=preserve}]
+                 AllocStore{size=size, output=toReg, saveRegs=preserve}]
             end
 
-            val allocCode =
-                (* If we need to add the profile object *)
-                if addAllocatingFunction
-                then
-                    allocStore {size=size+1, flags=Word8.orb(flags, Address.F_profile), output=toReg, preserve=preserve} @
-                        [Move{moveSize=opSizeToMove polyWordOpSize, source=AddressConstArg profileObject,
-                              destination=MemoryArg {base=toReg, offset=size*Word.toInt wordSize, index=NoIndex}}]
-                else allocStore {size=size, flags=flags, output=toReg, preserve=preserve}
-            
             (* Convert to an object index if necessary. *)
             val convertToObjId =
                 if targetArch = ObjectId32Bit
