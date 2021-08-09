@@ -414,7 +414,7 @@ void AddObjectProfile(PolyObject *obj)
     ASSERT(obj->ContainsNormalLengthWord());
     POLYUNSIGNED length = obj->Length();
 
-    if (obj->IsWordObject() && OBJ_HAS_PROFILE(obj->LengthWord()))
+    if ((obj->IsWordObject() || obj->IsClosureObject()) && OBJ_HAS_PROFILE(obj->LengthWord()))
     {
         // It has a profile pointer.  The last word should point to the
         // closure or code of the allocating function.  Add the size of this to the count.
@@ -434,10 +434,6 @@ void AddObjectProfile(PolyObject *obj)
     }
     else if (obj->IsCodeObject())
         extraStoreCounts[EST_CODE] += length+1;
-    else if (obj->IsClosureObject())
-    {
-        ASSERT(0);
-    }
     else if (obj->IsByteObject())
     {
         // Try to separate strings from other byte data.  This is only
