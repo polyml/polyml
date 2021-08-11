@@ -593,6 +593,26 @@ struct
                 (BlockSimple(LoadArgument{source=arg, dest=target, kind=moveSize}) :: code, RegisterArgument target, false)
             end
 
+        (* Allocate a fixed size cell with a reference to the profile object if we want
+           to trace the location of live data.  Currently only used for tuples and for closures
+           in native 32/64 bit. *)
+        and allocateWithProfileRev(n, flags, memAddr, tlCode) =
+            if addAllocatingFunction
+            then
+            let
+                val restAndAlloc =
+                    BlockSimple(AllocateMemoryOperation{size=n+1, flags=Word8.orb(flags, Address.F_profile), dest=memAddr, saveRegs=[]}) ::
+                        tlCode
+                val (code2, source, _) =
+                    moveIfNotAllowedRev(Allowed allowInMemMove, restAndAlloc, AddressConstant profileObject)
+                val storeValue =
+                    BlockSimple(StoreArgument{ source=source, offset=n*Word.toInt wordSize, base=memAddr,
+                        index=memIndexOrObject, kind=movePolyWord, isMutable=false})
+            in
+                storeValue :: code2
+            end
+            else BlockSimple(AllocateMemoryOperation{size=n, flags=flags, dest=memAddr, saveRegs=[]}) :: tlCode
+
         (* Use a move if there's no offset or index.  We could use an add if there's no index. *)
         and loadAddress{base, offset=0, index=NoMemIndex, dest} =
                 LoadArgument{source=RegisterArgument base, dest=dest, kind=movePolyWord}
@@ -1553,8 +1573,9 @@ struct
                    the result of a tuple to be at the top of the stack.  It should be changed. *)
                 val target = asTarget destination (* Actually we want this. *)
                 val memAddr = newPReg()
-                fun loadFields([], n, tlCode) =
-                        BlockSimple(AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, saveRegs=[]}) :: tlCode
+
+                fun loadFields([], n, tlCode) = allocateWithProfileRev(n, 0w0, memAddr, tlCode)
+                    
                 |   loadFields(f :: rest, n, tlCode) =
                     let
                         (* Defer the evaluation if possible.  We may have a constant that we can't move
