@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015-16, 2020 David C. J. Matthews
+    Copyright (c) 2009, 2013, 2015-16, 2020-21 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1087,6 +1087,8 @@ struct
                 boxednessForType(resType, level, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
             val sizeCode =
                 sizeForType(resType, level, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
+            val printCode =
+                printerForType(resType, level, typeVarMap)
         in
             mkEnv(
                 TypeVarMap.getCachedTypeValues typeVarMap,
@@ -1094,8 +1096,7 @@ struct
                     eqCode = eqCode, boxedCode = boxedCode, sizeCode = sizeCode,
                     printCode =
                     mkAllocateWordMemory(
-                        mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                         codePrintDefault)
+                        mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printCode)
                 })
         end
 
@@ -1127,7 +1128,9 @@ struct
 
             open TypeValue
             (* Create a print function.*)
-            val printCode = createCode(fn _ => codePrintDefault, "print-helper()")
+            val printCode =
+                createCode(fn(nLevel, argTypeMap) =>
+                    printerForType(resType, nLevel, argTypeMap), "print-helper()")
             and eqCode =
                 if not isEq then CodeZero
                 else createCode(fn(nLevel, argTypeMap) =>
