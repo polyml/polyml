@@ -29,16 +29,24 @@ struct
         and sizeShort: word     = RunCall.rtsCallFast1 "PolySizeShort" ()
         and sizeInt: word       = RunCall.rtsCallFast1 "PolySizeInt" ()
         and sizeLong: word      = RunCall.rtsCallFast1 "PolySizeLong" ()
+        and sizeLonglong: word  = RunCall.rtsCallFast1 "PolySizeLonglong" ()
         and sizeSsize: word     = RunCall.rtsCallFast1 "PolySizeSsize" ()
         and sizeSize: word      = RunCall.rtsCallFast1 "PolySizeSize" ()
+        and sizePtrdiff: word   = RunCall.rtsCallFast1 "PolySizePtrdiff" ()
+        and sizeIntptr: word    = RunCall.rtsCallFast1 "PolySizeIntptr" ()
+        and sizeUintptr: word   = RunCall.rtsCallFast1 "PolySizeUintptr" ()
     in
         val saFloat     = {size=sizeFloat, align=sizeFloat}
         and saDouble    = {size=sizeDouble, align=sizeDouble}
         and saShort     = {size=sizeShort, align=sizeShort}
         and saInt       = {size=sizeInt, align=sizeInt}
         and saLong      = {size=sizeLong, align=sizeLong}
+        and saLonglong  = {size=sizeLonglong, align=sizeLonglong}
         and saSsize     = {size=sizeSsize, align=sizeSsize}
         and saSize      = {size=sizeSize, align=sizeSize}
+        and saPtrdiff   = {size=sizePtrdiff, align=sizePtrdiff}
+        and saIntptr    = {size=sizeIntptr, align=sizeIntptr}
+        and saUintptr   = {size=sizeUintptr, align=sizeUintptr}
     end
 
     val bigEndian : bool = LibrarySupport.bigEndian

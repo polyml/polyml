@@ -205,14 +205,24 @@ sig
     val cUint: int conversion
     val cLong: int conversion
     val cUlong: int conversion
+    val cLonglong: int conversion
+    val cUlonglong: int conversion
     val cIntLarge: LargeInt.int conversion
     val cUintLarge: LargeInt.int conversion
     val cLongLarge: LargeInt.int conversion
     val cUlongLarge: LargeInt.int conversion
+    val cLonglongLarge: LargeInt.int conversion
+    val cUlonglongLarge: LargeInt.int conversion
     val cSsize: int conversion
     val cSize: int conversion
+    val cPtrdiff : int conversion
+    val cIntptr : int conversion
+    val cUintptr : int conversion
     val cSsizeLarge: LargeInt.int conversion
     val cSizeLarge: LargeInt.int conversion
+    val cPtrdiffLarge : LargeInt.int conversion
+    val cIntptrLarge : LargeInt.int conversion
+    val cUintptrLarge : LargeInt.int conversion
     val cString: string conversion
     val cByteArray: Word8Vector.vector conversion
     val cFloat: real conversion
@@ -594,12 +604,26 @@ struct
                 { size= #size saLong, align= #align saLong, typeForm = CTypeSignedInt }
             val cTypeUlong =
                 { size= #size saLong, align= #align saLong, typeForm = CTypeUnsignedInt }
+            (* long long *)
+            val cTypeLonglong =
+                { size= #size saLonglong, align= #align saLonglong, typeForm = CTypeSignedInt }
+            val cTypeUlonglong =
+                { size= #size saLonglong, align= #align saLonglong, typeForm = CTypeUnsignedInt }
             (* ssize_t *)
             val cTypeSsize =
                 { size= #size saSsize, align= #align saSsize, typeForm = CTypeSignedInt }
             (* size_t *)
             val cTypeSize =
                 { size= #size saSize, align= #align saSize, typeForm = CTypeUnsignedInt }
+            (* ptrdiff_t *)
+            val cTypePtrdiff =
+                { size= #size saPtrdiff, align= #align saPtrdiff, typeForm = CTypeSignedInt }
+            (* intptr_t *)
+            val cTypeIntptr =
+                { size= #size saIntptr, align= #align saIntptr, typeForm = CTypeSignedInt }
+            (* uintptr_t *)
+            val cTypeUintptr =
+                { size= #size saUintptr, align= #align saUintptr, typeForm = CTypeUnsignedInt }
             (* Float: 4 on X86 *)
             val cTypeFloat =
                 { size= #size saFloat, align= #align saFloat, typeForm = CTypeFloatingPt }
@@ -970,6 +994,26 @@ struct
             else if #size saLong = #size (#ctype cUint64Large) then cUint64Large
             else raise Foreign "Unable to find type for unsigned long"
 
+        val cLonglong =
+            if #size saLonglong = #size (#ctype cInt32) then cInt32
+            else if #size saLonglong = #size (#ctype cInt64) then cInt64
+            else raise Foreign "Unable to find type for long long"
+
+        val cLonglongLarge =
+            if #size saLonglong = #size (#ctype cInt32Large) then cInt32Large
+            else if #size saLonglong = #size (#ctype cInt64Large) then cInt64Large
+            else raise Foreign "Unable to find type for long long"
+
+        val cUlonglong = 
+            if #size saLonglong = #size (#ctype cUint32) then cUint32
+            else if #size saLonglong = #size (#ctype cUint64) then cUint64
+            else raise Foreign "Unable to find type for unsigned long long"
+
+        val cUlonglongLarge = 
+            if #size saLonglong = #size (#ctype cUint32Large) then cUint32Large
+            else if #size saLonglong = #size (#ctype cUint64Large) then cUint64Large
+            else raise Foreign "Unable to find type for unsigned long long"
+
         val cSsize =
             if #size saSsize = #size (#ctype cInt32) then cInt32
             else if #size saSsize = #size (#ctype cInt64) then cInt64
@@ -989,6 +1033,36 @@ struct
             if #size saSize = #size (#ctype cUint32Large) then cUint32Large
             else if #size saSize = #size (#ctype cUint64Large) then cUint64Large
             else raise Foreign "Unable to find type for size_t"
+
+        val cPtrdiff =
+            if #size saPtrdiff = #size (#ctype cInt32) then cInt32
+            else if #size saPtrdiff = #size (#ctype cInt64) then cInt64
+            else raise Foreign "Unable to find type for ptrdiff_t"
+
+        val cPtrdiffLarge =
+            if #size saPtrdiff = #size (#ctype cInt32Large) then cInt32Large
+            else if #size saPtrdiff = #size (#ctype cInt64Large) then cInt64Large
+            else raise Foreign "Unable to find type for ptrdiff_t"
+
+        val cIntptr =
+            if #size saIntptr = #size (#ctype cInt32) then cInt32
+            else if #size saIntptr = #size (#ctype cInt64) then cInt64
+            else raise Foreign "Unable to find type for intptr_t"
+
+        val cIntptrLarge =
+            if #size saIntptr = #size (#ctype cInt32Large) then cInt32Large
+            else if #size saIntptr = #size (#ctype cInt64Large) then cInt64Large
+            else raise Foreign "Unable to find type for intptr_t"
+
+        val cUintptr =
+            if #size saUintptr = #size (#ctype cUint32) then cUint32
+            else if #size saUintptr = #size (#ctype cUint64) then cUint64
+            else raise Foreign "Unable to find type for uintptr_t"
+
+        val cUintptrLarge =
+            if #size saUintptr = #size (#ctype cUint32Large) then cUint32Large
+            else if #size saUintptr = #size (#ctype cUint64Large) then cUint64Large
+            else raise Foreign "Unable to find type for uintptr_t"
 
         local
             fun load(s: voidStar): string =

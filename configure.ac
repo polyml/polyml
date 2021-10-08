@@ -302,6 +302,10 @@ AC_CHECK_TYPES([SYSTEM_LOGICAL_PROCESSOR_INFORMATION],,,[#include "windows.h"])
 
 AC_CHECK_TYPES(long long)
 AC_CHECK_TYPES(ssize_t)
+AC_CHECK_TYPES([ptrdiff_t], [],
+  [AC_DEFINE_UNQUOTED([ptrdiff_t], [int],
+     [Define to `int' if <sys/types.h> does not define.])])
+
 
 AC_CHECK_SIZEOF(void*)
 AC_CHECK_SIZEOF(long)
