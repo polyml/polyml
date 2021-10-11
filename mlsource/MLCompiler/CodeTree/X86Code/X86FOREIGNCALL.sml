@@ -1186,8 +1186,9 @@ struct
                 then ArgInRegs{firstInSSE=isSSE fieldsAndOffsets, secondInSSE=false}
                 else
                 let
+                    (* Partition the structure: first register is offsets < 8, second >= 8. *)
                     val (first8Bytes, second8Bytes) =
-                        List.partition (fn (_, off) => off <= 0w8) fieldsAndOffsets
+                        List.partition (fn (_, off) => off < 0w8) fieldsAndOffsets
                 in
                     ArgInRegs{firstInSSE=isSSE first8Bytes, secondInSSE=isSSE second8Bytes}
                 end
