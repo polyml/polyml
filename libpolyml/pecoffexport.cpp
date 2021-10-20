@@ -205,6 +205,7 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
         break;
     }
 
+#if defined(HOSTARCHITECTURE_AARCH64)
     case PROCESS_RELOC_ARM64ADRPLDR:
     {
         // The first word is the ADRP, the second is LDR
@@ -225,6 +226,7 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
         pt[1] = toARMInstr((fromARMInstr(pt[1]) & 0xffc003ff) | (((offset & 0xfff) / 8) << 10));
         break;
     }
+#endif
 
     default:
         ASSERT(0); // Unknown code
