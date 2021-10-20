@@ -40,7 +40,6 @@ struct
 
     fun generateCode{code, ops, labelCount, resultClosure} =
     let
-        open RegSet
         (* Print the pre-optimised code if required. *)
         val () = printLowLevelCode(ops, code)
         

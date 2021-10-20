@@ -362,88 +362,6 @@ struct
     (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
     datatype opSize = OpSize32 | OpSize64
 
-    structure RegSet =
-    struct
-        (* Implement a register set as a bit mask. *)
-        datatype regSet = RegSet of word
-        fun singleton r = RegSet(0w1 << Word.fromInt(nReg r))
-        fun regSetUnion(RegSet r1, RegSet r2) = RegSet(Word.orb(r1, r2))
-        fun regSetIntersect(RegSet r1, RegSet r2) = RegSet(Word.andb(r1, r2))
-
-        local
-            fun addReg(acc, n) =
-                if n = regs then acc else addReg(regSetUnion(acc, singleton(regN n)), n+1)
-        in
-            val allRegisters = addReg(RegSet 0w0, 0)
-        end
-
-        val noRegisters = RegSet 0w0
-
-        fun inSet(r, rs) = regSetIntersect(singleton r, rs) <> noRegisters
-        
-        fun regSetMinus(RegSet s1, RegSet s2) = RegSet(Word.andb(s1, Word.notb s2))
-        
-        val listToSet = List.foldl (fn(r, rs) => regSetUnion(singleton r, rs)) noRegisters
-
-        local
-            val regs =
-                case targetArch of
-                    Native32Bit => [eax, ecx, edx, ebx, esi, edi]
-                |   Native64Bit => [eax, ecx, edx, ebx, esi, edi, r8, r9, r10, r11, r12, r13, r14]
-                |   ObjectId32Bit => [eax, ecx, edx, esi, edi, r8, r9, r10, r11, r12, r13, r14]
-        in
-            val generalRegisters = listToSet(map GenReg regs)
-        end
-        
-        (* The floating point stack.  Note that this excludes one item so it is always
-           possible to load a value onto the top of the FP stack. *)
-        val floatingPtRegisters =
-            listToSet(map FPReg [fp0, fp1, fp2, fp3, fp4, fp5, fp6(*, fp7*)])
-
-        val sse2Registers =
-            listToSet(map XMMReg [xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6])
-
-        fun isAllRegs rs = rs = allRegisters
-
-        fun setToList (RegSet regSet)=
-        let
-            fun testBit (n, bit, res) =
-                if n = regs
-                then res
-                else testBit(n+1, bit << 0w1, 
-                        if (regSet andb bit) <> 0w0
-                        then regN n :: res else res)
-        in
-            testBit(0, 0w1, [])
-        end
-
-        val cardinality = List.length o setToList
-
-        (* Choose one of the set.  This chooses the least value which means that
-           the ordering of the registers is significant.  This is a hot-spot
-           so is coded directly with the word operations. *)
-        fun oneOf(RegSet regSet) =
-        let
-            fun find(n, bit) =
-                if n = Word.fromInt regs then raise InternalError "oneOf: empty"
-                else if Word.andb(bit, regSet) <> 0w0 then n
-                else find(n+0w1, Word.<<(bit, 0w1))
-        in
-            regN(Word.toInt(find(0w0, 0w1)))
-        end
-        
-        fun regSetRepr regSet =
-        let
-            val regs = setToList regSet
-        in
-            "[" ^ String.concatWith "," (List.map regRepr regs) ^ "]"
-        end
-        
-        (* Install a pretty printer for when this code is being debugged. *)
-        val () = PolyML.addPrettyPrinter(fn _ => fn _ => fn r => PolyML.PrettyString(regSetRepr r))
-     end
-
-    open RegSet
 
     datatype arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
   
@@ -4052,7 +3970,6 @@ struct
         and  fpReg          = fpReg
         and  addrs          = addrs
         and  operation      = operation
-        and  regSet         = RegSet.regSet
         and  label          = label
         and  branchOps      = branchOps
         and  arithOp        = arithOp

@@ -61,27 +61,6 @@ sig
     type addrs
     val addrZero: addrs
 
-    structure RegSet:
-    sig
-        eqtype regSet
-        val singleton: reg -> regSet
-        val allRegisters: regSet (* All registers: data, address, floating pt. *)
-        val generalRegisters: regSet
-        val floatingPtRegisters: regSet
-        val sse2Registers: regSet
-        val noRegisters: regSet
-        val isAllRegs: regSet->bool
-        val regSetUnion: regSet * regSet -> regSet
-        val regSetIntersect: regSet * regSet -> regSet
-        val listToSet: reg list -> regSet
-        val setToList: regSet -> reg list
-        val regSetMinus: regSet * regSet -> regSet
-        val inSet: reg * regSet -> bool
-        val cardinality: regSet -> int
-        val regSetRepr: regSet -> string
-        val oneOf: regSet -> reg
-    end
-    
     (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
     datatype opSize = OpSize32 | OpSize64
 
@@ -219,7 +198,6 @@ sig
         and  fpReg          = fpReg
         and  addrs          = addrs
         and  operation      = operation
-        and  regSet         = RegSet.regSet
         and  label          = label
         and  branchOps      = branchOps
         and  arithOp        = arithOp
