@@ -426,8 +426,6 @@ POLYUNSIGNED PolyWindowsOpenProcessHandle(POLYUNSIGNED threadId, POLYUNSIGNED ar
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(TAGGED(1001));
-    Handle pushedArg = taskData->saveVec.push(arg);
     Handle result = 0;
 
     try {
@@ -476,8 +474,6 @@ POLYUNSIGNED PolyWindowsGetProcessResult(POLYUNSIGNED threadId, POLYUNSIGNED arg
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(TAGGED(1005));
-    Handle pushedArg = taskData->saveVec.push(arg);
     Handle result = 0;
 
     try {

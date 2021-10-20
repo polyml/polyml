@@ -118,7 +118,6 @@ static void MoveToEnd(void)
 // Remove lines at the beginning until we have enough space.
 static void CheckForScreenSpace(size_t nChars)
 {
-    DWORD dwRemoved = 0;
     // TODO: We could avoid these calls by remembering this information.
     size_t limit = SendMessage(hEditWnd, EM_GETLIMITTEXT, 0, 0);
     size_t size = SendMessage(hEditWnd, WM_GETTEXTLENGTH, 0, 0);
@@ -497,7 +496,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 // Remember the old selection and the original length.
                 DWORD lrStart, lrEnd;
                 SendMessage(hEditWnd, EM_GETSEL, (WPARAM)&lrStart, (LPARAM)&lrEnd);
-                LRESULT lrLength = SendMessage(hEditWnd, WM_GETTEXTLENGTH, 0, 0);
                 CheckForScreenSpace(lstrlen((TCHAR*)lParam));
                 MoveToEnd();
                 SendMessage(hEditWnd, EM_REPLACESEL, 0, lParam);
