@@ -216,6 +216,9 @@
 /* Define to 1 if you have the `pthread_jit_write_protect_np' function. */
 #undef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
 
+/* Define to 1 if the system has the type `ptrdiff_t'. */
+#undef HAVE_PTRDIFF_T
+
 /* Define to 1 if you have the <pwd.h> header file. */
 #undef HAVE_PWD_H
 
@@ -655,6 +658,9 @@
 
 /* Define to `int' if <sys/types.h> does not define. */
 #undef pid_t
+
+/* Define to `int' if <sys/types.h> does not define. */
+#undef ptrdiff_t
 
 /* Define to `unsigned int' if <sys/types.h> does not define. */
 #undef size_t
