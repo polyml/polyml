@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2017 David C.J. Matthews
+    Copyright (c) 2017, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
 
 (* Set of integers implemented as an ordered list.  This is used
    for active register sets. *)
-structure IntSet: INTSETSIG =
+structure IntSet: INTSET =
 struct
     datatype intSet = IntSet of int list
 

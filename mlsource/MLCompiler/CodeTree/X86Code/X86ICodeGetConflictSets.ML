@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-18 David C.J. Matthews
+    Copyright (c) 2016-18, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
 
 functor X86ICodeGetConflictSets(
     structure ICODE: ICodeSig
-    structure INTSET: INTSETSIG
+    structure INTSET: INTSET
     structure IDENTIFY: X86IDENTIFYREFSSIG
     sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET
 ): X86GETCONFLICTSETSIG =

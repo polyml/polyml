@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2017 David C.J. Matthews
+    Copyright (c) 2017, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,7 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature INTSETSIG =
+signature INTSET =
 sig
     type intSet
     val emptySet: intSet

@@ -40,7 +40,7 @@ functor X86ICodeToX86Code(
     
     structure ICODE: ICodeSig
     structure IDENTIFY: X86IDENTIFYREFSSIG
-    structure INTSET: INTSETSIG
+    structure INTSET: INTSET
     structure PRETTY: PRETTYSIG
 
     structure STRONGLY:

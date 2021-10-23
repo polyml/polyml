@@ -17,7 +17,7 @@
 
 functor X86PushRegisters(
     structure ICODE: ICodeSig
-    structure INTSET: INTSETSIG
+    structure INTSET: INTSET
     structure IDENTIFY: X86IDENTIFYREFSSIG
     sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET
 ) : X86PUSHREGISTERSIG

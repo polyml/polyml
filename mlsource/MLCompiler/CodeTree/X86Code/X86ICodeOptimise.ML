@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2018-20
+    Copyright David C. J. Matthews 2018-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
 
 functor X86ICodeOptimise(
     structure ICODE: ICodeSig
-    structure INTSET: INTSETSIG
+    structure INTSET: INTSET
     structure IDENTIFY: X86IDENTIFYREFSSIG
     structure X86CODE: X86CODESIG (* For invertTest. *)
     structure DEBUG: DEBUG

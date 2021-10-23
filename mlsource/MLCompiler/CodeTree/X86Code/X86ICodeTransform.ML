@@ -25,7 +25,7 @@ functor X86ICodeTransform(
     structure PUSHREGISTERS: X86PUSHREGISTERSIG
     structure OPTIMISE: X86ICODEOPTSIG
     structure PRETTY: PRETTYSIG
-    structure INTSET: INTSETSIG
+    structure INTSET: INTSET
     sharing ICODE.Sharing = CODEGEN.Sharing = ALLOCATE.Sharing = IDENTIFY.Sharing =
             CONFLICTSETS.Sharing = PUSHREGISTERS.Sharing = INTSET = OPTIMISE.Sharing
 ) : X86ICODETRANSFORMSIG

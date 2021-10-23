@@ -18,7 +18,7 @@
 functor X86ICodeIdentifyReferences(
     structure ICODE: ICodeSig
     structure DEBUG: DEBUG
-    structure INTSET: INTSETSIG
+    structure INTSET: INTSET
 ): X86IDENTIFYREFSSIG =
 struct
     open ICODE
