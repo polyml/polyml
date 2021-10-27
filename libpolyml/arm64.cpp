@@ -710,6 +710,9 @@ void Arm64TaskData::HandleStackOverflow(uintptr_t space)
     }
     catch (IOException&) {
     }
+    catch (KillException&) {
+        processes->ThreadExit(this);
+    }
 }
 
 void Arm64TaskData::InitStackFrame(TaskData* parentTask, Handle proc)

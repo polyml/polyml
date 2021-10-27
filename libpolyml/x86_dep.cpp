@@ -724,6 +724,9 @@ void X86TaskData::StackOverflowTrap(uintptr_t space)
     }
     catch (IOException&) {
     }
+    catch (KillException&) {
+        processes->ThreadExit(this);
+    }
 }
 
 
