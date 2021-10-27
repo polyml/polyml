@@ -35,8 +35,78 @@ local
             and       Arm64Sequences = Arm64Sequences
             and       Debug = Debug
         )
-in
-    structure Arm64Code =
+
+    structure Arm64ICode =
+        Arm64ICode (
+            structure ARM64CODE       = Arm64Assembly
+        )
+
+    structure AArm64ICodeIdentify =
+        Arm64ICodeIdentifyReferences (
+            structure DEBUG         = Debug
+            structure ICODE         = Arm64ICode
+            structure INTSET        = IntSet
+        )
+
+    structure Arm64ICodeConflicts =
+        Arm64ICodeGetConflictSets (
+            structure ICODE         = Arm64ICode
+            structure INTSET        = IntSet
+            structure IDENTIFY      = Arm64ICodeIdentify
+        )
+
+    structure Arm64PushRegs =
+        Arm64PushRegisters (
+            structure ICODE         = Arm64ICode
+            structure INTSET        = IntSet
+            structure IDENTIFY      = Arm64ICodeIdentify
+        )
+
+    structure Arm64Opt =
+        Arm64ICodeOptimise (
+            structure ICODE         = Arm64ICode
+            structure INTSET        = IntSet
+            structure IDENTIFY      = Arm64ICodeIdentify
+            structure Arm64CODE       = Arm64OutputCode
+            structure DEBUG         = Debug
+            structure PRETTY        = Pretty
+        )
+
+    structure Arm64IAllocate =
+        Arm64AllocateRegisters (
+            structure ICODE         = Arm64ICode
+            structure IDENTIFY      = Arm64ICodeIdentify
+            structure CONFLICTSETS  = Arm64ICodeConflicts
+            structure INTSET        = IntSet
+        )
+
+    structure Arm64ICodeGenerate =
+        Arm64ICodeToArm64Code (
+            structure DEBUG         = Debug
+            structure ICODE         = Arm64ICode
+            structure IDENTIFY      = Arm64ICodeIdentify
+            structure PRETTY        = Pretty
+            structure INTSET        = IntSet
+            structure ARM64CODE     = Arm64OutputCode
+            structure ARM64OPTIMISE = Arm64Optimise
+            structure STRONGLY      = StronglyConnected
+        )
+        
+    structure Arm64ICodeTransform =
+        Arm64ICodeTransform (
+            structure DEBUG         = Debug
+            structure ICODE         = Arm64ICode
+            structure IDENTIFY      = Arm64ICodeIdentify
+            structure CONFLICTSETS  = Arm64ICodeConflicts
+            structure ALLOCATE      = Arm64IAllocate
+            structure PUSHREGISTERS = Arm64PushRegs
+            structure OPTIMISE      = Arm64Opt
+            structure PRETTY        = Pretty
+            structure INTSET        = IntSet
+            structure CODEGEN       = Arm64ICodeGenerate
+        )
+
+    structure Arm64Fallback =
         Arm64GenCode(
             structure BackendTree = BackendIntermediateCode
             and       CodeArray   = CODE_ARRAY
@@ -45,4 +115,19 @@ in
             and       Arm64Sequences = Arm64Sequences
             and       Debug = Debug
         )
+
+in
+
+    structure Arm64Code = 
+        Arm64CodetreeToICode (
+            structure BACKENDTREE   = BackendIntermediateCode
+            structure DEBUG         = Debug
+            structure ICODE         = Arm64ICode
+            structure ARM64FOREIGN  = Arm64Foreign
+            structure ICODETRANSFORM = Arm64ICodeTransform
+            structure CODE_ARRAY    = CODE_ARRAY
+            
+            structure ARM64FALLBACK = Arm64Fallback
+        )
+
 end;
