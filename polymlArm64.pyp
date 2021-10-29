@@ -106,6 +106,10 @@
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64GenCode.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64ICode.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ICODE.sig" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64ICodeConflicts.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64ICodeConflicts.sig" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64IdentifyReferences.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64IdentifyReferences.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64Sequences.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64SEQUENCES.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ml_bind.ML" />

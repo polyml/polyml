@@ -41,15 +41,15 @@ local
             structure ARM64CODE       = Arm64Assembly
         )
 
-    structure AArm64ICodeIdentify =
-        Arm64ICodeIdentifyReferences (
+    structure Arm64ICodeIdentify =
+        Arm64IdentifyReferences (
             structure DEBUG         = Debug
             structure ICODE         = Arm64ICode
             structure INTSET        = IntSet
         )
 
     structure Arm64ICodeConflicts =
-        Arm64ICodeGetConflictSets (
+        Arm64ICodeConflicts (
             structure ICODE         = Arm64ICode
             structure INTSET        = IntSet
             structure IDENTIFY      = Arm64ICodeIdentify
