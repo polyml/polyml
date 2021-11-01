@@ -205,7 +205,11 @@ bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, voi
         // Don't require shadow area.  Can use mmap
         int flags = MAP_PRIVATE | MAP_ANON;
 #ifdef MAP_JIT
-        if (usage == UsageExecutableCode && wxFix == WXFixMapJit) flags |= MAP_JIT;
+        // If we have to use MAP_JIT on Mac OS we need to allocate the area at the start.
+        // Anything else causes problems when we actually try to allocate the pages.
+        if (usage == UsageExecutableCode && wxFix == WXFixMapJit)
+            memBase = (char*)mmap(0, space, PROT_READ|PROT_WRITE|PROT_EXEC, flags | MAP_JIT, -1, 0);
+        else
 #endif
         memBase = (char*)mmap(0, space, PROT_NONE, flags, -1, 0);
         if (memBase == MAP_FAILED) return false;
@@ -325,16 +329,9 @@ void* OSMemInRegion::AllocateCodeArea(size_t& space, void*& shadowArea)
         if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
         if (wxFix == WXFixMapJit && memUsage == UsageExecutableCode)
         {
-            // If we have to use MAP_JIT the only option is to use mprotect
-            // here to enable the pages.  MAP_JIT|MAP_FIXED is not allowed.
-            if (mprotect(baseAddr, space, prot) != 0)
-            {
-                // Ignore any error here.  There's a bug in Mac OS, at least up to and
-                // including 11.6.1, that means that mprotect fails if it is called a
-                // second time for the same page.  Since FreeCodeArea doesn't currently
-                // protect or unmap a page if it's freed that isn't a problem.
-                //return 0;
-            }
+            // We can't use MAP_FIXED here because MAP_JIT|MAP_FIXED is not allowed.
+            // mprotect also seems to fail in strange ways so the only alternative
+            // is to allocate the whole area at the start.
         }
         else
         {
