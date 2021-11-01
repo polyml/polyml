@@ -328,7 +328,13 @@ void* OSMemInRegion::AllocateCodeArea(size_t& space, void*& shadowArea)
             // If we have to use MAP_JIT the only option is to use mprotect
             // here to enable the pages.  MAP_JIT|MAP_FIXED is not allowed.
             if (mprotect(baseAddr, space, prot) != 0)
-                return 0;
+            {
+                // Ignore any error here.  There's a bug in Mac OS, at least up to and
+                // including 11.6.1, that means that mprotect fails if it is called a
+                // second time for the same page.  Since FreeCodeArea doesn't currently
+                // protect or unmap a page if it's freed that isn't a problem.
+                //return 0;
+            }
         }
         else
         {
