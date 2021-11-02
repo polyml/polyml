@@ -168,11 +168,14 @@ bool OSMem::Initialise(enum _MemUsage usage)
         if (test != MAP_FAILED)
             wxFix = WXFixNone;
 #ifdef MAP_JIT
-        else test = mmap(0, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
-        if (test != MAP_FAILED)
-            wxFix = WXFixMapJit;
+        if (test == MAP_FAILED)
+        {
+            test = mmap(0, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
+            if (test != MAP_FAILED)
+                wxFix = WXFixMapJit;
+        }
 #endif
-        else
+        if (test == MAP_FAILED)
         {
             if (errno != ENOTSUP && errno != EACCES) // Fails with ENOTSUPP on OpenBSD and EACCES in SELinux.
                 return false;
