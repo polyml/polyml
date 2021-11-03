@@ -1392,9 +1392,10 @@ struct
                             gen(addShiftedReg{regM=indexReg, regN=baseReg, regD=baseReg,
                                 shift=ShiftLSL (if is32in64 then 0w2 else 0w3)}, cvec)
                         )
+                    val scale = if isByteMove then 1 else if is32in64 then 4 else 8
                 in
-                    genMLAddress(sourceLeft, 1);
-                    genMLAddress(destRight, 1);
+                    genMLAddress(sourceLeft, scale);
+                    genMLAddress(destRight, scale);
                     gencde (length, ToX0, NotEnd, loopAddr); (* Length *)
                     genPopReg(X2, cvec); (* Dest index - tagged value. *)
                     genPopReg(X1, cvec); (* Dest base address. *)
