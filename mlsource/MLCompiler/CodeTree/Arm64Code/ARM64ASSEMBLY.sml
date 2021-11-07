@@ -52,6 +52,10 @@ struct
     and word32ToWord = Word.fromLargeWord o Word32.toLargeWord
     and wordToWord32 = Word32.fromLargeWord o Word.toLargeWord
     and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
+
+    (* The maximum positive number that will fit in a signed "bits" field. *)
+    fun maxSigned bits = Word.<<(0w1, bits-0w1) - 0w1
+    fun willFitInRange(offset, bits) = offset <= Word.toInt(maxSigned bits) andalso offset >= ~ (Word.toInt(maxSigned bits)) - 1
    
     (* XReg is used for fixed point registers since X0 and W0 are
        the same register. *)
@@ -1018,9 +1022,7 @@ struct
                     val dest = !(hd labs)
                     val offset = Word.toInt dest - Word.toInt addr
                 in
-                    if offset < Word32.toInt(0w1 << 0w18) andalso offset >= ~ (Word32.toInt(0w1 << 0w18))
-                    then length := BrShort
-                    else ();
+                    if willFitInRange(offset, 0w19) then length := BrShort else ();
                     adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
                 end
             
@@ -1029,9 +1031,7 @@ struct
                     val dest = !(hd labs)
                     val offset = Word.toInt dest - Word.toInt addr
                 in
-                    if offset < 0x2000 andalso offset >= ~ 0x2000
-                    then length := BrShort
-                    else ();
+                    if willFitInRange(offset, 0w14) then length := BrShort else ();
                     adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
                 end
 
@@ -1040,9 +1040,7 @@ struct
                     val dest = !(hd labs)
                     val offset = Word.toInt dest - Word.toInt addr
                 in
-                    if offset < 0x40000 andalso offset >= ~ 0x40000
-                    then length := BrShort
-                    else ();
+                    if willFitInRange(offset, 0w19) then length := BrShort else ();
                     adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
                 end
             
@@ -1102,7 +1100,7 @@ struct
                 val s = if is32in64 then 0w0 else 0w1 (* Load 64-bit word in 64-bit mode and 32-bits in 32-in-64. *)
                 val offsetOfConstant =
                     (wordsOfCode+numNonAddrConsts)*0w2 + (0w3+aConstNum)*(Address.wordSize div 0w4) - wordNo
-                val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
+                val _ = willFitInRange(Word.toInt offsetOfConstant, 0w19) orelse raise InternalError "Offset to constant is too large"
                 val code =
                     0wx18000000 orb (s << 0w30) orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
             in
@@ -1123,7 +1121,7 @@ struct
             let
                 (* The offset is in 32-bit words.  These are always 64-bits. *)
                 val offsetOfConstant = (wordsOfCode+nonAConstNum)*0w2 - wordNo
-                val _ = offsetOfConstant < 0wx100000 orelse raise InternalError "Offset to constant is too large"
+                val _ = willFitInRange(Word.toInt offsetOfConstant, 0w19) orelse raise InternalError "Offset to constant is too large"
                 val code = 0wx58000000 orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
@@ -1137,8 +1135,7 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
-                val _ = (offset < Word32.toInt(0w1 << 0w25) andalso offset >= ~ (Word32.toInt(0w1 << 0w25)))
-                    orelse raise InternalError "genCodeWords: branch too far";
+                val _ = willFitInRange(offset, 0w26) orelse raise InternalError "genCodeWords: branch too far";
             in
                 writeInstr(0wx14000000 orb (Word32.fromInt offset andb 0wx03ffffff), wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
@@ -1149,8 +1146,7 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
-                val _ = (offset < Word32.toInt(0w1 << 0w18) andalso offset >= ~ (Word32.toInt(0w1 << 0w18)))
-                        orelse raise InternalError "genCodeWords: branch too far"
+                val _ = willFitInRange(offset, 0w19) orelse raise InternalError "genCodeWords: branch too far"
             in
                 writeInstr(0wx54000000 orb ((Word32.fromInt offset andb 0wx07ffff) << 0w5)
                         orb word8ToWord32 cond, wordNo, codeVec);
@@ -1162,8 +1158,7 @@ struct
             let (* Long form - put a conditional branch with reversed sense round an unconditional branch. *)
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt (wordNo + 0w1) (* Next instruction. *)
-                val _ = (offset < Word32.toInt(0w1 << 0w25) andalso offset >= ~ (Word32.toInt(0w1 << 0w25)))
-                    orelse raise InternalError "genCodeWords: branch too far"
+                val _ = willFitInRange(offset, 0w26) orelse raise InternalError "genCodeWords: branch too far"
                 val revCond = Word8.xorb(cond, 0w1)
             in
                 writeInstr(0wx54000000 orb (0w2 << 0w5) orb word8ToWord32 revCond, wordNo, codeVec);
@@ -1175,8 +1170,7 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
-                val _ = offset < 0x100000 orelse offset >= ~ 0x100000
-                    orelse raise InternalError "Offset to label address is too large"
+                val _ = willFitInRange(offset, 0w19) orelse raise InternalError "Offset to label address is too large"
                 val code = 0wx10000000 orb ((Word32.fromInt offset andb 0wx7ffff) << 0w5) orb word8ToWord32(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
@@ -1188,8 +1182,7 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt (wordNo + 0w1) (* Next instruction *)
-                val _ = (offset < Word32.toInt(0w1 << 0w25) andalso offset >= ~ (Word32.toInt(0w1 << 0w25)))
-                    orelse raise InternalError "genCodeWords: branch too far"
+                val _ = willFitInRange(offset, 0w25) orelse raise InternalError "genCodeWords: branch too far"
                 val _ = bitNo <= 0w63 orelse
                     raise InternalError "TestBitBranch: bit number > 63"
                 val code = testBit(bitNo, (* Invert test *) not brNonZero, 0w2 (* Skip branch *), reg)
@@ -1204,8 +1197,7 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
-                val _ = (offset < 0x2000 andalso offset >= ~ 0x2000)
-                    orelse raise InternalError "TestBitBranch: Offset to label address is too large"
+                val _ = willFitInRange(offset, 0w14) orelse raise InternalError "TestBitBranch: Offset to label address is too large"
                 val _ = bitNo <= 0w63 orelse
                     raise InternalError "TestBitBranch: bit number > 63"
                 val code = testBit(bitNo, brNonZero, Word32.fromInt offset, reg)
@@ -1219,8 +1211,7 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt (wordNo+0w1)
-                val _ = (offset < Word32.toInt(0w1 << 0w25) andalso offset >= ~ (Word32.toInt(0w1 << 0w25)))
-                    orelse raise InternalError "genCodeWords: branch too far"
+                val _ = willFitInRange(offset, 0w25) orelse raise InternalError "genCodeWords: branch too far"
                 val code = compareBranch(size, (* Invert test *) not brNonZero, 0w2, reg)
             in
                 writeInstr(code, wordNo, codeVec);
@@ -1233,8 +1224,7 @@ struct
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
-                val _ = (offset < 0x40000 andalso offset >= ~ 0x40000)
-                    orelse raise InternalError "CompareBranch: Offset to label address is too large"
+                val _ = willFitInRange(offset, 0w19) orelse raise InternalError "CompareBranch: Offset to label address is too large"
                 val code = compareBranch(size, brNonZero, Word32.fromInt offset, reg)
             in
                 writeInstr(code, wordNo, codeVec);
