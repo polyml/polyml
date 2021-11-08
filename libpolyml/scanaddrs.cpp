@@ -290,7 +290,7 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
             ASSERT((instr0 & 0x9f000000) == 0x90000000);
             int scale = 1;
             if ((instr1 & 0xffc00000) == 0xf9400000) scale = 8; // LDR of 64-bit quantity
-            else if ((instr1 & 0xffc00000) == 0xa9400000) scale = 4; // LDR of 32-bit quantity
+            else if ((instr1 & 0xffc00000) == 0xb9400000) scale = 4; // LDR of 32-bit quantity
             else if ((instr1 & 0xff800000) == 0x91000000) scale = 1;
             else ASSERT(0); // Invalid instruction
             intptr_t target = (intptr_t)p;
