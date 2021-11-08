@@ -55,6 +55,7 @@
 #include "processes.h"
 #include "gc.h"
 #include "rtsentry.h"
+#include "scanaddrs.h" // For SetConstantValue
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySpecificGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg);
@@ -269,7 +270,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(POLYUNSIGNED threadId, PO
 // possibility of a GC while the code is an inconsistent state.
 POLYUNSIGNED PolySetCodeConstant(POLYUNSIGNED closure, POLYUNSIGNED offset, POLYUNSIGNED cWord, POLYUNSIGNED flags)
 {
-    byte *pointer;
+    byte *startCode;
 #ifdef HAVE_PTHREAD_JIT_WRITE_PROTECT_NP
     pthread_jit_write_protect_np(false);
 #endif
@@ -277,13 +278,13 @@ POLYUNSIGNED PolySetCodeConstant(POLYUNSIGNED closure, POLYUNSIGNED offset, POLY
     // Previously we passed the code address in here and we need to
     // retain that for legacy code.  This is now the closure.
     if (PolyWord::FromUnsigned(closure).AsObjPtr()->IsCodeObject())
-        pointer = PolyWord::FromUnsigned(closure).AsCodePtr();
-    else pointer = *(POLYCODEPTR*)(PolyWord::FromUnsigned(closure).AsObjPtr());
-    // pointer is the start of the code segment.
+        startCode = PolyWord::FromUnsigned(closure).AsCodePtr();
+    else startCode = *(POLYCODEPTR*)(PolyWord::FromUnsigned(closure).AsObjPtr());
+    // startCode is the start of the code segment.
     // c will usually be an address.
     // offset is a byte offset
-    pointer += PolyWord::FromUnsigned(offset).UnTaggedUnsigned();
-    byte* writeable = gMem.SpaceForAddress(pointer)->writeAble(pointer);
+    byte* instrAddr = startCode + PolyWord::FromUnsigned(offset).UnTaggedUnsigned();
+    byte* writeable = gMem.SpaceForAddress(instrAddr)->writeAble(instrAddr);
     switch (UNTAGGED(PolyWord::FromUnsigned(flags)))
     {
         case 0: // Absolute constant - size PolyWord
@@ -315,7 +316,7 @@ POLYUNSIGNED PolySetCodeConstant(POLYUNSIGNED closure, POLYUNSIGNED offset, POLY
             if (PolyWord::FromUnsigned(cWord).AsObjPtr()->IsCodeObject())
                 target = PolyWord::FromUnsigned(cWord).AsCodePtr();
             else target = *(POLYCODEPTR*)(PolyWord::FromUnsigned(cWord).AsObjPtr());
-            size_t c = target - pointer - 4;
+            size_t c = target - instrAddr - 4;
             for (unsigned i = 0; i < 4; i++)
             {
                 writeable[i] = (byte)(c & 255);
@@ -330,9 +331,18 @@ POLYUNSIGNED PolySetCodeConstant(POLYUNSIGNED closure, POLYUNSIGNED offset, POLY
             uintptr_t c = (uintptr_t)(PolyWord::FromUnsigned(cWord).AsObjPtr());
             for (unsigned i = 0; i < sizeof(uintptr_t); i++)
             {
-                pointer[i] = (byte)(c & 255);
+                writeable[i] = (byte)(c & 255);
                 c >>= 8;
             }
+            break;
+        }
+        case 3: // ARM64 ADRP + LDR/ADD
+            // This doesn't actually put a constant into the code.  Instead
+            // it sets the instruction pair to an offset in the current code
+            // segment.
+        {
+            uintptr_t c = (uintptr_t)startCode + PolyWord::FromUnsigned(cWord).UnTaggedUnsigned();
+            ScanAddress::SetConstantValue(instrAddr, (PolyObject*)c, PROCESS_RELOC_ARM64ADRPLDR);
             break;
         }
     }

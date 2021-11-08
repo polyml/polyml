@@ -288,12 +288,16 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
             uint32_t* pt = (uint32_t*)addressOfConstant;
             uint32_t instr0 = fromARMInstr(pt[0]), instr1 = fromARMInstr(pt[1]);
             ASSERT((instr0 & 0x9f000000) == 0x90000000);
-            ASSERT((instr1 & 0xffc00000) == 0xf9400000); // The next should be the Load
+            int scale = 1;
+            if ((instr1 & 0xffc00000) == 0xf9400000) scale = 8; // LDR of 64-bit quantity
+            else if ((instr1 & 0xffc00000) == 0xa9400000) scale = 4; // LDR of 32-bit quantity
+            else if ((instr1 & 0xff800000) == 0x91000000) scale = 1;
+            else ASSERT(0); // Invalid instruction
             intptr_t target = (intptr_t)p;
             // LDR: The offset we put in here is a number of 8-byte words relative to
             // the 4k-page.
             uint32_t* ptW = (uint32_t*)addressToWrite;
-            ptW[1] = toARMInstr((instr1 & 0xffc003ff) | (((target & 0xfff) / 8) << 10));
+            ptW[1] = toARMInstr((instr1 & 0xffc003ff) | (((target & 0xfff) / scale) << 10));
             // ADRP - 4k page address relative to the instruction.
             intptr_t disp = (target >> 12) - ((intptr_t)addressOfConstant >> 12);
             ptW[0] = toARMInstr((instr0 & 0x9f00001f) | ((disp & 3) << 29) | (((disp >> 2) & 0x7ffff) << 5));

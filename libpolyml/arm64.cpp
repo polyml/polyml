@@ -821,12 +821,17 @@ void Arm64TaskData::SaveMemRegisters()
     saveRegisterMask = 0;
 }
 
-// Process addresses in the code.  The only case where we need to do that on the ARM64 is to deal
-// with spltting the constant area from the code in order to make the code position-independent.
-// We need to convert pc-relative LDR instructions into ADRP/LDR pairs.
+// Process addresses in the code
+// Because we don't have constants actually in the code we only have to process this in two
+// cases.  If we are exporting the code we first copy it to a new location.  We have to update
+// the ADRP+LDR/ADD pairs at that point.
+// When we construct the relocations we need to identify the points where the relocations apply in
+// the code.  This applies both to exporting to object code and to saved states.
 void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAddr, POLYUNSIGNED length,
     PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress* process)
 {
+
+    return; // Temporarily
 #ifndef POLYML32IN64
     arm64CodePointer pt = (arm64CodePointer)addr;
     // If it begins with the enter-int sequence it's interpreted code.
