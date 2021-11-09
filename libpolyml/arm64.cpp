@@ -232,7 +232,7 @@ public:
             uint32_t* pt = (uint32_t*)space->writeAble(last_word);
             pt[0] = toARMInstr(0x90000000); // Insert dummy ADRP and LDR
             pt[1] = toARMInstr(0xf9400000);
-            ScanAddress::SetConstantValue((byte*)last_word, (PolyObject*)constAddr, PROCESS_RELOC_ARM64ADRPLDR);
+            ScanAddress::SetConstantValue((byte*)last_word, (PolyObject*)constAddr, PROCESS_RELOC_ARM64ADRPLDR64);
         }
     }
 
@@ -248,7 +248,7 @@ public:
         }
         else
         {
-            PolyObject* addr = ScanAddress::GetConstantValue((byte*)last_word, PROCESS_RELOC_ARM64ADRPLDR, 0);
+            PolyObject* addr = ScanAddress::GetConstantValue((byte*)last_word, PROCESS_RELOC_ARM64ADRPLDR64, 0);
             cp = (PolyWord*)addr;
             count = addr->Length();
         }
@@ -850,10 +850,19 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
             // Look at the instruction at the original location, before it was copied, to
             // find out the address it referred to.
             byte* oldInstrAddress = (byte*)pt - (byte*)addr + (byte*)oldAddr;
-            byte* constAddress = (byte*)ScanAddress::GetConstantValue(oldInstrAddress, PROCESS_RELOC_ARM64ADRPLDR, 0);
+            arm64Instr instr1 = fromARMInstr(pt[1]);
+            ScanRelocationKind scanKind;
+            if ((instr1 & 0xffc00000) == 0xf9400000)
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR64; // LDR of 64-bit quantity
+            else if ((instr1 & 0xffc00000) == 0xb9400000)
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR32; // LDR of 32-bit quantity
+            else if ((instr1 & 0xff800000) == 0x91000000)
+                scanKind = PROCESS_RELOC_ARM64ADRPADD; // ADD
+            else ASSERT(0); // Invalid instruction
+            byte* constAddress = (byte*)ScanAddress::GetConstantValue(oldInstrAddress, scanKind, 0);
             // Convert that into an address in the new constant area before updating the copied code.
             byte* newAddress = (byte*)newConstAddr + (constAddress - (byte*)oldConstAddr);
-            ScanAddress::SetConstantValue((byte*)pt, (PolyObject*)newAddress, PROCESS_RELOC_ARM64ADRPLDR);
+            ScanAddress::SetConstantValue((byte*)pt, (PolyObject*)newAddress, scanKind);
         }
         pt++;
     }
@@ -877,13 +886,15 @@ void Arm64Dependent::RelocateConstantsWithinCode(PolyObject* addr, ScanAddress* 
         if ((instr0 & 0x9f000000) == 0x90000000) // ADRP instruction
         {
             arm64Instr instr1 = fromARMInstr(pt[1]);
+            ScanRelocationKind scanKind;
             if ((instr1 & 0xffc00000) == 0xf9400000)
-                process->RelocateOnly(addr, (byte*)pt, PROCESS_RELOC_ARM64ADRPLDR64); // LDR of 64-bit quantity
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR64; // LDR of 64-bit quantity
             else if ((instr1 & 0xffc00000) == 0xb9400000)
-                process->RelocateOnly(addr, (byte*)pt, PROCESS_RELOC_ARM64ADRPLDR32); // LDR of 32-bit quantity
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR32; // LDR of 32-bit quantity
             else if ((instr1 & 0xff800000) == 0x91000000)
-                process->RelocateOnly(addr, (byte*)pt, PROCESS_RELOC_ARM64ADRPADD); // ADD
+                scanKind = PROCESS_RELOC_ARM64ADRPADD; // ADD
             else ASSERT(0); // Invalid instruction
+            process->RelocateOnly(addr, (byte*)pt, scanKind);
         }
         pt++;
 }
