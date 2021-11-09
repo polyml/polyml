@@ -220,8 +220,10 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
         break;
 #endif
 #if (defined(HOSTARCHITECTURE_AARCH64))
-     case PROCESS_RELOC_ARM64ADRPLDR:
-         {
+     case PROCESS_RELOC_ARM64ADRPLDR64:
+     case PROCESS_RELOC_ARM64ADRPLDR32:
+     case PROCESS_RELOC_ARM64ADRPADD:
+     {
             // This seems to be completely undocumented and has been worked out
             // by some reverse-engineering and trial-and-error.  Have to use
             // symbol-relative addressing with the offset provided by a
@@ -450,7 +452,7 @@ void MachoExport::exportStore(void)
                 machineDependent->GetConstSegmentForCode(obj, cp, constCount);
                 // Update any constants before processing the object
                 // We need that for relative jumps/calls in X86/64.
-                machineDependent->ScanConstantsWithinCode(obj, this);
+                machineDependent->RelocateConstantsWithinCode(obj, this);
                 if (cp > (PolyWord*)obj && cp < ((PolyWord*)obj) + length)
                 {
                     // Process the constants if they're in the area but not if they've been moved.

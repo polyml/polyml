@@ -425,8 +425,10 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
         break;
 #endif
 #if defined(HOSTARCHITECTURE_AARCH64)
-     case PROCESS_RELOC_ARM64ADRPLDR: // ADRP/LDR pair
-        {
+     case PROCESS_RELOC_ARM64ADRPLDR64:
+     case PROCESS_RELOC_ARM64ADRPLDR32:
+     case PROCESS_RELOC_ARM64ADRPADD:
+     {
              ElfXX_Rela reloc;
              reloc.r_addend = offset;
              setRelocationAddress(addr, &reloc.r_offset);
@@ -720,7 +722,7 @@ void ELFExport::exportStore(void)
                 machineDependent->GetConstSegmentForCode(obj, cp, constCount);
                 // Update any constants before processing the object
                 // We need that for relative jumps/calls in X86/64.
-                machineDependent->ScanConstantsWithinCode(obj, this);
+                machineDependent->RelocateConstantsWithinCode(obj, this);
                 if (cp > (PolyWord*)obj && cp < ((PolyWord*)obj) + length)
                 {
                     // Process the constants if they're in the area but not if they've been moved.

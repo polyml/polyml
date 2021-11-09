@@ -206,14 +206,33 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
     }
 
 #if defined(HOSTARCHITECTURE_AARCH64)
-    case PROCESS_RELOC_ARM64ADRPLDR:
+    case PROCESS_RELOC_ARM64ADRPLDR64:
+    case PROCESS_RELOC_ARM64ADRPLDR32:
+    case PROCESS_RELOC_ARM64ADRPADD:
     {
-        // The first word is the ADRP, the second is LDR
+        // The first word is the ADRP, the second is LDR or ADD
         setRelocationAddress(addr, &reloc.VirtualAddress);
         reloc.Type = IMAGE_REL_ARM64_PAGEBASE_REL21;
         writeRelocation(&reloc);
         setRelocationAddress(addr+4, &reloc.VirtualAddress);
-        reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12L;
+        uint32_t* pt = (uint32_t*)addr;
+        uint32_t instr1 = pt[1];
+        int scale;
+        if ((instr1 & 0xffc00000) == 0xf9400000)
+        {
+            reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12L;
+            scale = 8; // LDR of 64-bit quantity
+        }
+        else if ((instr1 & 0xffc00000) == 0xb9400000)
+        {
+            reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12L;
+            scale = 4; // LDR of 32-bit quantity
+        }
+        else if ((instr1 & 0xff800000) == 0x91000000)
+        {
+            reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12A;
+            scale = 1;
+        }
         writeRelocation(&reloc);
         // There doesn't seem to be any documentation to say how to
         // fill in the target.  It turns out that the offset relative to
@@ -221,9 +240,9 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
         // final value, after relocation, being a page offset.  The low-order
         // bits of the offset are encoded in the LDR as a normal page offset.
         ASSERT(offset <= 0x1fffff);
-        uint32_t* pt = (uint32_t*)addr;
+
         pt[0] = toARMInstr((fromARMInstr(pt[0]) & 0x9f00001f) | ((offset & 3) << 29) | ((offset >> 2) << 5));
-        pt[1] = toARMInstr((fromARMInstr(pt[1]) & 0xffc003ff) | (((offset & 0xfff) / 8) << 10));
+        pt[1] = toARMInstr((fromARMInstr(pt[1]) & 0xffc003ff) | (((offset & 0xfff) / scale) << 10));
         break;
     }
 #endif
@@ -331,7 +350,7 @@ void PECOFFExport::exportStore(void)
                 machineDependent->GetConstSegmentForCode(obj, cp, constCount);
                 // Update any constants before processing the object
                 // We need that for relative jumps/calls in X86/64.
-                machineDependent->ScanConstantsWithinCode(obj, this);
+                machineDependent->RelocateConstantsWithinCode(obj, this);
                 if (cp > (PolyWord*)obj && cp < ((PolyWord*)obj) + length)
                 {
                     // Process the constants if they're in the area but not if they've been moved.
