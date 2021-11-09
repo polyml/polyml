@@ -838,9 +838,6 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
     // If it begins with the enter-int sequence it's interpreted code.
     if (fromARMInstr(pt[0]) == 0xAA1E03E9 && fromARMInstr(pt[1]) == 0xF9400350 && fromARMInstr(pt[2]) == 0xD63F0200)
         return;
-    // We only need a split if the constant area is not at the original offset.
-    POLYSIGNED constAdjustment =
-        (byte*)newConstAddr - (byte*)addr - ((byte*)oldConstAddr - (byte*)oldAddr);
 
     while (*pt != 0) // The code ends with a UDF instruction (0)
     {
@@ -860,8 +857,13 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
                 scanKind = PROCESS_RELOC_ARM64ADRPADD; // ADD
             else ASSERT(0); // Invalid instruction
             byte* constAddress = (byte*)ScanAddress::GetConstantValue(oldInstrAddress, scanKind, 0);
-            // Convert that into an address in the new constant area before updating the copied code.
-            byte* newAddress = (byte*)newConstAddr + (constAddress - (byte*)oldConstAddr);
+            // This could be a reference to the code itself or the non-constant area.
+            // If it's in the code we relocate it to the new code; if it's in the constant
+            // area to the new constant area.
+            byte* newAddress;
+            if (constAddress > oldInstrAddress && constAddress < ((byte*)oldConstAddr))
+                newAddress =  (byte*)addr + (constAddress - (byte*)oldAddr);
+            else newAddress = (byte*)newConstAddr + (constAddress - (byte*)oldConstAddr);
             ScanAddress::SetConstantValue((byte*)pt, (PolyObject*)newAddress, scanKind);
         }
         pt++;

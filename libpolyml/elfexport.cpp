@@ -436,7 +436,11 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
              fwrite(&reloc, sizeof(reloc), 1, exportFile);
              relocationCount++;
              setRelocationAddress(addr+4, &reloc.r_offset);
-             reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_AARCH64_LDST64_ABS_LO12_NC);
+             int relType =
+                 code == PROCESS_RELOC_ARM64ADRPLDR64 ? R_AARCH64_LDST64_ABS_LO12_NC :
+                 code == PROCESS_RELOC_ARM64ADRPLDR32 ? R_AARCH64_LDST32_ABS_LO12_NC :
+                     R_AARCH64_ADD_ABS_LO12_NC;
+             reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), relType);
              fwrite(&reloc, sizeof(reloc), 1, exportFile);
              relocationCount++;
              // Clear the offsets within the instruction just in case 
