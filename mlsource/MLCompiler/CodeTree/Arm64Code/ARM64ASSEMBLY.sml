@@ -2270,7 +2270,8 @@ struct
                 (* Address constants are 32-bits in 32-in-64 and 64-bits in native 64-bits *)
                 val addrOfConstant (* byte offset *) = firstAddrConst + aConstNum * Address.wordSize
             in
-                codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord addrOfConstant, ConstArm64Adrp);
+                codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord addrOfConstant,
+                    if is32in64 then ConstArm64AdrpLdr64 else ConstArm64AdrpLdr32);
                 setADRPAddrs(tail, wordNo+0w2, aConstNum+0w1, nonAConstNum)
             end
 
@@ -2279,7 +2280,7 @@ struct
                 (* The offset is in 32-bit words.  These are always 64-bits. *)
                 val offsetOfConstant (* byte offset *) = firstNonAddrConst+nonAConstNum*0w8
             in
-                codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord offsetOfConstant, ConstArm64Adrp);
+                codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord offsetOfConstant, ConstArm64AdrpLdr64);
                 setADRPAddrs(tail, wordNo+0w2, aConstNum, nonAConstNum+0w1)
             end
 
@@ -2287,7 +2288,7 @@ struct
             let
                 val dest = !(hd labs) * 0w4
             in
-                codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord dest, ConstArm64Adrp);
+                codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord dest, ConstArm64AdrpAdd);
                 setADRPAddrs(tail, wordNo+0w2, aConstNum, nonAConstNum)
             end
 

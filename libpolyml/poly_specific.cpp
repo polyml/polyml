@@ -336,13 +336,25 @@ POLYUNSIGNED PolySetCodeConstant(POLYUNSIGNED closure, POLYUNSIGNED offset, POLY
             }
             break;
         }
-        case 3: // ARM64 ADRP + LDR/ADD
-            // This doesn't actually put a constant into the code.  Instead
-            // it sets the instruction pair to an offset in the current code
+        case 3: // ARM64 ADRP + LDR64
+            // These don't actually put a constant into the code.  Instead
+            // they set the instruction pair to an offset in the current code
             // segment.
         {
             uintptr_t c = (uintptr_t)startCode + PolyWord::FromUnsigned(cWord).UnTaggedUnsigned();
-            ScanAddress::SetConstantValue(instrAddr, (PolyObject*)c, PROCESS_RELOC_ARM64ADRPLDR);
+            ScanAddress::SetConstantValue(instrAddr, (PolyObject*)c, PROCESS_RELOC_ARM64ADRPLDR64);
+            break;
+        }
+        case 4: // ARM64 ADRP + LDR32
+        {
+            uintptr_t c = (uintptr_t)startCode + PolyWord::FromUnsigned(cWord).UnTaggedUnsigned();
+            ScanAddress::SetConstantValue(instrAddr, (PolyObject*)c, PROCESS_RELOC_ARM64ADRPLDR32);
+            break;
+        }
+        case 5: // ARM64 ADRP + ADD
+        {
+            uintptr_t c = (uintptr_t)startCode + PolyWord::FromUnsigned(cWord).UnTaggedUnsigned();
+            ScanAddress::SetConstantValue(instrAddr, (PolyObject*)c, PROCESS_RELOC_ARM64ADRPADD);
             break;
         }
     }
