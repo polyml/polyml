@@ -2271,7 +2271,7 @@ struct
                 val addrOfConstant (* byte offset *) = firstAddrConst + aConstNum * Address.wordSize
             in
                 codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord addrOfConstant,
-                    if is32in64 then ConstArm64AdrpLdr64 else ConstArm64AdrpLdr32);
+                    if is32in64 then ConstArm64AdrpLdr32 else ConstArm64AdrpLdr64);
                 setADRPAddrs(tail, wordNo+0w2, aConstNum+0w1, nonAConstNum)
             end
 
