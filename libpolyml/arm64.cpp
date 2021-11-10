@@ -876,11 +876,13 @@ void Arm64Dependent::RelocateConstantsWithinCode(PolyObject* addr, ScanAddress* 
     // If it begins with the enter-int sequence it's interpreted code.
     if (fromARMInstr(pt[0]) == 0xAA1E03E9 && fromARMInstr(pt[1]) == 0xF9400350 && fromARMInstr(pt[2]) == 0xD63F0200)
         return;
+#ifndef POLYML32IN64
     POLYUNSIGNED length = addr->Length();
     // If we have replaced the offset with a dummy ADRP/LDR pair we have to add a relocation.
     PolyWord* end = addr->Offset(length - 1);
     if ((end[0].AsUnsigned() >> 56) != 0xff)
         process->RelocateOnly(addr, (byte*)end, PROCESS_RELOC_ARM64ADRPLDR64);
+#endif
 
     while (*pt != 0) // The code ends with a UDF instruction (0)
     {
