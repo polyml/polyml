@@ -341,7 +341,9 @@ void* OSMemInRegion::AllocateCodeArea(size_t& space, void*& shadowArea)
             // Enable the pages with mmap.  The idea is that if we no longer want the pages
             // we don't care about their previous contents and if we map that area again we're
             // happy if they are zeroed.
-            if (mmap(baseAddr, space, prot, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0) == MAP_FAILED)
+            // On Cygwin, at least, the mmap call fails and we need to use mprotect.
+            if (mmap(baseAddr, space, prot, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0) == MAP_FAILED &&
+                mprotect(baseAddr, space, prot) != 0)
                 return 0;
         }
         msync(baseAddr, space, MS_SYNC | MS_INVALIDATE);
