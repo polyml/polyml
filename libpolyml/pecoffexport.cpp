@@ -97,18 +97,28 @@ void PECOFFExport::addExternalReference(void *relocAddr, const char *name, bool/
     externTable.makeEntry(name);
     IMAGE_RELOCATION reloc;
     // Set the offset within the section we're scanning.
-    setRelocationAddress(relocAddr, &reloc.VirtualAddress);
+    setRelocationAddress(relocAddr, &reloc);
     reloc.SymbolTableIndex = symbolNum++;
     reloc.Type = DIRECT_WORD_RELOCATION;
     writeRelocation(&reloc);
 }
 
-// Generate the address relative to the start of the segment.
-void PECOFFExport::setRelocationAddress(void *p, DWORD *reloc)
+// Set the VirtualAddrss field to the offset within the current segment
+// where the relocation must be applied.
+void PECOFFExport::setRelocationAddress(void *p, IMAGE_RELOCATION*reloc)
 {
     unsigned area = findArea(p);
     DWORD offset = (DWORD)((char*)p - (char*)memTable[area].mtOriginalAddr);
-    *reloc = offset;
+    reloc->VirtualAddress = offset;
+}
+
+// Set the symbol in the relocation to the symbol for the target address
+// and return the offset relative to that symbol.
+POLYUNSIGNED PECOFFExport::setSymbolAndGetOffset(void* p, IMAGE_RELOCATION* reloc)
+{
+    unsigned area = findArea(p);
+    reloc->SymbolTableIndex = area;
+    return (POLYUNSIGNED)((char*)p - (char*)memTable[area].mtOriginalAddr);
 }
 
 // Create a relocation entry for an address at a given location.
@@ -116,11 +126,9 @@ PolyWord PECOFFExport::createRelocation(PolyWord p, void *relocAddr)
 {
     IMAGE_RELOCATION reloc;
     // Set the offset within the section we're scanning.
-    setRelocationAddress(relocAddr, &reloc.VirtualAddress);
+    setRelocationAddress(relocAddr, &reloc);
     void *addr = p.AsAddress();
-    unsigned addrArea = findArea(addr);
-    POLYUNSIGNED offset = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
-    reloc.SymbolTableIndex = addrArea;
+    POLYUNSIGNED offset = setSymbolAndGetOffset(addr, &reloc);
     reloc.Type = DIRECT_WORD_RELOCATION;
     writeRelocation(&reloc);
     return PolyWord::FromUnsigned(offset);
@@ -168,11 +176,8 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
     if (p == 0)
         return;
 
-    unsigned aArea = findArea(p);
-    setRelocationAddress(addr, &reloc.VirtualAddress);
-    // Set the value at the address to the offset relative to the symbol.
-    uintptr_t offset = (char*)p - (char*)memTable[aArea].mtOriginalAddr;
-    reloc.SymbolTableIndex = aArea;
+    setRelocationAddress(addr, &reloc);
+    POLYUNSIGNED offset = setSymbolAndGetOffset(p, &reloc);
 
     switch (code)
     {
@@ -194,7 +199,7 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
     {
         // We don't need a relocation if this is relative to the current segment
         // since the relative address will already be right.
-        if (aArea == findArea(addr)) return;
+        if (findArea(p) == findArea(addr)) return;
         for (unsigned i = 0; i < 4; i++)
         {
             addr[i] = (byte)(offset & 0xff);
@@ -211,10 +216,10 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
     case PROCESS_RELOC_ARM64ADRPADD:
     {
         // The first word is the ADRP, the second is LDR or ADD
-        setRelocationAddress(addr, &reloc.VirtualAddress);
+        setRelocationAddress(addr, &reloc);
         reloc.Type = IMAGE_REL_ARM64_PAGEBASE_REL21;
         writeRelocation(&reloc);
-        setRelocationAddress(addr+4, &reloc.VirtualAddress);
+        setRelocationAddress(addr+4, &reloc);
         uint32_t* pt = (uint32_t*)addr;
         uint32_t instr1 = pt[1];
         int scale;
