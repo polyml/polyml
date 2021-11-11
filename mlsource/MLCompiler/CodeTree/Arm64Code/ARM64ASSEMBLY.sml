@@ -1051,7 +1051,7 @@ struct
 
             |   adjust(LoadAddressLiteral { length as ref BrExtended, ...} :: instrs, addr) =
                 let
-                    val offset = Word.toInt maxConstantSize - Word.toInt addr
+                    val offset = Word.toInt (lastSize + maxConstantSize) - Word.toInt addr
                 in
                     (* We can only shorten these in 32-in-64.  In native 64-bits we may need to move
                        the constant area *)
@@ -1061,7 +1061,7 @@ struct
 
             |   adjust(LoadNonAddressLiteral { length as ref BrExtended, ...} :: instrs, addr) =
                 let
-                    val offset = Word.toInt maxConstantSize - Word.toInt addr
+                    val offset = Word.toInt (lastSize + maxConstantSize) - Word.toInt addr
                 in
                     if willFitInRange(offset, 0w19) then length := BrShort else ();
                     adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
