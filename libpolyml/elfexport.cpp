@@ -103,9 +103,12 @@
 #include <i386/elf_machdep.h>
 #endif
 
-// Work around problem in NetBSD
+// Work around problems in NetBSD
 #if (defined(R_AARCH_LDST64_ABS_LO12_NC) && !defined(R_AARCH64_LDST64_ABS_LO12_NC))
 #define R_AARCH64_LDST64_ABS_LO12_NC R_AARCH_LDST64_ABS_LO12_NC
+#endif
+#if (defined(R_AARCH_LDST32_ABS_LO12_NC) && !defined(R_AARCH64_LDST32_ABS_LO12_NC))
+#define R_AARCH64_LDST32_ABS_LO12_NC R_AARCH_LDST32_ABS_LO12_NC
 #endif
 
 #ifdef HAVE_STRING_H
