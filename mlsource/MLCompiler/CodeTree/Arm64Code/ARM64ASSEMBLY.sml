@@ -1008,7 +1008,7 @@ struct
     end
 
     (* Set the sizes of branches depending on the distance to the destination. *)
-    fun setLabelsAndSizes ops =
+    fun setLabelsAndSizes(ops, maxConstantSize) =
     let
         (* Set the labels and get the current size of the code. *)
         fun setLabels(Label(ref labs) :: ops, ic) = (List.app(fn d => d := ic) labs; setLabels(ops, ic))
@@ -1048,7 +1048,34 @@ struct
                     if willFitInRange(offset, 0w19) then length := BrShort else ();
                     adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
                 end
-            
+
+            |   adjust(LoadAddressLiteral { length as ref BrExtended, ...} :: instrs, addr) =
+                let
+                    val offset = Word.toInt maxConstantSize - Word.toInt addr
+                in
+                    (* We can only shorten these in 32-in-64.  In native 64-bits we may need to move
+                       the constant area *)
+                    if is32in64 andalso willFitInRange(offset, 0w19) then length := BrShort else ();
+                    adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
+                end
+
+            |   adjust(LoadNonAddressLiteral { length as ref BrExtended, ...} :: instrs, addr) =
+                let
+                    val offset = Word.toInt maxConstantSize - Word.toInt addr
+                in
+                    if willFitInRange(offset, 0w19) then length := BrShort else ();
+                    adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
+                end
+
+            |   adjust(LoadLabelAddress { length as ref BrExtended, label=ref labs, ...} :: instrs, addr) =
+                let
+                    val dest = !(hd labs)
+                    val offset = Word.toInt dest - Word.toInt addr
+                in
+                    if willFitInRange(offset, 0w19) then length := BrShort else ();
+                    adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
+                end
+
             |   adjust(instr :: instrs, addr) = adjust(instrs, addr + Word.fromInt(codeSize instr))
 
             val () = adjust(ops, 0w0)
@@ -1065,18 +1092,21 @@ struct
 
     fun genCode(ops, addressConsts, nonAddressConsts) =
     let
-        val codeSize = setLabelsAndSizes ops (* Number of 32-bit instructions *)
+        val numNonAddrConsts = Word.fromInt(List.length nonAddressConsts)
+        and numAddrConsts = Word.fromInt(List.length addressConsts) (* 32-bit words. *)
+        val constSizePlusExtras = (* Number of extra (poly)words needed. *)
+            numNonAddrConsts * wordsPerNativeWord + numAddrConsts + 0w4 (* 4 extra words *)
+
+        val codeSize (* Number of 32-bit instructions *) =
+            setLabelsAndSizes(ops, constSizePlusExtras  * (Address.wordSize div 0w4) + 0w2 (*allow 2 UDFs*))
+
         val wordsOfCode = (codeSize + 0w2) div 0w2 (* Round up to 64-bits with the UDF marker(s) added. *)
         (* Put one or two UDF instructions at the end as markers. *)
         val endOfCodeWords =
             if Word.andb(codeSize, 0w1) = 0w0 then [SimpleInstr undefCode, SimpleInstr undefCode] else [SimpleInstr undefCode]
-        
-        val numNonAddrConsts = Word.fromInt(List.length nonAddressConsts)
-        and numAddrConsts = Word.fromInt(List.length addressConsts) (* 32-bit words. *)
-
+ 
         (* Segment size in Poly words. *)
-        val segSize =
-            (wordsOfCode + numNonAddrConsts) * wordsPerNativeWord + numAddrConsts + 0w4 (* 4 extra words *)
+        val segSize = wordsOfCode*wordsPerNativeWord + constSizePlusExtras
         val codeVec = byteVecMake segSize
         
         fun testBit(bitNo, brNonZero, offset, reg) =
@@ -1108,7 +1138,9 @@ struct
             end
 
         |   genCodeWords(LoadAddressLiteral{reg, length=ref BrShort, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
-            (* TODO: Address literals could be shortened in 32-in-64 but are always 2 instrs in 64-bit. *)
+            (* Address literals can be shortened in 32-in-64 but are always 2 instrs in 64-bit.
+               That allows for the constant area to be pulled out if necessary to make the
+               code position-independent. *)
             let
                 (* The offset is in 32-bit words.  The first of the constants is
                    at offset wordsOfCode+3.  Non-address constants are always 8 bytes but
@@ -1135,7 +1167,7 @@ struct
             end
 
         |   genCodeWords(LoadNonAddressLiteral{reg, length=ref BrShort, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
-            (* TODO: These could be shortened since they're always part of the code. *)
+            (* These can be shortened since they're always part of the code. *)
             let
                 (* The offset is in 32-bit words.  These are always 64-bits. *)
                 val offsetOfConstant = (wordsOfCode+nonAConstNum)*0w2 - wordNo
