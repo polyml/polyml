@@ -628,8 +628,15 @@ struct
             |   BICConstnt(w, _) =>
                 (
                     if isShort w
-                    then genList(loadNonAddress(X0,
-                                    taggedWord64(Word64.fromLarge(Word.toLargeX(toShort w)))), cvec)
+                    then
+                    let
+                        val taggedValue = taggedWord64(Word64.fromLarge(Word.toLargeX(toShort w)))
+                    in
+                        genList(loadNonAddress(X0,
+                            (* We have sign extended this to a 64-bit value but the high-order bits
+                               should always be zero. *)
+                            if is32in64 then LargeWord.andb(taggedValue, 0wxffffffff) else taggedValue), cvec)
+                    end
                     else gen(loadAddressConstant(X0, w), cvec);
                     topInX0 := true
                 )
