@@ -168,11 +168,14 @@ bool OSMem::Initialise(enum _MemUsage usage)
         if (test != MAP_FAILED)
             wxFix = WXFixNone;
 #ifdef MAP_JIT
-        else test = mmap(0, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
-        if (test != MAP_FAILED)
-            wxFix = WXFixMapJit;
+        if (test == MAP_FAILED)
+        {
+            test = mmap(0, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
+            if (test != MAP_FAILED)
+                wxFix = WXFixMapJit;
+        }
 #endif
-        else
+        if (test == MAP_FAILED)
         {
             if (errno != ENOTSUP && errno != EACCES) // Fails with ENOTSUPP on OpenBSD and EACCES in SELinux.
                 return false;
@@ -205,7 +208,11 @@ bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, voi
         // Don't require shadow area.  Can use mmap
         int flags = MAP_PRIVATE | MAP_ANON;
 #ifdef MAP_JIT
-        if (usage == UsageExecutableCode && wxFix == WXFixMapJit) flags |= MAP_JIT;
+        // If we have to use MAP_JIT on Mac OS we need to allocate the area at the start.
+        // Anything else causes problems when we actually try to allocate the pages.
+        if (usage == UsageExecutableCode && wxFix == WXFixMapJit)
+            memBase = (char*)mmap(0, space, PROT_READ|PROT_WRITE|PROT_EXEC, flags | MAP_JIT, -1, 0);
+        else
 #endif
         memBase = (char*)mmap(0, space, PROT_NONE, flags, -1, 0);
         if (memBase == MAP_FAILED) return false;
@@ -325,17 +332,18 @@ void* OSMemInRegion::AllocateCodeArea(size_t& space, void*& shadowArea)
         if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
         if (wxFix == WXFixMapJit && memUsage == UsageExecutableCode)
         {
-            // If we have to use MAP_JIT the only option is to use mprotect
-            // here to enable the pages.  MAP_JIT|MAP_FIXED is not allowed.
-            if (mprotect(baseAddr, space, prot) != 0)
-                return 0;
+            // We can't use MAP_FIXED here because MAP_JIT|MAP_FIXED is not allowed.
+            // mprotect also seems to fail in strange ways so the only alternative
+            // is to allocate the whole area at the start.
         }
         else
         {
             // Enable the pages with mmap.  The idea is that if we no longer want the pages
             // we don't care about their previous contents and if we map that area again we're
             // happy if they are zeroed.
-            if (mmap(baseAddr, space, prot, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0) == MAP_FAILED)
+            // On Cygwin, at least, the mmap call fails and we need to use mprotect.
+            if (mmap(baseAddr, space, prot, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0) == MAP_FAILED &&
+                mprotect(baseAddr, space, prot) != 0)
                 return 0;
         }
         msync(baseAddr, space, MS_SYNC | MS_INVALIDATE);

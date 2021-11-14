@@ -91,6 +91,10 @@ public:
     void ScanConstantsWithinCode(PolyObject* addr, ScanAddress* process)
         { ScanConstantsWithinCode(addr, addr->Length(), process); } // Common case
 
+    // Called to produce relocations.
+    virtual void RelocateConstantsWithinCode(PolyObject* addr, ScanAddress* process)
+        { ScanConstantsWithinCode(addr, process);  }
+
     // Set the address of the constant area.  The default is a relative byte offset.
     virtual void SetAddressOfConstants(PolyObject* objAddr, PolyObject* writable, POLYUNSIGNED length, PolyWord* constAddr)
     {

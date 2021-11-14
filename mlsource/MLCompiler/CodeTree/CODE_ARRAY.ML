@@ -106,7 +106,8 @@ struct
     val codeVecGet = RunCall.rtsCallFast2 "PolyGetCodeByte"
     and codeVecSet = RunCall.rtsCallFast3 "PolySetCodeByte"
 
-    datatype constantType = ConstAbsolute | ConstX86Relative
+    datatype constantType =
+        ConstAbsolute | ConstX86Relative | ConstArm64AdrpLdr64 | ConstArm64AdrpLdr32 | ConstArm64AdrpAdd
 
     local
         val setCodeConstantCall = RunCall.rtsCallFast4 "PolySetCodeConstant"
@@ -116,7 +117,12 @@ struct
         fun codeVecPutConstant (addr, byteIndex, value:machineWord, option: constantType) =
         let
             val optValue =
-                case option of ConstAbsolute => 0w2 | ConstX86Relative => 0w1
+                case option of
+                    ConstAbsolute => 0w2
+                |   ConstX86Relative => 0w1
+                |   ConstArm64AdrpLdr64 => 0w3
+                |   ConstArm64AdrpLdr32 => 0w4
+                |   ConstArm64AdrpAdd => 0w5
         in
             setCodeConstantCall(addr, byteIndex, value, optValue)
         end

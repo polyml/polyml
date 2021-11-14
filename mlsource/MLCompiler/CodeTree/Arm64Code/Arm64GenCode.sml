@@ -628,8 +628,15 @@ struct
             |   BICConstnt(w, _) =>
                 (
                     if isShort w
-                    then genList(loadNonAddress(X0,
-                                    taggedWord64(Word64.fromLarge(Word.toLargeX(toShort w)))), cvec)
+                    then
+                    let
+                        val taggedValue = taggedWord64(Word64.fromLarge(Word.toLargeX(toShort w)))
+                    in
+                        genList(loadNonAddress(X0,
+                            (* We have sign extended this to a 64-bit value but the high-order bits
+                               should always be zero. *)
+                            if is32in64 then LargeWord.andb(taggedValue, 0wxffffffff) else taggedValue), cvec)
+                    end
                     else gen(loadAddressConstant(X0, w), cvec);
                     topInX0 := true
                 )
@@ -1381,23 +1388,37 @@ struct
             |   BICBlockOperation { kind=BlockOpMove{isByteMove}, sourceLeft, destRight, length } =>
                 let
                     val exitLabel = createLabel() and loopLabel = createLabel()
+                    (* Add the index, an unsigned, tagged value, to the base to create the
+                       effective address. *)
+                    fun addIndex(baseReg, indexReg) =
+                        if isByteMove
+                        then gen(addShiftedReg{regM=indexReg, regN=baseReg, regD=baseReg, shift=ShiftLSR 0w1}, cvec)
+                        else
+                        (
+                            gen(logicalShiftRight{regN=indexReg, regD=indexReg, shift=0w1}, cvec); (* Untag *)
+                            gen(addShiftedReg{regM=indexReg, regN=baseReg, regD=baseReg,
+                                shift=ShiftLSL (if is32in64 then 0w2 else 0w3)}, cvec)
+                        )
+                    val scale = if isByteMove then 1 else if is32in64 then 4 else 8
                 in
-                    genMLAddress(sourceLeft, 1);
-                    genMLAddress(destRight, 1);
+                    genMLAddress(sourceLeft, scale);
+                    genMLAddress(destRight, scale);
                     gencde (length, ToX0, NotEnd, loopAddr); (* Length *)
                     genPopReg(X2, cvec); (* Dest index - tagged value. *)
                     genPopReg(X1, cvec); (* Dest base address. *)
                     indexToAbsoluteAddress(X1, X1, cvec);
                     (* Add in the index N.B. ML index values are unsigned. *)
-                    gen(addShiftedReg{regM=X2, regN=X1, regD=X1, shift=ShiftLSR 0w1}, cvec);
+                    addIndex(X1, X2);
+                    (*gen(addShiftedReg{regM=X2, regN=X1, regD=X1, shift=ShiftLSR 0w1}, cvec);*)
                     genPopReg(X3, cvec); (* Source index *)
                     genPopReg(X2, cvec);
                     indexToAbsoluteAddress(X2, X2, cvec);
-                    gen(addShiftedReg{regM=X3, regN=X2, regD=X2, shift=ShiftLSR 0w1}, cvec);
+                    addIndex(X2, X3);
+                    (*gen(addShiftedReg{regM=X3, regN=X2, regD=X2, shift=ShiftLSR 0w1}, cvec);*)
                     (* Untag the length *)
                     gen(logicalShiftRight{regN=X0, regD=X0, shift=0w1}, cvec);
                     (* Test the loop value at the top in case it's already zero. *)
-                    compareRegs(X0, X0, cvec); (* Set condition code just in case. *)
+                    compareRegs(X0, X0, cvec);
                     gen(setLabel loopLabel, cvec);
                     gen(compareBranchZero(X0, exitLabel), cvec);
                     if isByteMove

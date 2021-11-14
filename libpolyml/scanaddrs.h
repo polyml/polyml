@@ -27,7 +27,9 @@
 typedef enum {
     PROCESS_RELOC_DIRECT = 0,           // 32 or 64 bit address of target
     PROCESS_RELOC_I386RELATIVE,         // 32 or 64 bit relative address
-    PROCESS_RELOC_ARM64ADRPLDR          // Relative address for ADRP/LDR pair
+    PROCESS_RELOC_ARM64ADRPLDR64,       // Relative address for ADRP/LDR (64-bit) pair
+    PROCESS_RELOC_ARM64ADRPLDR32,       // Relative address for ADRP/LDR (32-bit) pair
+    PROCESS_RELOC_ARM64ADRPADD          // Relative address for ADRP/ADD pair
 } ScanRelocationKind;
 
 class StackSpace;

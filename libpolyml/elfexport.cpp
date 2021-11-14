@@ -103,9 +103,12 @@
 #include <i386/elf_machdep.h>
 #endif
 
-// Work around problem in NetBSD
+// Work around problems in NetBSD
 #if (defined(R_AARCH_LDST64_ABS_LO12_NC) && !defined(R_AARCH64_LDST64_ABS_LO12_NC))
 #define R_AARCH64_LDST64_ABS_LO12_NC R_AARCH_LDST64_ABS_LO12_NC
+#endif
+#if (defined(R_AARCH_LDST32_ABS_LO12_NC) && !defined(R_AARCH64_LDST32_ABS_LO12_NC))
+#define R_AARCH64_LDST32_ABS_LO12_NC R_AARCH_LDST32_ABS_LO12_NC
 #endif
 
 #ifdef HAVE_STRING_H
@@ -425,8 +428,10 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
         break;
 #endif
 #if defined(HOSTARCHITECTURE_AARCH64)
-     case PROCESS_RELOC_ARM64ADRPLDR: // ADRP/LDR pair
-        {
+     case PROCESS_RELOC_ARM64ADRPLDR64:
+     case PROCESS_RELOC_ARM64ADRPLDR32:
+     case PROCESS_RELOC_ARM64ADRPADD:
+     {
              ElfXX_Rela reloc;
              reloc.r_addend = offset;
              setRelocationAddress(addr, &reloc.r_offset);
@@ -434,7 +439,11 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
              fwrite(&reloc, sizeof(reloc), 1, exportFile);
              relocationCount++;
              setRelocationAddress(addr+4, &reloc.r_offset);
-             reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_AARCH64_LDST64_ABS_LO12_NC);
+             int relType =
+                 code == PROCESS_RELOC_ARM64ADRPLDR64 ? R_AARCH64_LDST64_ABS_LO12_NC :
+                 code == PROCESS_RELOC_ARM64ADRPLDR32 ? R_AARCH64_LDST32_ABS_LO12_NC :
+                     R_AARCH64_ADD_ABS_LO12_NC;
+             reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), relType);
              fwrite(&reloc, sizeof(reloc), 1, exportFile);
              relocationCount++;
              // Clear the offsets within the instruction just in case 
@@ -720,7 +729,7 @@ void ELFExport::exportStore(void)
                 machineDependent->GetConstSegmentForCode(obj, cp, constCount);
                 // Update any constants before processing the object
                 // We need that for relative jumps/calls in X86/64.
-                machineDependent->ScanConstantsWithinCode(obj, this);
+                machineDependent->RelocateConstantsWithinCode(obj, this);
                 if (cp > (PolyWord*)obj && cp < ((PolyWord*)obj) + length)
                 {
                     // Process the constants if they're in the area but not if they've been moved.

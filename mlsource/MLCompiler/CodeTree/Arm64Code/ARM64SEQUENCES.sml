@@ -69,7 +69,7 @@ struct
             val hw0 = extW(value, 0w3) and hw1 = extW(value, 0w2)
             and hw2 = extW(value, 0w1) and hw3 = extW(value, 0w0)
         in
-            if value < 0wx10000000
+            if value < 0wx100000000
             then
             let
                 (* 32-bit constants can be loaded using at most a movz and movk but

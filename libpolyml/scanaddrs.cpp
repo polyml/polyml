@@ -223,21 +223,23 @@ PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocatio
             byte *absAddr = pt + disp + 4 + displacement; // The address is relative to AFTER the constant
             return (PolyObject*)absAddr;
         }
-    case PROCESS_RELOC_ARM64ADRPLDR:
-        {
+    case PROCESS_RELOC_ARM64ADRPLDR64:
+    case PROCESS_RELOC_ARM64ADRPLDR32:
+    case PROCESS_RELOC_ARM64ADRPADD:
+    {
             // This is a pair of instructions.
             uint32_t* pt = (uint32_t*)addressOfConstant;
             uint32_t instr0 = fromARMInstr(pt[0]), instr1 = fromARMInstr(pt[1]);
             ASSERT((instr0 & 0x9f000000) == 0x90000000);
-            ASSERT((instr1 & 0xffc00000) == 0xf9400000); // The next should be the Load
+            int scale = code == PROCESS_RELOC_ARM64ADRPLDR64 ? 8 : code == PROCESS_RELOC_ARM64ADRPLDR32 ? 4 : 1;
             // ADRP: This is complicated. The offset is encoded in two parts.
             intptr_t disp = instr0 & 0x00800000 ? -1 : 0; // Sign bit
             disp = (disp << 19) + ((instr0 & 0x00ffffe0) >> 5); // Add in immhi
             disp = (disp << 2) + ((instr0 >> 29) & 3); // Add in immlo
             disp = disp << 12; // It's a page address
-            // The second word is LDR with a 12-bit unsigned offset.
-            // This is a scaled offset so the value is actually the offset / 8.
-            disp += ((instr1 >> 10) & 0xfff) * 8;
+            // The second word is LDR or ADD with a 12-bit unsigned offset.
+            // This is a scaled offset so the value is actually the offset / scale.
+            disp += ((instr1 >> 10) & 0xfff) * scale;
             uintptr_t addr = (uintptr_t)addressOfConstant;
             addr = addr & -4096; // Clear the bottom 12 bits
             return (PolyObject*)(addr + disp);
@@ -282,18 +284,19 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
             ASSERT(newDisp == 0 || newDisp == -1);
         }
         break;
-        case PROCESS_RELOC_ARM64ADRPLDR:
-        {
+    case PROCESS_RELOC_ARM64ADRPLDR64:
+    case PROCESS_RELOC_ARM64ADRPLDR32:
+    case PROCESS_RELOC_ARM64ADRPADD:
+    {
             // This is a pair of instructions.
             uint32_t* pt = (uint32_t*)addressOfConstant;
             uint32_t instr0 = fromARMInstr(pt[0]), instr1 = fromARMInstr(pt[1]);
-            ASSERT((instr0 & 0x9f000000) == 0x90000000);
-            ASSERT((instr1 & 0xffc00000) == 0xf9400000); // The next should be the Load
+            int scale = code == PROCESS_RELOC_ARM64ADRPLDR64 ? 8 : code == PROCESS_RELOC_ARM64ADRPLDR32 ? 4 : 1;
             intptr_t target = (intptr_t)p;
             // LDR: The offset we put in here is a number of 8-byte words relative to
             // the 4k-page.
             uint32_t* ptW = (uint32_t*)addressToWrite;
-            ptW[1] = toARMInstr((instr1 & 0xffc003ff) | (((target & 0xfff) / 8) << 10));
+            ptW[1] = toARMInstr((instr1 & 0xffc003ff) | (((target & 0xfff) / scale) << 10));
             // ADRP - 4k page address relative to the instruction.
             intptr_t disp = (target >> 12) - ((intptr_t)addressOfConstant >> 12);
             ptW[0] = toARMInstr((instr0 & 0x9f00001f) | ((disp & 3) << 29) | (((disp >> 2) & 0x7ffff) << 5));

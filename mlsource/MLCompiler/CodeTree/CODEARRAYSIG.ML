@@ -33,7 +33,8 @@ sig
     val codeVecPutWord:         codeVec * word * machineWord -> unit
     and codeVecGetWord:         codeVec * word -> machineWord
     
-    datatype constantType = ConstAbsolute | ConstX86Relative
+    datatype constantType =
+        ConstAbsolute | ConstX86Relative | ConstArm64AdrpLdr64 | ConstArm64AdrpLdr32 | ConstArm64AdrpAdd
     
     val codeVecPutConstant:     codeVec * word * machineWord * constantType -> unit
     

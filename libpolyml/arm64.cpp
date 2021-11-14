@@ -195,6 +195,8 @@ public:
     virtual void ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAddr, POLYUNSIGNED length,
         PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress* process);
 
+    virtual void RelocateConstantsWithinCode(PolyObject* addr, ScanAddress* process);
+
     virtual Architectures MachineArchitecture(void);
 
     virtual void SetBootArchitecture(char arch, unsigned wordLength);
@@ -230,7 +232,7 @@ public:
             uint32_t* pt = (uint32_t*)space->writeAble(last_word);
             pt[0] = toARMInstr(0x90000000); // Insert dummy ADRP and LDR
             pt[1] = toARMInstr(0xf9400000);
-            ScanAddress::SetConstantValue((byte*)last_word, (PolyObject*)constAddr, PROCESS_RELOC_ARM64ADRPLDR);
+            ScanAddress::SetConstantValue((byte*)last_word, (PolyObject*)constAddr, PROCESS_RELOC_ARM64ADRPLDR64);
         }
     }
 
@@ -246,7 +248,7 @@ public:
         }
         else
         {
-            PolyObject* addr = ScanAddress::GetConstantValue((byte*)last_word, PROCESS_RELOC_ARM64ADRPLDR, 0);
+            PolyObject* addr = ScanAddress::GetConstantValue((byte*)last_word, PROCESS_RELOC_ARM64ADRPLDR64, 0);
             cp = (PolyWord*)addr;
             count = addr->Length();
         }
@@ -710,6 +712,9 @@ void Arm64TaskData::HandleStackOverflow(uintptr_t space)
     }
     catch (IOException&) {
     }
+    catch (KillException&) {
+        processes->ThreadExit(this);
+    }
 }
 
 void Arm64TaskData::InitStackFrame(TaskData* parentTask, Handle proc)
@@ -818,67 +823,85 @@ void Arm64TaskData::SaveMemRegisters()
     saveRegisterMask = 0;
 }
 
-// Process addresses in the code.  The only case where we need to do that on the ARM64 is to deal
-// with spltting the constant area from the code in order to make the code position-independent.
-// We need to convert pc-relative LDR instructions into ADRP/LDR pairs.
+// Process addresses in the code
+// Because we don't have constants actually in the code we only have to process this in two
+// cases.  If we are exporting the code we first copy it to a new location.  We have to update
+// the ADRP+LDR/ADD pairs at that point.
+// When we construct the relocations we need to identify the points where the relocations apply in
+// the code.  This applies both to exporting to object code and to saved states.
 void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAddr, POLYUNSIGNED length,
     PolyWord* newConstAddr, PolyWord* oldConstAddr, POLYUNSIGNED numConsts, ScanAddress* process)
 {
-#ifndef POLYML32IN64
     arm64CodePointer pt = (arm64CodePointer)addr;
+    if (addr == oldAddr && newConstAddr == oldConstAddr)
+        return;
     // If it begins with the enter-int sequence it's interpreted code.
     if (fromARMInstr(pt[0]) == 0xAA1E03E9 && fromARMInstr(pt[1]) == 0xF9400350 && fromARMInstr(pt[2]) == 0xD63F0200)
         return;
-    // We only need a split if the constant area is not at the original offset.
-    POLYSIGNED constAdjustment =
-        (byte*)newConstAddr - (byte*)addr - ((byte*)oldConstAddr - (byte*)oldAddr);
-    // If we have replaced the offset with a dummy ADRP/LDR pair we have to add a relocation.
-    PolyWord* end = addr->Offset(length - 1);
-    if ((end[0].AsUnsigned() >> 56) != 0xff)
-        process->RelocateOnly(addr, (byte*)end, PROCESS_RELOC_ARM64ADRPLDR);
 
     while (*pt != 0) // The code ends with a UDF instruction (0)
     {
         arm64Instr instr0 = fromARMInstr(pt[0]);
-        if ((instr0 & 0xbf000000) == 0x18000000) // LDR with pc-relative offset
+        if ((instr0 & 0x9f000000) == 0x90000000) // ADRP instruction
         {
-            // This could be a reference to the constant area or to the non-address area.
-            // References to the constant area are followed by a nop
-            if (constAdjustment != 0 && fromARMInstr(pt[1]) == 0xd503201f)
-            {
-                unsigned reg = instr0 & 0x1f;
-                // The displacement is a signed multiple of 4 bytes but it will always be +ve
-                ASSERT((instr0 & 0x00800000) == 0);
-                // The constant address is relative to the new location of the code.
-                byte* constAddress = (byte*)(pt + ((instr0 >> 5) & 0x7ffff));
-                byte* newAddress = (byte*)constAddress + constAdjustment;
-                arm64CodePointer ptW = (arm64CodePointer)gMem.SpaceForAddress(pt)->writeAble((byte*)pt);
-                ptW[0] = toARMInstr(0x90000000 + reg); // ADRP Xn, 0
-                ptW[1] = toARMInstr(0xf9400000 + (reg << 5) + reg); // LDR Xn,[Xn+#0]
-                ScanAddress::SetConstantValue((byte*)pt, (PolyObject*)newAddress, PROCESS_RELOC_ARM64ADRPLDR);
-            }
-        }
-        else if ((instr0 & 0x9f000000) == 0x90000000) // ADRP instruction
-        {
-            // These only occur after we have converted LDRs above
-            ASSERT((fromARMInstr(pt[1]) & 0xffc00000) == 0xf9400000); // The next should be the Load
-            // If we're exporting code that has previously been exported we will
-            // have already converted the LDR instructions.
-            if (addr != oldAddr || newConstAddr != oldConstAddr)
-            {
-                // Look at the instruction at the original location, before it was copied, to
-                // find out the address it referred to.
-                byte* oldInstrAddress = (byte*)pt - (byte*)addr + (byte*)oldAddr;
-                byte* constAddress = (byte*)ScanAddress::GetConstantValue(oldInstrAddress, PROCESS_RELOC_ARM64ADRPLDR, 0);
-                // Convert that into an address in the new constant area before updating the copied code.
-                byte* newAddress = (byte*)newConstAddr + (constAddress - (byte*)oldConstAddr);
-                ScanAddress::SetConstantValue((byte*)pt, (PolyObject*)newAddress, PROCESS_RELOC_ARM64ADRPLDR);
-            }
-            process->RelocateOnly(addr, (byte*)pt, PROCESS_RELOC_ARM64ADRPLDR);
+            // Look at the instruction at the original location, before it was copied, to
+            // find out the address it referred to.
+            byte* oldInstrAddress = (byte*)pt - (byte*)addr + (byte*)oldAddr;
+            arm64Instr instr1 = fromARMInstr(pt[1]);
+            ScanRelocationKind scanKind;
+            if ((instr1 & 0xffc00000) == 0xf9400000)
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR64; // LDR of 64-bit quantity
+            else if ((instr1 & 0xffc00000) == 0xb9400000)
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR32; // LDR of 32-bit quantity
+            else if ((instr1 & 0xff800000) == 0x91000000)
+                scanKind = PROCESS_RELOC_ARM64ADRPADD; // ADD
+            else ASSERT(0); // Invalid instruction
+            byte* constAddress = (byte*)ScanAddress::GetConstantValue(oldInstrAddress, scanKind, 0);
+            // This could be a reference to the code itself or the non-constant area.
+            // If it's in the code we relocate it to the new code; if it's in the constant
+            // area to the new constant area.
+            byte* newAddress;
+            if (constAddress > oldInstrAddress && constAddress < ((byte*)oldConstAddr))
+                newAddress =  (byte*)addr + (constAddress - (byte*)oldAddr);
+            else newAddress = (byte*)newConstAddr + (constAddress - (byte*)oldConstAddr);
+            ScanAddress::SetConstantValue((byte*)pt, (PolyObject*)newAddress, scanKind);
         }
         pt++;
     }
+}
+
+void Arm64Dependent::RelocateConstantsWithinCode(PolyObject* addr, ScanAddress* process)
+{
+    arm64CodePointer pt = (arm64CodePointer)addr;
+    // If it begins with the enter-int sequence it's interpreted code.
+    if (fromARMInstr(pt[0]) == 0xAA1E03E9 && fromARMInstr(pt[1]) == 0xF9400350 && fromARMInstr(pt[2]) == 0xD63F0200)
+        return;
+#ifndef POLYML32IN64
+    POLYUNSIGNED length = addr->Length();
+    // If we have replaced the offset with a dummy ADRP/LDR pair we have to add a relocation.
+    PolyWord* end = addr->Offset(length - 1);
+    if ((end[0].AsUnsigned() >> 56) != 0xff)
+        process->RelocateOnly(addr, (byte*)end, PROCESS_RELOC_ARM64ADRPLDR64);
 #endif
+
+    while (*pt != 0) // The code ends with a UDF instruction (0)
+    {
+        arm64Instr instr0 = fromARMInstr(pt[0]);
+        if ((instr0 & 0x9f000000) == 0x90000000) // ADRP instruction
+        {
+            arm64Instr instr1 = fromARMInstr(pt[1]);
+            ScanRelocationKind scanKind;
+            if ((instr1 & 0xffc00000) == 0xf9400000)
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR64; // LDR of 64-bit quantity
+            else if ((instr1 & 0xffc00000) == 0xb9400000)
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR32; // LDR of 32-bit quantity
+            else if ((instr1 & 0xff800000) == 0x91000000)
+                scanKind = PROCESS_RELOC_ARM64ADRPADD; // ADD
+            else ASSERT(0); // Invalid instruction
+            process->RelocateOnly(addr, (byte*)pt, scanKind);
+        }
+        pt++;
+}
 }
 
 // This is a special hack for FFI callbacks in 32-in-64.  This is called
