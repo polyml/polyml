@@ -16,18 +16,18 @@
 *)
 
 functor X86AllocateRegisters(
-    structure ICODE: ICodeSig
-    structure IDENTIFY: X86IDENTIFYREFSSIG
-    structure CONFLICTSETS: X86GETCONFLICTSETSIG
-    structure INTSET: INTSET
+    structure X86ICode: X86ICODE
+    structure Identify: X86IDENTIFYREFERENCES
+    structure ConflictSets: X86GETCONFLICTSET
+    structure IntSet: INTSET
     
-    sharing ICODE.Sharing = IDENTIFY.Sharing = CONFLICTSETS.Sharing = INTSET
-): X86ALLOCATEREGISTERSSIG =
+    sharing X86ICode.Sharing = Identify.Sharing = ConflictSets.Sharing = IntSet
+): X86ALLOCATEREGISTERS =
 struct
-    open ICODE
-    open IDENTIFY
-    open CONFLICTSETS
-    open INTSET
+    open X86ICode
+    open Identify
+    open ConflictSets
+    open IntSet
 
     open Address
     

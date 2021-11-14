@@ -38,7 +38,7 @@ functor PRINT_PARSETREE (
     structure STRUCTVALS : STRUCTVALSIG;
     structure TYPETREE : TYPETREESIG
     structure VALUEOPS : VALUEOPSSIG;
-    structure PRETTY : PRETTYSIG
+    structure PRETTY : PRETTY
 
     sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing
            = VALUEOPS.Sharing = PRETTY.Sharing

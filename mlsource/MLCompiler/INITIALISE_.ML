@@ -38,7 +38,7 @@ functor INITIALISE_ (
     structure ADDRESS : AddressSig
     structure DEBUG: DEBUG
     structure DEBUGGER : DEBUGGER
-    structure PRETTY : PRETTYSIG
+    structure PRETTY : PRETTY
     structure PRINTTABLE: PRINTTABLESIG
 
     structure MISC :

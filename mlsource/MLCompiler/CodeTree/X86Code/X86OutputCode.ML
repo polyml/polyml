@@ -33,16 +33,16 @@
    It uses "codeseg" to create and operate on the segment itself.
  *)
 
-functor X86OUTPUTCODE (
-structure DEBUG: DEBUG
-structure PRETTY: PRETTYSIG (* for compilerOutTag *)
+functor X86OutputCode (
+structure Debug: DEBUG
+structure Pretty: PRETTY (* for compilerOutTag *)
 structure CodeArray: CODEARRAY
 
-) : X86CODESIG =
+) : X86CODE =
 
 struct
     open CodeArray
-    open DEBUG
+    open Debug
     open Address
     open Misc
 
@@ -156,14 +156,14 @@ struct
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
     let
-        val printStream = PRETTY.getSimplePrinter(parameters, [])
+        val printStream = Pretty.getSimplePrinter(parameters, [])
     in
         Code
         { 
             procName       = name,
-            printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
+            printAssemblyCode = Debug.getParameter Debug.assemblyCodeTag parameters,
             printStream    = printStream,
-            lowLevelOptimise = DEBUG.getParameter DEBUG.lowlevelOptimiseTag parameters,
+            lowLevelOptimise = Debug.getParameter Debug.lowlevelOptimiseTag parameters,
             profileObject  = profObj
         }
     end

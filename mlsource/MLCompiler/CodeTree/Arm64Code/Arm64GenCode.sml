@@ -20,7 +20,7 @@ functor Arm64GenCode (
     and       CodeArray: CODEARRAY
     and       Arm64Assembly: ARM64ASSEMBLY
     and       Debug: DEBUG
-    and       Arm64Foreign: FOREIGNCALLSIG
+    and       Arm64Foreign: FOREIGNCALL
     and       Arm64Sequences: ARM64SEQUENCES
     
     sharing BackendTree.Sharing = CodeArray.Sharing = Arm64Assembly.Sharing = Arm64Sequences.Sharing

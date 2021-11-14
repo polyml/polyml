@@ -16,15 +16,15 @@
 *)
 
 functor X86ICodeGetConflictSets(
-    structure ICODE: ICodeSig
-    structure INTSET: INTSET
-    structure IDENTIFY: X86IDENTIFYREFSSIG
-    sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET
-): X86GETCONFLICTSETSIG =
+    structure X86ICode: X86ICODE
+    structure IntSet: INTSET
+    structure Identify: X86IDENTIFYREFERENCES
+    sharing X86ICode.Sharing = Identify.Sharing = IntSet
+): X86GETCONFLICTSET =
 struct
-    open ICODE
-    open INTSET
-    open IDENTIFY
+    open X86ICode
+    open IntSet
+    open Identify
 
     type conflictState =
     {

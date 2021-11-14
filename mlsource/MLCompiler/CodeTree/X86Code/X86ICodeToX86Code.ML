@@ -17,9 +17,9 @@
 
 functor X86ICodeToX86Code(
 
-    structure X86CODE: X86CODESIG
+    structure X86Code: X86CODE
 
-    structure X86OPTIMISE:
+    structure X86Optimise:
     sig
         type operation
         type code
@@ -36,25 +36,25 @@ functor X86ICodeToX86Code(
         end
     end
 
-    structure DEBUG: DEBUG
+    structure Debug: DEBUG
     
-    structure ICODE: ICodeSig
-    structure IDENTIFY: X86IDENTIFYREFSSIG
-    structure INTSET: INTSET
-    structure PRETTY: PRETTYSIG
+    structure X86ICode: X86ICODE
+    structure Identify: X86IDENTIFYREFERENCES
+    structure IntSet: INTSET
+    structure Pretty: PRETTY
 
-    structure STRONGLY:
+    structure Strongly:
         sig
             val stronglyConnectedComponents: {nodeAddress: 'a -> int, arcs: 'a -> int list } -> 'a list -> 'a list list
         end
     
-    sharing X86CODE.Sharing = ICODE.Sharing = X86OPTIMISE.Sharing = IDENTIFY.Sharing = INTSET
-): X86ICODEGENERATESIG =
+    sharing X86Code.Sharing = X86ICode.Sharing = X86Optimise.Sharing = Identify.Sharing = IntSet
+): X86ICODEGENERATE =
 struct
-    open IDENTIFY
-    open ICODE
+    open Identify
+    open X86ICode
 
-    open X86CODE
+    open X86Code
 
     open Address
     
@@ -291,7 +291,7 @@ struct
                     (case indexRegister index of NONE => [regNo(GenReg base)] | SOME r => [regNo(GenReg base), regNo(GenReg r)])
             |   arcs _ = []
         in
-            val stronglyConnected = STRONGLY.stronglyConnectedComponents { nodeAddress=nodeAddress, arcs=arcs }
+            val stronglyConnected = Strongly.stronglyConnectedComponents { nodeAddress=nodeAddress, arcs=arcs }
         end
         
         (* This is a general function for moving values into registers or to the stack
@@ -2122,7 +2122,7 @@ struct
             val ops = genCode([0], ExitCode, [])
         end
     in
-        X86OPTIMISE.generateCode{code=newCode, ops=List.rev ops,
+        X86Optimise.generateCode{code=newCode, ops=List.rev ops,
                                  labelCount= !outputLabelCount, resultClosure=resultClosure}
     end
 

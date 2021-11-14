@@ -26,7 +26,7 @@
 *)
 
 functor LEX_ (
-structure PRETTY: PRETTYSIG
+structure PRETTY: PRETTY
 structure SYMBOLS : SymbolsSig
 structure DEBUG: DEBUG
 

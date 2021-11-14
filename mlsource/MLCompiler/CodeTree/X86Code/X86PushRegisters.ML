@@ -16,16 +16,16 @@
 *)
 
 functor X86PushRegisters(
-    structure ICODE: ICodeSig
-    structure INTSET: INTSET
-    structure IDENTIFY: X86IDENTIFYREFSSIG
-    sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET
-) : X86PUSHREGISTERSIG
+    structure X86ICode: X86ICODE
+    structure IntSet: INTSET
+    structure Identify: X86IDENTIFYREFERENCES
+    sharing X86ICode.Sharing = Identify.Sharing = IntSet
+) : X86PUSHREGISTERS
 =
 struct
-    open ICODE
-    open INTSET
-    open IDENTIFY
+    open X86ICode
+    open IntSet
+    open Identify
     
     (* Curried subscript functions *)
     fun asub a i = Array.sub(a, i)

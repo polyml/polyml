@@ -15,8 +15,8 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor X86OPTIMISE(
-    structure X86CODE: X86CODESIG
+functor X86CodeOptimise(
+    structure X86Code: X86CODE
 ) :
 sig
     type operation
@@ -35,7 +35,7 @@ sig
     end
 end =
 struct
-    open X86CODE
+    open X86Code
     exception InternalError = Misc.InternalError
 
     fun generateCode{code, ops, labelCount, resultClosure} =
@@ -262,7 +262,7 @@ struct
             else {ops=ops, labelCount=labelCount}
     in
         (* Pass on to the next stage. *)
-        X86CODE.generateCode{ops=finalOps, labelCount=finalLabelCount, code=code, resultClosure=resultClosure}
+        X86Code.generateCode{ops=finalOps, labelCount=finalLabelCount, code=code, resultClosure=resultClosure}
     end
 
     structure Sharing =

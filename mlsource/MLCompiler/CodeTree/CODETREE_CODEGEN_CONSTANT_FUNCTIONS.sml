@@ -26,7 +26,7 @@ functor CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
     structure BACKEND: CodegenTreeSig
     structure DEBUG: DEBUG
-    structure PRETTY : PRETTYSIG
+    structure PRETTY : PRETTY
     structure CodeArray: CODEARRAY
 
     sharing
@@ -40,7 +40,7 @@ sig
     type codetree
     type machineWord = Address.machineWord
     val codeGenerate: codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
-    structure Foreign: FOREIGNCALLSIG
+    structure Foreign: FOREIGNCALL
     structure Sharing: sig type codetree = codetree end
 end =
 struct

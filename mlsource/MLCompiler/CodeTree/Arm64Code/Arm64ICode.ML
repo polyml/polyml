@@ -17,12 +17,12 @@
 
 functor Arm64ICode(
 
-    structure ARM64CODE: ARM64ASSEMBLY
+    structure Arm64Code: ARM64ASSEMBLY
 
 ): ARM64ICODE =
 
 struct
-    open ARM64CODE
+    open Arm64Code
     
     exception Fallback of string (* Temporarily for development. *)
 

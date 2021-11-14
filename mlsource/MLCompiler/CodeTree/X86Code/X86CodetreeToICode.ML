@@ -16,19 +16,19 @@
 *)
 
 functor X86CodetreeToICode(
-    structure BACKENDTREE: BACKENDINTERMEDIATECODE
-    structure ICODE: ICodeSig
-    structure DEBUG: DEBUG
-    structure X86FOREIGN: FOREIGNCALLSIG
-    structure ICODETRANSFORM: X86ICODETRANSFORMSIG
+    structure BackEndTree: BACKENDINTERMEDIATECODE
+    structure X86ICode: X86ICODE
+    structure Debug: DEBUG
+    structure X86Foreign: FOREIGNCALL
+    structure ICodeTransform: X86ICODETRANSFORM
     structure CodeArray: CODEARRAY
 
-    sharing ICODE.Sharing = ICODETRANSFORM.Sharing = CodeArray.Sharing
+    sharing X86ICode.Sharing = ICodeTransform.Sharing = CodeArray.Sharing
 ): GENCODE =
 struct
-    open BACKENDTREE
+    open BackEndTree
     open Address
-    open ICODE
+    open X86ICode
     open CodeArray
  
     exception InternalError = Misc.InternalError
@@ -167,7 +167,7 @@ struct
         (* Switch to indicate if we want to trace where live data has been allocated. *)
         (* TODO: This should be used in AllocateMemoryOperation and BoxValue and possibly AllocateMemoryVariable. *)
         val addAllocatingFunction =
-            DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
+            Debug.getParameter Debug.profileAllocationTag debugSwitches = 1
 
         fun constantAsArgument value =
             if isShort value
@@ -4078,7 +4078,7 @@ struct
             val resultVector = Array.vector resArray
         end
       
-        open ICODETRANSFORM
+        open ICodeTransform
         
         val pregProperties = Vector.fromList(List.rev(! pregPropList))
     in
@@ -4089,7 +4089,7 @@ struct
 
     fun gencodeLambda(lambda, debugSwitches, closure) =
     let
-        open DEBUG Universal
+        open Debug Universal
         (*val debugSwitches =
             [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
             tagInject assemblyCodeTag true] @ debugSwitches*)
@@ -4097,7 +4097,7 @@ struct
         codeFunctionToX86(lambda, debugSwitches, closure)
     end
     
-    structure Foreign = X86FOREIGN
+    structure Foreign = X86Foreign
     
     structure Sharing =
     struct

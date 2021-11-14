@@ -16,7 +16,7 @@
 *)
 
 (* Signature for the pretty printer. *)
-signature PRETTYSIG =
+signature PRETTY =
 sig
     type context
     type pretty

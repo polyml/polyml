@@ -15,7 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86CODESIG =
+signature X86CODE =
 sig
     type machineWord = Address.machineWord
     type short = Address.short

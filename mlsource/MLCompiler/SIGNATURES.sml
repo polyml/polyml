@@ -31,7 +31,7 @@ functor SIGNATURES (
     structure LEX : LEXSIG
     structure STRUCTVALS : STRUCTVALSIG;
     structure EXPORTTREE: EXPORTTREESIG
-    structure PRETTY : PRETTYSIG
+    structure PRETTY : PRETTY
     structure COPIER: COPIERSIG
     structure TYPETREE : TYPETREESIG
     structure PARSETREE : PARSETREESIG

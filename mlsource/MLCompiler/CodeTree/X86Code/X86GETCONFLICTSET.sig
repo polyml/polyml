@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2018-19
+    Copyright (c) 2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,21 +15,24 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86ICODEOPTSIG =
+signature X86GETCONFLICTSET =
 sig
-    type extendedBasicBlock and basicBlock and regProperty
-
-    datatype optimise = Changed of basicBlock vector * regProperty vector | Unchanged
+    type x86ICode and reg and preg and controlFlow and extendedBasicBlock    
+    type intSet
     
-    val optimiseICode:
-        { code: extendedBasicBlock vector, pregProps: regProperty vector, ccCount: int,
-          debugSwitches: Universal.universal list } -> optimise
+    type conflictState =
+    {
+        conflicts: intSet, realConflicts: reg list
+    }
+
+    val getConflictStates: extendedBasicBlock vector * int -> conflictState vector
 
     structure Sharing:
     sig
-        type extendedBasicBlock = extendedBasicBlock
-        and basicBlock = basicBlock
-        and regProperty = regProperty
-        and optimise = optimise
-    end
+        type x86ICode = x86ICode
+        and reg = reg
+        and preg = preg
+        and intSet = intSet
+        and extendedBasicBlock = extendedBasicBlock
+    end;
 end;

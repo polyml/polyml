@@ -49,7 +49,7 @@ functor CODETREE_OPTIMISER(
     end
 
     structure DEBUG: DEBUG
-    structure PRETTY : PRETTYSIG
+    structure PRETTY : PRETTY
 
     structure BACKEND:
     sig

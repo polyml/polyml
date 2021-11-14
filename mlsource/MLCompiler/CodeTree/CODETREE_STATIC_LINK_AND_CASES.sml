@@ -20,7 +20,7 @@ functor CODETREE_STATIC_LINK_AND_CASES(
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
     structure GCODE: GENCODE
     structure DEBUG: DEBUG
-    structure PRETTY : PRETTYSIG
+    structure PRETTY : PRETTY
     structure BACKENDTREE: BACKENDINTERMEDIATECODE
 
     sharing

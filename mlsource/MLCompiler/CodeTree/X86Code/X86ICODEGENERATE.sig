@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2017
+    Copyright David C. J. Matthews 2017-8, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,26 +15,19 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86ALLOCATEREGISTERSSIG =
+signature X86ICODEGENERATE =
 sig
     type intSet and extendedBasicBlock and regProperty and reg
-    type address = Address.address 
+    type closureRef
     
-    type conflictState =
-    {
-        conflicts: intSet, realConflicts: reg list
-    }
-
-    datatype allocateResult =
-        AllocateSuccess of reg vector
-    |   AllocateFailure of intSet list
-    
-    val allocateRegisters :
+    val icodeToX86Code :
         {
-            blocks: extendedBasicBlock vector,
-            regStates: conflictState vector,
-            regProps: regProperty vector
-        } -> allocateResult
+            blocks: extendedBasicBlock vector, allocatedRegisters: reg vector, functionName: string,
+            stackRequired: int, debugSwitches: Universal.universal list, resultClosure: closureRef,
+            profileObject: Address.machineWord
+        } -> unit
+    
+    val nGenRegs: int (* Number of general registers. *)
     
     structure Sharing:
     sig
@@ -42,6 +35,6 @@ sig
         and extendedBasicBlock  = extendedBasicBlock
         and regProperty         = regProperty
         and reg                 = reg
-        and allocateResult      = allocateResult
+        and closureRef          = closureRef
     end
 end;

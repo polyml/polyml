@@ -17,7 +17,7 @@
 
 functor Arm64Assembly (
     structure Debug: DEBUG
-    and       Pretty: PRETTYSIG
+    and       Pretty: PRETTY
     and       CodeArray: CODEARRAY
 ) : ARM64ASSEMBLY =
 

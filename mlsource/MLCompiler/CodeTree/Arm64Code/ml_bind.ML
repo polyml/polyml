@@ -38,72 +38,72 @@ local
 
     structure Arm64ICode =
         Arm64ICode (
-            structure ARM64CODE       = Arm64Assembly
+            structure Arm64Code       = Arm64Assembly
         )
 
     structure Arm64ICodeIdentify =
         Arm64IdentifyReferences (
-            structure DEBUG         = Debug
-            structure ICODE         = Arm64ICode
-            structure INTSET        = IntSet
+            structure Debug         = Debug
+            structure Arm64ICode         = Arm64ICode
+            structure IntSet        = IntSet
         )
 
     structure Arm64ICodeConflicts =
         Arm64ICodeConflicts (
-            structure ICODE         = Arm64ICode
-            structure INTSET        = IntSet
-            structure IDENTIFY      = Arm64ICodeIdentify
+            structure Arm64ICode         = Arm64ICode
+            structure IntSet        = IntSet
+            structure Identify      = Arm64ICodeIdentify
         )
 
     structure Arm64PushRegs =
         Arm64PushRegisters (
-            structure ICODE         = Arm64ICode
-            structure INTSET        = IntSet
-            structure IDENTIFY      = Arm64ICodeIdentify
+            structure Arm64ICode         = Arm64ICode
+            structure IntSet        = IntSet
+            structure Identify      = Arm64ICodeIdentify
         )
 
     structure Arm64Opt =
         Arm64ICodeOptimise (
-            structure ICODE         = Arm64ICode
-            structure INTSET        = IntSet
-            structure IDENTIFY      = Arm64ICodeIdentify
-            structure Arm64CODE       = Arm64OutputCode
-            structure DEBUG         = Debug
-            structure PRETTY        = Pretty
+            structure Arm64ICode         = Arm64ICode
+            structure IntSet        = IntSet
+            structure Identify      = Arm64ICodeIdentify
+            structure Arm64Code     = Arm64OutputCode
+            structure Debug         = Debug
+            structure Pretty        = Pretty
         )
 
     structure Arm64IAllocate =
         Arm64AllocateRegisters (
-            structure ICODE         = Arm64ICode
-            structure IDENTIFY      = Arm64ICodeIdentify
-            structure CONFLICTSETS  = Arm64ICodeConflicts
-            structure INTSET        = IntSet
+            structure Arm64ICode         = Arm64ICode
+            structure Identify      = Arm64ICodeIdentify
+            structure ConflictSets  = Arm64ICodeConflicts
+            structure IntSet        = IntSet
         )
 
     structure Arm64ICodeGenerate =
         Arm64ICodeToArm64Code (
-            structure DEBUG         = Debug
-            structure ICODE         = Arm64ICode
-            structure IDENTIFY      = Arm64ICodeIdentify
-            structure PRETTY        = Pretty
-            structure INTSET        = IntSet
-            structure ARM64CODE     = Arm64OutputCode
-            structure ARM64OPTIMISE = Arm64Optimise
-            structure STRONGLY      = StronglyConnected
+            structure Debug         = Debug
+            structure Arm64ICode         = Arm64ICode
+            structure Identify      = Arm64ICodeIdentify
+            structure Pretty        = Pretty
+            structure IntSet        = IntSet
+            structure Arm64Code     = Arm64OutputCode
+            structure Arm64Optimise = Arm64Optimise
+            structure Strongly      = StronglyConnected
         )
         
     structure Arm64ICodeTransform =
         Arm64ICodeTransform (
-            structure DEBUG         = Debug
-            structure ICODE         = Arm64ICode
-            structure IDENTIFY      = Arm64ICodeIdentify
-            structure CONFLICTSETS  = Arm64ICodeConflicts
-            structure ALLOCATE      = Arm64IAllocate
-            structure PUSHREGISTERS = Arm64PushRegs
-            structure OPTIMISE      = Arm64Opt
-            structure PRETTY        = Pretty
-            structure INTSET        = IntSet
-            structure CODEGEN       = Arm64ICodeGenerate
+            structure Debug         = Debug
+            structure Arm64ICode    = Arm64ICode
+            structure Identify      = Arm64ICodeIdentify
+            structure ConflictSets  = Arm64ICodeConflicts
+            structure Allocate      = Arm64IAllocate
+            structure PushRegisters = Arm64PushRegs
+            structure Optimise      = Arm64Opt
+            structure Pretty        = Pretty
+            structure IntSet        = IntSet
+            structure Codegen       = Arm64ICodeGenerate
         )
 
     structure Arm64Fallback =
@@ -120,14 +120,14 @@ in
 
     structure Arm64Code = 
         Arm64CodetreeToICode (
-            structure BACKENDTREE   = BackendIntermediateCode
-            structure DEBUG         = Debug
-            structure ICODE         = Arm64ICode
-            structure ARM64FOREIGN  = Arm64Foreign
-            structure ICODETRANSFORM = Arm64ICodeTransform
-            structure CODE_ARRAY    = CodeArray
+            structure BackendTree   = BackendIntermediateCode
+            structure Debug         = Debug
+            structure Arm64ICode         = Arm64ICode
+            structure Arm64Foreign  = Arm64Foreign
+            structure ICodeTransform = Arm64ICodeTransform
+            structure CodeArray    = CodeArray
             
-            structure ARM64FALLBACK = Arm64Fallback
+            structure Arm64Fallback = Arm64Fallback
         )
 
 end;

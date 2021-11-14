@@ -153,7 +153,7 @@
 	<source name="mlsource\MLCompiler\ExportTree.sml" />
 	<source name="mlsource\MLCompiler\EXPORTTREESIG.sml" />
 	<source name="mlsource\MLCompiler\ExportTreeStruct.sml" />
-	<source name="mlsource\MLCompiler\FOREIGNCALLSIG.sml" />
+	<source name="mlsource\MLCompiler\FOREIGNCALL.sig" />
 	<source name="mlsource\MLCompiler\HashTable.ML" />
 	<source name="mlsource\MLCompiler\Initialise.ML" />
 	<source name="mlsource\MLCompiler\INITIALISE_.ML" />
@@ -184,8 +184,8 @@
 	<source name="mlsource\MLCompiler\ParseTree\TypeCheckParsetreeSig.sml" />
 	<source name="mlsource\MLCompiler\PARSETREESIG.sml" />
 	<source name="mlsource\MLCompiler\ParseType.ML" />
+	<source name="mlsource\MLCompiler\PRETTY.sig" />
 	<source name="mlsource\MLCompiler\Pretty.sml" />
-	<source name="mlsource\MLCompiler\PRETTYSIG.sml" />
 	<source name="mlsource\MLCompiler\PRINT_TABLE.ML" />
 	<source name="mlsource\MLCompiler\PrintTable.ML" />
 	<source name="mlsource\MLCompiler\PRINTTABLESIG.sml" />

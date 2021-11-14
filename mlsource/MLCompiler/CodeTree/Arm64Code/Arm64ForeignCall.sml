@@ -22,7 +22,7 @@ functor Arm64ForeignCall(
     and       Arm64Sequences: ARM64SEQUENCES
 
     sharing CodeArray.Sharing = Arm64Assembly.Sharing = Arm64Sequences.Sharing
-): FOREIGNCALLSIG
+): FOREIGNCALL
 =
 struct
 

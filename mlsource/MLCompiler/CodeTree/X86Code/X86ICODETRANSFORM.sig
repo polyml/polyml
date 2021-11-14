@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2017 David C.J. Matthews
+    Copyright David C. J. Matthews 2016-18, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,24 +15,21 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86GETCONFLICTSETSIG =
+signature X86ICODETRANSFORM =
 sig
-    type x86ICode and reg and preg and controlFlow and extendedBasicBlock    
-    type intSet
-    
-    type conflictState =
-    {
-        conflicts: intSet, realConflicts: reg list
-    }
+    type reg and preg and basicBlock and regProperty
+    type closureRef
 
-    val getConflictStates: extendedBasicBlock vector * int -> conflictState vector
+    val codeICodeFunctionToX86: {blocks: basicBlock vector, functionName: string, pregProps: regProperty vector,
+                                 ccCount: int, debugSwitches: Universal.universal list, resultClosure: closureRef,
+                                 profileObject: Address.machineWord} -> unit
 
     structure Sharing:
     sig
-        type x86ICode = x86ICode
-        and reg = reg
-        and preg = preg
-        and intSet = intSet
-        and extendedBasicBlock = extendedBasicBlock
-    end;
+        type preg       = preg
+        and reg         = reg
+        and basicBlock  = basicBlock
+        and regProperty = regProperty
+        and closureRef  = closureRef
+    end
 end;

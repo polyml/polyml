@@ -20,7 +20,7 @@
 
 functor IntCodeCons (
 structure Debug: DEBUG
-structure Pretty: PRETTYSIG
+structure Pretty: PRETTY
 structure CodeArray: CODEARRAY
 
 ) : INTCODECONS =

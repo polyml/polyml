@@ -16,13 +16,13 @@
 *)
 
 functor Arm64IdentifyReferences(
-    structure ICODE: ARM64ICODE
-    structure DEBUG: DEBUG
-    structure INTSET: INTSET
+    structure Arm64ICode: ARM64ICODE
+    structure Debug: DEBUG
+    structure IntSet: INTSET
 ): ARM64IDENTIFYREFERENCES =
 struct
-    open ICODE
-    open INTSET
+    open Arm64ICode
+    open IntSet
 
     type regState =
     { 

@@ -16,18 +16,18 @@
 *)
 
 functor X86ICodeOptimise(
-    structure ICODE: ICodeSig
-    structure INTSET: INTSET
-    structure IDENTIFY: X86IDENTIFYREFSSIG
-    structure X86CODE: X86CODESIG (* For invertTest. *)
-    structure DEBUG: DEBUG
-    structure PRETTY: PRETTYSIG
-    sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET = X86CODE
-): X86ICODEOPTSIG =
+    structure X86ICode: X86ICODE
+    structure IntSet: INTSET
+    structure Identify: X86IDENTIFYREFERENCES
+    structure X86Code: X86CODE (* For invertTest. *)
+    structure Debug: DEBUG
+    structure Pretty: PRETTY
+    sharing X86ICode.Sharing = Identify.Sharing = IntSet = X86Code
+): X86ICODEOPT =
 struct
-    open ICODE
-    open INTSET
-    open IDENTIFY
+    open X86ICode
+    open IntSet
+    open Identify
     val InternalError = Misc.InternalError
 
     datatype optimise = Changed of basicBlock vector * regProperty vector | Unchanged

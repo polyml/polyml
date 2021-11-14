@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-18, 2021
+    Copyright David C. J. Matthews 2018-19
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,21 +15,21 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86ICODETRANSFORMSIG =
+signature X86ICODEOPT =
 sig
-    type reg and preg and basicBlock and regProperty
-    type closureRef
+    type extendedBasicBlock and basicBlock and regProperty
 
-    val codeICodeFunctionToX86: {blocks: basicBlock vector, functionName: string, pregProps: regProperty vector,
-                                 ccCount: int, debugSwitches: Universal.universal list, resultClosure: closureRef,
-                                 profileObject: Address.machineWord} -> unit
+    datatype optimise = Changed of basicBlock vector * regProperty vector | Unchanged
+    
+    val optimiseICode:
+        { code: extendedBasicBlock vector, pregProps: regProperty vector, ccCount: int,
+          debugSwitches: Universal.universal list } -> optimise
 
     structure Sharing:
     sig
-        type preg       = preg
-        and reg         = reg
-        and basicBlock  = basicBlock
+        type extendedBasicBlock = extendedBasicBlock
+        and basicBlock = basicBlock
         and regProperty = regProperty
-        and closureRef  = closureRef
+        and optimise = optimise
     end
 end;

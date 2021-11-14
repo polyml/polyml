@@ -148,7 +148,7 @@ sig
          rightIndex: codetree, length: codetree} -> codetree
     val mkBlockOperationFn: blockOpKind -> codetree
 
-    structure Foreign: FOREIGNCALLSIG
+    structure Foreign: FOREIGNCALL
     structure Sharing:
     sig
         type machineWord = machineWord

@@ -48,7 +48,7 @@ end;
 
 structure STRUCTVALS : STRUCTVALSIG;
 structure DEBUG: DEBUG
-structure PRETTY: PRETTYSIG (* For compilerOutputTag *)
+structure PRETTY: PRETTY (* For compilerOutputTag *)
 structure LEX: LEXSIG (* For errorMessageProcTag *)
 
 structure VERSION:

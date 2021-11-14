@@ -49,7 +49,7 @@ sig
     val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
 end;
 
-structure PRETTY : PRETTYSIG
+structure PRETTY : PRETTY
 structure ADDRESS : AddressSig
 
 structure UTILITIES :

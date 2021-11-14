@@ -30,7 +30,7 @@ sig
     }
     val gencodeLambda: bicLambdaForm * Universal.universal list * closureRef -> unit
    
-    structure Foreign: FOREIGNCALLSIG
+    structure Foreign: FOREIGNCALL
 
     structure Sharing:
     sig

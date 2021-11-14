@@ -15,11 +15,11 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor X86FOREIGNCALL(
+functor X86ForeignCall(
 
-    structure X86CODE: X86CODESIG
+    structure X86Code: X86CODE
 
-    structure X86OPTIMISE:
+    structure X86Optimise:
     sig
         type operation
         type code
@@ -37,15 +37,13 @@ functor X86FOREIGNCALL(
         end
     end
 
-    structure DEBUG: DEBUG
-    
     structure CodeArray: CODEARRAY
 
-    sharing X86CODE.Sharing = X86OPTIMISE.Sharing = CodeArray.Sharing
-): FOREIGNCALLSIG
+    sharing X86Code.Sharing = X86Optimise.Sharing = CodeArray.Sharing
+): FOREIGNCALL
 =
 struct
-    open X86CODE
+    open X86Code
     open Address
     open CodeArray
         
@@ -342,7 +340,7 @@ struct
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
         val closure = makeConstantClosure()
-        val () = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
+        val () = X86Optimise.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
     in
         closureAsAddress closure
     end
@@ -1669,7 +1667,7 @@ struct
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
         val closure = makeConstantClosure()
-        val () = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
+        val () = X86Optimise.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
     in
         closureAsAddress closure
     end
@@ -1697,7 +1695,7 @@ struct
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
         val closure = makeConstantClosure()
-        val () = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
+        val () = X86Optimise.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
         val stage2Code = closureAsAddress closure
 
         fun resultFunction f =
@@ -1723,7 +1721,7 @@ struct
             val profileObject = createProfileObject functionName
             val newCode = codeCreate (functionName, profileObject, debugSwitches)
             val closure = makeConstantClosure()
-            val () = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
+            val () = X86Optimise.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
             val res = closureAsAddress closure
             (*val _ = print("Address is " ^ (LargeWord.toString(RunCall.unsafeCast res)) ^ "\n")*)
         in

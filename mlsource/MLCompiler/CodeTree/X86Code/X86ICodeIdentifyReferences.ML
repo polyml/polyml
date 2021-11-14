@@ -16,13 +16,13 @@
 *)
 
 functor X86ICodeIdentifyReferences(
-    structure ICODE: ICodeSig
-    structure DEBUG: DEBUG
-    structure INTSET: INTSET
-): X86IDENTIFYREFSSIG =
+    structure X86ICode: X86ICODE
+    structure Debug: DEBUG
+    structure IntSet: INTSET
+): X86IDENTIFYREFERENCES =
 struct
-    open ICODE
-    open INTSET
+    open X86ICode
+    open IntSet
 
     type regState =
     { 
@@ -520,9 +520,9 @@ struct
                                    it becomes an export.  If it is not it becomes part of our
                                    passThrough. *)
                                 val (addToExp, addToImp) =
-                                    INTSET.partition (fn i => member(i, ourDeclarations)) theirImports
+                                    IntSet.partition (fn i => member(i, ourDeclarations)) theirImports
                                 val (addToStackExp, addToStackImp) =
-                                    INTSET.partition (fn i => member(i, ourStackDeclarations)) theirStackImports
+                                    IntSet.partition (fn i => member(i, ourStackDeclarations)) theirStackImports
                                 (* Merge the input states from each of the successors. *)
                                 val () =
                                     case (theirInState, Array.sub(ccRequiredOut, blockNo)) of

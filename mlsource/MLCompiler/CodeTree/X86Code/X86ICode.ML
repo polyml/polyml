@@ -17,12 +17,12 @@
 
 functor X86ICode(
 
-    structure X86CODE: X86CODESIG
+    structure X86Code: X86CODE
 
-): ICodeSig =
+): X86ICODE =
 
 struct
-    open X86CODE
+    open X86Code
 
     open Address
 

@@ -15,7 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86IDENTIFYREFSSIG =
+signature X86IDENTIFYREFERENCES =
 sig
     type x86ICode and reg and preg and basicBlock and controlFlow
     and argument and memoryIndex and regProperty and ccRef

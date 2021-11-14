@@ -15,7 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature FOREIGNCALLSIG =
+signature FOREIGNCALL =
 sig
     val rtsCallFast: string * int * Universal.universal list -> Address.machineWord
     val rtsCallFastRealtoReal: string * Universal.universal list -> Address.machineWord

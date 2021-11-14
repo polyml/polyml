@@ -51,9 +51,7 @@ sig
   val univFreeze:       univTable -> univTable
 
     val fold: (string * universal * 'a -> 'a) -> 'a -> univTable -> 'a
-end;
-
-structure PRETTY: PRETTYSIG (* Temporary addition. *)
+end
 
 ) :> STRUCTVALSIG where type codetree = CODETREE.codetree and type univTable = UNIVERSALTABLE.univTable and type level = CODETREE.level
 =  

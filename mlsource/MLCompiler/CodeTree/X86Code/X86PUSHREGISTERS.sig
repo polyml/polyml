@@ -15,7 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86PUSHREGISTERSIG =
+signature X86PUSHREGISTERS =
 sig
     type extendedBasicBlock and basicBlock and regProperty
 

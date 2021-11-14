@@ -16,15 +16,15 @@
 *)
 
 functor Arm64ICodeConflicts(
-    structure ICODE: ARM64ICODE
-    structure INTSET: INTSET
-    structure IDENTIFY: ARM64IDENTIFYREFERENCES
-    sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET
+    structure Arm64ICode: ARM64ICODE
+    structure IntSet: INTSET
+    structure Identify: ARM64IDENTIFYREFERENCES
+    sharing Arm64ICode.Sharing = Identify.Sharing = IntSet
 ): ARM64ICODECONFLICTS =
 struct
-    open ICODE
-    open INTSET
-    open IDENTIFY
+    open Arm64ICode
+    open IntSet
+    open Identify
 
     type conflictState =
     {

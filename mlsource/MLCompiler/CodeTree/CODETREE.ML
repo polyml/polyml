@@ -18,7 +18,7 @@
 functor CODETREE (
 
 structure DEBUG: DEBUG
-structure PRETTY : PRETTYSIG
+structure PRETTY : PRETTY
 structure BASECODETREE: BaseCodeTreeSig
 structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
 
@@ -28,7 +28,7 @@ sig
     type machineWord = Address.machineWord
     val codeGenerate:
         codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
-    structure Foreign: FOREIGNCALLSIG
+    structure Foreign: FOREIGNCALL
     structure Sharing : sig type codetree = codetree end
 end
 

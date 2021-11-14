@@ -21,7 +21,7 @@ functor TYPEIDCODE (
     structure TYPETREE : TYPETREESIG
     structure STRUCTVALS : STRUCTVALSIG
     structure DEBUG: DEBUG
-    structure PRETTY : PRETTYSIG
+    structure PRETTY : PRETTY
     structure ADDRESS : AddressSig
     
     sharing LEX.Sharing = STRUCTVALS.Sharing = PRETTY.Sharing = CODETREE.Sharing

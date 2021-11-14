@@ -68,7 +68,7 @@ sig
       lookup: string -> 'a  option}
 end;
 
-structure PRETTY : PRETTYSIG
+structure PRETTY : PRETTY
 
 structure MISC :
 sig
