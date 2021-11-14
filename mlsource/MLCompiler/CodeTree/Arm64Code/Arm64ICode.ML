@@ -17,7 +17,7 @@
 
 functor Arm64ICode(
 
-    structure ARM64CODE: Arm64Assembly
+    structure ARM64CODE: ARM64ASSEMBLY
 
 ): ARM64ICODE =
 

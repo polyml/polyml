@@ -21,7 +21,7 @@ local
         X86OUTPUTCODE(
             structure DEBUG   = Debug
             structure PRETTY  = Pretty
-            structure CODE_ARRAY = CODE_ARRAY
+            structure CodeArray = CodeArray
         )
 
     structure X86Optimise =
@@ -34,7 +34,7 @@ local
             structure DEBUG         = Debug
             structure X86CODE       = X86OutputCode
             structure X86OPTIMISE   = X86Optimise
-            structure CODE_ARRAY    = CODE_ARRAY
+            structure CodeArray     = CodeArray
         )
 
     structure X86ICode =
@@ -115,7 +115,7 @@ in
             structure ICODE         = X86ICode
             structure X86FOREIGN    = X86ForeignCall
             structure ICODETRANSFORM = X86ICodeTransform
-            structure CODE_ARRAY    = CODE_ARRAY
+            structure CodeArray    = CodeArray
         )
 
 end;

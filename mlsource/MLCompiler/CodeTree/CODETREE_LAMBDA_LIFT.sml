@@ -37,14 +37,14 @@ functor CODETREE_LAMBDA_LIFT (
     structure BACKEND: CodegenTreeSig
     structure DEBUG: DEBUG
     structure PRETTY : PRETTYSIG
-    structure CODE_ARRAY: CODEARRAYSIG
+    structure CodeArray: CODEARRAY
 
     sharing
         BASECODETREE.Sharing
     =   CODETREE_FUNCTIONS.Sharing
     =   BACKEND.Sharing
     =   PRETTY.Sharing
-    =   CODE_ARRAY.Sharing
+    =   CodeArray.Sharing
 ): CodegenTreeSig =
 struct
     open BASECODETREE
@@ -441,7 +441,7 @@ struct
                 val code = Newenv([RecDecs bindingsForCode], mkTuple extracts)
                 (* Code-generate, "run" the code and extract the results. *)
                 open Address
-                val closure = CODE_ARRAY.makeConstantClosure()
+                val closure = CodeArray.makeConstantClosure()
                 (* Turn this into a lambda to code-generate. *)
                 val lambda:lambdaForm =
                 {
@@ -473,7 +473,7 @@ struct
         processMapCode code
     end
     
-    type closureRef = CODE_ARRAY.closureRef
+    type closureRef = CodeArray.closureRef
 
     fun codeGenerate(original: lambdaForm, debugArgs, closure) =
     let

@@ -17,7 +17,7 @@
 
 (* Intermediate code tree for the back end of the compiler. *)
 
-signature BackendIntermediateCodeSig =
+signature BACKENDINTERMEDIATECODE =
 sig
     type machineWord = Address.machineWord
 

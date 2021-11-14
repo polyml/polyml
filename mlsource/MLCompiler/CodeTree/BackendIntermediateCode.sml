@@ -17,7 +17,7 @@
 
 (* Intermediate code tree for the back end of the compiler. *)
 
-structure BackendIntermediateCode: BackendIntermediateCodeSig =
+structure BackendIntermediateCode: BACKENDINTERMEDIATECODE =
 struct
     open Address
     

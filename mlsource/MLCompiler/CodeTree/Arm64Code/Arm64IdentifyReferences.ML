@@ -19,7 +19,7 @@ functor Arm64IdentifyReferences(
     structure ICODE: ARM64ICODE
     structure DEBUG: DEBUG
     structure INTSET: INTSET
-): Arm64IdentifyReferences =
+): ARM64IDENTIFYREFERENCES =
 struct
     open ICODE
     open INTSET

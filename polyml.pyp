@@ -100,12 +100,12 @@
 	<source name="basis\WordSignature.sml" />
 	<source name="mlsource\MLCompiler\Address.ML" />
 	<source name="mlsource\MLCompiler\BUILTINS.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\BACKENDINTERMEDIATECODE.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCode.sml" />
-	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BaseCodeTree.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BaseCodeTreeSig.sml" />
-	<source name="mlsource\MLCompiler\CodeTree\CODE_ARRAY.ML" />
-	<source name="mlsource\MLCompiler\CodeTree\CODEARRAYSIG.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\CodeArray.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\CODEARRAY.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\CodegenTreeSig.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_CODEGEN_CONSTANT_FUNCTIONS.sml" />
@@ -119,7 +119,7 @@
 	<source name="mlsource\MLCompiler\CodeTree\GCode.i386.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\GCode.interpreted.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\GCode.x86_64.ML" />
-	<source name="mlsource\MLCompiler\CodeTree\GENCODESIG.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\GENCODE.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\INTSET.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\IntSet.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\ml_bind.ML" />

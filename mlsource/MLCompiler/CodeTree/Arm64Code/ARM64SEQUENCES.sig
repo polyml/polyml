@@ -15,7 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature Arm64Sequences =
+signature ARM64SEQUENCES =
 sig
     type instr and xReg and vReg
     

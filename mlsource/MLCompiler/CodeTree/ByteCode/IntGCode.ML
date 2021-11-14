@@ -29,22 +29,22 @@
    Early versions were used as a porting aid while a native code-generator
    was being developed and the "enter-int" instructions that were needed
    for that have been retained although they no longer actually generate code. *)
-functor INTGCODE (
-    structure CODECONS : INTCODECONSSIG
-    structure BACKENDTREE: BackendIntermediateCodeSig
-    structure CODE_ARRAY: CODEARRAYSIG
+functor IntGCode (
+    structure CodeCons : INTCODECONS
+    structure BackendTree: BACKENDINTERMEDIATECODE
+    structure CodeArray: CODEARRAY
     
-    sharing CODECONS.Sharing = BACKENDTREE.Sharing = CODE_ARRAY.Sharing
+    sharing CodeCons.Sharing = BackendTree.Sharing = CodeArray.Sharing
 
-) : GENCODESIG =
+) : GENCODE =
 
 struct
 
-    open CODECONS
+    open CodeCons
     open Address
-    open BACKENDTREE
+    open BackendTree
     open Misc
-    open CODE_ARRAY
+    open CodeArray
 
     val word0 = toMachineWord 0;
   
@@ -1230,7 +1230,7 @@ struct
 
     structure Sharing =
     struct
-        open BACKENDTREE.Sharing
+        open BackendTree.Sharing
         type closureRef = closureRef
     end
 end;

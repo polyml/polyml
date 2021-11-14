@@ -16,7 +16,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature CODEARRAYSIG =
+signature CODEARRAY =
 sig
     type machineWord = Address.machineWord
     and  address = Address.address

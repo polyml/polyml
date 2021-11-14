@@ -36,12 +36,12 @@
 functor X86OUTPUTCODE (
 structure DEBUG: DEBUG
 structure PRETTY: PRETTYSIG (* for compilerOutTag *)
-structure CODE_ARRAY: CODEARRAYSIG
+structure CodeArray: CODEARRAY
 
 ) : X86CODESIG =
 
 struct
-    open CODE_ARRAY
+    open CodeArray
     open DEBUG
     open Address
     open Misc

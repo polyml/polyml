@@ -16,20 +16,20 @@
 *)
 
 functor X86CodetreeToICode(
-    structure BACKENDTREE: BackendIntermediateCodeSig
+    structure BACKENDTREE: BACKENDINTERMEDIATECODE
     structure ICODE: ICodeSig
     structure DEBUG: DEBUG
     structure X86FOREIGN: FOREIGNCALLSIG
     structure ICODETRANSFORM: X86ICODETRANSFORMSIG
-    structure CODE_ARRAY: CODEARRAYSIG
+    structure CodeArray: CODEARRAY
 
-    sharing ICODE.Sharing = ICODETRANSFORM.Sharing = CODE_ARRAY.Sharing
-): GENCODESIG =
+    sharing ICODE.Sharing = ICODETRANSFORM.Sharing = CodeArray.Sharing
+): GENCODE =
 struct
     open BACKENDTREE
     open Address
     open ICODE
-    open CODE_ARRAY
+    open CodeArray
  
     exception InternalError = Misc.InternalError
 

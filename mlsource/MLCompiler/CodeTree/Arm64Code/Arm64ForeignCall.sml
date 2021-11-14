@@ -16,10 +16,10 @@
 *)
 
 functor Arm64ForeignCall(
-    structure CodeArray: CODEARRAYSIG
-    and       Arm64Assembly: Arm64Assembly
+    structure CodeArray: CODEARRAY
+    and       Arm64Assembly: ARM64ASSEMBLY
     and       Debug: DEBUG
-    and       Arm64Sequences: Arm64Sequences
+    and       Arm64Sequences: ARM64SEQUENCES
 
     sharing CodeArray.Sharing = Arm64Assembly.Sharing = Arm64Sequences.Sharing
 ): FOREIGNCALLSIG

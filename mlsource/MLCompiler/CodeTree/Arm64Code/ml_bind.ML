@@ -17,20 +17,20 @@
 
 local
     structure Arm64Assembly =
-        ARM64ASSEMBLY (
+        Arm64Assembly (
             structure Debug = Debug
             and       Pretty = Pretty
-            and       CodeArray = CODE_ARRAY
+            and       CodeArray = CodeArray
         )
     
     structure Arm64Sequences =
-        ARM64SEQUENCES (
+        Arm64Sequences (
             structure Arm64Assembly = Arm64Assembly
         )
 
     structure Arm64Foreign =
         Arm64ForeignCall (
-            structure CodeArray   = CODE_ARRAY
+            structure CodeArray   = CodeArray
             and       Arm64Assembly = Arm64Assembly
             and       Arm64Sequences = Arm64Sequences
             and       Debug = Debug
@@ -109,7 +109,7 @@ local
     structure Arm64Fallback =
         Arm64GenCode(
             structure BackendTree = BackendIntermediateCode
-            and       CodeArray   = CODE_ARRAY
+            and       CodeArray   = CodeArray
             and       Arm64Assembly = Arm64Assembly
             and       Arm64Foreign = Arm64Foreign
             and       Arm64Sequences = Arm64Sequences
@@ -125,7 +125,7 @@ in
             structure ICODE         = Arm64ICode
             structure ARM64FOREIGN  = Arm64Foreign
             structure ICODETRANSFORM = Arm64ICodeTransform
-            structure CODE_ARRAY    = CODE_ARRAY
+            structure CODE_ARRAY    = CodeArray
             
             structure ARM64FALLBACK = Arm64Fallback
         )

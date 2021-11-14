@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021 David C.J. Matthews
+    Copyright (c) 2016, 2017, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,24 +15,28 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature Arm64ICodeConflicts =
+signature GENCODE =
 sig
-    type arm64ICode and xReg and preg and controlFlow and extendedBasicBlock    
-    type intSet
-    
-    type conflictState =
+    type backendIC and argumentType and machineWord and bicLoadForm and closureRef
+    type bicLambdaForm =
     {
-        conflicts: intSet, realConflicts: xReg list
+        body          : backendIC,
+        name          : string,
+        closure       : bicLoadForm list,
+        argTypes      : argumentType list,
+        resultType    : argumentType,
+        localCount    : int,
+        heapClosure   : bool
     }
-
-    val getConflictStates: extendedBasicBlock vector * int -> conflictState vector
+    val gencodeLambda: bicLambdaForm * Universal.universal list * closureRef -> unit
+   
+    structure Foreign: FOREIGNCALLSIG
 
     structure Sharing:
     sig
-        type arm64ICode = arm64ICode
-        and xReg = xReg
-        and preg = preg
-        and intSet = intSet
-        and extendedBasicBlock = extendedBasicBlock
-    end;
+        type backendIC = backendIC
+        and argumentType = argumentType
+        and bicLoadForm = bicLoadForm
+        and closureRef = closureRef
+    end
 end;

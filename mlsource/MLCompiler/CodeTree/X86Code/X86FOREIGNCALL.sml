@@ -39,15 +39,15 @@ functor X86FOREIGNCALL(
 
     structure DEBUG: DEBUG
     
-    structure CODE_ARRAY: CODEARRAYSIG
+    structure CodeArray: CODEARRAY
 
-    sharing X86CODE.Sharing = X86OPTIMISE.Sharing = CODE_ARRAY.Sharing
+    sharing X86CODE.Sharing = X86OPTIMISE.Sharing = CodeArray.Sharing
 ): FOREIGNCALLSIG
 =
 struct
     open X86CODE
     open Address
-    open CODE_ARRAY
+    open CodeArray
         
     (* Unix X64.  The first six arguments are in rdi, rsi, rdx, rcx, r8, r9.
                   The rest are on the stack.

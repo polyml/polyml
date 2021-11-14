@@ -17,9 +17,9 @@
 
 (* Sequences of instructions for various purposes. *)
 
-functor ARM64SEQUENCES (
-    structure Arm64Assembly: Arm64Assembly
-) : Arm64Sequences =
+functor Arm64Sequences (
+    structure Arm64Assembly: ARM64ASSEMBLY
+) : ARM64SEQUENCES =
 
 struct
     open Arm64Assembly

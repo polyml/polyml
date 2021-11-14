@@ -15,11 +15,11 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor ARM64ASSEMBLY (
+functor Arm64Assembly (
     structure Debug: DEBUG
     and       Pretty: PRETTYSIG
-    and       CodeArray: CODEARRAYSIG
-) : Arm64Assembly =
+    and       CodeArray: CODEARRAY
+) : ARM64ASSEMBLY =
 
 struct
     open CodeArray Address

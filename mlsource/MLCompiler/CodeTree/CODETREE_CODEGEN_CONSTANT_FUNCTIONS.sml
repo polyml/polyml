@@ -27,14 +27,14 @@ functor CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
     structure BACKEND: CodegenTreeSig
     structure DEBUG: DEBUG
     structure PRETTY : PRETTYSIG
-    structure CODE_ARRAY: CODEARRAYSIG
+    structure CodeArray: CODEARRAY
 
     sharing
         BASECODETREE.Sharing
     =   CODETREE_FUNCTIONS.Sharing
     =   BACKEND.Sharing
     =   PRETTY.Sharing
-    =   CODE_ARRAY.Sharing
+    =   CodeArray.Sharing
 ):
 sig
     type codetree
@@ -46,7 +46,7 @@ end =
 struct
     open BASECODETREE
     open CODETREE_FUNCTIONS
-    open CODE_ARRAY
+    open CodeArray
     open Address
 
     exception InternalError = Misc.InternalError

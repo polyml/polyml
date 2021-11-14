@@ -18,9 +18,9 @@
 functor Arm64ICodeConflicts(
     structure ICODE: ARM64ICODE
     structure INTSET: INTSET
-    structure IDENTIFY: Arm64IdentifyReferences
+    structure IDENTIFY: ARM64IDENTIFYREFERENCES
     sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET
-): Arm64ICodeConflicts =
+): ARM64ICODECONFLICTS =
 struct
     open ICODE
     open INTSET

@@ -16,16 +16,16 @@
 *)
 
 functor Arm64GenCode (
-    structure BackendTree: BackendIntermediateCodeSig
-    and       CodeArray: CODEARRAYSIG
-    and       Arm64Assembly: Arm64Assembly
+    structure BackendTree: BACKENDINTERMEDIATECODE
+    and       CodeArray: CODEARRAY
+    and       Arm64Assembly: ARM64ASSEMBLY
     and       Debug: DEBUG
     and       Arm64Foreign: FOREIGNCALLSIG
-    and       Arm64Sequences: Arm64Sequences
+    and       Arm64Sequences: ARM64SEQUENCES
     
     sharing BackendTree.Sharing = CodeArray.Sharing = Arm64Assembly.Sharing = Arm64Sequences.Sharing
 
-) : GENCODESIG =
+) : GENCODE =
 struct
 
     open BackendTree CodeArray Arm64Assembly Address Arm64Sequences

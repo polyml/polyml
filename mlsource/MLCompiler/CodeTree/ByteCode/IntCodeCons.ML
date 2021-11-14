@@ -18,16 +18,16 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor INTCODECONS (
-structure DEBUG: DEBUG
+functor IntCodeCons (
+structure Debug: DEBUG
+structure Pretty: PRETTYSIG
+structure CodeArray: CODEARRAY
 
-structure PRETTY: PRETTYSIG
-
-) : INTCODECONSSIG =
+) : INTCODECONS =
 
 struct
-    open CODE_ARRAY
-    open DEBUG
+    open CodeArray
+    open Debug
     open Address
     open Misc
 
@@ -349,13 +349,13 @@ struct
     (* create and initialise a code segment *)
     fun codeCreate (name : string, parameters) = 
     let
-        val printStream = PRETTY.getSimplePrinter(parameters, [])
+        val printStream = Pretty.getSimplePrinter(parameters, [])
     in
         Code
         { 
             constVec         = ref [],
             procName         = name,
-            printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
+            printAssemblyCode = Debug.getParameter Debug.assemblyCodeTag parameters,
             printStream    = printStream,
             stage1Code       = ref [],
             enterIntMode     = getEnterIntMode()

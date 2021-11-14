@@ -18,7 +18,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure CODE_ARRAY :> CODEARRAYSIG = 
+structure CodeArray :> CODEARRAY = 
 struct
     open Address
     open Misc
