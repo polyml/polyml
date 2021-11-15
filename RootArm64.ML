@@ -51,7 +51,7 @@ use "mlsource/MLCompiler/CodeTree/CodetreeLambdaLift.ML";
 use "mlsource/MLCompiler/CodeTree/CodetreeRemoveRedundant.ML";
 use "mlsource/MLCompiler/CodeTree/CodetreeSimplifier.ML";
 use "mlsource/MLCompiler/CodeTree/CodetreeOptimiser.ML";
-use "mlsource/MLCompiler/CodeTree/CodeTree.ML";
+use "mlsource/MLCompiler/CodeTree/CodeTreeConstruction.ML";
 use "mlsource/MLCompiler/Pretty.sml";
 use "mlsource/MLCompiler/CodeTree/CodeArray.ML";
 use "mlsource/MLCompiler/Debug.ML";

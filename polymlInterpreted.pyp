@@ -110,9 +110,8 @@
 	<source name="mlsource\MLCompiler\CodeTree\ByteCode\IntGCode.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\ByteCode\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CODEGENTREE.sig" />
-	<source name="mlsource\MLCompiler\CodeTree\CODETREE.ML" />
-	<source name="mlsource\MLCompiler\CodeTree\CodeTree.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CodetreeCodegenConstantFunctions.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\CodeTreeConstruction.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CodetreeFunctions.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREEFUNCTIONS.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\CodetreeLambdaLift.ML" />
