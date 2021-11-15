@@ -15,14 +15,14 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor CODETREE (
+functor CodeTree (
 
-structure DEBUG: DEBUG
-structure PRETTY : PRETTY
-structure BASECODETREE: BaseCodeTreeSig
-structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
+structure Debug: DEBUG
+structure Pretty : PRETTY
+structure BaseCodeTree: BASECODETREE
+structure CodetreeFunctions: CODETREEFUNCTIONS
 
-structure BACKEND:
+structure Backend:
 sig
     type codetree
     type machineWord = Address.machineWord
@@ -32,7 +32,7 @@ sig
     structure Sharing : sig type codetree = codetree end
 end
 
-structure OPTIMISER:
+structure Optimiser:
 sig
     type codetree  and envSpecial and codeBinding
     val codetreeOptimiser: codetree  * Universal.universal list * int ->
@@ -41,22 +41,22 @@ sig
 end
 
 sharing type
-    PRETTY.pretty
-=   BASECODETREE.pretty
+    Pretty.pretty
+=   BaseCodeTree.pretty
 
 sharing
-    BASECODETREE.Sharing
-=   CODETREE_FUNCTIONS.Sharing
-=   BACKEND.Sharing
-=   OPTIMISER.Sharing
+    BaseCodeTree.Sharing
+=   CodetreeFunctions.Sharing
+=   Backend.Sharing
+=   Optimiser.Sharing
 
-) : CODETREESIG =
+) : CODETREE =
 struct
-    open Address;
-    open StretchArray;
-    open BASECODETREE;
-    open PRETTY;
-    open CODETREE_FUNCTIONS
+    open Address
+    open StretchArray
+    open BaseCodeTree
+    open Pretty
+    open CodetreeFunctions
   
     exception InternalError = Misc.InternalError
     and Interrupt = Thread.Thread.Interrupt
@@ -113,8 +113,8 @@ struct
 
     fun genCode(pt, debugSwitches, numLocals) =
     let
-        val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
-        and compilerOut        = PRETTY.getCompilerOutput debugSwitches
+        val printCodeTree      = Debug.getParameter Debug.codetreeTag debugSwitches
+        and compilerOut        = Pretty.getCompilerOutput debugSwitches
         
 (*        val printCodeTree = true
         and compilerOut = PRETTY.prettyPrint(TextIO.print, 70) *)
@@ -127,14 +127,14 @@ struct
            it is code-generated. *) 
         fun codeAndPrint(code, localCount) =
         let
-            val () = if printCodeTree then compilerOut (BASECODETREE.pretty code) else ();
+            val () = if printCodeTree then compilerOut (BaseCodeTree.pretty code) else ();
         in
-            BACKEND.codeGenerate(code, localCount, debugSwitches)
+            Backend.codeGenerate(code, localCount, debugSwitches)
         end
 
         (* Optimise it. *)
         val { numLocals = localCount, general = gen, bindings = decs, special = spec } =
-            OPTIMISER.codetreeOptimiser(pt, debugSwitches, numLocals)
+            Optimiser.codetreeOptimiser(pt, debugSwitches, numLocals)
 
         (* At this stage we have a "general" value and also, possibly a "special"
            value.  We could simply create mkEnv(decs, gen) and run preCode
@@ -595,7 +595,7 @@ struct
             end
     end
 
-    structure Foreign = BACKEND.Foreign
+    structure Foreign = Backend.Foreign
 
     structure Sharing =
     struct

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015, 2017, 2020 David C.J. Matthews
+    Copyright (c) 2013, 2015, 2017, 2020-1 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,19 +21,19 @@ other functions or tuples to be generated immediately as well.  As well as avoid
 run-time allocations this also allows the code-generator to use calls/jumps to constant
 addresses.
 *)
-functor CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
-    structure BASECODETREE: BaseCodeTreeSig
-    structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
-    structure BACKEND: CodegenTreeSig
-    structure DEBUG: DEBUG
-    structure PRETTY : PRETTY
+functor CodetreeCodegenConstantFunctions (
+    structure BaseCodeTree: BASECODETREE
+    structure CodetreeFunctions: CODETREEFUNCTIONS
+    structure Backend: CODEGENTREE
+    structure Debug: DEBUG
+    structure Pretty : PRETTY
     structure CodeArray: CODEARRAY
 
     sharing
-        BASECODETREE.Sharing
-    =   CODETREE_FUNCTIONS.Sharing
-    =   BACKEND.Sharing
-    =   PRETTY.Sharing
+        BaseCodeTree.Sharing
+    =   CodetreeFunctions.Sharing
+    =   Backend.Sharing
+    =   Pretty.Sharing
     =   CodeArray.Sharing
 ):
 sig
@@ -44,8 +44,8 @@ sig
     structure Sharing: sig type codetree = codetree end
 end =
 struct
-    open BASECODETREE
-    open CODETREE_FUNCTIONS
+    open BaseCodeTree
+    open CodetreeFunctions
     open CodeArray
     open Address
 
@@ -66,10 +66,10 @@ struct
     fun codeGenerateToConstant(lambda, debugSwitches, closure) =
     let
         val () =
-            if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
-            then PRETTY.getCompilerOutput debugSwitches (BASECODETREE.pretty(Lambda lambda)) else ()
+            if Debug.getParameter Debug.codetreeAfterOptTag debugSwitches
+            then Pretty.getCompilerOutput debugSwitches (BaseCodeTree.pretty(Lambda lambda)) else ()
     in
-        BACKEND.codeGenerate(lambda, debugSwitches, closure)
+        Backend.codeGenerate(lambda, debugSwitches, closure)
     end
 
     (* If we are code-generating a function immediately we make a one-word
@@ -276,7 +276,7 @@ struct
         }
         val closure = makeConstantClosure()
 
-        val props = BACKEND.codeGenerate(lambda, debugArgs, closure)
+        val props = Backend.codeGenerate(lambda, debugArgs, closure)
 
         (* The code may consist of tuples (i.e. compiled ML structures) containing
            a mixture of Loads, where the values are yet to be compiled, and
@@ -309,7 +309,7 @@ struct
         (resultFunction, CodeTags.mergeTupleProps(newProps, props))
     end
     
-    structure Foreign = BACKEND.Foreign
+    structure Foreign = Backend.Foreign
 
     structure Sharing = struct type codetree = codetree end
 end;

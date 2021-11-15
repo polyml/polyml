@@ -31,7 +31,7 @@ functor MATCH_COMPILER (
     structure BASEPARSETREE : BaseParseTreeSig
     structure PRINTTREE: PrintParsetreeSig
     structure LEX : LEXSIG
-    structure CODETREE : CODETREESIG
+    structure CODETREE : CODETREE
     structure DEBUGGER : DEBUGGER
     structure TYPETREE : TYPETREESIG
     structure TYPEIDCODE: TYPEIDCODESIG

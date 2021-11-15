@@ -32,7 +32,7 @@
   
 functor STRUCT_VALS (
 
-structure CODETREE : CODETREESIG where type machineWord = Address.machineWord
+structure CODETREE : CODETREE where type machineWord = Address.machineWord
 
 (*****************************************************************************)
 (*                  UNIVERSALTABLE                                           *)

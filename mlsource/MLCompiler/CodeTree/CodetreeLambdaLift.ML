@@ -30,25 +30,25 @@ function if the closure would be used in a full, heap closure.
 This pass is called after optimisation and after any functions that have
 empty closures have been code-generated to constants.
 *)
-functor CODETREE_LAMBDA_LIFT (
+functor CodetreeLambdaLift (
 
-    structure BASECODETREE: BaseCodeTreeSig
-    structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
-    structure BACKEND: CodegenTreeSig
-    structure DEBUG: DEBUG
-    structure PRETTY : PRETTY
+    structure BaseCodeTree: BASECODETREE
+    structure CodetreeFunctions: CODETREEFUNCTIONS
+    structure Backend: CODEGENTREE
+    structure Debug: DEBUG
+    structure Pretty : PRETTY
     structure CodeArray: CODEARRAY
 
     sharing
-        BASECODETREE.Sharing
-    =   CODETREE_FUNCTIONS.Sharing
-    =   BACKEND.Sharing
-    =   PRETTY.Sharing
+        BaseCodeTree.Sharing
+    =   CodetreeFunctions.Sharing
+    =   Backend.Sharing
+    =   Pretty.Sharing
     =   CodeArray.Sharing
-): CodegenTreeSig =
+): CODEGENTREE =
 struct
-    open BASECODETREE
-    open CODETREE_FUNCTIONS
+    open BaseCodeTree
+    open CodetreeFunctions
     exception InternalError = Misc.InternalError
     
     (* First pass: identify the functions whose only use are calls.  This annotates the tree
@@ -454,7 +454,7 @@ struct
                     localCount = maxAddr+1,
                     recUse = []
                 }
-                val props = BACKEND.codeGenerate(lambda, debugArgs, closure)
+                val props = Backend.codeGenerate(lambda, debugArgs, closure)
                 val code: unit -> machineWord = RunCall.unsafeCast closure
                 val codeConstnt = Constnt(code(), props)
 
@@ -484,14 +484,14 @@ struct
                 Lambda p => p
             |   _ => raise InternalError "CODETREE_LAMBDA_LIFT:codeGenerate"
     in
-        BACKEND.codeGenerate(processed, debugArgs, closure)
+        Backend.codeGenerate(processed, debugArgs, closure)
     end
 
-    structure Foreign = BACKEND.Foreign
+    structure Foreign = Backend.Foreign
 
     structure Sharing =
     struct
-        open BASECODETREE.Sharing
+        open BaseCodeTree.Sharing
         type closureRef = closureRef
     end
 

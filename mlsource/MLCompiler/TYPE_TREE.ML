@@ -29,7 +29,7 @@ functor TYPE_TREE (
     structure LEX : LEXSIG
     structure STRUCTVALS : STRUCTVALSIG;
     structure PRETTY : PRETTY
-    structure CODETREE : CODETREESIG where type machineWord = Address.machineWord
+    structure CODETREE : CODETREE where type machineWord = Address.machineWord
     structure EXPORTTREE: EXPORTTREESIG;
     structure DEBUG: DEBUG
 

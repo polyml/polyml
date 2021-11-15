@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012-13, 2015-17, 2020 David C.J. Matthews
+    Copyright (c) 2012-13, 2015-17, 2020-1 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,33 +15,33 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor CODETREE_STATIC_LINK_AND_CASES(
-    structure BASECODETREE: BaseCodeTreeSig
-    structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
-    structure GCODE: GENCODE
-    structure DEBUG: DEBUG
-    structure PRETTY : PRETTY
-    structure BACKENDTREE: BACKENDINTERMEDIATECODE
+functor CodetreeStaticLinkAndCases(
+    structure BaseCodeTree: BASECODETREE
+    structure CodetreeFunctions: CODETREEFUNCTIONS
+    structure GCode: GENCODE
+    structure Debug: DEBUG
+    structure Pretty : PRETTY
+    structure BackendTree: BACKENDINTERMEDIATECODE
 
     sharing
-        BASECODETREE.Sharing
-    =   CODETREE_FUNCTIONS.Sharing
-    =   GCODE.Sharing
-    =   PRETTY.Sharing
-    =   BACKENDTREE.Sharing
-) : CodegenTreeSig
+        BaseCodeTree.Sharing
+    =   CodetreeFunctions.Sharing
+    =   GCode.Sharing
+    =   Pretty.Sharing
+    =   BackendTree.Sharing
+) : CODEGENTREE
 =
 struct
 
-    open BASECODETREE
+    open BaseCodeTree
     open Address
-    open BACKENDTREE
+    open BackendTree
 
-    datatype caseType = datatype BACKENDTREE.caseType
+    datatype caseType = datatype BackendTree.caseType
 
     exception InternalError = Misc.InternalError
 
-    open BACKENDTREE.CodeTags
+    open BackendTree.CodeTags
 
     (* Property tag to indicate which arguments to a function are functions
        that are only ever called. *)
@@ -855,27 +855,27 @@ struct
         (insertedCode, argProperties)
     end (* staticLinkAndCases *)
     
-    type closureRef = GCODE.closureRef
+    type closureRef = GCode.closureRef
 
     fun codeGenerate(lambda: lambdaForm, debugSwitches, closure) =
     let
         val (code, argProperties) = staticLinkAndCases(Lambda lambda, 0)
         val backendCode = code
         val () =
-            if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
-            then PRETTY.getCompilerOutput debugSwitches (BACKENDTREE.pretty backendCode) else ()
-        val bicLambda = case backendCode of BACKENDTREE.BICLambda lam => lam | _ => raise InternalError "Not BICLambda"
-        val () = GCODE.gencodeLambda(bicLambda, debugSwitches, closure)
+            if Debug.getParameter Debug.codetreeAfterOptTag debugSwitches
+            then Pretty.getCompilerOutput debugSwitches (BackendTree.pretty backendCode) else ()
+        val bicLambda = case backendCode of BackendTree.BICLambda lam => lam | _ => raise InternalError "Not BICLambda"
+        val () = GCode.gencodeLambda(bicLambda, debugSwitches, closure)
     in
         argProperties
     end
     
-    structure Foreign = GCODE.Foreign
+    structure Foreign = GCode.Foreign
     
     (* Sharing can be copied from CODETREE. *)
     structure Sharing =
     struct
-        open BASECODETREE.Sharing
+        open BaseCodeTree.Sharing
         type closureRef = closureRef
     end
 end;

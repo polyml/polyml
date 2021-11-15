@@ -37,7 +37,7 @@ structure BASEPARSETREE : BaseParseTreeSig
 structure PRINTTREE: PrintParsetreeSig
 structure EXPORTTREE: ExportParsetreeSig
 structure LEX : LEXSIG
-structure CODETREE : CODETREESIG
+structure CODETREE : CODETREE
 structure STRUCTVALS : STRUCTVALSIG;
 structure TYPETREE : TYPETREESIG
 structure VALUEOPS : VALUEOPSSIG;

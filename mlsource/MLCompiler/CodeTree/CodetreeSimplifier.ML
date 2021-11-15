@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2016-17, 2020 David C.J. Matthews
+    Copyright (c) 2013, 2016-17, 2020-1 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,12 +24,12 @@
     code-generate functions without free variables.
 *)
 
-functor CODETREE_SIMPLIFIER(
-    structure BASECODETREE: BaseCodeTreeSig
+functor CodetreeSimplifier(
+    structure BaseCodeTree: BASECODETREE
 
-    structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
+    structure CodetreeFunctions: CODETREEFUNCTIONS
 
-    structure REMOVE_REDUNDANT:
+    structure RemoveRedundant:
     sig
         type codetree
         type loadForm
@@ -38,12 +38,12 @@ functor CODETREE_SIMPLIFIER(
         structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
     end
 
-    structure DEBUG: DEBUG
+    structure Debug: DEBUG
 
     sharing
-        BASECODETREE.Sharing
-    =   CODETREE_FUNCTIONS.Sharing
-    =   REMOVE_REDUNDANT.Sharing
+        BaseCodeTree.Sharing
+    =   CodetreeFunctions.Sharing
+    =   RemoveRedundant.Sharing
 ) :
     sig
         type codetree and codeBinding and envSpecial
@@ -63,9 +63,9 @@ functor CODETREE_SIMPLIFIER(
     end
 =
 struct
-    open BASECODETREE
+    open BaseCodeTree
     open Address
-    open CODETREE_FUNCTIONS
+    open CodetreeFunctions
     open BuiltIns
 
     exception InternalError = Misc.InternalError
@@ -764,7 +764,7 @@ struct
             val cleanBody =
                 if isNowInline = DontInline
                 then newCode
-                else REMOVE_REDUNDANT.cleanProc(newCode, [UseExport], LoadClosure, localCount)
+                else RemoveRedundant.cleanProc(newCode, [UseExport], LoadClosure, localCount)
 
             (* The optimiser checks the size of a function and decides whether it can be inlined.
                However if we have expanded some other inlines inside the body it may now be too

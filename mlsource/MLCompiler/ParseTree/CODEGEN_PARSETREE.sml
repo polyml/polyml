@@ -33,7 +33,7 @@ functor CODEGEN_PARSETREE (
     structure EXPORTTREE: ExportParsetreeSig
     structure MATCHCOMPILER: MatchCompilerSig
     structure LEX : LEXSIG
-    structure CODETREE : CODETREESIG
+    structure CODETREE : CODETREE
     structure DEBUGGER : DEBUGGER
     structure TYPETREE : TYPETREESIG
     structure TYPEIDCODE: TYPEIDCODESIG

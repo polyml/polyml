@@ -21,7 +21,7 @@ functor DEBUGGER_ (
 
     structure STRUCTVALS : STRUCTVALSIG
     structure VALUEOPS : VALUEOPSSIG
-    structure CODETREE : CODETREESIG
+    structure CODETREE : CODETREE
     structure TYPETREE: TYPETREESIG
     structure ADDRESS : AddressSig
     structure COPIER: COPIERSIG

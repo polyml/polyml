@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,17,20 David C.J. Matthews
+    Copyright (c) 2012,13,17,20-1 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,7 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature CodetreeFunctionsSig =
+signature CODETREEFUNCTIONS =
 sig
     type codetree
     and codeBinding

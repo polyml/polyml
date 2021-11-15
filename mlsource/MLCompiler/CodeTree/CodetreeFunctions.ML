@@ -17,15 +17,15 @@
 
 (* Miscellaneous construction and operation functions on the code-tree. *)
 
-functor CODETREE_FUNCTIONS(
-    structure BASECODETREE: BaseCodeTreeSig
-    structure STRONGLY:
+functor CodetreeFunctions(
+    structure BaseCodeTree: BASECODETREE
+    structure Strongly:
         sig val stronglyConnectedComponents: {nodeAddress: 'a -> int, arcs: 'a -> int list } -> 'a list -> 'a list list end
-) : CodetreeFunctionsSig
+) : CODETREEFUNCTIONS
 =
 struct
-    open BASECODETREE
-    open STRONGLY
+    open BaseCodeTree
+    open Strongly
     open Address
     exception InternalError = Misc.InternalError
     

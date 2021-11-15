@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-20
+    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,7 +21,7 @@
 (* Basic code-tree data structure.  This was previously partly in GCODE.ML
    and partly in CODETREE.ML. *)
 
-structure BaseCodeTree: BaseCodeTreeSig =
+structure BaseCodeTree: BASECODETREE =
 struct
     open Address
 

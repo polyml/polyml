@@ -17,7 +17,7 @@
 
 functor TYPEIDCODE (
     structure LEX : LEXSIG;
-    structure CODETREE : CODETREESIG
+    structure CODETREE : CODETREE
     structure TYPETREE : TYPETREESIG
     structure STRUCTVALS : STRUCTVALSIG
     structure DEBUG: DEBUG

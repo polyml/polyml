@@ -38,7 +38,7 @@
 
       
 functor PRINT_TABLE (
-structure CODETREE: CODETREESIG
+structure CODETREE: CODETREE
 structure STRUCTVALS : STRUCTVALSIG
 structure PRETTY : PRETTY
 ): PRINTTABLESIG =

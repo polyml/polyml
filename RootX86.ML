@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2010, 2015-17, 2020 David C. J. Matthews
+    Copyright (c) 2009, 2010, 2015-17, 2020-1 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -36,22 +36,22 @@ use "mlsource/MLCompiler/MAKESIG.sml";
 use "mlsource/MLCompiler/MAKE_.ML";
 use "mlsource/MLCompiler/FOREIGNCALL.sig";
 use "mlsource/MLCompiler/BUILTINS.sml";
-use "mlsource/MLCompiler/CODETREESIG.ML";
+use "mlsource/MLCompiler/CODETREE.sig";
 use "mlsource/MLCompiler/STRUCT_VALS.ML";
 use "mlsource/MLCompiler/CodeTree/BACKENDINTERMEDIATECODE.sig";
-use "mlsource/MLCompiler/CodeTree/BaseCodeTreeSig.sml";
-use "mlsource/MLCompiler/CodeTree/CodetreeFunctionsSig.sml";
+use "mlsource/MLCompiler/CodeTree/BASECODETREE.sig";
+use "mlsource/MLCompiler/CodeTree/CODETREEFUNCTIONS.sig";
 use "mlsource/MLCompiler/CodeTree/CODEARRAY.sig";
-use "mlsource/MLCompiler/CodeTree/CodegenTreeSig.sml";
+use "mlsource/MLCompiler/CodeTree/CODEGENTREE.sig";
 use "mlsource/MLCompiler/CodeTree/GENCODE.sig";
-use "mlsource/MLCompiler/CodeTree/CODETREE_FUNCTIONS.sml";
-use "mlsource/MLCompiler/CodeTree/CODETREE_STATIC_LINK_AND_CASES.sml";
-use "mlsource/MLCompiler/CodeTree/CODETREE_CODEGEN_CONSTANT_FUNCTIONS.sml";
-use "mlsource/MLCompiler/CodeTree/CODETREE_LAMBDA_LIFT.sml";
-use "mlsource/MLCompiler/CodeTree/CODETREE_REMOVE_REDUNDANT.sml";
-use "mlsource/MLCompiler/CodeTree/CODETREE_SIMPLIFIER.sml";
-use "mlsource/MLCompiler/CodeTree/CODETREE_OPTIMISER.sml";
-use "mlsource/MLCompiler/CodeTree/CODETREE.ML";
+use "mlsource/MLCompiler/CodeTree/CodetreeFunctions.ML";
+use "mlsource/MLCompiler/CodeTree/CodetreeStaticLinkAndCases.ML";
+use "mlsource/MLCompiler/CodeTree/CodetreeCodegenConstantFunctions.ML";
+use "mlsource/MLCompiler/CodeTree/CodetreeLambdaLift.ML";
+use "mlsource/MLCompiler/CodeTree/CodetreeRemoveRedundant.ML";
+use "mlsource/MLCompiler/CodeTree/CodetreeSimplifier.ML";
+use "mlsource/MLCompiler/CodeTree/CodetreeOptimiser.ML";
+use "mlsource/MLCompiler/CodeTree/CodeTree.ML";
 use "mlsource/MLCompiler/Pretty.sml";
 use "mlsource/MLCompiler/CodeTree/CodeArray.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86CODE.sig";
@@ -79,7 +79,7 @@ use "mlsource/MLCompiler/CodeTree/X86Code/X86CodeOptimise.ML";
 use "mlsource/MLCompiler/Debug.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86ForeignCall.ML";
 use "mlsource/MLCompiler/CodeTree/BackendIntermediateCode.sml";
-use "mlsource/MLCompiler/CodeTree/BaseCodeTree.sml";
+use "mlsource/MLCompiler/CodeTree/BaseCodeTree.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/ml_bind.ML";
 use "mlsource/MLCompiler/CodeTree/GCode.i386.ML";
 use "mlsource/MLCompiler/CodeTree/ml_bind.ML";

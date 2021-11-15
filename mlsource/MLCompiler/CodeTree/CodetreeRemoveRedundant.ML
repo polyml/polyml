@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13, 17, 20 David C.J. Matthews
+    Copyright (c) 2012,13, 17, 20-1 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,11 +15,11 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor CODETREE_REMOVE_REDUNDANT(
-    structure BASECODETREE: BaseCodeTreeSig
-    structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
+functor CodetreeRemoveRedundant(
+    structure BaseCodeTree: BASECODETREE
+    structure CodetreeFunctions: CODETREEFUNCTIONS
 
-    sharing BASECODETREE.Sharing = CODETREE_FUNCTIONS.Sharing
+    sharing BaseCodeTree.Sharing = CodetreeFunctions.Sharing
 ) :
     sig
         type codetree
@@ -30,8 +30,8 @@ functor CODETREE_REMOVE_REDUNDANT(
     end
 =
 struct
-    open BASECODETREE
-    open CODETREE_FUNCTIONS
+    open BaseCodeTree
+    open CodetreeFunctions
     exception InternalError = Misc.InternalError
 
     (* This function annotates the tree with information about how variables are used.  This assists

@@ -1,6 +1,6 @@
 (*
 
-    Copyright (c) 2012,13,15,17,19-20 David C.J. Matthews
+    Copyright (c) 2012,13,15,17,19-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,12 +16,12 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor CODETREE_OPTIMISER(
-    structure BASECODETREE: BaseCodeTreeSig
+functor CodetreeOptimiser(
+    structure BaseCodeTree: BASECODETREE
 
-    structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
+    structure CodetreeFunctions: CODETREEFUNCTIONS
 
-    structure REMOVE_REDUNDANT:
+    structure RemoveRedundant:
     sig
         type codetree
         type loadForm
@@ -30,7 +30,7 @@ functor CODETREE_OPTIMISER(
         structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
     end
 
-    structure SIMPLIFIER:
+    structure Simplifier:
     sig
         type codetree and codeBinding and envSpecial
 
@@ -48,10 +48,10 @@ functor CODETREE_OPTIMISER(
         end
     end
 
-    structure DEBUG: DEBUG
-    structure PRETTY : PRETTY
+    structure Debug: DEBUG
+    structure Pretty : PRETTY
 
-    structure BACKEND:
+    structure Backend:
     sig
         type codetree
         type machineWord = Address.machineWord
@@ -61,12 +61,12 @@ functor CODETREE_OPTIMISER(
     end
 
     sharing 
-        BASECODETREE.Sharing 
-    =   CODETREE_FUNCTIONS.Sharing
-    =   REMOVE_REDUNDANT.Sharing
-    =   SIMPLIFIER.Sharing
-    =   PRETTY.Sharing
-    =   BACKEND.Sharing
+        BaseCodeTree.Sharing 
+    =   CodetreeFunctions.Sharing
+    =   RemoveRedundant.Sharing
+    =   Simplifier.Sharing
+    =   Pretty.Sharing
+    =   Backend.Sharing
 
 ) :
     sig
@@ -77,9 +77,9 @@ functor CODETREE_OPTIMISER(
     end
 =
 struct
-    open BASECODETREE
+    open BaseCodeTree
     open Address
-    open CODETREE_FUNCTIONS
+    open CodetreeFunctions
     open StretchArray
     
     infix 9 sub
@@ -1280,7 +1280,7 @@ struct
                 val tupleFields = map (fn {addr, ...} => Extract(LoadLocal addr)) transLambdas
                 val decsAndTuple = Newenv([RecDecs transLambdas], mkTuple tupleFields)
                 val maxLocals = List.foldl(fn ({addr, ...}, n) => Int.max(addr, n)) 0 transLambdas
-                val (code, props) = BACKEND.codeGenerate(decsAndTuple, maxLocals + 1, debugSwitches)
+                val (code, props) = Backend.codeGenerate(decsAndTuple, maxLocals + 1, debugSwitches)
                 val resultConstnt = Constnt(code(), props)
                 fun getResults([], _) = []
                 |   getResults({addr, use, ...} :: tail, n) =
@@ -1347,7 +1347,7 @@ struct
     let
         fun topLevel _ = raise InternalError "top level reached in optimiser"
 
-        val maxInlineSize = DEBUG.getParameter DEBUG.maxInlineSizeTag debugSwitches
+        val maxInlineSize = Debug.getParameter Debug.maxInlineSizeTag debugSwitches
 
         fun processTree (code, nLocals, optAgain) =
         let
@@ -1355,22 +1355,22 @@ struct
                expansion and if it does any we at least need to run cleanProc
                on the code so it will have set simpAgain. *)
             val (simpCode, simpCount, simpAgain) =
-                SIMPLIFIER.simplifier{code=code, numLocals=nLocals, maxInlineSize=FixedInt.toInt maxInlineSize}
+                Simplifier.simplifier{code=code, numLocals=nLocals, maxInlineSize=FixedInt.toInt maxInlineSize}
         in
             if optAgain orelse simpAgain
             then
             let
                 (* Identify usage information and remove redundant code. *)
-                val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
-                and compilerOut        = PRETTY.getCompilerOutput debugSwitches
-                val simpCode = SIMPLIFIER.specialToGeneral simpCode
-                val () = if printCodeTree then compilerOut(PRETTY.PrettyString "Output of simplifier") else ()
-                val () = if printCodeTree then compilerOut (BASECODETREE.pretty simpCode) else ()
+                val printCodeTree      = Debug.getParameter Debug.codetreeTag debugSwitches
+                and compilerOut        = Pretty.getCompilerOutput debugSwitches
+                val simpCode = Simplifier.specialToGeneral simpCode
+                val () = if printCodeTree then compilerOut(Pretty.PrettyString "Output of simplifier") else ()
+                val () = if printCodeTree then compilerOut (BaseCodeTree.pretty simpCode) else ()
                 val preOptCode =
-                    REMOVE_REDUNDANT.cleanProc(simpCode, [UseExport], topLevel, simpCount)
+                    RemoveRedundant.cleanProc(simpCode, [UseExport], topLevel, simpCount)
                 (* Print the code with the use information before it goes into the optimiser. *)
-                val () = if printCodeTree then compilerOut(PRETTY.PrettyString "Output of cleaner") else ()
-                val () = if printCodeTree then compilerOut (BASECODETREE.pretty preOptCode) else ()
+                val () = if printCodeTree then compilerOut(Pretty.PrettyString "Output of cleaner") else ()
+                val () = if printCodeTree then compilerOut (BaseCodeTree.pretty preOptCode) else ()
 
                 val reprocess = ref false (* May be set in the optimiser *)
                 (* Allocate any new addresses after the existing ones. *)
@@ -1395,8 +1395,8 @@ struct
                         lambdaLiftAndConstantFunction(optCode, debugSwitches, ! addressAllocator)
 
                 (* Print the code after the optimiser. *)
-                val () = if printCodeTree then compilerOut(PRETTY.PrettyString "Output of optimiser") else ()
-                val () = if printCodeTree then compilerOut (BASECODETREE.pretty llCode) else ()
+                val () = if printCodeTree then compilerOut(Pretty.PrettyString "Output of optimiser") else ()
+                val () = if printCodeTree then compilerOut (BaseCodeTree.pretty llCode) else ()
             in
                 (* Rerun the simplifier at least. *)
                 processTree(llCode, llCount, llAgain)

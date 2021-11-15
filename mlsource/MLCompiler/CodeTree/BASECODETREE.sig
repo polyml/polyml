@@ -19,7 +19,7 @@
 *)
 
 (* Signature for the basic codetree types and operations. *)
-signature BaseCodeTreeSig =
+signature BASECODETREE =
 sig
     type machineWord = Address.machineWord
     
