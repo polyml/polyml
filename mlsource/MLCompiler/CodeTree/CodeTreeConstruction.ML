@@ -15,7 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor CodeTree (
+functor CodeTreeConstruction (
 
 structure Debug: DEBUG
 structure Pretty : PRETTY

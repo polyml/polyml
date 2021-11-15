@@ -78,7 +78,7 @@ local
 
 in
     structure CodeTree = 
-        CodeTree (
+        CodeTreeConstruction (
             structure Pretty        = Pretty
             structure Debug         = Debug
             structure BaseCodeTree  = BaseCodeTree
