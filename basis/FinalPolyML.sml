@@ -766,35 +766,28 @@ local
     fun longName (directory, file) = OS.Path.joinDirFile{dir=directory, file = file}
     
     local
-        fun fileReadable (fileTuple as (directory, object)) =
-            (* Use OS.FileSys.isDir just to test if the file/directory exists. *)
-            if (OS.FileSys.isDir (longName fileTuple); false) handle OS.SysErr _ => true
-            then false
-            else
-            let
-                (* Check that the object is present in the directory with the name
-                 given and not a case-insensitive version of it.  This avoids
-                 problems with "make" attempting to recursively make Array etc
-                 because they contain signatures ARRAY. *)
-                open OS.FileSys
-                val d = openDir (if directory = "" then "." else directory)
-                fun searchDir () =
-                  case readDir d of
-                     NONE => false
-                  |  SOME f => f = object orelse searchDir ()
-                val present = searchDir()
-            in
-                closeDir d;
-                present
-            end
-    
+        (* Test whether a file really exists rather than a case-insensitive version. *)
+        fun reallyexists fileName =
+        let
+            open OS.FileSys
+            val {dir, file} = OS.Path.splitDirFile fileName
+            val dirName = if dir = "" then OS.Path.currentArc else dir
+            val direc = openDir dirName
+            fun readAll () =
+                case readDir direc of
+                    NONE => false
+                |   SOME f => f = file orelse readAll() 
+        in
+            ((dir = "" orelse reallyexists dir) andalso readAll()) before closeDir direc
+        end
+
         fun findFileTuple _                   [] = NONE
         |   findFileTuple (directory, object) (suffix :: suffixes) =
         let
             val fileName  = object ^ suffix
             val fileTuple = (directory, fileName)
         in
-            if fileReadable fileTuple
+            if reallyexists(longName fileTuple)
             then SOME fileTuple
             else findFileTuple (directory, object) suffixes
         end
@@ -820,11 +813,13 @@ local
             (* For each of the suffixes in the list try it. *)
             findFileTuple (directory, object) addedSuffixes
         end
+
+        (* See if the corresponding file is there and if it is a directory. *)
+        fun testForDirectory (name: string) : bool =
+            if reallyexists name
+            then OS.FileSys.isDir name handle OS.SysErr _ => false (* No such file. *)
+            else false
     end
-    
-    (* See if the corresponding file is there and if it is a directory. *)
-    fun testForDirectory (name: string) : bool =
-        OS.FileSys.isDir name handle OS.SysErr _ => false (* No such file. *)
 
     (* Time stamps. *)
     type timeStamp = Time.time;
