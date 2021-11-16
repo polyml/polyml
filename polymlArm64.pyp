@@ -101,6 +101,8 @@
 	<source name="mlsource\MLCompiler\Address.ML" />
 	<source name="mlsource\MLCompiler\BUILTINS.sml" />
 	<source name="mlsource\MLCompiler\CODETREE.sig" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64AllocateRegisters.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ALLOCATEREGISTERS.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ASSEMBLY.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64Assembly.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64ForeignCall.sml" />
@@ -109,8 +111,12 @@
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ICODE.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64ICodeConflicts.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ICODECONFLICTS.sig" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64ICodeOptimise.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ICODEOPTIMISE.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64IdentifyReferences.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64IDENTIFYREFERENCES.sig" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64PushRegisters.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64PUSHREGISTERS.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64SEQUENCES.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64Sequences.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ml_bind.ML" />

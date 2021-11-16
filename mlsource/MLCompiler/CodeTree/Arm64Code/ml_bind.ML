@@ -64,10 +64,9 @@ local
 
     structure Arm64Opt =
         Arm64ICodeOptimise (
-            structure Arm64ICode         = Arm64ICode
+            structure Arm64ICode    = Arm64ICode
             structure IntSet        = IntSet
             structure Identify      = Arm64ICodeIdentify
-            structure Arm64Code     = Arm64OutputCode
             structure Debug         = Debug
             structure Pretty        = Pretty
         )
