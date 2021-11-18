@@ -105,6 +105,7 @@
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ALLOCATEREGISTERS.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ASSEMBLY.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64Assembly.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64CodetreeToICode.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64ForeignCall.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64GenCode.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64ICode.ML" />

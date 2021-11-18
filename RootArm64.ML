@@ -81,6 +81,7 @@ use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64ICODEGENERATE.sig";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64ICodeToArm64Code.ML";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64ICODETRANSFORM.sig";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64ICodeTransform.ML";
+use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64CodetreeToICode.ML";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ml_bind.ML";
 use "mlsource/MLCompiler/CodeTree/GCode.arm64.ML";
 use "mlsource/MLCompiler/CodeTree/ml_bind.ML";
