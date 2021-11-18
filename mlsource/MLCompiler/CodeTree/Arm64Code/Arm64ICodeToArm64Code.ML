@@ -15,35 +15,37 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature ARM64ALLOCATEREGISTERS =
-sig
-    type intSet and extendedBasicBlock and regProperty and xReg
-    type address = Address.address 
+functor Arm64ICodeToArm64Code(
+
+    structure Arm64Assembly: ARM64ASSEMBLY
+    structure Debug: DEBUG
+    structure Arm64ICode: ARM64ICODE
+    structure Identify: ARM64IDENTIFYREFERENCES
+    structure IntSet: INTSET
+    structure Pretty: PRETTY
+
+    structure Strongly:
+        sig
+            val stronglyConnectedComponents: {nodeAddress: 'a -> int, arcs: 'a -> int list } -> 'a list -> 'a list list
+        end
     
-    type conflictState =
-    {
-        conflicts: intSet, realConflicts: xReg list
-    }
+    sharing Arm64Assembly.Sharing = Arm64ICode.Sharing = Identify.Sharing = IntSet
+): ARM64ICODEGENERATE =
+struct
+    open Identify
+    open Arm64ICode
+    open Arm64Assembly
+    open Address
 
-    datatype allocateResult =
-        AllocateSuccess of xReg vector
-    |   AllocateFailure of intSet list
-    
-    val allocateRegisters :
-        {
-            blocks: extendedBasicBlock vector,
-            regStates: conflictState vector,
-            regProps: regProperty vector
-        } -> allocateResult
+    fun icodeToArm64Code _ = raise Fallback "icodeToArm64Code"
 
-    val nGenRegs: int
-
-    structure Sharing:
-    sig
+    structure Sharing =
+    struct
         type intSet             = intSet
         and extendedBasicBlock  = extendedBasicBlock
         and regProperty         = regProperty
         and xReg                = xReg
-        and allocateResult      = allocateResult
+        and closureRef          = closureRef
     end
+
 end;

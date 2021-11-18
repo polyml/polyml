@@ -68,7 +68,44 @@ struct
     |   ConditionalHandle of { handler: int, continue: int }
 
     and basicBlock = BasicBlock of { block: arm64ICode list, flow: controlFlow }
+
+    local
+        fun printReg(PReg i, stream) = stream("R" ^ Int.toString i)
+        and printCC(CcRef ccRef, stream) = stream ("CC" ^ Int.toString ccRef)
     
+        fun printICode(PlaceHolder, stream) = stream "\tPlaceHolder"
+
+        and printCondition(cond,  stream)  = stream(condToString cond)
+
+        (* Print a basic block. *)
+        fun printBlock stream (blockNo, BasicBlock{block, flow, ...}) =
+        (
+            (* Put a label on all but the first. *)
+            if blockNo <> 0 then stream("L" ^ Int.toString blockNo ^ ":") else ();
+            List.app (fn icode => (printICode(icode, stream); stream "\n")) block;
+            case flow of
+                Unconditional l => stream("\tJump\tL" ^ Int.toString l ^ "\n")
+            |   Conditional {condition, trueJump, falseJump, ccRef, ...} =>
+                (
+                    stream "\tJump"; printCondition(condition, stream);
+                    stream "\t"; printCC(ccRef, stream);
+                    stream " L"; stream (Int.toString trueJump);
+                    stream " else L"; stream (Int.toString falseJump); stream "\n"
+                )
+            |   ExitCode => ()
+            |   IndexedBr _ => ()
+            |   SetHandler{handler, continue} =>
+                    stream(concat["\tSetHandler\tH", Int.toString handler, "\n",
+                                  "\tJump\tL", Int.toString continue, "\n"])
+            |   UnconditionalHandle handler => stream("\tJump\tH" ^ Int.toString handler ^ "\n")
+            |   ConditionalHandle{handler, continue} =>
+                    stream(concat["\tJump\tL", Int.toString continue, " or H", Int.toString handler, "\n"])
+        )
+    in
+        fun printICodeAbstract(blockVec, stream) =
+            Vector.appi(printBlock stream) blockVec
+    end
+
     structure Sharing =
     struct
         type xReg           = xReg

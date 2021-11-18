@@ -73,7 +73,7 @@ local
 
     structure Arm64IAllocate =
         Arm64AllocateRegisters (
-            structure Arm64ICode         = Arm64ICode
+            structure Arm64ICode    = Arm64ICode
             structure Identify      = Arm64ICodeIdentify
             structure ConflictSets  = Arm64ICodeConflicts
             structure IntSet        = IntSet
@@ -82,12 +82,11 @@ local
     structure Arm64ICodeGenerate =
         Arm64ICodeToArm64Code (
             structure Debug         = Debug
-            structure Arm64ICode         = Arm64ICode
+            structure Arm64ICode    = Arm64ICode
             structure Identify      = Arm64ICodeIdentify
             structure Pretty        = Pretty
             structure IntSet        = IntSet
-            structure Arm64Code     = Arm64OutputCode
-            structure Arm64Optimise = Arm64Optimise
+            structure Arm64Assembly = Arm64Assembly
             structure Strongly      = StronglyConnected
         )
         

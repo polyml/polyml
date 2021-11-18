@@ -65,6 +65,8 @@ sig
     and condSignedGreater: condition
     and condSignedLessEq: condition
 
+    val condToString: condition -> string
+
     datatype shiftType =
         ShiftLSL of Word8.word
     |   ShiftLSR of Word8.word

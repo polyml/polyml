@@ -15,35 +15,24 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature ARM64ALLOCATEREGISTERS =
+signature ARM64ICODEGENERATE =
 sig
     type intSet and extendedBasicBlock and regProperty and xReg
-    type address = Address.address 
+    type closureRef
     
-    type conflictState =
-    {
-        conflicts: intSet, realConflicts: xReg list
-    }
-
-    datatype allocateResult =
-        AllocateSuccess of xReg vector
-    |   AllocateFailure of intSet list
-    
-    val allocateRegisters :
+    val icodeToArm64Code :
         {
-            blocks: extendedBasicBlock vector,
-            regStates: conflictState vector,
-            regProps: regProperty vector
-        } -> allocateResult
-
-    val nGenRegs: int
-
+            blocks: extendedBasicBlock vector, allocatedRegisters: xReg vector, functionName: string,
+            stackRequired: int, debugSwitches: Universal.universal list, resultClosure: closureRef,
+            profileObject: Address.machineWord
+        } -> unit
+    
     structure Sharing:
     sig
         type intSet             = intSet
         and extendedBasicBlock  = extendedBasicBlock
         and regProperty         = regProperty
         and xReg                = xReg
-        and allocateResult      = allocateResult
+        and closureRef          = closureRef
     end
 end;

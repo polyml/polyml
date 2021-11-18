@@ -93,6 +93,23 @@ struct
        flag for borrow.  The C flag is set if there is NO borrow.
        This is the reverse of the X86. *)
 
+    fun condToString(CCode 0wx0) = "EQ"
+    |   condToString(CCode 0wx1) = "NE"
+    |   condToString(CCode 0wx2) = "CS"
+    |   condToString(CCode 0wx3) = "CC"
+    |   condToString(CCode 0wx4) = "MI"
+    |   condToString(CCode 0wx5) = "PL"
+    |   condToString(CCode 0wx6) = "VS"
+    |   condToString(CCode 0wx7) = "VC"
+    |   condToString(CCode 0wx8) = "HI"
+    |   condToString(CCode 0wx9) = "LS"
+    |   condToString(CCode 0wxa) = "GE"
+    |   condToString(CCode 0wxb) = "LT"
+    |   condToString(CCode 0wxc) = "GT"
+    |   condToString(CCode 0wxd) = "LE"
+    |   condToString(CCode 0wxe) = "AL"
+    |   condToString _           = "NV"
+
     (* Offsets in the assembly code interface pointed at by X26
        These are in units of 64-bits NOT bytes. *)
     val heapOverflowCallOffset  = 1

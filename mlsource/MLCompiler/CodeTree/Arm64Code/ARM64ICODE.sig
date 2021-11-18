@@ -1,5 +1,5 @@
 (*
-    Signature for the high-level ARM74 code
+    Signature for the high-level ARM64 code
 
     Copyright David C. J. Matthews 2021
 
@@ -29,6 +29,8 @@ sig
     (* Registers. *)
     datatype xReg = XReg of Word8.word | XZero | XSP
     and vReg = VReg of Word8.word
+    
+    val is32in64: bool
     
     type condition
     (* Condition for conditional branches etc. *)
@@ -88,6 +90,8 @@ sig
     |   ConditionalHandle of { handler: int, continue: int }
 
     and basicBlock = BasicBlock of { block: arm64ICode list, flow: controlFlow }
+
+    val printICodeAbstract: basicBlock vector * (string -> unit) -> unit
     
     structure Sharing:
     sig

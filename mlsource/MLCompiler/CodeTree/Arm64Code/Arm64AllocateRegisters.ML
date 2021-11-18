@@ -28,14 +28,20 @@ struct
     open Identify
     open ConflictSets
     open IntSet
-
     open Address
     
     datatype allocateResult =
         AllocateSuccess of xReg vector
     |   AllocateFailure of intSet list
 
+    val generalRegisters =
+        [XReg 0w0, XReg 0w1, XReg 0w2, XReg 0w3, XReg 0w4, XReg 0w5, XReg 0w6, XReg 0w7,
+         XReg 0w8, XReg 0w9, XReg 0w10, XReg 0w11, XReg 0w12, XReg 0w13, XReg 0w14, XReg 0w15,
+         XReg 0w19, XReg 0w20, XReg 0w21, XReg 0w22, XReg 0w23] @ (if is32in64 then [] else [XReg 0w24])
+
     fun allocateRegisters _ = raise Fallback "allocateRegisters"
+
+    val nGenRegs = List.length generalRegisters
 
     structure Sharing =
     struct
