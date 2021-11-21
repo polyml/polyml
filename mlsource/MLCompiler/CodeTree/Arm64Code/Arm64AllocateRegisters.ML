@@ -34,10 +34,11 @@ struct
         AllocateSuccess of xReg vector
     |   AllocateFailure of intSet list
 
+    (* General registers.  X24 is used as the global heap base in 32-in-64. X30 is the
+       return address set by blr but is otherwise a general register. *)
     val generalRegisters =
-        [XReg 0w0, XReg 0w1, XReg 0w2, XReg 0w3, XReg 0w4, XReg 0w5, XReg 0w6, XReg 0w7,
-         XReg 0w8, XReg 0w9, XReg 0w10, XReg 0w11, XReg 0w12, XReg 0w13, XReg 0w14, XReg 0w15,
-         XReg 0w19, XReg 0w20, XReg 0w21, XReg 0w22, XReg 0w23] @ (if is32in64 then [] else [XReg 0w24])
+        [X0, X1, X2, X3, X4, X5, X6, X7, X8, X9, X10, X11, X12, X13, X14, X15,
+         X19, X20, X21, X22, X23] @ (if is32in64 then [] else [X24]) @ [X30]
 
     fun allocateRegisters _ = raise Fallback "allocateRegisters"
 

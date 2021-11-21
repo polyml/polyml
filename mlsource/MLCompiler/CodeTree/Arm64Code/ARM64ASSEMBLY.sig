@@ -45,7 +45,7 @@ sig
     and X_MLStackPtr: xReg (* ML Stack pointer. *)
     and X_LinkReg: xReg (* Link reg - return address *)
     and X_Base32in64: xReg (* X24 is used for the heap base in 32-in-64. *)
-    
+
     val V0:  vReg   and V1:  vReg   and V2:  vReg   and V3: vReg
     and V4:  vReg   and V5:  vReg   and V6:  vReg   and V7: vReg
 

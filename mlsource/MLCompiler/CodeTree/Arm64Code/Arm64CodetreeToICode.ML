@@ -107,8 +107,74 @@ struct
         |   NoResult
         (*|   Allowed of allowedArgument*)
 
-        fun codeToICodeRev _ = raise Fallback "codeToICodeRev"
+        datatype argLoc =
+            ArgInReg of { realReg: xReg, argReg: preg }
+        |   ArgOnStack of { stackOffset: int, stackReg: stackLocn }
+
+        (* Pseudo-regs for the result, the closure and the args that were passed in real regs. *)
+        val resultTarget = newPReg()
+        val closureRegAddr = newPReg()
+        val returnAddrReg = newPReg()
         
+        val generalArgRegs = [X0, X1, X2, X3, X4, X5, X6, X7]
+
+        (* Create a map for the arguments indicating their register or stack location. *)
+        local
+            (* Select the appropriate argument register depending on the argument type. *)
+            fun argTypesToArgEntries([], _, _) = ([], [], [], [])
+
+            |   argTypesToArgEntries(_ :: tl, gReg :: gRegs, n) =
+                (* This deals with general arguments but also with extra floating point arguments.
+                   They are boxed as usual. *)
+                let
+                    val (argTypes, argCode, argRegs, stackArgs) =
+                        argTypesToArgEntries(tl, gRegs, n-1)
+                    val argReg=newPReg()
+                in
+                    (ArgInReg{realReg=gReg, argReg=argReg} :: argTypes, argCode, (argReg, gReg) :: argRegs, stackArgs)
+                end
+
+            |   argTypesToArgEntries(_ :: tl, [], n) =
+                let
+                    val (argTypes, argCode, argRegs, stackArgs) = argTypesToArgEntries(tl, [], n-1)
+                    val stackLoc = newStackLoc 1
+                in
+                    (ArgOnStack {stackOffset=n, stackReg = stackLoc } :: argTypes, argCode, argRegs, stackLoc :: stackArgs)
+                end
+
+            val (argEntries, argCode, argRegs, stackArguments) =
+                argTypesToArgEntries(argTypes, generalArgRegs, List.length argTypes)
+            val clReg = case closure of [] => [] | _ => [(closureRegAddr, X8)]
+            val retReg = [(returnAddrReg, X30)]
+        in
+            val argumentVector = Vector.fromList argEntries
+
+            (* Start code for the function. *)
+            val beginInstructions = argCode @
+                [BlockBegin{regArgs=retReg @ clReg @ argRegs, stackArgs=stackArguments @ [returnAddressEntry]}]
+
+            (* The number of arguments on the stack.  Needed in return instrs and tail calls. *)
+            val currentStackArgs = List.length stackArguments
+        end
+        
+        fun codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
+            (
+                case Vector.sub(argumentVector, a) of
+                    ArgInReg{argReg, ...} => (* It was originally in a register.  It's now in a preg. *)
+                        moveIfNotAllowedRev(destination, tailCode, RegisterArgument argReg)
+                |   ArgOnStack{stackOffset, stackReg} => (* Pushed before call. *)
+                            raise Fallback "codeToICodeRev"
+                    (*let
+                        val target = asTarget destination
+                    in
+                        (BlockSimple(LoadArgument{
+                            source=StackLocation{wordOffset=stackOffset+stackPtr, container=stackReg, field=0, cache=NONE},
+                            dest=target, kind=moveNativeWord}) :: tailCode,
+                         RegisterArgument target, false)
+                    end*)
+            )
+        
+        |   codeToICodeRev _ = raise Fallback "codeToICodeRev"
 
         (*Turn the codetree structure into icode. *)
         val bodyContext = {loopArgs=NONE, stackPtr=0, currHandler=NONE, overflowBlock=ref NONE}

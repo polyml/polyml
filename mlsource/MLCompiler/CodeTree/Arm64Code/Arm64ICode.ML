@@ -45,7 +45,15 @@ struct
     datatype ccRef = CcRef of int
 
     datatype arm64ICode =
-        PlaceHolder
+        (* Start of function.  Set the register arguments.  stackArgs is the list of
+           stack arguments.  If the function has a real closure regArgs includes the
+           closure register (X8).  The register arguments include the return register
+           (X30). *)
+        BeginFunction of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
+
+        (* Return from the function.  resultReg is the preg that contains the result,
+           returnReg is the preg that contains the return address. *)
+    |   ReturnResultFromFunction of { resultReg: preg, returnReg: preg, numStackArgs: int }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =

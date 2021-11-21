@@ -29,6 +29,18 @@ sig
     (* Registers. *)
     datatype xReg = XReg of Word8.word | XZero | XSP
     and vReg = VReg of Word8.word
+
+    val X0:  xReg   and X1:  xReg   and X2:  xReg   and X3: xReg
+    and X4:  xReg   and X5:  xReg   and X6:  xReg   and X7: xReg
+    and X8:  xReg   and X9:  xReg   and X10: xReg   and X11: xReg
+    and X12: xReg   and X13: xReg   and X14: xReg   and X15: xReg
+    and X16: xReg   and X17: xReg   and X18: xReg   and X19: xReg
+    and X20: xReg   and X21: xReg   and X22: xReg   and X23: xReg
+    and X24: xReg   and X25: xReg   and X26: xReg   and X27: xReg
+    and X28: xReg   and X29: xReg   and X30: xReg
+
+    val V0:  vReg   and V1:  vReg   and V2:  vReg   and V3: vReg
+    and V4:  vReg   and V5:  vReg   and V6:  vReg   and V7: vReg
     
     val is32in64: bool
     
@@ -67,7 +79,15 @@ sig
     datatype ccRef = CcRef of int
 
     datatype arm64ICode =
-        PlaceHolder
+        (* Start of function.  Set the register arguments.  stackArgs is the list of
+           stack arguments.  If the function has a real closure regArgs includes the
+           closure register (X8).  The register arguments include the return register
+           (X30). *)
+        BeginFunction of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
+
+        (* Return from the function.  resultReg is the preg that contains the result,
+           returnReg is the preg that contains the return address. *)
+    |   ReturnResultFromFunction of { resultReg: preg, returnReg: preg, numStackArgs: int }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
