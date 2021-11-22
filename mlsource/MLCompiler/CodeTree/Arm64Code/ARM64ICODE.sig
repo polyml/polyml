@@ -79,11 +79,14 @@ sig
     datatype ccRef = CcRef of int
 
     datatype arm64ICode =
+        (* Move the contents of one preg to another.  These are always 64-bits. *)
+        MoveRegister of { source: preg, dest: preg }
+
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
            closure register (X8).  The register arguments include the return register
            (X30). *)
-        BeginFunction of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
+    |   BeginFunction of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
 
         (* Return from the function.  resultReg is the preg that contains the result,
            returnReg is the preg that contains the return address. *)

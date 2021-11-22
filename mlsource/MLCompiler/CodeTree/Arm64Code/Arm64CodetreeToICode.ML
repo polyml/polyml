@@ -151,17 +151,34 @@ struct
 
             (* Start code for the function. *)
             val beginInstructions = argCode @
-                [BlockBegin{regArgs=retReg @ clReg @ argRegs, stackArgs=stackArguments @ [returnAddressEntry]}]
+                [BlockBegin{regArgs=retReg @ clReg @ argRegs, stackArgs=stackArguments }]
 
             (* The number of arguments on the stack.  Needed in return instrs and tail calls. *)
             val currentStackArgs = List.length stackArguments
         end
+
+        fun returnInstruction({stackPtr, ...}, resReg, tailCode) =
+        let
+        in
+            BlockExit(ReturnResultFromFunction{resultReg=resReg, returnReg = returnAddrReg, numStackArgs=currentStackArgs}) ::
+  
+                (if stackPtr <> 0
+                then (*BlockSimple(ResetStackPtr{numWords=stackPtr, preserveCC=false}) :: tailCode*) raise Fallback "returnInstruction"
+                else tailCode)
+        end
+
+        fun asTarget(SpecificPReg preg) = preg
+        |   asTarget NoResult = newPReg()
+
+        fun moveToResult(NoResult, code, sReg) = (code, sReg, false)
+        |   moveToResult(SpecificPReg target, code, sReg) =
+                (BlockSimple(MoveRegister{source=sReg, dest=target}) :: code, target, false)
         
         fun codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
             (
                 case Vector.sub(argumentVector, a) of
                     ArgInReg{argReg, ...} => (* It was originally in a register.  It's now in a preg. *)
-                        moveIfNotAllowedRev(destination, tailCode, RegisterArgument argReg)
+                        moveToResult(destination, tailCode, argReg)
                 |   ArgOnStack{stackOffset, stackReg} => (* Pushed before call. *)
                             raise Fallback "codeToICodeRev"
                     (*let
@@ -179,9 +196,8 @@ struct
         (*Turn the codetree structure into icode. *)
         val bodyContext = {loopArgs=NONE, stackPtr=0, currHandler=NONE, overflowBlock=ref NONE}
         val (bodyCode, _, bodyExited) =
-            (*codeToICodeRev(body, bodyContext, true, SpecificPReg resultTarget, beginInstructions) *)
-                raise Fallback "bodyCode"
-        val icode = if bodyExited then bodyCode else raise Fallback "returnInstruction" (*returnInstruction(bodyContext, resultTarget, bodyCode)*)
+            codeToICodeRev(body, bodyContext, true, SpecificPReg resultTarget, beginInstructions)
+        val icode = if bodyExited then bodyCode else returnInstruction(bodyContext, resultTarget, bodyCode)
         
         (* Turn the icode list into basic blocks.  The input list is in reverse so as part of
            this we reverse the list. *)
@@ -197,8 +213,7 @@ struct
             
             |   splitCode(BlockBegin args :: _, sinceLabel, flow) =
                     (* Final instruction.  Create the initial block and exit. *)
-                    raise Fallback "BeginFunction"
-                    (*createEntry(0, BeginFunction args ::sinceLabel, flow)*)
+                    createEntry(0, BeginFunction args ::sinceLabel, flow)
             
             |   splitCode(BlockSimple instr :: rest, sinceLabel, flow) =
                     splitCode(rest, instr :: sinceLabel, flow)
@@ -249,12 +264,23 @@ struct
     fun gencodeLambda(lambda, debugSwitches, closure) =
     let
         open Debug Universal
-        (*val debugSwitches =
-            [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
-            tagInject assemblyCodeTag true] @ debugSwitches*)
+        val tryNewCG = Debug.getParameter Debug.compilerDebugTag debugSwitches
     in
-        codeFunctionToArm64(lambda, debugSwitches, closure)
-            handle Fallback _ => Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
+        if tryNewCG = 0
+        then Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
+        else
+        let
+            val newDebugSwitches =
+                [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
+                tagInject assemblyCodeTag true] @ debugSwitches
+        in
+            codeFunctionToArm64(lambda, newDebugSwitches, closure)
+                handle Fallback reason =>
+                    (
+                        print "Fallback-"; print reason; print "\n";
+                        Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
+                    )
+        end
     end
 
     structure Foreign = Arm64Foreign

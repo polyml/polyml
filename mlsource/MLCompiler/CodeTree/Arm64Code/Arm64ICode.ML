@@ -45,11 +45,14 @@ struct
     datatype ccRef = CcRef of int
 
     datatype arm64ICode =
+        (* Move the contents of one preg to another.  These are always 64-bits. *)
+        MoveRegister of { source: preg, dest: preg }
+
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
            closure register (X8).  The register arguments include the return register
            (X30). *)
-        BeginFunction of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
+    |   BeginFunction of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
 
         (* Return from the function.  resultReg is the preg that contains the result,
            returnReg is the preg that contains the return address. *)
@@ -80,8 +83,35 @@ struct
     local
         fun printReg(PReg i, stream) = stream("R" ^ Int.toString i)
         and printCC(CcRef ccRef, stream) = stream ("CC" ^ Int.toString ccRef)
-    
-        fun printICode(PlaceHolder, stream) = stream "\tPlaceHolder"
+         
+        fun printStackLoc(StackLoc{size, rno}, stream) =
+            (stream "S"; stream(Int.toString rno); stream "("; stream(Int.toString size); stream ")")
+        
+        fun regRepr(XReg w) = "X" ^ Int.toString(Word8.toInt w)
+        |   regRepr XZero = "XZ"
+        |   regRepr XSP = "SP"
+   
+        fun printICode(MoveRegister{ source, dest }, stream) =
+            (
+                stream "\tMove\t";
+                printReg(source,  stream);
+                stream " => ";
+                printReg(dest, stream)
+            )
+
+        |   printICode(BeginFunction{ regArgs, stackArgs }, stream) =
+            (
+                stream "\tBeginFunction\t";
+                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printReg(arg, stream); stream " ")) regArgs;
+                List.app(fn s => printStackLoc(s, stream)) stackArgs
+            )
+
+        |   printICode(ReturnResultFromFunction{ resultReg, returnReg, numStackArgs }, stream) =
+            (
+                stream "\tReturnFromFunction\t";
+                printReg(returnReg, stream); stream " with "; printReg(resultReg, stream);
+                stream("," ^ Int.toString numStackArgs)
+            )
 
         and printCondition(cond,  stream)  = stream(condToString cond)
 
