@@ -27,7 +27,31 @@ struct
     open IntSet
     open Identify
     
-    fun addRegisterPushes _ = raise Fallback "addRegisterPushes"
+    (* Curried subscript functions *)
+    fun asub a i = Array.sub(a, i)
+    and vsub v i = Vector.sub(v, i)
+    
+    exception InternalError = Misc.InternalError
+
+    (* Each preg in the input is mapped to either a new preg or the stack. *)
+    datatype pregMapType = Unset | ToPReg of preg | ToStack of int * stackLocn
+
+    (* The stack contains both entries in the input code and entries added here.
+       It is really used to ensure that the stack at run time is the same size
+       at the start of a block whichever block has jumped to it. *)
+    datatype stackEntry =
+        NewEntry of {pregNo: int} (* pregNo is the original preg that has been pushed here. *)
+    |   OriginalEntry of { stackLoc: stackLocn }
+    |   HandlerEntry
+
+    fun addRegisterPushes { code, pregProps, ...} =
+    let
+        fun toBasic (ExtendedBasicBlock{ block, flow, ...}) =
+            BasicBlock{ block = map (fn { instr, ...} => instr) block, flow = flow }
+    in
+        { code = Vector.map toBasic code, pregProps=pregProps, maxStack = 0}
+    end
+
 
     structure Sharing =
     struct

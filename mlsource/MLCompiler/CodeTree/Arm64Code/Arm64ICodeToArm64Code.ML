@@ -36,8 +36,259 @@ struct
     open Arm64ICode
     open Arm64Assembly
     open Address
+    exception InternalError = Misc.InternalError
 
-    fun icodeToArm64Code _ = raise Fallback "icodeToArm64Code"
+    fun icodeToArm64Code {blocks, functionName, stackRequired, debugSwitches, allocatedRegisters, resultClosure, profileObject, ...} =
+    let
+        val numBlocks = Vector.length blocks
+
+        val outputLabelCount = ref 0
+        val blockToLabelMap = Vector.tabulate(numBlocks, fn _ => createLabel())
+
+        fun getBlockLabel blockNo = Vector.sub(blockToLabelMap, blockNo)
+
+        local
+            (* processed - set to true when a block has been processed. *)
+            val processed = Array.array(numBlocks, false)
+            fun haveProcessed n = Array.sub(processed, n)
+            
+            (* Find the blocks that reference this one.  This isn't essential but
+               allows us to try to generate blocks in the order of the control
+               flow.  This in turn may allow us to use short branches rather
+               than long ones. *)
+            val labelRefs = Array.array(numBlocks, [])
+
+            datatype flowCode =
+                FlowCodeSimple of int
+            |   FlowCodeCMove of {code: instr list, trueJump: int, falseJump: int}
+            
+            (* Process this recursively to set the references.  If we have
+               unreachable blocks, perhaps because they've been merged, we
+               don't want to include them in the reference counting.
+               This shouldn't happen now that IdentifyReferences removes
+               unreferenced blocks. *)
+            fun setReferences fromLabel toLabel =
+                case Array.sub(labelRefs, toLabel) of
+                    [] => (* Not yet visited at all. *)
+                    let
+                        val ExtendedBasicBlock{ flow, ...} = Vector.sub(blocks, toLabel)
+                        val refs =
+                            case flow of
+                                ExitCode => []
+                            |   Unconditional lab => [lab]
+                            |   Conditional{trueJump, falseJump, ... } => [trueJump, falseJump]
+                            |   IndexedBr labs => labs
+                            |   SetHandler { handler, continue } => [handler, continue]
+                            |   UnconditionalHandle _ => []
+                            |   ConditionalHandle { continue, ...} => [continue]
+
+                        val () =
+                            if fromLabel >= 0 then Array.update(labelRefs, toLabel, [fromLabel]) else ()
+                    in
+                        List.app (setReferences toLabel) refs
+                    end
+                    
+                |   refs =>
+                    (* We've visiting this at least once.  Just add us to the list. *)
+                        Array.update(labelRefs, toLabel, fromLabel :: refs)
+            
+            val _ = setReferences 0 0
+            
+            (* Process the blocks.  We keep the "stack" explicit rather than using recursion
+               because this allows us to select both arms of a conditional branch sooner. *)
+            fun genCode(toDo, lastFlow, code) =
+            case List.filter (not o haveProcessed) toDo of
+                [] =>
+                let
+                    (* There's nothing left to do. We may need to add a final branch to the end. *)
+                    val finalBranch =
+                        case lastFlow of
+                            ExitCode => []
+                        |   IndexedBr _ => []
+                        |   Unconditional dest => [unconditionalBranch(getBlockLabel dest)]
+                        |   Conditional { condition, trueJump, falseJump, ...} =>
+                                [
+                                    unconditionalBranch(getBlockLabel falseJump),
+                                    conditionalBranch(condition, getBlockLabel trueJump)
+                                ]
+                        |   SetHandler { continue, ...} => [unconditionalBranch(getBlockLabel continue)]
+                        |   UnconditionalHandle _ => []
+                        |   ConditionalHandle { continue, ...} => [unconditionalBranch(getBlockLabel continue)]
+                in
+                    finalBranch @ code (* Done. *)
+                end
+
+            |   stillToDo as head :: _ =>
+                let
+                    local
+                        (* Check the references.  If all the sources that lead up to this have
+                           already been we won't have any backward jumps. *)
+                        fun available dest = List.all haveProcessed (Array.sub(labelRefs, dest))
+
+                        val continuation =
+                            case lastFlow of
+                                ExitCode => NONE
+                            |   IndexedBr _ => NONE (* We could put the last branch in here. *)
+                            |   Unconditional dest =>
+                                    if not (haveProcessed dest) andalso available dest
+                                    then SOME(FlowCodeSimple dest)
+                                    else NONE
+                            |   Conditional {trueJump, falseJump, condition, ...} =>
+                                let
+                                    (* Can we replace this with a SETCC or CMOV?  If both arms simply set
+                                       a register to a value and either return or jump to the same location
+                                       we can use a SETCC or a CMOV.  *)
+                                    val ExtendedBasicBlock { flow=tFlow, block=tBlock, ...} = Vector.sub(blocks, trueJump)
+                                    and ExtendedBasicBlock { flow=fFlow, block=fBlock, ...} = Vector.sub(blocks, falseJump)
+                                in
+                                        (* We can usually choose either destination and in nearly all cases
+                                           it won't matter.  The default branch is not to take forward jumps
+                                           so if there is reason to believe that one branch is more likely
+                                           we should follow that branch now and leave the other.  If we
+                                           have JO/JNO we assume that overflow is unusual.  If one branch
+                                           raises an exception we assume that that is unusual. *)
+                                        let
+                                            val (first, second) =
+                                                (*case (condition, Vector.sub(blocks, falseJump)) of
+                                                |   _ =>*) (falseJump, trueJump)
+                                        in
+                                            if not (haveProcessed first) andalso available first
+                                            then SOME(FlowCodeSimple first)
+                                            else if not (haveProcessed second) andalso available second
+                                            then SOME(FlowCodeSimple second)
+                                            else NONE
+                                        end
+                                end
+                           |    SetHandler { continue, ... } =>
+                                    (* We want the continuation if possible.  We'll need a
+                                       branch round the handler so that won't help. *)
+                                    if not (haveProcessed continue) andalso available continue
+                                    then SOME(FlowCodeSimple continue)
+                                    else NONE
+                           |    UnconditionalHandle _ => NONE
+                           |    ConditionalHandle _ => NONE
+                    in
+                        (* First choice - continue the existing block.
+                           Second choice - the first item whose sources have all been
+                           processed.
+                           Third choice - something from the list. *)
+                        val picked =
+                            case continuation of
+                                SOME c => c
+                            |   NONE =>
+                                    case List.find available stillToDo of
+                                        SOME c => FlowCodeSimple c
+                                    |   NONE => FlowCodeSimple head
+                    end
+                    
+                in
+                    case picked of
+                        FlowCodeSimple picked =>
+                        let
+                            val () = Array.update(processed, picked, true)
+
+                            (* Code to terminate the previous block. *)
+                            val startCode =
+                                case lastFlow of
+                                    ExitCode => []
+                                |   IndexedBr _ => []
+                                |   UnconditionalHandle _ => []
+                                |   Unconditional dest =>
+                                        if dest = picked then [] else [unconditionalBranch(getBlockLabel dest)]
+                                |   ConditionalHandle { continue, ...} =>
+                                        if continue = picked then [] else [unconditionalBranch(getBlockLabel continue)]
+                                |   SetHandler { continue, ... } =>
+                                        if continue = picked then [] else [unconditionalBranch(getBlockLabel continue)]
+                                |   Conditional { condition, trueJump, falseJump, ...} =>
+                                    if picked = falseJump (* Usual case. *)
+                                    then [conditionalBranch(condition, getBlockLabel trueJump)]
+                                    else if picked = trueJump
+                                    then (* We have a jump to the true condition. Invert the jump.
+                                            This is more than an optimisation.  Because this immediately precedes the
+                                            true block we're not going to generate a label. *)
+                                        [conditionalBranch(invertTest condition, getBlockLabel falseJump)]
+                                    else
+                                    [
+                                        unconditionalBranch(getBlockLabel falseJump),
+                                        conditionalBranch(condition, getBlockLabel trueJump)
+                                    ]
+
+                            (* Code-generate the body with the code we've done so far
+                               at the end.  Add a label at the start if necessary. *)
+                            local
+                                (* If the previous block dropped through to this and this was
+                                   the only reference then we don't need a label. *)
+                                fun onlyJumpingHere (lab: int) =
+                                    if lab <> picked then false
+                                    else case Array.sub(labelRefs, picked) of
+                                        [singleton] => singleton = lab
+                                    |   _ => false
+                    
+                                val noLabel =
+                                    case lastFlow of
+                                        ExitCode => picked = 0 (* Unless this was the first block. *)
+                                    |   Unconditional dest => onlyJumpingHere dest
+                                    |   Conditional { trueJump, falseJump, ...} =>
+                                            onlyJumpingHere trueJump orelse onlyJumpingHere falseJump
+                                    |   IndexedBr _ => false
+                                    |   SetHandler _ => false
+                                    |   UnconditionalHandle _ => false
+                                    |   ConditionalHandle { continue, ...} => onlyJumpingHere continue
+                            in
+                                val startLabel = if noLabel then [] else [setLabel(getBlockLabel picked)]
+                            end
+
+                            val ExtendedBasicBlock { flow, block, ...} = Vector.sub(blocks, picked)
+
+                            local
+                                fun genCodeBlock(instr, code) = codeExtended {flow=flow} (instr, code)
+                            in
+                                val bodyCode = List.foldl genCodeBlock (startLabel @ startCode @ code) block
+                            end
+
+                            val addSet =
+                                case flow of
+                                    ExitCode => []
+                                |   IndexedBr cases => cases
+                                |   Unconditional dest => [dest]
+                                |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
+                                |   SetHandler { handler, continue } => [handler, continue]
+                                |   UnconditionalHandle _ => []
+                                |   ConditionalHandle { continue, ...} => [continue]
+
+                        in
+                            genCode(addSet @ stillToDo, flow, bodyCode)
+                        end
+                
+                    |   FlowCodeCMove{code, trueJump, falseJump} =>
+                        let
+                            (* We've generated a conditional move and possibly a return.  If the
+                               trueJump and falseJump are only ever referenced from this block
+                               they're done, otherwise we still need to do them. *)
+                            val _ =
+                                case Array.sub(labelRefs, trueJump) of
+                                    [_] => Array.update(processed, trueJump, true)
+                                |   _ => ()
+                            val _ =
+                                case Array.sub(labelRefs, falseJump) of
+                                    [_] => Array.update(processed, falseJump, true)
+                                |   _ => ()
+                            val ExtendedBasicBlock { flow, ...} = Vector.sub(blocks, trueJump)
+                            val addSet =
+                                case flow of
+                                    ExitCode => []
+                                |   Unconditional dest => [dest]
+                                |   _ => raise InternalError "FlowCodeCMove"
+                        in
+                            genCode(addSet @ stillToDo, flow, code)
+                        end
+                end
+        in
+            val ops = genCode([0], ExitCode, [])
+        end
+    in
+        Arm64Assembly.generateCode{instrs=List.rev ops, name=functionName, resultClosure=resultClosure, parameters=debugSwitches}
+    end
 
     structure Sharing =
     struct

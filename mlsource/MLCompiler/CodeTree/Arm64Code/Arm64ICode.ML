@@ -80,6 +80,16 @@ struct
 
     and basicBlock = BasicBlock of { block: arm64ICode list, flow: controlFlow }
 
+    (* Return the list of blocks that are the immediate successor of this. *)
+    fun successorBlocks(Unconditional l) = [l]
+    |   successorBlocks(Conditional{trueJump, falseJump, ...}) = [trueJump, falseJump]
+    |   successorBlocks ExitCode = []
+    |   successorBlocks(IndexedBr cases) = cases
+    |   successorBlocks(SetHandler{handler, continue, ...}) = [handler, continue]
+        (* We only need "handler" in SetHandler because we may have a handler that is never actually jumped to. *)
+    |   successorBlocks(UnconditionalHandle handler) = [handler]
+    |   successorBlocks(ConditionalHandle{handler, continue, ...}) = [handler, continue]
+
     local
         fun printReg(PReg i, stream) = stream("R" ^ Int.toString i)
         and printCC(CcRef ccRef, stream) = stream ("CC" ^ Int.toString ccRef)

@@ -32,7 +32,7 @@ struct
         (* Almost every ARM64 platform is little-endian but it is possible to
            run it in big-endian mode.  Instructions are always little-endian.
            The value of isBigEndian will be determined when the structure is
-           constructed.  That's not a problem since it will be build on the
+           constructed.  That's not a problem since it will be built on the
            target machine. *)
         val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
     in
@@ -92,6 +92,9 @@ struct
     (* N.B. On subtraction and comparison the ARM uses an inverted carry
        flag for borrow.  The C flag is set if there is NO borrow.
        This is the reverse of the X86. *)
+
+    (* The negation of a test just involves inverting the bottom bit. *)
+    fun invertTest(CCode cond) = CCode(Word8.xorb(cond, 0w1))
 
     fun condToString(CCode 0wx0) = "EQ"
     |   condToString(CCode 0wx1) = "NE"
@@ -1220,13 +1223,13 @@ struct
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
 
-        |   genCodeWords(ConditionalBranch{ label=ref labs, jumpCondition=CCode cond, length=ref BrExtended }:: tail, wordNo,
+        |   genCodeWords(ConditionalBranch{ label=ref labs, jumpCondition, length=ref BrExtended }:: tail, wordNo,
                             aConstNum, nonAConstNum) =
             let (* Long form - put a conditional branch with reversed sense round an unconditional branch. *)
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt (wordNo + 0w1) (* Next instruction. *)
                 val _ = willFitInRange(offset, 0w26) orelse raise InternalError "genCodeWords: branch too far"
-                val revCond = Word8.xorb(cond, 0w1)
+                val CCode revCond = invertTest jumpCondition
             in
                 writeInstr(0wx54000000 orb (0w2 << 0w5) orb word8ToWord32 revCond, wordNo, codeVec);
                 writeInstr(0wx14000000 orb (Word32.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);

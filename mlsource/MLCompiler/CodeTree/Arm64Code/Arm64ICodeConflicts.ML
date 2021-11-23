@@ -34,8 +34,147 @@ struct
     type triple = {instr: arm64ICode, current: intSet, active: intSet}
 
     exception InternalError = Misc.InternalError
-    
-    fun getConflictStates _ = raise Fallback "getConflictStates"
+
+    (* Get the conflict sets.  This code was originally part of identifyRegisterState and
+       was split off. *)
+    fun getConflictStates (blocks: extendedBasicBlock vector, maxPRegs) =
+    let
+        (* Other registers that conflict with this i.e. cannot share the same
+           real register. *)
+        val regConflicts = Array.array(maxPRegs, emptySet)
+        (* Real registers that cannot be used for this because they are needed for
+           an instruction.  Only X30 in calls and RTS traps. *)
+        and regRealConflicts = Array.array(maxPRegs, []: xReg list)
+ 
+        fun addConflictsTo(addTo, conflicts) =
+            List.app(fn aReg => Array.update(regConflicts, aReg, union(Array.sub(regConflicts, aReg), conflicts))) addTo
+
+        (* To reserve a register we need to add the real register to the
+           real conflict sets of all the abstract conflicts. *)
+        local
+            fun isInset reg set = List.exists (fn r => r = reg) set
+        in
+            fun reserveRegister(reserveFor, reg) =
+            let
+                fun reserveAReg r =
+                let
+                    val absConflicts = Array.sub(regConflicts, r)
+                    fun addConflict i =
+                        if isInset i reserveFor then () else addRealConflict (i, reg)
+                in
+                    List.app addConflict (setToList absConflicts)
+                end
+            in
+                List.app reserveAReg reserveFor
+            end
+        
+            and addRealConflict (i, reg) =
+            let
+                val currentConflicts = Array.sub(regRealConflicts, i)
+            in
+                if isInset reg currentConflicts
+                then ()
+                else Array.update(regRealConflicts, i, reg :: currentConflicts)
+            end
+        end
+      
+        fun conflictsForInstr passThrough {instr, current, ...} =
+        let
+            val {sources, dests} = getInstructionRegisters instr
+            fun regNo(PReg i) = i
+            val destRegNos = map regNo dests
+            and sourceRegNos = map regNo sources
+            val destSet = listToSet destRegNos
+            val afterRemoveDests = minus(current, destSet)
+            
+            local
+                (* In almost all circumstances the destination and sources don't
+                   conflict and the same register can be used as a destination and
+                   a source.  The exceptions are AllocateMemoryVariable and BoxValues
+                   which can only store the size or the contents after the memory has
+                   been allocated.  We also have to make sure that the test and
+                   work registers are different in IndexedCase. *)
+                val postInstruction =
+                    case instr of
+                        _ => destRegNos
+            in
+                (* If there is more than one destination they conflict with each other. *)
+                val () = addConflictsTo(postInstruction, listToSet postInstruction);
+                (* Mark conflicts for the destinations, i.e. after the instruction.
+                   The destinations conflict with the registers that are used
+                   subsequently. *)
+                val () = addConflictsTo(postInstruction, current);
+                val () = addConflictsTo(postInstruction, passThrough);
+
+                (* Mark conflicts for the sources i.e. before the instruction. *)
+                (* Sources must be set up as conflicts with each other i.e. when we
+                   come to allocate registers we must choose different real registers
+                   for different abstract registers. *)
+                val () = addConflictsTo(sourceRegNos, listToSet sourceRegNos)
+                val () = addConflictsTo(sourceRegNos, afterRemoveDests);
+                val () = addConflictsTo(sourceRegNos, passThrough)
+            end
+            
+            (* I'm not sure if this is needed.  There was a check in the old code to ensure that
+               different registers were used for loop variables even if they were actually unused.
+               This may happen anyway. *)
+            val () =
+                (*case instr of
+                    JumpLoop{regArgs, ...} =>
+                    let
+                        val destRegs = List.foldl(fn ((_, PReg loopReg), dests) => loopReg :: dests) [] regArgs
+                    in
+                        addConflictsTo(destRegs, listToSet destRegs);
+                        addConflictsTo(destRegs, current);
+                        addConflictsTo(destRegs, passThrough)
+                    end
+                |   _ =>*) ()
+
+            (* Certain instructions are specific as to the real registers. *)
+            val () =
+                case instr of
+                    ReturnResultFromFunction{ returnReg=PReg retReg, ... } =>
+                        (* We're going to put the return value in X0 so we can't use that for
+                           the return address. *)
+                        addRealConflict(retReg, X0)
+
+                |   _ => ()
+        in
+            ()
+        end
+        
+        (* Process the block. *)
+        fun conflictsForBlock(ExtendedBasicBlock{block, passThrough, exports, ...}) =
+        let
+            (* We need to establish conflicts between all the registers active at
+               the end of the block since they may not be established elsewhere.
+               This isn't necessary for an unconditional branch since the
+               same registers will be included in the block that is the target
+               of the branch, possibly along with others.  However if this is
+               a conditional or indexed branch we may have different sets at
+               each of the targets and we have to ensure that all the registers
+               differ. *)
+            val united = union(exports, passThrough)
+            val () = addConflictsTo(setToList united, united)
+
+            val () = List.app (conflictsForInstr passThrough) block
+        in
+            ()
+        end
+        
+        
+        val () = Vector.app conflictsForBlock blocks
+        
+        val conflictState: conflictState vector =
+            Vector.tabulate(maxPRegs,
+                fn i => {
+                    conflicts = Array.sub(regConflicts, i),
+                    realConflicts = Array.sub(regRealConflicts, i)
+                }
+            )
+    in
+        conflictState
+    end
  
     structure Sharing =
     struct

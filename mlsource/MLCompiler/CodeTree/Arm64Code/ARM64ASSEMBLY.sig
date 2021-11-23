@@ -65,6 +65,7 @@ sig
     and condSignedGreater: condition
     and condSignedLessEq: condition
 
+    val invertTest: condition -> condition (* i.e. jump when the condition is not true. *)
     val condToString: condition -> string
 
     datatype shiftType =

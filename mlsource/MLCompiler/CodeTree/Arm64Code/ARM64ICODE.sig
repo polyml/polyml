@@ -113,6 +113,9 @@ sig
     |   ConditionalHandle of { handler: int, continue: int }
 
     and basicBlock = BasicBlock of { block: arm64ICode list, flow: controlFlow }
+    
+    (* Return the successor blocks from a control flow. *)
+    val successorBlocks: controlFlow -> int list
 
     val printICodeAbstract: basicBlock vector * (string -> unit) -> unit
     
