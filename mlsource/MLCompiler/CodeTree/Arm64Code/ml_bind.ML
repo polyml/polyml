@@ -87,6 +87,7 @@ local
             structure Pretty        = Pretty
             structure IntSet        = IntSet
             structure Arm64Assembly = Arm64Assembly
+            structure Arm64Sequences = Arm64Sequences
             structure Strongly      = StronglyConnected
         )
         

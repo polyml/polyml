@@ -18,6 +18,7 @@
 functor Arm64ICodeToArm64Code(
 
     structure Arm64Assembly: ARM64ASSEMBLY
+    structure Arm64Sequences: ARM64SEQUENCES
     structure Debug: DEBUG
     structure Arm64ICode: ARM64ICODE
     structure Identify: ARM64IDENTIFYREFERENCES
@@ -29,20 +30,179 @@ functor Arm64ICodeToArm64Code(
             val stronglyConnectedComponents: {nodeAddress: 'a -> int, arcs: 'a -> int list } -> 'a list -> 'a list list
         end
     
-    sharing Arm64Assembly.Sharing = Arm64ICode.Sharing = Identify.Sharing = IntSet
+    sharing Arm64Assembly.Sharing = Arm64Sequences.Sharing = Arm64ICode.Sharing = Identify.Sharing = IntSet
 ): ARM64ICODEGENERATE =
 struct
     open Identify
     open Arm64ICode
     open Arm64Assembly
+    open Arm64Sequences
     open Address
     exception InternalError = Misc.InternalError
 
     fun icodeToArm64Code {blocks, functionName, stackRequired, debugSwitches, allocatedRegisters, resultClosure, profileObject, ...} =
     let
         val numBlocks = Vector.length blocks
+        fun getAllocatedReg r = Vector.sub(allocatedRegisters, r)
 
-        val outputLabelCount = ref 0
+        local
+            val numRegisters = Vector.length allocatedRegisters
+            val uses = Array.array(numRegisters, false)
+            fun used(PReg r) = Array.update(uses, r, true)
+            fun isUsed(PReg r) = Array.sub(uses, r)
+
+            (* LoadArgument, TagValue, CopyToCache, UntagValue and BoxValue are eliminated if their destination
+               is not used.  In that case their source are not used either. *)
+            fun instructionUses(MoveRegister { source, dest, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(BeginFunction _) = ()
+            |   instructionUses(ReturnResultFromFunction{resultReg, returnReg, ...}) = (used resultReg; used returnReg)
+
+            (* Depth-first scan. *)
+            val visited = Array.array(numBlocks, false)
+
+            fun processBlocks blockNo =
+            if Array.sub(visited, blockNo)
+            then ()  (* Done or currently being done. *)
+            else
+            let
+                val () = Array.update(visited, blockNo, true)
+                val ExtendedBasicBlock { flow, block,...} = Vector.sub(blocks, blockNo)
+                val () =
+                    (* Process the dependencies first. *)
+                    case flow of
+                        ExitCode => ()
+                    |   Unconditional m => processBlocks m
+                    |   Conditional {trueJump, falseJump, ...} =>
+                            (processBlocks trueJump; processBlocks falseJump)
+                    |   IndexedBr cases => List.app processBlocks cases
+                    |   SetHandler{ handler, continue } =>
+                            (processBlocks handler; processBlocks continue)
+                    |   UnconditionalHandle _ => ()
+                    |   ConditionalHandle { continue, ...} => processBlocks continue
+                (* Now this block. *)
+            in
+                List.foldr(fn ({instr, ...}, ()) => instructionUses instr) () block
+            end
+
+        in
+            val () = processBlocks 0
+            val isUsed = isUsed
+        end
+
+        fun moveIfNecessary({src, dst}, code) =
+            if src = dst then code
+            else moveRegToReg{sReg=src, dReg=dst} :: code
+
+        (* Add a constant word to the source register and put the result in the
+           destination.  regW is used as a work register if necessary.  This is used
+           both for addition and subtraction. *)
+        fun addConstantWord({regS, regD, value=0w0, ...}, code) =
+            if regS = regD then code else moveRegToReg{sReg=regS, dReg=regD} :: code
+    
+        |   addConstantWord({regS, regD, regW, value}, code) =
+            let
+                (* If we have to load the constant it's better if the top 32-bits are
+                   zero if possible. *)
+                val (isSub, unsigned) =
+                    if value > Word64.<<(0w1, 0w63)
+                    then (true, ~ value)
+                    else (false, value)
+            in
+                if unsigned < Word64.<<(0w1, 0w24)
+                then (* We can put up to 24 in a shifted and an unshifted constant. *)
+                let
+                    val w = Word.fromLarge(Word64.toLarge unsigned)
+                    val high = Word.andb(Word.>>(w, 0w12), 0wxfff)
+                    val low = Word.andb(w, 0wxfff)
+                    val addSub = if isSub then subImmediate else addImmediate
+                in
+                    if high <> 0w0
+                    then
+                    (
+                        (if low <> 0w0 then [addSub{regN=regD, regD=regD, immed=low, shifted=false}] else []) @
+                        addSub{regN=regS, regD=regD, immed=high, shifted=true} :: code
+                    )
+                    else addSub{regN=regS, regD=regD, immed=low, shifted=false} :: code
+                end
+                else
+                let
+                    (* To minimise the constant and increase the chances that it
+                       will fit in a single word look to see if we can shift it. *)
+                    fun getShift(value, shift) =
+                        if Word64.andb(value, 0w1) = 0w0
+                        then getShift(Word64.>>(value, 0w1), shift+0w1)
+                        else (value, shift)
+                    val (shifted, shift) = getShift(unsigned, 0w0)
+                in
+                    (if isSub then subShiftedReg else addShiftedReg)
+                        {regM=regW, regN=regS, regD=regD, shift=ShiftLSL shift} ::
+                    List.rev (loadNonAddress(regW, shifted)) @ code
+                end
+            end
+
+        fun codeExtended _ ({instr=MoveRegister{source=PReg sreg, dest as PReg dreg, ...}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else moveIfNecessary({src=getAllocatedReg sreg, dst=getAllocatedReg dreg}, code)
+
+        |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
+            let
+                val saveRegs = List.map #2 regArgs (* The real registers used for arguments. *)
+                val skipCheck = createLabel()
+                val defaultWords = 10 (* This is wired into the RTS. *)
+                val workRegister = X10  (* Spare: not used yet. *)
+                val debugTrapAlways = false (* Can be set to true for debugging *)
+
+                (* Test with either the stack-pointer or a high-water value.
+                   The RTS assumes that X9 has been used as the high-water if it is
+                   called through stackOverflowXCallOffset rather than stackOverflowCallOffset *)
+                val (testReg, entryPt, code1) =
+                    if stackRequired <= defaultWords
+                    then (X_MLStackPtr, stackOverflowCallOffset, code)
+                    else (X9, stackOverflowXCallOffset,
+                            addConstantWord({regS=X_MLStackPtr, regD=X9, regW=workRegister,
+                            value= ~ (Word64.fromLarge(Word.toLarge nativeWordSize)) * Word64.fromInt stackRequired}, code))
+
+                (* Skip the RTS call if there is enough stack.  N.B. The RTS can modify the end-of-stack value
+                   to force a trap here even if there is really enough stack. *)
+                val code2 =
+                    (if debugTrapAlways then []
+                     else
+                     [conditionalBranch(condCarrySet, skipCheck),
+                      subSShiftedReg{regM=workRegister, regN=testReg, regD=XZero, shift=ShiftNone}]) @
+                    (* Load the end-of-stack value. *)
+                    loadRegScaled{regT=workRegister, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset} :: code1
+
+                val code3 =
+                    (* Call the RTS but save X30 across the call *)
+                    setLabel skipCheck ::
+                    loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8} ::
+                    registerMask saveRegs ::
+                    branchAndLinkReg X16 ::
+                    loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=entryPt} ::
+                    storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8} :: code2
+
+                val usedRegs = List.filter (isUsed o #1) regArgs
+                fun mkPair(PReg pr, rr) = {src=rr,dst=getAllocatedReg pr}
+                val regPairs = List.map mkPair usedRegs
+            in
+                (*moveMultipleRegisters(regPairs, code3)*) code3
+            end
+
+        |   codeExtended _ ({instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg retReg, numStackArgs }, ...}, code) =
+            let
+                val resultReg = getAllocatedReg resReg
+                and returnReg = getAllocatedReg retReg
+
+                fun resetStack(0, code) = code
+                |   resetStack(nItems, code) =
+                        addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
+                                        value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt nItems}, code)
+            in
+                returnRegister returnReg :: resetStack(numStackArgs, moveIfNecessary({src=resultReg, dst=X0}, code))
+            end
+        
+
         val blockToLabelMap = Vector.tabulate(numBlocks, fn _ => createLabel())
 
         fun getBlockLabel blockNo = Vector.sub(blockToLabelMap, blockNo)
