@@ -48,6 +48,12 @@ struct
         (* Move the contents of one preg to another.  These are always 64-bits. *)
         MoveRegister of { source: preg, dest: preg }
 
+        (* Numerical constant. *)
+    |   LoadNonAddressConstant of { source: Word64.word, dest: preg }
+
+        (* Address constant. *)
+    |   LoadAddressConstant of { source: machineWord, dest: preg }
+
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
            closure register (X8).  The register arguments include the return register
@@ -105,6 +111,20 @@ struct
             (
                 stream "\tMove\t";
                 printReg(source,  stream);
+                stream " => ";
+                printReg(dest, stream)
+            )
+
+        |   printICode(LoadNonAddressConstant{ source, dest }, stream) =
+            (
+                stream "\tLoadNonAddress\t"; stream(Word64.toString source);
+                stream " => ";
+                printReg(dest, stream)
+            )
+
+        |   printICode(LoadAddressConstant{ source, dest }, stream) =
+            (
+                stream "\tLoadAddress\t"; stream(Address.stringOfWord source);
                 stream " => ";
                 printReg(dest, stream)
             )

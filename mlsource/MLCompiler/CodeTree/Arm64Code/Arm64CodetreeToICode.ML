@@ -35,6 +35,8 @@ struct
     
     exception InternalError = Misc.InternalError
     
+    fun taggedWord64 w: Word64.word = w * 0w2 + 0w1
+    
     datatype blockStruct =
         BlockSimple of arm64ICode
     |   BlockExit of arm64ICode
@@ -44,7 +46,7 @@ struct
     |   BlockRaiseAndHandle of arm64ICode * int
     |   BlockOptionalHandle of {call: arm64ICode, handler: int, label: int }
 
-    fun codeFunctionToArm64({body, localCount, name, argTypes, resultType=fnResultType, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
+    fun codeFunctionToArm64({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
         (* Pseudo-registers are allocated sequentially and the properties added to the list. *)
         val pregCounter = ref 0
@@ -190,7 +192,20 @@ struct
                          RegisterArgument target, false)
                     end*)
             )
+
+        |   codeToICodeRev(BICConstnt(w, _), _, _, SpecificPReg destination, tailCode) =
+            let
+                val instr =
+                    if isShort w
+                    then LoadNonAddressConstant{source=taggedWord64(Word64.fromLarge(Word.toLargeX(toShort w))),
+                            dest=destination}
+                    else LoadAddressConstant{source=w, dest=destination}
+            in
+                (BlockSimple instr :: tailCode, destination, false)
+            end
         
+        |   codeToICodeRev(BICConstnt _, _, _, NoResult, tailCode) = (tailCode, newPReg(), false)
+
         |   codeToICodeRev _ = raise Fallback "codeToICodeRev"
 
         (*Turn the codetree structure into icode. *)

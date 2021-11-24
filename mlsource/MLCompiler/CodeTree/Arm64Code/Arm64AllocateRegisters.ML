@@ -242,6 +242,12 @@ struct
                 allocateRegister(sreg, SOME realDestReg, generalRegisters)
             end
 
+        |   registerAllocate({instr=LoadNonAddressConstant{dest=PReg dreg, ...}, ...}) =
+                allocateRegister(dreg, NONE, generalRegisters)
+
+        |   registerAllocate({instr=LoadAddressConstant{dest=PReg dreg, ...}, ...}) =
+                allocateRegister(dreg, NONE, generalRegisters)
+
         |   registerAllocate{instr=BeginFunction _, ...} = ()
             (* Any registers that are referenced will have been allocated real registers. *)
 

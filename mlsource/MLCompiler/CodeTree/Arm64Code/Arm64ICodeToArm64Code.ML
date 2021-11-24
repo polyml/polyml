@@ -54,6 +54,8 @@ struct
             (* LoadArgument, TagValue, CopyToCache, UntagValue and BoxValue are eliminated if their destination
                is not used.  In that case their source are not used either. *)
             fun instructionUses(MoveRegister { source, dest, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(LoadNonAddressConstant _) = ()
+            |   instructionUses(LoadAddressConstant _) = ()
             |   instructionUses(BeginFunction _) = ()
             |   instructionUses(ReturnResultFromFunction{resultReg, returnReg, ...}) = (used resultReg; used returnReg)
 
@@ -144,6 +146,12 @@ struct
             if not (isUsed dest)
             then code
             else moveIfNecessary({src=getAllocatedReg sreg, dst=getAllocatedReg dreg}, code)
+
+        |   codeExtended _ ({instr=LoadNonAddressConstant{source, dest=PReg dreg, ...}, ...}, code) =
+                List.rev(loadNonAddress(getAllocatedReg dreg, source)) @ code
+
+        |   codeExtended _ ({instr=LoadAddressConstant{source, dest=PReg dreg, ...}, ...}, code) =
+                loadAddressConstant(getAllocatedReg dreg, source) :: code
 
         |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let
