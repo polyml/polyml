@@ -630,7 +630,7 @@ struct
                     if isShort w
                     then
                     let
-                        val taggedValue = taggedWord64(Word64.fromLarge(Word.toLargeX(toShort w)))
+                        val taggedValue = taggedWord64(Word64.fromLarge(Word.toLarge(toShort w)))
                     in
                         genList(loadNonAddress(X0,
                             (* We have sign extended this to a 64-bit value but the high-order bits

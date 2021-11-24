@@ -197,7 +197,10 @@ struct
             let
                 val instr =
                     if isShort w
-                    then LoadNonAddressConstant{source=taggedWord64(Word64.fromLarge(Word.toLargeX(toShort w))),
+                    then (* When converting to Word64 we do NOT want to use sign-extension.
+                            In 32-in-64 signed fixed-precision ints need to have zeros
+                            in the top 32 bits. *)
+                        LoadNonAddressConstant{source=taggedWord64(Word64.fromLarge(Word.toLarge(toShort w))),
                             dest=destination}
                     else LoadAddressConstant{source=w, dest=destination}
             in
