@@ -498,6 +498,10 @@ struct
                     gencde (base, ToX0, NotEnd, loopAddr);
                     indexToAbsoluteAddress(X0, X0, cvec);
                     gen(loadRegScaled{regT=X0, regN=X0, unitOffset=0}, cvec);
+                    (* In principle we could have a problem if the index is out of the
+                       range for the offset field.  However the simplifier only
+                       converts index offsets into constant offsets for small positive
+                       offsets. *)
                     (X0, MLLoadOffset(offset div scale))
                 )
             |   genCLoadAddress({base, index=SOME indexVal, offset}, scale) =

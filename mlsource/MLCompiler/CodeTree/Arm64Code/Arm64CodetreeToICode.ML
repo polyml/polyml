@@ -107,6 +107,7 @@ struct
         datatype destination =
             SpecificPReg of preg
         |   NoResult
+        |   AnyReg
         (*|   Allowed of allowedArgument*)
 
         datatype argLoc =
@@ -170,11 +171,14 @@ struct
         end
 
         fun asTarget(SpecificPReg preg) = preg
-        |   asTarget NoResult = newPReg()
+        |   asTarget _ = newPReg()
 
-        fun moveToResult(NoResult, code, sReg) = (code, sReg, false)
-        |   moveToResult(SpecificPReg target, code, sReg) =
-                (BlockSimple(MoveRegister{source=sReg, dest=target}) :: code, target, false)
+        fun moveToResult(target, code, sReg) =
+        let
+            val tReg = asTarget target
+        in
+            (BlockSimple(MoveRegister{source=sReg, dest=tReg}) :: code, tReg, false)
+        end
         
         fun codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
             (
@@ -193,21 +197,47 @@ struct
                     end*)
             )
 
-        |   codeToICodeRev(BICConstnt(w, _), _, _, SpecificPReg destination, tailCode) =
+        |   codeToICodeRev(BICConstnt(w, _), _, _, destination, tailCode) =
             let
+                val dReg = asTarget destination
                 val instr =
                     if isShort w
                     then (* When converting to Word64 we do NOT want to use sign-extension.
                             In 32-in-64 signed fixed-precision ints need to have zeros
                             in the top 32 bits. *)
                         LoadNonAddressConstant{source=taggedWord64(Word64.fromLarge(Word.toLarge(toShort w))),
-                            dest=destination}
-                    else LoadAddressConstant{source=w, dest=destination}
+                            dest=dReg}
+                    else LoadAddressConstant{source=w, dest=dReg}
             in
-                (BlockSimple instr :: tailCode, destination, false)
+                (BlockSimple instr :: tailCode, dReg, false)
             end
-        
-        |   codeToICodeRev(BICConstnt _, _, _, NoResult, tailCode) = (tailCode, newPReg(), false)
+
+        |   codeToICodeRev(BICField{base, offset}, context, _, destination, tailCode) =
+            let
+                val dReg = asTarget destination
+                val (codeBase1, baseReg1, _) = codeToICodeRev(base, context, false, AnyReg, tailCode)
+                val (codeBase, baseReg, loadSize) =
+                    if is32in64
+                    then
+                    let
+                        val absReg = newUReg()
+                    in
+                        (BlockSimple(ObjectIndexAddressToAbsolute{ source=baseReg1, dest=absReg }) :: codeBase1, absReg, Load32)
+                    end
+                    else (codeBase1, baseReg1, Load64)
+                val code =
+                    if offset < 4096
+                    then BlockSimple(LoadWithConstantOffset{base=baseReg, dest=dReg, byteOffset=offset*Word.toInt wordSize, loadType=loadSize}) :: codeBase
+                    else
+                    let
+                        val indexReg = newUReg()
+                    in
+                        BlockSimple(LoadWithIndexedOffset{ base=baseReg, dest=dReg, index=indexReg, loadType=loadSize }) ::
+                            BlockSimple(LoadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg }) :: codeBase
+                    end
+            in
+                (code, dReg, false)
+            end
 
         |   codeToICodeRev _ = raise Fallback "codeToICodeRev"
 

@@ -78,6 +78,8 @@ sig
     (* The reference to a condition code. *)
     datatype ccRef = CcRef of int
 
+    datatype loadType = Load64 | Load32 | Load16 | Load8
+
     datatype arm64ICode =
         (* Move the contents of one preg to another.  These are always 64-bits. *)
         MoveRegister of { source: preg, dest: preg }
@@ -87,6 +89,16 @@ sig
 
         (* Address constant. *)
     |   LoadAddressConstant of { source: machineWord, dest: preg }
+
+        (* Load a value into a register using a constant, signed, byte offset.  The offset
+           is in the range of -256 to (+4095*unit size). *)
+    |   LoadWithConstantOffset of { base: preg, dest: preg, byteOffset: int, loadType: loadType }
+
+        (* Load a value into a register using an index register. *)
+    |   LoadWithIndexedOffset of { base: preg, dest: preg, index: preg, loadType: loadType }
+
+        (* Convert a 32-in-64 object index into an absolute address. *)
+    |   ObjectIndexAddressToAbsolute of { source: preg, dest: preg }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
@@ -138,5 +150,6 @@ sig
         and regProperty     = regProperty
         and ccRef           = ccRef
         and closureRef      = closureRef
+        and loadType        = loadType
    end
 end;

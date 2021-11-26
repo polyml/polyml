@@ -248,6 +248,25 @@ struct
         |   registerAllocate({instr=LoadAddressConstant{dest=PReg dreg, ...}, ...}) =
                 allocateRegister(dreg, NONE, generalRegisters)
 
+        |   registerAllocate({instr=LoadWithConstantOffset{dest=PReg dreg, base=PReg breg, ...}, ...}) =
+            (
+                allocateRegister(dreg, NONE, generalRegisters);
+                allocateRegister(breg, NONE, generalRegisters)
+            )
+
+        |   registerAllocate({instr=LoadWithIndexedOffset{dest=PReg dreg, base=PReg breg, index=PReg ireg, ...}, ...}) =
+            (
+                allocateRegister(dreg, NONE, generalRegisters);
+                allocateRegister(breg, NONE, generalRegisters);
+                allocateRegister(ireg, NONE, generalRegisters)
+            )
+
+        |   registerAllocate({instr=ObjectIndexAddressToAbsolute{dest=PReg dreg, source=PReg sreg, ...}, ...}) =
+            (
+                allocateRegister(dreg, NONE, generalRegisters);
+                allocateRegister(sreg, NONE, generalRegisters)
+            )
+
         |   registerAllocate{instr=BeginFunction _, ...} = ()
             (* Any registers that are referenced will have been allocated real registers. *)
 

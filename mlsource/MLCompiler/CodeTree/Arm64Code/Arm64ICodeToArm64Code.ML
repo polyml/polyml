@@ -56,6 +56,9 @@ struct
             fun instructionUses(MoveRegister { source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(LoadNonAddressConstant _) = ()
             |   instructionUses(LoadAddressConstant _) = ()
+            |   instructionUses(LoadWithConstantOffset{dest, base, ...}) = if isUsed dest then used base else ()
+            |   instructionUses(LoadWithIndexedOffset{dest, base, index, ...}) = if isUsed dest then (used base; used index) else ()
+            |   instructionUses(ObjectIndexAddressToAbsolute{dest, source, ...}) = if isUsed dest then used source else ()
             |   instructionUses(BeginFunction _) = ()
             |   instructionUses(ReturnResultFromFunction{resultReg, returnReg, ...}) = (used resultReg; used returnReg)
 
@@ -89,6 +92,54 @@ struct
         in
             val () = processBlocks 0
             val isUsed = isUsed
+        end
+
+        local
+            type node = {src: xReg, dst: xReg }
+            
+            fun nodeAddress({dst=XReg r, ...}: node) = Word8.toInt r
+            |   nodeAddress _ = raise InternalError "nodeAddress"
+
+            fun arcs({src=XReg r, ...}: node) = [Word8.toInt r]
+            |   arcs _ = raise InternalError "nodeAddress"
+        in
+            val stronglyConnected = Strongly.stronglyConnectedComponents { nodeAddress=nodeAddress, arcs=arcs }
+        end
+        
+        (* When moving arguments, typically in a function call, we may find the same register
+           in use as a source and a destination. *)
+        fun moveMultipleRegisters(moves, code) =
+        let
+            fun moveValues ([], code) = code (* We're done. *)
+
+            |   moveValues (arguments, code) =
+                let
+                    (* stronglyConnectedComponents does two things.  It detects loops where
+                       it's not possible to move items without breaking the loop but more
+                       importantly it orders the dependencies so that if there are no loops we
+                       can load the source and store it in the destination knowing that
+                       we won't overwrite anything we might later need. *)
+
+                    val ordered = stronglyConnected arguments
+                    
+                    fun moveEachValue ([], code) = code
+
+                    |   moveEachValue ([{dst, src}] :: rest, code) =
+                            (* Source and dest are both regs - only move if they're different. *)
+                            if dst = src
+                            then moveEachValue(rest, code)
+                            else moveEachValue(rest, moveRegToReg{sReg=src, dReg=dst} :: code)
+
+                    |   moveEachValue((cycle as first :: _ :: _) :: rest, code) =
+                            raise Fallback "moveEachValue: cycle"
+
+                    |   moveEachValue(([]) :: _, _) = (* This should not happen - avoid warning. *)
+                            raise InternalError "moveEachValue - empty set"
+                in
+                    moveEachValue(ordered, code)
+                end
+        in
+            moveValues(moves, code)
         end
 
         fun moveIfNecessary({src, dst}, code) =
@@ -153,6 +204,46 @@ struct
         |   codeExtended _ ({instr=LoadAddressConstant{source, dest=PReg dreg, ...}, ...}, code) =
                 loadAddressConstant(getAllocatedReg dreg, source) :: code
 
+        |   codeExtended _ ({instr=LoadWithConstantOffset{dest=PReg dreg, base=PReg breg, byteOffset, loadType, ...}, ...}, code) =
+            if byteOffset < 0
+            then
+            let
+                val loadInstr =
+                    case loadType of
+                        Load64 => loadRegUnscaled
+                    |   Load32 => loadRegUnscaled32
+                    |   Load16 => loadRegUnscaled16
+                    |   Load8 => loadRegUnscaledByte
+            in
+                loadInstr{regT=getAllocatedReg dreg, regN=getAllocatedReg breg, byteOffset=byteOffset} :: code
+            end
+            else
+            let
+                val (loadInstr, scale) =
+                    case loadType of
+                        Load64 => (loadRegScaled, 8)
+                    |   Load32 => (loadRegScaled32, 4)
+                    |   Load16 => (loadRegScaled16, 2)
+                    |   Load8 => (loadRegScaledByte, 1)
+            in
+                loadInstr{regT=getAllocatedReg dreg, regN=getAllocatedReg breg, unitOffset=byteOffset div scale} :: code
+            end
+
+        |   codeExtended _ ({instr=LoadWithIndexedOffset{dest=PReg dreg, base=PReg breg, index=PReg ireg, loadType, ...}, ...}, code) =
+            let
+                val (loadInstr, opt)  =
+                    case loadType of
+                        Load64 => (loadRegIndexed, ExtUXTX ScaleOrShift)
+                    |   Load32 => (loadRegIndexed32, ExtUXTX ScaleOrShift)
+                    |   Load16 => (loadRegIndexed16, ExtUXTX ScaleOrShift)
+                    |   Load8 => (loadRegIndexedByte, ExtUXTX NoScale)
+            in
+                loadInstr{regT=getAllocatedReg dreg, regN=getAllocatedReg breg, regM=getAllocatedReg ireg, option=opt} :: code
+            end
+
+        |   codeExtended _ ({instr=ObjectIndexAddressToAbsolute{source=PReg sreg, dest=PReg dreg, ...}, ...}, code) =
+                addShiftedReg{regM=getAllocatedReg sreg, regN=X_Base32in64, regD=getAllocatedReg dreg, shift=ShiftLSL 0w2} :: code
+
         |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let
                 val saveRegs = List.map #2 regArgs (* The real registers used for arguments. *)
@@ -194,7 +285,7 @@ struct
                 fun mkPair(PReg pr, rr) = {src=rr,dst=getAllocatedReg pr}
                 val regPairs = List.map mkPair usedRegs
             in
-                (*moveMultipleRegisters(regPairs, code3)*) code3
+                moveMultipleRegisters(regPairs, code3)
             end
 
         |   codeExtended _ ({instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg retReg, numStackArgs }, ...}, code) =

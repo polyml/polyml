@@ -68,6 +68,15 @@ struct
     |   getInstructionState(LoadAddressConstant { dest, ...}) =
         { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(LoadWithConstantOffset { base, dest, ...}) =
+        { sources=[base], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(LoadWithIndexedOffset { base, dest, index, ...}) =
+        { sources=[base, index], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(ObjectIndexAddressToAbsolute { source, dest, ...}) =
+        { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
             { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 
