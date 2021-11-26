@@ -41,6 +41,7 @@ struct
             |   ObjectId32Bit   => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
     in
         val generalRegisters = List.map GenReg regs
+        val nGenRegs = List.length generalRegisters
     end
     
     val floatingPtRegisters =

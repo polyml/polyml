@@ -72,16 +72,6 @@ struct
     (* tag a short constant *)
     fun tag c = 2 * c + 1
 
-    local
-        val regs =
-            case targetArch of
-                Native32Bit     => [edi, esi, edx, ecx, ebx, eax]
-            |   Native64Bit     => [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, ebx, eax]
-            |   ObjectId32Bit   => [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, eax]
-    in
-        val generalRegisters = List.map GenReg regs
-    end
-
     fun opSizeToMove OpSize32 = Move32 | opSizeToMove OpSize64 = Move64
 
     fun icodeToX86Code{blocks, functionName, stackRequired, debugSwitches, allocatedRegisters, resultClosure, profileObject, ...} =
@@ -2125,8 +2115,6 @@ struct
         X86Optimise.generateCode{code=newCode, ops=List.rev ops,
                                  labelCount= !outputLabelCount, resultClosure=resultClosure}
     end
-
-    val nGenRegs = List.length generalRegisters
 
     structure Sharing =
     struct

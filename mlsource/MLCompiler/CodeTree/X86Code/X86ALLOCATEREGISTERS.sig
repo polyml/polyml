@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2017
+    Copyright David C. J. Matthews 2017, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -35,6 +35,8 @@ sig
             regStates: conflictState vector,
             regProps: regProperty vector
         } -> allocateResult
+
+    val nGenRegs: int (* Number of general registers. *)
     
     structure Sharing:
     sig

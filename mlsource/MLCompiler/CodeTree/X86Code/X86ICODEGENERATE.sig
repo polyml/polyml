@@ -27,8 +27,6 @@ sig
             profileObject: Address.machineWord
         } -> unit
     
-    val nGenRegs: int (* Number of general registers. *)
-    
     structure Sharing:
     sig
         type intSet             = intSet
