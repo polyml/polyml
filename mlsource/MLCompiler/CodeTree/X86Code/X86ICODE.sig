@@ -403,10 +403,7 @@ sig
     val printICodeAbstract: basicBlock vector * (string -> unit) -> unit
     
     val indexRegister: memoryIndex -> preg option
-    
-    (* Destinations used in move. *)
-    datatype destinations = RegDest of reg | StackDest of int
-
+ 
     structure Sharing:
     sig
         type genReg         = genReg
@@ -416,7 +413,6 @@ sig
         and  branchOps      = branchOps
         and  reg            = reg
         and preg            = preg
-        and destinations    = destinations
         and controlFlow     = controlFlow
         and basicBlock      = basicBlock
         and stackLocn       = stackLocn

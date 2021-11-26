@@ -261,6 +261,8 @@ struct
         fun sourceToX86Code(OtherSource r) = r
         |   sourceToX86Code(StackSource wordOffset) = MemoryArg{base=esp, offset=wordOffset*Word.toInt nativeWordSize, index=NoIndex}
 
+        datatype destinations = RegDest of reg | StackDest of int
+
         local
             fun indexRegister NoIndex = NONE
             |   indexRegister (Index1 r) = SOME r

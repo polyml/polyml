@@ -382,8 +382,6 @@ struct
     |   successorBlocks(UnconditionalHandle handler) = [handler]
     |   successorBlocks(ConditionalHandle{handler, continue, ...}) = [handler, continue]
 
-    datatype destinations = RegDest of reg | StackDest of int
-
     local
         fun printReg(PReg i, stream) = stream("R" ^ Int.toString i)
         and printCC(CcRef ccRef, stream) = stream ("CC" ^ Int.toString ccRef)
@@ -967,7 +965,6 @@ struct
         and branchOps       = branchOps
         and reg             = reg
         and preg            = preg
-        and destinations    = destinations
         and controlFlow     = controlFlow
         and basicBlock      = basicBlock
         and stackLocn       = stackLocn
