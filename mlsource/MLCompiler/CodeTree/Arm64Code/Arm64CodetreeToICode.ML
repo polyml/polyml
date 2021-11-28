@@ -36,6 +36,7 @@ struct
     exception InternalError = Misc.InternalError
     
     fun taggedWord64 w: Word64.word = w * 0w2 + 0w1
+    and taggedWord w: word = w * 0w2 + 0w1
     
     datatype blockStruct =
         BlockSimple of arm64ICode
@@ -108,7 +109,6 @@ struct
             SpecificPReg of preg
         |   NoResult
         |   AnyReg
-        (*|   Allowed of allowedArgument*)
 
         datatype argLoc =
             ArgInReg of { realReg: xReg, argReg: preg }
@@ -179,6 +179,14 @@ struct
         in
             (BlockSimple(MoveRegister{source=sReg, dest=tReg}) :: code, tReg, false)
         end
+
+        (* Return a unit result. *)
+        fun returnUnit(target, code) =
+        let
+            val tReg = asTarget target
+        in
+            (BlockSimple(LoadNonAddressConstant{source=taggedWord64 0w0, dest=tReg}) :: code, tReg, false)
+        end
         
         fun codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
             (
@@ -239,7 +247,80 @@ struct
                 (code, dReg, false)
             end
 
+        |   codeToICodeRev(BICCond(test, thenPt, elsePt), context, isTail, NoResult, tailCode) =
+            let
+                (* If we don't want the result but are only evaluating for side-effects we
+                   may be able to optimise special cases.  This was easier in the forward
+                   case but for now we don't bother and leave it to the lower levels. *)
+                val startElse = newLabel() and skipElse = newLabel()
+                val codeTest = codeConditionRev(test, context, false, startElse, tailCode)
+                val (codeThen, _, _) =
+                    codeToICodeRev(thenPt, context, isTail, NoResult, codeTest)
+                val (codeElse, _, _) =
+                     codeToICodeRev(elsePt, context, isTail, NoResult,
+                        BlockLabel startElse ::
+                        BlockFlow(Unconditional skipElse) :: codeThen)
+                val resPreg = newPReg()
+                
+            in
+                returnUnit(NoResult, BlockLabel skipElse :: codeElse)
+            end
+
+        |   codeToICodeRev(BICCond(test, thenPt, elsePt), context, isTail, destination, tailCode) =
+            let
+                (* Because we may push the result onto the stack we have to create a new preg to
+                   hold the result and then copy that to the final result. *)
+                (* If this is a tail each arm will exit separately and neither will return a result. *)
+                val target = asTarget destination
+                val condResult = newMergeReg()
+                val thenTarget = if isTail then newPReg() else condResult
+                val startElse = newLabel()
+                val testCode = codeConditionRev(test, context, false, startElse, tailCode)
+                
+                (* Put the result in the target register. *)
+                val (thenCode, _, thenExited) = codeToICodeRev(thenPt, context, isTail, SpecificPReg thenTarget, testCode)
+                (* Add a jump round the else-part except that if this is a tail we
+                   return.  The then-part could have exited e.g. with a raise or a loop. *)
+                val (exitThen, thenLabel, elseTarget) =
+                    if thenExited then (thenCode, [], target (* Can use original target. *))
+                    else if isTail then (returnInstruction(context, thenTarget, thenCode), [], newPReg())
+                    else
+                    let
+                        val skipElse = newLabel()
+                    in
+                        (BlockFlow(Unconditional skipElse) :: thenCode,
+                         [BlockSimple(MoveRegister{source=condResult, dest=target}),
+                          BlockLabel skipElse],
+                         condResult)
+                    end
+                val (elseCode, _, elseExited) =
+                    codeToICodeRev(elsePt, context, isTail, SpecificPReg elseTarget,
+                        BlockLabel startElse :: exitThen)
+                (* Add a return to the else-part if necessary so we will always exit on a tail. *)
+                val exitElse =
+                    if isTail andalso not elseExited
+                    then returnInstruction(context, elseTarget, elseCode) else elseCode
+            in
+                (thenLabel @ exitElse, target, isTail orelse thenExited andalso elseExited)
+            end
+
         |   codeToICodeRev _ = raise Fallback "codeToICodeRev"
+
+        and codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
+       (* Jump optimisation is done later.  Just generate the general case.
+          Load the value into a register and compare it with 1 (true) *)
+        let
+            val ccRef = newCCRef()
+            val (testCode, testReg, _) = codeToICodeRev(condition, context, false, AnyReg, tailCode)
+            val noJumpLabel = newLabel()
+        in
+            BlockLabel noJumpLabel ::
+            BlockFlow(Conditional{ccRef=ccRef,
+                       condition=if jumpOn then condEqual else condNotEqual, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
+            (* Compare: SUBS XZ,reg,3.  Can use 32-bit comparison because it's either tagged 0 or tagged 1. *)
+            BlockSimple(AddSubImmediate{source=testReg, immed=taggedWord 0w1, isAdd=false, dest=NONE, length=Arith32, ccRef=SOME ccRef}) ::
+            testCode
+        end
 
         (*Turn the codetree structure into icode. *)
         val bodyContext = {loopArgs=NONE, stackPtr=0, currHandler=NONE, overflowBlock=ref NONE}

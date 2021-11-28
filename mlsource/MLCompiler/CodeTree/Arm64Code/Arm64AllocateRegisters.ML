@@ -267,6 +267,14 @@ struct
                 allocateRegister(sreg, NONE, generalRegisters)
             )
 
+        |   registerAllocate({instr=AddSubImmediate{ source=PReg sreg, dest, ... }, ...}) =
+            (
+                case dest of
+                    SOME(PReg dreg) => allocateRegister(dreg, NONE, generalRegisters)
+                |   NONE => ();
+                allocateRegister(sreg, NONE, generalRegisters)
+            )
+
         |   registerAllocate{instr=BeginFunction _, ...} = ()
             (* Any registers that are referenced will have been allocated real registers. *)
 

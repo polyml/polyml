@@ -59,6 +59,7 @@ struct
             |   instructionUses(LoadWithConstantOffset{dest, base, ...}) = if isUsed dest then used base else ()
             |   instructionUses(LoadWithIndexedOffset{dest, base, index, ...}) = if isUsed dest then (used base; used index) else ()
             |   instructionUses(ObjectIndexAddressToAbsolute{dest, source, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(AddSubImmediate{ source, ... }) = used source
             |   instructionUses(BeginFunction _) = ()
             |   instructionUses(ReturnResultFromFunction{resultReg, returnReg, ...}) = (used resultReg; used returnReg)
 
@@ -243,6 +244,27 @@ struct
 
         |   codeExtended _ ({instr=ObjectIndexAddressToAbsolute{source=PReg sreg, dest=PReg dreg, ...}, ...}, code) =
                 addShiftedReg{regM=getAllocatedReg sreg, regN=X_Base32in64, regD=getAllocatedReg dreg, shift=ShiftLSL 0w2} :: code
+
+        |   codeExtended _ ({instr=AddSubImmediate{ source=PReg sreg, dest, immed, isAdd, length, ccRef}, ...}, code) =
+            let
+                val instr =
+                    case (isAdd, ccRef, length) of
+                        (true, NONE, Arith64) => addImmediate
+                    |   (true, SOME _, Arith64) => addSImmediate
+                    |   (false, NONE, Arith64) => subImmediate
+                    |   (false, SOME _, Arith64) => subSImmediate
+                    |   (true, NONE, Arith32) => addImmediate32
+                    |   (true, SOME _, Arith32) => addSImmediate32
+                    |   (false, NONE, Arith32) => subImmediate32
+                    |   (false, SOME _, Arith32) => subSImmediate32
+                val destReg =
+                    case dest of
+                        NONE => XZero
+                    |   SOME(PReg dreg) => getAllocatedReg dreg
+            in
+                instr{regN=getAllocatedReg sreg, regD=destReg, immed=immed, shifted=false} :: code
+            end
+            
 
         |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let

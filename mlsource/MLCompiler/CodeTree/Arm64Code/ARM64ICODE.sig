@@ -80,6 +80,8 @@ sig
 
     datatype loadType = Load64 | Load32 | Load16 | Load8
 
+    datatype arithLength = Arith64 | Arith32
+
     datatype arm64ICode =
         (* Move the contents of one preg to another.  These are always 64-bits. *)
         MoveRegister of { source: preg, dest: preg }
@@ -99,6 +101,12 @@ sig
 
         (* Convert a 32-in-64 object index into an absolute address. *)
     |   ObjectIndexAddressToAbsolute of { source: preg, dest: preg }
+
+        (* Add/Subtract immediate.  The destination is optional in which case XZero is used.
+           ccRef is optional.  If it is NONE the version of the instruction that does not generate
+           a condition code is used. immed must be < 0wx1000. *)
+    |   AddSubImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: word,
+                             isAdd: bool, length: arithLength }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the

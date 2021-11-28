@@ -46,6 +46,8 @@ struct
 
     datatype loadType = Load64 | Load32 | Load16 | Load8
 
+    datatype arithLength = Arith64 | Arith32
+
     datatype arm64ICode =
         (* Move the contents of one preg to another.  These are always 64-bits. *)
         MoveRegister of { source: preg, dest: preg }
@@ -65,6 +67,12 @@ struct
 
         (* Convert a 32-in-64 object index into an absolute address. *)
     |   ObjectIndexAddressToAbsolute of { source: preg, dest: preg }
+
+        (* Add/Subtract immediate.  The destination is optional in which case XZero is used.
+           ccRef is optional.  If it is NONE the version of the instruction that does not generate
+           a condition code is used. immed must be < 0wx1000. *)
+    |   AddSubImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: word,
+                             isAdd: bool, length: arithLength }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
@@ -118,6 +126,9 @@ struct
         fun regRepr(XReg w) = "X" ^ Int.toString(Word8.toInt w)
         |   regRepr XZero = "XZ"
         |   regRepr XSP = "SP"
+
+        fun arithRepr Arith64 = "64"
+        |   arithRepr Arith32 = "32"
         
         fun printLoadType(Load64, stream) = stream "64"
         |   printLoadType(Load32, stream) = stream "32"
@@ -166,6 +177,15 @@ struct
             (
                 stream "\tObjectAddrToAbs\t";
                 printReg(source, stream); stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(AddSubImmediate{ source, dest, ccRef, immed, isAdd, length }, stream) =
+            (
+                stream (if isAdd then "\tAddImmediate" else "\tSubImmediate"); stream(arithRepr length);
+                stream "\t"; printReg(source, stream); stream ",0x"; stream(Word.toString immed);
+                stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
+                stream ", ";
+                case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
             )
 
         |   printICode(BeginFunction{ regArgs, stackArgs }, stream) =

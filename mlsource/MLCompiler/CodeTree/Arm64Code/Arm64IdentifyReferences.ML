@@ -77,6 +77,10 @@ struct
     |   getInstructionState(ObjectIndexAddressToAbsolute { source, dest, ...}) =
         { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(AddSubImmediate{ source, dest, ccRef, ... }) =
+        { sources=[source], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
+          ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
+
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
             { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 
