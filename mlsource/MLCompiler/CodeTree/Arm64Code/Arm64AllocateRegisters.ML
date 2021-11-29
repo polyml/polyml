@@ -99,6 +99,9 @@ struct
                     addRealHint(resReg, X0);
                     addRealHint(retReg, X30) (* It may be there from earlier. *)
                 )
+        
+            |   addHints{instr=BeginFunction{regArgs, ...}, ...} =
+                    List.app (fn (PReg pr, reg) => addRealHint(pr, reg)) regArgs
 
             |   addHints _ = ()
         

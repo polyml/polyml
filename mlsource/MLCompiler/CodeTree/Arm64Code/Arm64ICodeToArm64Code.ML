@@ -309,7 +309,7 @@ struct
                 val code2 =
                     (if debugTrapAlways then []
                      else
-                     [conditionalBranch(condCarrySet, skipCheck),
+                     [conditionalBranch(CondCarrySet, skipCheck),
                       subSShiftedReg{regM=workRegister, regN=testReg, regD=XZero, shift=ShiftNone}]) @
                     (* Load the end-of-stack value. *)
                     loadRegScaled{regT=workRegister, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset} :: code1

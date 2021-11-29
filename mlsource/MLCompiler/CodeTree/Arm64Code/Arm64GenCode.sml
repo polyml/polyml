@@ -217,7 +217,7 @@ struct
         addConstantWord({regS=X_MLHeapAllocPtr, regD=X0, regW=X3,
             value= ~ (Word64.fromLarge(Word.toLarge wordSize)) * wordsRequired}, code);
         compareRegs(resultReg, X_MLHeapLimit, code);
-        gen(conditionalBranch(condCarrySet, label), code);
+        gen(conditionalBranch(CondCarrySet, label), code);
         gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
         gen(branchAndLinkReg X16, code);
         gen(registerMask [], code); (* Not used at the moment. *)
@@ -260,9 +260,9 @@ struct
            we trap if either the result is less than the limit or if it is now greater than
            the allocation pointer. *)
         compareRegs(resultReg, X_MLHeapLimit, code);
-        gen(conditionalBranch(condCarryClear, trapLabel), code);
+        gen(conditionalBranch(CondCarryClear, trapLabel), code);
         compareRegs(resultReg, X_MLHeapAllocPtr, code);
-        gen(conditionalBranch(condCarryClear, noTrapLabel), code);
+        gen(conditionalBranch(CondCarryClear, noTrapLabel), code);
         gen(setLabel trapLabel, code);
         gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset}, code);
         gen(branchAndLinkReg X16, code);
@@ -291,7 +291,7 @@ struct
     let
         val noOverflow = createLabel()
     in
-        gen(conditionalBranch(condNoOverflow, noOverflow), code);
+        gen(conditionalBranch(CondNoOverflow, noOverflow), code);
         gen(loadAddressConstant(X0, toMachineWord Overflow), code);
         gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, code);
         gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, code);
@@ -324,7 +324,7 @@ struct
         else
         (
             compareRegs(testReg, regW, code);
-            gen(conditionalBranch(condCarrySet, skipCheck), code)
+            gen(conditionalBranch(CondCarrySet, skipCheck), code)
         );
         gen(loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=entryPt}, code);
         gen(branchAndLinkReg X16, code);
@@ -556,7 +556,7 @@ struct
                 compareRegs(X4, X3, cvec);
                 gen(subImmediate{regN=X0, regD=X0, immed=0w1, shifted=false}, cvec);
                 (* Loop if they're equal. *)
-                gen(conditionalBranch(condEqual, loopLabel), cvec)
+                gen(conditionalBranch(CondEqual, loopLabel), cvec)
             end
     
          val () =
@@ -842,7 +842,7 @@ struct
                     (* For the moment load the value into a register and compare. *)
                     val () = genList(loadNonAddress(X1, Word64.fromInt nCases * 0w2), cvec)
                     val () = compareRegs(X0, X1, cvec)
-                    val () = gen(conditionalBranch(condCarrySet, defaultLabel), cvec)
+                    val () = gen(conditionalBranch(CondCarrySet, defaultLabel), cvec)
                     (* Load the address of the jump table. *)
                     val tableLabel = createLabel()
                     val () = gen(loadLabelAddress(X1, tableLabel), cvec)
@@ -976,7 +976,7 @@ struct
                     gencde (test, ToStack, NotEnd, loopAddr);
                     genPopReg(X0, cvec);
                     gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord tagValue, shifted=false}, cvec);
-                    setBooleanCondition(X0, condEqual, cvec);
+                    setBooleanCondition(X0, CondEqual, cvec);
                     genPushReg(X0, cvec)
                 )
 
@@ -994,7 +994,7 @@ struct
                     (* Load the packet and see if it is nil (tagged 0) *)
                     gen(loadRegScaled{regT=X0, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset}, cvec);
                     gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w0, shifted=false}, cvec);
-                    gen(conditionalBranch(condEqual, noException), cvec);
+                    gen(conditionalBranch(CondEqual, noException), cvec);
                     (* If it isn't then raise the exception. *)
                     gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
                     gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
@@ -1041,7 +1041,7 @@ struct
                         (* Loop to initialise. *)
                         gen(setLabel loopLabel, cvec);
                         compareRegs(X1, X0, cvec); (* Are we at the start? *)
-                        gen(conditionalBranch(condEqual, exitLabel), cvec);
+                        gen(conditionalBranch(CondEqual, exitLabel), cvec);
                         if is32in64
                         then gen(storeRegPreIndex32{regT=X3, regN=X1, byteOffset= ~4}, cvec)
                         else gen(storeRegPreIndex{regT=X3, regN=X1, byteOffset= ~8}, cvec);
@@ -1458,7 +1458,7 @@ struct
                     blockCompareBytes(sourceLeft, destRight, length, equalLabel, true);
                     gen(setLabel equalLabel, cvec);
                     (* Set the result condition. *)
-                    setBooleanCondition(X0, condEqual, cvec)
+                    setBooleanCondition(X0, CondEqual, cvec)
                 end
 
             |   BICBlockOperation { kind=BlockOpCompareByte, sourceLeft, destRight, length } =>
@@ -1470,7 +1470,7 @@ struct
                     (* We drop through if we have found unequal bytes. *)
                     genList(loadNonAddress(X0, Word64.fromInt(tag 1)), cvec);
                     (* Set X0 to either 1 or -1 depending on whether it's greater or less. *)
-                    gen(conditionalSetInverted{regD=X0, regTrue=X0, regFalse=XZero, cond=condUnsignedHigher}, cvec);
+                    gen(conditionalSetInverted{regD=X0, regTrue=X0, regFalse=XZero, cond=CondUnsignedHigher}, cvec);
                     gen(unconditionalBranch resultLabel, cvec);
                     gen(setLabel equalLabel, cvec);
                     (* Equal case - set it to zero. *)
@@ -1486,7 +1486,7 @@ struct
                     gencde (shortCond, ToX0, NotEnd, loopAddr);
                     gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
                     (* Go to the long case if it's not short. *)
-                    gen(conditionalBranch(condNotEqual, startLong), cvec);
+                    gen(conditionalBranch(CondNotEqual, startLong), cvec);
                     topInX0 := false;
                     gencde (arg1, ToStack, NotEnd, loopAddr);
                     gencde (arg2, ToX0, NotEnd, loopAddr);
@@ -1498,7 +1498,7 @@ struct
                         {regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
                     (* If there's no overflow skip to the end otherwise drop into
                        the call to the RTS. *)
-                    gen(conditionalBranch(condNoOverflow, resultLabel), cvec);
+                    gen(conditionalBranch(CondNoOverflow, resultLabel), cvec);
                     gen(setLabel startLong, cvec);
                     topInX0 := false;
                     gencde (longCall, ToX0, tailKind, loopAddr);
@@ -1513,7 +1513,7 @@ struct
                     gencde (shortCond, ToX0, NotEnd, loopAddr);
                     gen(subSImmediate{regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
                     (* Go to the long case if it's not short. *)
-                    gen(conditionalBranch(condNotEqual, startLong), cvec);
+                    gen(conditionalBranch(CondNotEqual, startLong), cvec);
                     topInX0 := false;
                     gencde (arg1, ToStack, NotEnd, loopAddr);
                     gencde (arg2, ToX0, NotEnd, loopAddr);
@@ -1523,7 +1523,7 @@ struct
                     (* Subtract and set the flag bits *)
                     gen((if is32in64 then subSShiftedReg32 else subSShiftedReg)
                         {regN=X1, regM=X0, regD=X0, shift=ShiftNone}, cvec);
-                    gen(conditionalBranch(condNoOverflow, resultLabel), cvec);
+                    gen(conditionalBranch(CondNoOverflow, resultLabel), cvec);
                     gen(setLabel startLong, cvec);
                     topInX0 := false;
                     gencde (longCall, ToX0, tailKind, loopAddr);
@@ -1621,7 +1621,7 @@ struct
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
                 gen(testBitPattern(X0, 0w1), cvec);
-                setBooleanCondition(X0, condNotEqual (*Non-zero*), cvec)
+                setBooleanCondition(X0, CondNotEqual (*Non-zero*), cvec)
             )
 
         |   genUnary(MemoryCellLength, arg1, loopAddr) =
@@ -1853,7 +1853,7 @@ struct
                 gen(dmbIsh, cvec);
                 (* The result is true if the old value was zero. *)
                 gen(subSImmediate{regN=X1, regD=XZero, immed=0w0, shifted=false}, cvec);
-                setBooleanCondition(X0, condEqual, cvec)                
+                setBooleanCondition(X0, CondEqual, cvec)                
             end
 
         |   genUnary(TryLockMutex, arg1, loopAddr) =
@@ -1876,7 +1876,7 @@ struct
                 gen(dmbIsh, cvec);
                 (* The result is true if the old value was zero. *)
                 gen(subSImmediate{regN=X1, regD=XZero, immed=0w0, shifted=false}, cvec);
-                setBooleanCondition(X0, condEqual, cvec)
+                setBooleanCondition(X0, CondEqual, cvec)
             end
 
         |   genUnary(UnlockMutex, arg1, loopAddr) =
@@ -1896,22 +1896,22 @@ struct
                 gen(dmbIsh, cvec);
                 (* The result is true if the old value was 1. *)
                 gen(subSImmediate{regN=X1, regD=XZero, immed=0w1, shifted=false}, cvec);
-                setBooleanCondition(X0, condEqual, cvec)
+                setBooleanCondition(X0, CondEqual, cvec)
             end
 
         and genBinary(WordComparison{test, isSigned}, arg1, arg2, loopAddr) =
             let
                 val cond =
                     case (test, isSigned) of
-                        (TestEqual,         _) => condEqual
-                    |   (TestLess,          true) => condSignedLess
-                    |   (TestLessEqual,     true) => condSignedLessEq
-                    |   (TestGreater,       true) => condSignedGreater
-                    |   (TestGreaterEqual,  true) => condSignedGreaterEq
-                    |   (TestLess,          false) => condCarryClear
-                    |   (TestLessEqual,     false) => condUnsignedLowOrEq
-                    |   (TestGreater,       false) => condUnsignedHigher
-                    |   (TestGreaterEqual,  false) => condCarrySet
+                        (TestEqual,         _) => CondEqual
+                    |   (TestLess,          true) => CondSignedLess
+                    |   (TestLessEqual,     true) => CondSignedLessEq
+                    |   (TestGreater,       true) => CondSignedGreater
+                    |   (TestGreaterEqual,  true) => CondSignedGreaterEq
+                    |   (TestLess,          false) => CondCarryClear
+                    |   (TestLessEqual,     false) => CondUnsignedLowOrEq
+                    |   (TestGreater,       false) => CondUnsignedHigher
+                    |   (TestGreaterEqual,  false) => CondCarrySet
                     |   (TestUnordered,     _) => raise InternalError "WordComparison: TestUnordered"
             in
                 gencde (arg1, ToStack, NotEnd, loopAddr);
@@ -1929,7 +1929,7 @@ struct
                 decsp();
                 genPopReg(X1, cvec); (* First argument. *)
                 comparePolyRegs(X1, X0, cvec);
-                setBooleanCondition(X0, condEqual, cvec)
+                setBooleanCondition(X0, CondEqual, cvec)
             )
 
         |   genBinary(FixedPrecisionArith ArithAdd, arg1, arg2, loopAddr) =
@@ -2004,7 +2004,7 @@ struct
                     (* Compare with the sign bit of the result. *)
                     gen(subSShiftedReg{regD=XZero, regN=X2, regM=X0, shift=ShiftASR 0w63}, cvec)
                 );
-                gen(conditionalBranch(condEqual, noOverflow), cvec);
+                gen(conditionalBranch(CondEqual, noOverflow), cvec);
                 gen(loadAddressConstant(X0, toMachineWord Overflow), cvec);
                 gen(loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset}, cvec);
                 gen(loadRegScaled{regT=X1, regN=X_MLStackPtr, unitOffset=0}, cvec);
@@ -2276,11 +2276,11 @@ struct
             let
                 val cond =
                     case test of
-                        TestEqual => condEqual
-                    |   TestLess => condCarryClear
-                    |   TestLessEqual => condUnsignedLowOrEq
-                    |   TestGreater => condUnsignedHigher
-                    |   TestGreaterEqual => condCarrySet
+                        TestEqual => CondEqual
+                    |   TestLess => CondCarryClear
+                    |   TestLessEqual => CondUnsignedLowOrEq
+                    |   TestGreater => CondUnsignedHigher
+                    |   TestGreaterEqual => CondCarrySet
                     |   TestUnordered => raise InternalError "LargeWordComparison: TestUnordered"
             in
                 gencde (arg1, ToStack, NotEnd, loopAddr);
@@ -2446,12 +2446,12 @@ struct
             let
                 val cond =
                     case test of
-                        TestEqual => condEqual
-                    |   TestLess => condCarryClear
-                    |   TestLessEqual => condUnsignedLowOrEq
-                    |   TestGreater => condSignedGreater
-                    |   TestGreaterEqual => condSignedGreaterEq
-                    |   TestUnordered => condOverflow
+                        TestEqual => CondEqual
+                    |   TestLess => CondCarryClear
+                    |   TestLessEqual => CondUnsignedLowOrEq
+                    |   TestGreater => CondSignedGreater
+                    |   TestGreaterEqual => CondSignedGreaterEq
+                    |   TestUnordered => CondOverflow
             in
                 gencde (arg1, ToStack, NotEnd, loopAddr);
                 gencde (arg2, ToX0, NotEnd, loopAddr);
@@ -2467,12 +2467,12 @@ struct
             let
                 val cond =
                     case test of
-                        TestEqual => condEqual
-                    |   TestLess => condCarryClear
-                    |   TestLessEqual => condUnsignedLowOrEq
-                    |   TestGreater => condSignedGreater
-                    |   TestGreaterEqual => condSignedGreaterEq
-                    |   TestUnordered => condOverflow
+                        TestEqual => CondEqual
+                    |   TestLess => CondCarryClear
+                    |   TestLessEqual => CondUnsignedLowOrEq
+                    |   TestGreater => CondSignedGreater
+                    |   TestGreaterEqual => CondSignedGreaterEq
+                    |   TestUnordered => CondOverflow
             in
                 gencde (arg1, ToStack, NotEnd, loopAddr);
                 gencde (arg2, ToX0, NotEnd, loopAddr);
@@ -2695,15 +2695,15 @@ struct
             let
                 val (cond, condNot) =
                     case (test, isSigned) of
-                        (TestEqual,         _) => (condEqual, condNotEqual)
-                    |   (TestLess,          true) => (condSignedLess, condSignedGreaterEq)
-                    |   (TestLessEqual,     true) => (condSignedLessEq, condSignedGreater)
-                    |   (TestGreater,       true) => (condSignedGreater, condSignedLessEq)
-                    |   (TestGreaterEqual,  true) => (condSignedGreaterEq, condSignedLess)
-                    |   (TestLess,          false) => (condCarryClear, condCarrySet)
-                    |   (TestLessEqual,     false) => (condUnsignedLowOrEq, condUnsignedHigher)
-                    |   (TestGreater,       false) => (condUnsignedHigher, condUnsignedLowOrEq)
-                    |   (TestGreaterEqual,  false) => (condCarrySet, condCarryClear)
+                        (TestEqual,         _) => (CondEqual, CondNotEqual)
+                    |   (TestLess,          true) => (CondSignedLess, CondSignedGreaterEq)
+                    |   (TestLessEqual,     true) => (CondSignedLessEq, CondSignedGreater)
+                    |   (TestGreater,       true) => (CondSignedGreater, CondSignedLessEq)
+                    |   (TestGreaterEqual,  true) => (CondSignedGreaterEq, CondSignedLess)
+                    |   (TestLess,          false) => (CondCarryClear, CondCarrySet)
+                    |   (TestLessEqual,     false) => (CondUnsignedLowOrEq, CondUnsignedHigher)
+                    |   (TestGreater,       false) => (CondUnsignedHigher, CondUnsignedLowOrEq)
+                    |   (TestGreaterEqual,  false) => (CondCarrySet, CondCarryClear)
                     |   (TestUnordered,     _) => raise InternalError "WordComparison: TestUnordered"
             in
                 gencde (arg1, ToStack, NotEnd, loopAddr);
@@ -2723,7 +2723,7 @@ struct
                 topInX0 := false;
                 genPopReg(X1, cvec); (* First argument. *)
                 comparePolyRegs(X1, X0, cvec);
-                gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec)
+                gen(conditionalBranch(if jumpOn then CondEqual else CondNotEqual, targetLabel), cvec)
             )
 
         |   genTest(BICTagTest { test, tag=tagValue, ... }, jumpOn, targetLabel, loopAddr) =
@@ -2732,7 +2732,7 @@ struct
                 topInX0 := false;
                 gen((if is32in64 then subSImmediate32 else subSImmediate)
                     {regN=X0, regD=XZero, immed=taggedWord tagValue, shifted=false}, cvec);
-                gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec)
+                gen(conditionalBranch(if jumpOn then CondEqual else CondNotEqual, targetLabel), cvec)
             )
 
         |   genTest(BICCond (testPart, thenPart, elsePart), jumpOn, targetLabel, loopAddr) =
@@ -2753,7 +2753,7 @@ struct
                 genPopReg(X0, cvec);
                 gen((if is32in64 then subSImmediate32 else subSImmediate)
                     {regN=X0, regD=XZero, immed=taggedWord 0w1, shifted=false}, cvec);
-                gen(conditionalBranch(if jumpOn then condEqual else condNotEqual, targetLabel), cvec);
+                gen(conditionalBranch(if jumpOn then CondEqual else CondNotEqual, targetLabel), cvec);
                 decsp() (* conditional branch pops a value. *)
             )
 

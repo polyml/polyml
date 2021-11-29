@@ -340,7 +340,7 @@ struct
         in
             BlockLabel noJumpLabel ::
             BlockFlow(Conditional{ccRef=ccRef,
-                       condition=if jumpOn then condEqual else condNotEqual, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
+                       condition=if jumpOn then CondEqual else CondNotEqual, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
             (* Compare: SUBS XZ,reg,3.  Can use 32-bit comparison because it's either tagged 0 or tagged 1. *)
             BlockSimple(AddSubImmediate{source=testReg, immed=taggedWord 0w1, isAdd=false, dest=NONE, length=Arith32, ccRef=SOME ccRef}) ::
             testCode
@@ -365,15 +365,15 @@ struct
                 open BuiltIns
                 val cond =
                     case (test, isSigned) of
-                        (TestEqual,         _) => condEqual
-                    |   (TestLess,          true) => condSignedLess
-                    |   (TestLessEqual,     true) => condSignedLessEq
-                    |   (TestGreater,       true) => condSignedGreater
-                    |   (TestGreaterEqual,  true) => condSignedGreaterEq
-                    |   (TestLess,          false) => condCarryClear
-                    |   (TestLessEqual,     false) => condUnsignedLowOrEq
-                    |   (TestGreater,       false) => condUnsignedHigher
-                    |   (TestGreaterEqual,  false) => condCarrySet
+                        (TestEqual,         _) => CondEqual
+                    |   (TestLess,          true) => CondSignedLess
+                    |   (TestLessEqual,     true) => CondSignedLessEq
+                    |   (TestGreater,       true) => CondSignedGreater
+                    |   (TestGreaterEqual,  true) => CondSignedGreaterEq
+                    |   (TestLess,          false) => CondCarryClear
+                    |   (TestLessEqual,     false) => CondUnsignedLowOrEq
+                    |   (TestGreater,       false) => CondUnsignedHigher
+                    |   (TestGreaterEqual,  false) => CondCarrySet
                     |   (TestUnordered,     _) => raise InternalError "WordComparison: TestUnordered"
             in
                 (makeBoolResultRev(cond, ccRef, target, comparison), target, false)

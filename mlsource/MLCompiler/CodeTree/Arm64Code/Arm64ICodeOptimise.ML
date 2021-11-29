@@ -29,8 +29,273 @@ struct
     open Identify
 
     datatype optimise = Changed of basicBlock vector * regProperty vector | Unchanged
+    
+    exception InternalError = Misc.InternalError
+    
+    (* Optimiser.
+       This could incorporate optimisations done elsewhere.
+       IdentifyReferences currently removes instructions that
+       produce results in registers that are never used.
 
-    fun optimiseICode _ = Unchanged
+       PushRegisters deals with caching. Caching involves
+       speculative changes that can be reversed if there is a need
+       to spill registers.
+       
+       The optimiser currently deals with booleans and conditions.
+    *)
+    
+    (* This is a rewrite of the last instruction to set a boolean.
+       This is almost always rewriting the next instruction.  The only
+       possibility is that we have a ResetStackPtr in between. *)
+    datatype boolRegRewrite =
+        BRNone
+        (* BRSetConditionToConstant - we have a comparison of two constant value.
+           This will usually happen because we've duplicated a branch and
+           set a register to a constant which we then compare. *)
+    |   BRSetConditionToConstant of
+            { srcCC: ccRef, signedCompare: order, unsignedCompare: order }
+
+    fun optimiseICode{ code, pregProps, ccCount=_, debugSwitches=_ } =
+    let
+        val hasChanged = ref false
+        val regCounter = ref(Vector.length pregProps)
+        val regList = ref []
+        fun newReg kind =
+        (
+            regList := kind :: ! regList;
+            PReg (!regCounter)
+        ) before regCounter := !regCounter + 1
+
+        datatype regValue = ARegister of preg | AConstant of Word64.word
+
+        (* If this argument is a register and the register is mapped to a constant
+           or another register replace the value.  Unlike the X86 version we
+           don't map memory locations. *)
+        fun getRegisterValue(preg as PReg pregNo, kill, regMap) =
+        (
+            case List.find(fn {dest, ... } => dest = preg) regMap of
+                SOME { source, ...} =>
+                (
+                    source,
+                    (* Filter it if it is the last reference. *)
+                    if member(pregNo, kill)
+                    then List.filter(fn {dest, ...} => dest <> preg) regMap
+                    else regMap
+                )
+            |   NONE => (ARegister preg, regMap)
+        )
+
+        fun optimiseBlock processed (block, flow, outCCState) =
+        let
+            fun optCode([], brCond, regMap, code) = (code, brCond, regMap)
+
+            |   optCode({instr=AddSubImmediate{source, dest=NONE, ccRef=SOME ccRefOut, immed, isAdd=false, length}, kill, ...} :: rest,
+                        _, regMap, code) =
+                let
+                    val (repArg1, memRefsOut) = getRegisterValue(source, kill, regMap)
+                in
+                    case repArg1 of
+                        AConstant test =>
+                        (* AddSubImmediate is put in by CodetreeToIcode to test a boolean value.  It can also
+                           arise as the result of pattern matching on booleans or even by tests such as = true.
+                           If the source register is now a constant we want to propagate the constant
+                           condition. *)
+                        let
+                            (* This comparison reduces to a constant.  *)
+                            val _ = hasChanged := true
+                            (* Signed comparison.  The top word is always zero in 32in64 so we
+                               need to sign-extend it.  immediate values are always unsigned. *)
+                            val testValue =
+                                if is32in64 andalso test >= 0wx80000000
+                                then Word64.toLargeInt test - 0x100000000
+                                else Word64.toLargeIntX test
+                            (* Put in a replacement so that if we were previously testing ccRefOut
+                               we should instead test ccRef. *)
+                            val repl =
+                                BRSetConditionToConstant{srcCC=ccRefOut,
+                                    signedCompare=LargeInt.compare(testValue, Word.toLargeInt immed),
+                                    unsignedCompare=Word64.compare(test, Word64.fromLarge(Word.toLargeWord immed))}
+                            val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
+                        in
+                            optCode(rest, repl, memRefsOut, code)
+                        end
+                
+                    |   ARegister repArg1 =>
+                            optCode(rest, BRNone, memRefsOut,
+                                AddSubImmediate{source=repArg1, dest=NONE, ccRef=SOME ccRefOut, immed=immed, isAdd=false, length=length} ::code)
+                end
+
+            |   optCode({instr=MoveRegister{dest, source}, kill, ...} :: rest, inCond, regMap, code) =
+                (
+                    case getRegisterValue(source, kill, regMap) of
+                        (repSource as AConstant cval, mapAfterReplace) =>
+                            optCode(rest, inCond, {dest=dest, source=repSource} :: mapAfterReplace,
+                                LoadNonAddressConstant{ source=cval, dest=dest } :: code)
+
+                    |   (ARegister repReg, mapAfterReplace) =>
+                            optCode(rest, inCond, mapAfterReplace, MoveRegister{dest=dest, source=repReg}::code)
+                )
+
+            |   optCode({instr as LoadNonAddressConstant{dest, source}, kill, ...} :: rest, inCond, regMap, code) =
+                    (* Add constants to the map. *)
+                    optCode(rest, inCond, {dest=dest, source=AConstant source} :: regMap, instr :: code)
+
+            |   optCode({instr, ...} :: rest, inCond, regMap, code) =
+                let
+                    (* If this instruction affects the CC the cached SetToCondition will no longer be valid. *)
+                    val afterCond =
+                        case getInstructionCC instr of
+                            CCUnchanged => inCond
+                        |   _ => BRNone
+                in
+                    optCode(rest, afterCond, regMap, instr::code)
+                end
+
+            val (blkCode, finalRepl, finalMap) = optCode(block, BRNone, [], processed)
+        in
+            case (flow, finalRepl) of
+                (* We have a Condition and a change to the condition. *)
+                (flow as Conditional{ccRef, condition, trueJump, falseJump},
+                 BRSetConditionToConstant({srcCC, signedCompare, unsignedCompare, ...})) =>
+                    if srcCC = ccRef
+                    then
+                    let
+                        val testResult =
+                            case (condition, signedCompare, unsignedCompare) of
+                                (CondEqual,             EQUAL,  _)   => true
+                            |   (CondEqual,             _,      _)   => false
+                            |   (CondNotEqual,          EQUAL,  _)   => false
+                            |   (CondNotEqual,          _,      _)   => true
+                            |   (CondSignedLess,        LESS,   _)   => true
+                            |   (CondSignedLess,        _,      _)   => false
+                            |   (CondSignedGreater,     GREATER,_)   => true
+                            |   (CondSignedGreater,     _,      _)   => false
+                            |   (CondSignedLessEq,      GREATER,_)   => false
+                            |   (CondSignedLessEq,      _,      _)   => true
+                            |   (CondSignedGreaterEq,   LESS,   _)   => false
+                            |   (CondSignedGreaterEq,   _,      _)   => true
+                            |   (CondCarryClear,        _, LESS  )   => true
+                            |   (CondCarryClear,        _,      _)   => false
+                            |   (CondUnsignedHigher,    _,GREATER)   => true
+                            |   (CondUnsignedHigher,    _,      _)   => false
+                            |   (CondUnsignedLowOrEq,    _,GREATER)   => false
+                            |   (CondUnsignedLowOrEq,    _,      _)   => true
+                            |   (CondCarrySet,          _, LESS  )   => false
+                            |   (CondCarrySet,          _,      _)   => true
+                                (* The overflow and parity checks should never occur. *)
+                            |   _   => raise InternalError "getCondResult: comparison"
+
+                        val newFlow =
+                            if testResult
+                            then Unconditional trueJump
+                            else Unconditional falseJump
+
+                        val() = hasChanged := true
+                    in
+                        BasicBlock{flow=newFlow, block=List.rev blkCode}
+                    end
+                    else BasicBlock{flow=flow, block=List.rev blkCode}
+              
+            |   (flow as Unconditional jmp, _) =>
+                let
+                    val ExtendedBasicBlock{block=targetBlck, locals, exports, flow=targetFlow, outCCState=targetCC, ...} =
+                        Vector.sub(code, jmp)
+                    (* If the target is empty or is simply one or more Resets or a Return we're
+                       better off merging this in rather than doing the jump.  We allow a single
+                       Load  e.g. when loading a constant or moving a register.
+                       If we have a CompareLiteral and we're comparing with a register in the map
+                       that has been set to a constant we include that because the comparison will
+                       then be reduced to a constant. *)
+                    fun isSimple([], _, _) = true
+                    (*|   isSimple ({instr=ResetStackPtr _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)*)
+                    |   isSimple ({instr=ReturnResultFromFunction _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)
+                    (*|   isSimple ({instr=RaiseExceptionPacket _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)*)
+                    |   isSimple ({instr=MoveRegister{source, dest}, ...} :: instrs, moves, regMap) =
+                        let
+                            (* We frequently have a move of the original register into a new register before the test. *)
+                            val newMap =
+                                case List.find(fn {dest, ... } => dest = source) regMap of
+                                    SOME {source, ...} => {dest=dest, source=source} :: regMap
+                                |   NONE => regMap
+                        in
+                            moves = 0 andalso isSimple(instrs, moves+1, newMap)
+                        end
+                    |   isSimple ({instr=LoadNonAddressConstant _, ...} :: instrs, moves, regMap) =
+                            moves = 0 andalso isSimple(instrs, moves+1, regMap)
+                    |   isSimple ({instr=LoadAddressConstant _, ...} :: instrs, moves, regMap) =
+                            moves = 0 andalso isSimple(instrs, moves+1, regMap)
+                    |   isSimple ({instr=AddSubImmediate{source, dest=NONE, ...}, ...} :: instrs, moves, regMap) =
+                        let
+                            val isReplace = List.find(fn {dest, ... } => dest = source) regMap
+                        in
+                            case isReplace of
+                                SOME {source=AConstant _, ...} => isSimple(instrs, moves, regMap)
+                            |   _ => false
+                        end
+                    |   isSimple _ = false
+ 
+                in
+                    (* Merge trivial blocks.  This previously also tried to merge non-trivial blocks if
+                       they only had one reference but this ends up duplicating non-trivial code.  If we
+                       have a trivial block that has multiple references but is the only reference to
+                       a non-trivial block we can merge the non-trivial block into it.  That would
+                       be fine except that at the same time we may merge this trivial block elsewhere. *)
+                    (* The restriction that a block must only export "merge" registers is unfortunate
+                       but necessary to avoid the situation where a non-merge register is defined at
+                       multiple points and cannot be pushed to the stack.  This really isn't an issue
+                       with blocks with unconditional branches but there are cases where we have
+                       successive tests of the same condition and that results in local registers
+                       being defined and then exported.  This occurs in, for example,
+                       fun f x = if x > "abcde" then "yes" else "no"; *)
+                    if isSimple(targetBlck, 0, finalMap) andalso
+                            List.all (fn i => Vector.sub(pregProps, i) = RegPropMultiple) (setToList exports)
+                    then
+                    let
+                        (* Copy the block, creating new registers for the locals. *)
+                        val localMap = List.map (fn r => (PReg r, newReg(Vector.sub(pregProps, r)))) (setToList locals)
+                        fun mapReg r = case List.find (fn (s, _) => r = s) localMap of SOME(_, s) => s | NONE => r
+                        fun mapInstr(ReturnResultFromFunction{resultReg, returnReg, numStackArgs}) =
+                                ReturnResultFromFunction{resultReg=mapReg resultReg, returnReg=mapReg returnReg, numStackArgs=numStackArgs}
+                        |   mapInstr(MoveRegister{source, dest}) =
+                                MoveRegister{source=mapReg source, dest=mapReg dest}
+                        |   mapInstr(LoadNonAddressConstant{source, dest}) =
+                                LoadNonAddressConstant{source=source, dest=mapReg dest}
+                        |   mapInstr(LoadAddressConstant{source, dest}) =
+                                LoadAddressConstant{source=source, dest=mapReg dest}
+                        |   mapInstr(AddSubImmediate{source, dest=NONE, immed, ccRef, isAdd, length}) =
+                                AddSubImmediate{source=mapReg source, dest=NONE, immed=immed, ccRef=ccRef, isAdd=isAdd, length=length}
+                        |   mapInstr _ = raise InternalError "mapInstr: other instruction"
+                        fun mapRegNo i = case(mapReg(PReg i)) of PReg r => r
+                        (* Map the instructions and the sets although we only use the kill set. *)
+                        fun mapCode{instr, current, active, kill} =
+                            {instr=mapInstr instr, current=listToSet(map mapRegNo (setToList current)),
+                             active=listToSet(map mapRegNo (setToList active)), kill=listToSet(map mapRegNo (setToList kill))}
+                    in
+                        hasChanged := true;
+                        optimiseBlock blkCode(map mapCode targetBlck, targetFlow, targetCC)
+                    end
+                    else BasicBlock{flow=flow, block=List.rev blkCode}
+                end
+
+            |   (flow, _) => BasicBlock{flow=flow, block=List.rev blkCode}
+        end
+        
+        fun optBlck(ExtendedBasicBlock{block, flow, outCCState, ...}) = optimiseBlock [] (block, flow, outCCState)
+        val resVector = Vector.map optBlck code
+    in
+        if !hasChanged
+        then
+        let
+            val extraRegs = List.rev(! regList)
+            val props =
+                if null extraRegs
+                then pregProps
+                else Vector.concat[pregProps, Vector.fromList extraRegs]
+        in
+            Changed(resVector, props)
+        end
+        else Unchanged
+    end
 
     structure Sharing =
     struct

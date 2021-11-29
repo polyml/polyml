@@ -94,6 +94,20 @@ struct
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
     fun eliminateable(MoveRegister _) = true
+    |   eliminateable(LoadNonAddressConstant _) = true
+    |   eliminateable(LoadAddressConstant _) = true
+    |   eliminateable(LoadWithConstantOffset _) = true
+    |   eliminateable(LoadWithIndexedOffset _) = true
+    |   eliminateable(ObjectIndexAddressToAbsolute _) = true
+(*
+    |   eliminateable(TagValue _) = true
+    |   eliminateable(UntagValue _) = true
+    |   eliminateable(LoadEffectiveAddress _) = true
+    |   eliminateable(BoxValue _) = true
+    |   eliminateable(CopyToCache _) = true
+    |   eliminateable(LoadMemReg _) = true
+
+*)
     |   eliminateable _ = false
    
 

@@ -21,7 +21,6 @@ sig
     type instr
     type machineWord = Address.machineWord
     type labels
-    type condition
 
     (* XZero and XSP are both encoded as 31 but the interpretation
        depends on the instruction 
@@ -50,20 +49,21 @@ sig
     and V4:  vReg   and V5:  vReg   and V6:  vReg   and V7: vReg
 
     (* Condition for conditional branches etc. *)
-    val condEqual: condition
-    and condNotEqual: condition
-    and condCarrySet: condition
-    and condCarryClear: condition
-    and condNegative: condition
-    and condPositive: condition
-    and condOverflow: condition
-    and condNoOverflow: condition
-    and condUnsignedHigher: condition
-    and condUnsignedLowOrEq: condition
-    and condSignedGreaterEq: condition
-    and condSignedLess: condition
-    and condSignedGreater: condition
-    and condSignedLessEq: condition
+    datatype condition =
+        CondEqual            (* Z=1 *)
+    |   CondNotEqual         (* Z=0 *)
+    |   CondCarrySet         (* C=1 *)
+    |   CondCarryClear       (* C=0 *)
+    |   CondNegative         (* N=1 *)
+    |   CondPositive         (* N=0 imcludes zero *)
+    |   CondOverflow         (* V=1 *)
+    |   CondNoOverflow       (* V=0 *)
+    |   CondUnsignedHigher   (* C=1 && Z=0 *)
+    |   CondUnsignedLowOrEq  (* ! (C=1 && Z=0) *)
+    |   CondSignedGreaterEq  (* N=V *)
+    |   CondSignedLess       (* N<>V *)
+    |   CondSignedGreater    (* Z==0 && N=V *)
+    |   CondSignedLessEq     (* !(Z==0 && N=V) *)
 
     val invertTest: condition -> condition (* i.e. jump when the condition is not true. *)
     val condToString: condition -> string

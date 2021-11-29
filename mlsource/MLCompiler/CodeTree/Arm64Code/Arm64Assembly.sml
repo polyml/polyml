@@ -71,47 +71,75 @@ struct
        label we will have the full list. *)
     type labels = Word.word ref list ref
 
-    (* Condition codes.  The encoding is standard. *)
-    datatype condition = CCode of Word8.word
-    
-    val condEqual           = CCode 0wx0 (* Z=1 *)
-    and condNotEqual        = CCode 0wx1 (* Z=0 *)
-    and condCarrySet        = CCode 0wx2 (* C=1 *)
-    and condCarryClear      = CCode 0wx3 (* C=0 *)
-    and condNegative        = CCode 0wx4 (* N=1 *)
-    and condPositive        = CCode 0wx5 (* N=0 imcludes zero *)
-    and condOverflow        = CCode 0wx6 (* V=1 *)
-    and condNoOverflow      = CCode 0wx7 (* V=0 *)
-    and condUnsignedHigher  = CCode 0wx8 (* C=1 && Z=0 *)
-    and condUnsignedLowOrEq = CCode 0wx9 (* ! (C=1 && Z=0) *)
-    and condSignedGreaterEq = CCode 0wxa (* N=V *)
-    and condSignedLess      = CCode 0wxb (* N<>V *)
-    and condSignedGreater   = CCode 0wxc (* Z==0 && N=V *)
-    and condSignedLessEq    = CCode 0wxd (* !(Z==0 && N=V) *)
-    (* use unconditional branches for the "always" cases. *)
+    (* Condition codes. *)
+
     (* N.B. On subtraction and comparison the ARM uses an inverted carry
        flag for borrow.  The C flag is set if there is NO borrow.
        This is the reverse of the X86. *)
+    datatype condition =
+        CondEqual            (* Z=1 *)
+    |   CondNotEqual         (* Z=0 *)
+    |   CondCarrySet         (* C=1 *)
+    |   CondCarryClear       (* C=0 *)
+    |   CondNegative         (* N=1 *)
+    |   CondPositive         (* N=0 imcludes zero *)
+    |   CondOverflow         (* V=1 *)
+    |   CondNoOverflow       (* V=0 *)
+    |   CondUnsignedHigher   (* C=1 && Z=0 *)
+    |   CondUnsignedLowOrEq  (* ! (C=1 && Z=0) *)
+    |   CondSignedGreaterEq  (* N=V *)
+    |   CondSignedLess       (* N<>V *)
+    |   CondSignedGreater    (* Z==0 && N=V *)
+    |   CondSignedLessEq     (* !(Z==0 && N=V) *)
 
     (* The negation of a test just involves inverting the bottom bit. *)
-    fun invertTest(CCode cond) = CCode(Word8.xorb(cond, 0w1))
+    fun invertTest CondEqual            = CondNotEqual
+    |   invertTest CondNotEqual         = CondEqual
+    |   invertTest CondCarrySet         = CondCarryClear
+    |   invertTest CondCarryClear       = CondCarrySet
+    |   invertTest CondNegative         = CondPositive
+    |   invertTest CondPositive         = CondNegative
+    |   invertTest CondOverflow         = CondNoOverflow
+    |   invertTest CondNoOverflow       = CondOverflow
+    |   invertTest CondUnsignedHigher   = CondUnsignedLowOrEq
+    |   invertTest CondUnsignedLowOrEq  = CondUnsignedHigher
+    |   invertTest CondSignedGreaterEq  = CondSignedLess
+    |   invertTest CondSignedLess       = CondSignedGreaterEq
+    |   invertTest CondSignedGreater    = CondSignedLessEq
+    |   invertTest CondSignedLessEq     = CondSignedGreater
 
-    fun condToString(CCode 0wx0) = "EQ"
-    |   condToString(CCode 0wx1) = "NE"
-    |   condToString(CCode 0wx2) = "CS"
-    |   condToString(CCode 0wx3) = "CC"
-    |   condToString(CCode 0wx4) = "MI"
-    |   condToString(CCode 0wx5) = "PL"
-    |   condToString(CCode 0wx6) = "VS"
-    |   condToString(CCode 0wx7) = "VC"
-    |   condToString(CCode 0wx8) = "HI"
-    |   condToString(CCode 0wx9) = "LS"
-    |   condToString(CCode 0wxa) = "GE"
-    |   condToString(CCode 0wxb) = "LT"
-    |   condToString(CCode 0wxc) = "GT"
-    |   condToString(CCode 0wxd) = "LE"
-    |   condToString(CCode 0wxe) = "AL"
-    |   condToString _           = "NV"
+    fun condToString CondEqual            = "EQ"
+    |   condToString CondNotEqual         = "NE"
+    |   condToString CondCarrySet         = "CS"
+    |   condToString CondCarryClear       = "CC"
+    |   condToString CondNegative         = "MI"
+    |   condToString CondPositive         = "PL"
+    |   condToString CondOverflow         = "VS"
+    |   condToString CondNoOverflow       = "VC"
+    |   condToString CondUnsignedHigher   = "HI"
+    |   condToString CondUnsignedLowOrEq  = "LS"
+    |   condToString CondSignedGreaterEq  = "GE"
+    |   condToString CondSignedLess       = "LT"
+    |   condToString CondSignedGreater    = "GT"
+    |   condToString CondSignedLessEq     = "LE"
+
+
+    (* Condition codes to binary encoding. *)
+    fun cCode CondEqual           = 0wx0: Word32.word
+    |   cCode CondNotEqual        = 0wx1
+    |   cCode CondCarrySet        = 0wx2 (* C=1 *)
+    |   cCode CondCarryClear      = 0wx3 (* C=0 *)
+    |   cCode CondNegative        = 0wx4 (* N=1 *)
+    |   cCode CondPositive        = 0wx5 (* N=0 imcludes zero *)
+    |   cCode CondOverflow        = 0wx6 (* V=1 *)
+    |   cCode CondNoOverflow      = 0wx7 (* V=0 *)
+    |   cCode CondUnsignedHigher  = 0wx8 (* C=1 && Z=0 *)
+    |   cCode CondUnsignedLowOrEq = 0wx9 (* ! (C=1 && Z=0) *)
+    |   cCode CondSignedGreaterEq = 0wxa (* N=V *)
+    |   cCode CondSignedLess      = 0wxb (* N<>V *)
+    |   cCode CondSignedGreater   = 0wxc (* Z==0 && N=V *)
+    |   cCode CondSignedLessEq    = 0wxd (* !(Z==0 && N=V) *)
+
 
     (* Offsets in the assembly code interface pointed at by X26
        These are in units of 64-bits NOT bytes. *)
@@ -752,9 +780,9 @@ struct
        the second argument.  There are variants that set it unmodified,
        incremented, inverted and negated. *)
     local
-        fun conditionalSelect (sf, opc, op2) {regD, regFalse, regTrue, cond=CCode cond} =
+        fun conditionalSelect (sf, opc, op2) {regD, regFalse, regTrue, cond} =
             SimpleInstr(0wx1A800000 orb (sf << 0w31) orb (opc << 0w30) orb
-                (word8ToWord32(xRegOrXZ regFalse) << 0w16) orb (word8ToWord32 cond << 0w12) orb
+                (word8ToWord32(xRegOrXZ regFalse) << 0w16) orb (cCode cond << 0w12) orb
                 (op2 << 0w10) orb (word8ToWord32(xRegOrXZ regTrue) << 0w5) orb
                 word8ToWord32(xRegOrXZ regD))
     in
@@ -1211,7 +1239,7 @@ struct
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
 
-        |   genCodeWords(ConditionalBranch{ label=ref labs, jumpCondition=CCode cond, length=ref BrShort }:: tail, wordNo,
+        |   genCodeWords(ConditionalBranch{ label=ref labs, jumpCondition=cond, length=ref BrShort }:: tail, wordNo,
                             aConstNum, nonAConstNum) =
             let
                 val dest = !(hd labs)
@@ -1219,7 +1247,7 @@ struct
                 val _ = willFitInRange(offset, 0w19) orelse raise InternalError "genCodeWords: branch too far"
             in
                 writeInstr(0wx54000000 orb ((Word32.fromInt offset andb 0wx07ffff) << 0w5)
-                        orb word8ToWord32 cond, wordNo, codeVec);
+                        orb cCode cond, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
 
@@ -1229,9 +1257,9 @@ struct
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt (wordNo + 0w1) (* Next instruction. *)
                 val _ = willFitInRange(offset, 0w26) orelse raise InternalError "genCodeWords: branch too far"
-                val CCode revCond = invertTest jumpCondition
+                val revCond = invertTest jumpCondition
             in
-                writeInstr(0wx54000000 orb (0w2 << 0w5) orb word8ToWord32 revCond, wordNo, codeVec);
+                writeInstr(0wx54000000 orb (0w2 << 0w5) orb cCode revCond, wordNo, codeVec);
                 writeInstr(0wx14000000 orb (Word32.fromInt offset andb 0wx03ffffff), wordNo+0w1, codeVec);
                 genCodeWords(tail, wordNo+0w2, aConstNum, nonAConstNum)
             end

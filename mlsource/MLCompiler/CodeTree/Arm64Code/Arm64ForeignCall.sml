@@ -62,7 +62,7 @@ struct
                 subImmediate{regN=X_MLHeapAllocPtr, regD=fixedReg, immed=bytes, shifted=false},
                 (* Compare the result with the heap limit. *)
                 subSShiftedReg{regM=X_MLHeapLimit, regN=fixedReg, regD=XZero, shift=ShiftNone},
-                conditionalBranch(condCarrySet, label),
+                conditionalBranch(CondCarrySet, label),
                 loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset},
                 branchAndLinkReg X16,
                 registerMask [], (* Not used at the moment. *)
@@ -446,7 +446,7 @@ struct
                                 loadRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg3, byteOffset= ~1},
                                 storeRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg2, byteOffset= ~1},
                                 subSShiftedReg{regM=argWorkReg2, regN=argRegNo, regD=XZero, shift=ShiftNone}, (* At start? *)
-                                conditionalBranch(condNotEqual, loopLabel)
+                                conditionalBranch(CondNotEqual, loopLabel)
                             ]
                         in
                             if size > 0w16
@@ -694,7 +694,7 @@ struct
                             loadRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg3, byteOffset= ~1},
                             storeRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg2, byteOffset= ~1},
                             subSShiftedReg{regM=argWorkReg3, regN=argRegNo, regD=XZero, shift=ShiftNone}, (* At start? *)
-                            conditionalBranch(condNotEqual, loopLabel)
+                            conditionalBranch(CondNotEqual, loopLabel)
                         ]
                     in
                         moveArgs(args, newStack, newArgOffset+size, nextGReg, fpRegNo, loadArg @ copyCode @ moveFromStack)

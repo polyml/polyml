@@ -44,22 +44,22 @@ sig
     
     val is32in64: bool
     
-    type condition
     (* Condition for conditional branches etc. *)
-    val condEqual: condition
-    and condNotEqual: condition
-    and condCarrySet: condition
-    and condCarryClear: condition
-    and condNegative: condition
-    and condPositive: condition
-    and condOverflow: condition
-    and condNoOverflow: condition
-    and condUnsignedHigher: condition
-    and condUnsignedLowOrEq: condition
-    and condSignedGreaterEq: condition
-    and condSignedLess: condition
-    and condSignedGreater: condition
-    and condSignedLessEq: condition
+    datatype condition =
+        CondEqual            (* Z=1 *)
+    |   CondNotEqual         (* Z=0 *)
+    |   CondCarrySet         (* C=1 *)
+    |   CondCarryClear       (* C=0 *)
+    |   CondNegative         (* N=1 *)
+    |   CondPositive         (* N=0 imcludes zero *)
+    |   CondOverflow         (* V=1 *)
+    |   CondNoOverflow       (* V=0 *)
+    |   CondUnsignedHigher   (* C=1 && Z=0 *)
+    |   CondUnsignedLowOrEq  (* ! (C=1 && Z=0) *)
+    |   CondSignedGreaterEq  (* N=V *)
+    |   CondSignedLess       (* N<>V *)
+    |   CondSignedGreater    (* Z==0 && N=V *)
+    |   CondSignedLessEq     (* !(Z==0 && N=V) *)
 
     datatype preg = PReg of int (* A pseudo-register - an abstract register. *)
     
