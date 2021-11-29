@@ -74,6 +74,10 @@ struct
     |   AddSubImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: word,
                              isAdd: bool, length: arithLength }
 
+        (* Add/Subtract register.  As with AddSubImmediate, both the destination and cc are optional. *)
+    |   AddSubRegister of { operand1: preg, operand2: preg, dest: preg option, ccRef: ccRef option,
+                            isAdd: bool, length: arithLength }
+
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
            closure register (X8).  The register arguments include the return register
@@ -183,6 +187,16 @@ struct
             (
                 stream (if isAdd then "\tAddImmediate" else "\tSubImmediate"); stream(arithRepr length);
                 stream "\t"; printReg(source, stream); stream ",0x"; stream(Word.toString immed);
+                stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
+                stream ", ";
+                case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
+            )
+
+        |   printICode(AddSubRegister{ operand1, operand2, dest, ccRef, isAdd, length }, stream) =
+            (
+                stream (if isAdd then "\tAddRegister" else "\tSubRegister"); stream(arithRepr length);
+                stream "\t"; printReg(operand1, stream); stream ", ";
+                printReg(operand2, stream);
                 stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
                 stream ", ";
                 case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)

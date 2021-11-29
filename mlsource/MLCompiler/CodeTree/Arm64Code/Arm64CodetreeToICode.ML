@@ -46,7 +46,7 @@ struct
     |   BlockBegin of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
     |   BlockRaiseAndHandle of arm64ICode * int
     |   BlockOptionalHandle of {call: arm64ICode, handler: int, label: int }
-
+    
     fun codeFunctionToArm64({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
         (* Pseudo-registers are allocated sequentially and the properties added to the list. *)
@@ -187,7 +187,25 @@ struct
         in
             (BlockSimple(LoadNonAddressConstant{source=taggedWord64 0w0, dest=tReg}) :: code, tReg, false)
         end
-        
+
+        (* Create a bool result from a test by returning true or false. *)
+        fun makeBoolResultRev(condition, ccRef, target, testCode) =
+        let
+            val trueLab = newLabel() and falseLab = newLabel() and mergeLab = newLabel()
+            val mergeReg = newMergeReg()
+        in
+            BlockSimple(MoveRegister{dest=target, source=mergeReg}) ::
+            BlockLabel mergeLab ::
+            BlockFlow(Unconditional mergeLab) ::
+            BlockSimple(LoadNonAddressConstant{dest=mergeReg, source=taggedWord64 0w0}) ::
+            BlockLabel falseLab ::
+            BlockFlow(Unconditional mergeLab) ::
+            BlockSimple(LoadNonAddressConstant{dest=mergeReg, source=taggedWord64 0w1}) ::
+            BlockLabel trueLab ::
+            BlockFlow(Conditional{ ccRef=ccRef, condition=condition, trueJump=trueLab, falseJump=falseLab }) ::
+            testCode
+        end
+
         fun codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
             (
                 case Vector.sub(argumentVector, a) of
@@ -304,6 +322,12 @@ struct
                 (thenLabel @ exitElse, target, isTail orelse thenExited andalso elseExited)
             end
 
+        |   codeToICodeRev(BICUnary instr, context, isTail, destination, tailCode) =
+                codeToICodeUnaryRev(instr, context, isTail, destination, tailCode)
+
+        |   codeToICodeRev(BICBinary instr, context, isTail, destination, tailCode) =
+                codeToICodeBinaryRev(instr, context, isTail, destination, tailCode)
+
         |   codeToICodeRev _ = raise Fallback "codeToICodeRev"
 
         and codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
@@ -321,6 +345,42 @@ struct
             BlockSimple(AddSubImmediate{source=testReg, immed=taggedWord 0w1, isAdd=false, dest=NONE, length=Arith32, ccRef=SOME ccRef}) ::
             testCode
         end
+
+        and codeToICodeUnaryRev(instr, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeUnaryRev"
+
+        and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
+                context, _, destination, tailCode) =
+            let
+                (* Comparisons. This is now only used for tagged values, not for pointer equality. *)
+                val ccRef = newCCRef()
+                val (testCode1, testDest1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (testCode2, testDest2, _) = codeToICodeRev(arg2, context, false, AnyReg, testCode1)
+                val opSize = if is32in64 then Arith32 else Arith64
+                val comparison =
+                    BlockSimple(
+                        AddSubRegister{operand1=testDest1, operand2=testDest2, dest=NONE, length=opSize, ccRef=SOME ccRef, isAdd=false}) ::
+                            testCode2
+                val target = asTarget destination
+                open BuiltIns
+                val cond =
+                    case (test, isSigned) of
+                        (TestEqual,         _) => condEqual
+                    |   (TestLess,          true) => condSignedLess
+                    |   (TestLessEqual,     true) => condSignedLessEq
+                    |   (TestGreater,       true) => condSignedGreater
+                    |   (TestGreaterEqual,  true) => condSignedGreaterEq
+                    |   (TestLess,          false) => condCarryClear
+                    |   (TestLessEqual,     false) => condUnsignedLowOrEq
+                    |   (TestGreater,       false) => condUnsignedHigher
+                    |   (TestGreaterEqual,  false) => condCarrySet
+                    |   (TestUnordered,     _) => raise InternalError "WordComparison: TestUnordered"
+            in
+                (makeBoolResultRev(cond, ccRef, target, comparison), target, false)
+            end
+
+        |   codeToICodeBinaryRev(instr, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev"
 
         (*Turn the codetree structure into icode. *)
         val bodyContext = {loopArgs=NONE, stackPtr=0, currHandler=NONE, overflowBlock=ref NONE}

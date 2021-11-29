@@ -60,6 +60,7 @@ struct
             |   instructionUses(LoadWithIndexedOffset{dest, base, index, ...}) = if isUsed dest then (used base; used index) else ()
             |   instructionUses(ObjectIndexAddressToAbsolute{dest, source, ...}) = if isUsed dest then used source else ()
             |   instructionUses(AddSubImmediate{ source, ... }) = used source
+            |   instructionUses(AddSubRegister{ operand1, operand2, ... }) = (used operand1; used operand2)
             |   instructionUses(BeginFunction _) = ()
             |   instructionUses(ReturnResultFromFunction{resultReg, returnReg, ...}) = (used resultReg; used returnReg)
 
@@ -264,7 +265,26 @@ struct
             in
                 instr{regN=getAllocatedReg sreg, regD=destReg, immed=immed, shifted=false} :: code
             end
-            
+ 
+        |   codeExtended _ ({instr=AddSubRegister{ operand1=PReg oreg1, operand2=PReg oreg2, dest, isAdd, length, ccRef}, ...}, code) =
+            let
+                val instr =
+                    case (isAdd, ccRef, length) of
+                        (true, NONE, Arith64) => addShiftedReg
+                    |   (true, SOME _, Arith64) => addSShiftedReg
+                    |   (false, NONE, Arith64) => subShiftedReg
+                    |   (false, SOME _, Arith64) => subSShiftedReg
+                    |   (true, NONE, Arith32) => addShiftedReg32
+                    |   (true, SOME _, Arith32) => addSShiftedReg32
+                    |   (false, NONE, Arith32) => subShiftedReg32
+                    |   (false, SOME _, Arith32) => subSShiftedReg32
+                val destReg =
+                    case dest of
+                        NONE => XZero
+                    |   SOME(PReg dreg) => getAllocatedReg dreg
+            in
+                instr{regN=getAllocatedReg oreg1, regM=getAllocatedReg oreg2, regD=destReg, shift=ShiftNone} :: code
+            end           
 
         |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let

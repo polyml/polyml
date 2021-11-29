@@ -81,6 +81,10 @@ struct
         { sources=[source], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
 
+    |   getInstructionState(AddSubRegister{ operand1, operand2, dest, ccRef, ... }) =
+        { sources=[operand1, operand2], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
+          ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
+
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
             { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 
