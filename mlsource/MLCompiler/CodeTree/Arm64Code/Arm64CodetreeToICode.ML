@@ -110,6 +110,11 @@ struct
         |   NoResult
         |   AnyReg
 
+        (* Context type. *)
+        type context =
+            { loopArgs: (preg list * int * int) option, stackPtr: int, currHandler: int option,
+              overflowBlock: int option ref }
+
         datatype argLoc =
             ArgInReg of { realReg: xReg, argReg: preg }
         |   ArgOnStack of { stackOffset: int, stackReg: stackLocn }
@@ -164,28 +169,28 @@ struct
         let
         in
             BlockExit(ReturnResultFromFunction{resultReg=resReg, returnReg = returnAddrReg, numStackArgs=currentStackArgs}) ::
-  
-                (if stackPtr <> 0
-                then (*BlockSimple(ResetStackPtr{numWords=stackPtr, preserveCC=false}) :: tailCode*) raise Fallback "returnInstruction"
-                else tailCode)
+                (if stackPtr <> 0 then BlockSimple(ResetStackPtr{numWords=stackPtr}) :: tailCode else tailCode)
         end
 
         fun asTarget(SpecificPReg preg) = preg
         |   asTarget _ = newPReg()
 
-        fun moveToResult(target, code, sReg) =
-        let
-            val tReg = asTarget target
-        in
-            (BlockSimple(MoveRegister{source=sReg, dest=tReg}) :: code, tReg, false)
-        end
+        fun moveToResult(SpecificPReg tReg, code, sReg) =
+                (BlockSimple(MoveRegister{source=sReg, dest=tReg}) :: code, tReg, false)
+        |   moveToResult(AnyReg, code, sReg) = (code, sReg, false)
+        |   moveToResult(NoResult, code, sReg) =
+            let
+                val tReg = newPReg()
+            in
+                (BlockSimple(MoveRegister{source=sReg, dest=tReg}) :: code, tReg, false)
+            end
 
         (* Return a unit result. *)
-        fun returnUnit(target, code) =
+        fun returnUnit(target, code, exit) =
         let
             val tReg = asTarget target
         in
-            (BlockSimple(LoadNonAddressConstant{source=taggedWord64 0w0, dest=tReg}) :: code, tReg, false)
+            (BlockSimple(LoadNonAddressConstant{source=taggedWord64 0w0, dest=tReg}) :: code, tReg, exit)
         end
 
         (* Create a bool result from a test by returning true or false. *)
@@ -206,7 +211,91 @@ struct
             testCode
         end
 
-        fun codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
+        fun codeToICodeRev(BICNewenv (bindings, exp), context: context as {stackPtr=initialSp, ...}, isTail, destination, tailCode) =
+            let
+                (* Process a list of bindings.  We need to accumulate the space used by
+                   any containers and reset the stack pointer at the end if necessary. *)
+                fun doBindings([], context, tailCode) = (tailCode, context)
+ 
+                |   doBindings(BICDeclar{value=BICExtract(BICLoadLocal l), addr, ...} :: decs, context, tailCode) =
+                    let
+                        (* Giving a new name to an existing entry.  This should have been removed
+                           at a higher level but it doesn't always seem to be.  In particular we
+                           must treat this specially if it's a container. *)
+                        val original = Array.sub(locToPregArray, l)
+                        val () = Array.update(locToPregArray, addr, original)
+                    in
+                        doBindings(decs, context, tailCode)
+                    end
+
+                |   doBindings(BICDeclar{value, addr, ...} :: decs, context, tailCode) =
+                    let
+                        val (code, dest, _) = codeToICodeRev(value, context, false, AnyReg, tailCode)
+                        val () = Array.update(locToPregArray, addr, PregLocation dest)
+                    in
+                        doBindings(decs, context, code)
+                    end
+
+                |   doBindings(BICRecDecs [{lambda, addr, ...}] :: decs, context, tailCode) =
+                    (* We shouldn't have single entries in RecDecs but it seems to occur at the moment. *)
+                    let
+                        val dest = newPReg()
+                        val (code, _, _) = codeToICodeRev(BICLambda lambda, context, false, SpecificPReg dest, tailCode)
+                        val () = Array.update(locToPregArray, addr, PregLocation dest)
+                    in
+                        doBindings(decs, context, code)
+                    end
+
+                |   doBindings(BICRecDecs recDecs :: decs, context, tailCode) =
+                    let
+                        val code = raise Fallback "BICRecDecs"
+                    in
+                        doBindings(decs, context, code @ tailCode)
+                    end
+
+                |   doBindings(BICNullBinding exp :: decs, context, tailCode) =
+                    let
+                        val (code, _, _) = codeToICodeRev(exp, context, false, NoResult, tailCode) (* And discard result. *)
+                    in
+                        doBindings(decs, context, code)
+                    end
+       
+                |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr, currHandler, overflowBlock}, tailCode) =
+                        raise Fallback "BICDecContainer"
+
+                val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context, tailCode)
+                (* If we have had a container we'll need to reset the stack *)
+            in
+                if initialSp <> finalSp
+                then
+                let
+                    val _ = finalSp >= initialSp orelse raise InternalError "codeToICode - stack ptr"
+                    val bodyReg = newPReg() and resultReg = asTarget destination
+                    val (codeExp, result, haveExited) =
+                        codeToICodeRev(exp, resContext, isTail, SpecificPReg bodyReg, codeBindings)
+                    val afterAdjustSp =
+                        if haveExited
+                        then codeExp
+                        else
+                            BlockSimple(MoveRegister{source=result, dest=resultReg}) ::
+                            BlockSimple(ResetStackPtr{numWords=finalSp-initialSp}) :: codeExp
+                in
+                    (afterAdjustSp, resultReg, haveExited)
+                end
+                else codeToICodeRev(exp, resContext, isTail, destination, codeBindings)
+            end
+
+        |   codeToICodeRev(BICExtract(BICLoadLocal l), {stackPtr, ...}, _, destination, tailCode) =
+            (
+                case Array.sub(locToPregArray, l) of
+                    NoLocation => raise InternalError "codeToICodeRev - local unset"
+                |   PregLocation preg => moveToResult(destination, tailCode, preg)
+                |   ContainerLocation{container, stackOffset} => raise Fallback "ContainerLocation"
+                        
+                       (* (tailCode, ContainerAddr{container=container, stackOffset=stackPtr-stackOffset}, false) *)
+            )
+
+        |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
             (
                 case Vector.sub(argumentVector, a) of
                     ArgInReg{argReg, ...} => (* It was originally in a register.  It's now in a preg. *)
@@ -222,6 +311,27 @@ struct
                          RegisterArgument target, false)
                     end*)
             )
+
+        |   codeToICodeRev(BICExtract(BICLoadClosure c), _, _, destination, tailCode) =
+            let
+                (* Add the number of words for the code address.  This is 1 in native but 2 in 32-in-64. *)
+                val offset = if is32in64 then c+2 else c+1
+            in
+                if c >= List.length closure then raise InternalError "BICExtract: closure" else ();
+                (* N.B.  We need to add one to the closure entry because zero is the code address. *)
+                (*moveToResult(destination, tailCode, wordOffsetAddress(offset, closureRegAddr))*)
+                raise Fallback "BICLoadClosure"
+            end
+
+        |   codeToICodeRev(BICExtract BICLoadRecursive, _, _, destination, tailCode) =
+                (* If the closure is empty we must use the constant.  We can't guarantee that
+                   the caller will actually load the closure register if it knows the closure
+                   is empty. *)
+                raise Fallback "BICLoadRecursive"
+                (*moveToResult(destination, tailCode,
+                    case closure of
+                        [] => AddressConstant(closureAsAddress resultClosure)
+                    |   _ => RegisterArgument closureRegAddr) *)
 
         |   codeToICodeRev(BICConstnt(w, _), _, _, destination, tailCode) =
             let
@@ -278,10 +388,8 @@ struct
                      codeToICodeRev(elsePt, context, isTail, NoResult,
                         BlockLabel startElse ::
                         BlockFlow(Unconditional skipElse) :: codeThen)
-                val resPreg = newPReg()
-                
             in
-                returnUnit(NoResult, BlockLabel skipElse :: codeElse)
+                returnUnit(NoResult, BlockLabel skipElse :: codeElse, false(*??*))
             end
 
         |   codeToICodeRev(BICCond(test, thenPt, elsePt), context, isTail, destination, tailCode) =
@@ -328,6 +436,17 @@ struct
         |   codeToICodeRev(BICBinary instr, context, isTail, destination, tailCode) =
                 codeToICodeBinaryRev(instr, context, isTail, destination, tailCode)
 
+        |   codeToICodeRev(BICRaise exc, context as { currHandler, ...}, _, destination, tailCode) =
+            let
+                val (code, packetReg, _) = codeToICodeRev(exc, context, false, AnyReg, tailCode)
+                val raiseCode = RaiseExceptionPacket{packetReg=packetReg}
+                val block =
+                    case currHandler of
+                        NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h)
+            in
+                returnUnit(destination,  block :: code, true (* Always exits *))
+            end
+
         |   codeToICodeRev _ = raise Fallback "codeToICodeRev"
 
         and codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
@@ -346,7 +465,23 @@ struct
             testCode
         end
 
-        and codeToICodeUnaryRev(instr, context, isTail, destination, tailCode) =
+
+        and codeToICodeUnaryRev({oper=BuiltIns.NotBoolean, arg1}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val ccRef = newCCRef()
+                val (argCode, testDest, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+            in
+                (* Test the argument and return a boolean result.  If either the argument is a condition
+                   or the result is used in a test this will be better than using XOR. *)
+                (makeBoolResultRev(CondNotEqual, ccRef, target,
+                        BlockSimple(
+                            AddSubImmediate{source=testDest, immed=taggedWord 0w1, isAdd=false,
+                                dest=NONE, length=Arith32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef}) ::
+                            argCode), target, false)
+            end
+
+        |   codeToICodeUnaryRev(instr, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeUnaryRev"
 
         and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
@@ -377,6 +512,23 @@ struct
                     |   (TestUnordered,     _) => raise InternalError "WordComparison: TestUnordered"
             in
                 (makeBoolResultRev(cond, ccRef, target, comparison), target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.PointerEq, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                (* Equality of general values which can include pointers. This can be treated exactly as a word equality.
+                   It has to be analysed differently for indexed cases. *)
+                val ccRef = newCCRef()
+                val (testCode1, testDest1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (testCode2, testDest2, _) = codeToICodeRev(arg2, context, false, AnyReg, testCode1)
+                val opSize = if is32in64 then Arith32 else Arith64
+                val comparison =
+                    BlockSimple(
+                        AddSubRegister{operand1=testDest1, operand2=testDest2, dest=NONE, length=opSize, ccRef=SOME ccRef, isAdd=false}) ::
+                            testCode2
+                val target = asTarget destination
+            in
+                (makeBoolResultRev(CondEqual, ccRef, target, comparison), target, false)
             end
 
         |   codeToICodeBinaryRev(instr, context, isTail, destination, tailCode) =

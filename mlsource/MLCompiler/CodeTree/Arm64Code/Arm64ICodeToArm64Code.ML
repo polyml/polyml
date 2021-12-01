@@ -40,6 +40,9 @@ struct
     open Address
     exception InternalError = Misc.InternalError
 
+    (* These aren't currently used for anything. *)
+    val workReg1 = X16 and workReg2 = X17
+
     fun icodeToArm64Code {blocks, functionName, stackRequired, debugSwitches, allocatedRegisters, resultClosure, profileObject, ...} =
     let
         val numBlocks = Vector.length blocks
@@ -63,6 +66,8 @@ struct
             |   instructionUses(AddSubRegister{ operand1, operand2, ... }) = (used operand1; used operand2)
             |   instructionUses(BeginFunction _) = ()
             |   instructionUses(ReturnResultFromFunction{resultReg, returnReg, ...}) = (used resultReg; used returnReg)
+            |   instructionUses(RaiseExceptionPacket{packetReg}) = used packetReg
+            |   instructionUses(ResetStackPtr _) = ()
 
             (* Depth-first scan. *)
             val visited = Array.array(numBlocks, false)
@@ -342,7 +347,34 @@ struct
             in
                 returnRegister returnReg :: resetStack(numStackArgs, moveIfNecessary({src=resultReg, dst=X0}, code))
             end
-        
+
+        |   codeExtended _ ({instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...}, code) =
+                (* We need a work register here.  It can be any register other than X0 since
+                   we don't preserve registers across calls. *)
+                (* Copy the handler "register" into the stack pointer.  Then
+                   jump to the address in the first word.  The second word is
+                   the next handler.  This is set up in the handler.  We have a lot
+                   more raises than handlers since most raises are exceptional conditions
+                   such as overflow so it makes sense to minimise the code in each raise. *)
+                branchRegister workReg1 :: 
+                loadRegScaled{regT=workReg1, regN=X_MLStackPtr, unitOffset=0} ::
+                loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset} ::
+                moveIfNecessary({src=getAllocatedReg preg, dst=X0}, code)
+
+        |   codeExtended _ ({instr=ResetStackPtr{ numWords, ... }, ...}, code) =
+            let
+                val _ = numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset";
+                (* Assume that this will fit in 24 bits since that would be over 2M entries pushed. *)
+                val _ = numWords < Word.toInt(Word.<<(0w1, 0w24)) orelse
+                            raise InternalError "codeGenICode: ResetStackPtr - offset exceeds 24 bits";
+                val loword = Word.andb(Word.fromInt numWords, 0wxfff)
+                val hiword = Word.>>(Word.fromInt numWords, 0w12)
+                fun addToSP(value, shift) =
+                    if value = 0w0 then []
+                    else [addImmediate{regN=X_MLStackPtr, regD=X_MLStackPtr, immed=value, shifted=shift}]
+            in
+                addToSP(loword, false) @ addToSP(hiword, true) @ code
+            end
 
         val blockToLabelMap = Vector.tabulate(numBlocks, fn _ => createLabel())
 

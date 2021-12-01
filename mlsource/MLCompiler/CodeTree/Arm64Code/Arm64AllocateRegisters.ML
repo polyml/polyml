@@ -103,6 +103,8 @@ struct
             |   addHints{instr=BeginFunction{regArgs, ...}, ...} =
                     List.app (fn (PReg pr, reg) => addRealHint(pr, reg)) regArgs
 
+            |   addHints{instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...} = addRealHint(preg, X0)
+
             |   addHints _ = ()
         
         end
@@ -238,39 +240,39 @@ struct
         fun allocateRegister args = ignore(findRegister args)
         val allocateFindRegister = findRegister
 
-        fun registerAllocate({instr=MoveRegister{source=PReg sreg, dest=PReg dreg}, ...}) =
+        fun registerAllocate{instr=MoveRegister{source=PReg sreg, dest=PReg dreg}, ...} =
             let
                 val realDestReg = findRegister(dreg, NONE, generalRegisters)
             in
                 allocateRegister(sreg, SOME realDestReg, generalRegisters)
             end
 
-        |   registerAllocate({instr=LoadNonAddressConstant{dest=PReg dreg, ...}, ...}) =
+        |   registerAllocate{instr=LoadNonAddressConstant{dest=PReg dreg, ...}, ...} =
                 allocateRegister(dreg, NONE, generalRegisters)
 
-        |   registerAllocate({instr=LoadAddressConstant{dest=PReg dreg, ...}, ...}) =
+        |   registerAllocate{instr=LoadAddressConstant{dest=PReg dreg, ...}, ...} =
                 allocateRegister(dreg, NONE, generalRegisters)
 
-        |   registerAllocate({instr=LoadWithConstantOffset{dest=PReg dreg, base=PReg breg, ...}, ...}) =
+        |   registerAllocate{instr=LoadWithConstantOffset{dest=PReg dreg, base=PReg breg, ...}, ...} =
             (
                 allocateRegister(dreg, NONE, generalRegisters);
                 allocateRegister(breg, NONE, generalRegisters)
             )
 
-        |   registerAllocate({instr=LoadWithIndexedOffset{dest=PReg dreg, base=PReg breg, index=PReg ireg, ...}, ...}) =
+        |   registerAllocate{instr=LoadWithIndexedOffset{dest=PReg dreg, base=PReg breg, index=PReg ireg, ...}, ...} =
             (
                 allocateRegister(dreg, NONE, generalRegisters);
                 allocateRegister(breg, NONE, generalRegisters);
                 allocateRegister(ireg, NONE, generalRegisters)
             )
 
-        |   registerAllocate({instr=ObjectIndexAddressToAbsolute{dest=PReg dreg, source=PReg sreg, ...}, ...}) =
+        |   registerAllocate{instr=ObjectIndexAddressToAbsolute{dest=PReg dreg, source=PReg sreg, ...}, ...} =
             (
                 allocateRegister(dreg, NONE, generalRegisters);
                 allocateRegister(sreg, NONE, generalRegisters)
             )
 
-        |   registerAllocate({instr=AddSubImmediate{ source=PReg sreg, dest, ... }, ...}) =
+        |   registerAllocate{instr=AddSubImmediate{ source=PReg sreg, dest, ... }, ...} =
             (
                 case dest of
                     SOME(PReg dreg) => allocateRegister(dreg, NONE, generalRegisters)
@@ -278,7 +280,7 @@ struct
                 allocateRegister(sreg, NONE, generalRegisters)
             )
 
-        |   registerAllocate({instr=AddSubRegister{ operand1=PReg oreg1, operand2=PReg oreg2, dest, ... }, ...}) =
+        |   registerAllocate{instr=AddSubRegister{ operand1=PReg oreg1, operand2=PReg oreg2, dest, ... }, ...} =
             (
                 case dest of
                     SOME(PReg dreg) => allocateRegister(dreg, NONE, generalRegisters)
@@ -290,11 +292,16 @@ struct
         |   registerAllocate{instr=BeginFunction _, ...} = ()
             (* Any registers that are referenced will have been allocated real registers. *)
 
-        |   registerAllocate({instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg returnReg, ... }, ...}) =
+        |   registerAllocate{instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg returnReg, ... }, ...} =
             (
                 allocateRegister(resReg, SOME X0, [X0] (* It MUST be in this register *));
                 allocateRegister(returnReg, NONE, generalRegisters)
             )
+
+        |   registerAllocate{instr=RaiseExceptionPacket{packetReg=PReg preg}, ...} =
+                allocateRegister(preg, NONE, generalRegisters)
+
+        |   registerAllocate{instr=ResetStackPtr _, ...} = ()
 
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

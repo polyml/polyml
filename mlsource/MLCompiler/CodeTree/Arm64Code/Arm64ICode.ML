@@ -88,6 +88,13 @@ struct
            returnReg is the preg that contains the return address. *)
     |   ReturnResultFromFunction of { resultReg: preg, returnReg: preg, numStackArgs: int }
 
+        (* Raise an exception.  The packet is always loaded into X0. *)
+    |   RaiseExceptionPacket of { packetReg: preg }
+
+        (* Remove items from the stack.  Used to remove containers or
+           registers pushed to the stack.. *)
+    |   ResetStackPtr of { numWords: int }
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -215,6 +222,12 @@ struct
                 printReg(returnReg, stream); stream " with "; printReg(resultReg, stream);
                 stream("," ^ Int.toString numStackArgs)
             )
+
+        |   printICode(RaiseExceptionPacket{ packetReg }, stream) =
+            ( stream "\tRaiseException\t"; printReg(packetReg, stream) )
+
+        |   printICode(ResetStackPtr{ numWords }, stream) =
+            ( stream "\tResetStackPtr\t"; stream(Int.toString numWords) )
 
         and printCondition(cond,  stream)  = stream(condToString cond)
 

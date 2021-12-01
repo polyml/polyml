@@ -70,7 +70,9 @@ struct
 
         (* If this argument is a register and the register is mapped to a constant
            or another register replace the value.  Unlike the X86 version we
-           don't map memory locations. *)
+           don't map memory locations but we do map registers. *)
+        (* TODO: This is potentially quadratic if we have a long piece
+           of code with very many registers. *)
         fun getRegisterValue(preg as PReg pregNo, kill, regMap) =
         (
             case List.find(fn {dest, ... } => dest = preg) regMap of
@@ -125,21 +127,55 @@ struct
                                 AddSubImmediate{source=repArg1, dest=NONE, ccRef=SOME ccRefOut, immed=immed, isAdd=false, length=length} ::code)
                 end
 
+            |   optCode({instr as AddSubRegister{operand1, operand2, dest, ccRef, isAdd, length}, kill, ...} :: rest,
+                        _, regMap, code) =
+                let
+                    (* If we have a constant as the second argument we can change this to the
+                       immediate form. *)
+                    val (repOp1, mapOp1) = getRegisterValue(operand1, kill, regMap)
+                    val (repOp2, mapOp2) = getRegisterValue(operand2, kill, mapOp1)
+                in
+                    case repOp2 of
+                        AConstant op2Const =>
+                            if op2Const < 0w4096
+                            then optCode(rest, BRNone, mapOp2,
+                                AddSubImmediate{source=operand1, dest=dest, ccRef=ccRef,
+                                    immed=Word.fromLargeWord(Word64.toLargeWord op2Const), isAdd=isAdd, length=length} :: code)
+                            else optCode(rest, BRNone, mapOp2, instr :: code)
+                    |   ARegister repReg =>
+                            optCode(rest, BRNone, mapOp2,
+                                AddSubRegister{operand1=operand1, operand2=repReg, dest=dest, ccRef=ccRef, isAdd=isAdd, length=length} :: code)
+                end
+
             |   optCode({instr=MoveRegister{dest, source}, kill, ...} :: rest, inCond, regMap, code) =
-                (
-                    case getRegisterValue(source, kill, regMap) of
-                        (repSource as AConstant cval, mapAfterReplace) =>
-                            optCode(rest, inCond, {dest=dest, source=repSource} :: mapAfterReplace,
-                                LoadNonAddressConstant{ source=cval, dest=dest } :: code)
+                let
+                    val (repSource, mapAfterReplace) = getRegisterValue(source, kill, regMap)
+                    val newSource =
+                        case repSource of ARegister repReg => repReg | AConstant _ => source
+                in
+                    (* If the source is mapped to a different register use that otherwise
+                       leave it unchanged.  Add this to the map.
+                       The X86 version replaces the source here but it's probably better to
+                       leave this as a register move. *)
+                    optCode(rest, inCond, {dest=dest, source=repSource} :: mapAfterReplace,
+                        MoveRegister{dest=dest, source=newSource}::code)
+                end
 
-                    |   (ARegister repReg, mapAfterReplace) =>
-                            optCode(rest, inCond, mapAfterReplace, MoveRegister{dest=dest, source=repReg}::code)
-                )
+            |   optCode({instr as LoadNonAddressConstant{dest, source}, ...} :: rest, inCond, regMap, code) =
+                let
+                    (* If we already have a register with this constant we would probably
+                       be better off reusing it.  The map, though, needs to indicate that the
+                       destination register contains the constant.
+                       The X86 version always uses a load-constant here. *)
+                    val newInstr =
+                        case List.find(fn {source=AConstant c, ... } => c = source | _ => false) regMap of
+                            SOME{dest=cDest, ...} => MoveRegister{dest=dest, source=cDest}
+                        |   NONE => instr
+                in
+                    optCode(rest, inCond, {dest=dest, source=AConstant source} :: regMap, newInstr :: code)
+                end
 
-            |   optCode({instr as LoadNonAddressConstant{dest, source}, kill, ...} :: rest, inCond, regMap, code) =
-                    (* Add constants to the map. *)
-                    optCode(rest, inCond, {dest=dest, source=AConstant source} :: regMap, instr :: code)
-
+                (* TODO: It could be worth rewriting every instruction with any replaced source register. *)
             |   optCode({instr, ...} :: rest, inCond, regMap, code) =
                 let
                     (* If this instruction affects the CC the cached SetToCondition will no longer be valid. *)
@@ -207,9 +243,9 @@ struct
                        that has been set to a constant we include that because the comparison will
                        then be reduced to a constant. *)
                     fun isSimple([], _, _) = true
-                    (*|   isSimple ({instr=ResetStackPtr _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)*)
+                    |   isSimple ({instr=ResetStackPtr _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)
                     |   isSimple ({instr=ReturnResultFromFunction _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)
-                    (*|   isSimple ({instr=RaiseExceptionPacket _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)*)
+                    |   isSimple ({instr=RaiseExceptionPacket _, ...} :: instrs, moves, regMap) = isSimple(instrs, moves, regMap)
                     |   isSimple ({instr=MoveRegister{source, dest}, ...} :: instrs, moves, regMap) =
                         let
                             (* We frequently have a move of the original register into a new register before the test. *)
@@ -254,8 +290,11 @@ struct
                         (* Copy the block, creating new registers for the locals. *)
                         val localMap = List.map (fn r => (PReg r, newReg(Vector.sub(pregProps, r)))) (setToList locals)
                         fun mapReg r = case List.find (fn (s, _) => r = s) localMap of SOME(_, s) => s | NONE => r
-                        fun mapInstr(ReturnResultFromFunction{resultReg, returnReg, numStackArgs}) =
+                        fun mapInstr(instr as ResetStackPtr _) = instr
+                        |   mapInstr(ReturnResultFromFunction{resultReg, returnReg, numStackArgs}) =
                                 ReturnResultFromFunction{resultReg=mapReg resultReg, returnReg=mapReg returnReg, numStackArgs=numStackArgs}
+                        |   mapInstr(RaiseExceptionPacket{packetReg}) =
+                                RaiseExceptionPacket{packetReg=mapReg packetReg}
                         |   mapInstr(MoveRegister{source, dest}) =
                                 MoveRegister{source=mapReg source, dest=mapReg dest}
                         |   mapInstr(LoadNonAddressConstant{source, dest}) =

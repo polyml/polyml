@@ -91,6 +91,12 @@ struct
     |   getInstructionState(ReturnResultFromFunction{resultReg, returnReg, ...}) =
             { sources=[resultReg, returnReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
+    |   getInstructionState(RaiseExceptionPacket{packetReg}) =
+            { sources=[packetReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(ResetStackPtr _) =
+            { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
     fun eliminateable(MoveRegister _) = true
