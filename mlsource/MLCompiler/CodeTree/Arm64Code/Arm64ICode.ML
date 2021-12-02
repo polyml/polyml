@@ -68,6 +68,22 @@ struct
         (* Convert a 32-in-64 object index into an absolute address. *)
     |   ObjectIndexAddressToAbsolute of { source: preg, dest: preg }
 
+        (* Convert an absolute address into an object index. *)
+    |   AbsoluteToObjectIndex of { source: preg, dest: preg }
+
+        (* Allocate a fixed sized piece of memory and puts the absolute address into dest.
+           bytesRequired is the total number of bytes including the length word and any alignment
+           necessary for 32-in-64. saveRegs is the list of registers that need to be saved if we
+           need to do a garbage collection. *)
+    |   AllocateMemoryOperation of { bytesRequired: Word64.word, dest: preg, work: preg, saveRegs: preg list }
+
+        (* Store a register using a constant, signed, byte offset.  The offset
+           is in the range of -256 to (+4095*unit size). *)
+    |   StoreWithConstantOffset of { source: preg, base: preg, byteOffset: int, loadType: loadType }
+
+        (* Store a register using an index register. *)
+    |   StoreWithIndexedOffset of { source: preg, base: preg, index: preg, loadType: loadType }
+
         (* Add/Subtract immediate.  The destination is optional in which case XZero is used.
            ccRef is optional.  If it is NONE the version of the instruction that does not generate
            a condition code is used. immed must be < 0wx1000. *)
@@ -145,7 +161,12 @@ struct
         |   printLoadType(Load32, stream) = stream "32"
         |   printLoadType(Load16, stream) = stream "16"
         |   printLoadType(Load8, stream) = stream "8"
-   
+
+        fun printSaves([], _) = ()
+        |   printSaves([areg], stream) = printReg(areg, stream)
+        |   printSaves(areg::more, stream) =
+                (printReg(areg, stream); stream ","; printSaves(more, stream))
+
         fun printICode(MoveRegister{ source, dest }, stream) =
             (
                 stream "\tMove\t";
@@ -188,6 +209,35 @@ struct
             (
                 stream "\tObjectAddrToAbs\t";
                 printReg(source, stream); stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(AbsoluteToObjectIndex{ source, dest }, stream) =
+            (
+                stream "\tAbsToObjectAddr\t";
+                printReg(source, stream); stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(AllocateMemoryOperation{bytesRequired, dest, work, saveRegs}, stream) =
+            (
+                stream "\tAllocateMemory\t";
+                stream(Word64.toString bytesRequired); stream " => ";
+                printReg(dest, stream); stream " work="; printReg(work, stream);
+                stream " save="; printSaves(saveRegs, stream)
+            )
+
+        |   printICode(StoreWithConstantOffset{ base, source, byteOffset, loadType }, stream) =
+            (
+                stream "\tStoreConstOffset"; printLoadType(loadType, stream); stream "\t";
+                printReg(source, stream); stream " => ";
+                printReg(base, stream); stream "+";
+                stream(Int.toString byteOffset)
+            )
+
+        |   printICode(StoreWithIndexedOffset{ base, source, index, loadType }, stream) =
+            (
+                stream "\tStoreIndexed"; printLoadType(loadType, stream); stream "\t";
+                printReg(source, stream); stream " => ";
+                printReg(base, stream); stream "+"; printReg(index, stream)
             )
 
         |   printICode(AddSubImmediate{ source, dest, ccRef, immed, isAdd, length }, stream) =

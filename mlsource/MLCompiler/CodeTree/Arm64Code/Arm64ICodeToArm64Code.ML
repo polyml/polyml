@@ -62,6 +62,10 @@ struct
             |   instructionUses(LoadWithConstantOffset{dest, base, ...}) = if isUsed dest then used base else ()
             |   instructionUses(LoadWithIndexedOffset{dest, base, index, ...}) = if isUsed dest then (used base; used index) else ()
             |   instructionUses(ObjectIndexAddressToAbsolute{dest, source, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(AbsoluteToObjectIndex{dest, source, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(AllocateMemoryOperation _) = ()
+            |   instructionUses(StoreWithConstantOffset{source, base, ...}) = (used source; used base)
+            |   instructionUses(StoreWithIndexedOffset{source, base, index, ...}) = (used source; used base; used index)
             |   instructionUses(AddSubImmediate{ source, ... }) = used source
             |   instructionUses(AddSubRegister{ operand1, operand2, ... }) = (used operand1; used operand2)
             |   instructionUses(BeginFunction _) = ()
@@ -200,6 +204,9 @@ struct
                 end
             end
 
+        (* Only get the registers that are actually used. *)
+        val getSaveRegs = List.mapPartial(fn (reg as PReg r) => if isUsed reg then SOME(getAllocatedReg r) else NONE)
+
         fun codeExtended _ ({instr=MoveRegister{source=PReg sreg, dest as PReg dreg, ...}, ...}, code) =
             if not (isUsed dest)
             then code
@@ -250,6 +257,71 @@ struct
 
         |   codeExtended _ ({instr=ObjectIndexAddressToAbsolute{source=PReg sreg, dest=PReg dreg, ...}, ...}, code) =
                 addShiftedReg{regM=getAllocatedReg sreg, regN=X_Base32in64, regD=getAllocatedReg dreg, shift=ShiftLSL 0w2} :: code
+
+        |   codeExtended _ ({instr=AbsoluteToObjectIndex{source=PReg sreg, dest=PReg dreg, ...}, ...}, code) =
+            let
+                val destReg = getAllocatedReg dreg
+            in
+                logicalShiftRight{shift=0w2, regN=destReg, regD=destReg} ::
+                subShiftedReg{regM=X_Base32in64, regN=getAllocatedReg sreg, regD=destReg, shift=ShiftNone} :: code
+            end
+
+        |   codeExtended _ ({instr=AllocateMemoryOperation{ bytesRequired, dest=PReg dreg, work=PReg wreg, saveRegs }, ...}, code) =
+            let
+                val preserve = getSaveRegs saveRegs
+                val label = createLabel()
+                val destReg = getAllocatedReg dreg  and workReg = getAllocatedReg wreg
+                (* N.B.  This is in reverse order so read from the bottom up. *)
+            in
+                moveRegToReg{sReg=destReg, dReg=X_MLHeapAllocPtr} ::
+                setLabel label ::registerMask preserve :: branchAndLinkReg workReg ::
+                loadRegScaled{regT=workReg, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset} ::
+                conditionalBranch(CondCarrySet, label) :: (* Skip the trap if it's ok. *)
+                (* Compare with heap limit. *)
+                subSShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone} ::
+                (* Subtract the number of bytes required from the heap pointer and put in result reg. *)
+                (if bytesRequired >= 0w4096 orelse true
+                then subShiftedReg{regM=workReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftNone} ::
+                     loadNonAddressConstant(workReg, bytesRequired) :: code
+                else subImmediate{regN=X_MLHeapAllocPtr, regD=destReg, immed=Word.fromLarge bytesRequired, shifted=false} :: code)
+            end
+
+        |   codeExtended _ ({instr=StoreWithConstantOffset{source=PReg sreg, base=PReg breg, byteOffset, loadType, ...}, ...}, code) =
+            if byteOffset < 0
+            then
+            let
+                val storeInstr =
+                    case loadType of
+                        Load64 => storeRegUnscaled
+                    |   Load32 => storeRegUnscaled32
+                    |   Load16 => storeRegUnscaled16
+                    |   Load8 => storeRegUnscaledByte
+            in
+                storeInstr{regT=getAllocatedReg sreg, regN=getAllocatedReg breg, byteOffset=byteOffset} :: code
+            end
+            else
+            let
+                val (storeInstr, scale) =
+                    case loadType of
+                        Load64 => (storeRegScaled, 8)
+                    |   Load32 => (storeRegScaled32, 4)
+                    |   Load16 => (storeRegScaled16, 2)
+                    |   Load8 => (storeRegScaledByte, 1)
+            in
+                storeInstr{regT=getAllocatedReg sreg, regN=getAllocatedReg breg, unitOffset=byteOffset div scale} :: code
+            end
+
+        |   codeExtended _ ({instr=StoreWithIndexedOffset{source=PReg sreg, base=PReg breg, index=PReg ireg, loadType, ...}, ...}, code) =
+            let
+                val (storeInstr, opt)  =
+                    case loadType of
+                        Load64 => (storeRegIndexed, ExtUXTX ScaleOrShift)
+                    |   Load32 => (storeRegIndexed32, ExtUXTX ScaleOrShift)
+                    |   Load16 => (storeRegIndexed16, ExtUXTX ScaleOrShift)
+                    |   Load8 => (storeRegIndexedByte, ExtUXTX NoScale)
+            in
+                storeInstr{regT=getAllocatedReg sreg, regN=getAllocatedReg breg, regM=getAllocatedReg ireg, option=opt} :: code
+            end
 
         |   codeExtended _ ({instr=AddSubImmediate{ source=PReg sreg, dest, immed, isAdd, length, ccRef}, ...}, code) =
             let

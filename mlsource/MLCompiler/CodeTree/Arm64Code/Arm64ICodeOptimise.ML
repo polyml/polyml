@@ -105,12 +105,13 @@ struct
                         let
                             (* This comparison reduces to a constant.  *)
                             val _ = hasChanged := true
-                            (* Signed comparison.  The top word is always zero in 32in64 so we
-                               need to sign-extend it.  immediate values are always unsigned. *)
+                            (* Signed comparison.  If this is a 32-bit operation the top word
+                               could be zero so we need to convert this as Word32.
+                               immediate values are always unsigned. *)
                             val testValue =
-                                if is32in64 andalso test >= 0wx80000000
-                                then Word64.toLargeInt test - 0x100000000
-                                else Word64.toLargeIntX test
+                                case length of
+                                    Arith64 => Word64.toLargeIntX test
+                                |   Arith32 => Word32.toLargeIntX(Word32.fromLarge test)
                             (* Put in a replacement so that if we were previously testing ccRefOut
                                we should instead test ccRef. *)
                             val repl =

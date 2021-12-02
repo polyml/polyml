@@ -77,6 +77,18 @@ struct
     |   getInstructionState(ObjectIndexAddressToAbsolute { source, dest, ...}) =
         { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(AbsoluteToObjectIndex { source, dest, ...}) =
+        { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(AllocateMemoryOperation { dest, work, ...}) =
+        { sources=[], dests=[dest, work], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(StoreWithConstantOffset { base, source, ...}) =
+        { sources=[source, base], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(StoreWithIndexedOffset { base, source, index, ...}) =
+        { sources=[source, base, index], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(AddSubImmediate{ source, dest, ccRef, ... }) =
         { sources=[source], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
@@ -479,6 +491,9 @@ struct
                            of registers to save. *)
                         val convertedInstr =
                             case instr of
+                                AllocateMemoryOperation{bytesRequired, dest, work, saveRegs=_} =>
+                                    AllocateMemoryOperation{bytesRequired=bytesRequired, work=work, dest=dest,
+                                        saveRegs=getSaveSet(regNo dest)}
                             (*    AllocateMemoryOperation{size, flags, dest, saveRegs=_} =>
                                     AllocateMemoryOperation{size=size, flags=flags, dest=dest,
                                         saveRegs=getSaveSet(regNo dest)}
@@ -516,9 +531,9 @@ struct
                                 if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
                                 then FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dest=dest,
                                         realDest=realDest, saveRegs=getSaveSet(regNo dest) }
-                                else instr
+                                else instr  *)
                         
-                            | *)  instr as MoveRegister{dest=PReg dreg, ...} =>
+                            |  instr as MoveRegister{dest=PReg dreg, ...} =>
                                 (
                                     if member(dreg, activeAfterThis)
                                     then ()

@@ -46,7 +46,9 @@ struct
     |   BlockBegin of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
     |   BlockRaiseAndHandle of arm64ICode * int
     |   BlockOptionalHandle of {call: arm64ICode, handler: int, label: int }
-    
+
+    val polyWordLoadSize = if is32in64 then Load32 else Load64
+
     fun codeFunctionToArm64({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
         (* Pseudo-registers are allocated sequentially and the properties added to the list. *)
@@ -104,6 +106,11 @@ struct
         in
             val profileObject = toMachineWord v
         end
+
+        (* Switch to indicate if we want to trace where live data has been allocated. *)
+        (* TODO: This should be used in AllocateMemoryOperation and BoxValue and possibly AllocateMemoryVariable. *)
+        val addAllocatingFunction =
+            Debug.getParameter Debug.profileAllocationTag debugSwitches = 1
 
         datatype destination =
             SpecificPReg of preg
@@ -184,6 +191,56 @@ struct
             in
                 (BlockSimple(MoveRegister{source=sReg, dest=tReg}) :: code, tReg, false)
             end
+
+        (* Store a register at a given offset.  This may have to use an index register
+           if the offset is too large. *)
+        fun storeAtWordOffset(toStore, offset, base, loadSize, tailCode) =
+            if offset < 4096 andalso offset > ~256
+            then BlockSimple(
+                    StoreWithConstantOffset{base=base, source=toStore,
+                            byteOffset=offset*Word.toInt wordSize, loadType=loadSize}) :: tailCode
+            else
+            let
+                val indexReg = newUReg()
+            in
+                BlockSimple(StoreWithIndexedOffset{ base=base, source=toStore, index=indexReg, loadType=loadSize }) ::
+                    BlockSimple(LoadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg }) :: tailCode
+            end
+        
+
+        (* Allocate a fixed size cell with a reference to the profile object if we want
+           to trace the location of live data.  Currently only used for tuples. *)
+        fun allocateWithProfileRev(n, flags, memAddr, tlCode) =
+        let
+            fun doAllocation(words, flags, tlCode) =
+            let
+                val wordsRequired =
+                    if is32in64
+                    then (* Have to round this up to 8 bytes *)
+                        Word64.andb(Word64.fromInt(words+2), ~ 0w2)
+                    else Word64.fromInt(words+1)
+                val bytesRequired = Word64.fromLarge(Word.toLarge wordSize) * wordsRequired
+                val lengthWord =
+                    Word64.orb(Word64.fromInt words, Word64.<<(Word64.fromLarge(Word8.toLarge flags),
+                        if is32in64 then 0w24 else 0w56))
+                val lengthReg = newUReg()
+            in
+                BlockSimple(StoreWithConstantOffset{ source=lengthReg, base=memAddr, byteOffset= ~(Word.toInt wordSize), loadType=polyWordLoadSize }) ::
+                BlockSimple(LoadNonAddressConstant{ source=lengthWord, dest=lengthReg }) ::
+                BlockSimple(AllocateMemoryOperation{bytesRequired=bytesRequired, dest=memAddr, work=newUReg(), saveRegs=[]}) :: tlCode
+            end
+        in
+            if addAllocatingFunction
+            then
+            let
+                val profReg = newPReg()
+            in
+                storeAtWordOffset(profReg, n, memAddr, polyWordLoadSize,
+                    BlockSimple(LoadAddressConstant{ source=profileObject, dest=profReg}) ::
+                        doAllocation(n+1, Word8.orb(flags, Address.F_profile), tlCode))
+            end
+            else doAllocation(n, flags, tlCode)
+        end
 
         (* Return a unit result. *)
         fun returnUnit(target, code, exit) =
@@ -352,23 +409,24 @@ struct
             let
                 val dReg = asTarget destination
                 val (codeBase1, baseReg1, _) = codeToICodeRev(base, context, false, AnyReg, tailCode)
-                val (codeBase, baseReg, loadSize) =
+                val (codeBase, baseReg) =
                     if is32in64
                     then
                     let
                         val absReg = newUReg()
                     in
-                        (BlockSimple(ObjectIndexAddressToAbsolute{ source=baseReg1, dest=absReg }) :: codeBase1, absReg, Load32)
+                        (BlockSimple(ObjectIndexAddressToAbsolute{ source=baseReg1, dest=absReg }) :: codeBase1, absReg)
                     end
-                    else (codeBase1, baseReg1, Load64)
+                    else (codeBase1, baseReg1)
                 val code =
                     if offset < 4096
-                    then BlockSimple(LoadWithConstantOffset{base=baseReg, dest=dReg, byteOffset=offset*Word.toInt wordSize, loadType=loadSize}) :: codeBase
+                    then BlockSimple(LoadWithConstantOffset{base=baseReg, dest=dReg,
+                                byteOffset=offset*Word.toInt wordSize, loadType=polyWordLoadSize}) :: codeBase
                     else
                     let
                         val indexReg = newUReg()
                     in
-                        BlockSimple(LoadWithIndexedOffset{ base=baseReg, dest=dReg, index=indexReg, loadType=loadSize }) ::
+                        BlockSimple(LoadWithIndexedOffset{ base=baseReg, dest=dReg, index=indexReg, loadType=polyWordLoadSize }) ::
                             BlockSimple(LoadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg }) :: codeBase
                     end
             in
@@ -435,6 +493,39 @@ struct
 
         |   codeToICodeRev(BICBinary instr, context, isTail, destination, tailCode) =
                 codeToICodeBinaryRev(instr, context, isTail, destination, tailCode)
+
+        |   codeToICodeRev(BICTagTest{test, tag=tagValue, ...}, context, isTail, destination, tailCode) =
+            (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
+               tag bit of a word.  Just generate it as a general word comparison.  The optimiser
+               will sort out whether the tag value can be an immediate. *)
+                codeToICodeRev(BICBinary{oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
+                                         arg1=test, arg2=BICConstnt(toMachineWord tagValue, [])},
+                        context, isTail, destination, tailCode)
+
+        |   codeToICodeRev(BICTuple fields, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                (* The allocator sets the register to the absolute address.  It
+                   has to be converted to an object pointer in 32-in-64. *)
+                val absAddr = if is32in64 then newUReg() else target
+
+                fun loadFields([], n, tlCode) = allocateWithProfileRev(n, 0w0, absAddr, tlCode)
+                    
+                |   loadFields(f :: rest, n, tlCode) =
+                    let
+                        val (code1, source, _) = codeToICodeRev(f, context, false, AnyReg, tlCode)
+                        val restAndAlloc = loadFields(rest, n+1, code1)
+                    in
+                        storeAtWordOffset(source, n, absAddr, polyWordLoadSize, restAndAlloc)
+                    end
+                val allocAndStore = loadFields(fields, 0, tailCode)
+                val code =
+                    if is32in64
+                    then BlockSimple(AbsoluteToObjectIndex{source=absAddr, dest=target}) :: allocAndStore
+                    else allocAndStore
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeRev(BICRaise exc, context as { currHandler, ...}, _, destination, tailCode) =
             let

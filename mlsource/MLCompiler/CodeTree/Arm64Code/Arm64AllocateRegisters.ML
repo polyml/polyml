@@ -272,6 +272,32 @@ struct
                 allocateRegister(sreg, NONE, generalRegisters)
             )
 
+        |   registerAllocate{instr=AbsoluteToObjectIndex{dest=PReg dreg, source=PReg sreg, ...}, ...} =
+            (
+                allocateRegister(dreg, NONE, generalRegisters);
+                allocateRegister(sreg, NONE, generalRegisters)
+            )
+
+        |   registerAllocate({instr=AllocateMemoryOperation{ dest=PReg dReg, work=PReg wReg, saveRegs, ...}, ...}) =
+            (
+                List.app(fn (PReg r) => allocateRegister(r, NONE, generalRegisters)) saveRegs;
+                allocateRegister(dReg, NONE, generalRegisters);
+                allocateRegister(wReg, NONE, generalRegisters)
+            )
+
+        |   registerAllocate{instr=StoreWithConstantOffset{source=PReg sreg, base=PReg breg, ...}, ...} =
+            (
+                allocateRegister(sreg, NONE, generalRegisters);
+                allocateRegister(breg, NONE, generalRegisters)
+            )
+
+        |   registerAllocate{instr=StoreWithIndexedOffset{source=PReg sreg, base=PReg breg, index=PReg ireg, ...}, ...} =
+            (
+                allocateRegister(sreg, NONE, generalRegisters);
+                allocateRegister(breg, NONE, generalRegisters);
+                allocateRegister(ireg, NONE, generalRegisters)
+            )
+
         |   registerAllocate{instr=AddSubImmediate{ source=PReg sreg, dest, ... }, ...} =
             (
                 case dest of
