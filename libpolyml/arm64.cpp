@@ -599,6 +599,9 @@ void Arm64TaskData::HandleTrap()
         // this value back into x27.
         // Look at that instruction to find out the register.
         arm64Instr moveInstr = fromARMInstr(*assemblyInterface.entryPoint);
+        // We may have an instruction to pop X30 first.
+        if (moveInstr == 0xF840879E)
+            moveInstr = fromARMInstr(assemblyInterface.entryPoint[1]);
         ASSERT((moveInstr & 0xffe0ffff) == 0xaa0003fb); // mov x27,xN
         allocReg = (moveInstr >> 16) & 0x1f;
         allocWords = (allocPointer - (PolyWord*)assemblyInterface.registers[allocReg].stackAddr) + 1;

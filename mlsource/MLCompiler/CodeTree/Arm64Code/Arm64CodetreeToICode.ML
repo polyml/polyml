@@ -48,6 +48,8 @@ struct
     |   BlockOptionalHandle of {call: arm64ICode, handler: int, label: int }
 
     val polyWordLoadSize = if is32in64 then Load32 else Load64
+    (* The flags byte is the high-order byte of length word. *)
+    val flagsByteOffset = if isBigEndian then ~ (Word.toInt wordSize) else ~1
 
     fun codeFunctionToArm64({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
@@ -209,7 +211,7 @@ struct
         
 
         (* Allocate a fixed size cell with a reference to the profile object if we want
-           to trace the location of live data.  Currently only used for tuples. *)
+           to trace the location of live data.  Currently only used for tuples and closures. *)
         fun allocateWithProfileRev(n, flags, memAddr, tlCode) =
         let
             fun doAllocation(words, flags, tlCode) =
@@ -268,6 +270,37 @@ struct
             testCode
         end
 
+        (* Load a value aligned on a 64 or 32-bit boundary.  offset is the number
+           of units.  Typically this will be a polyword. *)
+        fun wordAddressOffset(destination, baseReg1, offset, loadOp, code) =
+        let
+            val dReg = asTarget destination
+            val opWordSize =
+                case loadOp of Load64 => 8 | Load32 => 4 | Load16 => 2 | Load8 => 1
+            val byteOffset = offset * opWordSize
+            val (codeBase, baseReg) =
+                if is32in64
+                then
+                let
+                    val absReg = newUReg()
+                in
+                    (BlockSimple(ObjectIndexAddressToAbsolute{ source=baseReg1, dest=absReg }) :: code, absReg)
+                end
+                else (code, baseReg1)
+            val code =
+                if offset < 4096 andalso byteOffset > ~256
+                then BlockSimple(LoadWithConstantOffset{base=baseReg, dest=dReg, byteOffset=byteOffset, loadType=loadOp}) :: codeBase
+                else
+                let
+                    val indexReg = newUReg()
+                in
+                    BlockSimple(LoadWithIndexedOffset{ base=baseReg, dest=dReg, index=indexReg, loadType=loadOp }) ::
+                        BlockSimple(LoadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg }) :: codeBase
+                end
+        in
+            (code, dReg, false)
+        end
+
         fun codeToICodeRev(BICNewenv (bindings, exp), context: context as {stackPtr=initialSp, ...}, isTail, destination, tailCode) =
             let
                 (* Process a list of bindings.  We need to accumulate the space used by
@@ -305,9 +338,47 @@ struct
 
                 |   doBindings(BICRecDecs recDecs :: decs, context, tailCode) =
                     let
-                        val code = raise Fallback "BICRecDecs"
+                        val destRegs = map (fn _ => newPReg()) recDecs
+                        val flagsValue = if is32in64 then F_closure else 0w0
+                        (* First build the closures as mutable cells containing zeros.  Set the
+                           entry in the address table to the register containing the address. *)
+                        fun makeClosure({lambda={closure, ...}, addr, ...}, dest, tailCode) =
+                        let
+                            val () = Array.update(locToPregArray, addr, PregLocation dest)
+                            val wordsRequired = List.length closure + (if is32in64 then 2 else 1)
+                            val absAddr = if is32in64 then newUReg() else dest
+                            val zeroReg = newPReg()
+                            val allocAndSetZero =
+                                BlockSimple(LoadNonAddressConstant{ source=taggedWord64 0w0, dest=zeroReg}) ::
+                                    allocateWithProfileRev(wordsRequired, Word8.orb(F_mutable, flagsValue), absAddr, tailCode)
+                            val (_, clearCode) =
+                                List.foldl(fn (_, (n, l)) =>
+                                    (n+1, storeAtWordOffset(zeroReg, n, absAddr, polyWordLoadSize, l))) (0, allocAndSetZero) closure
+                        in
+                            if is32in64
+                            then BlockSimple(AbsoluteToObjectIndex{ source=absAddr, dest=dest }) :: clearCode
+                            else clearCode
+                        end
+                        val allocClosures = ListPair.foldlEq makeClosure tailCode (recDecs, destRegs)
+
+                        fun setClosure({lambda, ...}, dest, l) =
+                        let
+                            val absAddr = if is32in64 then newUReg() else dest
+                            val flagsReg = newUReg()
+                            (* Lock the closure by storing the flags byte without the mutable flag.
+                               TODO: We could simply use XZ here. *)
+                        in
+                            BlockSimple(StoreWithConstantOffset{ base=absAddr, source=flagsReg, byteOffset=flagsByteOffset,
+                                    loadType=Load8 }) ::
+                            BlockSimple(LoadNonAddressConstant{ source=Word8.toLarge flagsValue, dest=flagsReg }) ::
+                            storeIntoClosure(lambda, absAddr, context,
+                                    if is32in64
+                                    then BlockSimple(ObjectIndexAddressToAbsolute{ source=dest, dest=absAddr }) :: l else l)
+                        end
+                            
+                        val setAndLockClosures = ListPair.foldlEq setClosure allocClosures (recDecs, destRegs)
                     in
-                        doBindings(decs, context, code @ tailCode)
+                        doBindings(decs, context, setAndLockClosures)
                     end
 
                 |   doBindings(BICNullBinding exp :: decs, context, tailCode) =
@@ -375,20 +446,23 @@ struct
                 val offset = if is32in64 then c+2 else c+1
             in
                 if c >= List.length closure then raise InternalError "BICExtract: closure" else ();
-                (* N.B.  We need to add one to the closure entry because zero is the code address. *)
-                (*moveToResult(destination, tailCode, wordOffsetAddress(offset, closureRegAddr))*)
-                raise Fallback "BICLoadClosure"
+                wordAddressOffset(destination, closureRegAddr, offset, polyWordLoadSize, tailCode)
             end
 
         |   codeToICodeRev(BICExtract BICLoadRecursive, _, _, destination, tailCode) =
                 (* If the closure is empty we must use the constant.  We can't guarantee that
                    the caller will actually load the closure register if it knows the closure
                    is empty. *)
-                raise Fallback "BICLoadRecursive"
-                (*moveToResult(destination, tailCode,
-                    case closure of
-                        [] => AddressConstant(closureAsAddress resultClosure)
-                    |   _ => RegisterArgument closureRegAddr) *)
+            (
+                 case closure of
+                    [] =>
+                        let
+                            val dReg = asTarget destination
+                        in
+                            (BlockSimple(LoadAddressConstant{source=closureAsAddress resultClosure, dest=dReg}) :: tailCode, dReg, false)
+                        end
+                 |  _ => moveToResult(destination, tailCode, closureRegAddr)
+            )
 
         |   codeToICodeRev(BICConstnt(w, _), _, _, destination, tailCode) =
             let
@@ -407,30 +481,9 @@ struct
 
         |   codeToICodeRev(BICField{base, offset}, context, _, destination, tailCode) =
             let
-                val dReg = asTarget destination
-                val (codeBase1, baseReg1, _) = codeToICodeRev(base, context, false, AnyReg, tailCode)
-                val (codeBase, baseReg) =
-                    if is32in64
-                    then
-                    let
-                        val absReg = newUReg()
-                    in
-                        (BlockSimple(ObjectIndexAddressToAbsolute{ source=baseReg1, dest=absReg }) :: codeBase1, absReg)
-                    end
-                    else (codeBase1, baseReg1)
-                val code =
-                    if offset < 4096
-                    then BlockSimple(LoadWithConstantOffset{base=baseReg, dest=dReg,
-                                byteOffset=offset*Word.toInt wordSize, loadType=polyWordLoadSize}) :: codeBase
-                    else
-                    let
-                        val indexReg = newUReg()
-                    in
-                        BlockSimple(LoadWithIndexedOffset{ base=baseReg, dest=dReg, index=indexReg, loadType=polyWordLoadSize }) ::
-                            BlockSimple(LoadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg }) :: codeBase
-                    end
+                val (codeBase, baseReg, _) = codeToICodeRev(base, context, false, AnyReg, tailCode)
             in
-                (code, dReg, false)
+                wordAddressOffset(destination, baseReg, offset, polyWordLoadSize, codeBase)
             end
 
         |   codeToICodeRev(BICCond(test, thenPt, elsePt), context, isTail, NoResult, tailCode) =
@@ -508,8 +561,20 @@ struct
                 (* The allocator sets the register to the absolute address.  It
                    has to be converted to an object pointer in 32-in-64. *)
                 val absAddr = if is32in64 then newUReg() else target
-
+                
                 fun loadFields([], n, tlCode) = allocateWithProfileRev(n, 0w0, absAddr, tlCode)
+                
+                |   loadFields((f as BICConstnt _) :: rest, n, tlCode) =
+                    let
+                        (* Unlike the X86 we still need to load a constant into a register in order to
+                           store it in the new tuple.  However, it's better to leave that until after
+                           the allocation and move it then.  That way we can use the same register
+                           for different constants if we have a very large tuple. *)
+                        val restAndAlloc = loadFields(rest, n+1, tlCode)
+                        val (code1, source, _) = codeToICodeRev(f, context, false, AnyReg, restAndAlloc)
+                    in
+                        storeAtWordOffset(source, n, absAddr, polyWordLoadSize, code1)
+                    end
                     
                 |   loadFields(f :: rest, n, tlCode) =
                     let
@@ -538,7 +603,60 @@ struct
                 returnUnit(destination,  block :: code, true (* Always exits *))
             end
 
-        |   codeToICodeRev _ = raise Fallback "codeToICodeRev"
+        |   codeToICodeRev(BICEval _, _, _, _, _) = raise Fallback "codeToICodeRev: BICEval"
+
+        |   codeToICodeRev(BICNullary _, _, _, _, _) = raise Fallback "codeToICodeRev: BICNullary"
+
+        |   codeToICodeRev(BICArbitrary _, _, _, _, _) = raise Fallback "codeToICodeRev: BICArbitrary"
+
+        |   codeToICodeRev(BICLambda(lambda as { closure = [], ...}), _, _, destination, tailCode) =
+            (* Empty closure - create a constant closure for any recursive calls. *)
+            let
+                val closure = makeConstantClosure()
+                val () = codeFunctionToArm64(lambda, debugSwitches, closure)
+                val dReg = asTarget destination
+                (* Return the closure itself as the value. *)
+            in
+                (BlockSimple(LoadAddressConstant{source=closureAsAddress closure, dest=dReg}) :: tailCode, dReg, false)
+            end
+
+        |   codeToICodeRev(BICLambda(lambda as { closure, ...}), context, _, destination, tailCode) =
+            (* Non-empty closure.  Ignore stack closure option at the moment. *)
+            let
+                val wordsRequired = List.length closure  + (if is32in64 then 2 else 1)
+                val target = asTarget destination
+                val absAddr = if is32in64 then newUReg() else target
+                (* The values we're storing are all either constants or local/closure variables so
+                   we can allocate the memory and then store into it. *)
+                val allocCode =
+                    allocateWithProfileRev(wordsRequired, if is32in64 then F_closure else 0w0, absAddr, tailCode)
+                val storeCode =
+                    storeIntoClosure(lambda, absAddr, context, allocCode)
+                val finalCode =
+                    if is32in64 then BlockSimple(AbsoluteToObjectIndex{source=absAddr, dest=target}) :: storeCode else storeCode
+            in
+                (finalCode, target, false)
+            end
+
+        |   codeToICodeRev(BICCase _, _, _, _, _) = raise Fallback "codeToICodeRev: BICCase"
+
+        |   codeToICodeRev(BICBeginLoop _, _, _, _, _) = raise Fallback "codeToICodeRev: BICBeginLoop"
+
+        |   codeToICodeRev(BICLoop _, _, _, _, _) = raise Fallback "codeToICodeRev: BICLoop"
+
+        |   codeToICodeRev(BICSetContainer _, _, _, _, _) = raise Fallback "codeToICodeRev: BICSetContainer"
+
+        |   codeToICodeRev(BICLoadContainer _, _, _, _, _) = raise Fallback "codeToICodeRev: BICLoadContainer"
+
+        |   codeToICodeRev(BICLoadOperation _, _, _, _, _) = raise Fallback "codeToICodeRev: BICLoadOperation"
+
+        |   codeToICodeRev(BICStoreOperation _, _, _, _, _) = raise Fallback "codeToICodeRev: BICStoreOperation"
+
+        |   codeToICodeRev(BICBlockOperation _, _, _, _, _) = raise Fallback "codeToICodeRev: BICBlockOperation"
+
+        |   codeToICodeRev(BICAllocateWordMemory _, _, _, _, _) = raise Fallback "codeToICodeRev: BICAllocateWordMemory"
+
+        |   codeToICodeRev(BICHandle _, _, _, _, _) = raise Fallback "codeToICodeRev: BICAllocateWordMemory"
 
         and codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
        (* Jump optimisation is done later.  Just generate the general case.
@@ -555,7 +673,6 @@ struct
             BlockSimple(AddSubImmediate{source=testReg, immed=taggedWord 0w1, isAdd=false, dest=NONE, length=Arith32, ccRef=SOME ccRef}) ::
             testCode
         end
-
 
         and codeToICodeUnaryRev({oper=BuiltIns.NotBoolean, arg1}, context, _, destination, tailCode) =
             let
@@ -624,6 +741,46 @@ struct
 
         |   codeToICodeBinaryRev(instr, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev"
+
+        (* Store the code address and the closure items into a previously allocated closure on the
+           heap.  This is used both in the simple case and also with mutually recursive declarations. *)
+        and storeIntoClosure(lambda as { closure, ...}, absClosureAddr, context, tailCode) =
+        let
+            val closureRef = makeConstantClosure()
+            val () = codeFunctionToArm64(lambda, debugSwitches, closureRef)
+            val codeAddrWords = if is32in64 then 2 else 1
+
+            fun storeAValue(f, (n, tlCode)) =
+            let
+                val (code, source, _) = codeToICodeRev(BICExtract f, context, false, AnyReg, tlCode)
+            in
+                (n+1, storeAtWordOffset(source, n, absClosureAddr, polyWordLoadSize, code))
+            end
+            (* Store the code address in the first 64-bits. *)
+            val storeCodeAddress =
+                if is32in64
+                then
+                let
+                    (* We can't use codeAddressFromClosure on 32-in-64 because it always returns
+                       a 64-bit value.  Instead we have to get the code address at run-time. *)
+                    val clReg = newPReg() and absClReg = newUReg() and absCodeReg = newUReg()
+                in
+                    storeAtWordOffset(absCodeReg, 0, absClosureAddr, Load64,
+                        BlockSimple(LoadWithConstantOffset{base=absClReg, dest=absCodeReg, byteOffset=0, loadType=Load64}) ::
+                        BlockSimple(ObjectIndexAddressToAbsolute{ source=clReg, dest=absClReg }) ::
+                        BlockSimple(LoadAddressConstant{source=closureAsAddress closureRef, dest=clReg}) :: tailCode)
+                end
+                else
+                let
+                    val cReg = newPReg()
+                in
+                    storeAtWordOffset(cReg, 0, absClosureAddr, Load64,
+                        BlockSimple(LoadAddressConstant{source=codeAddressFromClosure closureRef, dest=cReg}) :: tailCode)
+                end
+            val (_, storeCode) = List.foldl storeAValue (codeAddrWords, storeCodeAddress) closure
+        in
+            storeCode
+        end
 
         (*Turn the codetree structure into icode. *)
         val bodyContext = {loopArgs=NONE, stackPtr=0, currHandler=NONE, overflowBlock=ref NONE}

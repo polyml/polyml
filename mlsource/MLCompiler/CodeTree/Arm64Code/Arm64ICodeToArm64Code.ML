@@ -268,19 +268,27 @@ struct
 
         |   codeExtended _ ({instr=AllocateMemoryOperation{ bytesRequired, dest=PReg dreg, work=PReg wreg, saveRegs }, ...}, code) =
             let
-                val preserve = getSaveRegs saveRegs
+                val realSaveRegs = getSaveRegs saveRegs
+                (* We may have X30 in the set but we're going to use it if we trap.
+                   We could move it out but it's probably better to save it across the call
+                   even though that's two instructions since traps are infrequent. *)
+                val saveX30 = List.exists (fn r => r = X30) realSaveRegs
+                val preserve = List.filter (fn r => r <> X30) realSaveRegs
                 val label = createLabel()
                 val destReg = getAllocatedReg dreg  and workReg = getAllocatedReg wreg
                 (* N.B.  This is in reverse order so read from the bottom up. *)
             in
                 moveRegToReg{sReg=destReg, dReg=X_MLHeapAllocPtr} ::
-                setLabel label ::registerMask preserve :: branchAndLinkReg workReg ::
+                setLabel label ::
+                (if saveX30 then [loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8}] else []) @
+                registerMask preserve :: branchAndLinkReg workReg ::
                 loadRegScaled{regT=workReg, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset} ::
+                (if saveX30 then [storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8}] else []) @
                 conditionalBranch(CondCarrySet, label) :: (* Skip the trap if it's ok. *)
                 (* Compare with heap limit. *)
                 subSShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone} ::
                 (* Subtract the number of bytes required from the heap pointer and put in result reg. *)
-                (if bytesRequired >= 0w4096 orelse true
+                (if bytesRequired >= 0w4096
                 then subShiftedReg{regM=workReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftNone} ::
                      loadNonAddressConstant(workReg, bytesRequired) :: code
                 else subImmediate{regN=X_MLHeapAllocPtr, regD=destReg, immed=Word.fromLarge bytesRequired, shifted=false} :: code)
@@ -365,7 +373,8 @@ struct
 
         |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let
-                val saveRegs = List.map #2 regArgs (* The real registers used for arguments. *)
+                (* The real registers used for arguments. X30 is there but saved separately. *)
+                val saveRegs = List.filter (fn r => r <> X30) (List.map #2 regArgs)
                 val skipCheck = createLabel()
                 val defaultWords = 10 (* This is wired into the RTS. *)
                 val workRegister = X10  (* Spare: not used yet. *)

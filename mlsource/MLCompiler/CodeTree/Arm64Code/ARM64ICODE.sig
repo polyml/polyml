@@ -42,7 +42,7 @@ sig
     val V0:  vReg   and V1:  vReg   and V2:  vReg   and V3: vReg
     and V4:  vReg   and V5:  vReg   and V6:  vReg   and V7: vReg
     
-    val is32in64: bool
+    val is32in64: bool and isBigEndian: bool
     
     (* Condition for conditional branches etc. *)
     datatype condition =

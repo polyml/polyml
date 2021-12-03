@@ -985,7 +985,14 @@ struct
        possibly updated if there is a GC. *)
     fun registerMask(regs) =
     let
-        fun addToMask(r, mask) = mask orb (0w1 << word8ToWord(xRegOnly r))
+        fun addToMask(r, mask) =
+        let
+            val rno = word8ToWord(xRegOnly r)
+        in
+            if rno > 0w24 (* In particular this can't be X30. *)
+            then raise InternalError ("registerMask: invalid register "^Word.toString rno)
+            else mask orb (0w1 << word8ToWord(xRegOnly r))
+        end
         val maskWord = List.foldl addToMask 0w0 regs
     in
         SimpleInstr(0wx02000000 (* Reserved instr range. *) orb maskWord)
