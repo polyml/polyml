@@ -111,6 +111,7 @@ AC_CHECK_HEADERS([stdarg.h sys/errno.h sys/filio.h sys/mman.h sys/resource.h])
 AC_CHECK_HEADERS([sys/sockio.h sys/stat.h termios.h sys/times.h])
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
 AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h sys/elf_amd64.h asm/elf.h machine/reloc.h i386/elf_machdep.h])
+AC_CHECK_HEADERS([mach-o/x86_64/reloc.h mach-o/arm64/reloc.h])
 AC_CHECK_HEADERS([windows.h tchar.h semaphore.h])
 AC_CHECK_HEADERS([stdint.h inttypes.h])
 

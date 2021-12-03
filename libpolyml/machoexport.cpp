@@ -55,9 +55,15 @@
 #include <mach-o/loader.h>
 #include <mach-o/reloc.h>
 #include <mach-o/nlist.h>
-#include <mach-o/x86_64/reloc.h>
-#include <mach-o/arm64/reloc.h>
 
+#ifdef HAVE_MACH_O_X86_64_RELOC_H
+#include <mach-o/x86_64/reloc.h>
+#endif
+
+// Older versions of Mac OS didn't have this.
+#ifdef HAVE_MACH_O_ARM64_RELOC_H
+#include <mach-o/arm64/reloc.h>
+#endif
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
