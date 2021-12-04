@@ -139,6 +139,17 @@ struct
             getCodeConstantCall(addr, wordIndex * wordSize, 0w0)
     end
 
+    fun createProfileObject() =
+    (* The profile object is a single mutable with the F_bytes bit set. *)
+    let
+        val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
+        fun clear 0w0 = ()
+        |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
+        val () = clear wordSize
+    in
+        toMachineWord v
+    end
+
     structure Sharing =
     struct
         type byteVec = byteVec

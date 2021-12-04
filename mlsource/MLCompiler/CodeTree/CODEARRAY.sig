@@ -44,6 +44,10 @@ sig
     val codeAddressFromClosure: closureRef -> machineWord
     val closureAsAddress: closureRef -> machineWord
 
+    (* Create a profile object.  It's not logically part of CodeArray but it's
+       needed in all the code-generators. *)
+    val createProfileObject: unit -> machineWord
+
     structure Sharing:
     sig
         type byteVec = byteVec
