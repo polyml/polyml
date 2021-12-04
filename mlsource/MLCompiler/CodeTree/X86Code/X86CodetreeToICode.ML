@@ -155,14 +155,7 @@ struct
         fun newCCRef() = CcRef(!ccRefCounter) before ccRefCounter := !ccRefCounter + 1
 
         (* The profile object is a single mutable with the F_bytes bit set. *)
-        local
-            val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
-            fun clear 0w0 = ()
-            |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
-            val () = clear wordSize
-        in
-            val profileObject = toMachineWord v
-        end
+        val profileObject = createProfileObject()
 
         (* Switch to indicate if we want to trace where live data has been allocated. *)
         (* TODO: This should be used in AllocateMemoryOperation and BoxValue and possibly AllocateMemoryVariable. *)

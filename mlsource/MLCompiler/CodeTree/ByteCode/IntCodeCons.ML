@@ -1423,14 +1423,7 @@ struct
             val () = codeVecPutWord (codeVec, endOfCode+0w1, nameWord)
         end
         (* Profile ref.  A byte ref used by the profiler in the RTS. *)
-        local
-            val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
-            fun clear 0w0 = ()
-            |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
-            val () = clear(wordSize)
-        in
-            val () = codeVecPutWord (codeVec, endOfCode+0w2, toMachineWord v)
-        end
+        val () = codeVecPutWord (codeVec, endOfCode+0w2, createProfileObject())
 
         (* and then copy the constants from the constant list. *)
         local

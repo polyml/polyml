@@ -116,18 +116,6 @@ struct
         RepeatOperation MOVS8
     ]
 
-    fun createProfileObject _ (*functionName*) =
-    let
-        (* The profile object is a single mutable with the F_bytes bit set. *)
-        open Address
-        val profileObject = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
-        fun clear 0w0 = ()
-        |   clear i = (assignByte(profileObject, i-0w1, 0w0); clear (i-0w1))
-        val () = clear wordSize
-    in
-        toMachineWord profileObject
-    end
-
     val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
 
     datatype abi = X86_32 | X64Win | X64Unix
@@ -337,7 +325,7 @@ struct
                 ReturnFromFunction mlArgsOnStack
             ]
  
-        val profileObject = createProfileObject functionName
+        val profileObject = createProfileObject ()
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
         val closure = makeConstantClosure()
         val () = X86Optimise.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
@@ -1664,7 +1652,7 @@ struct
         val debugSwitches =
             [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                Universal.tagInject DEBUG.assemblyCodeTag true*)]
-        val profileObject = createProfileObject functionName
+        val profileObject = createProfileObject ()
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
         val closure = makeConstantClosure()
         val () = X86Optimise.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
@@ -1692,7 +1680,7 @@ struct
         val debugSwitches =
             [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                Universal.tagInject DEBUG.assemblyCodeTag true*)]
-        val profileObject = createProfileObject functionName
+        val profileObject = createProfileObject ()
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
         val closure = makeConstantClosure()
         val () = X86Optimise.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
@@ -1718,7 +1706,7 @@ struct
             val debugSwitches =
                 [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                    Universal.tagInject DEBUG.assemblyCodeTag true*)]
-            val profileObject = createProfileObject functionName
+            val profileObject = createProfileObject ()
             val newCode = codeCreate (functionName, profileObject, debugSwitches)
             val closure = makeConstantClosure()
             val () = X86Optimise.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
