@@ -2929,7 +2929,7 @@ struct
     in (* body of codegen *)
        (* Having code-generated the body of the function, it is copied
           into a new data segment. *)
-        generateCode{instrs=instructions, name=name, parameters=parameters, resultClosure=resultClosure}
+        generateCode{instrs=instructions, name=name, parameters=parameters, resultClosure=resultClosure, profileObject=createProfileObject()}
     end (* codegen *)
 
     fun gencodeLambda({ name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =

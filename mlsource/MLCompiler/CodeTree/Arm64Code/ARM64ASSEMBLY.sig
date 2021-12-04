@@ -400,8 +400,9 @@ sig
     (* Create the vector of code from the list of instructions and update the
        closure reference to point to it. *)
     val generateCode:
-        {instrs: instr list, name: string, parameters: Universal.universal list, resultClosure: closureRef} -> unit
-
+        {instrs: instr list, name: string, parameters: Universal.universal list, resultClosure: closureRef,
+         profileObject: machineWord} -> unit
+ 
     (* Offsets in the assembly code interface pointed at by X26
        These are in units of 64-bits NOT bytes. *)
     val heapOverflowCallOffset: int

@@ -1376,7 +1376,7 @@ struct
     
         fun printHex (v, n) =
         let
-            val s = Word.fmt StringCvt.HEX v
+            val s = Word32.fmt StringCvt.HEX v
             val pad = CharVector.tabulate(Int.max(0, n-size s), fn _ => #"0")
         in
             printStream pad; printStream s
@@ -1419,14 +1419,14 @@ struct
         fun printWordAt wordNo =
         let
             val byteNo = Word.<<(wordNo, 0w2)
-            val () = printHex(byteNo, 6)  (* Address *)
+            val () = printHex(wordToWord32 byteNo, 6)  (* Address *)
             val () = printStream "\t"
             val wordValue =
                 word8ToWord32 (codeVecGet (codeVec, byteNo)) orb
                 (word8ToWord32 (codeVecGet (codeVec, byteNo+0w1)) << 0w8) orb
                 (word8ToWord32 (codeVecGet (codeVec, byteNo+0w2)) << 0w16) orb
                 (word8ToWord32 (codeVecGet (codeVec, byteNo+0w3)) << 0w24)
-            val () = printHex(word32ToWord wordValue, 8) (* Instr as hex *)
+            val () = printHex(wordValue, 8) (* Instr as hex *)
             val () = printStream "\t"
         in
             if (wordValue andb 0wxfffffc1f) = 0wxD61F0000
@@ -2386,7 +2386,7 @@ struct
     end
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun generateCode {instrs, name=functionName, parameters, resultClosure} =
+    fun generateCode {instrs, name=functionName, parameters, resultClosure, profileObject} =
     let
         val printStream = Pretty.getSimplePrinter(parameters, [])
         and printAssemblyCode = Debug.getParameter Debug.assemblyCodeTag parameters
@@ -2433,14 +2433,7 @@ struct
             val () = codeVecPutWord (codeVec, wordsOfCode+0w1, nameWord)
         end
         (* Profile ref.  A byte ref used by the profiler in the RTS. *)
-        local
-            val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
-            fun clear 0w0 = ()
-            |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
-            val () = clear(wordSize)
-        in
-            val () = codeVecPutWord (codeVec, wordsOfCode+0w2, toMachineWord v)
-        end
+        val () = codeVecPutWord (codeVec, wordsOfCode+0w2, profileObject)
 
         (* and then copy the constants from the constant list. *)
         local

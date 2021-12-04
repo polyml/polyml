@@ -80,8 +80,8 @@ struct
     |   getInstructionState(AbsoluteToObjectIndex { source, dest, ...}) =
         { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionState(AllocateMemoryOperation { dest, work, ...}) =
-        { sources=[], dests=[dest, work], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+    |   getInstructionState(AllocateMemoryOperation { dest, ...}) =
+        { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(StoreWithConstantOffset { base, source, ...}) =
         { sources=[source, base], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
@@ -105,6 +105,19 @@ struct
 
     |   getInstructionState(RaiseExceptionPacket{packetReg}) =
             { sources=[packetReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(PushToStack{ source, container, ... }) =
+            { sources=[source], dests=[], sStacks=[], dStacks=[container], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(LoadStack{ dest, container, ... }) =
+            { sources=[], dests=[dest], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(StoreToStack{ source, container, ... }) =
+        (* Although this stores into the container it must already exist. *)
+            { sources=[source], dests=[], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(ContainerAddress{ dest, container, ... }) =
+            { sources=[], dests=[dest], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(ResetStackPtr _) =
             { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
@@ -491,8 +504,8 @@ struct
                            of registers to save. *)
                         val convertedInstr =
                             case instr of
-                                AllocateMemoryOperation{bytesRequired, dest, work, saveRegs=_} =>
-                                    AllocateMemoryOperation{bytesRequired=bytesRequired, work=work, dest=dest,
+                                AllocateMemoryOperation{bytesRequired, dest, saveRegs=_} =>
+                                    AllocateMemoryOperation{bytesRequired=bytesRequired, dest=dest,
                                         saveRegs=getSaveSet(regNo dest)}
                             (*    AllocateMemoryOperation{size, flags, dest, saveRegs=_} =>
                                     AllocateMemoryOperation{size=size, flags=flags, dest=dest,

@@ -177,7 +177,8 @@ struct
                 returnRegister X23
             ]
         val closure = makeConstantClosure()
-        val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure}
+        val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure,
+                              profileObject=createProfileObject()}
     in
         closureAsAddress closure
     end
@@ -568,7 +569,8 @@ struct
             [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                Universal.tagInject Debug.assemblyCodeTag true*)]
         val closure = makeConstantClosure()
-        val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure}
+        val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure,
+                              profileObject=createProfileObject()}
     in
         closureAsAddress closure
     end
@@ -831,7 +833,8 @@ struct
                Universal.tagInject Debug.assemblyCodeTag true*)]
 
         val closure = makeConstantClosure()
-        val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure}
+        val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches,
+                              resultClosure=closure, profileObject=createProfileObject()}
         val stage2Code = closureAsAddress closure
         
         fun resultFunction f =
@@ -868,7 +871,8 @@ struct
                 [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                    Universal.tagInject Debug.assemblyCodeTag true*)]
             val closure = makeConstantClosure()
-            val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure}
+            val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches,
+                                  resultClosure=closure, profileObject=createProfileObject()}
             val res = closureAsAddress closure
             (*val _ = print("Address is " ^ (LargeWord.toString(RunCall.unsafeCast res)) ^ "\n")*)
         in

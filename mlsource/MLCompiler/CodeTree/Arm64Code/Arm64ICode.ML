@@ -75,7 +75,7 @@ struct
            bytesRequired is the total number of bytes including the length word and any alignment
            necessary for 32-in-64. saveRegs is the list of registers that need to be saved if we
            need to do a garbage collection. *)
-    |   AllocateMemoryOperation of { bytesRequired: Word64.word, dest: preg, work: preg, saveRegs: preg list }
+    |   AllocateMemoryOperation of { bytesRequired: Word64.word, dest: preg, saveRegs: preg list }
 
         (* Store a register using a constant, signed, byte offset.  The offset
            is in the range of -256 to (+4095*unit size). *)
@@ -106,6 +106,20 @@ struct
 
         (* Raise an exception.  The packet is always loaded into X0. *)
     |   RaiseExceptionPacket of { packetReg: preg }
+
+        (* Push a register to the stack.  This is used both for a normal push, copies=1, and
+           also to reserve a container. *)
+    |   PushToStack of { source: preg, copies: int, container: stackLocn }
+
+        (* Load a register from the stack.  The container is the stack location identifier,
+           the field is an offset in a container.  cache is an optional cache register. *)
+    |   LoadStack of { dest: preg, wordOffset: int, container: stackLocn, field: int, cache: preg option }
+
+        (* Store a value into the stack. *)
+    |   StoreToStack of { source: preg, container: stackLocn, field: int, stackOffset: int }
+
+        (* Set the register to the address of the container i.e. a specific offset on the stack. *)
+    |   ContainerAddress of { dest: preg, container: stackLocn, stackOffset: int }
 
         (* Remove items from the stack.  Used to remove containers or
            registers pushed to the stack.. *)
@@ -217,12 +231,11 @@ struct
                 printReg(source, stream); stream " => "; printReg(dest, stream)
             )
 
-        |   printICode(AllocateMemoryOperation{bytesRequired, dest, work, saveRegs}, stream) =
+        |   printICode(AllocateMemoryOperation{bytesRequired, dest, saveRegs}, stream) =
             (
                 stream "\tAllocateMemory\t";
                 stream(Word64.toString bytesRequired); stream " => ";
-                printReg(dest, stream); stream " work="; printReg(work, stream);
-                stream " save="; printSaves(saveRegs, stream)
+                printReg(dest, stream); stream " save="; printSaves(saveRegs, stream)
             )
 
         |   printICode(StoreWithConstantOffset{ base, source, byteOffset, loadType }, stream) =
@@ -275,6 +288,39 @@ struct
 
         |   printICode(RaiseExceptionPacket{ packetReg }, stream) =
             ( stream "\tRaiseException\t"; printReg(packetReg, stream) )
+
+        |   printICode(PushToStack{ source, copies, container }, stream) =
+            (
+                stream "\tPushToStack\t"; printReg(source, stream);
+                if copies > 1 then (stream " * "; stream(Int.toString copies)) else ();
+                stream " => "; printStackLoc(container, stream)
+            )
+
+        |   printICode(LoadStack{ dest, wordOffset, container, field, cache }, stream) =
+            (
+                stream "\tLoadStack\t";
+                printStackLoc(container, stream); stream " + ";
+                stream(Int.toString field);
+                stream " (";  stream(Int.toString wordOffset); stream ")";
+                case cache of NONE => () | SOME r => (stream " cache "; printReg(r, stream));
+                stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(StoreToStack{ source, container, field, stackOffset }, stream) =
+            (
+                stream "\tStoreToStack\t"; printReg(source, stream);
+                stream " => "; printStackLoc(container, stream); stream "+";
+                stream (Int.toString field); stream "(";
+                stream(Int.toString stackOffset); stream ")"
+            )
+
+        |   printICode(ContainerAddress{ dest, container, stackOffset }, stream) =
+            (
+                stream "\tContainerAddress\t";
+                stream "@"; printStackLoc(container, stream);
+                stream " (";  stream(Int.toString stackOffset); stream ") => ";
+                printReg(dest, stream)
+            )
 
         |   printICode(ResetStackPtr{ numWords }, stream) =
             ( stream "\tResetStackPtr\t"; stream(Int.toString numWords) )

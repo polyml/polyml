@@ -71,6 +71,10 @@ struct
             |   instructionUses(BeginFunction _) = ()
             |   instructionUses(ReturnResultFromFunction{resultReg, returnReg, ...}) = (used resultReg; used returnReg)
             |   instructionUses(RaiseExceptionPacket{packetReg}) = used packetReg
+            |   instructionUses(PushToStack{source, ...}) = used source
+            |   instructionUses(LoadStack _) = ()
+            |   instructionUses(StoreToStack{source, ...}) = used source
+            |   instructionUses(ContainerAddress _) = ()
             |   instructionUses(ResetStackPtr _) = ()
 
             (* Depth-first scan. *)
@@ -266,7 +270,7 @@ struct
                 subShiftedReg{regM=X_Base32in64, regN=getAllocatedReg sreg, regD=destReg, shift=ShiftNone} :: code
             end
 
-        |   codeExtended _ ({instr=AllocateMemoryOperation{ bytesRequired, dest=PReg dreg, work=PReg wreg, saveRegs }, ...}, code) =
+        |   codeExtended _ ({instr=AllocateMemoryOperation{ bytesRequired, dest=PReg dreg, saveRegs, ... }, ...}, code) =
             let
                 val realSaveRegs = getSaveRegs saveRegs
                 (* We may have X30 in the set but we're going to use it if we trap.
@@ -275,22 +279,22 @@ struct
                 val saveX30 = List.exists (fn r => r = X30) realSaveRegs
                 val preserve = List.filter (fn r => r <> X30) realSaveRegs
                 val label = createLabel()
-                val destReg = getAllocatedReg dreg  and workReg = getAllocatedReg wreg
+                val destReg = getAllocatedReg dreg
                 (* N.B.  This is in reverse order so read from the bottom up. *)
             in
                 moveRegToReg{sReg=destReg, dReg=X_MLHeapAllocPtr} ::
                 setLabel label ::
                 (if saveX30 then [loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8}] else []) @
-                registerMask preserve :: branchAndLinkReg workReg ::
-                loadRegScaled{regT=workReg, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset} ::
+                registerMask preserve :: branchAndLinkReg workReg1 ::
+                loadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset} ::
                 (if saveX30 then [storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8}] else []) @
                 conditionalBranch(CondCarrySet, label) :: (* Skip the trap if it's ok. *)
                 (* Compare with heap limit. *)
                 subSShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone} ::
                 (* Subtract the number of bytes required from the heap pointer and put in result reg. *)
                 (if bytesRequired >= 0w4096
-                then subShiftedReg{regM=workReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftNone} ::
-                     loadNonAddressConstant(workReg, bytesRequired) :: code
+                then subShiftedReg{regM=workReg1, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftNone} ::
+                     loadNonAddressConstant(workReg1, bytesRequired) :: code
                 else subImmediate{regN=X_MLHeapAllocPtr, regD=destReg, immed=Word.fromLarge bytesRequired, shifted=false} :: code)
             end
 
@@ -442,14 +446,64 @@ struct
                 loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset} ::
                 moveIfNecessary({src=getAllocatedReg preg, dst=X0}, code)
 
+        |   codeExtended _ ({instr=PushToStack{ source=PReg sreg, copies, ... }, ...}, code) =
+            let
+                val reg = getAllocatedReg sreg
+                val _ = copies > 0 orelse raise InternalError "PushToStack: copies<1"
+                fun pushn(0, c) = c
+                |   pushn(n, c) = pushn(n-1, storeRegPreIndex{regT=reg, regN=X_MLStackPtr, byteOffset= ~8} :: c)
+            in
+                pushn(copies, code)
+            end
+
+        |   codeExtended _ ({instr=LoadStack{ dest=PReg dreg, cache=SOME(PReg creg), ... }, ...}, code) =
+                (* Load a value from the stack when the value is cached - use the register *)
+                moveIfNecessary({src=getAllocatedReg creg, dst=getAllocatedReg dreg}, code)
+
+        |   codeExtended _ ({instr=LoadStack{ dest=PReg dreg, wordOffset, cache=NONE, ... }, ...}, code) =
+                (* Load from the stack.  Always 64-bits. *)
+            let
+                val destReg = getAllocatedReg dreg
+            in
+                if wordOffset >= 4096
+                then loadRegIndexed{regT=destReg, regN=X_MLStackPtr, regM=destReg, option=ExtUXTX ScaleOrShift} ::
+                        List.rev(loadNonAddress(destReg, Word64.fromInt wordOffset)) @ code
+                else loadRegScaled{regT=destReg, regN=X_MLStackPtr, unitOffset=wordOffset} :: code
+            end
+
+        |   codeExtended _ ({instr=StoreToStack{ source=PReg sreg, stackOffset, ... }, ...}, code) =
+                (* Store into the stack to set a field of a container.  Always 64-bits. *)
+            let
+                val sourceReg = getAllocatedReg sreg
+            in
+                if stackOffset >= 4096
+                then storeRegIndexed{regT=sourceReg, regN=X_MLStackPtr, regM=workReg1, option=ExtUXTX ScaleOrShift} ::
+                        List.rev(loadNonAddress(workReg1, Word64.fromInt stackOffset)) @ code
+                else storeRegScaled{regT=sourceReg, regN=X_MLStackPtr, unitOffset=stackOffset} :: code
+            end
+
+        |   codeExtended _ ({instr=ContainerAddress{ dest=PReg dreg, stackOffset, ... }, ...}, code) =
+                (* Set the register to an offset in the stack. *)
+            let
+                val destReg = getAllocatedReg dreg
+                val _ = stackOffset >= 0 orelse raise InternalError "codeGenICode: ContainerAddress - negative offset"
+                val byteOffset = stackOffset * Word.toInt nativeWordSize
+            in
+                if byteOffset >= 4096
+                then addShiftedReg{regN=X_MLStackPtr, regM=destReg, regD=destReg, shift=ShiftNone} ::
+                        List.rev(loadNonAddress(destReg, Word64.fromInt byteOffset)) @ code
+                else addImmediate{regN=X_MLStackPtr, regD=destReg, immed=Word.fromInt byteOffset, shifted=false} :: code
+            end
+
         |   codeExtended _ ({instr=ResetStackPtr{ numWords, ... }, ...}, code) =
             let
-                val _ = numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset";
+                val _ = numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset"
                 (* Assume that this will fit in 24 bits since that would be over 2M entries pushed. *)
-                val _ = numWords < Word.toInt(Word.<<(0w1, 0w24)) orelse
+                val numBytes = numWords * Word.toInt nativeWordSize
+                val _ = numBytes < Word.toInt(Word.<<(0w1, 0w24)) orelse
                             raise InternalError "codeGenICode: ResetStackPtr - offset exceeds 24 bits";
-                val loword = Word.andb(Word.fromInt numWords, 0wxfff)
-                val hiword = Word.>>(Word.fromInt numWords, 0w12)
+                val loword = Word.andb(Word.fromInt numBytes, 0wxfff)
+                val hiword = Word.>>(Word.fromInt numBytes, 0w12)
                 fun addToSP(value, shift) =
                     if value = 0w0 then []
                     else [addImmediate{regN=X_MLStackPtr, regD=X_MLStackPtr, immed=value, shifted=shift}]
@@ -548,30 +602,27 @@ struct
                                     then SOME(FlowCodeSimple dest)
                                     else NONE
                             |   Conditional {trueJump, falseJump, condition, ...} =>
+                                (* We can usually choose either destination and in nearly all cases
+                                   it won't matter.  The default branch is not to take forward jumps
+                                   so if there is reason to believe that one branch is more likely
+                                   we should follow that branch now and leave the other.  If we
+                                   have Cond(No)Overflow we assume that overflow is unusual.
+                                   If one branch raises an exception we assume that that is unusual. *)
                                 let
-                                    (* Can we replace this with a SETCC or CMOV?  If both arms simply set
-                                       a register to a value and either return or jump to the same location
-                                       we can use a SETCC or a CMOV.  *)
-                                    val ExtendedBasicBlock { flow=tFlow, block=tBlock, ...} = Vector.sub(blocks, trueJump)
-                                    and ExtendedBasicBlock { flow=fFlow, block=fBlock, ...} = Vector.sub(blocks, falseJump)
+                                    val (first, second) =
+                                        case (condition, Vector.sub(blocks, falseJump)) of
+                                            (CondNoOverflow, _) => (trueJump, falseJump)
+                                        |   (_, ExtendedBasicBlock{ flow=ExitCode, block, ...}) =>
+                                                if List.exists(fn{instr=RaiseExceptionPacket _, ...} => true | _ => false) block
+                                                then (trueJump, falseJump)
+                                                else (falseJump, trueJump)
+                                        |   _ => (falseJump, trueJump)
                                 in
-                                        (* We can usually choose either destination and in nearly all cases
-                                           it won't matter.  The default branch is not to take forward jumps
-                                           so if there is reason to believe that one branch is more likely
-                                           we should follow that branch now and leave the other.  If we
-                                           have JO/JNO we assume that overflow is unusual.  If one branch
-                                           raises an exception we assume that that is unusual. *)
-                                        let
-                                            val (first, second) =
-                                                (*case (condition, Vector.sub(blocks, falseJump)) of
-                                                |   _ =>*) (falseJump, trueJump)
-                                        in
-                                            if not (haveProcessed first) andalso available first
-                                            then SOME(FlowCodeSimple first)
-                                            else if not (haveProcessed second) andalso available second
-                                            then SOME(FlowCodeSimple second)
-                                            else NONE
-                                        end
+                                    if not (haveProcessed first) andalso available first
+                                    then SOME(FlowCodeSimple first)
+                                    else if not (haveProcessed second) andalso available second
+                                    then SOME(FlowCodeSimple second)
+                                    else NONE
                                 end
                            |    SetHandler { continue, ... } =>
                                     (* We want the continuation if possible.  We'll need a
@@ -701,7 +752,8 @@ struct
             val ops = genCode([0], ExitCode, [])
         end
     in
-        Arm64Assembly.generateCode{instrs=List.rev ops, name=functionName, resultClosure=resultClosure, parameters=debugSwitches}
+        Arm64Assembly.generateCode{instrs=List.rev ops, name=functionName, resultClosure=resultClosure,
+                                   parameters=debugSwitches, profileObject=profileObject}
     end
 
     structure Sharing =

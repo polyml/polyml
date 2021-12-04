@@ -278,11 +278,10 @@ struct
                 allocateRegister(sreg, NONE, generalRegisters)
             )
 
-        |   registerAllocate({instr=AllocateMemoryOperation{ dest=PReg dReg, work=PReg wReg, saveRegs, ...}, ...}) =
+        |   registerAllocate({instr=AllocateMemoryOperation{ dest=PReg dReg, saveRegs, ...}, ...}) =
             (
                 List.app(fn (PReg r) => allocateRegister(r, NONE, generalRegisters)) saveRegs;
-                allocateRegister(dReg, NONE, generalRegisters);
-                allocateRegister(wReg, NONE, generalRegisters)
+                allocateRegister(dReg, NONE, generalRegisters)
             )
 
         |   registerAllocate{instr=StoreWithConstantOffset{source=PReg sreg, base=PReg breg, ...}, ...} =
@@ -326,6 +325,21 @@ struct
 
         |   registerAllocate{instr=RaiseExceptionPacket{packetReg=PReg preg}, ...} =
                 allocateRegister(preg, NONE, generalRegisters)
+
+        |   registerAllocate{instr=PushToStack{ source=PReg sreg, ... }, ...} =
+                allocateRegister(sreg, NONE, generalRegisters)
+
+        |   registerAllocate{instr=LoadStack{ dest=PReg dreg, cache, ... }, ...} =
+            (
+                allocateRegister(dreg, NONE, generalRegisters);
+                case cache of SOME(PReg creg) => allocateRegister(creg, NONE, generalRegisters) | NONE => ()
+            )
+
+        |   registerAllocate{instr=StoreToStack{ source=PReg sreg, ... }, ...} =
+                allocateRegister(sreg, NONE, generalRegisters)
+
+        |   registerAllocate{instr=ContainerAddress{ dest=PReg dreg, ... }, ...} =
+                allocateRegister(dreg, NONE, generalRegisters)
 
         |   registerAllocate{instr=ResetStackPtr _, ...} = ()
 

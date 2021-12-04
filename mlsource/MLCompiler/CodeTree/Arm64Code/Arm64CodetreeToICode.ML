@@ -51,6 +51,11 @@ struct
     (* The flags byte is the high-order byte of length word. *)
     val flagsByteOffset = if isBigEndian then ~ (Word.toInt wordSize) else ~1
 
+    fun opWordSize Load64 = 8
+    |   opWordSize Load32 = 4
+    |   opWordSize Load16 = 2
+    |   opWordSize Load8 = 1
+
     fun codeFunctionToArm64({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
         (* Pseudo-registers are allocated sequentially and the properties added to the list. *)
@@ -99,15 +104,8 @@ struct
         val ccRefCounter = ref 0
         fun newCCRef() = CcRef(!ccRefCounter) before ccRefCounter := !ccRefCounter + 1
 
-        (* The profile object is a single mutable with the F_bytes bit set. *)
-        local
-            val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
-            fun clear 0w0 = ()
-            |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
-            val () = clear wordSize
-        in
-            val profileObject = toMachineWord v
-        end
+        (* The profile object is a single mutable with the F_bytes bit set. *)        
+        val profileObject = CodeArray.createProfileObject()
 
         (* Switch to indicate if we want to trace where live data has been allocated. *)
         (* TODO: This should be used in AllocateMemoryOperation and BoxValue and possibly AllocateMemoryVariable. *)
@@ -197,10 +195,14 @@ struct
         (* Store a register at a given offset.  This may have to use an index register
            if the offset is too large. *)
         fun storeAtWordOffset(toStore, offset, base, loadSize, tailCode) =
-            if offset < 4096 andalso offset > ~256
+        let
+            val wSize = opWordSize loadSize
+            val byteOffset = offset*wSize
+        in
+            if offset < 4096 andalso byteOffset > ~256 
             then BlockSimple(
                     StoreWithConstantOffset{base=base, source=toStore,
-                            byteOffset=offset*Word.toInt wordSize, loadType=loadSize}) :: tailCode
+                            byteOffset=byteOffset, loadType=loadSize}) :: tailCode
             else
             let
                 val indexReg = newUReg()
@@ -208,7 +210,7 @@ struct
                 BlockSimple(StoreWithIndexedOffset{ base=base, source=toStore, index=indexReg, loadType=loadSize }) ::
                     BlockSimple(LoadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg }) :: tailCode
             end
-        
+        end
 
         (* Allocate a fixed size cell with a reference to the profile object if we want
            to trace the location of live data.  Currently only used for tuples and closures. *)
@@ -229,7 +231,7 @@ struct
             in
                 BlockSimple(StoreWithConstantOffset{ source=lengthReg, base=memAddr, byteOffset= ~(Word.toInt wordSize), loadType=polyWordLoadSize }) ::
                 BlockSimple(LoadNonAddressConstant{ source=lengthWord, dest=lengthReg }) ::
-                BlockSimple(AllocateMemoryOperation{bytesRequired=bytesRequired, dest=memAddr, work=newUReg(), saveRegs=[]}) :: tlCode
+                BlockSimple(AllocateMemoryOperation{bytesRequired=bytesRequired, dest=memAddr, saveRegs=[]}) :: tlCode
             end
         in
             if addAllocatingFunction
@@ -275,8 +277,7 @@ struct
         fun wordAddressOffset(destination, baseReg1, offset, loadOp, code) =
         let
             val dReg = asTarget destination
-            val opWordSize =
-                case loadOp of Load64 => 8 | Load32 => 4 | Load16 => 2 | Load8 => 1
+            val opWordSize = opWordSize loadOp
             val byteOffset = offset * opWordSize
             val (codeBase, baseReg) =
                 if is32in64
@@ -300,6 +301,12 @@ struct
         in
             (code, dReg, false)
         end
+
+        (* See if we have a container and return the entry if present. *)
+        fun getContainerIfPresent(BICExtract(BICLoadLocal l)) =
+            ( case Array.sub(locToPregArray, l) of ContainerLocation container => SOME container | _ => NONE )
+        |   getContainerIfPresent _ = NONE
+
 
         fun codeToICodeRev(BICNewenv (bindings, exp), context: context as {stackPtr=initialSp, ...}, isTail, destination, tailCode) =
             let
@@ -389,7 +396,17 @@ struct
                     end
        
                 |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr, currHandler, overflowBlock}, tailCode) =
-                        raise Fallback "BICDecContainer"
+                    let
+                        val containerLoc = newStackLoc size
+                        val () = Array.update(locToPregArray, addr,
+                                    ContainerLocation{container=containerLoc, stackOffset=stackPtr+size})
+                        val zeroReg = newPReg()
+                    in
+                        doBindings(decs,
+                            {loopArgs=loopArgs, stackPtr=stackPtr+size, currHandler=currHandler, overflowBlock=overflowBlock},
+                            BlockSimple(PushToStack{copies=size, container=containerLoc, source=zeroReg}) ::
+                            BlockSimple(LoadNonAddressConstant{ source=taggedWord64 0w0, dest=zeroReg }) :: tailCode)
+                    end
 
                 val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context, tailCode)
                 (* If we have had a container we'll need to reset the stack *)
@@ -418,9 +435,13 @@ struct
                 case Array.sub(locToPregArray, l) of
                     NoLocation => raise InternalError "codeToICodeRev - local unset"
                 |   PregLocation preg => moveToResult(destination, tailCode, preg)
-                |   ContainerLocation{container, stackOffset} => raise Fallback "ContainerLocation"
-                        
-                       (* (tailCode, ContainerAddr{container=container, stackOffset=stackPtr-stackOffset}, false) *)
+                |   ContainerLocation{container, stackOffset} =>
+                    let
+                        val target = asTarget destination
+                    in
+                        (BlockSimple(ContainerAddress{dest=target, container=container, stackOffset=stackPtr-stackOffset})
+                            :: tailCode, target, false)
+                    end
             )
 
         |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
@@ -429,15 +450,12 @@ struct
                     ArgInReg{argReg, ...} => (* It was originally in a register.  It's now in a preg. *)
                         moveToResult(destination, tailCode, argReg)
                 |   ArgOnStack{stackOffset, stackReg} => (* Pushed before call. *)
-                            raise Fallback "codeToICodeRev"
-                    (*let
+                    let
                         val target = asTarget destination
                     in
-                        (BlockSimple(LoadArgument{
-                            source=StackLocation{wordOffset=stackOffset+stackPtr, container=stackReg, field=0, cache=NONE},
-                            dest=target, kind=moveNativeWord}) :: tailCode,
-                         RegisterArgument target, false)
-                    end*)
+                        (BlockSimple(LoadStack{wordOffset=stackOffset+stackPtr, container=stackReg, field=0,
+                                                cache=NONE, dest=target}) :: tailCode, target, false)
+                    end
             )
 
         |   codeToICodeRev(BICExtract(BICLoadClosure c), _, _, destination, tailCode) =
@@ -644,9 +662,145 @@ struct
 
         |   codeToICodeRev(BICLoop _, _, _, _, _) = raise Fallback "codeToICodeRev: BICLoop"
 
-        |   codeToICodeRev(BICSetContainer _, _, _, _, _) = raise Fallback "codeToICodeRev: BICSetContainer"
+            (* Copy the source tuple into the container.  There are important special cases for
+               both the source tuple and the container.  If the source tuple is a BICTuple we have
+               the fields and can store them without creating a tuple on the heap.  If the
+               destination is a local container we can store directly into the stack. *)
+        |   codeToICodeRev(BICSetContainer{container, tuple, filter}, context as {stackPtr, ...}, _, destination, tailCode) =
+            let
+                local
+                    fun createStore containerReg (source, destWord, tail) =
+                        storeAtWordOffset(source, destWord, containerReg, Load64, tail)
+                in
+                    val findContainer =
+                        case container of
+                            BICExtract(BICLoadLocal l) =>
+                            (
+                                case Array.sub(locToPregArray, l) of
+                                    ContainerLocation{container, stackOffset} =>
+                                    let
+                                        fun storeToStack(source, destWord, tail) =
+                                            BlockSimple(StoreToStack{source=source, container=container, field=destWord,
+                                                stackOffset=stackPtr-stackOffset+destWord}) :: tail
+                                    in
+                                        SOME storeToStack
+                                    end
+                               |    _ => NONE
+                           )
+                       |    _ => NONE
 
-        |   codeToICodeRev(BICLoadContainer _, _, _, _, _) = raise Fallback "codeToICodeRev: BICLoadContainer"
+                    val (codeContainer, storeInstr) =
+                        case findContainer of
+                            SOME storeToStack => (tailCode, storeToStack)
+                        |   NONE => 
+                            let
+                                val containerTarget = newPReg()
+                                val (codeContainer, _, _) =
+                                    codeToICodeRev(container, context, false, SpecificPReg containerTarget, tailCode)
+                            in
+                                (codeContainer, createStore containerTarget)
+                            end
+                end
+                
+                val filterLength = BoolVector.length filter
+
+                val code =
+                    case tuple of
+                        BICTuple cl =>
+                        let
+                            (* In theory it's possible that the tuple could contain fields that are not
+                               used but nevertheless need to be evaluated for their side-effects.
+                               Create all the fields and push to the stack. *)
+                            fun codeField(arg, (regs, tailCode)) =
+                            let
+                                val (c, r, _) =
+                                    codeToICodeRev(arg, context, false, AnyReg, tailCode)
+                            in
+                                (r :: regs, c)
+                            end
+
+                            val (pregsRev, codeFields) = List.foldl codeField ([], codeContainer) cl
+                            val pregs = List.rev pregsRev
+
+                            fun copyField(srcReg, (sourceWord, destWord, tailCode)) =
+                                if sourceWord < filterLength andalso BoolVector.sub(filter, sourceWord)
+                                then (sourceWord+1, destWord+1, storeInstr(srcReg, destWord, tailCode))
+                                else (sourceWord+1, destWord, tailCode)
+                            
+                            val (_, _, resultCode) = List.foldl copyField (0, 0, codeFields) pregs
+                        in
+                            resultCode
+                        end
+
+                    |   tuple =>
+                        let (* Copy a heap tuple.  It is possible that this is another container in which case
+                               we must load the fields directly.  We mustn't load its address and then copy
+                               because loading the address would be the last reference and might cause
+                               the container to be reused prematurely. ??? Is that an old comment ?? *)
+                            val (codeTuple, loadField) =
+                                case getContainerIfPresent tuple of
+                                    SOME {container, stackOffset} =>
+                                    let
+                                        fun getAddr(destReg, sourceWord, tail) =
+                                            BlockSimple(LoadStack{dest=destReg, wordOffset=stackPtr-stackOffset+sourceWord, container=container,
+                                                          field=sourceWord, cache=NONE}) :: tail
+                                    in
+                                        (codeContainer, getAddr)
+                                    end
+                                |   NONE =>
+                                    let
+                                        val (codeTuple, tupleTarget, _) = codeToICodeRev(tuple, context, false, AnyReg, codeContainer)
+                                        fun loadField(destReg: preg, sourceWord: int, tail): blockStruct list =
+                                        let
+                                            val (code, _, _) =
+                                                wordAddressOffset(SpecificPReg destReg, tupleTarget, sourceWord, polyWordLoadSize, tail)
+                                        in
+                                            code
+                                        end
+                                    in
+                                        (codeTuple, loadField)
+                                    end
+
+                            fun copyContainer(sourceWord, destWord, tailCode) =
+                            if sourceWord = filterLength
+                            then tailCode
+                            else if BoolVector.sub(filter, sourceWord)
+                            then
+                            let
+                                val loadReg = newPReg()
+                                val code =
+                                    storeInstr(loadReg, destWord, loadField(loadReg, sourceWord, tailCode))
+                            in
+                                copyContainer(sourceWord+1, destWord+1, code)
+                            end
+                            else copyContainer(sourceWord+1, destWord, tailCode)
+                        in
+                            copyContainer(0, 0, codeTuple)
+                        end
+            in
+                returnUnit(destination, code, false)
+            end
+
+        |   codeToICodeRev(BICLoadContainer{base, offset}, context as {stackPtr, ...}, _, destination, tailCode) =
+            (
+                case getContainerIfPresent base of
+                    SOME {container, stackOffset} =>
+                    let (* If this is a local container we extract the field. *)
+                        val target = asTarget destination
+                        val finalOffset = stackPtr-stackOffset+offset
+                        val _ = finalOffset >= 0 orelse raise InternalError "offset"
+                    in
+                        (BlockSimple(LoadStack{wordOffset=finalOffset, container=container, field=offset, cache=NONE,
+                            dest=target}) :: tailCode, target, false)
+                    end
+
+                |   NONE =>
+                    let
+                        val (codeBase, baseEntry, _) = codeToICodeRev(base, context, false, AnyReg, tailCode)
+                    in
+                        wordAddressOffset(destination, baseEntry, offset, Load64, codeBase)
+                    end
+            )
 
         |   codeToICodeRev(BICLoadOperation _, _, _, _, _) = raise Fallback "codeToICodeRev: BICLoadOperation"
 
