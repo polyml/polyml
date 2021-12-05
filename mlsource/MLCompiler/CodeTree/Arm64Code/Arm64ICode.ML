@@ -112,8 +112,8 @@ struct
     |   PushToStack of { source: preg, copies: int, container: stackLocn }
 
         (* Load a register from the stack.  The container is the stack location identifier,
-           the field is an offset in a container.  cache is an optional cache register. *)
-    |   LoadStack of { dest: preg, wordOffset: int, container: stackLocn, field: int, cache: preg option }
+           the field is an offset in a container. *)
+    |   LoadStack of { dest: preg, wordOffset: int, container: stackLocn, field: int }
 
         (* Store a value into the stack. *)
     |   StoreToStack of { source: preg, container: stackLocn, field: int, stackOffset: int }
@@ -296,13 +296,12 @@ struct
                 stream " => "; printStackLoc(container, stream)
             )
 
-        |   printICode(LoadStack{ dest, wordOffset, container, field, cache }, stream) =
+        |   printICode(LoadStack{ dest, wordOffset, container, field }, stream) =
             (
                 stream "\tLoadStack\t";
                 printStackLoc(container, stream); stream " + ";
                 stream(Int.toString field);
                 stream " (";  stream(Int.toString wordOffset); stream ")";
-                case cache of NONE => () | SOME r => (stream " cache "; printReg(r, stream));
                 stream " => "; printReg(dest, stream)
             )
 

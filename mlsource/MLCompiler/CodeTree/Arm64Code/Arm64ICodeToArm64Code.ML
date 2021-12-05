@@ -456,11 +456,7 @@ struct
                 pushn(copies, code)
             end
 
-        |   codeExtended _ ({instr=LoadStack{ dest=PReg dreg, cache=SOME(PReg creg), ... }, ...}, code) =
-                (* Load a value from the stack when the value is cached - use the register *)
-                moveIfNecessary({src=getAllocatedReg creg, dst=getAllocatedReg dreg}, code)
-
-        |   codeExtended _ ({instr=LoadStack{ dest=PReg dreg, wordOffset, cache=NONE, ... }, ...}, code) =
+        |   codeExtended _ ({instr=LoadStack{ dest=PReg dreg, wordOffset, ... }, ...}, code) =
                 (* Load from the stack.  Always 64-bits. *)
             let
                 val destReg = getAllocatedReg dreg

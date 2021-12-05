@@ -146,8 +146,8 @@ sig
     |   PushToStack of { source: preg, copies: int, container: stackLocn }
 
         (* Load a register from the stack.  The container is the stack location identifier,
-           the field is an offset in a container.  cache is an optional cache register. *)
-    |   LoadStack of { dest: preg, wordOffset: int, container: stackLocn, field: int, cache: preg option }
+           the field is an offset in a container. *)
+    |   LoadStack of { dest: preg, wordOffset: int, container: stackLocn, field: int }
 
         (* Store a value into the stack. *)
     |   StoreToStack of { source: preg, container: stackLocn, field: int, stackOffset: int }

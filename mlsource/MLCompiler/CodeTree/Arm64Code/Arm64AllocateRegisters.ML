@@ -329,11 +329,8 @@ struct
         |   registerAllocate{instr=PushToStack{ source=PReg sreg, ... }, ...} =
                 allocateRegister(sreg, NONE, generalRegisters)
 
-        |   registerAllocate{instr=LoadStack{ dest=PReg dreg, cache, ... }, ...} =
-            (
-                allocateRegister(dreg, NONE, generalRegisters);
-                case cache of SOME(PReg creg) => allocateRegister(creg, NONE, generalRegisters) | NONE => ()
-            )
+        |   registerAllocate{instr=LoadStack{ dest=PReg dreg,  ... }, ...} =
+                allocateRegister(dreg, NONE, generalRegisters)
 
         |   registerAllocate{instr=StoreToStack{ source=PReg sreg, ... }, ...} =
                 allocateRegister(sreg, NONE, generalRegisters)

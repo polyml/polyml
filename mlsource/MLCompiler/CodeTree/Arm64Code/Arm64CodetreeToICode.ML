@@ -454,7 +454,7 @@ struct
                         val target = asTarget destination
                     in
                         (BlockSimple(LoadStack{wordOffset=stackOffset+stackPtr, container=stackReg, field=0,
-                                                cache=NONE, dest=target}) :: tailCode, target, false)
+                                               dest=target}) :: tailCode, target, false)
                     end
             )
 
@@ -743,7 +743,7 @@ struct
                                     let
                                         fun getAddr(destReg, sourceWord, tail) =
                                             BlockSimple(LoadStack{dest=destReg, wordOffset=stackPtr-stackOffset+sourceWord, container=container,
-                                                          field=sourceWord, cache=NONE}) :: tail
+                                                          field=sourceWord}) :: tail
                                     in
                                         (codeContainer, getAddr)
                                     end
@@ -790,7 +790,7 @@ struct
                         val finalOffset = stackPtr-stackOffset+offset
                         val _ = finalOffset >= 0 orelse raise InternalError "offset"
                     in
-                        (BlockSimple(LoadStack{wordOffset=finalOffset, container=container, field=offset, cache=NONE,
+                        (BlockSimple(LoadStack{wordOffset=finalOffset, container=container, field=offset,
                             dest=target}) :: tailCode, target, false)
                     end
 
