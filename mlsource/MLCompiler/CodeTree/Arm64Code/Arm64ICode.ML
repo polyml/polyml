@@ -48,6 +48,15 @@ struct
 
     datatype arithLength = Arith64 | Arith32
 
+    datatype callKinds =
+        Recursive
+    |   ConstantCode of machineWord
+    |   FullCall
+
+    (* Function calls can have an unlimited number of arguments so it isn't always
+       going to be possible to load them into registers. *)
+    datatype fnarg = ArgInReg of preg | ArgOnStack of { wordOffset: int, container: stackLocn, field: int }
+
     datatype arm64ICode =
         (* Move the contents of one preg to another.  These are always 64-bits. *)
         MoveRegister of { source: preg, dest: preg }
@@ -99,6 +108,24 @@ struct
            closure register (X8).  The register arguments include the return register
            (X30). *)
     |   BeginFunction of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
+
+        (* Call a function.  If the code address is a constant it is passed here.
+           Otherwise the address is obtained by indirecting through X8 which has been loaded
+           as one of the argument registers.  The result is stored in the destination register. *)
+    |   FunctionCall of
+            { callKind: callKinds, regArgs: (fnarg * xReg) list,
+              stackArgs: fnarg list, dest: preg, saveRegs: preg list}
+
+        (* Jump to a tail-recursive function.  This is similar to FunctionCall
+           but complicated for stack arguments because the stack and the return
+           address need to be overwritten.
+           stackAdjust is the number of words to remove (positive) or add
+           (negative) to the stack before the call.
+           currStackSize contains the number of items currently on the stack. *)
+    |   TailRecursiveCall of
+            { callKind: callKinds, regArgs: (fnarg * xReg) list,
+              stackArgs: {src: fnarg, stack: int} list,
+              stackAdjust: int, currStackSize: int }
 
         (* Return from the function.  resultReg is the preg that contains the result,
            returnReg is the preg that contains the return address. *)
@@ -180,6 +207,15 @@ struct
         |   printSaves([areg], stream) = printReg(areg, stream)
         |   printSaves(areg::more, stream) =
                 (printReg(areg, stream); stream ","; printSaves(more, stream))
+
+        fun printArg(ArgInReg reg, stream) = printReg(reg, stream)
+        |   printArg(ArgOnStack{wordOffset, container, field, ...}, stream) =
+            (
+                printStackLoc(container, stream); stream " + ";
+                stream(Int.toString field);
+                stream " (";  stream(Int.toString wordOffset); stream ")"
+            )
+
 
         fun printICode(MoveRegister{ source, dest }, stream) =
             (
@@ -277,6 +313,32 @@ struct
                 stream "\tBeginFunction\t";
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printReg(arg, stream); stream " ")) regArgs;
                 List.app(fn s => printStackLoc(s, stream)) stackArgs
+            )
+
+        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, saveRegs}, stream) =
+            (
+                stream "\tFunctionCall\t";
+                case callKind of
+                    Recursive => stream "recursive "
+                |   ConstantCode m => (stream(stringOfWord m); stream " ")
+                |   FullCall => ();
+                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs;
+                List.app(fn arg => (stream "p="; printArg(arg, stream); stream " ")) stackArgs;
+                stream "=> "; printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, stream)
+            )
+
+        |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize, ...}, stream) =
+            (
+                stream "\tTailCall\t";
+                case callKind of
+                    Recursive => stream "recursive "
+                |   ConstantCode m => (stream(stringOfWord m); stream " ")
+                |   FullCall => ();
+                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs;
+                List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream); stream " ")) stackArgs;
+                stream "adjust="; stream(Int.toString stackAdjust);
+                stream "stackSize="; stream(Int.toString currStackSize)
             )
 
         |   printICode(ReturnResultFromFunction{ resultReg, returnReg, numStackArgs }, stream) =

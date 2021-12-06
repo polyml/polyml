@@ -30,6 +30,8 @@ struct
     open IntSet
     open Address
     
+    exception InternalError = Misc.InternalError
+
     datatype allocateResult =
         AllocateSuccess of xReg vector
     |   AllocateFailure of intSet list
@@ -102,6 +104,21 @@ struct
         
             |   addHints{instr=BeginFunction{regArgs, ...}, ...} =
                     List.app (fn (PReg pr, reg) => addRealHint(pr, reg)) regArgs
+
+            |   addHints{instr=TailRecursiveCall{regArgs, ...}, ...} =
+                let
+                    fun setHint(ArgInReg(PReg pr), reg) = addRealHint(pr, reg) | setHint _ = ()
+                in
+                    List.app setHint regArgs
+                end
+        
+            |   addHints{instr=FunctionCall{regArgs, dest=PReg dreg, ...}, ...} =
+                let
+                    fun setHint(ArgInReg(PReg pr), reg) = addRealHint(pr, reg) | setHint _ = ()
+                in
+                    addRealHint(dreg, X0);
+                    List.app setHint regArgs
+                end
 
             |   addHints{instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...} = addRealHint(preg, X0)
 
@@ -316,6 +333,33 @@ struct
 
         |   registerAllocate{instr=BeginFunction _, ...} = ()
             (* Any registers that are referenced will have been allocated real registers. *)
+
+        |   registerAllocate({instr=TailRecursiveCall{regArgs=oRegArgs, stackArgs=oStackArgs, ...}, ...}) =
+            let
+                val regArgs = List.map (fn (arg, reg) => (arg, reg)) oRegArgs
+                and stackArgs = List.map(fn {src, stack } => {src=src, stack=stack}) oStackArgs
+                fun allocateRegArg(ArgInReg(PReg argReg), _) = allocateRegister(argReg, NONE, generalRegisters)
+                |   allocateRegArg _ = ()
+            in
+                List.app (fn {src=ArgInReg(PReg argReg), ...} => allocateRegister(argReg, NONE, generalRegisters) | _ => ()) stackArgs;
+                (* We've already hinted the arguments. *)
+                List.app allocateRegArg regArgs
+            end
+
+        |   registerAllocate({instr=FunctionCall{regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, saveRegs, ...}, ...}) =
+            let
+                val regArgs = List.map (fn (arg, reg) => (arg, reg)) oRegArgs
+                and stackArgs = oStackArgs
+                fun allocateRegArg(ArgInReg(PReg argReg), _) = allocateRegister(argReg, NONE, generalRegisters)
+                |   allocateRegArg _ = ()
+            in
+                List.app(fn (PReg r) => allocateRegister(r, NONE, generalRegisters)) saveRegs;
+                (* Result will be in X0. *)
+                allocateRegister(dReg, SOME X0, [X0]);
+                List.app (fn ArgInReg(PReg argReg) => allocateRegister(argReg, NONE, generalRegisters) | _ => ()) stackArgs;
+                (* We've already hinted the arguments. *)
+                List.app allocateRegArg regArgs
+            end
 
         |   registerAllocate{instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg returnReg, ... }, ...} =
             (

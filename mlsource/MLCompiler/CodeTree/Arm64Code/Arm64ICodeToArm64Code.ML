@@ -53,6 +53,7 @@ struct
             val uses = Array.array(numRegisters, false)
             fun used(PReg r) = Array.update(uses, r, true)
             fun isUsed(PReg r) = Array.sub(uses, r)
+            fun argUses(ArgInReg reg) = used reg | argUses _ = ()
 
             (* LoadArgument, TagValue, CopyToCache, UntagValue and BoxValue are eliminated if their destination
                is not used.  In that case their source are not used either. *)
@@ -69,6 +70,8 @@ struct
             |   instructionUses(AddSubImmediate{ source, ... }) = used source
             |   instructionUses(AddSubRegister{ operand1, operand2, ... }) = (used operand1; used operand2)
             |   instructionUses(BeginFunction _) = ()
+            |   instructionUses(FunctionCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app argUses stackArgs)
+            |   instructionUses(TailRecursiveCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app(argUses o #src) stackArgs)
             |   instructionUses(ReturnResultFromFunction{resultReg, returnReg, ...}) = (used resultReg; used returnReg)
             |   instructionUses(RaiseExceptionPacket{packetReg}) = used packetReg
             |   instructionUses(PushToStack{source, ...}) = used source
@@ -109,21 +112,40 @@ struct
             val isUsed = isUsed
         end
 
-        local
-            type node = {src: xReg, dst: xReg }
-            
-            fun nodeAddress({dst=XReg r, ...}: node) = Word8.toInt r
-            |   nodeAddress _ = raise InternalError "nodeAddress"
+        (* Load from and store to stack. *)
+        fun loadFromStack(destReg, wordOffset, code) =
+            if wordOffset >= 4096
+            then loadRegIndexed{regT=destReg, regN=X_MLStackPtr, regM=destReg, option=ExtUXTX ScaleOrShift} ::
+                    List.rev(loadNonAddress(destReg, Word64.fromInt wordOffset)) @ code
+            else loadRegScaled{regT=destReg, regN=X_MLStackPtr, unitOffset=wordOffset} :: code
 
-            fun arcs({src=XReg r, ...}: node) = [Word8.toInt r]
-            |   arcs _ = raise InternalError "nodeAddress"
+        and storeToStack(sourceReg, wordOffset, workReg, code) =
+            if wordOffset >= 4096
+            then storeRegIndexed{regT=sourceReg, regN=X_MLStackPtr, regM=workReg, option=ExtUXTX ScaleOrShift} ::
+                    List.rev(loadNonAddress(workReg, Word64.fromInt wordOffset)) @ code
+            else storeRegScaled{regT=sourceReg, regN=X_MLStackPtr, unitOffset=wordOffset} :: code
+
+        datatype srcAndDest = IsInReg of xReg | IsOnStack of int
+
+        local
+            (* The registers are numbered from 0.  Choose values that don't conflict with
+               the stack addresses. *)
+            fun regNo(XReg r) = ~1 - Word8.toInt r | regNo _ = ~1 - 31
+            type node = {src: srcAndDest, dst: srcAndDest }
+            
+            fun nodeAddress({dst=IsInReg r, ...}: node) = regNo r
+            |   nodeAddress({dst=IsOnStack a, ...}) = a
+            
+            fun arcs({src=IsOnStack wordOffset, ...}: node) = [wordOffset]
+            |   arcs{src=IsInReg r, ...} = [regNo r]
         in
             val stronglyConnected = Strongly.stronglyConnectedComponents { nodeAddress=nodeAddress, arcs=arcs }
         end
         
-        (* When moving arguments, typically in a function call, we may find the same register
-           in use as a source and a destination. *)
-        fun moveMultipleRegisters(moves, code) =
+        (* This is a general function for moving values into registers or to the stack
+           where it is possible that the source values might also be in use as destinations.
+           The stack is used for destinations only for tail recursive calls. *)
+        fun moveMultipleValues(moves, code) =
         let
             fun moveValues ([], code) = code (* We're done. *)
 
@@ -134,19 +156,93 @@ struct
                        importantly it orders the dependencies so that if there are no loops we
                        can load the source and store it in the destination knowing that
                        we won't overwrite anything we might later need. *)
-
+                    
                     val ordered = stronglyConnected arguments
                     
+                    fun loadIntoReg(IsInReg sReg, dReg, code) =
+                            if sReg = dReg then code else moveRegToReg{sReg=sReg, dReg=dReg} :: code
+                    |   loadIntoReg(IsOnStack wordOffset, dReg, code) =
+                            loadFromStack(dReg, wordOffset, code)
+
                     fun moveEachValue ([], code) = code
 
-                    |   moveEachValue ([{dst, src}] :: rest, code) =
-                            (* Source and dest are both regs - only move if they're different. *)
-                            if dst = src
+                    |   moveEachValue ([{dst=IsInReg dReg, src}] :: rest, code) =
+                            moveEachValue(rest, loadIntoReg(src, dReg, code))
+
+                    |   moveEachValue ([{dst=IsOnStack wordOffset, src=IsInReg sReg}] :: rest, code) =
+                            (* Storing into the stack. *)
+                            moveEachValue(rest, storeToStack(sReg, wordOffset, workReg1, code))
+
+                    |   moveEachValue ([{dst=IsOnStack dstOffset, src=IsOnStack srcOffset}] :: rest, code) =
+                            (* Copy a stack location - needs a load and store unless the address is the same. *)
+                            if dstOffset = srcOffset
                             then moveEachValue(rest, code)
-                            else moveEachValue(rest, moveRegToReg{sReg=src, dReg=dst} :: code)
+                            else moveEachValue(rest,
+                                    storeToStack(workReg2, dstOffset, workReg1,
+                                        loadFromStack(workReg2, srcOffset, code)))
 
                     |   moveEachValue((cycle as first :: _ :: _) :: rest, code) =
-                            raise Fallback "moveEachValue: cycle"
+                        (* We have a cycle. *)
+                        let
+                            (* We need to exchange some of the arguments.  Doing an exchange here will
+                               set the destination with the correct source.  However we have to process
+                               every subsequent entry with the swapped registers.  That may well mean that
+                               one of those entries becomes trivial.
+                               We also need to rerun stronglyConnectedComponents on at least the rest of
+                               this cycle.  It's easiest to flatten the rest and do everything. *)
+                            (* Exchange the source and destination.  We don't have an exchange instruction
+                               and there's a further complication.  We could be copying between stack locations
+                               and their offsets could be > 4096.  Since we've only got two work registers
+                               we need to use the hardware stack as an extra location. Stack-stack
+                               exchange is very rare so the extra overhead to handle the general case
+                               is worth it. *)
+                            local
+                                fun storeToDest(sReg, IsInReg dReg, _, code) =
+                                        moveRegToReg{sReg=sReg, dReg=dReg} :: code
+                                |   storeToDest(sReg, IsOnStack wordOffset, work, code) =
+                                        storeToStack(sReg, wordOffset, work, code)
+                            in
+                                fun exchange(IsInReg arg1Reg, arg2, code) =
+                                    moveRegToReg{sReg=workReg2, dReg=arg1Reg} ::
+                                    storeToDest(arg1Reg, arg2, workReg1,
+                                        loadIntoReg(arg2, workReg2, code))
+
+                                |   exchange(arg1, IsInReg arg2Reg, code) =
+                                    moveRegToReg{sReg=workReg2, dReg=arg2Reg} ::
+                                    storeToDest(arg2Reg, arg1, workReg1,
+                                        loadIntoReg(arg1, workReg2, code))
+
+                                |   exchange(arg1, arg2, code) =
+                                    (* The hardware stack must be 16-byte aligned. *)
+                                    storeToDest(workReg2, arg2, workReg1,
+                                        loadRegPostIndex{regT=workReg2, regN=XSP, byteOffset=16} ::
+                                        storeToDest(workReg2, arg1, workReg1,
+                                            loadIntoReg(arg2, workReg2,
+                                                storeRegPreIndex{regT=workReg2, regN=XSP, byteOffset= ~16} ::
+                                                    loadIntoReg(arg1, workReg2, code))))
+                            end
+                            
+                            (* Try to find either a register-register move or a register-stack move.
+                               If not use the first.  If there's a stack-register move there will
+                               also be a register-stack so we don't need to look for both. *)
+                               
+                            val {dst=selectDst, src=selectSrc} = first
+
+                            (* This includes this entry but after the swap we'll eliminate it. *)
+                            val flattened = List.foldl(fn (a, b) => a @ b) [] (cycle :: rest)
+                            val destAsSource = selectDst
+
+                            fun match(s1: srcAndDest, s2) = s1 = s2
+                            
+                            fun swapSources{src, dst} =
+                                if match(src, selectSrc) then {src=destAsSource, dst=dst}
+                                else if match(src, destAsSource) then {src=selectSrc, dst=dst}
+                                else {src=src, dst=dst}
+
+                            val exchangeCode = exchange(selectDst, selectSrc, code)                                    
+                        in
+                            moveValues(List.map swapSources flattened, exchangeCode)
+                        end
 
                     |   moveEachValue(([]) :: _, _) = (* This should not happen - avoid warning. *)
                             raise InternalError "moveEachValue - empty set"
@@ -155,6 +251,17 @@ struct
                 end
         in
             moveValues(moves, code)
+        end
+
+        (* Where we have multiple specific registers as either source or
+           destination there is the potential that a destination register
+           if currently in use as a source. *) 
+        fun moveMultipleRegisters(regPairList, code) =
+        let
+            val regPairsAsDests =
+                List.map(fn {src, dst} => {src=IsInReg src, dst=IsInReg dst}) regPairList
+        in
+            moveMultipleValues(regPairsAsDests, code)
         end
 
         fun moveIfNecessary({src, dst}, code) =
@@ -210,6 +317,8 @@ struct
 
         (* Only get the registers that are actually used. *)
         val getSaveRegs = List.mapPartial(fn (reg as PReg r) => if isUsed reg then SOME(getAllocatedReg r) else NONE)
+
+        val startOfFunctionLabel = createLabel() (* Used for recursive calls/jumps *)
 
         fun codeExtended _ ({instr=MoveRegister{source=PReg sreg, dest as PReg dreg, ...}, ...}, code) =
             if not (isUsed dest)
@@ -381,8 +490,8 @@ struct
                 val saveRegs = List.filter (fn r => r <> X30) (List.map #2 regArgs)
                 val skipCheck = createLabel()
                 val defaultWords = 10 (* This is wired into the RTS. *)
-                val workRegister = X10  (* Spare: not used yet. *)
-                val debugTrapAlways = false (* Can be set to true for debugging *)
+                val workRegister = workReg1
+                val debugTrapAlways = true (*false*) (* Can be set to true for debugging *)
 
                 (* Test with either the stack-pointer or a high-water value.
                    The RTS assumes that X9 has been used as the high-water if it is
@@ -397,6 +506,7 @@ struct
                 (* Skip the RTS call if there is enough stack.  N.B. The RTS can modify the end-of-stack value
                    to force a trap here even if there is really enough stack. *)
                 val code2 =
+                    setLabel startOfFunctionLabel ::
                     (if debugTrapAlways then []
                      else
                      [conditionalBranch(CondCarrySet, skipCheck),
@@ -418,6 +528,135 @@ struct
                 val regPairs = List.map mkPair usedRegs
             in
                 moveMultipleRegisters(regPairs, code3)
+            end
+
+        |   codeExtended _ ({instr=TailRecursiveCall{callKind, regArgs=regArgs, stackArgs=stackArgs, stackAdjust, currStackSize}, ...}, code: instr list) =
+            let
+                fun convertArg(ArgOnStack{wordOffset, ...}) = IsOnStack wordOffset
+                |   convertArg(ArgInReg(PReg reg)) = IsInReg(getAllocatedReg reg)
+
+                val extStackArgs = map (fn {stack, src} => {dst=IsOnStack(stack+currStackSize), src=convertArg src}) stackArgs
+                val extRegArgs = map (fn (a, r) => {src=convertArg a, dst=IsInReg r}) regArgs
+
+                (* Tail recursive calls are complicated because we generally have to overwrite the existing stack.
+                   That means storing the arguments in the right order to avoid overwriting a
+                   value that we are using for a different argument. *)
+                fun codeTailCall(arguments, stackAdjust, code) =
+                    if stackAdjust < 0
+                    then
+                    let
+                        (* If the function we're calling takes more arguments on the stack than the
+                           current function we will have to extend the stack.  Do that by pushing the
+                           argument whose offset is at -1.  Then adjust all the offsets and repeat. *)
+                        val {src=argM1, ...} = valOf(List.find(fn {dst=IsOnStack ~1, ...} => true | _ => false) arguments)
+                        fun renumberArgs [] = []
+                        |   renumberArgs ({dst=IsOnStack ~1, ...} :: args) = renumberArgs args (* Remove the one we've done. *)
+                        |   renumberArgs ({dst, src} :: args) =
+                            let
+                                val newDest = case dst of IsOnStack d => IsOnStack(d+1) | regDest => regDest
+                                val newSrc =
+                                    case src of
+                                        IsOnStack wordOffset => IsOnStack(wordOffset+1)
+                                    |   other => other
+                            in
+                                {dst=newDest, src=newSrc} :: renumberArgs args
+                            end
+                        val pushCode =
+                            case argM1 of
+                                IsOnStack wordOffset =>
+                                    storeRegPreIndex{regT=workReg2, regN=X_MLStackPtr, byteOffset= ~8} ::
+                                        loadFromStack(workReg2, wordOffset, code)
+                            |   IsInReg reg => storeRegPreIndex{regT=reg, regN=X_MLStackPtr, byteOffset= ~8} :: code
+                                
+                    in
+                        codeTailCall(renumberArgs arguments, stackAdjust+1, pushCode)
+                    end
+                    else
+                    let
+                        val loadArgs = moveMultipleValues(arguments, code)
+                    in
+                        if stackAdjust = 0
+                        then loadArgs
+                        else addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=workReg1,
+                                value=Word64.fromInt stackAdjust * Word.toLarge nativeWordSize}, loadArgs)
+                    end
+                val setArgumentsCode = codeTailCall(extStackArgs @ extRegArgs, stackAdjust+currStackSize, code)
+                
+                val jumpToFunctionCode =
+                    case callKind of
+                        Recursive => [unconditionalBranch startOfFunctionLabel]
+                    |   ConstantCode m => [branchRegister workReg1, loadAddressConstant(workReg1, m)]
+                    |   FullCall =>
+                            if is32in64
+                            then [branchRegister workReg1,
+                                 loadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0},
+                                 addShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2}]
+                            else [branchRegister workReg1,loadRegScaled{regT=workReg1, regN=X8, unitOffset=0}]
+            in
+                jumpToFunctionCode @ setArgumentsCode
+            end
+
+        |   codeExtended _ ({instr=FunctionCall{callKind, regArgs=regArgs, stackArgs=stackArgs, dest=PReg dReg, saveRegs, ...}, ...}, code: instr list) =
+            let
+                val destReg = getAllocatedReg dReg
+
+                local
+                    fun pushStackArgs ([], _, code) = code
+
+                    |   pushStackArgs (ArgOnStack {wordOffset, ...} ::args, argNum, code) =
+                        let
+                            (* Have to adjust the offsets of stack arguments. *)
+                            val adjustedOffset = wordOffset+argNum
+                        in
+                            pushStackArgs(args, argNum+1,
+                                storeRegPreIndex{regT=workReg1, regN=X_MLStackPtr, byteOffset= ~8} ::
+                                    loadFromStack(workReg1, adjustedOffset, code))
+                        end
+
+                    |   pushStackArgs (ArgInReg(PReg reg) ::args, argNum, code) =
+                            pushStackArgs(args, argNum+1,
+                                storeRegPreIndex{regT=getAllocatedReg reg, regN=X_MLStackPtr, byteOffset= ~8} :: code)
+
+                    val pushedArgs = pushStackArgs(stackArgs, 0, code (* Initial code *))
+
+                    (* We have to adjust any stack offset to account for the arguments we've pushed. *)
+                    val numStackArgs = List.length stackArgs
+
+                    fun convertArg(ArgOnStack{wordOffset, ...}) = IsOnStack(wordOffset+numStackArgs)
+                    |   convertArg(ArgInReg(PReg reg)) = IsInReg(getAllocatedReg reg)
+
+                in
+                    val extRegArgs = map (fn (a, r) => {src=convertArg a, dst=IsInReg r}) regArgs
+                    val loadArgs = moveMultipleValues(extRegArgs, pushedArgs)
+                end
+
+                (* Push the registers before the call and pop them afterwards. *)
+                fun makeSavesAndCall([], code) =
+                    let
+                        val callFunctionCode =
+                            case callKind of
+                                Recursive => [branchAndLink startOfFunctionLabel]
+                            |   ConstantCode m => [branchAndLinkReg workReg1, loadAddressConstant(workReg1, m)]
+                            |   FullCall =>
+                                    if is32in64
+                                    then [branchAndLinkReg workReg1,
+                                         loadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0},
+                                         addShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2}]
+                                    else [branchAndLinkReg workReg1,loadRegScaled{regT=workReg1, regN=X8, unitOffset=0}]
+                    in
+                        callFunctionCode @ code
+                    end
+
+                |   makeSavesAndCall(PReg reg::regs, code) =
+                    let
+                        val areg = getAllocatedReg reg
+                    in
+                        loadRegPostIndex{regT=areg, regN=X_MLStackPtr, byteOffset= 8} ::
+                            makeSavesAndCall(regs, storeRegPreIndex{regT=areg, regN=X_MLStackPtr, byteOffset= ~8} :: code)
+                    end
+
+            in
+                moveIfNecessary({dst=destReg, src=X0}, makeSavesAndCall(saveRegs, loadArgs))
             end
 
         |   codeExtended _ ({instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg retReg, numStackArgs }, ...}, code) =
@@ -457,26 +696,11 @@ struct
             end
 
         |   codeExtended _ ({instr=LoadStack{ dest=PReg dreg, wordOffset, ... }, ...}, code) =
-                (* Load from the stack.  Always 64-bits. *)
-            let
-                val destReg = getAllocatedReg dreg
-            in
-                if wordOffset >= 4096
-                then loadRegIndexed{regT=destReg, regN=X_MLStackPtr, regM=destReg, option=ExtUXTX ScaleOrShift} ::
-                        List.rev(loadNonAddress(destReg, Word64.fromInt wordOffset)) @ code
-                else loadRegScaled{regT=destReg, regN=X_MLStackPtr, unitOffset=wordOffset} :: code
-            end
+                loadFromStack(getAllocatedReg dreg, wordOffset, code)
 
         |   codeExtended _ ({instr=StoreToStack{ source=PReg sreg, stackOffset, ... }, ...}, code) =
                 (* Store into the stack to set a field of a container.  Always 64-bits. *)
-            let
-                val sourceReg = getAllocatedReg sreg
-            in
-                if stackOffset >= 4096
-                then storeRegIndexed{regT=sourceReg, regN=X_MLStackPtr, regM=workReg1, option=ExtUXTX ScaleOrShift} ::
-                        List.rev(loadNonAddress(workReg1, Word64.fromInt stackOffset)) @ code
-                else storeRegScaled{regT=sourceReg, regN=X_MLStackPtr, unitOffset=stackOffset} :: code
-            end
+                storeToStack(getAllocatedReg sreg, stackOffset, workReg1, code)
 
         |   codeExtended _ ({instr=ContainerAddress{ dest=PReg dreg, stackOffset, ... }, ...}, code) =
                 (* Set the register to an offset in the stack. *)
@@ -492,20 +716,8 @@ struct
             end
 
         |   codeExtended _ ({instr=ResetStackPtr{ numWords, ... }, ...}, code) =
-            let
-                val _ = numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset"
-                (* Assume that this will fit in 24 bits since that would be over 2M entries pushed. *)
-                val numBytes = numWords * Word.toInt nativeWordSize
-                val _ = numBytes < Word.toInt(Word.<<(0w1, 0w24)) orelse
-                            raise InternalError "codeGenICode: ResetStackPtr - offset exceeds 24 bits";
-                val loword = Word.andb(Word.fromInt numBytes, 0wxfff)
-                val hiword = Word.>>(Word.fromInt numBytes, 0w12)
-                fun addToSP(value, shift) =
-                    if value = 0w0 then []
-                    else [addImmediate{regN=X_MLStackPtr, regD=X_MLStackPtr, immed=value, shifted=shift}]
-            in
-                addToSP(loword, false) @ addToSP(hiword, true) @ code
-            end
+                addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=workReg1,
+                    value=Word64.fromInt numWords * Word.toLarge nativeWordSize}, code)
 
         val blockToLabelMap = Vector.tabulate(numBlocks, fn _ => createLabel())
 

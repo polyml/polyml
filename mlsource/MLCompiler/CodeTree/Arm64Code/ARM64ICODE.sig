@@ -82,6 +82,15 @@ sig
 
     datatype arithLength = Arith64 | Arith32
 
+    datatype callKinds =
+        Recursive
+    |   ConstantCode of machineWord
+    |   FullCall
+
+    (* Function calls can have an unlimited number of arguments so it isn't always
+       going to be possible to load them into registers. *)
+    datatype fnarg = ArgInReg of preg | ArgOnStack of { wordOffset: int, container: stackLocn, field: int }
+
     datatype arm64ICode =
         (* Move the contents of one preg to another.  These are always 64-bits. *)
         MoveRegister of { source: preg, dest: preg }
@@ -133,6 +142,24 @@ sig
            closure register (X8).  The register arguments include the return register
            (X30). *)
     |   BeginFunction of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
+
+        (* Call a function.  If the code address is a constant it is passed here.
+           Otherwise the address is obtained by indirecting through X8 which has been loaded
+           as one of the argument registers.  The result is stored in the destination register. *)
+    |   FunctionCall of
+            { callKind: callKinds, regArgs: (fnarg * xReg) list,
+              stackArgs: fnarg list, dest: preg, saveRegs: preg list}
+
+        (* Jump to a tail-recursive function.  This is similar to FunctionCall
+           but complicated for stack arguments because the stack and the return
+           address need to be overwritten.
+           stackAdjust is the number of words to remove (positive) or add
+           (negative) to the stack before the call.
+           currStackSize contains the number of items currently on the stack. *)
+    |   TailRecursiveCall of
+            { callKind: callKinds, regArgs: (fnarg * xReg) list,
+              stackArgs: {src: fnarg, stack: int} list,
+              stackAdjust: int, currStackSize: int }
 
         (* Return from the function.  resultReg is the preg that contains the result,
            returnReg is the preg that contains the return address. *)

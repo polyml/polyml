@@ -123,8 +123,8 @@ struct
               overflowBlock: int option ref }
 
         datatype argLoc =
-            ArgInReg of { realReg: xReg, argReg: preg }
-        |   ArgOnStack of { stackOffset: int, stackReg: stackLocn }
+            ArgumentIsInReg of { realReg: xReg, argReg: preg }
+        |   ArgumentIsOnStack of { stackOffset: int, stackReg: stackLocn }
 
         (* Pseudo-regs for the result, the closure and the args that were passed in real regs. *)
         val resultTarget = newPReg()
@@ -146,7 +146,7 @@ struct
                         argTypesToArgEntries(tl, gRegs, n-1)
                     val argReg=newPReg()
                 in
-                    (ArgInReg{realReg=gReg, argReg=argReg} :: argTypes, argCode, (argReg, gReg) :: argRegs, stackArgs)
+                    (ArgumentIsInReg{realReg=gReg, argReg=argReg} :: argTypes, argCode, (argReg, gReg) :: argRegs, stackArgs)
                 end
 
             |   argTypesToArgEntries(_ :: tl, [], n) =
@@ -154,7 +154,7 @@ struct
                     val (argTypes, argCode, argRegs, stackArgs) = argTypesToArgEntries(tl, [], n-1)
                     val stackLoc = newStackLoc 1
                 in
-                    (ArgOnStack {stackOffset=n, stackReg = stackLoc } :: argTypes, argCode, argRegs, stackLoc :: stackArgs)
+                    (ArgumentIsOnStack {stackOffset=n, stackReg = stackLoc } :: argTypes, argCode, argRegs, stackLoc :: stackArgs)
                 end
 
             val (argEntries, argCode, argRegs, stackArguments) =
@@ -447,9 +447,9 @@ struct
         |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
             (
                 case Vector.sub(argumentVector, a) of
-                    ArgInReg{argReg, ...} => (* It was originally in a register.  It's now in a preg. *)
+                    ArgumentIsInReg{argReg, ...} => (* It was originally in a register.  It's now in a preg. *)
                         moveToResult(destination, tailCode, argReg)
-                |   ArgOnStack{stackOffset, stackReg} => (* Pushed before call. *)
+                |   ArgumentIsOnStack{stackOffset, stackReg} => (* Pushed before call. *)
                     let
                         val target = asTarget destination
                     in
@@ -621,7 +621,132 @@ struct
                 returnUnit(destination,  block :: code, true (* Always exits *))
             end
 
-        |   codeToICodeRev(BICEval _, _, _, _, _) = raise Fallback "codeToICodeRev: BICEval"
+        |   codeToICodeRev(BICEval{function, argList, ...}, context as { currHandler, ...}, isTail, destination, tailCode) =
+            let
+                val target = asTarget destination
+                (* Create pregs for the closure and each argument. *)
+                val clPReg = newPReg()
+                (* If we have a constant closure we can go directly to the entry point.
+                   If the closure is a single word we don't need to load the closure register. *)
+                val (functionCode, closureEntry, callKind) =
+                    case function of
+                        BICConstnt(addr, _) =>
+                        let
+                            val addrAsAddr = toAddress addr
+                            (* If this is a closure we're still compiling we can't get the code address.
+                               However if this is directly recursive we can use the recursive
+                               convention. *)
+                        in
+                            if wordEq(closureAsAddress resultClosure, addr)
+                            then (tailCode, [], Recursive)
+                            else if flags addrAsAddr <> Address.F_words andalso flags addrAsAddr <> Address.F_closure
+                            then (BlockSimple(LoadAddressConstant{source=addr, dest=clPReg}) :: tailCode,
+                                      [(ArgInReg clPReg, X8)], FullCall)
+                            else if is32in64
+                            then (* We can't actually load the code address here. *)
+                            let
+                                val addrLength = length addrAsAddr
+                                val _ = addrLength >= 0w1 orelse raise InternalError "BICEval address"
+                                val _ = flags addrAsAddr = Address.F_closure orelse raise InternalError "BICEval address not a closure"
+                            in
+                                if addrLength = 0w2
+                                then (tailCode, [], ConstantCode addr)
+                                else (BlockSimple(LoadAddressConstant{source=addr, dest=clPReg}) :: tailCode,
+                                      [(ArgInReg clPReg, X8)], ConstantCode addr)
+                            end
+                            else (* Native 64-bits. *)
+                            let
+                                val addrLength = length addrAsAddr
+                                val _ = addrLength >= 0w1 orelse raise InternalError "BICEval address"
+                                val codeAddr = loadWord(addrAsAddr, 0w0)
+                                val _ = isCode (toAddress codeAddr) orelse raise InternalError "BICEval address not code"
+                            in
+                                if addrLength = 0w1
+                                then (tailCode, [], ConstantCode codeAddr)
+                                else (BlockSimple(LoadAddressConstant{source=addr, dest=clPReg}) :: tailCode,
+                                      [(ArgInReg clPReg, X8)], ConstantCode codeAddr)
+                            end
+                        end
+
+                    |   BICExtract BICLoadRecursive =>
+                        (
+                            (* If the closure is empty we don't need to load rdx *)
+                            case closure of
+                                [] => (tailCode, [], Recursive)
+                            |   _ =>
+                                    (BlockSimple(MoveRegister {source=closureRegAddr, dest=clPReg}) :: tailCode,
+                                     [(ArgInReg clPReg, X8)], Recursive)
+                        )
+
+                    |   function => (* General case. *)
+                            (#1 (codeToICodeRev(function, context, false, SpecificPReg clPReg, tailCode)), [(ArgInReg clPReg, X8)], FullCall)
+
+                (* Load the first arguments into registers and the rest to the stack. *)
+                fun loadArgs ([], _, tailCode) = (tailCode, [], [])
+
+                |   loadArgs ((arg, _) :: args, gReg::gRegs, tailCode) =
+                    let (* General register argument. *)
+                        val (c, r, _) = codeToICodeRev(arg, context, false, AnyReg, tailCode)
+                        val (code, regArgs, stackArgs) = loadArgs(args, gRegs, c)
+                    in
+                        (code, (ArgInReg r, gReg) :: regArgs, stackArgs)
+                    end
+
+                |   loadArgs ((arg, _) :: args, [], tailCode) =
+                    let (* Stack argument. *)
+                        val (c, r, _) = codeToICodeRev(arg, context, false, AnyReg, tailCode)
+                        val (code, regArgs, stackArgs) = loadArgs(args, [], c)
+                    in
+                        (code, regArgs, ArgInReg r :: stackArgs)
+                    end
+
+                val (codeArgs, regArgs, stackArgs) = loadArgs(argList, generalArgRegs, functionCode)
+                
+                (* If this is at the end of the function and the result types are the
+                   same we can use a tail-recursive call. *)
+                val tailCall = isTail (*andalso resultType = fnResultType*)
+                
+                val callCode =
+                    if tailCall
+                    then
+                    let
+                        val {stackPtr, ...} = context
+                        (* The number of arguments currently on the stack. *)
+                        val currentStackArgCount = currentStackArgs
+                        val newStackArgCount = List.length stackArgs
+                        (* The offset of the first argument or the return address if there are
+                           no stack arguments.  Offsets can be negative. *)
+                        val stackOffset = stackPtr
+                        val firstArgumentAddr = currentStackArgCount
+                        fun makeStackArgs([], _) = []
+                        |   makeStackArgs(arg::args, offset) = {src=arg, stack=offset} :: makeStackArgs(args, offset-1)
+                        val stackArgs = makeStackArgs(stackArgs, firstArgumentAddr)
+                        (* The stack adjustment needed to compensate for any items that have been pushed
+                           and the differences in the number of arguments.  May be positive or negative.
+                           This is also the destination address of the return address so when we enter
+                           the new function the return address will be the first item on the stack. *)
+                        val stackAdjust = firstArgumentAddr - newStackArgCount
+                        (* Add an entry for the return address to the stack arguments. *)
+                    in
+                        BlockExit(TailRecursiveCall{regArgs=(ArgInReg returnAddrReg, X30) :: closureEntry @ regArgs, stackArgs=stackArgs,
+                                  stackAdjust = stackAdjust, currStackSize=stackOffset, callKind=callKind}) ::
+                                  codeArgs
+                    end
+                    else
+                    let
+                        val call =
+                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target,
+                                         callKind=callKind, saveRegs=[]}
+                        val callBlock =
+                            case currHandler of
+                                NONE => BlockSimple call :: codeArgs
+                            |   SOME h => BlockOptionalHandle{call=call, handler=h, label=newLabel()}  :: codeArgs
+                    in
+                        callBlock
+                    end
+            in
+                (callCode, target, tailCall (* We've exited if this was a tail jump *))
+            end
 
         |   codeToICodeRev(BICNullary _, _, _, _, _) = raise Fallback "codeToICodeRev: BICNullary"
 
@@ -1017,7 +1142,7 @@ struct
                 [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                 tagInject assemblyCodeTag true] @ debugSwitches
         in
-            codeFunctionToArm64(lambda, newDebugSwitches, closure)
+            codeFunctionToArm64(lambda, if tryNewCG > 1 then newDebugSwitches else debugSwitches, closure)
                 handle Fallback reason =>
                     (
                         print "Fallback-"; print reason; print "\n";

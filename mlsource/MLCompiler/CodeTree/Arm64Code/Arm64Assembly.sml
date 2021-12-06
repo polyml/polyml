@@ -375,7 +375,7 @@ struct
     |   LoadAddressLiteral of {reg: xReg, value: machineWord, length: brLength ref}
     |   LoadNonAddressLiteral of {reg: xReg, value: Word64.word, length: brLength ref}
     |   Label of labels
-    |   UnconditionalBranch of labels
+    |   UnconditionalBranch of {label: labels, andLink: bool}
     |   ConditionalBranch of { label: labels, jumpCondition: condition, length: brLength ref }
     |   LoadLabelAddress of { label: labels, reg: xReg, length: brLength ref }
     |   TestBitBranch of { label: labels, bitNo: Word8.word, brNonZero: bool, reg: xReg, length: brLength ref }
@@ -756,7 +756,8 @@ struct
 
     (* A conditional or unconditional branch. *)
     and conditionalBranch(cond, label) = ConditionalBranch{label=label, jumpCondition=cond, length=ref BrExtended }
-    and unconditionalBranch label = UnconditionalBranch label
+    and unconditionalBranch label = UnconditionalBranch{label=label, andLink=false}
+    and branchAndLink label = UnconditionalBranch{label=label, andLink=true}
     (* Put the address of a label into a register - used for handlers and cases. *)
     and loadLabelAddress(reg, label) = LoadLabelAddress{label=label, reg=reg, length=ref BrExtended}
     (* Test a bit in a register and branch if zero/nonzero *)
@@ -1236,13 +1237,14 @@ struct
         |   genCodeWords(Label _ :: tail, wordNo, aConstNum, nonAConstNum) = 
                 genCodeWords(tail, wordNo, aConstNum, nonAConstNum) (* No code. *)
 
-        |   genCodeWords(UnconditionalBranch(ref labs) :: tail, wordNo, aConstNum, nonAConstNum) =
+        |   genCodeWords(UnconditionalBranch{label=ref labs, andLink} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 val dest = !(hd labs)
                 val offset = Word.toInt dest - Word.toInt wordNo
-                val _ = willFitInRange(offset, 0w26) orelse raise InternalError "genCodeWords: branch too far";
+                val _ = willFitInRange(offset, 0w26) orelse raise InternalError "genCodeWords: branch too far"
+                val linkBit = if andLink then 0wx80000000 else 0w0
             in
-                writeInstr(0wx14000000 orb (Word32.fromInt offset andb 0wx03ffffff), wordNo, codeVec);
+                writeInstr(0wx14000000 orb linkBit orb (Word32.fromInt offset andb 0wx03ffffff), wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
 
@@ -1956,15 +1958,16 @@ struct
                 printStream ",0x"; printStream(Word32.fmt StringCvt.HEX (pageOffset*0w4096))
             end
 
-            else if (wordValue andb 0wxfc000000) = 0wx14000000
+            else if (wordValue andb 0wx7c000000) = 0wx14000000
             then (* Unconditional branch. *)
             let
                 (* The offset is signed and the destination may be earlier. *)
                 val byteOffset =
                     (wordValue andb 0wx03ffffff) << (Word.fromInt Word32.wordSize - 0w26) ~>>
                         (Word.fromInt Word32.wordSize - 0w28)
+                val opc = if (wordValue andb 0wx80000000) = 0w0 then "b" else "bl"
             in
-                printStream "b\t0x";
+                printStream opc; printStream "\t0x";
                 printStream(Word32.fmt StringCvt.HEX (wordToWord32 byteNo + byteOffset))
             end
 

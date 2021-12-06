@@ -137,6 +137,18 @@ struct
                         (* We're going to put the return value in X0 so we can't use that for
                            the return address. *)
                         addRealConflict(retReg, X0)
+                
+                |   FunctionCall { dest, regArgs, ...} =>
+                        (* This is only needed if we are saving the registers rather
+                           than marking them as "must push". *)
+                    (
+                        reserveRegister([regNo dest], X0);
+                        (* The argument registers also conflict.  In order to execute this call we need to load
+                           the arguments into specific registers so we can't use them for values that we want after
+                           the call.   We use regNo dest here because that will conflict with everything
+                           immediately afterwards. *)
+                        List.app(fn (_, r) => reserveRegister([regNo dest], r)) regArgs
+                    )
 
                 |   _ => ()
         in

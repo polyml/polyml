@@ -100,6 +100,32 @@ struct
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
             { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 
+    |   getInstructionState(FunctionCall{regArgs, stackArgs, dest, ...}) =
+        let
+            (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
+            fun getSourceFromRegs((ArgInReg reg, _), (regArgs, stackArgs)) = (reg :: regArgs, stackArgs)
+            |   getSourceFromRegs((ArgOnStack { container, ...}, _), (regArgs, stackArgs)) = (regArgs, container :: stackArgs)
+            and getSourceFromStack(ArgInReg reg, (regArgs, stackArgs)) = (reg :: regArgs, stackArgs)
+            |   getSourceFromStack(ArgOnStack { container, ...}, (regArgs, stackArgs)) = (regArgs, container :: stackArgs)
+            val (argSources, stackSources) =
+                List.foldl getSourceFromRegs (List.foldl getSourceFromStack ([], []) stackArgs) regArgs
+        in
+            { sources=argSources, dests=[dest], sStacks=stackSources, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+        end
+
+    |   getInstructionState(TailRecursiveCall{regArgs, stackArgs, ...}) =
+        let
+            (* Tail recursive call.  References the argument sources but exits. *)
+            fun getSourceFromRegs((ArgInReg reg, _), (regArgs, stackArgs)) = (reg :: regArgs, stackArgs)
+            |   getSourceFromRegs((ArgOnStack { container, ...}, _), (regArgs, stackArgs)) = (regArgs, container :: stackArgs)
+            and getSourceFromStack({src=ArgInReg reg, ...}, (regArgs, stackArgs)) = (reg :: regArgs, stackArgs)
+            |   getSourceFromStack({src=ArgOnStack { container, ...}, ...}, (regArgs, stackArgs)) = (regArgs, container :: stackArgs)
+            val (argSources, stackSources) =
+                List.foldl getSourceFromRegs (List.foldl getSourceFromStack ([], []) stackArgs) regArgs
+        in
+            { sources=argSources, dests=[], sStacks=stackSources, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+        end
+
     |   getInstructionState(ReturnResultFromFunction{resultReg, returnReg, ...}) =
             { sources=[resultReg, returnReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
@@ -459,18 +485,18 @@ struct
                        AllocateMemoryVariable "instruction" can't set the size after the memory is
                        allocated so the active set includes the source(s). *)
                     val activeForInstr =
-                        (*case instr of
+                        case instr of
                             FunctionCall _ => sourceSet (* Is this still needed? *)
                         |   TailRecursiveCall _ =>
                                 (* Set the active set to the total set of registers we require including
                                    the work register.  This ensures that we will spill as many registers
                                    as we require when we look at the size of the active set. *)
                                 union(sourceSet, destSet)
-                        |   AllocateMemoryVariable _ => (* We can only set the size after the memory is allocated. *)
+                       (* |   AllocateMemoryVariable _ => (* We can only set the size after the memory is allocated. *)
                                 union(activeAfterThis, union(sourceSet, destSet))
                         |   BoxValue _ => (* We can only store the value in the box after the box is allocated. *)
-                                union(activeAfterThis, union(sourceSet, destSet))
-                        |   _ =>*) union(activeAfterThis, destSet)
+                                union(activeAfterThis, union(sourceSet, destSet)) *)
+                        |   _ => union(activeAfterThis, destSet)
                 
                     val () = List.app(addActivity 1) (setToList activeForInstr)
 
@@ -576,30 +602,19 @@ struct
                         end
                     in
                         val () =
-(*                            case instr of
+                           case instr of
                                 FunctionCall{ stackArgs=[], callKind=ConstantCode m, ...} =>
-                                if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
+                                (*if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
                                 then ()
-                                else pushRegisters ()
+                                else*) pushRegisters ()
                             
                             |   FunctionCall _ => pushRegisters ()
                             
                                 (* It should no longer be necessary to push across a handler but
                                    there still seem to be cases that need it. *)
-                            |   BeginHandler _ => pushRegisters ()
-                        
-                            |   CopyToCache {source=PReg srcReg, dest=PReg dstReg, ...} =>
-                                (* If the source is a cache register marked as "must push" i.e. discard,
-                                   the destination must also be discarded i.e. not available. 
-                                   Note: the source could be a non-cache register marked for pushing. *)
-                                (
-                                    case (Vector.sub(pregProps, srcReg), Array.sub(requirePushOrDiscard, srcReg)) of
-                                        (RegPropCacheTagged, true) => Array.update(requirePushOrDiscard, dstReg, true)
-                                    |   (RegPropCacheUntagged, true) => Array.update(requirePushOrDiscard, dstReg, true)
-                                    |   _ => ()
-                                )
+                            (*|   BeginHandler _ => pushRegisters ()*)
 
-                            |   _ =>*) ()
+                            |   _ => ()
                     end
                 
                     (* Which entries are active in this instruction but not afterwards? *)

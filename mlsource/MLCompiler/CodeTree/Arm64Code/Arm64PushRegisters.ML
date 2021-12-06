@@ -263,6 +263,24 @@ struct
                         |   _ => raise InternalError "mapDestContainer: already set"
                     )
 
+                    (* Map a function argument which could be a register or a stack entry.  A register
+                       entry could have been pushed. *)
+                    fun mapArgument(ArgInReg (PReg r)) =
+                        (
+                            case Array.sub(pregMap, r) of
+                                Unset => raise InternalError "mapSource - unset"
+                            |   ToPReg preg => ArgInReg preg
+                            |   ToStack(stackLoc, container as StackLoc{size, ...}) =>
+                                ArgOnStack{wordOffset= !stackCount-stackLoc-size, container=container, field=0}
+                        )
+
+                    |   mapArgument(ArgOnStack{container, field, ...}) =
+                            let
+                                val (newOffset, newContainer) = mapContainerAndStack(container, field)
+                            in
+                                ArgOnStack{container=newContainer, wordOffset=newOffset, field=field}
+                            end
+
                     (* Rewrite the code, replacing any registers that need to be pushed with references to
                        the stack.  The result is built up in reverse order and then reversed. *)
                     fun pushRegisters({instr=MoveRegister{ source, dest as PReg dReg }, ...}, code) =
@@ -419,6 +437,76 @@ struct
                             val (newRegArgs, pushCode) = List.foldl pushReg ([], []) regArgs
                         in
                             pushCode @ BeginFunction {regArgs=newRegArgs, stackArgs=newStackArgs} :: code
+                        end
+
+                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest, ...}, ...}, code) =
+                        let
+                            (* It's possible that this could lead to having to spill registers in order
+                               to load others.  Leave that problem for the moment. *)
+                            fun loadStackArg (arg, otherArgs) =
+                            let
+                                val argVal = mapArgument arg
+                            in
+                                argVal :: otherArgs
+                            end
+                            val newStackArgs = List.foldr loadStackArg [] stackArgs
+
+                            fun loadRegArg ((arg, reg), otherArgs) =
+                            let
+                                val argVal = mapArgument arg
+                            in
+                                (argVal, reg) :: otherArgs
+                            end
+                            val newRegArgs = List.foldr loadRegArg [] regArgs
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ FunctionCall{ callKind=callKind, regArgs=newRegArgs, stackArgs=newStackArgs,
+                                                  dest=destVal, saveRegs=[]} :: code
+                        end
+
+                    |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, ...}, ...}, code) =
+                        let
+                            val newStackOffset = !stackCount
+                            
+                            fun loadStackArg ({src, stack}, (otherLoads, otherArgs)) =
+                            let
+                                val (argVal, loadCode) =
+                                    case mapArgument src of
+                                        (source as ArgOnStack{wordOffset, container, field}) =>
+                                            (* If we're leaving it in its old location or we're pushing it
+                                               above the current top we're ok.  We're also ok if
+                                               we're moving it from a somewhere above the last argument.
+                                               Otherwise we have to load it.
+                                               It goes into a normal tagged register which may mean that it
+                                               could be pushed onto the stack in a subsequent pass. *)
+                                            if wordOffset = stack+newStackOffset orelse stack+newStackOffset < 0
+                                                orelse newStackOffset-wordOffset > ~ stackAdjust
+                                            then (source, [])
+                                            else
+                                            let
+                                                val preg = newPReg RegPropGeneral
+                                            in
+                                                (ArgInReg preg,
+                                                    [LoadStack{wordOffset=wordOffset, container=container, field=field, dest=preg}])
+                                            end
+                                    |   argCode => (argCode, [])
+                            in
+                                (loadCode @ otherLoads, {src=argVal, stack=stack} :: otherArgs)
+                            end
+                            val (stackArgLoads, newStackArgs) = List.foldr loadStackArg ([], []) stackArgs
+                
+                            fun loadRegArg ((arg, reg), otherArgs) =
+                            let
+                                val argVal = mapArgument arg
+                            in
+                                (argVal, reg) :: otherArgs
+                            end
+                            val newRegArgs = List.foldr loadRegArg [] regArgs
+
+                        in
+                            TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
+                                    stackArgs=newStackArgs, stackAdjust=stackAdjust, currStackSize=newStackOffset} ::
+                                        stackArgLoads @ code
                         end
 
                     |   pushRegisters({instr=ReturnResultFromFunction{resultReg, returnReg, numStackArgs}, ...}, code) =

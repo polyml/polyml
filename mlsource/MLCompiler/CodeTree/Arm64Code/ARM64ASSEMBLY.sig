@@ -286,6 +286,8 @@ sig
     val conditionalBranch: condition * labels -> instr
     (* Unconditional branch *)
     and unconditionalBranch: labels -> instr
+    (* Unconditional branch and link. Only ever goes to the start of the function. *)
+    and branchAndLink: labels -> instr
     (* Put the address of a label into a register - used for handlers and cases. *)
     and loadLabelAddress: xReg * labels -> instr
     (* Test a bit in a register and branch if zero/nonzero *)
