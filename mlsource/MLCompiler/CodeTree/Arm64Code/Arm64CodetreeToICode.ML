@@ -714,19 +714,15 @@ struct
                         (* The number of arguments currently on the stack. *)
                         val currentStackArgCount = currentStackArgs
                         val newStackArgCount = List.length stackArgs
-                        (* The offset of the first argument or the return address if there are
-                           no stack arguments.  Offsets can be negative. *)
+                        (* The offset of the first argument.  Offsets can be negative. *)
                         val stackOffset = stackPtr
-                        val firstArgumentAddr = currentStackArgCount
                         fun makeStackArgs([], _) = []
                         |   makeStackArgs(arg::args, offset) = {src=arg, stack=offset} :: makeStackArgs(args, offset-1)
-                        val stackArgs = makeStackArgs(stackArgs, firstArgumentAddr)
+                        val stackArgs = makeStackArgs(stackArgs, currentStackArgCount-1)
                         (* The stack adjustment needed to compensate for any items that have been pushed
-                           and the differences in the number of arguments.  May be positive or negative.
-                           This is also the destination address of the return address so when we enter
-                           the new function the return address will be the first item on the stack. *)
-                        val stackAdjust = firstArgumentAddr - newStackArgCount
-                        (* Add an entry for the return address to the stack arguments. *)
+                           and the differences in the number of arguments.  May be positive or negative. *)
+                        val stackAdjust = currentStackArgCount - newStackArgCount
+                        (* Add an entry for the return address to the register arguments. *)
                     in
                         BlockExit(TailRecursiveCall{regArgs=(ArgInReg returnAddrReg, X30) :: closureEntry @ regArgs, stackArgs=stackArgs,
                                   stackAdjust = stackAdjust, currStackSize=stackOffset, callKind=callKind}) ::

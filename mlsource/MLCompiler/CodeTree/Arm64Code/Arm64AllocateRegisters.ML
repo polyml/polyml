@@ -37,10 +37,12 @@ struct
     |   AllocateFailure of intSet list
 
     (* General registers.  X24 is used as the global heap base in 32-in-64. X30 is the
-       return address set by blr but is otherwise a general register. *)
+       return address set by blr but is otherwise a general register.
+       Put the argument registers at the end of the list so they'll only be
+       used when hinted. *)
     val generalRegisters =
-        [X0, X1, X2, X3, X4, X5, X6, X7, X8, X9, X10, X11, X12, X13, X14, X15,
-         X19, X20, X21, X22, X23] @ (if is32in64 then [] else [X24]) @ [X30]
+        [X9, X10, X11, X12, X13, X14, X15, X19, X20, X21, X22, X23,
+         X0, X1, X2, X3, X4, X5, X6, X7, X8, X30] @ (if is32in64 then [] else [X24])
 
     fun allocateRegisters{blocks, regStates, regProps, ...} =
     let
@@ -334,31 +336,29 @@ struct
         |   registerAllocate{instr=BeginFunction _, ...} = ()
             (* Any registers that are referenced will have been allocated real registers. *)
 
-        |   registerAllocate({instr=TailRecursiveCall{regArgs=oRegArgs, stackArgs=oStackArgs, ...}, ...}) =
+        |   registerAllocate({instr=TailRecursiveCall{regArgs=regArgs, stackArgs=stackArgs, ...}, ...}) =
             let
-                val regArgs = List.map (fn (arg, reg) => (arg, reg)) oRegArgs
-                and stackArgs = List.map(fn {src, stack } => {src=src, stack=stack}) oStackArgs
                 fun allocateRegArg(ArgInReg(PReg argReg), _) = allocateRegister(argReg, NONE, generalRegisters)
                 |   allocateRegArg _ = ()
             in
-                List.app (fn {src=ArgInReg(PReg argReg), ...} => allocateRegister(argReg, NONE, generalRegisters) | _ => ()) stackArgs;
-                (* We've already hinted the arguments. *)
-                List.app allocateRegArg regArgs
+                (* We've already hinted the arguments but we want to allocate these first
+                   to reduce the chance that they'll be used for stack arguments. *)
+                List.app allocateRegArg regArgs;
+                List.app (fn {src=ArgInReg(PReg argReg), ...} => allocateRegister(argReg, NONE, generalRegisters) | _ => ()) stackArgs
             end
 
-        |   registerAllocate({instr=FunctionCall{regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, saveRegs, ...}, ...}) =
+        |   registerAllocate({instr=FunctionCall{regArgs=regArgs, stackArgs=stackArgs, dest=PReg dReg, saveRegs, ...}, ...}) =
             let
-                val regArgs = List.map (fn (arg, reg) => (arg, reg)) oRegArgs
-                and stackArgs = oStackArgs
                 fun allocateRegArg(ArgInReg(PReg argReg), _) = allocateRegister(argReg, NONE, generalRegisters)
                 |   allocateRegArg _ = ()
             in
+                (* We've already hinted the arguments but we want to allocate these first
+                   to reduce the chance that they'll be used for stack arguments. *)
+                List.app allocateRegArg regArgs;
+                List.app (fn ArgInReg(PReg argReg) => allocateRegister(argReg, NONE, generalRegisters) | _ => ()) stackArgs;
                 List.app(fn (PReg r) => allocateRegister(r, NONE, generalRegisters)) saveRegs;
                 (* Result will be in X0. *)
-                allocateRegister(dReg, SOME X0, [X0]);
-                List.app (fn ArgInReg(PReg argReg) => allocateRegister(argReg, NONE, generalRegisters) | _ => ()) stackArgs;
-                (* We've already hinted the arguments. *)
-                List.app allocateRegArg regArgs
+                allocateRegister(dReg, SOME X0, [X0])
             end
 
         |   registerAllocate{instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg returnReg, ... }, ...} =
