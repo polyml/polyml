@@ -392,7 +392,7 @@ struct
     val flagsByteOffset = if isBigEndian then ~ (Word.toInt wordSize) else ~1
 
     (* Code generate a function or global declaration *)
-    fun codegen (pt, name, resultClosure, numOfArgs, localCount, parameters) =
+    fun codegen (pt, name, resultClosure, numOfArgs, localCount, parameters, hasClosure) =
     let
         val cvec = ref []
         
@@ -2550,7 +2550,7 @@ struct
                    and filled in with the address of the code when we've finished. *)
                 val closure = makeConstantClosure()
                 (* Code-gen function. No non-local references. *)
-                val () = codegen (body, name, closure, List.length argTypes, localCount, parameters);
+                val () = codegen (body, name, closure, List.length argTypes, localCount, parameters, false)
                 val () = gen(loadAddressConstant(X0, closureAsAddress closure), cvec)
                 val () = genPushReg(X0, cvec)
                 val () = incsp();
@@ -2562,7 +2562,7 @@ struct
             let (* Full closure required. *)
                 val resClosure = makeConstantClosure()
                 (* Code-gen function. *)
-                val () = codegen (body, name, resClosure, List.length argTypes, localCount, parameters)
+                val () = codegen (body, name, resClosure, List.length argTypes, localCount, parameters, true)
                 val closureVars = List.length closure (* Size excluding the code address *)
                 (* The first native word is the code address. *)
                 val firstEntry = Word.toInt(nativeWordSize div wordSize)
@@ -2909,6 +2909,9 @@ struct
         val () = if numOfArgs >= 2 then genPushReg (X1, prefix) else ()
         val () = if numOfArgs >= 1 then genPushReg (X0, prefix) else ()
         val () = genPushReg (X30, prefix)
+        (* The new code generator does not pass X8 if it is calling a constant function with no
+           closure.  For simplicity we set X8 to the current closure here. *)
+        val () = if hasClosure then () else gen(loadAddressConstant(X8, closureAsAddress resultClosure), prefix)
         val () = genPushReg (X8, prefix) (* Push closure pointer *)
 
         (* Generate the function. *)
@@ -2932,8 +2935,8 @@ struct
         generateCode{instrs=instructions, name=name, parameters=parameters, resultClosure=resultClosure, profileObject=createProfileObject()}
     end (* codegen *)
 
-    fun gencodeLambda({ name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
-        codegen (body, name, closure, List.length argTypes, localCount, parameters)
+    fun gencodeLambda({ name, body, argTypes, localCount, closure, ...}:bicLambdaForm, parameters, closureRef) =
+        codegen (body, name, closureRef, List.length argTypes, localCount, parameters, not(null closure))
 
 
     structure Foreign = Arm64Foreign

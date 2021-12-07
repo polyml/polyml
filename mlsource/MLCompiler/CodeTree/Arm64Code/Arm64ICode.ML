@@ -338,7 +338,7 @@ struct
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs;
                 List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream); stream " ")) stackArgs;
                 stream "adjust="; stream(Int.toString stackAdjust);
-                stream "stackSize="; stream(Int.toString currStackSize)
+                stream " stackSize="; stream(Int.toString currStackSize)
             )
 
         |   printICode(ReturnResultFromFunction{ resultReg, returnReg, numStackArgs }, stream) =

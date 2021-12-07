@@ -670,7 +670,7 @@ struct
 
                     |   BICExtract BICLoadRecursive =>
                         (
-                            (* If the closure is empty we don't need to load rdx *)
+                            (* If the closure is empty we don't need to load X8 *)
                             case closure of
                                 [] => (tailCode, [], Recursive)
                             |   _ =>
@@ -1125,7 +1125,7 @@ struct
             profileObject = profileObject}
     end
 
-    fun gencodeLambda(lambda, debugSwitches, closure) =
+    fun gencodeLambda(lambda as { name, ...}, debugSwitches, closure) =
     let
         open Debug Universal
         val tryNewCG = Debug.getParameter Debug.compilerDebugTag debugSwitches
@@ -1136,6 +1136,7 @@ struct
         let
             val newDebugSwitches =
                 [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
+                tagInject icodeTag true,
                 tagInject assemblyCodeTag true] @ debugSwitches
         in
             codeFunctionToArm64(lambda, if tryNewCG > 1 then newDebugSwitches else debugSwitches, closure)
