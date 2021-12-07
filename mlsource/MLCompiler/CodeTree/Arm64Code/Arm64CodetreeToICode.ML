@@ -964,8 +964,59 @@ struct
                             argCode), target, false)
             end
 
-        |   codeToICodeUnaryRev(instr, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeUnaryRev"
+        |   codeToICodeUnaryRev({oper=BuiltIns.IsTaggedValue, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: IsTaggedValue"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: MemoryCellLength"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.MemoryCellFlags, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: MemoryCellFlags"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: ClearMutableFlag"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.LongWordToTagged, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: LongWordToTagged"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: SignedToLongWord"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.UnsignedToLongWord, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: UnsignedToLongWord"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.RealAbs _, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: RealAbs"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.RealNeg _, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: RealNeg"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.RealFixedInt _, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: RealFixedInt"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.FloatToDouble, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: FloatToDouble"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.DoubleToFloat, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: DoubleToFloat"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.RealToInt _, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: RealToInt"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.TouchAddress, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: TouchAddress"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.AllocCStack, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: AllocCStack"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.LockMutex, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: LockMutex"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.TryLockMutex, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: TryLockMutex"
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.UnlockMutex, arg1}, context, _, destination, tailCode) =
+                raise Fallback "codeToICodeUnaryRev: UnlockMutex"
 
         and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
                 context, _, destination, tailCode) =
@@ -997,6 +1048,39 @@ struct
                 (makeBoolResultRev(cond, ccRef, target, comparison), target, false)
             end
 
+        |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith _, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: WordArith"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical _, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: WordLogical"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordShift _, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: WordShift"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: AllocateByteMemory"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordComparison _, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: LargeWordComparison"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: LargeWordArith"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordLogical _, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: LargeWordLogical"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordShift _, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: LargeWordShift"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.RealComparison _, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: RealComparison"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.RealArith _, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: RealArith"
+
         |   codeToICodeBinaryRev({oper=BuiltIns.PointerEq, arg1, arg2}, context, _, destination, tailCode) =
             let
                 (* Equality of general values which can include pointers. This can be treated exactly as a word equality.
@@ -1014,8 +1098,8 @@ struct
                 (makeBoolResultRev(CondEqual, ccRef, target, comparison), target, false)
             end
 
-        |   codeToICodeBinaryRev(instr, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev"
+        |   codeToICodeBinaryRev({oper=BuiltIns.FreeCStack, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: FreeCStack"
 
         (* Store the code address and the closure items into a previously allocated closure on the
            heap.  This is used both in the simple case and also with mutually recursive declarations. *)
@@ -1130,7 +1214,7 @@ struct
         open Debug Universal
         val tryNewCG = Debug.getParameter Debug.compilerDebugTag debugSwitches
     in
-        if tryNewCG = 0
+        if false andalso tryNewCG = 0
         then Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
         else
         let
