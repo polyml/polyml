@@ -69,6 +69,8 @@ struct
             |   instructionUses(StoreWithIndexedOffset{source, base, index, ...}) = (used source; used base; used index)
             |   instructionUses(AddSubImmediate{ source, ... }) = used source
             |   instructionUses(AddSubRegister{ operand1, operand2, ... }) = (used operand1; used operand2)
+            |   instructionUses(LogicalImmediate{ source, ... }) = used source
+            |   instructionUses(LogicalRegister{ operand1, operand2, ... }) = (used operand1; used operand2)
             |   instructionUses(BeginFunction _) = ()
             |   instructionUses(FunctionCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app argUses stackArgs)
             |   instructionUses(TailRecursiveCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app(argUses o #src) stackArgs)
@@ -463,7 +465,7 @@ struct
             in
                 instr{regN=getAllocatedReg sreg, regD=destReg, immed=immed, shifted=false} :: code
             end
- 
+
         |   codeExtended _ ({instr=AddSubRegister{ operand1=PReg oreg1, operand2=PReg oreg2, dest, isAdd, length, ccRef}, ...}, code) =
             let
                 val instr =
@@ -476,6 +478,56 @@ struct
                     |   (true, SOME _, Arith32) => addSShiftedReg32
                     |   (false, NONE, Arith32) => subShiftedReg32
                     |   (false, SOME _, Arith32) => subSShiftedReg32
+                val destReg =
+                    case dest of
+                        NONE => XZero
+                    |   SOME(PReg dreg) => getAllocatedReg dreg
+            in
+                instr{regN=getAllocatedReg oreg1, regM=getAllocatedReg oreg2, regD=destReg, shift=ShiftNone} :: code
+            end           
+
+        |   codeExtended _ ({instr=LogicalImmediate{ source=PReg sreg, dest, immed, logOp, length, ccRef}, ...}, code) =
+            let
+                val instr =
+                    case (logOp, ccRef, length) of
+                        (LogAnd, NONE, Arith64) => bitwiseAndImmediate
+                    |   (LogAnd, SOME _, Arith64) => bitwiseAndSImmediate
+                    |   (LogOr, NONE, Arith64) => bitwiseOrImmediate
+                    |   (LogXor, NONE, Arith64) => bitwiseXorImmediate
+
+                    |   (LogAnd, NONE, Arith32) => bitwiseAndImmediate32
+                    |   (LogAnd, SOME _, Arith32) => bitwiseAndSImmediate32
+                    |   (LogOr, NONE, Arith32) => bitwiseOrImmediate32
+                    |   (LogXor, NONE, Arith32) => bitwiseXorImmediate32
+
+                    |   _ => raise InternalError "ccRef not valid with OR or XOR"
+
+                val destReg =
+                    case dest of
+                        NONE => XZero
+                    |   SOME(PReg dreg) => getAllocatedReg dreg
+            in
+                instr{regN=getAllocatedReg sreg, regD=destReg, bits=immed} :: code
+            end
+
+        |   codeExtended _ ({instr=LogicalRegister{ operand1=PReg oreg1, operand2=PReg oreg2, dest, logOp, length, ccRef}, ...}, code) =
+            let
+                val instr =
+                    case (logOp, ccRef, length) of
+                        (LogAnd, NONE, Arith64) => andShiftedReg
+                    |   (LogAnd, SOME _, Arith64) => andsShiftedReg
+                    |   (LogOr, NONE, Arith64) => orrShiftedReg
+                    |   (LogXor, NONE, Arith64) => eorShiftedReg
+
+                    |   (LogAnd, NONE, Arith32) => andShiftedReg32
+                    |   (LogAnd, SOME _, Arith32) => andsShiftedReg32
+                    |   (LogOr, NONE, Arith32) => orrShiftedReg32
+                    |   (LogXor, NONE, Arith32) => eorShiftedReg32
+
+                    |   _ => raise InternalError "ccRef not valid with OR or XOR"
+                
+                (* There are also versions of AND/OR/XOR which operate on a complement (NOT)
+                   of the shifted register.  It's probably not worth looking for a use for them. *)
                 val destReg =
                     case dest of
                         NONE => XZero

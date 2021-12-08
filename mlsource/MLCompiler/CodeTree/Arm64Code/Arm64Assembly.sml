@@ -472,6 +472,10 @@ struct
         and orrShiftedReg = logicalShiftedReg(0w1, 0w1, 0w0)
         and eorShiftedReg = logicalShiftedReg(0w1, 0w2, 0w0)
         and andsShiftedReg = logicalShiftedReg(0w1, 0w3, 0w0)
+        val andShiftedReg32 = logicalShiftedReg(0w0, 0w0, 0w0)
+        and orrShiftedReg32 = logicalShiftedReg(0w0, 0w1, 0w0)
+        and eorShiftedReg32 = logicalShiftedReg(0w0, 0w2, 0w0)
+        and andsShiftedReg32 = logicalShiftedReg(0w0, 0w3, 0w0)
         (* There are also versions that operate with an inverted version
            of the argument. *)
     end
@@ -873,12 +877,6 @@ struct
         and bitwiseOrImmediate32 = logicalImmediate (0w0, 0w1, xRegOrXSP)
         and bitwiseXorImmediate32 = logicalImmediate (0w0, 0w2, xRegOrXSP)
         and bitwiseAndSImmediate32 = logicalImmediate (0w0, 0w3, xRegOrXZ)
-        
-        (* Test a bit pattern in a register.  If the pattern is within the low-order
-           32-bits we use a 32-bit test. *)
-        fun testBitPattern(reg, bits) =
-            (if bits <= 0wxffffffff then bitwiseAndSImmediate32 else bitwiseAndSImmediate)
-                {bits=bits, regN=reg, regD=XZero}
     end
 
     local

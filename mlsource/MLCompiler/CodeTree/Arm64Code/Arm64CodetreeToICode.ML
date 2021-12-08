@@ -965,7 +965,19 @@ struct
             end
 
         |   codeToICodeUnaryRev({oper=BuiltIns.IsTaggedValue, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: IsTaggedValue"
+            let
+                val target = asTarget destination
+                val ccRef = newCCRef()
+                val (argCode, testDest, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+            in
+                (* Test the argument and return a boolean result.  This ought to be optimised at
+                   a lower level to use a test-and-branch. *)
+                (makeBoolResultRev(CondNotEqual, ccRef, target,
+                        BlockSimple(
+                            LogicalImmediate{source=testDest, immed=0w1 (* The tag bit*), logOp=LogAnd,
+                                dest=NONE, length=Arith32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef}) ::
+                            argCode), target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: MemoryCellLength"

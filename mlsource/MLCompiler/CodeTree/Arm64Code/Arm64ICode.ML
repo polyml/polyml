@@ -46,12 +46,10 @@ struct
 
     datatype loadType = Load64 | Load32 | Load16 | Load8
 
-    datatype arithLength = Arith64 | Arith32
-
-    datatype callKinds =
-        Recursive
-    |   ConstantCode of machineWord
-    |   FullCall
+    datatype loadType = Load64 | Load32 | Load16 | Load8
+    and arithLength = Arith64 | Arith32
+    and logicalOp = LogAnd | LogOr | LogXor
+    and callKinds = Recursive | ConstantCode of machineWord | FullCall
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
@@ -102,6 +100,15 @@ struct
         (* Add/Subtract register.  As with AddSubImmediate, both the destination and cc are optional. *)
     |   AddSubRegister of { operand1: preg, operand2: preg, dest: preg option, ccRef: ccRef option,
                             isAdd: bool, length: arithLength }
+
+        (* Bitwise logical operations.  The immediate value must be a valid bit pattern.  ccRef can
+           only be SOME if logOp is LogAnd. *)
+    |   LogicalImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: Word64.word,
+                              logOp: logicalOp, length: arithLength }
+
+        (* Register logical operations.  ccRef can only be SOME if logOp is LogAnd.*)
+    |   LogicalRegister of { operand1: preg, operand2: preg, dest: preg option, ccRef: ccRef option,
+                             logOp: logicalOp, length: arithLength }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
@@ -217,6 +224,7 @@ struct
             )
 
 
+
         fun printICode(MoveRegister{ source, dest }, stream) =
             (
                 stream "\tMove\t";
@@ -301,6 +309,27 @@ struct
         |   printICode(AddSubRegister{ operand1, operand2, dest, ccRef, isAdd, length }, stream) =
             (
                 stream (if isAdd then "\tAddRegister" else "\tSubRegister"); stream(arithRepr length);
+                stream "\t"; printReg(operand1, stream); stream ", ";
+                printReg(operand2, stream);
+                stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
+                stream ", ";
+                case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
+            )
+
+        |   printICode(LogicalImmediate{ source, dest, ccRef, immed, logOp, length }, stream) =
+            (
+                stream (case logOp of LogAnd => "\tAndImmediate" | LogOr => "\tOrImmediate" | LogXor => "\tXorImmediate");
+                stream(arithRepr length);
+                stream "\t"; printReg(source, stream); stream ",0x"; stream(Word64.toString immed);
+                stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
+                stream ", ";
+                case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
+            )
+
+        |   printICode(LogicalRegister{ operand1, operand2, dest, ccRef, logOp, length }, stream) =
+            (
+                stream (case logOp of LogAnd => "\tAndRegister"  | LogOr => "\tOrRegister" | LogXor => "\tXorRegister");
+                stream(arithRepr length);
                 stream "\t"; printReg(operand1, stream); stream ", ";
                 printReg(operand2, stream);
                 stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);

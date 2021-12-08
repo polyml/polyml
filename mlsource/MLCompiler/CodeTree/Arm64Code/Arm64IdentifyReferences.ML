@@ -97,6 +97,14 @@ struct
         { sources=[operand1, operand2], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
 
+    |   getInstructionState(LogicalImmediate{ source, dest, ccRef, ... }) =
+        { sources=[source], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
+          ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
+
+    |   getInstructionState(LogicalRegister{ operand1, operand2, dest, ccRef, ... }) =
+        { sources=[operand1, operand2], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
+          ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
+
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
             { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 
@@ -603,7 +611,7 @@ struct
                     in
                         val () =
                            case instr of
-                                FunctionCall{ stackArgs=[], callKind=ConstantCode m, ...} =>
+                                FunctionCall{ stackArgs=[], callKind=ConstantCode _, ...} =>
                                 (*if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
                                 then ()
                                 else*) pushRegisters ()

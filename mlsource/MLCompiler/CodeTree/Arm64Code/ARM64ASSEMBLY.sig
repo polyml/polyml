@@ -170,10 +170,10 @@ sig
     and orrShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
     and eorShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
     and andsShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
-
-    (* And a register with a bit pattern, discarding the results but setting the
-       condition codes.  The bit pattern must be encodable. *)
-    val testBitPattern: xReg * Word64.word -> instr
+    and andShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and orrShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and eorShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
+    and andsShiftedReg32: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
 
     (* Check whether a constant can be encoded. *)
     val isEncodableBitPattern: Word64.word * wordSize -> bool

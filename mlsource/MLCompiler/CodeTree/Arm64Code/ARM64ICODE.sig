@@ -79,13 +79,9 @@ sig
     datatype ccRef = CcRef of int
 
     datatype loadType = Load64 | Load32 | Load16 | Load8
-
-    datatype arithLength = Arith64 | Arith32
-
-    datatype callKinds =
-        Recursive
-    |   ConstantCode of machineWord
-    |   FullCall
+    and arithLength = Arith64 | Arith32
+    and logicalOp = LogAnd | LogOr | LogXor
+    and callKinds = Recursive | ConstantCode of machineWord | FullCall
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
@@ -136,6 +132,15 @@ sig
         (* Add/Subtract register.  As with AddSubImmediate, both the destination and cc are optional. *)
     |   AddSubRegister of { operand1: preg, operand2: preg, dest: preg option, ccRef: ccRef option,
                             isAdd: bool, length: arithLength }
+
+        (* Bitwise logical operations.  The immediate value must be a valid bit pattern.  ccRef can
+           only be SOME if logOp is LogAnd. *)
+    |   LogicalImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: Word64.word,
+                              logOp: logicalOp, length: arithLength }
+
+        (* Register logical operations.  ccRef can only be SOME if logOp is LogAnd.*)
+    |   LogicalRegister of { operand1: preg, operand2: preg, dest: preg option, ccRef: ccRef option,
+                             logOp: logicalOp, length: arithLength }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the

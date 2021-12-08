@@ -234,6 +234,11 @@ struct
                             (newReg, [])
                         end
                     end
+                    
+                    (* Optional destination for arithmetic and logical ops. *)
+                    fun mapOptDest NONE = (NONE, [])
+                    |   mapOptDest (SOME destReg) =
+                        let val (destVal, destCode) = mapDestReg destReg in (SOME destVal, destCode) end
 
                     (* Adjust a stack offset from the old state to the new state. *)
                     fun mapContainerAndStack(StackLoc{rno, size}, field) =
@@ -379,40 +384,42 @@ struct
                                 indexCode @ baseCode @ sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=AddSubImmediate{ source, dest=NONE, ccRef, immed, isAdd, length }, ...}, code) =
+                    |   pushRegisters({instr=AddSubImmediate{ source, dest, ccRef, immed, isAdd, length }, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapOptDest dest
                         in
-                            AddSubImmediate { source=sourceVal, dest=NONE, ccRef=ccRef,
-                                              immed=immed, isAdd=isAdd, length=length} :: sourceCode @ code
-                        end
-
-                    |   pushRegisters({instr=AddSubImmediate{ source, dest=SOME destReg, ccRef, immed, isAdd, length }, ...}, code) =
-                        let
-                            val (sourceVal, sourceCode) = mapSrcReg source
-                            val (destVal, destCode) = mapDestReg destReg
-                        in
-                            destCode @ AddSubImmediate { source=sourceVal, dest=SOME destVal, ccRef=ccRef,
+                            destCode @ AddSubImmediate { source=sourceVal, dest=destVal, ccRef=ccRef,
                                                          immed=immed, isAdd=isAdd, length=length} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=AddSubRegister{ operand1, operand2, dest=NONE, ccRef, isAdd, length}, ...}, code) =
+                    |   pushRegisters({instr=AddSubRegister{ operand1, operand2, dest, ccRef, isAdd, length}, ...}, code) =
                         let
                             val (op1Val, op1Code) = mapSrcReg operand1
                             val (op2Val, op2Code) = mapSrcReg operand2
+                            val (destVal, destCode) = mapOptDest dest
                         in
-                            AddSubRegister { operand1=op1Val, operand2=op2Val, dest=NONE, ccRef=ccRef,
-                                             isAdd=isAdd, length=length} :: op2Code @ op1Code @ code
+                            destCode @ AddSubRegister { operand1=op1Val, operand2=op2Val, dest=destVal, ccRef=ccRef,
+                                                         isAdd=isAdd, length=length} :: op2Code @ op1Code @ code
                         end
 
-                    |   pushRegisters({instr=AddSubRegister{ operand1, operand2, dest=SOME destReg, ccRef, isAdd, length}, ...}, code) =
+                    |   pushRegisters({instr=LogicalImmediate{ source, dest, ccRef, immed, logOp, length }, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapOptDest dest
+                        in
+                            destCode @ LogicalImmediate { source=sourceVal, dest=destVal, ccRef=ccRef,
+                                                          immed=immed, logOp=logOp, length=length} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=LogicalRegister{ operand1, operand2, dest, ccRef, logOp, length}, ...}, code) =
                         let
                             val (op1Val, op1Code) = mapSrcReg operand1
                             val (op2Val, op2Code) = mapSrcReg operand2
-                            val (destVal, destCode) = mapDestReg destReg
+                            val (destVal, destCode) = mapOptDest dest
                         in
-                            destCode @ AddSubRegister { operand1=op1Val, operand2=op2Val, dest=SOME destVal, ccRef=ccRef,
-                                                         isAdd=isAdd, length=length} :: op2Code @ op1Code @ code
+                            destCode @ LogicalRegister { operand1=op1Val, operand2=op2Val, dest=destVal, ccRef=ccRef,
+                                                         logOp=logOp, length=length} :: op2Code @ op1Code @ code
                         end
 
                     |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, ...}, code) =

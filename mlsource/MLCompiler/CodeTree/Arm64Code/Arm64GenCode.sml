@@ -1620,7 +1620,7 @@ struct
         |   genUnary(IsTaggedValue, arg1, loopAddr) =
             (
                 gencde (arg1, ToX0, NotEnd, loopAddr);
-                gen(testBitPattern(X0, 0w1), cvec);
+                gen(bitwiseAndSImmediate32{bits=0w1, regN=X0, regD=XZero}, cvec);
                 setBooleanCondition(X0, CondNotEqual (*Non-zero*), cvec)
             )
 
