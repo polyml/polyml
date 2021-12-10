@@ -48,7 +48,6 @@ struct
     |   BlockOptionalHandle of {call: arm64ICode, handler: int, label: int }
 
 
-
     val moveRegister = BlockSimple o MoveRegister
     and loadNonAddressConstant = BlockSimple o LoadNonAddressConstant
     and loadAddressConstant = BlockSimple o LoadAddressConstant
@@ -378,10 +377,8 @@ struct
                             (* Logical shift if this is a Poly address, arithmetic shift if this is
                                a C address. *)
                             val iCode2 =
-                                bitField{source=SOME iReg1, dest=iReg2,
-                                    fieldType=if isCAddress then BitFieldSigned else BitFieldUnsigned,
-                                    length=if is32in64 then OpSize32 else OpSize64, immr=0w1,
-                                    imms=if is32in64 then 0w31 else 0w63} :: iCode1
+                                untagValue{source=iReg1, dest=iReg2,
+                                           opSize=if is32in64 then OpSize32 else OpSize64, isSigned=isCAddress } :: iCode1
                         in
                             if offset = 0
                             then (iCode2, SOME iReg2)
@@ -421,7 +418,7 @@ struct
         end
 
         (* Some operations require a single absolute address. *)
-        and loadAndStoreWithAbsolute codeValue (address, getStoreValue, loadType, loadStore, context, code) =
+        fun loadAndStoreWithAbsolute codeValue (address, getStoreValue, loadType, loadStore, context, code) =
         let
             (* Have to add the offset/index register. *)
             fun loadStoreOffset(bReg, 0, sReg, code) = loadStore(bReg, sReg, code)
@@ -787,17 +784,13 @@ struct
                             then (loadAddressConstant{source=addr, dest=clPReg} :: tailCode,
                                       [(ArgInReg clPReg, X8)], FullCall)
                             else if is32in64
-                            then (* We can't actually load the code address here. *)
-                            let
-                                val addrLength = length addrAsAddr
-                                val _ = addrLength >= 0w1 orelse raise InternalError "BICEval address"
-                                val _ = flags addrAsAddr = Address.F_closure orelse raise InternalError "BICEval address not a closure"
-                            in
-                                if addrLength = 0w2
-                                then (tailCode, [], ConstantCode addr)
-                                else (loadAddressConstant{source=addr, dest=clPReg} :: tailCode,
-                                      [(ArgInReg clPReg, X8)], ConstantCode addr)
-                            end
+                            then (* The code address is a 64-bit value so we have to load it
+                                    at run-time.  The X86 version passes the closure address here
+                                    and generates a relative CALL/JMP.  The actual offset is
+                                    computed by the RTS.
+                                    For the moment just use a full call. *)
+                                (loadAddressConstant{source=addr, dest=clPReg} :: tailCode,
+                                      [(ArgInReg clPReg, X8)], FullCall)
                             else (* Native 64-bits. *)
                             let
                                 val addrLength = length addrAsAddr
@@ -1303,14 +1296,47 @@ struct
                 LoadStoreMLWord {isImmutable=false} =>
                 let
                     fun loadOp(addrReg, _, code) =
-                        loadAcquire{base=addrReg,dest=target, loadType=polyWordLoadSize} :: code
+                        loadAcquire{base=addrReg, dest=target, loadType=polyWordLoadSize} :: code
                 in
                     loadAndStoreWithAbsolute codeToICodeRev (address, fn code => (code, ()), polyWordLoadSize, loadOp, context, tailCode)
                 end
 
-            |   LoadStoreMLWord {isImmutable=true} => raise Fallback "codeLoadOperation: MLWord immutable"
-            |   LoadStoreMLByte {isImmutable=false} => raise Fallback "codeLoadOperation: MLByte mutable"
-            |   LoadStoreMLByte {isImmutable=true} => raise Fallback "codeLoadOperation: MLByte immutable"
+            |   LoadStoreMLWord {isImmutable=true} =>
+                let
+                    fun loadConstOffset(base, offset, _, code) =
+                        loadWithConstantOffset{base=base, dest=target, byteOffset=offset, loadType=polyWordLoadSize} :: code
+                    fun loadIndexed(base, index, _, code) =
+                        loadWithIndexedOffset{base=base, dest=target, index=index, loadType=polyWordLoadSize} :: code
+                in
+                    loadAndStoreWithAddress codeToICodeRev
+                        (address, fn code => (code, ()), polyWordLoadSize, false, loadConstOffset, loadIndexed, context, tailCode)
+                end
+
+            |   LoadStoreMLByte {isImmutable=false} =>
+                let
+                    (* Have to load into a ureg and then tag it. *)
+                    val destReg = newUReg()
+                    fun loadOp(addrReg, _, code) =
+                        loadAcquire{base=addrReg, dest=destReg, loadType=Load8} :: code
+                in
+                    tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
+                        loadAndStoreWithAbsolute codeToICodeRev (address, fn code => (code, ()), Load8, loadOp, context, tailCode)
+                end
+
+            |   LoadStoreMLByte {isImmutable=true} =>
+                let
+                    (* Have to load into a ureg and then tag it. *)
+                    val destReg = newUReg()
+                    fun loadConstOffset(base, offset, _, code) =
+                        loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load8} :: code
+                    fun loadIndexed(base, index, _, code) =
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load8} :: code
+                in
+                    tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
+                        loadAndStoreWithAddress codeToICodeRev
+                            (address, fn code => (code, ()), Load8, false, loadConstOffset, loadIndexed, context, tailCode)
+                end
+
             |   LoadStoreC8 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
             |   LoadStoreC16 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
             |   LoadStoreC32 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
@@ -1337,16 +1363,32 @@ struct
                     loadAndStoreWithAbsolute codeToICodeRev (address, getStoreValue, polyWordLoadSize, storeOp, context, tailCode)
                 end
 
-            |   LoadStoreMLWord {isImmutable=true} => raise Fallback "codeStoreOperation: MLWord immutable"
-            |   LoadStoreMLByte {isImmutable=false} => raise Fallback "codeStoreOperation: MLByte mutable"
-            |   LoadStoreMLByte {isImmutable=true} => raise Fallback "codeStoreOperation: MLByte immutable"
-            |   LoadStoreC8 => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
-            |   LoadStoreC16 => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
-            |   LoadStoreC32 => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
-            |   LoadStoreC64 => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
-            |   LoadStoreCFloat => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
-            |   LoadStoreCDouble => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
-            |   LoadStoreUntaggedUnsigned => raise Fallback "codeStoreOperation: LoadStoreUntaggedUnsigned immutable"
+            |   LoadStoreMLWord {isImmutable=true} => raise InternalError "codeStoreOperation: MLWord immutable" (* Not allowed *)
+
+            |   LoadStoreMLByte {isImmutable=false} =>
+                let
+                    fun getStoreValue code =
+                    let
+                        (* The value to store has to be untagged. *)
+                        val (sCode, sReg, _) = codeToICodeRev(value, context, false, AnyReg, code)
+                        val tReg = newUReg()
+                    in
+                        (untagValue{source=sReg, dest=tReg, isSigned=false, opSize=OpSize32} :: sCode, tReg)
+                    end
+                    fun storeOp(addrReg, valReg, code) =
+                        storeRelease{base=addrReg, source=valReg, loadType=Load8} :: code
+                in
+                    loadAndStoreWithAbsolute codeToICodeRev (address, getStoreValue, Load8, storeOp, context, tailCode)
+                end
+
+            |   LoadStoreMLByte {isImmutable=true} => raise InternalError "codeStoreOperation: MLByte immutable" (* Not allowed *)
+            |   LoadStoreC8 => raise Fallback "codeStoreOperation: LoadStoreC8 "
+            |   LoadStoreC16 => raise Fallback "codeStoreOperation: LoadStoreC16 "
+            |   LoadStoreC32 => raise Fallback "codeStoreOperation: LoadStoreC32 "
+            |   LoadStoreC64 => raise Fallback "codeStoreOperation: LoadStoreC64 "
+            |   LoadStoreCFloat => raise Fallback "codeStoreOperation: LoadStoreCFloat "
+            |   LoadStoreCDouble => raise Fallback "codeStoreOperation: LoadStoreCDouble "
+            |   LoadStoreUntaggedUnsigned => raise Fallback "codeStoreOperation: LoadStoreUntaggedUnsigned"
         in
             returnUnit(destination, storeCode, false)
         end
@@ -1425,7 +1467,7 @@ struct
         open Debug Universal
         val tryNewCG = Debug.getParameter Debug.compilerDebugTag debugSwitches
     in
-        if false andalso tryNewCG = 0
+        if (*false andalso*) tryNewCG = 0
         then Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
         else
         let

@@ -645,7 +645,10 @@ struct
                 val jumpToFunctionCode =
                     case callKind of
                         Recursive => [unconditionalBranch startOfFunctionLabel]
-                    |   ConstantCode m => [branchRegister workReg1, loadAddressConstant(workReg1, m)]
+                    |   ConstantCode m =>
+                            if is32in64
+                            then raise InternalError "ConstantCode" (* Not currently *)
+                            else [branchRegister workReg1, loadAddressConstant(workReg1, m)]
                     |   FullCall =>
                             if is32in64
                             then [branchRegister workReg1,
@@ -696,7 +699,10 @@ struct
                         val callFunctionCode =
                             case callKind of
                                 Recursive => [branchAndLink startOfFunctionLabel]
-                            |   ConstantCode m => [branchAndLinkReg workReg1, loadAddressConstant(workReg1, m)]
+                            |   ConstantCode m =>
+                                    if is32in64
+                                    then raise InternalError "ConstantCode" (* Not currently *)
+                                    else [branchAndLinkReg workReg1, loadAddressConstant(workReg1, m)]
                             |   FullCall =>
                                     if is32in64
                                     then [branchAndLinkReg workReg1,
