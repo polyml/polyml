@@ -110,8 +110,8 @@ struct
                                immediate values are always unsigned. *)
                             val testValue =
                                 case length of
-                                    Arith64 => Word64.toLargeIntX test
-                                |   Arith32 => Word32.toLargeIntX(Word32.fromLarge test)
+                                    OpSize64 => Word64.toLargeIntX test
+                                |   OpSize32 => Word32.toLargeIntX(Word32.fromLarge test)
                             (* Put in a replacement so that if we were previously testing ccRefOut
                                we should instead test ccRef. *)
                             val repl =
@@ -128,24 +128,31 @@ struct
                                 AddSubImmediate{source=repArg1, dest=NONE, ccRef=SOME ccRefOut, immed=immed, isAdd=false, length=length} ::code)
                 end
 
-            |   optCode({instr as AddSubRegister{operand1, operand2, dest, ccRef, isAdd, length}, kill, ...} :: rest,
+            |   optCode({instr as AddSubRegister{base, shifted, dest, ccRef, isAdd, length, shift}, kill, ...} :: rest,
                         _, regMap, code) =
                 let
                     (* If we have a constant as the second argument we can change this to the
                        immediate form. *)
-                    val (repOp1, mapOp1) = getRegisterValue(operand1, kill, regMap)
-                    val (repOp2, mapOp2) = getRegisterValue(operand2, kill, mapOp1)
+                    val (repOp1, mapOp1) = getRegisterValue(base, kill, regMap)
+                    val (repOp2, mapOp2) = getRegisterValue(shifted, kill, mapOp1)
                 in
                     case repOp2 of
                         AConstant op2Const =>
-                            if op2Const < 0w4096
+                        let
+                            val shiftedConst =
+                                case shift of
+                                    ShiftNone => op2Const
+                                |   _ => 0w4096 (* This doesn't currently happen. *)
+                        in
+                            if shiftedConst < 0w4096
                             then optCode(rest, BRNone, mapOp2,
-                                AddSubImmediate{source=operand1, dest=dest, ccRef=ccRef,
-                                    immed=Word.fromLargeWord(Word64.toLargeWord op2Const), isAdd=isAdd, length=length} :: code)
+                                AddSubImmediate{source=base, dest=dest, ccRef=ccRef,
+                                    immed=Word.fromLargeWord(Word64.toLargeWord shiftedConst), isAdd=isAdd, length=length} :: code)
                             else optCode(rest, BRNone, mapOp2, instr :: code)
+                        end
                     |   ARegister repReg =>
                             optCode(rest, BRNone, mapOp2,
-                                AddSubRegister{operand1=operand1, operand2=repReg, dest=dest, ccRef=ccRef, isAdd=isAdd, length=length} :: code)
+                                AddSubRegister{base=base, shifted=repReg, dest=dest, ccRef=ccRef, isAdd=isAdd, length=length, shift=shift} :: code)
                 end
 
             |   optCode({instr=MoveRegister{dest, source}, kill, ...} :: rest, inCond, regMap, code) =

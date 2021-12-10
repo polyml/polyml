@@ -96,7 +96,8 @@ struct
                    work registers are different in IndexedCase. *)
                 val postInstruction =
                     case instr of
-                        _ => destRegNos
+                       BoxValue _ => destRegNos @ sourceRegNos
+                    |   _ => destRegNos
             in
                 (* If there is more than one destination they conflict with each other. *)
                 val () = addConflictsTo(postInstruction, listToSet postInstruction);

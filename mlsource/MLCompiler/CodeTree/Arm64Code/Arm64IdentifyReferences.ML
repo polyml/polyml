@@ -80,7 +80,7 @@ struct
     |   getInstructionState(AbsoluteToObjectIndex { source, dest, ...}) =
         { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionState(AllocateMemoryOperation { dest, ...}) =
+    |   getInstructionState(AllocateMemoryFixed { dest, ...}) =
         { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(StoreWithConstantOffset { base, source, ...}) =
@@ -93,16 +93,16 @@ struct
         { sources=[source], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
 
-    |   getInstructionState(AddSubRegister{ operand1, operand2, dest, ccRef, ... }) =
-        { sources=[operand1, operand2], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
+    |   getInstructionState(AddSubRegister{ base, shifted, dest, ccRef, ... }) =
+        { sources=[base, shifted], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
 
     |   getInstructionState(LogicalImmediate{ source, dest, ccRef, ... }) =
         { sources=[source], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
 
-    |   getInstructionState(LogicalRegister{ operand1, operand2, dest, ccRef, ... }) =
-        { sources=[operand1, operand2], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
+    |   getInstructionState(LogicalRegister{ base, shifted, dest, ccRef, ... }) =
+        { sources=[base, shifted], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
 
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
@@ -156,6 +156,30 @@ struct
     |   getInstructionState(ResetStackPtr _) =
             { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(TagValue{source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(UntagValue{source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(BoxValue{source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(UnboxValue{source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(LoadAcquire { base, dest, ...}) =
+        { sources=[base], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(StoreRelease { base, source, ...}) =
+        { sources=[source, base], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(BitField{ source=NONE, dest, ... }) =
+        { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(BitField{ source=SOME src, dest, ... }) =
+        { sources=[src], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
     fun eliminateable(MoveRegister _) = true
@@ -164,11 +188,11 @@ struct
     |   eliminateable(LoadWithConstantOffset _) = true
     |   eliminateable(LoadWithIndexedOffset _) = true
     |   eliminateable(ObjectIndexAddressToAbsolute _) = true
-(*
+
     |   eliminateable(TagValue _) = true
     |   eliminateable(UntagValue _) = true
-    |   eliminateable(LoadEffectiveAddress _) = true
     |   eliminateable(BoxValue _) = true
+(*
     |   eliminateable(CopyToCache _) = true
     |   eliminateable(LoadMemReg _) = true
 
@@ -538,20 +562,20 @@ struct
                            of registers to save. *)
                         val convertedInstr =
                             case instr of
-                                AllocateMemoryOperation{bytesRequired, dest, saveRegs=_} =>
-                                    AllocateMemoryOperation{bytesRequired=bytesRequired, dest=dest,
+                                AllocateMemoryFixed{bytesRequired, dest, saveRegs=_} =>
+                                    AllocateMemoryFixed{bytesRequired=bytesRequired, dest=dest,
                                         saveRegs=getSaveSet(regNo dest)}
-                            (*    AllocateMemoryOperation{size, flags, dest, saveRegs=_} =>
-                                    AllocateMemoryOperation{size=size, flags=flags, dest=dest,
+                            (*    AllocateMemoryFixed{size, flags, dest, saveRegs=_} =>
+                                    AllocateMemoryFixed{size=size, flags=flags, dest=dest,
                                         saveRegs=getSaveSet(regNo dest)}
 
                             |   AllocateMemoryVariable{size, dest, saveRegs=_} =>
                                     AllocateMemoryVariable{size=size, dest=dest, saveRegs=getSaveSet(regNo dest)}
-
+*)
                             |   BoxValue{source, dest, boxKind, saveRegs=_} =>
                                     BoxValue{source=source, dest=dest, boxKind=boxKind,
                                         saveRegs=getSaveSet(regNo dest)}
-                        
+(*                        
                             |   JumpLoop{regArgs, stackArgs, checkInterrupt = SOME _, workReg, ...} =>
                                 let
                                     (* If we have to check for interrupts we must preserve registers across

@@ -47,6 +47,40 @@ struct
     |   BlockRaiseAndHandle of arm64ICode * int
     |   BlockOptionalHandle of {call: arm64ICode, handler: int, label: int }
 
+
+
+    val moveRegister = BlockSimple o MoveRegister
+    and loadNonAddressConstant = BlockSimple o LoadNonAddressConstant
+    and loadAddressConstant = BlockSimple o LoadAddressConstant
+    and loadWithConstantOffset = BlockSimple o LoadWithConstantOffset
+    and loadWithIndexedOffset = BlockSimple o LoadWithIndexedOffset
+    and objectIndexAddressToAbsolute = BlockSimple o ObjectIndexAddressToAbsolute
+    and absoluteToObjectIndex = BlockSimple o AbsoluteToObjectIndex
+    and allocateMemoryFixed = BlockSimple o AllocateMemoryFixed
+    and storeWithConstantOffset = BlockSimple o StoreWithConstantOffset
+    and storeWithIndexedOffset = BlockSimple o StoreWithIndexedOffset
+    and addSubImmediate = BlockSimple o AddSubImmediate
+    and addSubRegister = BlockSimple o AddSubRegister
+    and logicalImmediate = BlockSimple o LogicalImmediate
+    and logicalRegister = BlockSimple o LogicalRegister
+(*  and beginFunction = BlockSimple o BeginFunction
+    and functionCall = BlockSimple o FunctionCall
+    and tailRecursiveCall = BlockSimple o TailRecursiveCall
+    and returnResultFromFunction = BlockSimple o ReturnResultFromFunction
+    and raiseExceptionPacket = BlockSimple o RaiseExceptionPacket *)
+    and pushToStack = BlockSimple o PushToStack
+    and loadStack = BlockSimple o LoadStack
+    and storeToStack = BlockSimple o StoreToStack
+    and containerAddress = BlockSimple o ContainerAddress
+    and resetStackPtr = BlockSimple o ResetStackPtr
+    and tagValue = BlockSimple o TagValue
+    and untagValue = BlockSimple o UntagValue
+    and boxValue = BlockSimple o BoxValue
+    and unboxValue = BlockSimple o UnboxValue
+    and loadAcquire = BlockSimple o LoadAcquire
+    and storeRelease = BlockSimple o StoreRelease
+    and bitField = BlockSimple o BitField
+
     val polyWordLoadSize = if is32in64 then Load32 else Load64
     (* The flags byte is the high-order byte of length word. *)
     val flagsByteOffset = if isBigEndian then ~ (Word.toInt wordSize) else ~1
@@ -126,6 +160,11 @@ struct
             ArgumentIsInReg of { realReg: xReg, argReg: preg }
         |   ArgumentIsOnStack of { stackOffset: int, stackReg: stackLocn }
 
+        (* An address as either suitable for Load/StoreWithConstantOffset or else Load/StoreWithIndexedOffset. *)
+        datatype addressKind =
+            AddrOffset of {base: preg, offset: int}
+        |   AddrIndex of {base: preg, index: preg}
+
         (* Pseudo-regs for the result, the closure and the args that were passed in real regs. *)
         val resultTarget = newPReg()
         val closureRegAddr = newPReg()
@@ -176,20 +215,20 @@ struct
         let
         in
             BlockExit(ReturnResultFromFunction{resultReg=resReg, returnReg = returnAddrReg, numStackArgs=currentStackArgs}) ::
-                (if stackPtr <> 0 then BlockSimple(ResetStackPtr{numWords=stackPtr}) :: tailCode else tailCode)
+                (if stackPtr <> 0 then resetStackPtr{numWords=stackPtr} :: tailCode else tailCode)
         end
 
         fun asTarget(SpecificPReg preg) = preg
         |   asTarget _ = newPReg()
 
         fun moveToResult(SpecificPReg tReg, code, sReg) =
-                (BlockSimple(MoveRegister{source=sReg, dest=tReg}) :: code, tReg, false)
+                (moveRegister{source=sReg, dest=tReg} :: code, tReg, false)
         |   moveToResult(AnyReg, code, sReg) = (code, sReg, false)
         |   moveToResult(NoResult, code, sReg) =
             let
                 val tReg = newPReg()
             in
-                (BlockSimple(MoveRegister{source=sReg, dest=tReg}) :: code, tReg, false)
+                (moveRegister{source=sReg, dest=tReg} :: code, tReg, false)
             end
 
         (* Store a register at a given offset.  This may have to use an index register
@@ -200,15 +239,14 @@ struct
             val byteOffset = offset*wSize
         in
             if offset < 4096 andalso byteOffset > ~256 
-            then BlockSimple(
-                    StoreWithConstantOffset{base=base, source=toStore,
-                            byteOffset=byteOffset, loadType=loadSize}) :: tailCode
+            then storeWithConstantOffset{base=base, source=toStore,
+                            byteOffset=byteOffset, loadType=loadSize} :: tailCode
             else
             let
                 val indexReg = newUReg()
             in
-                BlockSimple(StoreWithIndexedOffset{ base=base, source=toStore, index=indexReg, loadType=loadSize }) ::
-                    BlockSimple(LoadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg }) :: tailCode
+                storeWithIndexedOffset{ base=base, source=toStore, index=indexReg, loadType=loadSize } ::
+                    loadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg } :: tailCode
             end
         end
 
@@ -229,9 +267,9 @@ struct
                         if is32in64 then 0w24 else 0w56))
                 val lengthReg = newUReg()
             in
-                BlockSimple(StoreWithConstantOffset{ source=lengthReg, base=memAddr, byteOffset= ~(Word.toInt wordSize), loadType=polyWordLoadSize }) ::
-                BlockSimple(LoadNonAddressConstant{ source=lengthWord, dest=lengthReg }) ::
-                BlockSimple(AllocateMemoryOperation{bytesRequired=bytesRequired, dest=memAddr, saveRegs=[]}) :: tlCode
+                storeWithConstantOffset{ source=lengthReg, base=memAddr, byteOffset= ~(Word.toInt wordSize), loadType=polyWordLoadSize } ::
+                loadNonAddressConstant{ source=lengthWord, dest=lengthReg } ::
+                allocateMemoryFixed{bytesRequired=bytesRequired, dest=memAddr, saveRegs=[]} :: tlCode
             end
         in
             if addAllocatingFunction
@@ -260,13 +298,13 @@ struct
             val trueLab = newLabel() and falseLab = newLabel() and mergeLab = newLabel()
             val mergeReg = newMergeReg()
         in
-            BlockSimple(MoveRegister{dest=target, source=mergeReg}) ::
+            moveRegister{dest=target, source=mergeReg} ::
             BlockLabel mergeLab ::
             BlockFlow(Unconditional mergeLab) ::
-            BlockSimple(LoadNonAddressConstant{dest=mergeReg, source=taggedWord64 0w0}) ::
+            loadNonAddressConstant{dest=mergeReg, source=taggedWord64 0w0} ::
             BlockLabel falseLab ::
             BlockFlow(Unconditional mergeLab) ::
-            BlockSimple(LoadNonAddressConstant{dest=mergeReg, source=taggedWord64 0w1}) ::
+            loadNonAddressConstant{dest=mergeReg, source=taggedWord64 0w1} ::
             BlockLabel trueLab ::
             BlockFlow(Conditional{ ccRef=ccRef, condition=condition, trueJump=trueLab, falseJump=falseLab }) ::
             testCode
@@ -285,18 +323,18 @@ struct
                 let
                     val absReg = newUReg()
                 in
-                    (BlockSimple(ObjectIndexAddressToAbsolute{ source=baseReg1, dest=absReg }) :: code, absReg)
+                    (objectIndexAddressToAbsolute{ source=baseReg1, dest=absReg } :: code, absReg)
                 end
                 else (code, baseReg1)
             val code =
                 if offset < 4096 andalso byteOffset > ~256
-                then BlockSimple(LoadWithConstantOffset{base=baseReg, dest=dReg, byteOffset=byteOffset, loadType=loadOp}) :: codeBase
+                then loadWithConstantOffset{base=baseReg, dest=dReg, byteOffset=byteOffset, loadType=loadOp} :: codeBase
                 else
                 let
                     val indexReg = newUReg()
                 in
-                    BlockSimple(LoadWithIndexedOffset{ base=baseReg, dest=dReg, index=indexReg, loadType=loadOp }) ::
-                        BlockSimple(LoadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg }) :: codeBase
+                    loadWithIndexedOffset{ base=baseReg, dest=dReg, index=indexReg, loadType=loadOp } ::
+                        loadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg } :: codeBase
                 end
         in
             (code, dReg, false)
@@ -307,6 +345,112 @@ struct
             ( case Array.sub(locToPregArray, l) of ContainerLocation container => SOME container | _ => NONE )
         |   getContainerIfPresent _ = NONE
 
+        (* General function for loads and stores.  We want this to be mutually recursive so need to pass codeToICodeRev
+           explicitly *)
+        fun loadAndStoreWithAddress codeValue
+                ({base, index, offset}, getStoreValue, loadType, isCAddress, loadStoreOffset, loadStoreIndex, context, code) =
+        let
+            val opWordSize = opWordSize loadType
+            val byteOffset = offset * opWordSize
+            (* Get the base register value *)
+            val (bCode, bReg1, _) = codeValue(base, context, false, AnyReg, code)
+            (* If this is a store get the value to store here. *)
+            val (sCode, sValue) = getStoreValue bCode
+
+            (* Get any index register value. *)
+            val (iCode, iReg1Opt) =
+                case index of
+                    NONE =>
+                        if offset < 4096 andalso byteOffset > ~256
+                        then (sCode, NONE) (* We can use this offset. *)
+                        else
+                        let
+                            val iReg = newUReg()
+                        in
+                            (loadNonAddressConstant{ source=LargeWord.fromInt offset, dest=iReg } :: sCode, SOME iReg)
+                        end
+                |   SOME index =>
+                        let
+                            val (iCode1, iReg1, _) = codeValue(index, context, false, AnyReg, sCode)
+                            (* The index is a tagged integer containing the number of units (words, bytes etc).
+                               It has to be untagged.  If this is a C address it may be negative. *)
+                            val iReg2 = newUReg()
+                            (* Logical shift if this is a Poly address, arithmetic shift if this is
+                               a C address. *)
+                            val iCode2 =
+                                bitField{source=SOME iReg1, dest=iReg2,
+                                    fieldType=if isCAddress then BitFieldSigned else BitFieldUnsigned,
+                                    length=if is32in64 then OpSize32 else OpSize64, immr=0w1,
+                                    imms=if is32in64 then 0w31 else 0w63} :: iCode1
+                        in
+                            if offset = 0
+                            then (iCode2, SOME iReg2)
+                            else
+                            let
+                                (* If there's some constant offset add it to the index.  Because it's a byte offset
+                                   we need to divide it by the scale but it should always be a multiple. *)
+                                val cReg = newUReg() and iReg2 = newUReg()
+                                val shift = case loadType of Load64 => 0w3 | Load32 => 0w2 | Load16 => 0w1 | Load8 => 0w0
+                                val offsetAsWord = LargeWord.fromInt offset
+                                (* It could be negative if it's a C address. *)
+                                val shiftedOffset = (if isCAddress then LargeWord.~>> else LargeWord.>>) (offsetAsWord, shift)
+                            in
+                                (addSubRegister{ base=iReg2, shifted=cReg, dest=SOME iReg2, ccRef=NONE, isAdd=true,
+                                    length=OpSize64, shift=ShiftNone} ::
+                                 loadNonAddressConstant{ source=shiftedOffset, dest=cReg } :: iCode2,
+                                 SOME iReg2)
+                            end
+                        end
+
+            (* If this is 32in64 get the absolute address. *)
+            val (absBCode, absBReg) =
+                if is32in64
+                then let val bReg = newUReg() in (objectIndexAddressToAbsolute{ source=bReg1, dest=bReg } :: iCode, bReg) end
+                else (iCode, bReg1)
+
+            (* If this is a C address the "base address" is actually a LargeWord value that needs to be unboxed. *)
+            val (effBCode, effBReg) =
+                if isCAddress
+                then let val bReg = newUReg() in (unboxValue{ boxKind=BoxLargeWord, source=absBReg, dest=bReg } :: absBCode, bReg) end
+                else (absBCode, absBReg)
+
+        in
+            case iReg1Opt of
+                SOME iReg => loadStoreIndex(effBReg, iReg, sValue, effBCode)
+            |   NONE => loadStoreOffset(effBReg, offset, sValue, effBCode)
+        end
+
+        (* Some operations require a single absolute address. *)
+        and loadAndStoreWithAbsolute codeValue (address, getStoreValue, loadType, loadStore, context, code) =
+        let
+            (* Have to add the offset/index register. *)
+            fun loadStoreOffset(bReg, 0, sReg, code) = loadStore(bReg, sReg, code)
+            |   loadStoreOffset(bReg, offset, sReg, code) =
+                let
+                    val cReg = newUReg() and aReg = newUReg()
+                in
+                    loadStore(aReg, sReg,
+                        addSubRegister{ base=bReg, shifted=cReg, dest=SOME aReg, ccRef=NONE, isAdd=true,
+                                        length=OpSize64, shift=ShiftNone} ::
+                        loadNonAddressConstant{ source=LargeWord.fromInt offset, dest=cReg } :: code)
+                end
+
+            and loadStoreIndex(bReg, iReg, sReg, code) =
+            let
+                val aReg = newUReg()
+                (* The index register is a number of words/bytes etc so has to be multiplied when it's
+                   added in. *)
+                val indexShift =
+                    case loadType of
+                        Load64 => ShiftLSL 0w3 | Load32 => ShiftLSL 0w2 | Load16 => ShiftLSL 0w1 | Load8 => ShiftNone
+            in
+                loadStore(aReg, sReg,
+                    addSubRegister{ base=bReg, shifted=iReg, dest=SOME aReg, ccRef=NONE, isAdd=true,
+                                    length=OpSize64, shift=indexShift} :: code)
+            end
+        in
+            loadAndStoreWithAddress codeValue (address, getStoreValue, loadType, false, loadStoreOffset, loadStoreIndex, context, code)
+        end
 
         fun codeToICodeRev(BICNewenv (bindings, exp), context: context as {stackPtr=initialSp, ...}, isTail, destination, tailCode) =
             let
@@ -356,14 +500,14 @@ struct
                             val absAddr = if is32in64 then newUReg() else dest
                             val zeroReg = newPReg()
                             val allocAndSetZero =
-                                BlockSimple(LoadNonAddressConstant{ source=taggedWord64 0w0, dest=zeroReg}) ::
+                                loadNonAddressConstant{ source=taggedWord64 0w0, dest=zeroReg} ::
                                     allocateWithProfileRev(wordsRequired, Word8.orb(F_mutable, flagsValue), absAddr, tailCode)
                             val (_, clearCode) =
                                 List.foldl(fn (_, (n, l)) =>
                                     (n+1, storeAtWordOffset(zeroReg, n, absAddr, polyWordLoadSize, l))) (0, allocAndSetZero) closure
                         in
                             if is32in64
-                            then BlockSimple(AbsoluteToObjectIndex{ source=absAddr, dest=dest }) :: clearCode
+                            then absoluteToObjectIndex{ source=absAddr, dest=dest } :: clearCode
                             else clearCode
                         end
                         val allocClosures = ListPair.foldlEq makeClosure tailCode (recDecs, destRegs)
@@ -375,12 +519,12 @@ struct
                             (* Lock the closure by storing the flags byte without the mutable flag.
                                TODO: We could simply use XZ here. *)
                         in
-                            BlockSimple(StoreWithConstantOffset{ base=absAddr, source=flagsReg, byteOffset=flagsByteOffset,
-                                    loadType=Load8 }) ::
-                            BlockSimple(LoadNonAddressConstant{ source=Word8.toLarge flagsValue, dest=flagsReg }) ::
+                            storeWithConstantOffset{ base=absAddr, source=flagsReg, byteOffset=flagsByteOffset,
+                                    loadType=Load8 } ::
+                            loadNonAddressConstant{ source=Word8.toLarge flagsValue, dest=flagsReg } ::
                             storeIntoClosure(lambda, absAddr, context,
                                     if is32in64
-                                    then BlockSimple(ObjectIndexAddressToAbsolute{ source=dest, dest=absAddr }) :: l else l)
+                                    then objectIndexAddressToAbsolute{ source=dest, dest=absAddr } :: l else l)
                         end
                             
                         val setAndLockClosures = ListPair.foldlEq setClosure allocClosures (recDecs, destRegs)
@@ -404,8 +548,8 @@ struct
                     in
                         doBindings(decs,
                             {loopArgs=loopArgs, stackPtr=stackPtr+size, currHandler=currHandler, overflowBlock=overflowBlock},
-                            BlockSimple(PushToStack{copies=size, container=containerLoc, source=zeroReg}) ::
-                            BlockSimple(LoadNonAddressConstant{ source=taggedWord64 0w0, dest=zeroReg }) :: tailCode)
+                            pushToStack{copies=size, container=containerLoc, source=zeroReg} ::
+                            loadNonAddressConstant{ source=taggedWord64 0w0, dest=zeroReg } :: tailCode)
                     end
 
                 val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context, tailCode)
@@ -422,8 +566,8 @@ struct
                         if haveExited
                         then codeExp
                         else
-                            BlockSimple(MoveRegister{source=result, dest=resultReg}) ::
-                            BlockSimple(ResetStackPtr{numWords=finalSp-initialSp}) :: codeExp
+                            moveRegister{source=result, dest=resultReg} ::
+                            resetStackPtr{numWords=finalSp-initialSp} :: codeExp
                 in
                     (afterAdjustSp, resultReg, haveExited)
                 end
@@ -439,7 +583,7 @@ struct
                     let
                         val target = asTarget destination
                     in
-                        (BlockSimple(ContainerAddress{dest=target, container=container, stackOffset=stackPtr-stackOffset})
+                        (containerAddress{dest=target, container=container, stackOffset=stackPtr-stackOffset}
                             :: tailCode, target, false)
                     end
             )
@@ -453,8 +597,8 @@ struct
                     let
                         val target = asTarget destination
                     in
-                        (BlockSimple(LoadStack{wordOffset=stackOffset+stackPtr, container=stackReg, field=0,
-                                               dest=target}) :: tailCode, target, false)
+                        (loadStack{wordOffset=stackOffset+stackPtr, container=stackReg, field=0,
+                                               dest=target} :: tailCode, target, false)
                     end
             )
 
@@ -477,7 +621,7 @@ struct
                         let
                             val dReg = asTarget destination
                         in
-                            (BlockSimple(LoadAddressConstant{source=closureAsAddress resultClosure, dest=dReg}) :: tailCode, dReg, false)
+                            (loadAddressConstant{source=closureAsAddress resultClosure, dest=dReg} :: tailCode, dReg, false)
                         end
                  |  _ => moveToResult(destination, tailCode, closureRegAddr)
             )
@@ -544,7 +688,7 @@ struct
                         val skipElse = newLabel()
                     in
                         (BlockFlow(Unconditional skipElse) :: thenCode,
-                         [BlockSimple(MoveRegister{source=condResult, dest=target}),
+                         [moveRegister{source=condResult, dest=target},
                           BlockLabel skipElse],
                          condResult)
                     end
@@ -604,7 +748,7 @@ struct
                 val allocAndStore = loadFields(fields, 0, tailCode)
                 val code =
                     if is32in64
-                    then BlockSimple(AbsoluteToObjectIndex{source=absAddr, dest=target}) :: allocAndStore
+                    then absoluteToObjectIndex{source=absAddr, dest=target} :: allocAndStore
                     else allocAndStore
             in
                 (code, target, false)
@@ -640,7 +784,7 @@ struct
                             if wordEq(closureAsAddress resultClosure, addr)
                             then (tailCode, [], Recursive)
                             else if flags addrAsAddr <> Address.F_words andalso flags addrAsAddr <> Address.F_closure
-                            then (BlockSimple(LoadAddressConstant{source=addr, dest=clPReg}) :: tailCode,
+                            then (loadAddressConstant{source=addr, dest=clPReg} :: tailCode,
                                       [(ArgInReg clPReg, X8)], FullCall)
                             else if is32in64
                             then (* We can't actually load the code address here. *)
@@ -651,7 +795,7 @@ struct
                             in
                                 if addrLength = 0w2
                                 then (tailCode, [], ConstantCode addr)
-                                else (BlockSimple(LoadAddressConstant{source=addr, dest=clPReg}) :: tailCode,
+                                else (loadAddressConstant{source=addr, dest=clPReg} :: tailCode,
                                       [(ArgInReg clPReg, X8)], ConstantCode addr)
                             end
                             else (* Native 64-bits. *)
@@ -663,7 +807,7 @@ struct
                             in
                                 if addrLength = 0w1
                                 then (tailCode, [], ConstantCode codeAddr)
-                                else (BlockSimple(LoadAddressConstant{source=addr, dest=clPReg}) :: tailCode,
+                                else (loadAddressConstant{source=addr, dest=clPReg} :: tailCode,
                                       [(ArgInReg clPReg, X8)], ConstantCode codeAddr)
                             end
                         end
@@ -674,7 +818,7 @@ struct
                             case closure of
                                 [] => (tailCode, [], Recursive)
                             |   _ =>
-                                    (BlockSimple(MoveRegister {source=closureRegAddr, dest=clPReg}) :: tailCode,
+                                    (moveRegister {source=closureRegAddr, dest=clPReg} :: tailCode,
                                      [(ArgInReg clPReg, X8)], Recursive)
                         )
 
@@ -800,11 +944,11 @@ struct
                                 case Array.sub(locToPregArray, l) of
                                     ContainerLocation{container, stackOffset} =>
                                     let
-                                        fun storeToStack(source, destWord, tail) =
-                                            BlockSimple(StoreToStack{source=source, container=container, field=destWord,
-                                                stackOffset=stackPtr-stackOffset+destWord}) :: tail
+                                        fun store(source, destWord, tail) =
+                                            storeToStack{source=source, container=container, field=destWord,
+                                                stackOffset=stackPtr-stackOffset+destWord} :: tail
                                     in
-                                        SOME storeToStack
+                                        SOME store
                                     end
                                |    _ => NONE
                            )
@@ -863,8 +1007,8 @@ struct
                                     SOME {container, stackOffset} =>
                                     let
                                         fun getAddr(destReg, sourceWord, tail) =
-                                            BlockSimple(LoadStack{dest=destReg, wordOffset=stackPtr-stackOffset+sourceWord, container=container,
-                                                          field=sourceWord}) :: tail
+                                            loadStack{dest=destReg, wordOffset=stackPtr-stackOffset+sourceWord, container=container,
+                                                          field=sourceWord} :: tail
                                     in
                                         (codeContainer, getAddr)
                                     end
@@ -923,9 +1067,11 @@ struct
                     end
             )
 
-        |   codeToICodeRev(BICLoadOperation _, _, _, _, _) = raise Fallback "codeToICodeRev: BICLoadOperation"
+        |   codeToICodeRev(BICLoadOperation{ kind, address}, context, _, destination, tailCode) =
+                codeLoadOperation(kind, address, context, asTarget destination, tailCode)
 
-        |   codeToICodeRev(BICStoreOperation _, _, _, _, _) = raise Fallback "codeToICodeRev: BICStoreOperation"
+        |   codeToICodeRev(BICStoreOperation{ kind, address, value}, context, _, destination, tailCode) =
+                codeStoreOperation(kind, address, value, context, destination, tailCode)
 
         |   codeToICodeRev(BICBlockOperation _, _, _, _, _) = raise Fallback "codeToICodeRev: BICBlockOperation"
 
@@ -945,7 +1091,7 @@ struct
             BlockFlow(Conditional{ccRef=ccRef,
                        condition=if jumpOn then CondEqual else CondNotEqual, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
             (* Compare: SUBS XZ,reg,3.  Can use 32-bit comparison because it's either tagged 0 or tagged 1. *)
-            BlockSimple(AddSubImmediate{source=testReg, immed=taggedWord 0w1, isAdd=false, dest=NONE, length=Arith32, ccRef=SOME ccRef}) ::
+            addSubImmediate{source=testReg, immed=taggedWord 0w1, isAdd=false, dest=NONE, length=OpSize32, ccRef=SOME ccRef} ::
             testCode
         end
 
@@ -958,9 +1104,8 @@ struct
                 (* Test the argument and return a boolean result.  If either the argument is a condition
                    or the result is used in a test this will be better than using XOR. *)
                 (makeBoolResultRev(CondNotEqual, ccRef, target,
-                        BlockSimple(
-                            AddSubImmediate{source=testDest, immed=taggedWord 0w1, isAdd=false,
-                                dest=NONE, length=Arith32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef}) ::
+                        addSubImmediate{source=testDest, immed=taggedWord 0w1, isAdd=false,
+                                dest=NONE, length=OpSize32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef} ::
                             argCode), target, false)
             end
 
@@ -973,9 +1118,8 @@ struct
                 (* Test the argument and return a boolean result.  This ought to be optimised at
                    a lower level to use a test-and-branch. *)
                 (makeBoolResultRev(CondNotEqual, ccRef, target,
-                        BlockSimple(
-                            LogicalImmediate{source=testDest, immed=0w1 (* The tag bit*), logOp=LogAnd,
-                                dest=NONE, length=Arith32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef}) ::
+                            logicalImmediate{source=testDest, immed=0w1 (* The tag bit*), logOp=LogAnd,
+                                dest=NONE, length=OpSize32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef} ::
                             argCode), target, false)
             end
 
@@ -1037,10 +1181,10 @@ struct
                 val ccRef = newCCRef()
                 val (testCode1, testDest1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
                 val (testCode2, testDest2, _) = codeToICodeRev(arg2, context, false, AnyReg, testCode1)
-                val opSize = if is32in64 then Arith32 else Arith64
+                val opSize = if is32in64 then OpSize32 else OpSize64
                 val comparison =
                     BlockSimple(
-                        AddSubRegister{operand1=testDest1, operand2=testDest2, dest=NONE, length=opSize, ccRef=SOME ccRef, isAdd=false}) ::
+                        AddSubRegister{base=testDest1, shifted=testDest2, dest=NONE, length=opSize, ccRef=SOME ccRef, isAdd=false, shift=ShiftNone}) ::
                             testCode2
                 val target = asTarget destination
                 open BuiltIns
@@ -1100,11 +1244,9 @@ struct
                 val ccRef = newCCRef()
                 val (testCode1, testDest1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
                 val (testCode2, testDest2, _) = codeToICodeRev(arg2, context, false, AnyReg, testCode1)
-                val opSize = if is32in64 then Arith32 else Arith64
+                val opSize = if is32in64 then OpSize32 else OpSize64
                 val comparison =
-                    BlockSimple(
-                        AddSubRegister{operand1=testDest1, operand2=testDest2, dest=NONE, length=opSize, ccRef=SOME ccRef, isAdd=false}) ::
-                            testCode2
+                    addSubRegister{base=testDest1, shifted=testDest2, dest=NONE, length=opSize, ccRef=SOME ccRef, isAdd=false, shift=ShiftNone} :: testCode2
                 val target = asTarget destination
             in
                 (makeBoolResultRev(CondEqual, ccRef, target, comparison), target, false)
@@ -1137,21 +1279,78 @@ struct
                     val clReg = newPReg() and absClReg = newUReg() and absCodeReg = newUReg()
                 in
                     storeAtWordOffset(absCodeReg, 0, absClosureAddr, Load64,
-                        BlockSimple(LoadWithConstantOffset{base=absClReg, dest=absCodeReg, byteOffset=0, loadType=Load64}) ::
-                        BlockSimple(ObjectIndexAddressToAbsolute{ source=clReg, dest=absClReg }) ::
-                        BlockSimple(LoadAddressConstant{source=closureAsAddress closureRef, dest=clReg}) :: tailCode)
+                        loadWithConstantOffset{base=absClReg, dest=absCodeReg, byteOffset=0, loadType=Load64} ::
+                        objectIndexAddressToAbsolute{ source=clReg, dest=absClReg } ::
+                        loadAddressConstant{source=closureAsAddress closureRef, dest=clReg} :: tailCode)
                 end
                 else
                 let
                     val cReg = newPReg()
                 in
                     storeAtWordOffset(cReg, 0, absClosureAddr, Load64,
-                        BlockSimple(LoadAddressConstant{source=codeAddressFromClosure closureRef, dest=cReg}) :: tailCode)
+                        loadAddressConstant{source=codeAddressFromClosure closureRef, dest=cReg} :: tailCode)
                 end
             val (_, storeCode) = List.foldl storeAValue (codeAddrWords, storeCodeAddress) closure
         in
             storeCode
         end
+
+        (* Load operations. *)
+        and codeLoadOperation(kind, address, context, target, tailCode) =
+        let
+            val code =
+            case kind of
+                LoadStoreMLWord {isImmutable=false} =>
+                let
+                    fun loadOp(addrReg, _, code) =
+                        loadAcquire{base=addrReg,dest=target, loadType=polyWordLoadSize} :: code
+                in
+                    loadAndStoreWithAbsolute codeToICodeRev (address, fn code => (code, ()), polyWordLoadSize, loadOp, context, tailCode)
+                end
+
+            |   LoadStoreMLWord {isImmutable=true} => raise Fallback "codeLoadOperation: MLWord immutable"
+            |   LoadStoreMLByte {isImmutable=false} => raise Fallback "codeLoadOperation: MLByte mutable"
+            |   LoadStoreMLByte {isImmutable=true} => raise Fallback "codeLoadOperation: MLByte immutable"
+            |   LoadStoreC8 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
+            |   LoadStoreC16 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
+            |   LoadStoreC32 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
+            |   LoadStoreC64 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
+            |   LoadStoreCFloat => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
+            |   LoadStoreCDouble => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
+            |   LoadStoreUntaggedUnsigned => raise Fallback "codeLoadOperation: LoadStoreUntaggedUnsigned immutable"
+        in
+            (code, target, false)
+        end
+
+        (* Store operations. *)
+        and codeStoreOperation(kind, address, value, context, destination, tailCode) =
+        let
+            val storeCode =
+            case kind of
+                LoadStoreMLWord {isImmutable=false} =>
+                let
+                    fun getStoreValue code =
+                        let val (sCode, sReg, _) = codeToICodeRev(value, context, false, AnyReg, code) in (sCode, sReg) end
+                    fun storeOp(addrReg, valReg, code) =
+                        storeRelease{base=addrReg, source=valReg, loadType=polyWordLoadSize} :: code
+                in
+                    loadAndStoreWithAbsolute codeToICodeRev (address, getStoreValue, polyWordLoadSize, storeOp, context, tailCode)
+                end
+
+            |   LoadStoreMLWord {isImmutable=true} => raise Fallback "codeStoreOperation: MLWord immutable"
+            |   LoadStoreMLByte {isImmutable=false} => raise Fallback "codeStoreOperation: MLByte mutable"
+            |   LoadStoreMLByte {isImmutable=true} => raise Fallback "codeStoreOperation: MLByte immutable"
+            |   LoadStoreC8 => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
+            |   LoadStoreC16 => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
+            |   LoadStoreC32 => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
+            |   LoadStoreC64 => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
+            |   LoadStoreCFloat => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
+            |   LoadStoreCDouble => raise Fallback "codeStoreOperation: LoadStoreC8 immutable"
+            |   LoadStoreUntaggedUnsigned => raise Fallback "codeStoreOperation: LoadStoreUntaggedUnsigned immutable"
+        in
+            returnUnit(destination, storeCode, false)
+        end
+
 
         (*Turn the codetree structure into icode. *)
         val bodyContext = {loopArgs=NONE, stackPtr=0, currHandler=NONE, overflowBlock=ref NONE}

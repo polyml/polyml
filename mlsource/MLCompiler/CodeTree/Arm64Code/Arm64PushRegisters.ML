@@ -330,7 +330,6 @@ struct
                                     baseCode @ code
                         end
 
-
                     |   pushRegisters({instr=LoadWithIndexedOffset { base, dest, index, loadType}, ...}, code) =
                         let
                             val (baseVal, baseCode) = mapSrcReg base
@@ -358,11 +357,11 @@ struct
                             destCode @ AbsoluteToObjectIndex { source=sourceVal, dest=destVal} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=AllocateMemoryOperation { bytesRequired, dest, ...}, ...}, code) =
+                    |   pushRegisters({instr=AllocateMemoryFixed { bytesRequired, dest, ...}, ...}, code) =
                         let
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ AllocateMemoryOperation { dest=destVal, bytesRequired=bytesRequired, saveRegs=[]} :: code
+                            destCode @ AllocateMemoryFixed { dest=destVal, bytesRequired=bytesRequired, saveRegs=[]} :: code
                         end
 
                     |   pushRegisters({instr=StoreWithConstantOffset { base, source, byteOffset, loadType}, ...}, code) =
@@ -393,14 +392,14 @@ struct
                                                          immed=immed, isAdd=isAdd, length=length} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=AddSubRegister{ operand1, operand2, dest, ccRef, isAdd, length}, ...}, code) =
+                    |   pushRegisters({instr=AddSubRegister{ base, shifted, dest, ccRef, isAdd, length, shift}, ...}, code) =
                         let
-                            val (op1Val, op1Code) = mapSrcReg operand1
-                            val (op2Val, op2Code) = mapSrcReg operand2
+                            val (op1Val, op1Code) = mapSrcReg base
+                            val (op2Val, op2Code) = mapSrcReg shifted
                             val (destVal, destCode) = mapOptDest dest
                         in
-                            destCode @ AddSubRegister { operand1=op1Val, operand2=op2Val, dest=destVal, ccRef=ccRef,
-                                                         isAdd=isAdd, length=length} :: op2Code @ op1Code @ code
+                            destCode @ AddSubRegister { base=op1Val, shifted=op2Val, dest=destVal, ccRef=ccRef,
+                                                         isAdd=isAdd, length=length, shift=shift} :: op2Code @ op1Code @ code
                         end
 
                     |   pushRegisters({instr=LogicalImmediate{ source, dest, ccRef, immed, logOp, length }, ...}, code) =
@@ -412,14 +411,14 @@ struct
                                                           immed=immed, logOp=logOp, length=length} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=LogicalRegister{ operand1, operand2, dest, ccRef, logOp, length}, ...}, code) =
+                    |   pushRegisters({instr=LogicalRegister{ base, shifted, dest, ccRef, logOp, length, shift}, ...}, code) =
                         let
-                            val (op1Val, op1Code) = mapSrcReg operand1
-                            val (op2Val, op2Code) = mapSrcReg operand2
+                            val (op1Val, op1Code) = mapSrcReg base
+                            val (op2Val, op2Code) = mapSrcReg shifted
                             val (destVal, destCode) = mapOptDest dest
                         in
-                            destCode @ LogicalRegister { operand1=op1Val, operand2=op2Val, dest=destVal, ccRef=ccRef,
-                                                         logOp=logOp, length=length} :: op2Code @ op1Code @ code
+                            destCode @ LogicalRegister { base=op1Val, shifted=op2Val, dest=destVal, ccRef=ccRef,
+                                                         logOp=logOp, length=length, shift=shift} :: op2Code @ op1Code @ code
                         end
 
                     |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, ...}, code) =
@@ -572,6 +571,71 @@ struct
 
                     |   pushRegisters({instr=ResetStackPtr _, ...}, code) = code
                             (* Added in a previous pass - discard it. *)
+
+                    |   pushRegisters({instr=TagValue{source, dest, isSigned, opSize}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ TagValue{source=sourceVal, dest=destVal, isSigned=isSigned, opSize=opSize} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=UntagValue{source, dest, isSigned, opSize, ...}, ...}, code) =
+                        let
+                            val (loadedSource, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, opSize=opSize} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=BoxValue{boxKind, source, dest, ...}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ BoxValue{boxKind=boxKind, source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=UnboxValue{boxKind, source, dest, ...}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ UnboxValue{boxKind=boxKind, source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=LoadAcquire { base, dest, loadType}, ...}, code) =
+                        let
+                            val (baseVal, baseCode) = mapSrcReg base
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ LoadAcquire { base=baseVal, dest=destVal, loadType=loadType} :: baseCode @ code
+                        end
+
+                    |   pushRegisters({instr=StoreRelease { base, source, loadType}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (baseVal, baseCode) = mapSrcReg base 
+                        in
+                            StoreRelease{ base=baseVal, source=sourceVal, loadType=loadType} :: baseCode @ sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=BitField{source=NONE, dest, fieldType, length, immr, imms}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ BitField { source=NONE, dest=destVal, fieldType=fieldType, immr=immr, imms=imms, length=length} :: code
+                        end
+
+                    |   pushRegisters({instr=BitField{source=SOME source, dest, fieldType, length, immr, imms}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @
+                                BitField { source=SOME sourceVal, dest=destVal, fieldType=fieldType, immr=immr, imms=imms, length=length} ::
+                                    sourceCode @ code
+                        end
 
                     local
                         fun doPush(instr as {kill, ...}, code) =

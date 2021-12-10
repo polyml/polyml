@@ -61,6 +61,12 @@ sig
     |   CondSignedGreater    (* Z==0 && N=V *)
     |   CondSignedLessEq     (* !(Z==0 && N=V) *)
 
+    and shiftType =
+        ShiftLSL of Word8.word
+    |   ShiftLSR of Word8.word
+    |   ShiftASR of Word8.word
+    |   ShiftNone
+
     datatype preg = PReg of int (* A pseudo-register - an abstract register. *)
     
     (* A location on the stack.  May be more than word if this is a container or a handler entry. *)
@@ -79,9 +85,15 @@ sig
     datatype ccRef = CcRef of int
 
     datatype loadType = Load64 | Load32 | Load16 | Load8
-    and arithLength = Arith64 | Arith32
+    and opSize = OpSize32 | OpSize64
     and logicalOp = LogAnd | LogOr | LogXor
-    and callKinds = Recursive | ConstantCode of machineWord | FullCall
+    and callKind = Recursive | ConstantCode of machineWord | FullCall
+    and boxKind = BoxLargeWord | BoxDouble | BoxFloat
+
+    and bitfieldType =
+        BitFieldSigned      (* Set the high order bits to the sign bit *)
+    |   BitFieldUnsigned    (* Set the high order bits to zero. *)
+    |   BitFieldMove        (* Leave the unmoved bits unchanged. *)
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
@@ -114,7 +126,7 @@ sig
            bytesRequired is the total number of bytes including the length word and any alignment
            necessary for 32-in-64. saveRegs is the list of registers that need to be saved if we
            need to do a garbage collection. *)
-    |   AllocateMemoryOperation of { bytesRequired: Word64.word, dest: preg, saveRegs: preg list }
+    |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: preg, saveRegs: preg list }
 
         (* Store a register using a constant, signed, byte offset.  The offset
            is in the range of -256 to (+4095*unit size). *)
@@ -127,20 +139,20 @@ sig
            ccRef is optional.  If it is NONE the version of the instruction that does not generate
            a condition code is used. immed must be < 0wx1000. *)
     |   AddSubImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: word,
-                             isAdd: bool, length: arithLength }
+                             isAdd: bool, length: opSize }
 
         (* Add/Subtract register.  As with AddSubImmediate, both the destination and cc are optional. *)
-    |   AddSubRegister of { operand1: preg, operand2: preg, dest: preg option, ccRef: ccRef option,
-                            isAdd: bool, length: arithLength }
+    |   AddSubRegister of { base: preg, shifted: preg, dest: preg option, ccRef: ccRef option,
+                            isAdd: bool, length: opSize, shift: shiftType }
 
         (* Bitwise logical operations.  The immediate value must be a valid bit pattern.  ccRef can
            only be SOME if logOp is LogAnd. *)
     |   LogicalImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: Word64.word,
-                              logOp: logicalOp, length: arithLength }
+                              logOp: logicalOp, length: opSize }
 
         (* Register logical operations.  ccRef can only be SOME if logOp is LogAnd.*)
-    |   LogicalRegister of { operand1: preg, operand2: preg, dest: preg option, ccRef: ccRef option,
-                             logOp: logicalOp, length: arithLength }
+    |   LogicalRegister of { base: preg, shifted: preg, dest: preg option, ccRef: ccRef option,
+                             logOp: logicalOp, length: opSize, shift: shiftType }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
@@ -152,7 +164,7 @@ sig
            Otherwise the address is obtained by indirecting through X8 which has been loaded
            as one of the argument registers.  The result is stored in the destination register. *)
     |   FunctionCall of
-            { callKind: callKinds, regArgs: (fnarg * xReg) list,
+            { callKind: callKind, regArgs: (fnarg * xReg) list,
               stackArgs: fnarg list, dest: preg, saveRegs: preg list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
@@ -162,7 +174,7 @@ sig
            (negative) to the stack before the call.
            currStackSize contains the number of items currently on the stack. *)
     |   TailRecursiveCall of
-            { callKind: callKinds, regArgs: (fnarg * xReg) list,
+            { callKind: callKind, regArgs: (fnarg * xReg) list,
               stackArgs: {src: fnarg, stack: int} list,
               stackAdjust: int, currStackSize: int }
 
@@ -190,6 +202,45 @@ sig
         (* Remove items from the stack.  Used to remove containers or
            registers pushed to the stack.. *)
     |   ResetStackPtr of { numWords: int }
+
+        (* Tag a value by shifting and setting the tag bit. *)
+    |   TagValue of { source: preg, dest: preg, isSigned: bool, opSize: opSize }
+
+        (* Shift a value to remove the tag bit.  The cache is used if this is untagging a
+           value that has previously been tagged. *)
+    |   UntagValue of { source: preg, dest: preg, isSigned: bool, opSize: opSize }
+
+        (* Box a largeword or a floating point value.  Single precision floats
+           are tagged in native 64-bit but boxed in 32-in-64.  Stores a value
+           into a byte area.  This can be implemented using AllocateMemoryFixed
+           but keeping it separate makes optimisation easier.
+           The result is always an address and needs to be converted to an
+           object index on 32-in-64. *)
+    |   BoxValue of { boxKind: boxKind, source: preg, dest: preg, saveRegs: preg list }
+
+        (* Load a value from a box.  This can be implemented using a load but
+           is kept separate to simplify optimisation.  The source is always
+           an absolute address. *)
+    |   UnboxValue of { boxKind: boxKind, source: preg, dest: preg }
+
+        (* Load a value with acquire semantics.  This means that any other
+           load in this thread after this sees the value of the shared
+           memory at this point and not earlier.  This is used for
+           references and arrays to ensure that if another thread has
+           built a data structure on the heap and then assigns the
+           address to a shared ref this thread will see the updated heap
+           and not any locally cached previous version. *)
+    |   LoadAcquire of { base: preg, dest: preg, loadType: loadType }
+
+        (* Store a value with release semantics.  This ensures that any
+           other write completes before this operation and works with
+           LoadAcquire. *)
+    |   StoreRelease of { base: preg, source: preg, loadType: loadType }
+
+        (*  General bit field operation.  This is used for shifts but is more general.  The source
+            can be zero to clear specific bits.  immr and imms are the immediate fields that
+            control the shift and which bits are affected. *)
+    |   BitField of { source: preg option, dest: preg, fieldType: bitfieldType, length: opSize, immr: word, imms: word }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -223,14 +274,21 @@ sig
         type xReg           = xReg
         and  vReg           = vReg
         and  condition      = condition
+        and  shiftType      = shiftType
         and  arm64ICode     = arm64ICode
         and  preg           = preg
         and  controlFlow    = controlFlow
         and  basicBlock     = basicBlock
-        and stackLocn       = stackLocn
-        and regProperty     = regProperty
-        and ccRef           = ccRef
-        and closureRef      = closureRef
-        and loadType        = loadType
+        and  stackLocn      = stackLocn
+        and  regProperty    = regProperty
+        and  ccRef          = ccRef
+        and  fnarg          = fnarg
+        and  closureRef     = closureRef
+        and  loadType       = loadType
+        and  opSize         = opSize
+        and  logicalOp      = logicalOp
+        and  callKind       = callKind
+        and  boxKind        = boxKind
+        and  bitfieldType   = bitfieldType
    end
 end;

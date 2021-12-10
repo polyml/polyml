@@ -654,6 +654,10 @@ struct
             loadStoreExclusive(0w2, 0w1, 0w1, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
         and storeRelease32{regN, regT} =
             loadStoreExclusive(0w2, 0w1, 0w0, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
+        and loadAcquireByte{regN, regT} =
+            loadStoreExclusive(0w0, 0w1, 0w1, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
+        and storeReleaseByte{regN, regT} =
+            loadStoreExclusive(0w0, 0w1, 0w0, 0w0, 0w1) {regS=XZero, regT2=XZero, regN=regN, regT=regT}
 
         (* Acquire exclusive access to a memory location and load its current value *)
         and loadAcquireExclusiveRegister{regN, regT} =
@@ -814,13 +818,15 @@ struct
                 (wordToWord32 immr << 0w16) orb (wordToWord32 imms << 0w10) orb (word8ToWord32(xRegOrXZ regN) << 0w5) orb
                 word8ToWord32(xRegOrXZ regD))
 
+    in
         val signedBitfieldMove32 = bitfield(0w0, 0w0, 0w0)
         and bitfieldMove32 = bitfield(0w0, 0w1, 0w0)
         and unsignedBitfieldMove32 = bitfield(0w0, 0w2, 0w0)
         and signedBitfieldMove64 = bitfield(0w1, 0w0, 0w1)
         and bitfieldMove64 = bitfield(0w1, 0w1, 0w1)
         and unsignedBitfieldMove64 = bitfield(0w1, 0w2, 0w1)
-    in
+
+        (* Derived forms. *)
         fun logicalShiftLeft{shift, regN, regD} =
                 unsignedBitfieldMove64{immr=Word.~ shift mod 0w64,
                     imms=0w64-0w1-shift, regN=regN, regD=regD}
@@ -1680,6 +1686,8 @@ struct
                     |   (0w2, 0w1, 0w0, 0w0, 0w1) => ("stlr", "w")
                     |   (0w3, 0w0, 0w1, 0w0, 0w1) => ("ldaxr", "x")
                     |   (0w3, 0w0, 0w0, 0w0, 0w1) => ("stlxr", "x")
+                    |   (0w0, 0w1, 0w1, 0w0, 0w1) => ("ldarb", "w")
+                    |   (0w0, 0w1, 0w0, 0w0, 0w1) => ("stlrb", "w")
                     |   _ => ("??", "?")
             in
                 printStream opcode; printStream "\t";

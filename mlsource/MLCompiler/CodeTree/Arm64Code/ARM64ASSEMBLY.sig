@@ -251,6 +251,8 @@ sig
     and storeRelease: {regN: xReg, regT: xReg} -> instr
     and loadAcquire32: {regN: xReg, regT: xReg} -> instr
     and storeRelease32: {regN: xReg, regT: xReg} -> instr
+    and loadAcquireByte: {regN: xReg, regT: xReg} -> instr
+    and storeReleaseByte: {regN: xReg, regT: xReg} -> instr
 
     (* Load and store pairs of registers.  The offsets are signed scaled values. *)
     val storePairOffset: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
@@ -312,7 +314,15 @@ sig
     val conditionalSetNegated:
         {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
 
-    (* Various shifts *)
+    (* General form of shift/bit extraction. *)
+    val signedBitfieldMove32: {immr: word, imms: word, regN: xReg, regD: xReg} -> instr
+    and bitfieldMove32: {immr: word, imms: word, regN: xReg, regD: xReg} -> instr
+    and unsignedBitfieldMove32: {immr: word, imms: word, regN: xReg, regD: xReg} -> instr
+    and signedBitfieldMove64: {immr: word, imms: word, regN: xReg, regD: xReg} -> instr
+    and bitfieldMove64: {immr: word, imms: word, regN: xReg, regD: xReg} -> instr
+    and unsignedBitfieldMove64: {immr: word, imms: word, regN: xReg, regD: xReg} -> instr
+
+    (* Derived forms: Various shifts *)
     val logicalShiftLeft: {shift: word, regN: xReg, regD: xReg} -> instr
     and logicalShiftLeft32: {shift: word, regN: xReg, regD: xReg} -> instr
     and logicalShiftRight: {shift: word, regN: xReg, regD: xReg} -> instr

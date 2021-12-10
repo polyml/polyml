@@ -47,9 +47,15 @@ struct
     datatype loadType = Load64 | Load32 | Load16 | Load8
 
     datatype loadType = Load64 | Load32 | Load16 | Load8
-    and arithLength = Arith64 | Arith32
+    and opSize = OpSize32 | OpSize64
     and logicalOp = LogAnd | LogOr | LogXor
-    and callKinds = Recursive | ConstantCode of machineWord | FullCall
+    and callKind = Recursive | ConstantCode of machineWord | FullCall
+    and boxKind = BoxLargeWord | BoxDouble | BoxFloat
+
+    and bitfieldType =
+        BitFieldSigned      (* Set the high order bits to the sign bit *)
+    |   BitFieldUnsigned    (* Set the high order bits to zero. *)
+    |   BitFieldMove        (* Leave the unmoved bits unchanged. *)
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
@@ -82,7 +88,7 @@ struct
            bytesRequired is the total number of bytes including the length word and any alignment
            necessary for 32-in-64. saveRegs is the list of registers that need to be saved if we
            need to do a garbage collection. *)
-    |   AllocateMemoryOperation of { bytesRequired: Word64.word, dest: preg, saveRegs: preg list }
+    |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: preg, saveRegs: preg list }
 
         (* Store a register using a constant, signed, byte offset.  The offset
            is in the range of -256 to (+4095*unit size). *)
@@ -95,20 +101,20 @@ struct
            ccRef is optional.  If it is NONE the version of the instruction that does not generate
            a condition code is used. immed must be < 0wx1000. *)
     |   AddSubImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: word,
-                             isAdd: bool, length: arithLength }
+                             isAdd: bool, length: opSize }
 
         (* Add/Subtract register.  As with AddSubImmediate, both the destination and cc are optional. *)
-    |   AddSubRegister of { operand1: preg, operand2: preg, dest: preg option, ccRef: ccRef option,
-                            isAdd: bool, length: arithLength }
+    |   AddSubRegister of { base: preg, shifted: preg, dest: preg option, ccRef: ccRef option,
+                            isAdd: bool, length: opSize, shift: shiftType }
 
         (* Bitwise logical operations.  The immediate value must be a valid bit pattern.  ccRef can
            only be SOME if logOp is LogAnd. *)
     |   LogicalImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: Word64.word,
-                              logOp: logicalOp, length: arithLength }
+                              logOp: logicalOp, length: opSize }
 
         (* Register logical operations.  ccRef can only be SOME if logOp is LogAnd.*)
-    |   LogicalRegister of { operand1: preg, operand2: preg, dest: preg option, ccRef: ccRef option,
-                             logOp: logicalOp, length: arithLength }
+    |   LogicalRegister of { base: preg, shifted: preg, dest: preg option, ccRef: ccRef option,
+                             logOp: logicalOp, length: opSize, shift: shiftType }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
@@ -120,7 +126,7 @@ struct
            Otherwise the address is obtained by indirecting through X8 which has been loaded
            as one of the argument registers.  The result is stored in the destination register. *)
     |   FunctionCall of
-            { callKind: callKinds, regArgs: (fnarg * xReg) list,
+            { callKind: callKind, regArgs: (fnarg * xReg) list,
               stackArgs: fnarg list, dest: preg, saveRegs: preg list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
@@ -130,7 +136,7 @@ struct
            (negative) to the stack before the call.
            currStackSize contains the number of items currently on the stack. *)
     |   TailRecursiveCall of
-            { callKind: callKinds, regArgs: (fnarg * xReg) list,
+            { callKind: callKind, regArgs: (fnarg * xReg) list,
               stackArgs: {src: fnarg, stack: int} list,
               stackAdjust: int, currStackSize: int }
 
@@ -158,6 +164,42 @@ struct
         (* Remove items from the stack.  Used to remove containers or
            registers pushed to the stack.. *)
     |   ResetStackPtr of { numWords: int }
+
+        (* Tag a value by shifting and setting the tag bit. *)
+    |   TagValue of { source: preg, dest: preg, isSigned: bool, opSize: opSize }
+
+        (* Shift a value to remove the tag bit.  The cache is used if this is untagging a
+           value that has previously been tagged. *)
+    |   UntagValue of { source: preg, dest: preg, isSigned: bool, opSize: opSize }
+
+        (* Box a largeword or a floating point value.  Single precision floats
+           are tagged in native 64-bit but boxed in 32-in-64.  Stores a value
+           into a byte area.  This can be implemented using AllocateMemoryFixed
+           but keeping it separate makes optimisation easier. *)
+    |   BoxValue of { boxKind: boxKind, source: preg, dest: preg, saveRegs: preg list }
+
+        (* Load a value from a box.  This can be implemented using a load but
+           is kept separate to simplify optimisation. *)
+    |   UnboxValue of { boxKind: boxKind, source: preg, dest: preg }
+
+        (* Load a value with acquire semantics.  This means that any other
+           load in this thread after this sees the value of the shared
+           memory at this point and not earlier.  This is used for
+           references and arrays to ensure that if another thread has
+           built a data structure on the heap and then assigns the
+           address to a shared ref this thread will see the updated heap
+           and not any locally cached previous version. *)
+    |   LoadAcquire of { base: preg, dest: preg, loadType: loadType }
+
+        (* Store a value with release semantics.  This ensures that any
+           other write completes before this operation and works with
+           LoadAcquire. *)
+    |   StoreRelease of { base: preg, source: preg, loadType: loadType }
+
+        (*  General bit field operation.  This is used for shifts but is more general.  The source
+            can be zero to clear specific bits.  immr and imms are the immediate fields that
+            control the shift and which bits are affected. *)
+    |   BitField of { source: preg option, dest: preg, fieldType: bitfieldType, length: opSize, immr: word, imms: word }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -202,8 +244,8 @@ struct
         |   regRepr XZero = "XZ"
         |   regRepr XSP = "SP"
 
-        fun arithRepr Arith64 = "64"
-        |   arithRepr Arith32 = "32"
+        fun arithRepr OpSize64 = "64"
+        |   arithRepr OpSize32 = "32"
         
         fun printLoadType(Load64, stream) = stream "64"
         |   printLoadType(Load32, stream) = stream "32"
@@ -223,7 +265,10 @@ struct
                 stream " (";  stream(Int.toString wordOffset); stream ")"
             )
 
-
+        fun printShift(ShiftLSL w, stream) = stream(" LSL " ^ Word8.toString w)
+        |   printShift(ShiftLSR w, stream) = stream(" LSR " ^ Word8.toString w)
+        |   printShift(ShiftASR w, stream) = stream(" ASR " ^ Word8.toString w)
+        |   printShift(ShiftNone, _) = ()
 
         fun printICode(MoveRegister{ source, dest }, stream) =
             (
@@ -249,8 +294,8 @@ struct
 
         |   printICode(LoadWithConstantOffset{ base, dest, byteOffset, loadType }, stream) =
             (
-                stream "\tLoadConstOffset"; printLoadType(loadType, stream); stream "\t";
-                printReg(base, stream); stream "+";
+                stream "\tLoadConstOffset"; printLoadType(loadType, stream); stream "\t[";
+                printReg(base, stream); stream "]+";
                 stream(Int.toString byteOffset);
                 stream " => ";
                 printReg(dest, stream)
@@ -258,9 +303,9 @@ struct
 
         |   printICode(LoadWithIndexedOffset{ base, dest, index, loadType }, stream) =
             (
-                stream "\tLoadIndexed"; printLoadType(loadType, stream); stream "\t";
+                stream "\tLoadIndexed"; printLoadType(loadType, stream); stream "\t[";
                 printReg(base, stream); stream "+"; printReg(index, stream);
-                stream " => "; printReg(dest, stream)
+                stream "] => "; printReg(dest, stream)
             )
 
         |   printICode(ObjectIndexAddressToAbsolute{ source, dest }, stream) =
@@ -275,7 +320,7 @@ struct
                 printReg(source, stream); stream " => "; printReg(dest, stream)
             )
 
-        |   printICode(AllocateMemoryOperation{bytesRequired, dest, saveRegs}, stream) =
+        |   printICode(AllocateMemoryFixed{bytesRequired, dest, saveRegs}, stream) =
             (
                 stream "\tAllocateMemory\t";
                 stream(Word64.toString bytesRequired); stream " => ";
@@ -285,16 +330,16 @@ struct
         |   printICode(StoreWithConstantOffset{ base, source, byteOffset, loadType }, stream) =
             (
                 stream "\tStoreConstOffset"; printLoadType(loadType, stream); stream "\t";
-                printReg(source, stream); stream " => ";
+                printReg(source, stream); stream " => [";
                 printReg(base, stream); stream "+";
-                stream(Int.toString byteOffset)
+                stream(Int.toString byteOffset); stream "]"
             )
 
         |   printICode(StoreWithIndexedOffset{ base, source, index, loadType }, stream) =
             (
                 stream "\tStoreIndexed"; printLoadType(loadType, stream); stream "\t";
-                printReg(source, stream); stream " => ";
-                printReg(base, stream); stream "+"; printReg(index, stream)
+                printReg(source, stream); stream " => [";
+                printReg(base, stream); stream "+"; printReg(index, stream); stream "]"
             )
 
         |   printICode(AddSubImmediate{ source, dest, ccRef, immed, isAdd, length }, stream) =
@@ -306,11 +351,11 @@ struct
                 case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
             )
 
-        |   printICode(AddSubRegister{ operand1, operand2, dest, ccRef, isAdd, length }, stream) =
+        |   printICode(AddSubRegister{ base, shifted, dest, ccRef, isAdd, length, shift }, stream) =
             (
                 stream (if isAdd then "\tAddRegister" else "\tSubRegister"); stream(arithRepr length);
-                stream "\t"; printReg(operand1, stream); stream ", ";
-                printReg(operand2, stream);
+                stream "\t"; printReg(base, stream); stream ", ";
+                printReg(shifted, stream); printShift(shift, stream);
                 stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
                 stream ", ";
                 case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
@@ -326,12 +371,12 @@ struct
                 case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
             )
 
-        |   printICode(LogicalRegister{ operand1, operand2, dest, ccRef, logOp, length }, stream) =
+        |   printICode(LogicalRegister{ base, shifted, dest, ccRef, logOp, length, shift }, stream) =
             (
                 stream (case logOp of LogAnd => "\tAndRegister"  | LogOr => "\tOrRegister" | LogXor => "\tXorRegister");
                 stream(arithRepr length);
-                stream "\t"; printReg(operand1, stream); stream ", ";
-                printReg(operand2, stream);
+                stream "\t"; printReg(base, stream); stream ", ";
+                printReg(shifted, stream); printShift(shift, stream);
                 stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
                 stream ", ";
                 case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
@@ -415,6 +460,70 @@ struct
         |   printICode(ResetStackPtr{ numWords }, stream) =
             ( stream "\tResetStackPtr\t"; stream(Int.toString numWords) )
 
+        |   printICode(TagValue{ source, dest, isSigned, opSize }, stream) =
+            (
+                stream "\tTag"; stream(if isSigned then "Signed" else "Unsigned");
+                stream(arithRepr opSize); stream "\t";
+                printReg(source, stream); stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(UntagValue{ source, dest, isSigned, opSize }, stream) =
+            (
+                stream "\tUntag"; stream(if isSigned then "Signed" else "Unsigned");
+                stream(arithRepr opSize); stream "\t";
+                printReg(source, stream); stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(BoxValue{boxKind, source, dest, saveRegs}, stream) =
+            (
+                stream(
+                    case boxKind of
+                        BoxLargeWord => "\tBoxLarge\t"
+                    |   BoxDouble => "\tBoxDouble\t"
+                    |   BoxFloat => "\tBoxFloat\t"
+                );
+                printReg(source, stream);
+                stream " => ";
+                printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, stream)
+            )
+
+        |   printICode(UnboxValue{boxKind, source, dest}, stream) =
+            (
+                stream(
+                    case boxKind of
+                        BoxLargeWord => "\tUnboxLarge\t"
+                    |   BoxDouble => "\tUnboxDouble\t"
+                    |   BoxFloat => "\tUnboxFloat\t"
+                );
+                printReg(source, stream);
+                stream " => ";
+                printReg(dest, stream)
+            )
+
+        |   printICode(LoadAcquire{ base, dest, loadType }, stream) =
+            (
+                stream "\tLoadAcquire"; printLoadType(loadType, stream); stream "\t[";
+                printReg(base, stream); stream "] => "; printReg(dest, stream)
+            )
+
+        |   printICode(StoreRelease{ base, source, loadType }, stream) =
+            (
+                stream "\tStoreRelease"; printLoadType(loadType, stream); stream "\t";
+                printReg(source, stream); stream " => [";
+                printReg(base, stream); stream "]"
+            )
+
+        |   printICode(BitField{ source, dest, fieldType, length, immr, imms }, stream) =
+            (
+                stream "\tBitField";  stream(arithRepr length); stream "\t";
+                case source of NONE => stream "0" | SOME source => printReg(source, stream);
+                stream " => "; printReg(dest, stream); stream " type=";
+                stream(case fieldType of BitFieldSigned => "S" | BitFieldUnsigned => "U" | BitFieldMove => "M");
+                stream " immr="; stream(Word.toString immr);
+                stream " imms="; stream(Word.toString imms)
+            )
+
         and printCondition(cond,  stream)  = stream(condToString cond)
 
         (* Print a basic block. *)
@@ -451,15 +560,22 @@ struct
         type xReg           = xReg
         and  vReg           = vReg
         and  condition      = condition
+        and  shiftType      = shiftType
         and  arm64ICode     = arm64ICode
         and  preg           = preg
         and  controlFlow    = controlFlow
         and  basicBlock     = basicBlock
-        and stackLocn       = stackLocn
-        and regProperty     = regProperty
-        and ccRef           = ccRef
-        and closureRef      = closureRef
-        and loadType        = loadType
+        and  stackLocn      = stackLocn
+        and  regProperty    = regProperty
+        and  ccRef          = ccRef
+        and  fnarg          = fnarg
+        and  closureRef     = closureRef
+        and  loadType       = loadType
+        and  opSize         = opSize
+        and  logicalOp      = logicalOp
+        and  callKind       = callKind
+        and  boxKind        = boxKind
+        and  bitfieldType   = bitfieldType
    end
 end;
 

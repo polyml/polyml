@@ -259,6 +259,10 @@ struct
         fun allocateRegister args = ignore(findRegister args)
         val allocateFindRegister = findRegister
 
+        fun allocateGenReg(PReg r) = allocateRegister(r, NONE, generalRegisters)
+
+        val allocateGenRegs = List.app allocateGenReg
+
         fun registerAllocate{instr=MoveRegister{source=PReg sreg, dest=PReg dreg}, ...} =
             let
                 val realDestReg = findRegister(dreg, NONE, generalRegisters)
@@ -266,88 +270,47 @@ struct
                 allocateRegister(sreg, SOME realDestReg, generalRegisters)
             end
 
-        |   registerAllocate{instr=LoadNonAddressConstant{dest=PReg dreg, ...}, ...} =
-                allocateRegister(dreg, NONE, generalRegisters)
+        |   registerAllocate{instr=LoadNonAddressConstant{dest, ...}, ...} = allocateGenReg dest
 
-        |   registerAllocate{instr=LoadAddressConstant{dest=PReg dreg, ...}, ...} =
-                allocateRegister(dreg, NONE, generalRegisters)
+        |   registerAllocate{instr=LoadAddressConstant{dest, ...}, ...} = allocateGenReg dest
 
-        |   registerAllocate{instr=LoadWithConstantOffset{dest=PReg dreg, base=PReg breg, ...}, ...} =
+        |   registerAllocate{instr=LoadWithConstantOffset{dest, base, ...}, ...} = allocateGenRegs[dest, base]
+
+        |   registerAllocate{instr=LoadWithIndexedOffset{dest, base, index, ...}, ...} =
+                allocateGenRegs[dest, base, index]
+
+        |   registerAllocate{instr=ObjectIndexAddressToAbsolute{dest, source, ...}, ...} = allocateGenRegs[dest, source]
+
+        |   registerAllocate{instr=AbsoluteToObjectIndex{dest, source, ...}, ...} = allocateGenRegs[dest, source]
+
+        |   registerAllocate({instr=AllocateMemoryFixed{ dest, saveRegs, ...}, ...}) = allocateGenRegs (dest :: saveRegs)
+
+        |   registerAllocate{instr=StoreWithConstantOffset{source, base, ...}, ...} = allocateGenRegs[source, base]
+
+        |   registerAllocate{instr=StoreWithIndexedOffset{source, base, index, ...}, ...} = allocateGenRegs[source, base, index]
+
+        |   registerAllocate{instr=AddSubImmediate{ source, dest, ... }, ...} =
             (
-                allocateRegister(dreg, NONE, generalRegisters);
-                allocateRegister(breg, NONE, generalRegisters)
+                case dest of SOME dest => allocateGenReg dest | NONE => ();
+                allocateGenReg source
             )
 
-        |   registerAllocate{instr=LoadWithIndexedOffset{dest=PReg dreg, base=PReg breg, index=PReg ireg, ...}, ...} =
+        |   registerAllocate{instr=AddSubRegister{ base, shifted, dest, ... }, ...} =
             (
-                allocateRegister(dreg, NONE, generalRegisters);
-                allocateRegister(breg, NONE, generalRegisters);
-                allocateRegister(ireg, NONE, generalRegisters)
+                case dest of SOME dest => allocateGenReg dest | NONE => ();
+                allocateGenRegs[base, shifted]
             )
 
-        |   registerAllocate{instr=ObjectIndexAddressToAbsolute{dest=PReg dreg, source=PReg sreg, ...}, ...} =
+        |   registerAllocate{instr=LogicalImmediate{ source, dest, ... }, ...} =
             (
-                allocateRegister(dreg, NONE, generalRegisters);
-                allocateRegister(sreg, NONE, generalRegisters)
+                case dest of SOME dest => allocateGenReg dest | NONE => ();
+                allocateGenReg source
             )
 
-        |   registerAllocate{instr=AbsoluteToObjectIndex{dest=PReg dreg, source=PReg sreg, ...}, ...} =
+        |   registerAllocate{instr=LogicalRegister{ base, shifted, dest, ... }, ...} =
             (
-                allocateRegister(dreg, NONE, generalRegisters);
-                allocateRegister(sreg, NONE, generalRegisters)
-            )
-
-        |   registerAllocate({instr=AllocateMemoryOperation{ dest=PReg dReg, saveRegs, ...}, ...}) =
-            (
-                List.app(fn (PReg r) => allocateRegister(r, NONE, generalRegisters)) saveRegs;
-                allocateRegister(dReg, NONE, generalRegisters)
-            )
-
-        |   registerAllocate{instr=StoreWithConstantOffset{source=PReg sreg, base=PReg breg, ...}, ...} =
-            (
-                allocateRegister(sreg, NONE, generalRegisters);
-                allocateRegister(breg, NONE, generalRegisters)
-            )
-
-        |   registerAllocate{instr=StoreWithIndexedOffset{source=PReg sreg, base=PReg breg, index=PReg ireg, ...}, ...} =
-            (
-                allocateRegister(sreg, NONE, generalRegisters);
-                allocateRegister(breg, NONE, generalRegisters);
-                allocateRegister(ireg, NONE, generalRegisters)
-            )
-
-        |   registerAllocate{instr=AddSubImmediate{ source=PReg sreg, dest, ... }, ...} =
-            (
-                case dest of
-                    SOME(PReg dreg) => allocateRegister(dreg, NONE, generalRegisters)
-                |   NONE => ();
-                allocateRegister(sreg, NONE, generalRegisters)
-            )
-
-        |   registerAllocate{instr=AddSubRegister{ operand1=PReg oreg1, operand2=PReg oreg2, dest, ... }, ...} =
-            (
-                case dest of
-                    SOME(PReg dreg) => allocateRegister(dreg, NONE, generalRegisters)
-                |   NONE => ();
-                allocateRegister(oreg1, NONE, generalRegisters);
-                allocateRegister(oreg2, NONE, generalRegisters)
-            )
-
-        |   registerAllocate{instr=LogicalImmediate{ source=PReg sreg, dest, ... }, ...} =
-            (
-                case dest of
-                    SOME(PReg dreg) => allocateRegister(dreg, NONE, generalRegisters)
-                |   NONE => ();
-                allocateRegister(sreg, NONE, generalRegisters)
-            )
-
-        |   registerAllocate{instr=LogicalRegister{ operand1=PReg oreg1, operand2=PReg oreg2, dest, ... }, ...} =
-            (
-                case dest of
-                    SOME(PReg dreg) => allocateRegister(dreg, NONE, generalRegisters)
-                |   NONE => ();
-                allocateRegister(oreg1, NONE, generalRegisters);
-                allocateRegister(oreg2, NONE, generalRegisters)
+                case dest of SOME dest => allocateGenReg dest | NONE => ();
+                allocateGenRegs[base, shifted]
             )
 
         |   registerAllocate{instr=BeginFunction _, ...} = ()
@@ -355,51 +318,79 @@ struct
 
         |   registerAllocate({instr=TailRecursiveCall{regArgs=regArgs, stackArgs=stackArgs, ...}, ...}) =
             let
-                fun allocateRegArg(ArgInReg(PReg argReg), _) = allocateRegister(argReg, NONE, generalRegisters)
+                fun allocateRegArg(ArgInReg argReg, _) = allocateGenReg argReg
                 |   allocateRegArg _ = ()
             in
                 (* We've already hinted the arguments but we want to allocate these first
                    to reduce the chance that they'll be used for stack arguments. *)
                 List.app allocateRegArg regArgs;
-                List.app (fn {src=ArgInReg(PReg argReg), ...} => allocateRegister(argReg, NONE, generalRegisters) | _ => ()) stackArgs
+                List.app (fn {src=ArgInReg argReg, ...} => allocateGenReg argReg | _ => ()) stackArgs
             end
 
         |   registerAllocate({instr=FunctionCall{regArgs=regArgs, stackArgs=stackArgs, dest=PReg dReg, saveRegs, ...}, ...}) =
             let
-                fun allocateRegArg(ArgInReg(PReg argReg), _) = allocateRegister(argReg, NONE, generalRegisters)
+                fun allocateRegArg(ArgInReg argReg, _) = allocateGenReg argReg
                 |   allocateRegArg _ = ()
             in
                 (* We've already hinted the arguments but we want to allocate these first
                    to reduce the chance that they'll be used for stack arguments. *)
                 List.app allocateRegArg regArgs;
-                List.app (fn ArgInReg(PReg argReg) => allocateRegister(argReg, NONE, generalRegisters) | _ => ()) stackArgs;
-                List.app(fn (PReg r) => allocateRegister(r, NONE, generalRegisters)) saveRegs;
+                List.app (fn ArgInReg argReg => allocateGenReg argReg | _ => ()) stackArgs;
+                allocateGenRegs saveRegs;
                 (* Result will be in X0. *)
                 allocateRegister(dReg, SOME X0, [X0])
             end
 
-        |   registerAllocate{instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg returnReg, ... }, ...} =
+        |   registerAllocate{instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg, ... }, ...} =
             (
                 allocateRegister(resReg, SOME X0, [X0] (* It MUST be in this register *));
-                allocateRegister(returnReg, NONE, generalRegisters)
+                allocateGenReg returnReg
             )
 
-        |   registerAllocate{instr=RaiseExceptionPacket{packetReg=PReg preg}, ...} =
-                allocateRegister(preg, NONE, generalRegisters)
+        |   registerAllocate{instr=RaiseExceptionPacket{packetReg}, ...} = allocateGenReg packetReg
 
-        |   registerAllocate{instr=PushToStack{ source=PReg sreg, ... }, ...} =
-                allocateRegister(sreg, NONE, generalRegisters)
+        |   registerAllocate{instr=PushToStack{ source, ... }, ...} = allocateGenReg source
 
-        |   registerAllocate{instr=LoadStack{ dest=PReg dreg,  ... }, ...} =
-                allocateRegister(dreg, NONE, generalRegisters)
+        |   registerAllocate{instr=LoadStack{ dest,  ... }, ...} = allocateGenReg dest
 
-        |   registerAllocate{instr=StoreToStack{ source=PReg sreg, ... }, ...} =
-                allocateRegister(sreg, NONE, generalRegisters)
+        |   registerAllocate{instr=StoreToStack{ source, ... }, ...} = allocateGenReg source
 
-        |   registerAllocate{instr=ContainerAddress{ dest=PReg dreg, ... }, ...} =
-                allocateRegister(dreg, NONE, generalRegisters)
+        |   registerAllocate{instr=ContainerAddress{ dest, ... }, ...} = allocateGenReg dest
 
         |   registerAllocate{instr=ResetStackPtr _, ...} = ()
+
+        |   registerAllocate({instr=TagValue{source, dest, ...}, ...}) = allocateGenRegs[source, dest]
+
+        |   registerAllocate({instr=UntagValue{source, dest, ...}, ...}) = allocateGenRegs[source, dest]
+
+        |   registerAllocate({instr=BoxValue{boxKind, source, dest, saveRegs}, ...}) =
+            (
+                allocateGenRegs saveRegs;
+                case boxKind of
+                    BoxLargeWord => allocateGenReg source
+                |   BoxDouble => (*allocateFloatReg sReg*) raise InternalError "BoxValue: double"
+                |   BoxFloat => (*allocateFloatReg sReg*) raise InternalError "BoxValue: float";
+                allocateGenReg dest
+            )
+
+        |   registerAllocate({instr=UnboxValue{boxKind, source, dest}, ...}) =
+            (
+                case boxKind of
+                    BoxLargeWord => allocateGenReg dest
+                |   BoxDouble => (*allocateFloatReg dReg*) raise InternalError "UnboxValue: double"
+                |   BoxFloat => (*allocateFloatReg dReg*) raise InternalError "UnboxValue: float";
+                allocateGenReg source
+            )
+
+        |   registerAllocate{instr=LoadAcquire{dest, base, ...}, ...} = allocateGenRegs[dest, base]
+
+        |   registerAllocate{instr=StoreRelease{source, base, ...}, ...} = allocateGenRegs[source, base]
+
+        |   registerAllocate{instr=BitField{ source, dest, ... }, ...} =
+            (
+                case source of SOME source => allocateGenReg source | NONE => ();
+                allocateGenReg dest
+            )
 
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)
