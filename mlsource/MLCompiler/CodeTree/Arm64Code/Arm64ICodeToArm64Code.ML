@@ -43,10 +43,13 @@ struct
     (* These aren't currently used for anything. *)
     val workReg1 = X16 and workReg2 = X17
 
-    fun icodeToArm64Code {blocks, functionName, stackRequired, debugSwitches, allocatedRegisters, resultClosure, profileObject, ...} =
+    fun icodeToArm64Code {blocks, functionName, stackRequired, debugSwitches, allocatedRegisters: reg vector, resultClosure, profileObject, ...} =
     let
         val numBlocks = Vector.length blocks
         fun getAllocatedReg r = Vector.sub(allocatedRegisters, r)
+        
+        fun getAllocatedGenReg r =
+            case getAllocatedReg r of GenReg r => r | FPReg _ => raise InternalError "getAllocateGenReg: returned FP Reg"
 
         local
             val numRegisters = Vector.length allocatedRegisters
@@ -326,20 +329,20 @@ struct
             end
 
         (* Only get the registers that are actually used. *)
-        val getSaveRegs = List.mapPartial(fn (reg as PReg r) => if isUsed reg then SOME(getAllocatedReg r) else NONE)
+        val getSaveRegs = List.mapPartial(fn (reg as PReg r) => if isUsed reg then SOME(getAllocatedGenReg r) else NONE)
 
         val startOfFunctionLabel = createLabel() (* Used for recursive calls/jumps *)
 
         fun codeExtended _ (MoveRegister{source=PReg sreg, dest as PReg dreg, ...}, code) =
             if not (isUsed dest)
             then code
-            else moveIfNecessary({src=getAllocatedReg sreg, dst=getAllocatedReg dreg}, code)
+            else moveIfNecessary({src=getAllocatedGenReg sreg, dst=getAllocatedGenReg dreg}, code)
 
         |   codeExtended _ (LoadNonAddressConstant{source, dest=PReg dreg, ...}, code) =
-                List.rev(loadNonAddress(getAllocatedReg dreg, source)) @ code
+                List.rev(loadNonAddress(getAllocatedGenReg dreg, source)) @ code
 
         |   codeExtended _ (LoadAddressConstant{source, dest=PReg dreg, ...}, code) =
-                loadAddressConstant(getAllocatedReg dreg, source) :: code
+                loadAddressConstant(getAllocatedGenReg dreg, source) :: code
 
         |   codeExtended _ (LoadWithConstantOffset{dest=PReg dreg, base=PReg breg, byteOffset, loadType, ...}, code) =
             if byteOffset < 0
@@ -352,7 +355,7 @@ struct
                     |   Load16 => loadRegUnscaled16
                     |   Load8 => loadRegUnscaledByte
             in
-                loadInstr{regT=getAllocatedReg dreg, regN=getAllocatedReg breg, byteOffset=byteOffset} :: code
+                loadInstr{regT=getAllocatedGenReg dreg, regN=getAllocatedGenReg breg, byteOffset=byteOffset} :: code
             end
             else
             let
@@ -363,7 +366,7 @@ struct
                     |   Load16 => (loadRegScaled16, 2)
                     |   Load8 => (loadRegScaledByte, 1)
             in
-                loadInstr{regT=getAllocatedReg dreg, regN=getAllocatedReg breg, unitOffset=byteOffset div scale} :: code
+                loadInstr{regT=getAllocatedGenReg dreg, regN=getAllocatedGenReg breg, unitOffset=byteOffset div scale} :: code
             end
 
         |   codeExtended _ (LoadWithIndexedOffset{dest=PReg dreg, base=PReg breg, index=PReg ireg, loadType, ...}, code) =
@@ -375,18 +378,18 @@ struct
                     |   Load16 => (loadRegIndexed16, ExtUXTX ScaleOrShift)
                     |   Load8 => (loadRegIndexedByte, ExtUXTX NoScale)
             in
-                loadInstr{regT=getAllocatedReg dreg, regN=getAllocatedReg breg, regM=getAllocatedReg ireg, option=opt} :: code
+                loadInstr{regT=getAllocatedGenReg dreg, regN=getAllocatedGenReg breg, regM=getAllocatedGenReg ireg, option=opt} :: code
             end
 
         |   codeExtended _ (ObjectIndexAddressToAbsolute{source=PReg sreg, dest=PReg dreg, ...}, code) =
-                addShiftedReg{regM=getAllocatedReg sreg, regN=X_Base32in64, regD=getAllocatedReg dreg, shift=ShiftLSL 0w2} :: code
+                addShiftedReg{regM=getAllocatedGenReg sreg, regN=X_Base32in64, regD=getAllocatedGenReg dreg, shift=ShiftLSL 0w2} :: code
 
         |   codeExtended _ (AbsoluteToObjectIndex{source=PReg sreg, dest=PReg dreg, ...}, code) =
             let
-                val destReg = getAllocatedReg dreg
+                val destReg = getAllocatedGenReg dreg
             in
                 logicalShiftRight{shift=0w2, regN=destReg, regD=destReg} ::
-                subShiftedReg{regM=X_Base32in64, regN=getAllocatedReg sreg, regD=destReg, shift=ShiftNone} :: code
+                subShiftedReg{regM=X_Base32in64, regN=getAllocatedGenReg sreg, regD=destReg, shift=ShiftNone} :: code
             end
 
         |   codeExtended _ (AllocateMemoryFixed{ bytesRequired, dest=PReg dreg, saveRegs, ... }, code) =
@@ -398,7 +401,7 @@ struct
                 val saveX30 = List.exists (fn r => r = X30) realSaveRegs
                 val preserve = List.filter (fn r => r <> X30) realSaveRegs
                 val label = createLabel()
-                val destReg = getAllocatedReg dreg
+                val destReg = getAllocatedGenReg dreg
                 (* N.B.  This is in reverse order so read from the bottom up. *)
             in
                 moveRegToReg{sReg=destReg, dReg=X_MLHeapAllocPtr} ::
@@ -428,7 +431,7 @@ struct
                     |   Load16 => storeRegUnscaled16
                     |   Load8 => storeRegUnscaledByte
             in
-                storeInstr{regT=getAllocatedReg sreg, regN=getAllocatedReg breg, byteOffset=byteOffset} :: code
+                storeInstr{regT=getAllocatedGenReg sreg, regN=getAllocatedGenReg breg, byteOffset=byteOffset} :: code
             end
             else
             let
@@ -439,7 +442,7 @@ struct
                     |   Load16 => (storeRegScaled16, 2)
                     |   Load8 => (storeRegScaledByte, 1)
             in
-                storeInstr{regT=getAllocatedReg sreg, regN=getAllocatedReg breg, unitOffset=byteOffset div scale} :: code
+                storeInstr{regT=getAllocatedGenReg sreg, regN=getAllocatedGenReg breg, unitOffset=byteOffset div scale} :: code
             end
 
         |   codeExtended _ (StoreWithIndexedOffset{source=PReg sreg, base=PReg breg, index=PReg ireg, loadType, ...}, code) =
@@ -451,7 +454,7 @@ struct
                     |   Load16 => (storeRegIndexed16, ExtUXTX ScaleOrShift)
                     |   Load8 => (storeRegIndexedByte, ExtUXTX NoScale)
             in
-                storeInstr{regT=getAllocatedReg sreg, regN=getAllocatedReg breg, regM=getAllocatedReg ireg, option=opt} :: code
+                storeInstr{regT=getAllocatedGenReg sreg, regN=getAllocatedGenReg breg, regM=getAllocatedGenReg ireg, option=opt} :: code
             end
 
         |   codeExtended _ (AddSubImmediate{ source=PReg sreg, dest, immed, isAdd, length, ccRef}, code) =
@@ -469,9 +472,9 @@ struct
                 val destReg =
                     case dest of
                         NONE => XZero
-                    |   SOME(PReg dreg) => getAllocatedReg dreg
+                    |   SOME(PReg dreg) => getAllocatedGenReg dreg
             in
-                instr{regN=getAllocatedReg sreg, regD=destReg, immed=immed, shifted=false} :: code
+                instr{regN=getAllocatedGenReg sreg, regD=destReg, immed=immed, shifted=false} :: code
             end
 
         |   codeExtended _ (AddSubRegister{ base=PReg breg, shifted=PReg sreg, dest, isAdd, length, ccRef, shift}, code) =
@@ -489,9 +492,9 @@ struct
                 val destReg =
                     case dest of
                         NONE => XZero
-                    |   SOME(PReg dreg) => getAllocatedReg dreg
+                    |   SOME(PReg dreg) => getAllocatedGenReg dreg
             in
-                instr{regN=getAllocatedReg breg, regM=getAllocatedReg sreg, regD=destReg, shift=shift} :: code
+                instr{regN=getAllocatedGenReg breg, regM=getAllocatedGenReg sreg, regD=destReg, shift=shift} :: code
             end           
 
         |   codeExtended _ (LogicalImmediate{ source=PReg sreg, dest, immed, logOp, length, ccRef}, code) =
@@ -513,9 +516,9 @@ struct
                 val destReg =
                     case dest of
                         NONE => XZero
-                    |   SOME(PReg dreg) => getAllocatedReg dreg
+                    |   SOME(PReg dreg) => getAllocatedGenReg dreg
             in
-                instr{regN=getAllocatedReg sreg, regD=destReg, bits=immed} :: code
+                instr{regN=getAllocatedGenReg sreg, regD=destReg, bits=immed} :: code
             end
 
         |   codeExtended _ (LogicalRegister{ base=PReg breg, shifted=PReg sreg, dest, logOp, length, ccRef, shift}, code) =
@@ -539,9 +542,9 @@ struct
                 val destReg =
                     case dest of
                         NONE => XZero
-                    |   SOME(PReg dreg) => getAllocatedReg dreg
+                    |   SOME(PReg dreg) => getAllocatedGenReg dreg
             in
-                instr{regN=getAllocatedReg breg, regM=getAllocatedReg sreg, regD=destReg, shift=shift} :: code
+                instr{regN=getAllocatedGenReg breg, regM=getAllocatedGenReg sreg, regD=destReg, shift=shift} :: code
             end           
 
         |   codeExtended _ (BeginFunction{regArgs, ...}, code) =
@@ -584,7 +587,7 @@ struct
                     storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8} :: code2
 
                 val usedRegs = List.filter (isUsed o #1) regArgs
-                fun mkPair(PReg pr, rr) = {src=rr,dst=getAllocatedReg pr}
+                fun mkPair(PReg pr, rr) = {src=rr,dst=getAllocatedGenReg pr}
                 val regPairs = List.map mkPair usedRegs
             in
                 moveMultipleRegisters(regPairs, code3)
@@ -593,7 +596,7 @@ struct
         |   codeExtended _ (TailRecursiveCall{callKind, regArgs=regArgs, stackArgs=stackArgs, stackAdjust, currStackSize}, code: instr list) =
             let
                 fun convertArg(ArgOnStack{wordOffset, ...}) = IsOnStack wordOffset
-                |   convertArg(ArgInReg(PReg reg)) = IsInReg(getAllocatedReg reg)
+                |   convertArg(ArgInReg(PReg reg)) = IsInReg(getAllocatedGenReg reg)
 
                 val extStackArgs = map (fn {stack, src} => {dst=IsOnStack(stack+currStackSize), src=convertArg src}) stackArgs
                 val extRegArgs = map (fn (a, r) => {src=convertArg a, dst=IsInReg r}) regArgs
@@ -661,7 +664,7 @@ struct
 
         |   codeExtended _ (FunctionCall{callKind, regArgs=regArgs, stackArgs=stackArgs, dest=PReg dReg, saveRegs, ...}, code: instr list) =
             let
-                val destReg = getAllocatedReg dReg
+                val destReg = getAllocatedGenReg dReg
 
                 local
                     fun pushStackArgs ([], _, code) = code
@@ -678,7 +681,7 @@ struct
 
                     |   pushStackArgs (ArgInReg(PReg reg) ::args, argNum, code) =
                             pushStackArgs(args, argNum+1,
-                                storeRegPreIndex{regT=getAllocatedReg reg, regN=X_MLStackPtr, byteOffset= ~8} :: code)
+                                storeRegPreIndex{regT=getAllocatedGenReg reg, regN=X_MLStackPtr, byteOffset= ~8} :: code)
 
                     val pushedArgs = pushStackArgs(stackArgs, 0, code (* Initial code *))
 
@@ -686,7 +689,7 @@ struct
                     val numStackArgs = List.length stackArgs
 
                     fun convertArg(ArgOnStack{wordOffset, ...}) = IsOnStack(wordOffset+numStackArgs)
-                    |   convertArg(ArgInReg(PReg reg)) = IsInReg(getAllocatedReg reg)
+                    |   convertArg(ArgInReg(PReg reg)) = IsInReg(getAllocatedGenReg reg)
 
                 in
                     val extRegArgs = map (fn (a, r) => {src=convertArg a, dst=IsInReg r}) regArgs
@@ -715,7 +718,7 @@ struct
 
                 |   makeSavesAndCall(PReg reg::regs, code) =
                     let
-                        val areg = getAllocatedReg reg
+                        val areg = getAllocatedGenReg reg
                     in
                         loadRegPostIndex{regT=areg, regN=X_MLStackPtr, byteOffset= 8} ::
                             makeSavesAndCall(regs, storeRegPreIndex{regT=areg, regN=X_MLStackPtr, byteOffset= ~8} :: code)
@@ -727,8 +730,8 @@ struct
 
         |   codeExtended _ (ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg retReg, numStackArgs }, code) =
             let
-                val resultReg = getAllocatedReg resReg
-                and returnReg = getAllocatedReg retReg
+                val resultReg = getAllocatedGenReg resReg
+                and returnReg = getAllocatedGenReg retReg
 
                 fun resetStack(0, code) = code
                 |   resetStack(nItems, code) =
@@ -749,11 +752,11 @@ struct
                 branchRegister workReg1 :: 
                 loadRegScaled{regT=workReg1, regN=X_MLStackPtr, unitOffset=0} ::
                 loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset} ::
-                moveIfNecessary({src=getAllocatedReg preg, dst=X0}, code)
+                moveIfNecessary({src=getAllocatedGenReg preg, dst=X0}, code)
 
         |   codeExtended _ (PushToStack{ source=PReg sreg, copies, ... }, code) =
             let
-                val reg = getAllocatedReg sreg
+                val reg = getAllocatedGenReg sreg
                 val _ = copies > 0 orelse raise InternalError "PushToStack: copies<1"
                 fun pushn(0, c) = c
                 |   pushn(n, c) = pushn(n-1, storeRegPreIndex{regT=reg, regN=X_MLStackPtr, byteOffset= ~8} :: c)
@@ -762,16 +765,16 @@ struct
             end
 
         |   codeExtended _ (LoadStack{ dest=PReg dreg, wordOffset, ... }, code) =
-                loadFromStack(getAllocatedReg dreg, wordOffset, code)
+                loadFromStack(getAllocatedGenReg dreg, wordOffset, code)
 
         |   codeExtended _ (StoreToStack{ source=PReg sreg, stackOffset, ... }, code) =
                 (* Store into the stack to set a field of a container.  Always 64-bits. *)
-                storeToStack(getAllocatedReg sreg, stackOffset, workReg1, code)
+                storeToStack(getAllocatedGenReg sreg, stackOffset, workReg1, code)
 
         |   codeExtended _ (ContainerAddress{ dest=PReg dreg, stackOffset, ... }, code) =
                 (* Set the register to an offset in the stack. *)
             let
-                val destReg = getAllocatedReg dreg
+                val destReg = getAllocatedGenReg dreg
                 val _ = stackOffset >= 0 orelse raise InternalError "codeGenICode: ContainerAddress - negative offset"
                 val byteOffset = stackOffset * Word.toInt nativeWordSize
             in
@@ -787,8 +790,8 @@ struct
 
         |   codeExtended _ (TagValue{ source=PReg sReg, dest=PReg dReg, isSigned=_, opSize }, code) =
             let
-                val sourceReg = getAllocatedReg sReg
-                and destReg = getAllocatedReg dReg
+                val sourceReg = getAllocatedGenReg sReg
+                and destReg = getAllocatedGenReg dReg
                 (* Shift left by one bit and add one. *)
             in
                 case opSize of
@@ -810,7 +813,7 @@ struct
                     |   (true, OpSize64) => arithmeticShiftRight
                     |   (true, OpSize32) => arithmeticShiftRight32
             in
-                shiftType{regN=getAllocatedReg sReg, regD=getAllocatedReg dReg, shift=0w1} :: code
+                shiftType{regN=getAllocatedGenReg sReg, regD=getAllocatedGenReg dReg, shift=0w1} :: code
             end
 
         |   codeExtended context (BoxValue{ boxKind, source=PReg sReg, dest as PReg dReg, saveRegs }, code) =
@@ -820,17 +823,17 @@ struct
                 (* Allocate the code using AllocateMemoryFixed *)
                 val allocCode =
                     codeExtended context (AllocateMemoryFixed{ bytesRequired=bytesRequired, dest=dest, saveRegs=saveRegs}, code)
-                val destReg = getAllocatedReg dReg
+                val destReg = getAllocatedGenReg dReg
                 val storeOp =
                     case boxKind of
-                        BoxLargeWord => storeRegScaled{regT=destReg, regN=getAllocatedReg sReg, unitOffset=0}
+                        BoxLargeWord => storeRegScaled{regT=destReg, regN=getAllocatedGenReg sReg, unitOffset=0}
                     |   _ => raise InternalError "codeExtended; Box"
             in
                 storeOp :: allocCode
             end
 
         |   codeExtended _ (UnboxValue{ boxKind=BoxLargeWord, source=PReg sReg, dest=PReg dReg }, code) =
-                loadRegScaled{regT=getAllocatedReg dReg, regN=getAllocatedReg sReg, unitOffset=0} :: code
+                loadRegScaled{regT=getAllocatedGenReg dReg, regN=getAllocatedGenReg sReg, unitOffset=0} :: code
 
         |   codeExtended _ (UnboxValue _, _) = raise InternalError "codeExtended; Unbox"
 
@@ -843,7 +846,7 @@ struct
                     |   Load16 => raise InternalError "LoadAcquire: 16bits" (* Not used *)
                     |   Load8 => loadAcquireByte
             in
-                loadInstr{regT=getAllocatedReg dreg, regN=getAllocatedReg breg} :: code
+                loadInstr{regT=getAllocatedGenReg dreg, regN=getAllocatedGenReg breg} :: code
             end
 
         |   codeExtended _ (StoreRelease{source=PReg sreg, base=PReg breg, loadType, ...}, code) =
@@ -855,7 +858,7 @@ struct
                     |   Load16 => raise InternalError "StoreRelease: 16bits" (* Not used *)
                     |   Load8 => storeReleaseByte
             in
-                storeInstr{regT=getAllocatedReg sreg, regN=getAllocatedReg breg} :: code
+                storeInstr{regT=getAllocatedGenReg sreg, regN=getAllocatedGenReg breg} :: code
             end
 
         |   codeExtended _ (BitField{ source, dest=PReg dreg, fieldType, length, immr, imms }, code) =
@@ -869,9 +872,9 @@ struct
                     |   (BitFieldUnsigned, OpSize32) => bitfieldMove32
                     |   (BitFieldMove, OpSize32) => unsignedBitfieldMove32
                 val srcReg =
-                    case source of SOME(PReg src) => getAllocatedReg src | NONE => XZero
+                    case source of SOME(PReg src) => getAllocatedGenReg src | NONE => XZero
             in
-                bfInstr{immr=immr, imms=imms, regN=srcReg, regD=getAllocatedReg dreg} :: code
+                bfInstr{immr=immr, imms=imms, regN=srcReg, regD=getAllocatedGenReg dreg} :: code
             end
 
 
@@ -1125,7 +1128,7 @@ struct
         type intSet             = intSet
         and extendedBasicBlock  = extendedBasicBlock
         and regProperty         = regProperty
-        and xReg                = xReg
+        and reg                 = reg
         and closureRef          = closureRef
     end
 

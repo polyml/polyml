@@ -43,6 +43,7 @@ struct
 
     (* The reference to a condition code. *)
     datatype ccRef = CcRef of int
+    datatype reg = GenReg of xReg | FPReg of vReg
 
     datatype loadType = Load64 | Load32 | Load16 | Load8
 
@@ -89,6 +90,16 @@ struct
            necessary for 32-in-64. saveRegs is the list of registers that need to be saved if we
            need to do a garbage collection. *)
     |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: preg, saveRegs: preg list }
+
+        (* Mark the beginning of a loop.  This is really only to prevent the initialisation code being
+           duplicated in ICodeOptimise. *)
+    |   BeginLoop
+
+        (* Set up the registers for a jump back to the start of a loop. *)
+    |   JumpLoop of
+            { regArgs: {src: fnarg, dst: preg} list,
+              stackArgs: {src: fnarg, wordOffset: int, stackloc: stackLocn} list,
+              checkInterrupt: preg list option }
 
         (* Store a register using a constant, signed, byte offset.  The offset
            is in the range of -256 to (+4095*unit size). *)
@@ -559,6 +570,7 @@ struct
     struct
         type xReg           = xReg
         and  vReg           = vReg
+        and  reg            = reg
         and  condition      = condition
         and  shiftType      = shiftType
         and  arm64ICode     = arm64ICode

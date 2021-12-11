@@ -17,12 +17,12 @@
 
 signature ARM64ICODEGENERATE =
 sig
-    type intSet and extendedBasicBlock and regProperty and xReg
+    type intSet and extendedBasicBlock and regProperty and reg
     type closureRef
     
     val icodeToArm64Code :
         {
-            blocks: extendedBasicBlock vector, allocatedRegisters: xReg vector, functionName: string,
+            blocks: extendedBasicBlock vector, allocatedRegisters: reg vector, functionName: string,
             stackRequired: int, debugSwitches: Universal.universal list, resultClosure: closureRef,
             profileObject: Address.machineWord
         } -> unit
@@ -32,7 +32,7 @@ sig
         type intSet             = intSet
         and extendedBasicBlock  = extendedBasicBlock
         and regProperty         = regProperty
-        and xReg                = xReg
+        and reg                 = reg
         and closureRef          = closureRef
     end
 end;

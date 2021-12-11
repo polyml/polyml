@@ -30,6 +30,9 @@ sig
     datatype xReg = XReg of Word8.word | XZero | XSP
     and vReg = VReg of Word8.word
 
+    (* It is simpler to use a single type for all registers. *)
+    datatype reg = GenReg of xReg | FPReg of vReg
+
     val X0:  xReg   and X1:  xReg   and X2:  xReg   and X3: xReg
     and X4:  xReg   and X5:  xReg   and X6:  xReg   and X7: xReg
     and X8:  xReg   and X9:  xReg   and X10: xReg   and X11: xReg
@@ -127,6 +130,16 @@ sig
            necessary for 32-in-64. saveRegs is the list of registers that need to be saved if we
            need to do a garbage collection. *)
     |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: preg, saveRegs: preg list }
+
+        (* Mark the beginning of a loop.  This is really only to prevent the initialisation code being
+           duplicated in ICodeOptimise. *)
+    |   BeginLoop
+
+        (* Set up the registers for a jump back to the start of a loop. *)
+    |   JumpLoop of
+            { regArgs: {src: fnarg, dst: preg} list,
+              stackArgs: {src: fnarg, wordOffset: int, stackloc: stackLocn} list,
+              checkInterrupt: preg list option }
 
         (* Store a register using a constant, signed, byte offset.  The offset
            is in the range of -256 to (+4095*unit size). *)
@@ -273,6 +286,7 @@ sig
     sig
         type xReg           = xReg
         and  vReg           = vReg
+        and  reg            = reg
         and  condition      = condition
         and  shiftType      = shiftType
         and  arm64ICode     = arm64ICode

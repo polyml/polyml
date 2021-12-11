@@ -33,7 +33,7 @@ struct
     exception InternalError = Misc.InternalError
 
     datatype allocateResult =
-        AllocateSuccess of xReg vector
+        AllocateSuccess of reg vector
     |   AllocateFailure of intSet list
 
     (* General registers.  X24 is used as the global heap base in 32-in-64. X30 is the
@@ -41,8 +41,8 @@ struct
        Put the argument registers at the end of the list so they'll only be
        used when hinted. *)
     val generalRegisters =
-        [X9, X10, X11, X12, X13, X14, X15, X19, X20, X21, X22, X23,
-         X0, X1, X2, X3, X4, X5, X6, X7, X8, X30] @ (if is32in64 then [] else [X24])
+        map GenReg ([X9, X10, X11, X12, X13, X14, X15, X19, X20, X21, X22, X23,
+                      X0, X1, X2, X3, X4, X5, X6, X7, X8, X30] @ (if is32in64 then [] else [X24]))
 
     fun allocateRegisters{blocks, regStates, regProps, ...} =
     let
@@ -57,7 +57,7 @@ struct
            with the pseudo-register.  E.g. the argument and destination of
            an arithmetic operation where choosing the same register for
            each may avoid a move. *)
-        val realHints = Array.array(maxPRegs, NONE: xReg option)
+        val realHints = Array.array(maxPRegs, NONE: reg option)
 
         (* Sources and destinations.  These indicate the registers that are
            the sources and destinations of the indexing register and are used
@@ -100,35 +100,35 @@ struct
 
             |   addHints{instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg retReg, ... }, ...} =
                 (
-                    addRealHint(resReg, X0);
-                    addRealHint(retReg, X30) (* It may be there from earlier. *)
+                    addRealHint(resReg, GenReg X0);
+                    addRealHint(retReg, GenReg X30) (* It may be there from earlier. *)
                 )
         
             |   addHints{instr=BeginFunction{regArgs, ...}, ...} =
-                    List.app (fn (PReg pr, reg) => addRealHint(pr, reg)) regArgs
+                    List.app (fn (PReg pr, reg) => addRealHint(pr, GenReg reg)) regArgs
 
             |   addHints{instr=TailRecursiveCall{regArgs, ...}, ...} =
                 let
-                    fun setHint(ArgInReg(PReg pr), reg) = addRealHint(pr, reg) | setHint _ = ()
+                    fun setHint(ArgInReg(PReg pr), reg) = addRealHint(pr, GenReg reg) | setHint _ = ()
                 in
                     List.app setHint regArgs
                 end
         
             |   addHints{instr=FunctionCall{regArgs, dest=PReg dreg, ...}, ...} =
                 let
-                    fun setHint(ArgInReg(PReg pr), reg) = addRealHint(pr, reg) | setHint _ = ()
+                    fun setHint(ArgInReg(PReg pr), reg) = addRealHint(pr, GenReg reg) | setHint _ = ()
                 in
-                    addRealHint(dreg, X0);
+                    addRealHint(dreg, GenReg X0);
                     List.app setHint regArgs
                 end
 
-            |   addHints{instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...} = addRealHint(preg, X0)
+            |   addHints{instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...} = addRealHint(preg, GenReg X0)
 
             |   addHints _ = ()
         
         end
 
-        val allocatedRegs = Array.array(maxPRegs, NONE: xReg option)
+        val allocatedRegs = Array.array(maxPRegs, NONE: reg option)
         val failures = ref []: intSet list ref
 
         (* Find a real register for a preg.
@@ -338,12 +338,12 @@ struct
                 List.app (fn ArgInReg argReg => allocateGenReg argReg | _ => ()) stackArgs;
                 allocateGenRegs saveRegs;
                 (* Result will be in X0. *)
-                allocateRegister(dReg, SOME X0, [X0])
+                allocateRegister(dReg, SOME(GenReg X0), [GenReg X0])
             end
 
         |   registerAllocate{instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg, ... }, ...} =
             (
-                allocateRegister(resReg, SOME X0, [X0] (* It MUST be in this register *));
+                allocateRegister(resReg, SOME(GenReg X0), [GenReg X0] (* It MUST be in this register *));
                 allocateGenReg returnReg
             )
 
@@ -438,7 +438,7 @@ struct
         (* If the failures list is empty we succeeded. *)
         case !failures of
             [] =>  (* Return the allocation vector.  If a register isn't used replace it with X0. *)
-                AllocateSuccess(Vector.tabulate(maxPRegs, fn i => getOpt(Array.sub(allocatedRegs, i), X0)))
+                AllocateSuccess(Vector.tabulate(maxPRegs, fn i => getOpt(Array.sub(allocatedRegs, i), GenReg X0)))
             (* Else we'll have to spill something. *)
         |   l => AllocateFailure l
     end
@@ -450,7 +450,7 @@ struct
         type intSet             = intSet
         and extendedBasicBlock  = extendedBasicBlock
         and regProperty         = regProperty
-        and xReg                = xReg
+        and reg                 = reg
         and allocateResult      = allocateResult
     end
 

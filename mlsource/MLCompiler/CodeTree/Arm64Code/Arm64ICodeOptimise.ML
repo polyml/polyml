@@ -58,13 +58,18 @@ struct
     fun optimiseICode{ code, pregProps, ccCount=_, debugSwitches=_ } =
     let
         val hasChanged = ref false
-        val regCounter = ref(Vector.length pregProps)
-        val regList = ref []
+        val pregPropSize = Vector.length pregProps
+        val regCounter = ref pregPropSize (* Allocate new registers after the old. *)
+        val regList = ref [] (* New properties are added in reverse order. *)
         fun newReg kind =
         (
             regList := kind :: ! regList;
             PReg (!regCounter)
         ) before regCounter := !regCounter + 1
+
+        fun registerProperty(PReg r) =
+            if r < pregPropSize then Vector.sub(pregProps, r)
+            else List.nth(!regList, !regCounter - r - 1)
 
         datatype regValue = ARegister of preg | AConstant of Word64.word
 
@@ -158,15 +163,24 @@ struct
             |   optCode({instr=MoveRegister{dest, source}, kill, ...} :: rest, inCond, regMap, code) =
                 let
                     val (repSource, mapAfterReplace) = getRegisterValue(source, kill, regMap)
-                    val newSource =
-                        case repSource of ARegister repReg => repReg | AConstant _ => source
+                    (* We can add this destination to the map as equivalent to the source if
+                       the source is a constant but if it's a register we have to check the
+                       properties.  If we're moving a merge register into a normal
+                       register we want to leave the move here.  This is the defining
+                       occurrence for the normal register and if we later need to
+                       push it we'll do that here. *)
+                    val (newSource, addToMap) =
+                        case repSource of
+                            ARegister repReg => (repReg, registerProperty dest = registerProperty source)
+                        |   AConstant _ => (source, true)
+                    val newMap =
+                        if addToMap then {dest=dest, source=repSource} :: mapAfterReplace else mapAfterReplace
                 in
                     (* If the source is mapped to a different register use that otherwise
                        leave it unchanged.  Add this to the map.
                        The X86 version replaces the source here but it's probably better to
                        leave this as a register move. *)
-                    optCode(rest, inCond, {dest=dest, source=repSource} :: mapAfterReplace,
-                        MoveRegister{dest=dest, source=newSource}::code)
+                    optCode(rest, inCond, newMap, MoveRegister{dest=dest, source=newSource}::code)
                 end
 
             |   optCode({instr as LoadNonAddressConstant{dest, source}, ...} :: rest, inCond, regMap, code) =
@@ -182,6 +196,18 @@ struct
                 in
                     optCode(rest, inCond, {dest=dest, source=AConstant source} :: regMap, newInstr :: code)
                 end
+
+                (* Clear the cache across a function call.  We would have to push these registers. *)
+            |   optCode({instr as FunctionCall _, ...} :: rest, _, _, code) =
+                    optCode(rest, BRNone, [], instr::code)                
+
+            |   optCode({instr as BeginLoop, ...} :: rest, _, _, code) =
+                    (* Any register value from outside the loop are not valid inside. *)
+                    optCode(rest, BRNone, [], instr::code)                
+
+            |   optCode({instr as JumpLoop _, ...} :: rest, _, _, code) =
+                    (* Likewise at the end of the loop.  Not sure if this is essential. *)
+                    optCode(rest, BRNone, [], instr::code)
 
                 (* TODO: It could be worth rewriting every instruction with any replaced source register. *)
             |   optCode({instr, ...} :: rest, inCond, regMap, code) =

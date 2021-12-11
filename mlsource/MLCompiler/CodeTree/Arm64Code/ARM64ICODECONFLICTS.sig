@@ -17,12 +17,12 @@
 
 signature ARM64ICODECONFLICTS =
 sig
-    type arm64ICode and xReg and preg and controlFlow and extendedBasicBlock    
+    type arm64ICode and reg and preg and controlFlow and extendedBasicBlock    
     type intSet
     
     type conflictState =
     {
-        conflicts: intSet, realConflicts: xReg list
+        conflicts: intSet, realConflicts: reg list
     }
 
     val getConflictStates: extendedBasicBlock vector * int -> conflictState vector
@@ -30,7 +30,7 @@ sig
     structure Sharing:
     sig
         type arm64ICode = arm64ICode
-        and xReg = xReg
+        and reg = reg
         and preg = preg
         and intSet = intSet
         and extendedBasicBlock = extendedBasicBlock

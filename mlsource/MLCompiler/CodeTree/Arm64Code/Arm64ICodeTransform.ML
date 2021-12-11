@@ -181,12 +181,13 @@ struct
                 Vector.appi printRegData regStates
             end
 
-        fun printRegisters(regAlloc: xReg vector) =
+        fun printRegisters(regAlloc: reg vector) =
         let
             val printStream = Pretty.getSimplePrinter(debugSwitches, icodeTabs)
-            fun regRepr (XReg w) = "X" ^ Int.toString(Word8.toInt w)
-            |   regRepr XZero = "X0"
-            |   regRepr XSP = "SP"
+            fun regRepr (GenReg(XReg w)) = "X" ^ Int.toString(Word8.toInt w)
+            |   regRepr (GenReg XZero) = "X0"
+            |   regRepr (GenReg XSP) = "SP"
+            |   regRepr (FPReg(VReg w)) = "V" ^ Int.toString(Word8.toInt w)
             fun printRegAlloc(i, reg) = printStream (Int.toString i ^ "\t=> " ^ regRepr reg ^ "\n");
         in
             Vector.appi printRegAlloc regAlloc
