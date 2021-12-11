@@ -171,6 +171,7 @@ struct
         GeneralType
     |   DoubleFloatType
     |   SingleFloatType
+    |   ContainerType of int
 
     datatype backendIC =
         BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
@@ -370,6 +371,7 @@ struct
         fun prettyArgType GeneralType = PrettyString "G"
         |   prettyArgType DoubleFloatType = PrettyString "D"
         |   prettyArgType SingleFloatType = PrettyString "F"
+        |   prettyArgType (ContainerType m) = PrettyString ("M"^Int.toString m)
         
         fun prettyArg (c, t) =
                 PrettyBlock(1, false, [], [pretty c, PrettyBreak (1, 0), prettyArgType t])

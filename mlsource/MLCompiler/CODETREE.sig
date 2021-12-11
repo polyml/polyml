@@ -28,6 +28,7 @@ sig
         GeneralType
     |   DoubleFloatType
     |   SingleFloatType
+    |   ContainerType of int
 
     and loadStoreKind =
         LoadStoreMLWord of {isImmutable: bool}

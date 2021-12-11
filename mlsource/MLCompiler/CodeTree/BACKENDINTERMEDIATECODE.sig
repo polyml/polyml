@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-20 David C.J. Matthews
+    Copyright (c) 2012, 2016-21 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,8 @@ sig
         GeneralType
     |   DoubleFloatType
     |   SingleFloatType
-    
+    |   ContainerType of int
+
     structure BuiltIns: BUILTINS
     
     datatype backendIC =

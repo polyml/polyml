@@ -330,6 +330,7 @@ struct
                 fun genType GeneralType = []
                 |   genType DoubleFloatType = [ space, string ":double" ]
                 |   genType SingleFloatType = [ space, string ":float" ]
+                |   genType (ContainerType n) = [ space, string ":multiple ", space, string(Int.toString n) ]
                 fun printArgs(n, (t, u) :: rest) =
                     PrettyBlock(4, false, [],
                         [

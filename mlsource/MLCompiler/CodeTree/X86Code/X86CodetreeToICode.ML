@@ -47,6 +47,7 @@ struct
         fun resultReg GeneralType = GenReg eax
         |   resultReg DoubleFloatType = fpResult
         |   resultReg SingleFloatType = fpResult
+        |   resultReg (ContainerType _) = GenReg eax (* Doesn't need a result. *)
     end
 
     (* tag a short constant *)
@@ -441,6 +442,7 @@ struct
             val (returnCode, resReg) =
                 case fnResultType of
                     GeneralType => ([], target)
+                |   ContainerType _ => ([], target)
                 |   DoubleFloatType =>
                     let
                         val resReg = newUReg()
@@ -1076,6 +1078,7 @@ struct
                         val (moveResult, resReg) =
                             case resultType of
                                 GeneralType => ([], target)
+                            |   ContainerType _ =>  ([], target)
                             |   DoubleFloatType =>
                                 let
                                     val fpRegDest = newUReg()

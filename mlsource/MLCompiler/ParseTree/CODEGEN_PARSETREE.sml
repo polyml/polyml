@@ -1281,7 +1281,7 @@ struct
                             in
                                 if resTupleSize = 1
                                 then parms @ polyParms
-                                else parms @ polyParms @ [GeneralType]
+                                else parms @ polyParms @ [ContainerType resTupleSize]
                             end
                         |    makeArgs(parms, t::ts) = makeArgs (t @ parms, ts)
                     in
@@ -1464,7 +1464,7 @@ struct
                             in
                                 (mkEnv(
                                     [mkContainer(containerAddr, resTupleSize,
-                                       mkCall(loadInnerFun, parms @ polyParms @ [(loadContainer, GeneralType)], GeneralType))],
+                                       mkCall(loadInnerFun, parms @ polyParms @ [(loadContainer, ContainerType resTupleSize)], GeneralType))],
                                     mkTupleFromContainer(containerAddr, resTupleSize)),
                                  containerAddr+1 (* One local *))
                             end

@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2016-20
+    Modified David C. J. Matthews 2008-2010, 2013, 2016-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -32,6 +32,8 @@ sig
         GeneralType
     |   DoubleFloatType
     |   SingleFloatType
+    |   ContainerType of int
+
 
     datatype loadStoreKind =
         LoadStoreMLWord of {isImmutable: bool}     (* Load/Store an ML word in an ML word cell. *)
