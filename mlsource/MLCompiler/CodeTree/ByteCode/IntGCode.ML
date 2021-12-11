@@ -1211,7 +1211,7 @@ struct
                         resultType=GeneralType}
                 val lambdaCode =
                 { body = bodyCode, name = "foreignCall", closure=[], argTypes=[GeneralType, GeneralType, GeneralType],
-                  resultType = GeneralType, localCount=0, heapClosure=false}
+                  resultType = GeneralType, localCount=0}
                 val () = gencodeLambda(lambdaCode, [], closure)
             in
                 closureAsAddress closure

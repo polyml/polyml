@@ -3,12 +3,12 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License version 2.1 as published by the Free Software Foundation.
+    Licence version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Lesser General Public License for more details.
+    Lesser General Public Licence for more details.
     
     You should have received a copy of the GNU Lesser General Public
     License along with this library; if not, write to the Free Software
@@ -32,6 +32,15 @@ functor CodetreeStaticLinkAndCases(
 ) : CODEGENTREE
 =
 struct
+    
+    (* This module converts the codetree used in the front-end to the form
+       used in the back-end.  It recognises sequences of comparisons that
+       can be converted into an indexed case.
+       Previously it also recognised when a closure could be replaced by a
+       static link but that has long since been superseded by the lambda
+       lifter.  This was later adapted to recognise when it was possible
+       to create a closure on the stack rather than on the heap.  That
+       is no longer used so this has been greatly simplified. *)
 
     open BaseCodeTree
     open Address
@@ -42,10 +51,6 @@ struct
     exception InternalError = Misc.InternalError
 
     open BackendTree.CodeTags
-
-    (* Property tag to indicate which arguments to a function are functions
-       that are only ever called. *)
-    val closureFreeArgsTag: int list Universal.tag = Universal.tag()
     
     datatype maybeCase =
         IsACase of
@@ -57,125 +62,17 @@ struct
         }
     |   NotACase of backendIC
 
-    fun staticLinkAndCases (pt, localAddressCount) =
+    fun staticLinkAndCases pt =
     let
-        fun copyCode (pt, nonLocals, recursive, localCount, localAddresses, argClosure) =
+        fun copyCode (pt: codetree):backendIC  =
         let
-            (* "closuresForLocals" is a flag indicating that if the declaration
-               is a function a closure must be made for it. *)
-            val closuresForLocals = Array.array(localCount, false)
-            val newLocalAddresses = Array.array (localCount, 0)
-            val argProperties = Array.array(localCount, [])
+        
+            fun locaddr (LoadLocal addr) = BICLoadLocal addr
+            |   locaddr(LoadArgument addr) = BICLoadArgument addr
+            |   locaddr LoadRecursive = BICLoadRecursive
+            |   locaddr(LoadClosure addr) = BICLoadClosure addr
 
-            (* Reference to local or non-local bindings.  This sets the "closure"
-               property on the binding depending on how the binding will be used. *)
-            fun locaddr (LoadLocal addr, closure) =
-                let
-                    val () =
-                        if closure then Array.update (closuresForLocals, addr, true) else ()
-                    val newAddr = Array.sub(newLocalAddresses, addr)
-                in
-                    BICLoadLocal newAddr
-                end
-
-            |   locaddr(LoadArgument addr, closure) =
-                (
-                    argClosure(addr, closure);
-                    BICLoadArgument addr
-                )
-
-            |   locaddr(LoadRecursive, closure) = recursive closure
-            |   locaddr(LoadClosure addr, closure) = #1 (nonLocals (addr, closure))
-
-            (* Argument properties.  This returns information of which arguments can have
-               functions passed in without requiring a full heap closure. *)
-            fun argumentProps(LoadLocal addr) = Array.sub(argProperties, addr)
-            |   argumentProps(LoadArgument _) = []
-            |   argumentProps LoadRecursive = []
-            |   argumentProps (LoadClosure addr) = #2 (nonLocals (addr, false))
-
-            fun makeDecl addr =
-            let
-                val newAddr = ! localAddresses before (localAddresses := !localAddresses+1)
-                val () = Array.update (closuresForLocals, addr, false)
-                val () = Array.update (newLocalAddresses, addr, newAddr)
-                val () = Array.update (argProperties, addr, [])
-            in
-                newAddr
-            end
-
-            fun insert(Eval { function = Extract LoadRecursive, argList, resultType, ...}) =
-                let
-                    (* Recursive.  If we pass an argument in the same position we
-                       don't necessarily need a closure.  It depends on what else
-                       happens to it. *)
-                    fun mapArgs(n, (Extract (ext as LoadArgument m), t) :: tail) =
-                            (BICExtract(locaddr(ext, n <> m)), t) :: mapArgs(n+1, tail)
-                    |   mapArgs(n, (c, t) :: tail) = (insert c, t) :: mapArgs(n+1, tail)
-                    |   mapArgs(_, []) = []
-
-                    val newargs = mapArgs(0, argList)
-                    val func  = locaddr(LoadRecursive, (* closure = *) false)
-                in
-                    (* If we are calling a function which has been declared this
-                       does not require it to have a closure. Any other use of the
-                       function would. *) 
-                    BICEval {function = BICExtract func, argList = newargs, resultType=resultType}
-                end
-
-            |   insert(Eval { function = Extract ext, argList, resultType, ...}) =
-                let
-                    (* Non-recursive but a binding. *)
-                    val cfArgs = argumentProps ext
-                    fun isIn n = not(List.exists(fn m => m = n) cfArgs)
-                        
-                    fun mapArgs(n, (Extract ext, t) :: tail) =
-                            (BICExtract(locaddr(ext, isIn n)), t) :: mapArgs(n+1, tail)
-                    |   mapArgs(n, (Lambda lam, t) :: tail) =
-                            (insertLambda(lam, isIn n), t) :: mapArgs(n+1, tail)
-                    |   mapArgs(n, (c, t) :: tail) = (insert c, t) :: mapArgs(n+1, tail)
-                    |   mapArgs(_, []) = []
-                    val newargs = mapArgs(0, argList)
-                    val func  = locaddr(ext, (* closure = *) false)
-                in
-                    (* If we are calling a function which has been declared this
-                       does not require it to have a closure. Any other use of the
-                       function would. *) 
-                    BICEval {function = BICExtract func, argList = newargs, resultType=resultType}
-                end
-
-            |   insert(Eval { function = Constnt(w, p), argList, resultType, ...}) =
-                let
-                    (* Constant function. *)
-                    val cfArgs =
-                        case List.find (Universal.tagIs closureFreeArgsTag) p of
-                            NONE => []
-                        |   SOME u => Universal.tagProject closureFreeArgsTag u
-                    fun isIn n = not(List.exists(fn m => m = n) cfArgs)
-                        
-                    fun mapArgs(n, (Extract ext, t) :: tail) =
-                            (BICExtract(locaddr(ext, isIn n)), t) :: mapArgs(n+1, tail)
-                    |   mapArgs(n, (Lambda lam, t) :: tail) =
-                            (insertLambda(lam, isIn n), t) :: mapArgs(n+1, tail)
-                    |   mapArgs(n, (c, t) :: tail) = (insert c, t) :: mapArgs(n+1, tail)
-                    |   mapArgs(_, []) = []
-                    val newargs = mapArgs(0, argList)
-                in
-                    BICEval {function = BICConstnt (w, p), argList = newargs, resultType=resultType}
-                end
-
-            |   insert(Eval { function = Lambda lam, argList, resultType, ...}) =
-                let
-                    (* Call of a lambda.  Typically this will be a recursive function that
-                       can't be inlined. *)
-                    val newargs = map(fn (c, t) => (insert c, t)) argList
-                    val (copiedLambda, newClosure, makeRecClosure, _) = copyLambda lam
-                    val func  = copyProcClosure (copiedLambda, newClosure, makeRecClosure)
-                in
-                    BICEval {function = func, argList = newargs, resultType=resultType}
-                end
-
-            |   insert(Eval { function, argList, resultType, ...}) =
+            fun insert(Eval { function, argList, resultType, ...}):backendIC =
                 let
                     (* Process the arguments first. *)
                     val newargs = map(fn (c, t) => (insert c, t)) argList
@@ -219,7 +116,7 @@ struct
                     (* Load the value bound to an identifier. The closure flag is
                        set to true since the only cases where a closure is not needed,
                        eval and load-andStore, are handled separately. *)
-                    BICExtract(locaddr(ext, (* closure = *) true))
+                    BICExtract(locaddr ext)
 
             |   insert(Indirect {base, offset, indKind=IndContainer}) = BICLoadContainer {base = insert base, offset = offset}
 
@@ -229,20 +126,13 @@ struct
 
             |   insert(BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
                 let
-                    (* Make entries in the tables for the arguments. *)
-                    val newAddrs = List.map (fn ({addr, ...}, _) => makeDecl addr) argList
-
-                    (* Process the body. *)
                     val insBody = insert body
-                    (* Finally the initial argument values. *)
                     local
-                        fun copyDec(({value, ...}, t), addr) =
-                                ({addr=addr, value=insert value}, t)
+                        fun copyDec({value, addr, ...}, t) = ({addr=addr, value=insert value}, t)
                     in
-                        val newargs = ListPair.map copyDec (argList, newAddrs)
+                        val newargs = map copyDec argList
                     end
                 in
-                    (* Add the kill entries on after the loop. *)
                     BICBeginLoop{loop=insBody, arguments=newargs}
                 end
     
@@ -262,188 +152,36 @@ struct
                     (* Process the body. Recurses down the list of declarations
                        and expressions processing each, and then reconstructs the
                        list on the way back. *)
-                    fun copyDeclarations ([])   = []
+                    fun copyDeclarations [] = []
 
-                    |   copyDeclarations (Declar({addr=caddr, value = Lambda lam, ...}) :: vs)  =
+                    |   copyDeclarations(Declar{addr, value = pt, ...} :: rest) =
+                            BICDeclar{addr=addr, value=insert pt} :: copyDeclarations rest
+
+                    |   copyDeclarations(RecDecs mutualDecs :: rest) =
                         let
-                            (* Binding a Lambda - process the function first. *)
-                            val newAddr = makeDecl caddr
-                            val (copiedLambda, newClosure, makeRecClosure, cfArgs) = copyLambda lam
-                            val () = Array.update(argProperties, caddr, cfArgs)
-                            (* Process all the references to the function. *)
-                            val rest = copyDeclarations vs
-                            (* We now know if we need a heap closure. *)
-                            val dec =
-                                copyProcClosure(copiedLambda, newClosure,
-                                        makeRecClosure orelse Array.sub(closuresForLocals, caddr))
+                            fun copyEntry{addr, lambda, ...} = {addr=addr, lambda=insertLambda lambda}
                         in
-                            BICDeclar{addr=newAddr, value=dec} :: rest
+                            BICRecDecs(map copyEntry mutualDecs) :: copyDeclarations rest
                         end
+                    
+                    |   copyDeclarations(NullBinding v :: rest) = BICNullBinding(insert v) :: copyDeclarations rest
 
-                    |   copyDeclarations (Declar({addr=caddr, value = pt, ...}) :: vs)  =
-                        let
-                            (* Non-function binding. *)
-                            val newAddr = makeDecl caddr
-                            val rest = copyDeclarations vs
-                        in
-                            BICDeclar{addr=newAddr, value=insert pt} :: rest
-                        end
-
-                    |   copyDeclarations (RecDecs mutualDecs :: vs)  =
-                        let
-                          (* Mutually recursive declarations. Any of the declarations
-                             may refer to any of the others. This causes several problems
-                             in working out the use-counts and whether the functions 
-                             (they should be functions) need closures. A function will
-                             need a closure if any reference would require one (i.e. does
-                             anything other than call it). The reference may be from one
-                             of the other mutually recursive declarations and may be 
-                             because that function requires a full closure. This means
-                             that once we have dealt with any references in the rest of
-                             the containing block we have to repeatedly scan the list of
-                             declarations removing those which need closures until we
-                             are left with those that do not. The use-counts can only be
-                             obtained when all the non-local lists have been copied. *)
-                  
-                           (* First go down the list making a declaration for each entry.
-                              This makes sure there is a table entry for all the
-                              declarations. *)
-
-                            val _ = List.map (fn {addr, ...} => makeDecl addr) mutualDecs
-
-                            (* Process the rest of the block. Identifies all other
-                               references to these declarations. *)
-                            val restOfBlock = copyDeclarations vs
-
-                            (* We now want to find out which of the declarations require
-                               closures. First we copy all the declarations, except that
-                               we don't copy the non-local lists of functions. *)
-                            fun copyDec ({addr=caddr, lambda, ...}) = 
-                                let
-                                    val (dec, newClosure, makeRecClosure, cfArgs) = copyLambda lambda
-                                    val () =
-                                        if makeRecClosure then Array.update (closuresForLocals, caddr, true) else ()
-                                    val () = Array.update(argProperties, caddr, cfArgs)
-
-                                in
-                                    (caddr, dec, newClosure)
-                                end             
-
-                            val copiedDecs = map copyDec mutualDecs
-                   
-                            (* We now have identified all possible references to the
-                               functions apart from those of the closures themselves.
-                               Any of closures may refer to any other function so we must 
-                               iterate until all the functions which need full closures
-                               have been processed. *)
-                            fun processClosures([], outlist, true) =
-                                (* Sweep completed. - Must repeat. *)
-                                processClosures(outlist, [], false)
-            
-                            |   processClosures([], outlist, false) =
-                                (* We have processed the whole of the list without finding
-                                   anything which needs a closure. The remainder do not
-                                   need full closures. *)
-                                let
-                                    fun mkLightClosure ((addr, value, newClosure)) = 
-                                        let
-                                            val clos = copyProcClosure(value, newClosure, false)
-                                            val newAddr = Array.sub(newLocalAddresses, addr)
-                                        in
-                                            {addr=newAddr, value=clos}
-                                        end          
-                                in
-                                    map mkLightClosure outlist
-                                end
-                  
-                            |   processClosures((h as (caddr, value, newClosure))::t, outlist, someFound) =
-                                if Array.sub(closuresForLocals, caddr)
-                                then
-                                let (* Must copy it. *)
-                                    val clos = copyProcClosure(value, newClosure, true)
-                                    val newAddr = Array.sub(newLocalAddresses, caddr)
-                                in
-                                    {addr=newAddr, value=clos} :: processClosures(t, outlist, true)
-                                end
-                                    (* Leave it for the moment. *)
-                                else processClosures(t, h :: outlist, someFound)
-                  
-                            val decs = processClosures(copiedDecs, [], false)
-
-                            local
-                                fun isLambda{value=BICLambda _, ...} = true
-                                |   isLambda _ = false
-                            in
-                                val (lambdas, nonLambdas) = List.partition isLambda decs
-                            end
-                            fun asMutual{addr, value = BICLambda lambda} = {addr=addr, lambda=lambda}
-                            |   asMutual _ = raise InternalError "asMutual"
-                        in
-                            (* Return the mutual declarations and the rest of the block. *)
-                            if null lambdas
-                            then map BICDeclar nonLambdas @ restOfBlock         (* None left *)
-                            else BICRecDecs (map asMutual lambdas) :: (map BICDeclar nonLambdas @ restOfBlock)
-                        end (* copyDeclarations.isMutualDecs *)
-          
-                    |   copyDeclarations (NullBinding v :: vs)  =
-                        let (* Not a declaration - process this and the rest. *)
-                           (* Must process later expressions before earlier
-                               ones so that the last references to variables
-                               are found correctly. DCJM 30/11/99. *)
-                            val copiedRest = copyDeclarations vs;
-                            val copiedNode = insert v
-                        in
-                            (* Expand out blocks *)
-                            case copiedNode of
-                                BICNewenv(decs, exp) => decs @ (BICNullBinding exp :: copiedRest)
-                            |   _ => BICNullBinding copiedNode :: copiedRest
-                        end
-
-                    |   copyDeclarations (Container{addr, size, setter, ...} :: vs) =
-                        let
-                            val newAddr = makeDecl addr
-                            val rest = copyDeclarations vs
-                            val setCode = insert setter
-                        in
-                            BICDecContainer{addr=newAddr, size=size} :: BICNullBinding setCode :: rest
-                        end
-
-                    val insElist = copyDeclarations(ptElist @ [NullBinding ptExp])
-
-                    fun mkEnv([], exp) = exp
-                    |   mkEnv(decs, exp) = BICNewenv(decs, exp)
-
-                    fun decSequenceWithFinalExp decs =
-                    let
-                        fun splitLast _ [] = raise InternalError "decSequenceWithFinalExp: empty"
-                        |   splitLast decs [BICNullBinding exp] = (List.rev decs, exp)
-                        |   splitLast _ [_] = raise InternalError "decSequenceWithFinalExp: last is not a NullDec"
-                        |   splitLast decs (hd::tl) = splitLast (hd:: decs) tl
-                    in
-                        mkEnv(splitLast [] decs)
-                    end
+                    |   copyDeclarations(Container{addr, size, setter, ...} :: rest) =
+                            BICDecContainer{addr=addr, size=size} :: BICNullBinding (insert setter) :: copyDeclarations rest
                 in
-                    (* TODO: Tidy this up. *)
-                    decSequenceWithFinalExp insElist
+                    BICNewenv(copyDeclarations ptElist, insert ptExp)
                 end (* isNewEnv *)
                 
             |   insert(Tuple { fields, ...}) = BICTuple (map insert fields)
       
-            |   insert(Lambda lam) =
-                    (* Using a lambda in a context other than a call or being passed
-                       to a function that is known only to call the function.  It
-                       requires a heap closure. *)
-                    insertLambda(lam, true)
+            |   insert(Lambda lam) = BICLambda(insertLambda lam)
 
             |   insert(Handle { exp, handler, exPacketAddr }) =
                 let
-                    (* The order here is important.  We want to make sure that
-                       the last reference to a variable really is the last. *)
-                    val newAddr = makeDecl exPacketAddr
                     val hand = insert handler
                     val exp = insert exp
                 in
-                    BICHandle {exp = exp, handler = hand, exPacketAddr=newAddr}
+                    BICHandle {exp = exp, handler = hand, exPacketAddr=exPacketAddr}
                 end
 
             |   insert(SetContainer {container, tuple, filter}) =
@@ -461,12 +199,9 @@ struct
                         kind=kind, sourceLeft=insertAddress sourceLeft,
                         destRight=insertAddress destRight, length=insert length}
 
-            and insertLambda (lam, needsClosure) =
-            let
-                val (copiedLambda, newClosure, _, _) = copyLambda lam
-            in
-                copyProcClosure (copiedLambda, newClosure, needsClosure)
-            end
+            and insertLambda{body, name, closure, argTypes, resultType, localCount, ... } : bicLambdaForm =
+                { body = insert body, name=name, closure = map locaddr closure, argTypes=map #1 argTypes,
+                  resultType=resultType, localCount=localCount }
 
             and insertAddress{base, index, offset} =
                 {base=insert base, index=Option.map insert index, offset=offset}
@@ -684,182 +419,21 @@ struct
                     end
                 end
             |   reconvertCase (NotACase t) = t (* Just a simple conditional. *)
-            
 
-            (* If "makeClosure" is true the function will need a full closure.
-               It may need a full closure even if makeClosure is false if it
-               involves a recursive reference which will need a closure. *)
-            and copyLambda ({body=lambdaBody, argTypes,
-                             name=lambdaName, resultType, localCount, closure=lambdaClosure, ...}: lambdaForm) =
-            let
-                val newGrefs: loadForm list ref      = ref [] (* non-local references *)
-                val newNorefs     = ref 0  (* number of non-local refs *)
-                val makeClosureForRecursion = ref false
-       
-                (* A new table for the new function. *)
-                fun prev (closureAddr, closure) =
-                let 
-                    val loadEntry = List.nth(lambdaClosure, closureAddr)
-
-                    (* Returns the closure address of the non-local *)
-                    fun makeClosureEntry([], _) = (* not found - construct new entry *)
-                        let
-                            val () = newGrefs := loadEntry ::  !newGrefs;
-                            val newAddr = !newNorefs + 1;
-                        in
-                            newNorefs := newAddr; (* increment count *)
-                            newAddr-1
-                        end
-        
-                    |   makeClosureEntry(oldEntry :: t, newAddr) =
-                        if oldEntry = loadEntry
-                        then newAddr-1
-                        else makeClosureEntry(t, newAddr - 1)
-
-                    (* Set the closure flag if necessary and get the argument props.
-                       At this point we discard the "Load" entry returned by nonLocals
-                       and "recursive".  The closure will be processed later. *)
-                    val argProps =
-                        case loadEntry of
-                            LoadLocal addr =>
-                            let
-                                val () =
-                                    if closure 
-                                    then Array.update (closuresForLocals, addr, true)
-                                    else ()
-                            in
-                                Array.sub(argProperties, addr)
-                            end
-
-                        |   LoadArgument addr => (argClosure(addr, closure); [])
-
-                        |   LoadRecursive => (recursive closure; [])
-                            
-                        |   LoadClosure entry => #2 (nonLocals (entry, closure))
-                in
-                    (* Just return the closure entry. *)
-                    (BICLoadClosure(makeClosureEntry (!newGrefs, !newNorefs)), argProps)
-                end
-
-                fun recCall closure =
-                    (* Reference to the closure itself. *)
-                    ( if closure then makeClosureForRecursion := true else (); BICLoadRecursive )
-
-                local
-                    datatype tri = TriUnref | TriCall | TriClosure
-                    val argClosureArray = Array.array(List.length argTypes, TriUnref)
-                in
-                    fun argClosure(n, t) =
-                        Array.update(argClosureArray, n,
-                            (* If this is true it requires a closure.  If it is false it
-                               requires a closure if any other reference does. *)
-                            if t orelse Array.sub(argClosureArray, n) = TriClosure then TriClosure else TriCall)
-                    fun closureFreeArgs() =
-                        Array.foldri(fn (n, TriCall, l) => n :: l | (_, _, l) => l) [] argClosureArray
-                end
-
-                (* process the body *)
-                val newLocalAddresses = ref 0
-                val (insertedCode, _) =
-                    copyCode (lambdaBody, prev, recCall, localCount, newLocalAddresses, argClosure)
-                val globalRefs = !newGrefs
-                val cfArgs = closureFreeArgs()
-            in
-                (BICLambda 
-                    {
-                        body          = insertedCode,
-                        name          = lambdaName,
-                        closure       = [],
-                        argTypes      = map #1 argTypes,
-                        resultType    = resultType,
-                        localCount    = ! newLocalAddresses,
-                        heapClosure   = false
-                    },
-                 globalRefs, ! makeClosureForRecursion, cfArgs)
-            end (* copyLambda *)
-
-                (* Copy the closure of a function which has previously been
-                processed by copyLambda. *)
-            and copyProcClosure (BICLambda{ body, name, argTypes,
-                                           resultType, localCount, ...}, newClosure, heapClosure) =
-                let
-                    (* process the non-locals in this function *)
-                    (* If a heap closure is needed then any functions referred to
-                       from the closure also need heap closures.*)
-                    fun makeLoads ext = locaddr(ext, heapClosure)
-               
-                    val copyRefs = rev (map makeLoads newClosure)
-                in
-                    BICLambda
-                      {
-                        body          = body,
-                        name          = name,
-                        closure       = copyRefs,
-                        argTypes      = argTypes,
-                        resultType    = resultType,
-                        localCount    = localCount,
-                        heapClosure   = heapClosure orelse null copyRefs (* False if closure is empty *)
-                      }
-                end
-            |  copyProcClosure(pt, _, _) = pt (* may now be a constant *)
-            (* end copyProcClosure *)
         in
-            case pt of
-                Lambda lam => 
-                    let
-                        val (copiedLambda, newClosure, _, cfArgs) = copyLambda lam
-                        val code = copyProcClosure (copiedLambda, newClosure, true)
-                        val props =
-                            if null cfArgs then [] else [Universal.tagInject closureFreeArgsTag cfArgs]
-                    in
-                        (code, props)
-                    end
+            insert pt
+        end
 
-            |   c as Newenv(_, exp) =>
-                    let
-                        val code = insert c
-
-                        fun getProps(Extract(LoadLocal addr)) =
-                            let
-                                val cfArgs = Array.sub(argProperties, addr)
-                            in
-                                if null cfArgs then [] else [Universal.tagInject closureFreeArgsTag cfArgs]
-                            end
-
-                        |   getProps(Tuple { fields, ...}) =
-                            let
-                                val fieldProps = map getProps fields
-                            in
-                                if List.all null fieldProps
-                                then []
-                                else [Universal.tagInject CodeTags.tupleTag fieldProps]
-                            end
-
-                        |   getProps _ = []
-
-                        val props = getProps exp
-                     in
-                        (code, props)
-                    end
-
-            |   c as Constnt(_, p) => (insert c, p)
-
-            |   pt => (insert pt, [])
-        end (* copyCode *)
-
-        val outputAddresses = ref 0
-        fun topLevel _ = raise InternalError "outer level reached in copyCode"
-        val (insertedCode, argProperties) = 
-            copyCode (pt, topLevel, topLevel, localAddressCount, outputAddresses, fn _ => ())
+        val insertedCode = copyCode pt
     in
-        (insertedCode, argProperties)
+        insertedCode
     end (* staticLinkAndCases *)
     
     type closureRef = GCode.closureRef
 
     fun codeGenerate(lambda: lambdaForm, debugSwitches, closure) =
     let
-        val (code, argProperties) = staticLinkAndCases(Lambda lambda, 0)
+        val code = staticLinkAndCases(Lambda lambda)
         val backendCode = code
         val () =
             if Debug.getParameter Debug.codetreeAfterOptTag debugSwitches
@@ -867,7 +441,7 @@ struct
         val bicLambda = case backendCode of BackendTree.BICLambda lam => lam | _ => raise InternalError "Not BICLambda"
         val () = GCode.gencodeLambda(bicLambda, debugSwitches, closure)
     in
-        argProperties
+        []
     end
     
     structure Foreign = GCode.Foreign

@@ -25,8 +25,7 @@ sig
         closure       : bicLoadForm list,
         argTypes      : argumentType list,
         resultType    : argumentType,
-        localCount    : int,
-        heapClosure   : bool
+        localCount    : int
     }
     val gencodeLambda: bicLambdaForm * Universal.universal list * closureRef -> unit
    

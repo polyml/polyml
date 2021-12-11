@@ -287,8 +287,7 @@ struct
         closure       : bicLoadForm list,
         argTypes      : argumentType list,
         resultType    : argumentType,
-        localCount    : int,
-        heapClosure   : bool
+        localCount    : int
     }
 
     and bicAddress =
@@ -477,8 +476,7 @@ struct
                 )
             end
         
-        |   BICLambda {body, name, closure, argTypes,
-                  heapClosure, resultType, localCount} =>
+        |   BICLambda {body, name, closure, argTypes, resultType, localCount} =>
             let
                 fun prettyArgTypes [] = []
                 |   prettyArgTypes [last] = [prettyArgType last]
@@ -490,7 +488,6 @@ struct
                         PrettyBreak (1, 0),
                         PrettyString name,
                         PrettyBreak (1, 0),
-                        PrettyString ( "CL="  ^ Bool.toString heapClosure),
                         PrettyString (" LOCALS=" ^ Int.toString localCount),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], PrettyString "ARGS=" :: prettyArgTypes argTypes),
