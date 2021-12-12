@@ -160,25 +160,44 @@ struct
                        immediate form. *)
                     val (repOp1, mapOp1) = getRegisterValue(base, kill, regMap)
                     val (repOp2, mapOp2) = getRegisterValue(shifted, kill, mapOp1)
+                    val regAndImmed =
+                        case (repOp1, repOp2, isAdd, shift) of
+                            (_, AConstant immed, _, ShiftNone) => if immed < 0w4096 then SOME(base, immed) else NONE
+                            (* If this is an ADD we can also use the immediate if the first arg is a constant. *)
+                        |   (AConstant immed, _, true, ShiftNone) => if immed < 0w4096 then SOME(shifted, immed) else NONE
+                        |   _ => NONE
                 in
-                    case repOp2 of
-                        AConstant op2Const =>
-                        let
-                            val shiftedConst =
-                                case shift of
-                                    ShiftNone => op2Const
-                                |   _ => 0w4096 (* This doesn't currently happen. *)
-                        in
-                            if shiftedConst < 0w4096
-                            then
-                            (
+                    case regAndImmed of
+                        SOME(srcReg, immediate) =>
                                 optCode(rest, BRNone, mapOp2,
-                                AddSubImmediate{source=base, dest=dest, ccRef=ccRef,
-                                    immed=Word.fromLargeWord(Word64.toLargeWord shiftedConst), isAdd=isAdd, length=length} :: code, true)
-                            )
-                            else optCode(rest, BRNone, mapOp2, instr :: code, changed)
-                        end
-                    |   _ => optCode(rest, BRNone, mapOp2, instr :: code, changed)
+                                AddSubImmediate{source=srcReg, dest=dest, ccRef=ccRef,
+                                    immed=Word.fromLargeWord(Word64.toLargeWord immediate), isAdd=isAdd, length=length} :: code, true)
+                    |   NONE =>
+                            optCode(rest, BRNone, mapOp2, instr :: code, changed)
+                end
+
+            |   optCode({instr as LogicalRegister{base, shifted, dest, ccRef, logOp, length, shift}, kill, ...} :: rest,
+                        _, regMap, code, changed) =
+                let
+                    (* If we have a constant as the second argument we can change this to the
+                       immediate form. *)
+                    val (repOp1, mapOp1) = getRegisterValue(base, kill, regMap)
+                    val (repOp2, mapOp2) = getRegisterValue(shifted, kill, mapOp1)
+                    val regAndImmed =
+                        case (repOp1, repOp2, shift) of
+                            (_, AConstant immed, ShiftNone) =>
+                                if isEncodableBitPattern (immed, length) then SOME(base, immed) else NONE
+                        |   (AConstant immed, _, ShiftNone) =>
+                                if isEncodableBitPattern (immed, length) then SOME(shifted, immed) else NONE
+                        |   _ => NONE
+                in
+                    case regAndImmed of
+                        SOME(srcReg, immediate) =>
+                                optCode(rest, BRNone, mapOp2,
+                                LogicalImmediate{source=srcReg, dest=dest, ccRef=ccRef,
+                                    immed=immediate, logOp=logOp, length=length} :: code, true)
+                    |   NONE =>
+                            optCode(rest, BRNone, mapOp2, instr :: code, changed)
                 end
 
             |   optCode({instr as MoveRegister{dest, source}, kill, ...} :: rest, inCond, regMap, code, changed) =

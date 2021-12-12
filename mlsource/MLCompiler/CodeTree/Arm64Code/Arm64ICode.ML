@@ -566,6 +566,15 @@ struct
             Vector.appi(printBlock stream) blockVec
     end
 
+    (* Only certain bit patterns are allowed in a logical immediate instruction
+       but the encoding is complex so it's easiest to inherit the test from
+       the assembler layer. *)
+    local
+        fun optow OpSize32 = WordSize32 | optow OpSize64 = WordSize64
+    in
+        fun isEncodableBitPattern(v, w) = Arm64Code.isEncodableBitPattern(v, optow w)
+    end
+
     structure Sharing =
     struct
         type xReg           = xReg

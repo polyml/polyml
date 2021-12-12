@@ -281,6 +281,9 @@ sig
     val successorBlocks: controlFlow -> int list
 
     val printICodeAbstract: basicBlock vector * (string -> unit) -> unit
+
+    (* Check whether this value is acceptable for LogicalImmediate. *)
+    val isEncodableBitPattern: Word64.word * opSize -> bool
     
     structure Sharing:
     sig

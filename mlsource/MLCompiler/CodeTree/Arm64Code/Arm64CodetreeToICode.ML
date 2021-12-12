@@ -1321,8 +1321,50 @@ struct
         |   codeToICodeBinaryRev({oper=BuiltIns.WordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: WordArith"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical _, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: WordLogical"
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                (* Since both values are tagged the tag will be preserved. *)
+                val code =
+                    logicalRegister{base=aReg1, shifted=aReg2, dest=SOME target, length=polyWordOpSize,
+                                    ccRef=NONE, logOp=LogAnd, shift=ShiftNone} :: arg2Code
+            in
+                (code , target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                (* Since both values are tagged the tag will be preserved. *)
+                val code =
+                    logicalRegister{base=aReg1, shifted=aReg2, dest=SOME target, length=polyWordOpSize,
+                                    ccRef=NONE, logOp=LogOr, shift=ShiftNone} :: arg2Code
+            in
+                (code , target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                (* If we just XOR the values together the tag bit in the result will be zero.
+                   It's better to remove one of the tag bits beforehand.  As with Add, we
+                   try to choose a constant. *)
+                val (firstReg, secondReg) =
+                    case arg1 of BICConstnt _ => (aReg2, aReg1) | _ => (aReg1, aReg2)
+                val uReg = newUReg()
+                val code =
+                    logicalRegister{base=firstReg, shifted=uReg, dest=SOME target, length=polyWordOpSize,
+                                 ccRef=NONE, logOp=LogXor, shift=ShiftNone} ::
+                    addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
+            in
+                (code , target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.WordShift _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: WordShift"
@@ -1330,8 +1372,30 @@ struct
         |   codeToICodeBinaryRev({oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: AllocateByteMemory"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordComparison _, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: LargeWordComparison"
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordComparison test, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val ccRef = newCCRef()
+                val (testCode1, testDest1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (testCode2, testDest2, _) = codeToICodeRev(arg2, context, false, AnyReg, testCode1)
+                val uReg1 = newUReg() and uReg2 = newUReg()
+                val comparison =
+                    addSubRegister{base=uReg1, shifted=uReg2, dest=NONE, length=OpSize64,
+                                   ccRef=SOME ccRef, isAdd=false, shift=ShiftNone} ::
+                    unboxValue{ boxKind=BoxLargeWord, source=testDest2, dest=uReg2 } ::
+                    unboxValue{ boxKind=BoxLargeWord, source=testDest1, dest=uReg1 } :: testCode2
+                open BuiltIns
+                val cond =
+                    case test of
+                        TestEqual => CondEqual
+                    |   TestLess => CondCarryClear
+                    |   TestLessEqual => CondUnsignedLowOrEq
+                    |   TestGreater => CondUnsignedHigher
+                    |   TestGreaterEqual => CondCarrySet
+                    |   TestUnordered => raise InternalError "LargeWordComparison: TestUnordered"
+            in
+                (makeBoolResultRev(cond, ccRef, target, comparison), target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
             let
@@ -1368,8 +1432,23 @@ struct
         |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: LargeWordArith"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordLogical _, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: LargeWordLogical"
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordLogical logop, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                open BuiltIns
+                val logicalOp = case logop of LogicalAnd => LogAnd | LogicalOr => LogOr | LogicalXor => LogXor
+                val code =
+                    boxValue{ boxKind=BoxLargeWord, source=uReg3, dest=target, saveRegs=[] } ::
+                    logicalRegister{base=uReg1, shifted=uReg2, dest=SOME uReg3, length=OpSize64,
+                                   ccRef=NONE, logOp=logicalOp, shift=ShiftNone} ::
+                    unboxValue{ boxKind=BoxLargeWord, source=aReg2, dest=uReg2 } ::
+                    unboxValue{ boxKind=BoxLargeWord, source=aReg1, dest=uReg1 } :: arg2Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordShift _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: LargeWordShift"
