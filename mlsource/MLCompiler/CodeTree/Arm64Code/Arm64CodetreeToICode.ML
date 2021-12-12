@@ -80,7 +80,10 @@ struct
     and storeRelease = BlockSimple o StoreRelease
     and bitField = BlockSimple o BitField
 
+    (* Many operations use 32-bit arguments in 32-in-64 and 64-bit in native 64. *)
     val polyWordLoadSize = if is32in64 then Load32 else Load64
+    val polyWordOpSize = if is32in64 then OpSize32 else OpSize64
+
     (* The flags byte is the high-order byte of length word. *)
     val flagsByteOffset = if isBigEndian then ~ (Word.toInt wordSize) else ~1
 
@@ -377,8 +380,7 @@ struct
                             (* Logical shift if this is a Poly address, arithmetic shift if this is
                                a C address. *)
                             val iCode2 =
-                                untagValue{source=iReg1, dest=iReg2,
-                                           opSize=if is32in64 then OpSize32 else OpSize64, isSigned=isCAddress } :: iCode1
+                                untagValue{source=iReg1, dest=iReg2, opSize=polyWordOpSize, isSigned=isCAddress } :: iCode1
                         in
                             if offset = 0
                             then (iCode2, SOME iReg2)
@@ -448,6 +450,52 @@ struct
         in
             loadAndStoreWithAddress codeValue (address, getStoreValue, loadType, false, loadStoreOffset, loadStoreIndex, context, code)
         end
+
+        (* Overflow check.  This raises Overflow if the overflow bit is set in the cc.  This generates
+           a single block for the function unless there is a handler.
+           As well as reducing the size of the code this also means that overflow checks are generally
+           BO instructions to the end of the code.  Since the default branch prediction is not to take
+           forward jumps this should improve prefetching on the normal, non-overflow, path. *)
+        fun checkOverflow ({currHandler=NONE, overflowBlock=ref(SOME overFlowLab), ...}) ccRef =
+            (* It's already been set and there's no surrounding handler - use this. *)
+            let
+                val noOverflowLab = newLabel()
+            in
+                [
+                    BlockLabel noOverflowLab,
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=CondOverflow, trueJump=overFlowLab, falseJump=noOverflowLab })
+                ]
+            end
+
+        |   checkOverflow ({currHandler=NONE, overflowBlock, ...}) ccRef =
+            let
+                (* *)
+                val overFlowLab = newLabel() and noOverflowLab = newLabel()
+                val packetReg = newPReg()
+                val () = overflowBlock := SOME overFlowLab
+            in
+                [
+                    BlockLabel noOverflowLab,
+                    BlockExit(RaiseExceptionPacket{packetReg=packetReg}),
+                    loadAddressConstant{source=toMachineWord(Overflow), dest=packetReg},
+                    BlockLabel overFlowLab,
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=CondOverflow, trueJump=overFlowLab, falseJump=noOverflowLab })
+                ]
+            end
+
+        |   checkOverflow ({currHandler=SOME h, ...}) ccRef =
+            let
+                val overFlowLab = newLabel() and noOverflowLab = newLabel()
+                val packetReg = newPReg()
+            in
+                [
+                    BlockLabel noOverflowLab,
+                    BlockRaiseAndHandle(RaiseExceptionPacket{packetReg=packetReg}, h),
+                    loadAddressConstant{source=toMachineWord(Overflow), dest=packetReg},
+                    BlockLabel overFlowLab,
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=CondOverflow, trueJump=overFlowLab, falseJump=noOverflowLab })
+                ]
+            end
 
         fun codeToICodeRev(BICNewenv (bindings, exp), context: context as {stackPtr=initialSp, ...}, isTail, destination, tailCode) =
             let
@@ -1174,11 +1222,9 @@ struct
                 val ccRef = newCCRef()
                 val (testCode1, testDest1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
                 val (testCode2, testDest2, _) = codeToICodeRev(arg2, context, false, AnyReg, testCode1)
-                val opSize = if is32in64 then OpSize32 else OpSize64
                 val comparison =
-                    BlockSimple(
-                        AddSubRegister{base=testDest1, shifted=testDest2, dest=NONE, length=opSize, ccRef=SOME ccRef, isAdd=false, shift=ShiftNone}) ::
-                            testCode2
+                    addSubRegister{base=testDest1, shifted=testDest2, dest=NONE, length=polyWordOpSize,
+                                   ccRef=SOME ccRef, isAdd=false, shift=ShiftNone} :: testCode2
                 val target = asTarget destination
                 open BuiltIns
                 val cond =
@@ -1197,8 +1243,80 @@ struct
                 (makeBoolResultRev(cond, ccRef, target, comparison), target, false)
             end
 
+        |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                (* We need to subtract the tag from one of the arguments and then do the
+                   addition.  The optimiser will do the subtraction at compile time if we
+                   subtract from a constant so try to put the constant in the second arg. *)
+                val (firstReg, secondReg) =
+                    case arg1 of BICConstnt _ => (aReg2, aReg1) | _ => (aReg1, aReg2)
+                val uReg = newUReg()
+                val chkOverflow = newCCRef()
+                val code =
+                    checkOverflow context chkOverflow @
+                    addSubRegister{base=firstReg, shifted=uReg, dest=SOME target, length=polyWordOpSize,
+                                 ccRef=SOME chkOverflow, isAdd=true, shift=ShiftNone} ::
+                    addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
+            in
+                (code , target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg = newUReg()
+                val chkOverflow = newCCRef()
+                val code =
+                    checkOverflow context chkOverflow @
+                    addSubRegister{base=aReg1, shifted=uReg, dest=SOME target, length=polyWordOpSize,
+                                 ccRef=SOME chkOverflow, isAdd=false, shift=ShiftNone} ::
+                    addSubImmediate{dest=SOME uReg, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
+            in
+                (code , target, false)
+            end
+
         |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                (* We need to subtract the tag from one of the arguments and then do the
+                   addition.  The optimiser will do the subtraction at compile time if we
+                   subtract from a constant so try to put the constant in the second arg. *)
+                val (firstReg, secondReg) =
+                    case arg1 of BICConstnt _ => (aReg2, aReg1) | _ => (aReg1, aReg2)
+                val uReg = newUReg()
+                val code =
+                    addSubRegister{base=firstReg, shifted=uReg, dest=SOME target, length=polyWordOpSize,
+                                 ccRef=NONE, isAdd=true, shift=ShiftNone} ::
+                    addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
+            in
+                (code , target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg = newUReg()
+                (* TODO: If the first argument is a constant we could add one to that rather than
+                   subtracting one from the second argument.  We're not concerned with overflow. *)
+                val code =
+                    addSubRegister{base=aReg1, shifted=uReg, dest=SOME target, length=polyWordOpSize,
+                                 ccRef=NONE, isAdd=false, shift=ShiftNone} ::
+                    addSubImmediate{dest=SOME uReg, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
+            in
+                (code , target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.WordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: WordArith"
@@ -1214,6 +1332,38 @@ struct
 
         |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordComparison _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: LargeWordComparison"
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                val code =
+                    boxValue{ boxKind=BoxLargeWord, source=uReg3, dest=target, saveRegs=[] } ::
+                    addSubRegister{base=uReg1, shifted=uReg2, dest=SOME uReg3, length=OpSize64,
+                                   ccRef=NONE, isAdd=true, shift=ShiftNone} ::
+                    unboxValue{ boxKind=BoxLargeWord, source=aReg2, dest=uReg2 } ::
+                    unboxValue{ boxKind=BoxLargeWord, source=aReg1, dest=uReg1 } :: arg2Code
+            in
+                (code, target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                val code =
+                    boxValue{ boxKind=BoxLargeWord, source=uReg3, dest=target, saveRegs=[] } ::
+                    addSubRegister{base=uReg1, shifted=uReg2, dest=SOME uReg3, length=OpSize64,
+                                   ccRef=NONE, isAdd=false, shift=ShiftNone} ::
+                    unboxValue{ boxKind=BoxLargeWord, source=aReg2, dest=uReg2 } ::
+                    unboxValue{ boxKind=BoxLargeWord, source=aReg1, dest=uReg1 } :: arg2Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: LargeWordArith"
@@ -1237,9 +1387,9 @@ struct
                 val ccRef = newCCRef()
                 val (testCode1, testDest1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
                 val (testCode2, testDest2, _) = codeToICodeRev(arg2, context, false, AnyReg, testCode1)
-                val opSize = if is32in64 then OpSize32 else OpSize64
                 val comparison =
-                    addSubRegister{base=testDest1, shifted=testDest2, dest=NONE, length=opSize, ccRef=SOME ccRef, isAdd=false, shift=ShiftNone} :: testCode2
+                    addSubRegister{base=testDest1, shifted=testDest2, dest=NONE, length=polyWordOpSize,
+                                   ccRef=SOME ccRef, isAdd=false, shift=ShiftNone} :: testCode2
                 val target = asTarget destination
             in
                 (makeBoolResultRev(CondEqual, ccRef, target, comparison), target, false)

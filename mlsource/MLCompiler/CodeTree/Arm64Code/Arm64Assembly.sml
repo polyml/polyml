@@ -2412,6 +2412,8 @@ struct
             and nonAddressConsts = List.rev nonAddrConsts
         end
         
+        (* Generate the code and set the constant addresses at the same time.
+           TODO: The X86 code-generator sorts the constants to remove duplicates. *)
         val (byteVec, nativeWordsOfCode) = genCode(instrs, addressConsts, nonAddressConsts)
         val wordsOfCode = nativeWordsOfCode * wordsPerNativeWord
 

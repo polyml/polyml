@@ -67,11 +67,11 @@ struct
             PReg (!regCounter)
         ) before regCounter := !regCounter + 1
 
-        fun registerProperty(PReg r) =
-            if r < pregPropSize then Vector.sub(pregProps, r)
-            else List.nth(!regList, !regCounter - r - 1)
-
-        datatype regValue = ARegister of preg | AConstant of Word64.word
+        (* Constant values in registers. *)
+        datatype regValue =
+            SomeValue
+        |   AConstant of Word64.word
+        |   WordConstant of machineWord
 
         (* If this argument is a register and the register is mapped to a constant
            or another register replace the value.  Unlike the X86 version we
@@ -89,15 +89,15 @@ struct
                     then List.filter(fn {dest, ...} => dest <> preg) regMap
                     else regMap
                 )
-            |   NONE => (ARegister preg, regMap)
+            |   NONE => (SomeValue, regMap)
         )
 
         fun optimiseBlock processed (block, flow, outCCState) =
         let
-            fun optCode([], brCond, regMap, code) = (code, brCond, regMap)
+            fun optCode([], brCond, regMap, code, changed) = (code, brCond, regMap, changed)
 
-            |   optCode({instr=AddSubImmediate{source, dest=NONE, ccRef=SOME ccRefOut, immed, isAdd=false, length}, kill, ...} :: rest,
-                        _, regMap, code) =
+            |   optCode({instr as AddSubImmediate{source, dest=NONE, ccRef=SOME ccRefOut, immed, isAdd=false, length}, kill, ...} :: rest,
+                        _, regMap, code, changed) =
                 let
                     val (repArg1, memRefsOut) = getRegisterValue(source, kill, regMap)
                 in
@@ -125,16 +125,36 @@ struct
                                     unsignedCompare=Word64.compare(test, Word64.fromLarge(Word.toLargeWord immed))}
                             val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
                         in
-                            optCode(rest, repl, memRefsOut, code)
+                            optCode(rest, repl, memRefsOut, code, true)
                         end
                 
-                    |   ARegister repArg1 =>
-                            optCode(rest, BRNone, memRefsOut,
-                                AddSubImmediate{source=repArg1, dest=NONE, ccRef=SOME ccRefOut, immed=immed, isAdd=false, length=length} ::code)
+                    |   _ => optCode(rest, BRNone, memRefsOut, instr :: code, changed)
+                end
+
+            |   optCode({instr as AddSubImmediate{source, dest=SOME dest, ccRef=NONE, immed, isAdd, length}, kill, ...} :: rest, _, regMap, code, changed) =
+                (* This is frequently used to remove a tag from a value before an addition or subtraction.
+                   If it's a constant we want to do that now. *)
+                let
+                    val (repArg1, newMap) = getRegisterValue(source, kill, regMap)
+                in
+                    case repArg1 of
+                        AConstant cVal =>
+                        let
+                            val addSub = if isAdd then cVal + Word.toLarge immed else cVal - Word.toLarge immed
+                            (* Mask the result to 32-bits if this is a 32-bit operation. *)
+                            val result =
+                                case length of OpSize32 => Word64.andb(addSub, Word64.<<(0w1, 0w32) - 0w1) | OpSize64 => addSub
+                        in
+                            optCode(rest, BRNone,
+                                {dest=dest, source=AConstant result} :: newMap,
+                                    LoadNonAddressConstant{dest=dest, source=result} :: code, true)
+                        end
+
+                    |   _ => optCode(rest, BRNone, newMap, instr ::code, changed)
                 end
 
             |   optCode({instr as AddSubRegister{base, shifted, dest, ccRef, isAdd, length, shift}, kill, ...} :: rest,
-                        _, regMap, code) =
+                        _, regMap, code, changed) =
                 let
                     (* If we have a constant as the second argument we can change this to the
                        immediate form. *)
@@ -150,40 +170,31 @@ struct
                                 |   _ => 0w4096 (* This doesn't currently happen. *)
                         in
                             if shiftedConst < 0w4096
-                            then optCode(rest, BRNone, mapOp2,
+                            then
+                            (
+                                optCode(rest, BRNone, mapOp2,
                                 AddSubImmediate{source=base, dest=dest, ccRef=ccRef,
-                                    immed=Word.fromLargeWord(Word64.toLargeWord shiftedConst), isAdd=isAdd, length=length} :: code)
-                            else optCode(rest, BRNone, mapOp2, instr :: code)
+                                    immed=Word.fromLargeWord(Word64.toLargeWord shiftedConst), isAdd=isAdd, length=length} :: code, true)
+                            )
+                            else optCode(rest, BRNone, mapOp2, instr :: code, changed)
                         end
-                    |   ARegister repReg =>
-                            optCode(rest, BRNone, mapOp2,
-                                AddSubRegister{base=base, shifted=repReg, dest=dest, ccRef=ccRef, isAdd=isAdd, length=length, shift=shift} :: code)
+                    |   _ => optCode(rest, BRNone, mapOp2, instr :: code, changed)
                 end
 
-            |   optCode({instr=MoveRegister{dest, source}, kill, ...} :: rest, inCond, regMap, code) =
+            |   optCode({instr as MoveRegister{dest, source}, kill, ...} :: rest, inCond, regMap, code, changed) =
                 let
                     val (repSource, mapAfterReplace) = getRegisterValue(source, kill, regMap)
-                    (* We can add this destination to the map as equivalent to the source if
-                       the source is a constant but if it's a register we have to check the
-                       properties.  If we're moving a merge register into a normal
-                       register we want to leave the move here.  This is the defining
-                       occurrence for the normal register and if we later need to
-                       push it we'll do that here. *)
-                    val (newSource, addToMap) =
-                        case repSource of
-                            ARegister repReg => (repReg, registerProperty dest = registerProperty source)
-                        |   AConstant _ => (source, true)
+                    (* If the source is mapped to a constant we can set the destination to
+                       the same constant. *)
                     val newMap =
-                        if addToMap then {dest=dest, source=repSource} :: mapAfterReplace else mapAfterReplace
+                        case repSource of
+                            SomeValue => mapAfterReplace
+                        |   _ => {dest=dest, source=repSource} :: mapAfterReplace
                 in
-                    (* If the source is mapped to a different register use that otherwise
-                       leave it unchanged.  Add this to the map.
-                       The X86 version replaces the source here but it's probably better to
-                       leave this as a register move. *)
-                    optCode(rest, inCond, newMap, MoveRegister{dest=dest, source=newSource}::code)
+                    optCode(rest, inCond, newMap, instr :: code, changed)
                 end
 
-            |   optCode({instr as LoadNonAddressConstant{dest, source}, ...} :: rest, inCond, regMap, code) =
+            |   optCode({instr as LoadNonAddressConstant{dest, source}, ...} :: rest, inCond, regMap, code, changed) =
                 let
                     (* If we already have a register with this constant we would probably
                        be better off reusing it.  The map, though, needs to indicate that the
@@ -194,23 +205,48 @@ struct
                             SOME{dest=cDest, ...} => MoveRegister{dest=dest, source=cDest}
                         |   NONE => instr
                 in
-                    optCode(rest, inCond, {dest=dest, source=AConstant source} :: regMap, newInstr :: code)
+                    optCode(rest, inCond, {dest=dest, source=AConstant source} :: regMap, newInstr :: code, changed)
+                end
+
+            |   optCode({instr as LoadAddressConstant{dest, source}, ...} :: rest, inCond, regMap, code, changed) =
+                    (* Address constant.  This is used in conjunction with UnboxValue *)
+                    optCode(rest, inCond, {dest=dest, source=WordConstant source} :: regMap, instr :: code, changed)
+
+            |   optCode({instr as UnboxValue{ boxKind=BoxLargeWord, source, dest, ... }, kill, ...} :: rest,
+                        inCond, regMap, code, changed) =
+                let
+                    val (repSource, mapAfterReplace) = getRegisterValue(source, kill, regMap)
+                in
+                    (* If we're unboxing a constant address we can unpack it now.  This is
+                       intended to handle constant aruments to LargeWord operations. *)
+                    case repSource of
+                        WordConstant cVal =>
+                        let
+                            (* Check this looks like a boxed large word. *)
+                            open Address
+                            val addr = toAddress cVal
+                            val _ = isBytes addr andalso length addr = 0w8 div wordSize
+                            val wordConst: LargeWord.word = RunCall.unsafeCast cVal
+                            val newMap = {dest=dest, source=AConstant wordConst} :: mapAfterReplace
+                        in
+                            optCode(rest, inCond, newMap, LoadNonAddressConstant{dest=dest, source=wordConst} :: code, true)
+                        end
+                    |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
                 (* Clear the cache across a function call.  We would have to push these registers. *)
-            |   optCode({instr as FunctionCall _, ...} :: rest, _, _, code) =
-                    optCode(rest, BRNone, [], instr::code)                
+            |   optCode({instr as FunctionCall _, ...} :: rest, _, _, code, changed) =
+                    optCode(rest, BRNone, [], instr::code, changed)                
 
-            |   optCode({instr as BeginLoop, ...} :: rest, _, _, code) =
+            |   optCode({instr as BeginLoop, ...} :: rest, _, _, code, changed) =
                     (* Any register value from outside the loop are not valid inside. *)
-                    optCode(rest, BRNone, [], instr::code)                
+                    optCode(rest, BRNone, [], instr::code, changed)                
 
-            |   optCode({instr as JumpLoop _, ...} :: rest, _, _, code) =
+            |   optCode({instr as JumpLoop _, ...} :: rest, _, _, code, changed) =
                     (* Likewise at the end of the loop.  Not sure if this is essential. *)
-                    optCode(rest, BRNone, [], instr::code)
+                    optCode(rest, BRNone, [], instr::code, changed)
 
-                (* TODO: It could be worth rewriting every instruction with any replaced source register. *)
-            |   optCode({instr, ...} :: rest, inCond, regMap, code) =
+            |   optCode({instr, ...} :: rest, inCond, regMap, code, changed) =
                 let
                     (* If this instruction affects the CC the cached SetToCondition will no longer be valid. *)
                     val afterCond =
@@ -218,10 +254,11 @@ struct
                             CCUnchanged => inCond
                         |   _ => BRNone
                 in
-                    optCode(rest, afterCond, regMap, instr::code)
+                    optCode(rest, afterCond, regMap, instr::code, changed)
                 end
 
-            val (blkCode, finalRepl, finalMap) = optCode(block, BRNone, [], processed)
+            val (blkCode, finalRepl, finalMap, blockChanged) = optCode(block, BRNone, [], processed, false)
+            val _ = if blockChanged then hasChanged := true else ()
         in
             case (flow, finalRepl) of
                 (* We have a Condition and a change to the condition. *)

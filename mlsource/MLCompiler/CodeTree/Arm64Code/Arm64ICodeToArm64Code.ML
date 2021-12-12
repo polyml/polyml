@@ -826,7 +826,8 @@ struct
                 val destReg = getAllocatedGenReg dReg
                 val storeOp =
                     case boxKind of
-                        BoxLargeWord => storeRegScaled{regT=destReg, regN=getAllocatedGenReg sReg, unitOffset=0}
+                        BoxLargeWord => (* Store the source register into the new area. *)
+                            storeRegScaled{regN=destReg, regT=getAllocatedGenReg sReg, unitOffset=0}
                     |   _ => raise InternalError "codeExtended; Box"
             in
                 storeOp :: allocCode
