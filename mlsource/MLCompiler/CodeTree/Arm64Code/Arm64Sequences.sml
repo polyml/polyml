@@ -15,7 +15,8 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* Sequences of instructions for various purposes. *)
+(* Sequences of instructions for various purposes that are
+   used both in the main code-generator and the FFI code. *)
 
 functor Arm64Sequences (
     structure Arm64Assembly: ARM64ASSEMBLY
@@ -106,8 +107,70 @@ struct
 
         end
     end
-    
 
+    local
+        fun allocateWords(fixedReg, workReg, words, bytes, regMask) =
+        let
+            val label = createLabel()
+            (* Because X30 is used in the branchAndLink it has to be pushed
+               across any trap. *)
+            val saveX30 = List.exists (fn r => r = X30) regMask
+            val preserve = List.filter (fn r => r <> X30) regMask
+        in
+            [
+                (* Subtract the number of bytes required from the heap pointer. *)
+                subImmediate{regN=X_MLHeapAllocPtr, regD=fixedReg, immed=bytes, shifted=false},
+                (* Compare the result with the heap limit. *)
+                subSShiftedReg{regM=X_MLHeapLimit, regN=fixedReg, regD=XZero, shift=ShiftNone},
+                conditionalBranch(CondCarrySet, label)
+            ] @
+            (if saveX30 then [storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8}] else []) @
+            [
+                loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset},
+                branchAndLinkReg X16,
+                registerMask preserve
+            ] @
+            (if saveX30 then [loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8}] else []) @
+            [
+                setLabel label,
+                (* Update the heap pointer. *)
+                moveRegToReg{sReg=fixedReg, dReg=X_MLHeapAllocPtr}
+            ] @
+                loadNonAddress(workReg,
+                    Word64.orb(words, Word64.<<(Word64.fromLarge(Word8.toLarge Address.F_bytes),
+                        if is32in64 then 0w24 else 0w56)))
+            @
+            [
+                (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
+                if is32in64
+                then storeRegUnscaled32{regT=workReg, regN=fixedReg, byteOffset= ~4}
+                else storeRegUnscaled{regT=workReg, regN=fixedReg, byteOffset= ~8}
+            ]
+        end
+
+        fun absoluteAddressToIndex reg =
+        if is32in64
+        then
+        [
+            subShiftedReg{regM=X_Base32in64, regN=reg, regD=reg, shift=ShiftNone},
+            logicalShiftRight{shift=0w2, regN=reg, regD=reg}
+        ]
+        else []
+
+    in
+        fun boxDouble{source, destination, workReg, saveRegs} =
+            allocateWords(destination, workReg, if is32in64 then 0w2 else 0w1, 0w16, saveRegs) @
+                storeRegScaledDouble{regT=source, regN=destination, unitOffset=0} ::
+                absoluteAddressToIndex destination
+        and boxSysWord{source, destination, workReg, saveRegs} =
+            allocateWords(destination, workReg, if is32in64 then 0w2 else 0w1, 0w16, saveRegs) @
+                storeRegScaled{regT=source, regN=destination, unitOffset=0} ::
+                absoluteAddressToIndex destination
+        and boxFloat{source, destination, workReg, saveRegs} =
+            allocateWords(destination, workReg, 0w1, 0w8, saveRegs) @
+                storeRegScaledFloat{regT=source, regN=destination, unitOffset=0} ::
+                absoluteAddressToIndex destination
+    end
 
     structure Sharing =
     struct

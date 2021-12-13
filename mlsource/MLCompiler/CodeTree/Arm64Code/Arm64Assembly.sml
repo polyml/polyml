@@ -1740,7 +1740,7 @@ struct
                 |   _ => printStream "??"
             end
 
-            else if (wordValue andb 0wx3f800000) = 0wx11000000
+            else if (wordValue andb 0wx1f800000) = 0wx11000000
             then
             let
                 (* Add/Subtract a 12-bit immediate with possible shift. *)
@@ -1750,35 +1750,23 @@ struct
                 and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
                 and shiftBit = wordValue andb 0wx400000
                 val imm = if shiftBit <> 0w0 then imm12 << 0w12 else imm12
-                val opr = if (wordValue andb 0wx40000000) = 0w0 then "add" else "sub"
+                val oper = (wordValue andb 0wx40000000) = 0w0
+                val isS = (wordValue andb 0wx20000000) <> 0w0
                 val prReg = if sf = 0w1 then prXRegOrSP else prWRegOrSP
             in
-                if imm12 = 0w0 andalso (rN = 0w31 orelse rD = 0w31)
+                if imm12 = 0w0 andalso (rN = 0w31 orelse rD = 0w31) andalso not isS
                 then (printStream "mov\t"; prReg rD; printStream ","; prReg rN)
                 else
                 (
-                    printStream opr; printStream "\t"; prReg rD;
-                    printStream ","; prReg rN;
-                    printStream ",#"; printStream(Word32.fmt StringCvt.DEC imm)
+                    if isS andalso rD = 0w31
+                    then printStream(if oper then "cmn\t" else "cmp\t")
+                    else
+                    (
+                        printStream(if oper then "add" else "sub"); printStream(if isS then "s\t" else "\t");
+                        prReg rD; printStream ","
+                    );
+                    prReg rN; printStream ",#"; printStream(Word32.fmt StringCvt.DEC imm)
                 )
-            end
-
-            else if (wordValue andb 0wx7f800000) = 0wx71000000
-            then
-            let
-                (* Subtract a 12-bit immediate with possible shift, setting flags. *)
-                val sf = (wordValue >> 0w31) andb 0w1
-                val rD = wordValue andb 0wx1f
-                and rN = (wordValue andb 0wx3e0) >> 0w5
-                and imm12 = (wordValue andb 0wx3ffc00) >> 0w10
-                and shiftBit = wordValue andb 0wx400000
-                val imm = if shiftBit <> 0w0 then imm12 << 0w12 else imm12
-                val prReg = if sf = 0w1 then prXRegOrSP else prWRegOrSP
-            in
-                if rD = 0w31
-                then printStream "cmp\t"
-                else (printStream "subs\t"; prReg rD; printStream ",");
-                prReg rN; printStream ",#"; printStream(Word32.fmt StringCvt.DEC imm)
             end
 
             else if (wordValue andb 0wx7fe0ffe0) = 0wx2A0003E0
@@ -1812,9 +1800,14 @@ struct
                     |   (0w3, 0w0) => "ands"
                     |   _ => "??"
             in
-                printStream opcode; printStream"\t";
-                printStream reg;
-                printStream(Word32.fmt StringCvt.DEC rD); printStream ",";
+                if rD = 0w31 andalso opc=0w3 andalso nBit = 0w0
+                then printStream "tst\t"
+                else
+                (
+                    printStream opcode; printStream"\t";
+                    printStream reg;
+                    printStream(Word32.fmt StringCvt.DEC rD); printStream ","
+                );
                 printStream reg; printStream(Word32.fmt StringCvt.DEC rN);
                 printStream ","; printStream reg; printStream(Word32.fmt StringCvt.DEC rM);
                 if imm6 <> 0w0
@@ -2136,9 +2129,14 @@ struct
                     |   (0w1, 0w3, _) => ("ands", "x")
                     |   _ => ("??", "?")
             in
-                printStream opcode;
-                printStream "\t";
-                printStream r; printStream(Word32.fmt StringCvt.DEC rD); printStream ",";
+                if rD = 0w31 andalso opc=0w3
+                then printStream "tst\t"
+                else
+                (
+                    printStream opcode;
+                    printStream "\t";
+                    printStream r; printStream(Word32.fmt StringCvt.DEC rD); printStream ","
+                );
                 printStream r; printStream(Word32.fmt StringCvt.DEC rN); printStream ",#0x";
                 printStream(Word64.toString(decodeBitPattern{sf=sf, n=nBit, immr=immr, imms=imms}))
             end

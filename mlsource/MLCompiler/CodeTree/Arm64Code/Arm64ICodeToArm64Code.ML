@@ -50,6 +50,8 @@ struct
         
         fun getAllocatedGenReg r =
             case getAllocatedReg r of GenReg r => r | FPReg _ => raise InternalError "getAllocateGenReg: returned FP Reg"
+        and getAllocatedFPReg r =
+            case getAllocatedReg r of FPReg r => r | GenReg _ => raise InternalError "getAllocatedFPReg: returned Gen Reg"
 
         local
             val numRegisters = Vector.length allocatedRegisters
@@ -68,6 +70,9 @@ struct
             |   instructionUses(ObjectIndexAddressToAbsolute{dest, source, ...}) = if isUsed dest then used source else ()
             |   instructionUses(AbsoluteToObjectIndex{dest, source, ...}) = if isUsed dest then used source else ()
             |   instructionUses(AllocateMemoryFixed _) = ()
+            |   instructionUses(BeginLoop) = ()
+            |   instructionUses(JumpLoop{regArgs, stackArgs, ...}) =
+                    (List.app(argUses o #src) regArgs; List.app(argUses o #src) stackArgs)
             |   instructionUses(StoreWithConstantOffset{source, base, ...}) = (used source; used base)
             |   instructionUses(StoreWithIndexedOffset{source, base, index, ...}) = (used source; used base; used index)
             |   instructionUses(AddSubImmediate{ source, ... }) = used source
@@ -330,6 +335,15 @@ struct
 
         (* Only get the registers that are actually used. *)
         val getSaveRegs = List.mapPartial(fn (reg as PReg r) => if isUsed reg then SOME(getAllocatedGenReg r) else NONE)
+        
+        fun getSaveRegsAndSeparate saveRegs =
+        let
+            val realSaveRegs = getSaveRegs saveRegs
+            val saveX30 = List.exists (fn r => r = X30) realSaveRegs
+            val preserve = List.filter (fn r => r <> X30) realSaveRegs
+        in
+            { saveX30=saveX30, saveRegs=preserve }
+        end
 
         val startOfFunctionLabel = createLabel() (* Used for recursive calls/jumps *)
 
@@ -418,6 +432,40 @@ struct
                 then subShiftedReg{regM=workReg1, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftNone} ::
                      loadNonAddressConstant(workReg1, bytesRequired) :: code
                 else subImmediate{regN=X_MLHeapAllocPtr, regD=destReg, immed=Word.fromLarge bytesRequired, shifted=false} :: code)
+            end
+
+        |   codeExtended _ (BeginLoop, code) = code
+
+        |   codeExtended _ (JumpLoop{regArgs, stackArgs, checkInterrupt}, code) =
+            let
+                (* TODO: We could have a single list and use ArgOnStack and ArgInReg to distinguish. *)
+                fun convertArg(ArgOnStack{wordOffset, ...}) = IsOnStack wordOffset
+                |   convertArg(ArgInReg(PReg reg)) = IsInReg(getAllocatedGenReg reg)
+                val extStackArgs =
+                    map (fn {wordOffset, src, ...} => {src=convertArg src, dst=IsOnStack wordOffset}) stackArgs
+                val extRegArgs =
+                    map (fn {dst, src} => {src=convertArg src, dst=convertArg(ArgInReg dst)}) regArgs
+                val code2 = moveMultipleValues(extStackArgs @ extRegArgs, code)
+            in
+                case checkInterrupt of
+                    NONE => code2
+                |   SOME saveRegs =>
+                    let
+                        val {saveX30, saveRegs} = getSaveRegsAndSeparate saveRegs
+                        val skipCheck = createLabel()
+                    in
+                        (* Put in stack-check code to allow this to be interrupted. *)
+                        setLabel skipCheck ::
+                        (if saveX30 then [loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8}] else []) @
+                        registerMask saveRegs ::
+                        branchAndLinkReg workReg1 ::
+                        loadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=stackOverflowCallOffset} ::
+                        (if saveX30 then [storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8}] else []) @
+                        conditionalBranch(CondCarrySet, skipCheck) ::
+                        subSShiftedReg{regM=workReg1, regN=X_MLStackPtr, regD=XZero, shift=ShiftNone} ::
+                        loadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset}  ::
+                        code2
+                    end
             end
 
         |   codeExtended _ (StoreWithConstantOffset{source=PReg sreg, base=PReg breg, byteOffset, loadType, ...}, code) =
@@ -569,7 +617,6 @@ struct
                 (* Skip the RTS call if there is enough stack.  N.B. The RTS can modify the end-of-stack value
                    to force a trap here even if there is really enough stack. *)
                 val code2 =
-                    setLabel startOfFunctionLabel ::
                     (if debugTrapAlways then []
                      else
                      [conditionalBranch(CondCarrySet, skipCheck),
@@ -593,7 +640,7 @@ struct
                 moveMultipleRegisters(regPairs, code3)
             end
 
-        |   codeExtended _ (TailRecursiveCall{callKind, regArgs=regArgs, stackArgs=stackArgs, stackAdjust, currStackSize}, code: instr list) =
+        |   codeExtended _ (TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize}, code: instr list) =
             let
                 fun convertArg(ArgOnStack{wordOffset, ...}) = IsOnStack wordOffset
                 |   convertArg(ArgInReg(PReg reg)) = IsInReg(getAllocatedGenReg reg)
@@ -816,22 +863,17 @@ struct
                 shiftType{regN=getAllocatedGenReg sReg, regD=getAllocatedGenReg dReg, shift=0w1} :: code
             end
 
-        |   codeExtended context (BoxValue{ boxKind, source=PReg sReg, dest as PReg dReg, saveRegs }, code) =
-            let
-                val bytesRequired =
-                    case boxKind of BoxLargeWord => 0w8 | BoxDouble => 0w8| BoxFloat => 0w4
-                (* Allocate the code using AllocateMemoryFixed *)
-                val allocCode =
-                    codeExtended context (AllocateMemoryFixed{ bytesRequired=bytesRequired, dest=dest, saveRegs=saveRegs}, code)
-                val destReg = getAllocatedGenReg dReg
-                val storeOp =
-                    case boxKind of
-                        BoxLargeWord => (* Store the source register into the new area. *)
-                            storeRegScaled{regN=destReg, regT=getAllocatedGenReg sReg, unitOffset=0}
-                    |   _ => raise InternalError "codeExtended; Box"
-            in
-                storeOp :: allocCode
-            end
+        |   codeExtended _ (BoxValue{ boxKind=BoxLargeWord, source=PReg sReg, dest=PReg dReg, saveRegs }, code) =
+                List.rev(boxSysWord{source=getAllocatedGenReg sReg, destination=getAllocatedGenReg dReg,
+                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
+
+        |   codeExtended _ (BoxValue{ boxKind=BoxDouble, source=PReg sReg, dest=PReg dReg, saveRegs }, code) =
+                List.rev(boxDouble{source=getAllocatedFPReg sReg, destination=getAllocatedGenReg dReg,
+                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
+
+        |   codeExtended _ (BoxValue{ boxKind=BoxFloat, source=PReg sReg, dest=PReg dReg, saveRegs }, code) =
+                List.rev(boxFloat{source=getAllocatedFPReg sReg, destination=getAllocatedGenReg dReg,
+                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
 
         |   codeExtended _ (UnboxValue{ boxKind=BoxLargeWord, source=PReg sReg, dest=PReg dReg }, code) =
                 loadRegScaled{regT=getAllocatedGenReg dReg, regN=getAllocatedGenReg sReg, unitOffset=0} :: code
@@ -1117,7 +1159,7 @@ struct
                         end
                 end
         in
-            val ops = genCode([0], ExitCode, [])
+            val ops = genCode([0], ExitCode, [setLabel startOfFunctionLabel])
         end
     in
         Arm64Assembly.generateCode{instrs=List.rev ops, name=functionName, resultClosure=resultClosure,

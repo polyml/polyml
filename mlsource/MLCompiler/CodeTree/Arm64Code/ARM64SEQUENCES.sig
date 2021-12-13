@@ -19,6 +19,8 @@ signature ARM64SEQUENCES =
 sig
     type instr and xReg and vReg
     
+    (* Sequences used in both the main code-generator and the FFI code*)
+    
     (* Copy a value to another register. *)
     val moveRegToReg: {sReg: xReg, dReg: xReg} -> instr
     
@@ -26,6 +28,15 @@ sig
        that can be done easily, othewise uses loadNonAddressConstant to
        load the value from the non-address constant area. *)
     val loadNonAddress: xReg * Word64.word -> instr list
+
+    (* Boxing operations.  Floats are tagged rather than boxed in native 64-bit.
+       The destination is a poly address. *)
+    val boxDouble:
+        {source: vReg, destination: xReg, workReg: xReg, saveRegs: xReg list} -> instr list
+    and boxFloat:
+        {source: vReg, destination: xReg, workReg: xReg, saveRegs: xReg list} -> instr list
+    and boxSysWord:
+        {source: xReg, destination: xReg, workReg: xReg, saveRegs: xReg list} -> instr list
 
     structure Sharing:
     sig

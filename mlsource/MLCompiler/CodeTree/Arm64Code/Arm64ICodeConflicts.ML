@@ -118,18 +118,19 @@ struct
             
             (* I'm not sure if this is needed.  There was a check in the old code to ensure that
                different registers were used for loop variables even if they were actually unused.
-               This may happen anyway. *)
+               This may happen anyway.
+               Comment and code copied from X86 version.  Retain it for the moment. *)
             val () =
-                (*case instr of
+                case instr of
                     JumpLoop{regArgs, ...} =>
                     let
-                        val destRegs = List.foldl(fn ((_, PReg loopReg), dests) => loopReg :: dests) [] regArgs
+                        val destRegs = List.foldl(fn ({dst=PReg loopReg, ...}, dests) => loopReg :: dests) [] regArgs
                     in
                         addConflictsTo(destRegs, listToSet destRegs);
                         addConflictsTo(destRegs, current);
                         addConflictsTo(destRegs, passThrough)
                     end
-                |   _ =>*) ()
+                |   _ => ()
 
             (* Certain instructions are specific as to the real registers. *)
             val () =

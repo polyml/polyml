@@ -964,9 +964,61 @@ struct
 
         |   codeToICodeRev(BICCase _, _, _, _, _) = raise Fallback "codeToICodeRev: BICCase"
 
-        |   codeToICodeRev(BICBeginLoop _, _, _, _, _) = raise Fallback "codeToICodeRev: BICBeginLoop"
+        |   codeToICodeRev(BICBeginLoop {loop, arguments}, context as { stackPtr, currHandler, overflowBlock, ...},
+                           isTail, destination, tailCode) =
+            let
+                val target = asTarget destination
+                
+                fun codeArgs ([], tailCode) = ([], tailCode)
+                |   codeArgs (({value, addr}, _) :: rest, tailCode) =
+                    let
+                        val pr = newPReg()
+                        val () = Array.update(locToPregArray, addr, PregLocation pr)
+                        val (code, _, _) = codeToICodeRev(value, context, false, SpecificPReg pr, tailCode)
+                        val (pregs, othercode) = codeArgs(rest, code)
+                    in
+                        (pr::pregs, othercode)
+                    end
+                val (loopRegs, argCode) = codeArgs(arguments, tailCode)
 
-        |   codeToICodeRev(BICLoop _, _, _, _, _) = raise Fallback "codeToICodeRev: BICLoop"
+                val loopLabel = newLabel()
+                val (loopBody, _, loopExited) =
+                    codeToICodeRev(loop,
+                        {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr,
+                         currHandler=currHandler, overflowBlock=overflowBlock },
+                            isTail, SpecificPReg target, BlockLabel loopLabel :: BlockSimple BeginLoop :: argCode)
+            in
+                (loopBody, target, loopExited)
+            end
+
+        |   codeToICodeRev(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel, loopSp), stackPtr, currHandler, ...}, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                (* Registers to receive the evaluated arguments.  We can't put the
+                   values into the loop variables yet because the values could depend
+                   on the current values of the loop variables. *)
+                val argPRegs = map(fn _ => newPReg()) args
+                val codeArgs =
+                    ListPair.foldlEq(fn ((arg, _), pr, l) =>
+                        #1 (codeToICodeRev(arg, context, false, SpecificPReg pr, l))) tailCode
+                        (args, argPRegs)
+                val jumpArgs = ListPair.mapEq(fn (s, l) => {src=ArgInReg s, dst=l}) (argPRegs, loopRegs)
+                (* If we've allocated a container in the loop we have to remove it before jumping back. *)
+                val stackReset =
+                    if loopSp = stackPtr then codeArgs
+                    else resetStackPtr{numWords=stackPtr-loopSp} :: codeArgs
+                val jumpLoop = JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME[]}
+                (* "checkInterrupt" could result in a Interrupt exception so we treat this like
+                   a function call. *)
+                val code =
+                    case currHandler of
+                        NONE => BlockFlow(Unconditional loopLabel) :: BlockSimple jumpLoop :: stackReset
+                    |   SOME h => BlockOptionalHandle{call=jumpLoop, handler=h, label=loopLabel} :: stackReset
+            in
+                (code, target, true)
+            end
+
+        |   codeToICodeRev(BICLoop _, {loopArgs=NONE, ...}, _, _, _) = raise InternalError "BICLoop without BICBeginLoop"
 
             (* Copy the source tuple into the container.  There are important special cases for
                both the source tuple and the container.  If the source tuple is a BICTuple we have

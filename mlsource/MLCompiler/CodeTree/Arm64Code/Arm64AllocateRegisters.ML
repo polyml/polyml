@@ -103,7 +103,16 @@ struct
                     addRealHint(resReg, GenReg X0);
                     addRealHint(retReg, GenReg X30) (* It may be there from earlier. *)
                 )
-        
+
+            |   addHints{instr=JumpLoop{regArgs, ...}, ...} =
+                let
+                    fun addRegArg {src=ArgInReg(PReg argReg), dst=PReg resReg} =
+                            addSourceAndDestinationHint {dst=resReg, src=argReg}
+                    |   addRegArg {src=ArgOnStack _, ...} = ()
+                in
+                    List.app addRegArg regArgs
+                end
+
             |   addHints{instr=BeginFunction{regArgs, ...}, ...} =
                     List.app (fn (PReg pr, reg) => addRealHint(pr, GenReg reg)) regArgs
 
@@ -284,6 +293,15 @@ struct
         |   registerAllocate{instr=AbsoluteToObjectIndex{dest, source, ...}, ...} = allocateGenRegs[dest, source]
 
         |   registerAllocate({instr=AllocateMemoryFixed{ dest, saveRegs, ...}, ...}) = allocateGenRegs (dest :: saveRegs)
+
+        |   registerAllocate{instr=BeginLoop, ...} = ()
+
+        |   registerAllocate({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...}) =
+            (
+                List.app (fn {src=ArgInReg sreg, dst} => (allocateGenReg sreg; allocateGenReg dst) | _ => ()) regArgs;
+                List.app (fn {src=ArgInReg sreg, ...} => allocateGenReg sreg | _ => ()) stackArgs;
+                case checkInterrupt of SOME regs => List.app(fn reg => allocateGenReg reg) regs | NONE => ()
+            )
 
         |   registerAllocate{instr=StoreWithConstantOffset{source, base, ...}, ...} = allocateGenRegs[source, base]
 

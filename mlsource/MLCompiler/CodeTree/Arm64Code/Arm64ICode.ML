@@ -338,6 +338,21 @@ struct
                 printReg(dest, stream); stream " save="; printSaves(saveRegs, stream)
             )
 
+        |   printICode(BeginLoop, stream) = stream "\tBeginLoop"
+
+        |   printICode(JumpLoop{regArgs, stackArgs, checkInterrupt, ... }, stream) =
+            (
+                stream "\tJumpLoop\t";
+                List.app(fn {src, dst} => (printReg(dst, stream); stream "="; printArg(src, stream); stream " ")) regArgs;
+                List.app(
+                    fn {src, wordOffset, stackloc} =>
+                        (printStackLoc(stackloc, stream); stream("(sp" ^ Int.toString wordOffset); stream ")="; printArg(src, stream); stream " ")
+                    ) stackArgs;
+                case checkInterrupt of
+                    NONE => ()
+                |   SOME saveRegs => (stream " Check:save="; printSaves(saveRegs, stream))
+            )
+
         |   printICode(StoreWithConstantOffset{ base, source, byteOffset, loadType }, stream) =
             (
                 stream "\tStoreConstOffset"; printLoadType(loadType, stream); stream "\t";

@@ -81,7 +81,23 @@ struct
         { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(AllocateMemoryFixed { dest, ...}) =
-        { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+        { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(BeginLoop) =
+            (* This is just a marker.  It doesn't actually generate any code. *)
+            { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(JumpLoop{regArgs, stackArgs, ...}) =
+        let
+            fun getSourceFromRegs({src=ArgInReg reg, ...}, (regArgs, stackArgs)) = (reg :: regArgs, stackArgs)
+            |   getSourceFromRegs({src=ArgOnStack { container, ...}, ...}, (regArgs, stackArgs)) = (regArgs, container :: stackArgs)
+            and getSourceFromStack({src=ArgInReg reg, ...}, (regArgs, stackArgs)) = (reg :: regArgs, stackArgs)
+            |   getSourceFromStack({src=ArgOnStack { container, ...}, ...}, (regArgs, stackArgs)) = (regArgs, container :: stackArgs)
+            val (regSources, stackSources) =
+                List.foldl getSourceFromRegs (List.foldl getSourceFromStack ([], []) stackArgs) regArgs
+        in
+            { sources=regSources, dests=[], sStacks=stackSources, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+        end
 
     |   getInstructionState(StoreWithConstantOffset { base, source, ...}) =
         { sources=[source, base], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
@@ -141,10 +157,10 @@ struct
             { sources=[packetReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(PushToStack{ source, container, ... }) =
-            { sources=[source], dests=[], sStacks=[], dStacks=[container], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=[source], dests=[], sStacks=[], dStacks=[container], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(LoadStack{ dest, container, ... }) =
-            { sources=[], dests=[dest], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=[], dests=[dest], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(StoreToStack{ source, container, ... }) =
         (* Although this stores into the container it must already exist. *)
@@ -277,9 +293,9 @@ struct
                     val newOutCC = case occOut of CCUnchanged => ccOut | _ => occOut
 
                     val instrLoopRegs =
-                        (*case instr of
-                            JumpLoop{regArgs, ...} => listToSet (map (regNo o #2) regArgs)
-                        |   _ =>*)emptySet
+                        case instr of
+                            JumpLoop{regArgs, ...} => listToSet (map (regNo o #dst) regArgs)
+                        |   _ => emptySet
                 in
                     if eliminateable instr andalso
                         List.all(fn dReg => Array.sub(regRefs, dReg) = 0) destRegNos
@@ -575,8 +591,8 @@ struct
                             |   BoxValue{source, dest, boxKind, saveRegs=_} =>
                                     BoxValue{source=source, dest=dest, boxKind=boxKind,
                                         saveRegs=getSaveSet(regNo dest)}
-(*                        
-                            |   JumpLoop{regArgs, stackArgs, checkInterrupt = SOME _, workReg, ...} =>
+                       
+                            |   JumpLoop{regArgs, stackArgs, checkInterrupt = SOME _, ...} =>
                                 let
                                     (* If we have to check for interrupts we must preserve registers across
                                        the RTS call. *)
@@ -591,11 +607,11 @@ struct
                                     val currentRegs = union(activeAfterThis, passThrough)
                                     (* Have to include the loop registers.  These were previously included
                                        automatically because they were part of the import set. *)
-                                    val check = List.mapPartial getSave (map (regNo o #2) regArgs @ setToList currentRegs)
+                                    val check = List.mapPartial getSave (map (regNo o #dst) regArgs @ setToList currentRegs)
                                 in
-                                    JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=SOME check, workReg=workReg}
+                                    JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=SOME check}
                                 end
-                        
+(*
                             |   FunctionCall{regArgs, stackArgs=[], dest, realDest, callKind as ConstantCode m, saveRegs=_} =>
                                 (* If this is arbitrary precision push the registers rather than marking them as "save".
                                    stringOfWord returns 'CODE "PolyAddArbitrary"' etc. *)

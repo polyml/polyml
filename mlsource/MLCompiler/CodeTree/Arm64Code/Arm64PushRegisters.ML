@@ -364,6 +364,50 @@ struct
                             destCode @ AllocateMemoryFixed { dest=destVal, bytesRequired=bytesRequired, saveRegs=[]} :: code
                         end
 
+                    |   pushRegisters({instr=BeginLoop, ...}, code) = BeginLoop :: code
+
+                    |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...}, code) =
+                        let
+                            (* Normally JumpLoop will be the last item in a block but it is possible that we've
+                               added a reset-stack after it. *)
+                            fun getValues [] = ([], [])
+                            |   getValues ({src=source, dst=PReg n} :: rest) =
+                                let
+                                    val (otherRegArgs, otherStackArgs) = getValues rest
+                                in
+                                    case Array.sub(pregMap, n) of
+                                        ToPReg lReg => ({src=mapArgument source, dst=lReg} :: otherRegArgs, otherStackArgs)
+
+                                    |   ToStack(stackloc, stackC as StackLoc{size, ...}) =>
+                                        let
+                                            val sourceVal = mapArgument source
+                                            val stackOff = !stackCount - stackloc - size
+                                        in
+                                            (otherRegArgs, {src=sourceVal, wordOffset=stackOff, stackloc=stackC} :: otherStackArgs)
+                                        end
+
+                                    |   Unset =>
+                                        (* Drop it.  It's never used. This can happen if we are folding a
+                                           function over a list such that it always returns the last value and
+                                           then discard the result of the fold. *)
+                                            (otherRegArgs, otherStackArgs)
+                                end
+                            val (newRegArguments, newStackArgs) = getValues regArgs
+                            fun loadStackArg({src=source, stackloc=destC, ...}, otherArgs) =
+                            let
+                                val sourceVal = mapArgument source
+                                val (newOffset, newContainer) = mapContainerAndStack(destC, 0)
+                            in
+                                {src=sourceVal, wordOffset=newOffset, stackloc=newContainer} :: otherArgs
+                            end
+                
+                            val oldStackArgs = List.foldr loadStackArg [] stackArgs
+                            val check = case checkInterrupt of NONE => NONE | SOME _ => SOME []
+                        in
+                            JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check} :: code
+                        end
+
+
                     |   pushRegisters({instr=StoreWithConstantOffset { base, source, byteOffset, loadType}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source

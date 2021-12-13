@@ -35,75 +35,13 @@ struct
 
     val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
 
-    fun absoluteAddressToIndex reg =
-    if is32in64
-    then
-    [
-        subShiftedReg{regM=X_Base32in64, regN=reg, regD=reg, shift=ShiftNone},
-        logicalShiftRight{shift=0w2, regN=reg, regD=reg}
-    ]
-    else []
-    
     (* Turn an index into an absolute address. *)
-    and indexToAbsoluteAddress(iReg, absReg) =
+    fun indexToAbsoluteAddress(iReg, absReg) =
     if is32in64
     then [addShiftedReg{regM=iReg, regN=X_Base32in64, regD=absReg, shift=ShiftLSL 0w2}]
     else if iReg = absReg
     then []
     else [moveRegToReg{sReg=iReg, dReg=absReg}]
-
-    local
-        fun allocateWords(fixedReg, workReg, words, bytes) =
-        let
-            val label = createLabel()
-        in
-            [
-                (* Subtract the number of bytes required from the heap pointer. *)
-                subImmediate{regN=X_MLHeapAllocPtr, regD=fixedReg, immed=bytes, shifted=false},
-                (* Compare the result with the heap limit. *)
-                subSShiftedReg{regM=X_MLHeapLimit, regN=fixedReg, regD=XZero, shift=ShiftNone},
-                conditionalBranch(CondCarrySet, label),
-                loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset},
-                branchAndLinkReg X16,
-                registerMask [], (* Not used at the moment. *)
-                setLabel label,
-                (* Update the heap pointer. *)
-                moveRegToReg{sReg=fixedReg, dReg=X_MLHeapAllocPtr}
-            ] @
-                loadNonAddress(workReg,
-                    Word64.orb(words, Word64.<<(Word64.fromLarge(Word8.toLarge Address.F_bytes),
-                        if is32in64 then 0w24 else 0w56)))
-            @
-            [
-                (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
-                if is32in64
-                then storeRegUnscaled32{regT=workReg, regN=fixedReg, byteOffset= ~4}
-                else storeRegUnscaled{regT=workReg, regN=fixedReg, byteOffset= ~8}
-            ]
-        end
-    in
-        fun boxDouble(floatReg, fixedReg, workReg) =
-            allocateWords(fixedReg, workReg, if is32in64 then 0w2 else 0w1, 0w16) @
-                storeRegScaledDouble{regT=floatReg, regN=fixedReg, unitOffset=0} ::
-                absoluteAddressToIndex fixedReg
-        and boxSysWord(toBoxReg, fixedReg, workReg) =
-            allocateWords(fixedReg, workReg, if is32in64 then 0w2 else 0w1, 0w16) @
-                storeRegScaled{regT=toBoxReg, regN=fixedReg, unitOffset=0} ::
-                absoluteAddressToIndex fixedReg
-        
-        fun boxOrTagFloat(floatReg, fixedReg, workReg) =
-        if is32in64
-        then
-            allocateWords(fixedReg, workReg, 0w1, 0w8) @
-            storeRegScaledFloat{regT=floatReg, regN=fixedReg, unitOffset=0} ::
-            absoluteAddressToIndex fixedReg
-        else
-        [
-            moveFloatToGeneral{regN=floatReg, regD=fixedReg},
-            logicalShiftLeft{shift=0w32, regN=fixedReg, regD=fixedReg},
-            bitwiseOrImmediate{regN=fixedReg, regD=fixedReg, bits=0w1}
-        ]
-    end
 
     fun unboxDouble(addrReg, workReg, valReg) =
     if is32in64
@@ -118,6 +56,16 @@ struct
     [
         logicalShiftRight{shift=0w32, regN=addrReg, regD=workReg},
         moveGeneralToFloat{regN=workReg, regD=valReg}
+    ]
+        
+    fun boxOrTagFloat{floatReg, fixedReg, workReg, saveRegs} =
+    if is32in64
+    then boxFloat{source=floatReg, destination=fixedReg, workReg=workReg, saveRegs=saveRegs}
+    else
+    [
+        moveFloatToGeneral{regN=floatReg, regD=fixedReg},
+        logicalShiftLeft{shift=0w32, regN=fixedReg, regD=fixedReg},
+        bitwiseOrImmediate{regN=fixedReg, regD=fixedReg, bits=0w1}
     ]
 
     fun rtsCallFastGeneral (functionName, argFormats, resultFormat, debugSwitches) =
@@ -170,8 +118,8 @@ struct
             (
                 case resultFormat of
                     FastArgFixed => []
-                |   FastArgDouble => (* This must be boxed. *) boxDouble(V0, X0, X1)
-                |   FastArgFloat => (* This must be tagged or boxed *) boxOrTagFloat(V0, X0, X1)
+                |   FastArgDouble => (* This must be boxed. *) boxDouble{source=V0, destination=X0, workReg=X1, saveRegs=[]}
+                |   FastArgFloat => (* This must be tagged or boxed *) boxOrTagFloat{floatReg=V0, fixedReg=X0, workReg=X1, saveRegs=[]}
             ) @
             [
                 returnRegister X23
@@ -788,14 +736,14 @@ struct
                    First load the address of the argument area which is after the
                    32-byte result area. *)
                 addImmediate{regN=XSP, regD=X2, immed=0w32, shifted=false}
-            ] @ boxSysWord(X2, X0, X3) @ (* Address of arguments. *)
+            ] @ boxSysWord{source=X2, destination=X0, workReg=X3, saveRegs=[]} @ (* Address of arguments. *)
             (
                 (* Result area pointer.  If we're returning by reference this is the original
                    value of X8 otherwise it's the address of the 32 bytes we've reserved. *)
                 if resultByReference
                 then [loadRegScaled{regT=X2, regN=XSP, unitOffset=0}]
                 else [moveRegToReg{sReg=XSP, dReg=X2}]
-            ) @ boxSysWord(X2, X1, X3) @
+            ) @ boxSysWord{source=X2, destination=X1, workReg=X3, saveRegs=[]} @
                 (* Put the ML closure pointer, originally in X9 now in X20, into the
                    ML closure pointer register, X8.  Then call the ML code. *)
             [moveRegToReg{sReg=X20, dReg=X8}] @
