@@ -595,7 +595,7 @@ struct
                 |   0wxc2 => printOp(1, "isTaggedLocalB\t")
                 |   0wxc3 => (printOp(1, "jumpNEqLocalInd\t"); printOp(1, ","); printOp(1, ","); printDisp(1, "\t"))
                 |   0wxc4 => (printOp(1, "jumpTaggedLocal\t"); printDisp(1, "\t"))
-                |   0wxc5 => (printOp(1, "jumpNEqLocal\t"); printOp(1, ","); printOp(1, ","); printDisp(1, "\t"))
+                |   0wxc5 => (printOp(1, "jumpNEqLocal\t"); printOp(1, ","); printDisp(1, "\t"))
                 |   0wxc6 => printStream "indirect0Local0"
                 |   0wxc7 => printOp(1, "indirectLocalB0\t")
                 |   0wxd0 => printOp(1, "closureB\t")

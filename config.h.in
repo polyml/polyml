@@ -165,8 +165,14 @@
 /* Define to 1 if you have the <machine/reloc.h> header file. */
 #undef HAVE_MACHINE_RELOC_H
 
+/* Define to 1 if you have the <mach-o/arm64/reloc.h> header file. */
+#undef HAVE_MACH_O_ARM64_RELOC_H
+
 /* Define to 1 if you have the <mach-o/reloc.h> header file. */
 #undef HAVE_MACH_O_RELOC_H
+
+/* Define to 1 if you have the <mach-o/x86_64/reloc.h> header file. */
+#undef HAVE_MACH_O_X86_64_RELOC_H
 
 /* Define to 1 if you have the <malloc.h> header file. */
 #undef HAVE_MALLOC_H

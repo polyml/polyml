@@ -1982,7 +1982,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                     if (dv > (double)(MAXTAGGED + MAXTAGGED / 2) ||
                         dv < -(double)(MAXTAGGED + MAXTAGGED / 2))
                     {
-                        *(--sp) = (PolyWord)overflowPacket;
+                        taskData->SetException((poly_exn*)overflowPacket);
                         goto RAISE_EXCEPTION;
                     }
                     POLYSIGNED p;
@@ -2006,7 +2006,7 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                     // Check that the value can be tagged.
                     if (p > MAXTAGGED || p < -MAXTAGGED - 1)
                     {
-                        *(--sp) = (PolyWord)overflowPacket;
+                        taskData->SetException((poly_exn*)overflowPacket);
                         goto RAISE_EXCEPTION;
                     }
                     *sp = TAGGED(p);
