@@ -96,7 +96,8 @@ struct
                    work registers are different in IndexedCase. *)
                 val postInstruction =
                     case instr of
-                       BoxValue _ => destRegNos @ sourceRegNos
+                        BoxLarge _ => destRegNos @ sourceRegNos
+                    |   BoxTagFloat _ => destRegNos @ sourceRegNos (* Not sure about this. *)
                     |   _ => destRegNos
             in
                 (* If there is more than one destination they conflict with each other. *)

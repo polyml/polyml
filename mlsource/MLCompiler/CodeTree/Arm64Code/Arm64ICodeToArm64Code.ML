@@ -96,8 +96,10 @@ struct
             |   instructionUses(ResetStackPtr _) = ()
             |   instructionUses(TagValue{ source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
             |   instructionUses(UntagValue{ source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
-            |   instructionUses(BoxValue{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
-            |   instructionUses(UnboxValue{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
+            |   instructionUses(BoxLarge{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
+            |   instructionUses(UnboxLarge{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
+            |   instructionUses(BoxTagFloat{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
+            |   instructionUses(UnboxTagFloat{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
             |   instructionUses(LoadAcquire{base, ...}) = used base (* TODO: Could depend on whether dest is used. *)
             |   instructionUses(StoreRelease{source, base, ...}) = (used source; used base)
             |   instructionUses(BitField{source=SOME src, ...}) = used src
@@ -872,19 +874,11 @@ struct
                 shiftType{regN=getAllocatedGenReg source, regD=getAllocatedGenReg dest, shift=0w1} :: code
             end
 
-        |   codeExtended _ (BoxValue{ boxKind=BoxLargeWord, source, dest, saveRegs }, code) =
+        |   codeExtended _ (BoxLarge{ source, dest, saveRegs }, code) =
                 List.rev(boxSysWord{source=getAllocatedGenReg source, destination=getAllocatedGenReg dest,
                                     workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
 
-        |   codeExtended _ (BoxValue{ boxKind=BoxDouble, source, dest, saveRegs }, code) =
-                List.rev(boxDouble{source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
-                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
-
-        |   codeExtended _ (BoxValue{ boxKind=BoxFloat, source, dest, saveRegs }, code) =
-                List.rev(boxFloat{source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
-                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
-
-        |   codeExtended _ (UnboxValue{ boxKind=BoxLargeWord, source, dest }, code) =
+        |   codeExtended _ (UnboxLarge{ source, dest }, code) =
             let
                 (* Unbox a large word.  The argument is a poly word. *)
                 val destReg = getAllocatedGenReg dest
@@ -896,7 +890,17 @@ struct
                 else loadRegScaled{regT=destReg, regN=srcReg, unitOffset=0} :: code
             end
 
-        |   codeExtended _ (UnboxValue _, _) = raise InternalError "codeExtended; Unbox"
+        |   codeExtended _ (BoxTagFloat{ floatSize=Double64, source, dest, saveRegs }, code) =
+                List.rev(boxDouble{source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
+                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
+
+        |   codeExtended _ (BoxTagFloat{ floatSize=Float32, source, dest, saveRegs }, code) =
+                if is32in64
+                then List.rev(boxFloat{source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
+                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
+                else raise InternalError "BoxTagFloat: tagged float"
+
+        |   codeExtended _ (UnboxTagFloat _, _) = raise InternalError "codeExtended; Unbox"
 
         |   codeExtended _ (LoadAcquire{dest, base, loadType, ...}, code) =
             let

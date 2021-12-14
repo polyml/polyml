@@ -639,20 +639,36 @@ struct
                             destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, opSize=opSize} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=BoxValue{boxKind, source, dest, ...}, ...}, code) =
+                    |   pushRegisters({instr=BoxLarge{source, dest, ...}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ BoxValue{boxKind=boxKind, source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code
+                            destCode @ BoxLarge{source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=UnboxValue{boxKind, source, dest, ...}, ...}, code) =
+                    |   pushRegisters({instr=UnboxLarge{source, dest, ...}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ UnboxValue{boxKind=boxKind, source=sourceVal, dest=destVal} :: sourceCode @ code
+                            destCode @ UnboxLarge{source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=BoxTagFloat{floatSize, source, dest, ...}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ BoxTagFloat{floatSize=floatSize, source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=UnboxTagFloat{floatSize, source, dest, ...}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ UnboxTagFloat{floatSize=floatSize, source=sourceVal, dest=destVal} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=LoadAcquire { base, dest, loadType}, ...}, code) =

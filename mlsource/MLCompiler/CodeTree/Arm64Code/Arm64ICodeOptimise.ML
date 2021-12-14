@@ -231,7 +231,7 @@ struct
                     (* Address constant.  This is used in conjunction with UnboxValue *)
                     optCode(rest, inCond, {dest=dest, source=WordConstant source} :: regMap, instr :: code, changed)
 
-            |   optCode({instr as UnboxValue{ boxKind=BoxLargeWord, source, dest, ... }, kill, ...} :: rest,
+            |   optCode({instr as UnboxLarge{ source, dest, ... }, kill, ...} :: rest,
                         inCond, regMap, code, changed) =
                 let
                     val (repSource, mapAfterReplace) = getRegisterValue(source, kill, regMap)

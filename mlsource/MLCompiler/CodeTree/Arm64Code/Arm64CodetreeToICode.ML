@@ -76,8 +76,10 @@ struct
     and resetStackPtr = BlockSimple o ResetStackPtr
     and tagValue = BlockSimple o TagValue
     and untagValue = BlockSimple o UntagValue
-    and boxValue = BlockSimple o BoxValue
-    and unboxValue = BlockSimple o UnboxValue
+    and boxLarge = BlockSimple o BoxLarge
+    and unboxLarge = BlockSimple o UnboxLarge
+    and boxTagFloat = BlockSimple o BoxTagFloat
+    and unboxTagFloat = BlockSimple o UnboxTagFloat
     and loadAcquire = BlockSimple o LoadAcquire
     and storeRelease = BlockSimple o StoreRelease
     and bitField = BlockSimple o BitField
@@ -412,7 +414,7 @@ struct
             (* If this is a C address the "base address" is actually a LargeWord value that needs to be unboxed. *)
             val (effBCode, effBReg) =
                 if isCAddress
-                then let val bReg = newUReg() in (unboxValue{ boxKind=BoxLargeWord, source=absBReg, dest=bReg } :: absBCode, bReg) end
+                then let val bReg = newUReg() in (unboxLarge{ source=absBReg, dest=bReg } :: absBCode, bReg) end
                 else (absBCode, absBReg)
 
         in
@@ -1526,8 +1528,8 @@ struct
                 val comparison =
                     addSubRegister{base=uReg1, shifted=uReg2, dest=NONE, length=OpSize64,
                                    ccRef=SOME ccRef, isAdd=false, shift=ShiftNone} ::
-                    unboxValue{ boxKind=BoxLargeWord, source=testDest2, dest=uReg2 } ::
-                    unboxValue{ boxKind=BoxLargeWord, source=testDest1, dest=uReg1 } :: testCode2
+                    unboxLarge{ source=testDest2, dest=uReg2 } ::
+                    unboxLarge{ source=testDest1, dest=uReg1 } :: testCode2
                 open BuiltIns
                 val cond =
                     case test of
@@ -1548,11 +1550,11 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 val code =
-                    boxValue{ boxKind=BoxLargeWord, source=uReg3, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
                     addSubRegister{base=uReg1, shifted=uReg2, dest=SOME uReg3, length=OpSize64,
                                    ccRef=NONE, isAdd=true, shift=ShiftNone} ::
-                    unboxValue{ boxKind=BoxLargeWord, source=aReg2, dest=uReg2 } ::
-                    unboxValue{ boxKind=BoxLargeWord, source=aReg1, dest=uReg1 } :: arg2Code
+                    unboxLarge{ source=aReg2, dest=uReg2 } ::
+                    unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
             in
                 (code, target, false)
             end
@@ -1564,11 +1566,11 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 val code =
-                    boxValue{ boxKind=BoxLargeWord, source=uReg3, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
                     addSubRegister{base=uReg1, shifted=uReg2, dest=SOME uReg3, length=OpSize64,
                                    ccRef=NONE, isAdd=false, shift=ShiftNone} ::
-                    unboxValue{ boxKind=BoxLargeWord, source=aReg2, dest=uReg2 } ::
-                    unboxValue{ boxKind=BoxLargeWord, source=aReg1, dest=uReg1 } :: arg2Code
+                    unboxLarge{ source=aReg2, dest=uReg2 } ::
+                    unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
             in
                 (code, target, false)
             end
@@ -1585,11 +1587,11 @@ struct
                 open BuiltIns
                 val logicalOp = case logop of LogicalAnd => LogAnd | LogicalOr => LogOr | LogicalXor => LogXor
                 val code =
-                    boxValue{ boxKind=BoxLargeWord, source=uReg3, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
                     logicalRegister{base=uReg1, shifted=uReg2, dest=SOME uReg3, length=OpSize64,
                                    ccRef=NONE, logOp=logicalOp, shift=ShiftNone} ::
-                    unboxValue{ boxKind=BoxLargeWord, source=aReg2, dest=uReg2 } ::
-                    unboxValue{ boxKind=BoxLargeWord, source=aReg1, dest=uReg1 } :: arg2Code
+                    unboxLarge{ source=aReg2, dest=uReg2 } ::
+                    unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
             in
                 (code, target, false)
             end

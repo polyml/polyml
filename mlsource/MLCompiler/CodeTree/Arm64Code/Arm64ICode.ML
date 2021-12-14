@@ -51,7 +51,7 @@ struct
     and opSize = OpSize32 | OpSize64
     and logicalOp = LogAnd | LogOr | LogXor
     and callKind = Recursive | ConstantCode of machineWord | FullCall
-    and boxKind = BoxLargeWord | BoxDouble | BoxFloat
+    and floatSize = Float32 | Double64
 
     and bitfieldType =
         BitFieldSigned      (* Set the high order bits to the sign bit *)
@@ -187,15 +187,25 @@ struct
            value that has previously been tagged. *)
     |   UntagValue of { source: preg, dest: preg, isSigned: bool, opSize: opSize }
 
-        (* Box a largeword or a floating point value.  Single precision floats
-           are tagged in native 64-bit but boxed in 32-in-64.  Stores a value
+        (* Box a largeword value.  Stores a value
            into a byte area.  This can be implemented using AllocateMemoryFixed
-           but keeping it separate makes optimisation easier. *)
-    |   BoxValue of { boxKind: boxKind, source: preg, dest: preg, saveRegs: preg list }
+           but keeping it separate makes optimisation easier.
+           The result is always an address and needs to be converted to an
+           object index on 32-in-64. *)
+    |   BoxLarge of { source: preg, dest: preg, saveRegs: preg list }
 
         (* Load a value from a box.  This can be implemented using a load but
-           is kept separate to simplify optimisation. *)
-    |   UnboxValue of { boxKind: boxKind, source: preg, dest: preg }
+           is kept separate to simplify optimisation.  The source is always
+           an absolute address. *)
+    |   UnboxLarge of { source: preg, dest: preg }
+
+        (* Convert a floating point value into a value suitable for storing
+           in the heap.  This normally involves boxing except that 32-bit
+           floats can be tagged in native 64-bits. *)
+    |   BoxTagFloat of { floatSize: floatSize, source: preg, dest: preg, saveRegs: preg list }
+
+        (* The reverse of BoxTagFloat. *)
+    |   UnboxTagFloat of { floatSize: floatSize, source: preg, dest: preg }
 
         (* Load a value with acquire semantics.  This means that any other
            load in this thread after this sees the value of the shared
@@ -284,6 +294,9 @@ struct
         |   printShift(ShiftLSR w, stream) = stream(" LSR " ^ Word8.toString w)
         |   printShift(ShiftASR w, stream) = stream(" ASR " ^ Word8.toString w)
         |   printShift(ShiftNone, _) = ()
+
+        fun printFloatSize(Float32, stream) = stream "F"
+        |   printFloatSize(Double64, stream) = stream "D"
 
         fun printICode(MoveRegister{ source, dest }, stream) =
             (
@@ -507,28 +520,35 @@ struct
                 printReg(source, stream); stream " => "; printReg(dest, stream)
             )
 
-        |   printICode(BoxValue{boxKind, source, dest, saveRegs}, stream) =
+        |   printICode(BoxLarge{source, dest, saveRegs}, stream) =
             (
-                stream(
-                    case boxKind of
-                        BoxLargeWord => "\tBoxLarge\t"
-                    |   BoxDouble => "\tBoxDouble\t"
-                    |   BoxFloat => "\tBoxFloat\t"
-                );
+                stream "\tBoxLarge\t";
                 printReg(source, stream);
                 stream " => ";
                 printReg(dest, stream);
                 stream " save="; printSaves(saveRegs, stream)
             )
 
-        |   printICode(UnboxValue{boxKind, source, dest}, stream) =
+        |   printICode(UnboxLarge{source, dest}, stream) =
             (
-                stream(
-                    case boxKind of
-                        BoxLargeWord => "\tUnboxLarge\t"
-                    |   BoxDouble => "\tUnboxDouble\t"
-                    |   BoxFloat => "\tUnboxFloat\t"
-                );
+                stream "\tUnboxLarge\t";
+                printReg(source, stream);
+                stream " => ";
+                printReg(dest, stream)
+            )
+
+        |   printICode(BoxTagFloat{floatSize, source, dest, saveRegs}, stream) =
+            (
+                stream "\tBoxTagFloat"; printFloatSize(floatSize, stream); stream "\t";
+                printReg(source, stream);
+                stream " => ";
+                printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, stream)
+            )
+
+        |   printICode(UnboxTagFloat{floatSize, source, dest}, stream) =
+            (
+                stream "\tUnboxTagFloat"; printFloatSize(floatSize, stream); stream "\t";
                 printReg(source, stream);
                 stream " => ";
                 printReg(dest, stream)
@@ -617,7 +637,7 @@ struct
         and  opSize         = opSize
         and  logicalOp      = logicalOp
         and  callKind       = callKind
-        and  boxKind        = boxKind
+        and  floatSize      = floatSize
         and  bitfieldType   = bitfieldType
    end
 end;

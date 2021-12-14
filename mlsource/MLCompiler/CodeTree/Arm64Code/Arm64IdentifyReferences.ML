@@ -181,10 +181,16 @@ struct
     |   getInstructionState(UntagValue{source, dest, ...}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(BoxValue{source, dest, ...}) =
+    |   getInstructionState(BoxLarge{source, dest, ...}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(UnboxValue{source, dest, ...}) =
+    |   getInstructionState(UnboxLarge{source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(BoxTagFloat{source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(UnboxTagFloat{source, dest, ...}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(LoadAcquire { base, dest, ...}) =
@@ -210,7 +216,8 @@ struct
 
     |   eliminateable(TagValue _) = true
     |   eliminateable(UntagValue _) = true
-    |   eliminateable(BoxValue _) = true
+    |   eliminateable(BoxLarge _) = true
+    |   eliminateable(UnboxLarge _) = true
 (*
     |   eliminateable(CopyToCache _) = true
     |   eliminateable(LoadMemReg _) = true
@@ -591,8 +598,11 @@ struct
                             |   AllocateMemoryVariable{size, dest, saveRegs=_} =>
                                     AllocateMemoryVariable{size=size, dest=dest, saveRegs=getSaveSet(regNo dest)}
 *)
-                            |   BoxValue{source, dest, boxKind, saveRegs=_} =>
-                                    BoxValue{source=source, dest=dest, boxKind=boxKind,
+                            |   BoxLarge{source, dest, saveRegs=_} =>
+                                    BoxLarge{source=source, dest=dest, saveRegs=getSaveSet(regNo dest)}
+
+                            |   BoxTagFloat{source, dest, floatSize, saveRegs=_} =>
+                                    BoxTagFloat{source=source, dest=dest, floatSize=floatSize,
                                         saveRegs=getSaveSet(regNo dest)}
                        
                             |   JumpLoop{regArgs, stackArgs, checkInterrupt = SOME _, ...} =>

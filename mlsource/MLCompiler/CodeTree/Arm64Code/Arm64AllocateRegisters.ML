@@ -383,22 +383,21 @@ struct
 
         |   registerAllocate({instr=UntagValue{source, dest, ...}, ...}) = allocateGenRegs[source, dest]
 
-        |   registerAllocate({instr=BoxValue{boxKind, source, dest, saveRegs}, ...}) =
+        |   registerAllocate({instr=BoxLarge{source, dest, saveRegs}, ...}) =
+                (allocateGenRegs saveRegs; allocateGenRegs[source, dest])
+
+        |   registerAllocate({instr=UnboxLarge{source, dest}, ...}) = allocateGenRegs[source, dest]
+
+        |   registerAllocate({instr=BoxTagFloat{floatSize, source, dest, saveRegs}, ...}) =
             (
                 allocateGenRegs saveRegs;
-                case boxKind of
-                    BoxLargeWord => allocateGenReg source
-                |   BoxDouble => (*allocateFloatReg sReg*) raise InternalError "BoxValue: double"
-                |   BoxFloat => (*allocateFloatReg sReg*) raise InternalError "BoxValue: float";
+                (*allocateFloatReg source*) raise InternalError "BoxFloat";
                 allocateGenReg dest
             )
 
-        |   registerAllocate({instr=UnboxValue{boxKind, source, dest}, ...}) =
+        |   registerAllocate({instr=UnboxTagFloat{floatSize, source, dest}, ...}) =
             (
-                case boxKind of
-                    BoxLargeWord => allocateGenReg dest
-                |   BoxDouble => (*allocateFloatReg dReg*) raise InternalError "UnboxValue: double"
-                |   BoxFloat => (*allocateFloatReg dReg*) raise InternalError "UnboxValue: float";
+                (*allocateFloatReg dest*) raise InternalError "BoxFloat";
                 allocateGenReg source
             )
 
