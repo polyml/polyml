@@ -341,6 +341,13 @@ struct
                                     indexCode @ baseCode @ code
                         end
 
+                    |   pushRegisters({instr=LoadMemReg { wordOffset, dest}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ LoadMemReg { wordOffset=wordOffset, dest=destVal} :: code
+                        end
+
                     |   pushRegisters({instr=ObjectIndexAddressToAbsolute { source, dest}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source

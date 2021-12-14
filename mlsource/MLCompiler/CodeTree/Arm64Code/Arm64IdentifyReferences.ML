@@ -74,6 +74,9 @@ struct
     |   getInstructionState(LoadWithIndexedOffset { base, dest, index, ...}) =
         { sources=[base, index], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(LoadMemReg { dest, ...}) =
+        { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(ObjectIndexAddressToAbsolute { source, dest, ...}) =
         { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 

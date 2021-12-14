@@ -79,6 +79,10 @@ struct
         (* Load a value into a register using an index register. *)
     |   LoadWithIndexedOffset of { base: preg, dest: preg, index: preg, loadType: loadType }
 
+        (* Load an entry from the "memory registers".  Used for ThreadSelf and CheckRTSException.
+           These are always 64-bit values. *)
+    |   LoadMemReg of { wordOffset: int, dest: preg }
+
         (* Convert a 32-in-64 object index into an absolute address. *)
     |   ObjectIndexAddressToAbsolute of { source: preg, dest: preg }
 
@@ -318,6 +322,9 @@ struct
                 printReg(base, stream); stream "+"; printReg(index, stream);
                 stream "] => "; printReg(dest, stream)
             )
+
+        |   printICode(LoadMemReg { wordOffset, dest}, stream) =
+                ( stream "\tLoadMemReg\t"; stream(Int.toString wordOffset); stream " => "; printReg(dest, stream) )
 
         |   printICode(ObjectIndexAddressToAbsolute{ source, dest }, stream) =
             (

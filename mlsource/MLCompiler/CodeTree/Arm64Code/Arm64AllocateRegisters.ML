@@ -288,6 +288,8 @@ struct
         |   registerAllocate{instr=LoadWithIndexedOffset{dest, base, index, ...}, ...} =
                 allocateGenRegs[dest, base, index]
 
+        |   registerAllocate{instr=LoadMemReg { dest, ...}, ...} = allocateGenReg dest
+
         |   registerAllocate{instr=ObjectIndexAddressToAbsolute{dest, source, ...}, ...} = allocateGenRegs[dest, source]
 
         |   registerAllocate{instr=AbsoluteToObjectIndex{dest, source, ...}, ...} = allocateGenRegs[dest, source]

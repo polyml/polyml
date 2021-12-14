@@ -119,6 +119,10 @@ sig
         (* Load a value into a register using an index register. *)
     |   LoadWithIndexedOffset of { base: preg, dest: preg, index: preg, loadType: loadType }
 
+        (* Load an entry from the "memory registers".  Used for ThreadSelf and CheckRTSException.
+           These are always 64-bit values. *)
+    |   LoadMemReg of { wordOffset: int, dest: preg }
+
         (* Convert a 32-in-64 object index into an absolute address. *)
     |   ObjectIndexAddressToAbsolute of { source: preg, dest: preg }
 
@@ -284,6 +288,11 @@ sig
 
     (* Check whether this value is acceptable for LogicalImmediate. *)
     val isEncodableBitPattern: Word64.word * opSize -> bool
+
+    (* Offsets in the assembly code interface pointed at by X26
+       These are in units of 64-bits NOT bytes. *)
+    val exceptionPacketOffset: int
+    and threadIdOffset: int
     
     structure Sharing:
     sig

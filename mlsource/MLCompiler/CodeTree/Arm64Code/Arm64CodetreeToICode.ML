@@ -32,6 +32,7 @@ struct
     open Address
     open Arm64ICode
     open CodeArray
+    open BuiltIns
     
     exception InternalError = Misc.InternalError
     
@@ -53,6 +54,7 @@ struct
     and loadAddressConstant = BlockSimple o LoadAddressConstant
     and loadWithConstantOffset = BlockSimple o LoadWithConstantOffset
     and loadWithIndexedOffset = BlockSimple o LoadWithIndexedOffset
+    and loadMemReg = BlockSimple o LoadMemReg
     and objectIndexAddressToAbsolute = BlockSimple o ObjectIndexAddressToAbsolute
     and absoluteToObjectIndex = BlockSimple o AbsoluteToObjectIndex
     and allocateMemoryFixed = BlockSimple o AllocateMemoryFixed
@@ -280,7 +282,7 @@ struct
                 val profReg = newPReg()
             in
                 storeAtWordOffset(profReg, n, memAddr, polyWordLoadSize,
-                    BlockSimple(LoadAddressConstant{ source=profileObject, dest=profReg}) ::
+                    loadAddressConstant{ source=profileObject, dest=profReg} ::
                         doAllocation(n+1, Word8.orb(flags, Address.F_profile), tlCode))
             end
             else doAllocation(n, flags, tlCode)
@@ -291,7 +293,7 @@ struct
         let
             val tReg = asTarget target
         in
-            (BlockSimple(LoadNonAddressConstant{source=taggedWord64 0w0, dest=tReg}) :: code, tReg, exit)
+            (loadNonAddressConstant{source=taggedWord64 0w0, dest=tReg} :: code, tReg, exit)
         end
 
         (* Create a bool result from a test by returning true or false. *)
@@ -758,7 +760,7 @@ struct
             (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
                tag bit of a word.  Just generate it as a general word comparison.  The optimiser
                will sort out whether the tag value can be an immediate. *)
-                codeToICodeRev(BICBinary{oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
+                codeToICodeRev(BICBinary{oper=WordComparison{test=TestEqual, isSigned=false},
                                          arg1=test, arg2=BICConstnt(toMachineWord tagValue, [])},
                         context, isTail, destination, tailCode)
 
@@ -929,9 +931,99 @@ struct
                 (callCode, target, tailCall (* We've exited if this was a tail jump *))
             end
 
-        |   codeToICodeRev(BICNullary _, _, _, _, _) = raise Fallback "codeToICodeRev: BICNullary"
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.GetCurrentThreadId}, _, _, destination, tailCode) =
+            (* Get the ID of the current thread. *)
+            let
+                val target = asTarget destination
+            in
+                (loadMemReg{wordOffset=threadIdOffset, dest=target} :: tailCode, target, false)
+            end
 
-        |   codeToICodeRev(BICArbitrary _, _, _, _, _) = raise Fallback "codeToICodeRev: BICArbitrary"
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, { currHandler, ...}, _, destination, tailCode) =
+            (* TODO: This really does need to be part of the RTS call.  It's included
+               in the long case of every arbitrary precision operation as well as
+               every other RTS call. *)
+            let
+                (* Raise an exception in ML if the last RTS call set the exception packet. *)
+                val haveException = newLabel() and noException = newLabel()
+                val ccRef = newCCRef()
+                val testReg = newPReg()
+                val raiseCode = RaiseExceptionPacket{packetReg=testReg}
+                val code =
+                    BlockLabel noException ::
+                    (case currHandler of
+                        NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h)) ::
+                    BlockLabel haveException ::
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=CondNotEqual, trueJump=haveException, falseJump=noException }) ::
+                    addSubImmediate{source=testReg, dest=NONE, immed=taggedWord 0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef} ::
+                    loadMemReg{wordOffset=exceptionPacketOffset, dest=testReg} ::
+                    tailCode
+            in
+                returnUnit(destination, code, false)
+            end
+
+        |   codeToICodeRev(BICNullary {oper=CreateMutex}, _, _, _, _) =
+                raise Fallback "codeToICodeRev: BICNullary: CreateMutex"
+
+        |   codeToICodeRev(BICArbitrary { oper, shortCond, arg1, arg2, longCall }, context, _, destination, tailCode) =
+            let
+                val startLong = newLabel() and resultLabel = newLabel()
+                val condResult = newMergeReg()
+                (* Test to see if the arguments are short and go straight to the long case if not. *)
+                val testCode = codeConditionRev(shortCond, context, false, startLong, tailCode) 
+                (* Do the short case *)
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, testCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                (* We need to subtract the tag from one of the arguments and then do the
+                   addition.  The optimiser will do the subtraction at compile time if we
+                   subtract from a constant so if this is and Add we try to put the constant
+                   in the second arg. *)
+                val (firstReg, secondReg) =
+                    case (arg1, oper) of
+                        (BICConstnt _, ArithAdd) => (aReg2, aReg1) | _ => (aReg1, aReg2)
+                (* Generate code for the short case.  Put the result in the merge register.  Jump to
+                   the result if there's no overflow and to the long case if there is. *)
+                val codeShort =
+                    case oper of
+                        ArithAdd =>
+                        let
+                            val uReg = newUReg() and chkOverflow = newCCRef()
+                        in
+                            BlockFlow(Conditional{ ccRef=chkOverflow, condition=CondOverflow, trueJump=startLong, falseJump=resultLabel }) ::
+                            addSubRegister{base=firstReg, shifted=uReg, dest=SOME condResult, length=polyWordOpSize,
+                                         ccRef=SOME chkOverflow, isAdd=true, shift=ShiftNone} ::
+                            addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize,
+                                            ccRef=NONE, isAdd=false}:: arg2Code
+                        end
+
+                    |   ArithSub =>
+                        let
+                            val uReg = newUReg() and chkOverflow = newCCRef()
+                        in
+                            BlockFlow(Conditional{ ccRef=chkOverflow, condition=CondOverflow, trueJump=startLong, falseJump=resultLabel }) ::
+                            addSubRegister{base=firstReg, shifted=uReg, dest=SOME condResult, length=polyWordOpSize,
+                                         ccRef=SOME chkOverflow, isAdd=false, shift=ShiftNone} ::
+                            addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize,
+                                            ccRef=NONE, isAdd=false}:: arg2Code
+                        end
+
+                    |   ArithMult => raise Fallback "codeToICodeRev: BICArbitrary: ArithMult"
+
+                    |   _ => raise InternalError "BICArbitrary: unimplemented operation"
+
+                (* Code for the long case. Put the result into the merge register. *)
+                (* TODO: This could use a tail call if this is at the end of the function. *)
+                val (codeLong, _, _) =
+                    codeToICodeRev(longCall, context, false, SpecificPReg condResult,
+                                   BlockLabel startLong :: codeShort)
+                val target = asTarget destination
+                (* Copy the merge register into the result. *)
+                val finalCode =
+                    moveRegister{source=condResult, dest=target} ::
+                    BlockLabel resultLabel :: codeLong
+            in
+                (finalCode, target, false)
+            end
 
         |   codeToICodeRev(BICLambda(lambda as { closure = [], ...}), _, _, destination, tailCode) =
             (* Empty closure - create a constant closure for any recursive calls. *)
@@ -1188,7 +1280,7 @@ struct
             testCode
         end
 
-        and codeToICodeUnaryRev({oper=BuiltIns.NotBoolean, arg1}, context, _, destination, tailCode) =
+        and codeToICodeUnaryRev({oper=NotBoolean, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val ccRef = newCCRef()
@@ -1202,7 +1294,7 @@ struct
                             argCode), target, false)
             end
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.IsTaggedValue, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=IsTaggedValue, arg1}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val ccRef = newCCRef()
@@ -1216,58 +1308,58 @@ struct
                             argCode), target, false)
             end
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=MemoryCellLength, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: MemoryCellLength"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.MemoryCellFlags, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=MemoryCellFlags, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: MemoryCellFlags"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=ClearMutableFlag, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: ClearMutableFlag"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.LongWordToTagged, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=LongWordToTagged, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: LongWordToTagged"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=SignedToLongWord, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: SignedToLongWord"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.UnsignedToLongWord, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=UnsignedToLongWord, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: UnsignedToLongWord"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.RealAbs _, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=RealAbs _, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: RealAbs"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.RealNeg _, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=RealNeg _, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: RealNeg"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.RealFixedInt _, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=RealFixedInt _, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: RealFixedInt"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.FloatToDouble, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=FloatToDouble, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: FloatToDouble"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.DoubleToFloat, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=DoubleToFloat, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: DoubleToFloat"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.RealToInt _, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=RealToInt _, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: RealToInt"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.TouchAddress, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=TouchAddress, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: TouchAddress"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.AllocCStack, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=AllocCStack, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: AllocCStack"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.LockMutex, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=LockMutex, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: LockMutex"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.TryLockMutex, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=TryLockMutex, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: TryLockMutex"
 
-        |   codeToICodeUnaryRev({oper=BuiltIns.UnlockMutex, arg1}, context, _, destination, tailCode) =
+        |   codeToICodeUnaryRev({oper=UnlockMutex, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: UnlockMutex"
 
-        and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
+        and codeToICodeBinaryRev({oper=WordComparison{test, isSigned}, arg1, arg2},
                 context, _, destination, tailCode) =
             let
                 (* Comparisons. This is now only used for tagged values, not for pointer equality. *)
@@ -1295,7 +1387,7 @@ struct
                 (makeBoolResultRev(cond, ccRef, target, comparison), target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
@@ -1316,7 +1408,7 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithSub, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
@@ -1332,10 +1424,10 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.FixedPrecisionArith _, arg1, arg2}, context, isTail, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=WordArith ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
@@ -1354,7 +1446,7 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=WordArith ArithSub, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
@@ -1370,10 +1462,10 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.WordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=WordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: WordArith"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=WordLogical LogicalAnd, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
@@ -1386,7 +1478,7 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=WordLogical LogicalOr, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
@@ -1399,7 +1491,7 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=WordLogical LogicalXor, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
@@ -1418,13 +1510,13 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.WordShift _, arg1, arg2}, context, isTail, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=WordShift _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: WordShift"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, isTail, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=AllocateByteMemory, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: AllocateByteMemory"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordComparison test, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=LargeWordComparison test, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val ccRef = newCCRef()
@@ -1449,7 +1541,7 @@ struct
                 (makeBoolResultRev(cond, ccRef, target, comparison), target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=LargeWordArith ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
@@ -1465,7 +1557,7 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=LargeWordArith ArithSub, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
@@ -1481,10 +1573,10 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=LargeWordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: LargeWordArith"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordLogical logop, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=LargeWordLogical logop, arg1, arg2}, context, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
@@ -1502,16 +1594,16 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.LargeWordShift _, arg1, arg2}, context, isTail, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=LargeWordShift _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: LargeWordShift"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.RealComparison _, arg1, arg2}, context, isTail, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=RealComparison _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: RealComparison"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.RealArith _, arg1, arg2}, context, isTail, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=RealArith _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: RealArith"
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.PointerEq, arg1, arg2}, context, _, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=PointerEq, arg1, arg2}, context, _, destination, tailCode) =
             let
                 (* Equality of general values which can include pointers. This can be treated exactly as a word equality.
                    It has to be analysed differently for indexed cases. *)
@@ -1526,7 +1618,7 @@ struct
                 (makeBoolResultRev(CondEqual, ccRef, target, comparison), target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=BuiltIns.FreeCStack, arg1, arg2}, context, isTail, destination, tailCode) =
+        |   codeToICodeBinaryRev({oper=FreeCStack, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: FreeCStack"
 
         (* Store the code address and the closure items into a previously allocated closure on the
@@ -1748,7 +1840,7 @@ struct
         open Debug Universal
         val tryNewCG = Debug.getParameter Debug.compilerDebugTag debugSwitches
     in
-        if (*false andalso*) tryNewCG = 0
+        if false andalso tryNewCG = 0
         then Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
         else
         let
