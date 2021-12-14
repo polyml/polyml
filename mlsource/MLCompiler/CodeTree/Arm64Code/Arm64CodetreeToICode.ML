@@ -316,6 +316,12 @@ struct
             testCode
         end
 
+        (* Return an absolute address in both native addressing and 32-in-64. *)
+        fun getAbsoluteAddress(code, baseReg) =
+            if is32in64
+            then let val absReg = newUReg() in (objectIndexAddressToAbsolute{ source=baseReg, dest=absReg } :: code, absReg) end
+            else (code, baseReg)
+
         (* Load a value aligned on a 64 or 32-bit boundary.  offset is the number
            of units.  Typically this will be a polyword. *)
         fun wordAddressOffset(destination, baseReg1, offset, loadOp, code) =
@@ -323,15 +329,7 @@ struct
             val dReg = asTarget destination
             val opWordSize = opWordSize loadOp
             val byteOffset = offset * opWordSize
-            val (codeBase, baseReg) =
-                if is32in64
-                then
-                let
-                    val absReg = newUReg()
-                in
-                    (objectIndexAddressToAbsolute{ source=baseReg1, dest=absReg } :: code, absReg)
-                end
-                else (code, baseReg1)
+            val (codeBase, baseReg) = getAbsoluteAddress(code, baseReg1)
             val code =
                 if offset < 4096 andalso byteOffset > ~256
                 then loadWithConstantOffset{base=baseReg, dest=dReg, byteOffset=byteOffset, loadType=loadOp} :: codeBase
@@ -406,10 +404,7 @@ struct
                         end
 
             (* If this is 32in64 get the absolute address. *)
-            val (absBCode, absBReg) =
-                if is32in64
-                then let val bReg = newUReg() in (objectIndexAddressToAbsolute{ source=bReg1, dest=bReg } :: iCode, bReg) end
-                else (iCode, bReg1)
+            val (absBCode, absBReg) = getAbsoluteAddress(iCode, bReg1)
 
             (* If this is a C address the "base address" is actually a LargeWord value that needs to be unboxed. *)
             val (effBCode, effBReg) =
@@ -1311,10 +1306,40 @@ struct
             end
 
         |   codeToICodeUnaryRev({oper=MemoryCellLength, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: MemoryCellLength"
+            let
+                val ureg1 = newUReg() and ureg2 = newUReg()
+                val (codeBase, baseReg, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                (* Load the word at -1 (words) into a ureg *)
+                val (codeLoad, _, _) = wordAddressOffset(SpecificPReg ureg1, baseReg, ~1, polyWordLoadSize, codeBase)
+                (* Select 56 or 24 bits and shift it left.*)
+                val lsb = 0w1 and width = if is32in64 then 0w24 else 0w56
+                (* Encoding for unsignedBitfieldInsertinZeros64/32 *)
+                val immr = if is32in64 then Word.~ lsb mod 0w32 else Word.~ lsb mod 0w64
+                val imms = width-0w1
+                val maskAndShift =
+                    bitField{source=SOME ureg1, dest=ureg2, fieldType=BitFieldMove,
+                        length=polyWordOpSize, immr=immr, imms=imms} :: codeLoad
+                val target = asTarget destination
+                val addTag =
+                    addSubImmediate{dest=SOME target, source=ureg2, immed=0w1, length=polyWordOpSize,
+                                            ccRef=NONE, isAdd=true} :: maskAndShift
+            in
+                (addTag, target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=MemoryCellFlags, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: MemoryCellFlags"
+            let
+                (* Load the flags byte and tag it. *)
+                val (codeBase, baseReg, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (codeRealBase, realBaseReg) = getAbsoluteAddress(codeBase, baseReg)
+                val ureg = newUReg()
+                val codeLoad =
+                    loadWithConstantOffset{ base=realBaseReg, dest=ureg, byteOffset=flagsByteOffset, loadType=Load8 } :: codeRealBase
+                val target = asTarget destination
+                val withTag = tagValue{ source=ureg, dest=target, isSigned=false, opSize=OpSize32 } :: codeLoad
+            in
+                (withTag, target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=ClearMutableFlag, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: ClearMutableFlag"
@@ -1464,8 +1489,17 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=WordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: WordArith"
+        |   codeToICodeBinaryRev({oper=WordArith ArithMult, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: WordArith: ArithMult"
+
+        |   codeToICodeBinaryRev({oper=WordArith ArithDiv, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: WordArith: ArithDiv"
+
+        |   codeToICodeBinaryRev({oper=WordArith ArithMod, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: WordArith: ArithMod"
+
+        |   codeToICodeBinaryRev({oper=WordArith _, ...}, _, _, _, _) =
+                raise InternalError "WordArith - unimplemented instruction"
 
         |   codeToICodeBinaryRev({oper=WordLogical LogicalAnd, arg1, arg2}, context, _, destination, tailCode) =
             let
