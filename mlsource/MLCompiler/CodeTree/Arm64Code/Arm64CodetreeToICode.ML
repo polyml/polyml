@@ -1718,7 +1718,21 @@ struct
             |   LoadStoreC64 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
             |   LoadStoreCFloat => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
             |   LoadStoreCDouble => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
-            |   LoadStoreUntaggedUnsigned => raise Fallback "codeLoadOperation: LoadStoreUntaggedUnsigned immutable"
+
+            |   LoadStoreUntaggedUnsigned =>
+                let
+                    (* LoadStoreMLWord {isImmutable=true} except it has to be tagged. *)
+                    val ureg = newUReg()
+                    fun loadConstOffset(base, offset, _, code) =
+                        loadWithConstantOffset{base=base, dest=ureg, byteOffset=offset, loadType=polyWordLoadSize} :: code
+                    fun loadIndexed(base, index, _, code) =
+                        loadWithIndexedOffset{base=base, dest=ureg, index=index, loadType=polyWordLoadSize} :: code
+                in
+                    tagValue{source=ureg, dest=target, isSigned=false, opSize=polyWordOpSize} ::
+                        loadAndStoreWithAddress codeToICodeRev
+                            (address, fn code => (code, ()), polyWordLoadSize, false, loadConstOffset, loadIndexed, context, tailCode)
+                end
+
         in
             (code, target, false)
         end
