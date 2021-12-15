@@ -75,6 +75,8 @@ struct
             |   instructionUses(ObjectIndexAddressToAbsolute{dest, source, ...}) = if isUsed dest then used source else ()
             |   instructionUses(AbsoluteToObjectIndex{dest, source, ...}) = if isUsed dest then used source else ()
             |   instructionUses(AllocateMemoryFixed _) = ()
+            |   instructionUses(AllocateMemoryVariable{size, ...}) = used size
+            |   instructionUses(InitialiseMem{size, addr, init}) = (used size; used addr; used init)
             |   instructionUses(BeginLoop) = ()
             |   instructionUses(JumpLoop{regArgs, stackArgs, ...}) =
                     (List.app(argUses o #src) regArgs; List.app(argUses o #src) stackArgs)
@@ -84,6 +86,7 @@ struct
             |   instructionUses(AddSubRegister{ base, shifted, ... }) = (used base; used shifted)
             |   instructionUses(LogicalImmediate{ source, ... }) = used source
             |   instructionUses(LogicalRegister{ base, shifted, ... }) = (used base; used shifted)
+            |   instructionUses(ShiftRegister{ source, shift, ... }) = (used source; used shift)
             |   instructionUses(BeginFunction _) = ()
             |   instructionUses(FunctionCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app argUses stackArgs)
             |   instructionUses(TailRecursiveCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app(argUses o #src) stackArgs)
@@ -445,6 +448,18 @@ struct
                 else subImmediate{regN=X_MLHeapAllocPtr, regD=destReg, immed=Word.fromLarge bytesRequired, shifted=false} :: code)
             end
 
+        |   codeExtended _ (AllocateMemoryVariable{ size, dest, saveRegs, ... }, code) =
+            let
+            in
+                raise Fallback "AllocateMemoryVariable"
+            end
+
+        |   codeExtended _ (InitialiseMem{ size, addr, init}, code) =
+            let
+            in
+                raise Fallback "InitialiseMem"
+            end
+
         |   codeExtended _ (BeginLoop, code) = code
 
         |   codeExtended _ (JumpLoop{regArgs, stackArgs, checkInterrupt}, code) =
@@ -604,7 +619,21 @@ struct
                     |   SOME dreg => getAllocatedGenReg dreg
             in
                 instr{regN=getAllocatedGenReg base, regM=getAllocatedGenReg shifted, regD=destReg, shift=shift} :: code
-            end           
+            end
+
+        |   codeExtended _ (ShiftRegister{ direction, dest, source, shift, opSize }, code) =
+            let
+                val instr =
+                    case (direction, opSize) of
+                        (ShiftLeft, OpSize64) => logicalShiftLeftVariable
+                    |   (ShiftLeft, OpSize32) => logicalShiftLeftVariable32
+                    |   (ShiftRightLogical, OpSize64) => logicalShiftRightVariable
+                    |   (ShiftRightLogical, OpSize32) => logicalShiftRightVariable32
+                    |   (ShiftRightArithmetic, OpSize64) => arithmeticShiftRightVariable
+                    |   (ShiftRightArithmetic, OpSize32) => arithmeticShiftRightVariable32
+            in
+                instr{regN=getAllocatedGenReg source, regM=getAllocatedGenReg shift, regD=getAllocatedGenReg dest} :: code
+            end
 
         |   codeExtended _ (BeginFunction{regArgs, ...}, code) =
             let

@@ -24,6 +24,7 @@ functor Arm64CodetreeToICode(
     structure CodeArray: CODEARRAY
     
     structure Arm64Fallback: GENCODE
+    structure Pretty:PRETTY
 
     sharing Arm64ICode.Sharing = ICodeTransform.Sharing = CodeArray.Sharing = Arm64Fallback.Sharing = BackendTree.Sharing
 ): GENCODE =
@@ -58,12 +59,15 @@ struct
     and objectIndexAddressToAbsolute = BlockSimple o ObjectIndexAddressToAbsolute
     and absoluteToObjectIndex = BlockSimple o AbsoluteToObjectIndex
     and allocateMemoryFixed = BlockSimple o AllocateMemoryFixed
+    and allocateMemoryVariable = BlockSimple o AllocateMemoryVariable
+    and initialiseMem = BlockSimple o InitialiseMem
     and storeWithConstantOffset = BlockSimple o StoreWithConstantOffset
     and storeWithIndexedOffset = BlockSimple o StoreWithIndexedOffset
     and addSubImmediate = BlockSimple o AddSubImmediate
     and addSubRegister = BlockSimple o AddSubRegister
     and logicalImmediate = BlockSimple o LogicalImmediate
     and logicalRegister = BlockSimple o LogicalRegister
+    and shiftRegister = BlockSimple o ShiftRegister
 (*  and beginFunction = BlockSimple o BeginFunction
     and functionCall = BlockSimple o FunctionCall
     and tailRecursiveCall = BlockSimple o TailRecursiveCall
@@ -84,9 +88,16 @@ struct
     and storeRelease = BlockSimple o StoreRelease
     and bitField = BlockSimple o BitField
 
+    val shiftConstant = BlockSimple o shiftConstant
+
     (* Many operations use 32-bit arguments in 32-in-64 and 64-bit in native 64. *)
     val polyWordLoadSize = if is32in64 then Load32 else Load64
     val polyWordOpSize = if is32in64 then OpSize32 else OpSize64
+
+    val tagBitMask64 = Word64.<<(Word64.fromInt ~1, 0w1)
+    val tagBitMask32 = Word64.andb(tagBitMask64, 0wxffffffff)
+
+    val polyWordTagBitMask = if is32in64 then tagBitMask32 else tagBitMask64
 
     (* The flags byte is the high-order byte of length word. *)
     val flagsByteOffset = if isBigEndian then ~ (Word.toInt wordSize) else ~1
@@ -1451,8 +1462,20 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=FixedPrecisionArith _, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith"
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithMult, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith: ArithMult"
+
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithQuot, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith: ArithQuot"
+
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithRem, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith: ArithRem"
+
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithDiv, ...}, _, _, _, _) =
+               raise InternalError "unimplemented operation: FixedPrecisionArith ArithDiv"
+
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithMod, ...}, _, _, _, _) =
+                raise InternalError "unimplemented operation: FixedPrecisionArith ArithMod"
 
         |   codeToICodeBinaryRev({oper=WordArith ArithAdd, arg1, arg2}, context, _, destination, tailCode) =
             let
@@ -1546,8 +1569,61 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=WordShift _, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: WordShift"
+        |   codeToICodeBinaryRev({oper=WordShift ShiftLeft, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val ureg1 = newUReg() and ureg2 = newUReg() and ureg3 = newUReg()
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val code =
+                    (* Put back the tag. *)
+                    logicalImmediate{ source=ureg3, dest=SOME target, ccRef=NONE, immed=0w1, logOp=LogOr, length=polyWordOpSize } ::
+                    (* Do the shift *)
+                    shiftRegister{direction=Arm64ICode.ShiftLeft, dest=ureg3, source=ureg1, shift=ureg2, opSize=polyWordOpSize} ::
+                    (* Untag the shift amount.  Since it's at most 64 we can use a 32-bit operation. *)
+                    untagValue{source=aReg2, dest=ureg2, opSize=OpSize32, isSigned=false} ::
+                    (* Remove tag bit from the value we're shifting. *)
+                    logicalImmediate{ source=aReg1, dest=SOME ureg1, ccRef=NONE, immed=polyWordTagBitMask,
+                              logOp=LogAnd, length=polyWordOpSize } :: arg2Code
+            in
+                (code, target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=WordShift ShiftRightLogical, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val ureg1 = newUReg() and ureg2 = newUReg()
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val code =
+                    (* Put back the tag. *)
+                    logicalImmediate{ source=ureg2, dest=SOME target, ccRef=NONE, immed=0w1, logOp=LogOr, length=polyWordOpSize } ::
+                    (* Do the shift *)
+                    shiftRegister{direction=Arm64ICode.ShiftRightLogical, dest=ureg2, source=aReg1, shift=ureg1, opSize=polyWordOpSize} ::
+                    (* Untag the shift amount.  Since it's at most 64 we can use a 32-bit operation. *)
+                    untagValue{source=aReg2, dest=ureg1, opSize=OpSize32, isSigned=false} :: arg2Code
+                    
+            in
+                (code, target, false)
+            end
+
+        |   codeToICodeBinaryRev({oper=WordShift ShiftRightArithmetic, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val ureg1 = newUReg() and ureg2 = newUReg()
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val code =
+                    (* Put back the tag. *)
+                    logicalImmediate{ source=ureg2, dest=SOME target, ccRef=NONE, immed=0w1, logOp=LogOr, length=polyWordOpSize } ::
+                    (* Do the shift *)
+                    shiftRegister{direction=Arm64ICode.ShiftRightArithmetic, dest=ureg2, source=aReg1, shift=ureg1, opSize=polyWordOpSize} ::
+                    (* Untag the shift amount.  Since it's at most 64 we can use a 32-bit operation. *)
+                    untagValue{source=aReg2, dest=ureg1, opSize=OpSize32, isSigned=false} :: arg2Code
+                    
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=AllocateByteMemory, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: AllocateByteMemory"
@@ -1609,8 +1685,17 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=LargeWordArith _, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: LargeWordArith"
+        |   codeToICodeBinaryRev({oper=LargeWordArith ArithMult, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: LargeWordArith: ArithMult"
+
+        |   codeToICodeBinaryRev({oper=LargeWordArith ArithDiv, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: LargeWordArith: ArithDiv"
+
+        |   codeToICodeBinaryRev({oper=LargeWordArith ArithMod, arg1, arg2}, context, isTail, destination, tailCode) =
+            raise Fallback "codeToICodeBinaryRev: LargeWordArith: ArithMod"
+
+        |   codeToICodeBinaryRev({oper=LargeWordArith _, ...}, _, _, _, _) =
+                raise InternalError "LargeWordArith - unimplemented instruction"
 
         |   codeToICodeBinaryRev({oper=LargeWordLogical logop, arg1, arg2}, context, _, destination, tailCode) =
             let
@@ -1618,7 +1703,6 @@ struct
                 val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
-                open BuiltIns
                 val logicalOp = case logop of LogicalAnd => LogAnd | LogicalOr => LogOr | LogicalXor => LogXor
                 val code =
                     boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
@@ -1630,8 +1714,26 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=LargeWordShift _, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: LargeWordShift"
+        |   codeToICodeBinaryRev({oper=LargeWordShift shiftKind, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                val shiftType =
+                    case shiftKind of
+                        ShiftLeft => Arm64ICode.ShiftLeft
+                    |   ShiftRightLogical => Arm64ICode.ShiftRightLogical
+                    |   ShiftRightArithmetic => Arm64ICode.ShiftRightArithmetic
+                val code =
+                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
+                    shiftRegister{direction=shiftType, source=uReg1, shift=uReg2, dest=uReg3, opSize=OpSize64 } ::
+                    (* The shift amount is a word, not a large word. *)
+                    untagValue{ source=aReg2, dest=uReg2, opSize=OpSize32, isSigned=false } ::
+                    unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=RealComparison _, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: RealComparison"
@@ -1895,14 +1997,14 @@ struct
         else
         let
             val newDebugSwitches =
-                [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
-                tagInject icodeTag true,
+                [tagInject icodeTag true,
                 tagInject assemblyCodeTag true] @ debugSwitches
+            val printStream = Pretty.getSimplePrinter(debugSwitches, [])
         in
             codeFunctionToArm64(lambda, if tryNewCG > 1 then newDebugSwitches else debugSwitches, closure)
                 handle Fallback reason =>
                     (
-                        print "Fallback-"; print reason; print "\n";
+                        printStream "Fallback-"; printStream reason; printStream "\n";
                         Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
                     )
         end

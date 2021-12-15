@@ -52,6 +52,7 @@ struct
     and logicalOp = LogAnd | LogOr | LogXor
     and callKind = Recursive | ConstantCode of machineWord | FullCall
     and floatSize = Float32 | Double64
+    and shiftDirection = ShiftLeft | ShiftRightLogical | ShiftRightArithmetic
 
     and bitfieldType =
         BitFieldSigned      (* Set the high order bits to the sign bit *)
@@ -95,6 +96,16 @@ struct
            need to do a garbage collection. *)
     |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: preg, saveRegs: preg list }
 
+        (* Allocate a piece of memory.  The size argument is an untagged value containing
+           the number of words i.e. the same value used for InitialiseMemory and to store
+           in the length word. *)
+    |   AllocateMemoryVariable of { size: preg, dest: preg, saveRegs: preg list }
+
+        (* Initialise a piece of memory by writing "size" copies of the value
+           in "init".  N.B. The size is an untagged value containing the
+           number of words. *)
+    |   InitialiseMem of { size: preg, addr: preg, init: preg }
+
         (* Mark the beginning of a loop.  This is really only to prevent the initialisation code being
            duplicated in ICodeOptimise. *)
     |   BeginLoop
@@ -130,6 +141,9 @@ struct
         (* Register logical operations.  ccRef can only be SOME if logOp is LogAnd.*)
     |   LogicalRegister of { base: preg, shifted: preg, dest: preg option, ccRef: ccRef option,
                              logOp: logicalOp, length: opSize, shift: shiftType }
+
+        (* Shift a word by an amount specified in a register. *)
+    |   ShiftRegister of { direction: shiftDirection, dest: preg, source: preg, shift: preg, opSize: opSize }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
@@ -358,6 +372,22 @@ struct
                 printReg(dest, stream); stream " save="; printSaves(saveRegs, stream)
             )
 
+        |   printICode(AllocateMemoryVariable{size, dest, saveRegs}, stream) =
+            (
+                stream "\tAllocateMemory\t";
+                stream "s="; printReg(size, stream);
+                stream " => "; printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, stream)
+            )
+
+        |   printICode(InitialiseMem{size, addr, init}, stream) =
+            (
+                stream "\tInitialiseMem\t";
+                stream "s="; printReg(size, stream);
+                stream ",i="; printReg(init, stream);
+                stream ",a="; printReg(addr, stream)
+            )
+
         |   printICode(BeginLoop, stream) = stream "\tBeginLoop"
 
         |   printICode(JumpLoop{regArgs, stackArgs, checkInterrupt, ... }, stream) =
@@ -426,6 +456,19 @@ struct
                 stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
                 stream ", ";
                 case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
+            )
+
+        |   printICode(ShiftRegister{ direction, dest, source, shift, opSize }, stream) =
+            (
+                stream (
+                    case direction of
+                        ShiftLeft => "\tShiftLeft"
+                    |   ShiftRightLogical => "\tShiftRightLog"
+                    |   ShiftRightArithmetic => "\tShiftRightArith");
+                stream(arithRepr opSize);
+                stream "\t"; printReg(source, stream); stream " by ";
+                printReg(shift, stream);
+                stream " => "; printReg(dest, stream)
             )
 
         |   printICode(BeginFunction{ regArgs, stackArgs }, stream) =
@@ -617,6 +660,21 @@ struct
         fun isEncodableBitPattern(v, w) = Arm64Code.isEncodableBitPattern(v, optow w)
     end
 
+    (* This generates a  BitField instruction with the appropriate values for immr and imms. *)
+    fun shiftConstant{ direction, dest, source, shift, opSize } =
+    let
+        val (fieldType, immr, imms) =
+            case (direction, opSize) of
+                (ShiftLeft, OpSize64) => (BitFieldUnsigned, Word.~ shift mod 0w64, 0w64-0w1-shift)
+            |   (ShiftLeft, OpSize32) => (BitFieldUnsigned, Word.~ shift mod 0w32, 0w32-0w1-shift)
+            |   (ShiftRightLogical, OpSize64) => (BitFieldUnsigned, shift, 0wx3f)
+            |   (ShiftRightLogical, OpSize32) => (BitFieldUnsigned, shift, 0wx1f)
+            |   (ShiftRightArithmetic, OpSize64) => (BitFieldSigned, shift, 0wx3f)
+            |   (ShiftRightArithmetic, OpSize32) => (BitFieldSigned, shift, 0wx1f)
+    in
+        BitField{ source=SOME source, dest=dest, fieldType=fieldType, length=opSize, immr=immr, imms=imms }
+    end
+
     structure Sharing =
     struct
         type xReg           = xReg
@@ -639,6 +697,7 @@ struct
         and  callKind       = callKind
         and  floatSize      = floatSize
         and  bitfieldType   = bitfieldType
+        and  shiftDirection = shiftDirection
    end
 end;
 

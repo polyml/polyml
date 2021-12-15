@@ -127,6 +127,7 @@ in
             structure CodeArray    = CodeArray
             
             structure Arm64Fallback = Arm64Fallback
+            and       Pretty = Pretty
         )
 
 end;

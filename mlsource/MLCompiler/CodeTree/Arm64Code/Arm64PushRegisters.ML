@@ -371,6 +371,23 @@ struct
                             destCode @ AllocateMemoryFixed { dest=destVal, bytesRequired=bytesRequired, saveRegs=[]} :: code
                         end
 
+                    |   pushRegisters({instr=AllocateMemoryVariable{size, dest, ...}, ...}, code) =
+                        let
+                            val (sizeVal, sizeCode) = mapSrcReg size
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ AllocateMemoryVariable{size=sizeVal, dest=destVal, saveRegs=[]} :: sizeCode @ code
+                        end
+
+                    |   pushRegisters({instr=InitialiseMem{size, addr, init}, ...}, code) =
+                        let
+                            val (sizeVal, sizeCode) = mapSrcReg size
+                            val (addrVal, addrCode) = mapSrcReg addr
+                            val (initVal, initCode) = mapSrcReg init
+                        in
+                            InitialiseMem{size=sizeVal, addr=addrVal, init=initVal} :: initCode @ addrCode @ sizeCode @ code
+                        end
+
                     |   pushRegisters({instr=BeginLoop, ...}, code) = BeginLoop :: code
 
                     |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...}, code) =
@@ -470,6 +487,16 @@ struct
                         in
                             destCode @ LogicalRegister { base=op1Val, shifted=op2Val, dest=destVal, ccRef=ccRef,
                                                          logOp=logOp, length=length, shift=shift} :: op2Code @ op1Code @ code
+                        end
+
+                    |   pushRegisters({instr=ShiftRegister{ direction, dest, source, shift, opSize}, ...}, code) =
+                        let
+                            val (srcVal, op1Code) = mapSrcReg source
+                            val (shiftVal, op2Code) = mapSrcReg shift
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ ShiftRegister { source=srcVal, shift=shiftVal, dest=destVal,
+                                                       direction=direction, opSize=opSize} :: op2Code @ op1Code @ code
                         end
 
                     |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, ...}, code) =

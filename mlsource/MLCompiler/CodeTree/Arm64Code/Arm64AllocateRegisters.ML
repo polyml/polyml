@@ -44,6 +44,9 @@ struct
         map GenReg ([X9, X10, X11, X12, X13, X14, X15, X19, X20, X21, X22, X23,
                       X0, X1, X2, X3, X4, X5, X6, X7, X8, X30] @ (if is32in64 then [] else [X24]))
 
+    val floatingPtRegisters =
+        map FPReg [V7, V6, V5, V4, V3, V2, V1]
+
     fun allocateRegisters{blocks, regStates, regProps, ...} =
     let
         val maxPRegs = Vector.length regStates
@@ -269,6 +272,7 @@ struct
         val allocateFindRegister = findRegister
 
         fun allocateGenReg(PReg r) = allocateRegister(r, NONE, generalRegisters)
+        and allocateFloatReg(PReg r) = allocateRegister(r, NONE, floatingPtRegisters)
 
         val allocateGenRegs = List.app allocateGenReg
 
@@ -295,6 +299,11 @@ struct
         |   registerAllocate{instr=AbsoluteToObjectIndex{dest, source, ...}, ...} = allocateGenRegs[dest, source]
 
         |   registerAllocate({instr=AllocateMemoryFixed{ dest, saveRegs, ...}, ...}) = allocateGenRegs (dest :: saveRegs)
+
+        |   registerAllocate({instr=AllocateMemoryVariable{ size, dest, saveRegs, ...}, ...}) =
+                allocateGenRegs (size :: dest :: saveRegs)
+
+        |   registerAllocate({instr=InitialiseMem{ size, addr, init}, ...}) = allocateGenRegs [size, addr, init]
 
         |   registerAllocate{instr=BeginLoop, ...} = ()
 
@@ -332,6 +341,8 @@ struct
                 case dest of SOME dest => allocateGenReg dest | NONE => ();
                 allocateGenRegs[base, shifted]
             )
+
+        |   registerAllocate{instr=ShiftRegister{ dest, source, shift, ... }, ...} = allocateGenRegs[dest, source, shift]
 
         |   registerAllocate{instr=BeginFunction _, ...} = ()
             (* Any registers that are referenced will have been allocated real registers. *)
@@ -388,16 +399,16 @@ struct
 
         |   registerAllocate({instr=UnboxLarge{source, dest}, ...}) = allocateGenRegs[source, dest]
 
-        |   registerAllocate({instr=BoxTagFloat{floatSize, source, dest, saveRegs}, ...}) =
+        |   registerAllocate({instr=BoxTagFloat{source, dest, saveRegs, ...}, ...}) =
             (
                 allocateGenRegs saveRegs;
-                (*allocateFloatReg source*) raise InternalError "BoxFloat";
+                allocateFloatReg source;
                 allocateGenReg dest
             )
 
-        |   registerAllocate({instr=UnboxTagFloat{floatSize, source, dest}, ...}) =
+        |   registerAllocate({instr=UnboxTagFloat{source, dest, ...}, ...}) =
             (
-                (*allocateFloatReg dest*) raise InternalError "BoxFloat";
+                allocateFloatReg dest;
                 allocateGenReg source
             )
 

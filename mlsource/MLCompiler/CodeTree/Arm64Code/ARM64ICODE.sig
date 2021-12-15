@@ -64,6 +64,7 @@ sig
     |   CondSignedGreater    (* Z==0 && N=V *)
     |   CondSignedLessEq     (* !(Z==0 && N=V) *)
 
+    (* The shift used in arithemtic operations. *)
     and shiftType =
         ShiftLSL of Word8.word
     |   ShiftLSR of Word8.word
@@ -92,6 +93,7 @@ sig
     and logicalOp = LogAnd | LogOr | LogXor
     and callKind = Recursive | ConstantCode of machineWord | FullCall
     and floatSize = Float32 | Double64
+    and shiftDirection = ShiftLeft | ShiftRightLogical | ShiftRightArithmetic
 
     and bitfieldType =
         BitFieldSigned      (* Set the high order bits to the sign bit *)
@@ -135,6 +137,16 @@ sig
            need to do a garbage collection. *)
     |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: preg, saveRegs: preg list }
 
+        (* Allocate a piece of memory.  The size argument is an untagged value containing
+           the number of words i.e. the same value used for InitialiseMemory and to store
+           in the length word. *)
+    |   AllocateMemoryVariable of { size: preg, dest: preg, saveRegs: preg list }
+
+        (* Initialise a piece of memory by writing "size" copies of the value
+           in "init".  N.B. The size is an untagged value containing the
+           number of words. *)
+    |   InitialiseMem of { size: preg, addr: preg, init: preg }
+
         (* Mark the beginning of a loop.  This is really only to prevent the initialisation code being
            duplicated in ICodeOptimise. *)
     |   BeginLoop
@@ -170,6 +182,9 @@ sig
         (* Register logical operations.  ccRef can only be SOME if logOp is LogAnd.*)
     |   LogicalRegister of { base: preg, shifted: preg, dest: preg option, ccRef: ccRef option,
                              logOp: logicalOp, length: opSize, shift: shiftType }
+
+        (* Shift a word by an amount specified in a register. *)
+    |   ShiftRegister of { direction: shiftDirection, dest: preg, source: preg, shift: preg, opSize: opSize }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
@@ -296,6 +311,10 @@ sig
     (* Check whether this value is acceptable for LogicalImmediate. *)
     val isEncodableBitPattern: Word64.word * opSize -> bool
 
+    (* This generates a  BitField instruction with the appropriate values for immr and imms. *)
+    val shiftConstant:
+        { direction: shiftDirection, dest: preg, source: preg, shift: word, opSize: opSize } -> arm64ICode
+
     (* Offsets in the assembly code interface pointed at by X26
        These are in units of 64-bits NOT bytes. *)
     val exceptionPacketOffset: int
@@ -323,5 +342,6 @@ sig
         and  callKind       = callKind
         and  floatSize      = floatSize
         and  bitfieldType   = bitfieldType
+        and  shiftDirection = shiftDirection
    end
 end;

@@ -86,6 +86,12 @@ struct
     |   getInstructionState(AllocateMemoryFixed { dest, ...}) =
         { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
+    |   getInstructionState(AllocateMemoryVariable{size, dest, ...}) =
+            { sources=[size], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(InitialiseMem{size, addr, init}) =
+            { sources=[size, addr, init], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(BeginLoop) =
             (* This is just a marker.  It doesn't actually generate any code. *)
             { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
@@ -123,6 +129,9 @@ struct
     |   getInstructionState(LogicalRegister{ base, shifted, dest, ccRef, ... }) =
         { sources=[base, shifted], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
+
+    |   getInstructionState(ShiftRegister{ source, shift, dest, ... }) =
+        { sources=[source, shift], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
             { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
@@ -167,10 +176,10 @@ struct
 
     |   getInstructionState(StoreToStack{ source, container, ... }) =
         (* Although this stores into the container it must already exist. *)
-            { sources=[source], dests=[], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=[source], dests=[], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(ContainerAddress{ dest, container, ... }) =
-            { sources=[], dests=[dest], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=[], dests=[dest], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(ResetStackPtr _) =
             { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
@@ -179,19 +188,19 @@ struct
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(UntagValue{source, dest, ...}) =
-            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(BoxLarge{source, dest, ...}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(UnboxLarge{source, dest, ...}) =
-            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(BoxTagFloat{source, dest, ...}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(UnboxTagFloat{source, dest, ...}) =
-            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(LoadAcquire { base, dest, ...}) =
         { sources=[base], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
@@ -538,10 +547,7 @@ struct
                     (* The "active" set is the set of registers that need to be active DURING the
                        instruction.  It includes destinations, which will usually be in
                        "activeAfterThis", because there may be destinations that are not actually used
-                       subsequently but still need a register.  That will also include work registers.
-                       Usually sources aren't included if this is the last use but the
-                       AllocateMemoryVariable "instruction" can't set the size after the memory is
-                       allocated so the active set includes the source(s). *)
+                       subsequently but still need a register. *)
                     val activeForInstr =
                         case instr of
                             FunctionCall _ => sourceSet (* Is this still needed? *)
@@ -550,10 +556,14 @@ struct
                                    the work register.  This ensures that we will spill as many registers
                                    as we require when we look at the size of the active set. *)
                                 union(sourceSet, destSet)
-                       (* |   AllocateMemoryVariable _ => (* We can only set the size after the memory is allocated. *)
+                        |   BoxLarge _ =>
+                                (* We can only store the value in the box after the box is allocated. *)
                                 union(activeAfterThis, union(sourceSet, destSet))
-                        |   BoxValue _ => (* We can only store the value in the box after the box is allocated. *)
-                                union(activeAfterThis, union(sourceSet, destSet)) *)
+                        |   BoxTagFloat _ =>
+                                (* Since the source must be a V register and the destination an
+                                   X register there isn't actually a problem here, but do this
+                                   anyway. *)
+                                union(activeAfterThis, union(sourceSet, destSet))
                         |   _ => union(activeAfterThis, destSet)
                 
                     val () = List.app(addActivity 1) (setToList activeForInstr)
@@ -591,13 +601,10 @@ struct
                                 AllocateMemoryFixed{bytesRequired, dest, saveRegs=_} =>
                                     AllocateMemoryFixed{bytesRequired=bytesRequired, dest=dest,
                                         saveRegs=getSaveSet(regNo dest)}
-                            (*    AllocateMemoryFixed{size, flags, dest, saveRegs=_} =>
-                                    AllocateMemoryFixed{size=size, flags=flags, dest=dest,
-                                        saveRegs=getSaveSet(regNo dest)}
 
                             |   AllocateMemoryVariable{size, dest, saveRegs=_} =>
                                     AllocateMemoryVariable{size=size, dest=dest, saveRegs=getSaveSet(regNo dest)}
-*)
+
                             |   BoxLarge{source, dest, saveRegs=_} =>
                                     BoxLarge{source=source, dest=dest, saveRegs=getSaveSet(regNo dest)}
 
