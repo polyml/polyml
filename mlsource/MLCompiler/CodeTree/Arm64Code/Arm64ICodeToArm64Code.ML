@@ -53,96 +53,6 @@ struct
         and getAllocatedFPReg r =
             case getAllocatedReg r of FPReg r => r | GenReg _ => raise InternalError "getAllocatedFPReg: returned Gen Reg"
 
-        local
-            val numRegisters = Vector.length allocatedRegisters
-            val uses = Array.array(numRegisters, false)
-            fun used(PReg r) = Array.update(uses, r, true)
-            fun isUsed(PReg r) = Array.sub(uses, r)
-            fun argUses(ArgInReg reg) = used reg | argUses _ = ()
-
-            (* Redundant instructions are removed in IdentifyReferences. However
-               caching can only be done after register allocation so this removes
-               instructions that are no longer needed because a cached value
-               can be used. *)
-            (* LoadArgument, TagValue, CopyToCache, UntagValue and BoxValue are eliminated if their destination
-               is not used.  In that case their source are not used either. *)
-            fun instructionUses(MoveRegister { source, dest, ...}) = if isUsed dest then used source else ()
-            |   instructionUses(LoadNonAddressConstant _) = ()
-            |   instructionUses(LoadAddressConstant _) = ()
-            |   instructionUses(LoadWithConstantOffset{dest, base, ...}) = if isUsed dest then used base else ()
-            |   instructionUses(LoadWithIndexedOffset{dest, base, index, ...}) = if isUsed dest then (used base; used index) else ()
-            |   instructionUses(LoadMemReg _) = ()
-            |   instructionUses(ObjectIndexAddressToAbsolute{dest, source, ...}) = if isUsed dest then used source else ()
-            |   instructionUses(AbsoluteToObjectIndex{dest, source, ...}) = if isUsed dest then used source else ()
-            |   instructionUses(AllocateMemoryFixed _) = ()
-            |   instructionUses(AllocateMemoryVariable{size, ...}) = used size
-            |   instructionUses(InitialiseMem{size, addr, init}) = (used size; used addr; used init)
-            |   instructionUses(BeginLoop) = ()
-            |   instructionUses(JumpLoop{regArgs, stackArgs, ...}) =
-                    (List.app(argUses o #src) regArgs; List.app(argUses o #src) stackArgs)
-            |   instructionUses(StoreWithConstantOffset{source, base, ...}) = (used source; used base)
-            |   instructionUses(StoreWithIndexedOffset{source, base, index, ...}) = (used source; used base; used index)
-            |   instructionUses(AddSubImmediate{ source, ... }) = used source
-            |   instructionUses(AddSubRegister{ base, shifted, ... }) = (used base; used shifted)
-            |   instructionUses(LogicalImmediate{ source, ... }) = used source
-            |   instructionUses(LogicalRegister{ base, shifted, ... }) = (used base; used shifted)
-            |   instructionUses(ShiftRegister{ source, shift, ... }) = (used source; used shift)
-            |   instructionUses(BeginFunction _) = ()
-            |   instructionUses(FunctionCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app argUses stackArgs)
-            |   instructionUses(TailRecursiveCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app(argUses o #src) stackArgs)
-            |   instructionUses(ReturnResultFromFunction{resultReg, returnReg, ...}) = (used resultReg; used returnReg)
-            |   instructionUses(RaiseExceptionPacket{packetReg}) = used packetReg
-            |   instructionUses(PushToStack{source, ...}) = used source
-            |   instructionUses(LoadStack _) = ()
-            |   instructionUses(StoreToStack{source, ...}) = used source
-            |   instructionUses(ContainerAddress _) = ()
-            |   instructionUses(ResetStackPtr _) = ()
-            |   instructionUses(TagValue{ source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
-            |   instructionUses(UntagValue{ source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
-            |   instructionUses(BoxLarge{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
-            |   instructionUses(UnboxLarge{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
-            |   instructionUses(BoxTagFloat{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
-            |   instructionUses(UnboxTagFloat{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
-            |   instructionUses(LoadAcquire{base, ...}) = used base (* TODO: Could depend on whether dest is used. *)
-            |   instructionUses(StoreRelease{source, base, ...}) = (used source; used base)
-            |   instructionUses(BitField{source, destAsSource, ...}) =
-                (
-                    case source of SOME src => used src | NONE => ();
-                    case destAsSource of SOME ds => used ds | NONE => ()
-                )
-
-            (* Depth-first scan. *)
-            val visited = Array.array(numBlocks, false)
-
-            fun processBlocks blockNo =
-            if Array.sub(visited, blockNo)
-            then ()  (* Done or currently being done. *)
-            else
-            let
-                val () = Array.update(visited, blockNo, true)
-                val ExtendedBasicBlock { flow, block,...} = Vector.sub(blocks, blockNo)
-                val () =
-                    (* Process the dependencies first. *)
-                    case flow of
-                        ExitCode => ()
-                    |   Unconditional m => processBlocks m
-                    |   Conditional {trueJump, falseJump, ...} =>
-                            (processBlocks trueJump; processBlocks falseJump)
-                    |   IndexedBr cases => List.app processBlocks cases
-                    |   SetHandler{ handler, continue } =>
-                            (processBlocks handler; processBlocks continue)
-                    |   UnconditionalHandle _ => ()
-                    |   ConditionalHandle { continue, ...} => processBlocks continue
-                (* Now this block. *)
-            in
-                List.foldr(fn ({instr, ...}, ()) => instructionUses instr) () block
-            end
-
-        in
-            val () = processBlocks 0
-            val isUsed = isUsed
-        end
-
         (* Load from and store to stack. *)
         fun loadFromStack(destReg, wordOffset, code) =
             if wordOffset >= 4096
@@ -346,8 +256,7 @@ struct
                 end
             end
 
-        (* Only get the registers that are actually used. *)
-        val getSaveRegs = List.mapPartial(fn reg => if isUsed reg then SOME(getAllocatedGenReg reg) else NONE)
+        val getSaveRegs = List.map getAllocatedGenReg
         
         fun getSaveRegsAndSeparate saveRegs =
         let
@@ -361,9 +270,7 @@ struct
         val startOfFunctionLabel = createLabel() (* Used for recursive calls/jumps *)
 
         fun codeExtended _ (MoveRegister{source, dest, ...}, code) =
-            if not (isUsed dest)
-            then code
-            else moveIfNecessary({src=getAllocatedGenReg source, dst=getAllocatedGenReg dest}, code)
+            moveIfNecessary({src=getAllocatedGenReg source, dst=getAllocatedGenReg dest}, code)
 
         |   codeExtended _ (LoadNonAddressConstant{source, dest, ...}, code) =
                 List.rev(loadNonAddress(getAllocatedGenReg dest, source)) @ code
@@ -714,7 +621,7 @@ struct
                     loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=entryPt} ::
                     storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8} :: code2
 
-                val usedRegs = List.filter (isUsed o #1) regArgs
+                val usedRegs = regArgs
                 fun mkPair(pr, rr) = {src=rr,dst=getAllocatedGenReg pr}
                 val regPairs = List.map mkPair usedRegs
             in
@@ -996,29 +903,32 @@ struct
                 storeInstr{regT=getAllocatedGenReg source, regN=getAllocatedGenReg base} :: code
             end
 
-        |   codeExtended _ (BitField{ source, destAsSource, dest, fieldType, length, immr, imms }, code) =
+        |   codeExtended _ (BitFieldShift{ source, dest, isSigned, length, immr, imms }, code) =
             let
                 val bfInstr =
-                    case (fieldType, length) of
-                        (BitFieldSigned, OpSize64) => signedBitfieldMove64
-                    |   (BitFieldUnsigned, OpSize64) => unsignedBitfieldMove64
-                    |   (BitFieldMove, OpSize64) => bitfieldMove64
-                    |   (BitFieldSigned, OpSize32) => signedBitfieldMove32
-                    |   (BitFieldUnsigned, OpSize32) => unsignedBitfieldMove32
-                    |   (BitFieldMove, OpSize32) => bitfieldMove32
-                val srcReg =
-                    case source of SOME src => getAllocatedGenReg src | NONE => XZero
+                    case (isSigned, length) of
+                        (true, OpSize64) => signedBitfieldMove64
+                    |   (false, OpSize64) => unsignedBitfieldMove64
+                    |   (true, OpSize32) => signedBitfieldMove32
+                    |   (false, OpSize32) => unsignedBitfieldMove32
+                val srcReg = getAllocatedGenReg source
+                val destReg = getAllocatedGenReg dest
+            in
+                bfInstr{immr=immr, imms=imms, regN=srcReg, regD=destReg} :: code
+            end
+
+
+        |   codeExtended _ (BitFieldInsert{ source, destAsSource, dest, length, immr, imms }, code) =
+            let
+                val bfInstr =
+                    case length of OpSize64 => bitfieldMove64 | OpSize32 => bitfieldMove32
                 (* If we're using BitFieldMove we retain some of the bits of the
                    destination.  The higher levels require us to treat that as a source.  *)
                 val destReg = getAllocatedGenReg dest
-                val moveCode =
-                    case destAsSource of
-                        SOME ds => moveIfNecessary({src=getAllocatedGenReg ds, dst=destReg}, code)
-                    |   NONE => code
             in
-                bfInstr{immr=immr, imms=imms, regN=srcReg, regD=destReg} :: moveCode
+                bfInstr{immr=immr, imms=imms, regN=getAllocatedGenReg source, regD=destReg} ::
+                    moveIfNecessary({src=getAllocatedGenReg destAsSource, dst=destReg}, code)
             end
-
 
         val blockToLabelMap = Vector.tabulate(numBlocks, fn _ => createLabel())
 

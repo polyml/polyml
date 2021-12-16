@@ -86,7 +86,8 @@ struct
     and unboxTagFloat = BlockSimple o UnboxTagFloat
     and loadAcquire = BlockSimple o LoadAcquire
     and storeRelease = BlockSimple o StoreRelease
-    and bitField = BlockSimple o BitField
+    and bitFieldShift = BlockSimple o BitFieldShift
+    and bitFieldInsert = BlockSimple o BitFieldInsert
 
     val shiftConstant = BlockSimple o shiftConstant
 
@@ -1283,7 +1284,7 @@ struct
                    55 or 23 bits.  This puts the tag bit in the top bit of the size.  Then insert the size
                    into this which will overwrite the flag's tag bit. *)
                 val makeLengthWord =
-                    bitField{ source=SOME uSizeReg, destAsSource=SOME shiftFReg, dest=lengthWord, fieldType=BitFieldMove, length=polyWordOpSize,
+                    bitFieldInsert{ source=uSizeReg, destAsSource=shiftFReg, dest=lengthWord, length=polyWordOpSize,
                               immr=0w0 (*bit 0*), imms=if is32in64 then 0w23 else 0w55 (*width-1*) } ::
                     shiftConstant{direction=Arm64ICode.ShiftLeft, dest=shiftFReg, source=flagsReg,
                         shift=if is32in64 then 0w23 else 0w55, opSize=polyWordOpSize } :: allocateMem
@@ -1350,14 +1351,13 @@ struct
                 val (codeBase, baseReg, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
                 (* Load the word at -1 (words) into a ureg *)
                 val (codeLoad, _, _) = wordAddressOffset(SpecificPReg ureg1, baseReg, ~1, polyWordLoadSize, codeBase)
-                (* Select 56 or 24 bits and shift it left.*)
+                (* Select 56 or 24 bits and shift it left.  This disassembles as UBFIZ..*)
                 val lsb = 0w1 and width = if is32in64 then 0w24 else 0w56
                 (* Encoding for unsignedBitfieldInsertinZeros64/32 *)
                 val immr = if is32in64 then Word.~ lsb mod 0w32 else Word.~ lsb mod 0w64
                 val imms = width-0w1
                 val maskAndShift =
-                    bitField{source=SOME ureg1, dest=ureg2, destAsSource=NONE, fieldType=BitFieldUnsigned,
-                        length=polyWordOpSize, immr=immr, imms=imms} :: codeLoad
+                    bitFieldShift{source=ureg1, dest=ureg2, isSigned=false, length=polyWordOpSize, immr=immr, imms=imms} :: codeLoad
                 val target = asTarget destination
                 val addTag =
                     addSubImmediate{dest=SOME target, source=ureg2, immed=0w1, length=polyWordOpSize,

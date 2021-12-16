@@ -95,11 +95,6 @@ sig
     and floatSize = Float32 | Double64
     and shiftDirection = ShiftLeft | ShiftRightLogical | ShiftRightArithmetic
 
-    and bitfieldType =
-        BitFieldSigned      (* Set the high order bits to the sign bit *)
-    |   BitFieldUnsigned    (* Set the high order bits to zero. *)
-    |   BitFieldMove        (* Leave the unmoved bits unchanged. *)
-
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
     datatype fnarg = ArgInReg of preg | ArgOnStack of { wordOffset: int, container: stackLocn, field: int }
@@ -276,13 +271,14 @@ sig
            LoadAcquire. *)
     |   StoreRelease of { base: preg, source: preg, loadType: loadType }
 
-        (*  General bit field operation.  This is used for shifts but is more general.  The source
-            can be zero to clear specific bits.  immr and imms are the immediate fields that
-            control the shift and which bits are affected.
-            If fieldType is BitFieldMove some of the destination bits are retained and the
-            destination is effectively a source so has to be included as a separate source. *)
-    |   BitField of { source: preg option, destAsSource: preg option, dest: preg,
-                      fieldType: bitfieldType, length: opSize, immr: word, imms: word }
+        (* This is a generalised constant shift which includes selection of a
+           range of bits. *)
+    |   BitFieldShift of { source: preg, dest: preg, isSigned: bool, length: opSize, immr: word, imms: word }
+
+        (*  Copy a range of bits and insert it into another register.  This is the
+            only case where a register functions both as a source and a destination. *)
+    |   BitFieldInsert of { source: preg, destAsSource: preg, dest: preg,
+                            length: opSize, immr: word, imms: word }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -344,7 +340,6 @@ sig
         and  logicalOp      = logicalOp
         and  callKind       = callKind
         and  floatSize      = floatSize
-        and  bitfieldType   = bitfieldType
         and  shiftDirection = shiftDirection
    end
 end;

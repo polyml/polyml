@@ -101,7 +101,7 @@ struct
             fun addHints{instr=MoveRegister{source=PReg sreg, dest=PReg dreg, ...}, ...} =
                     addSourceAndDestinationHint {src=sreg, dst=dreg}
 
-            |   addHints{instr=BitField{destAsSource=SOME(PReg dsReg), dest=PReg dReg, ...}, ...} =
+            |   addHints{instr=BitFieldInsert{destAsSource=PReg dsReg, dest=PReg dReg, ...}, ...} =
                     (* The "destAsSource" is the destination if some bits are retained. *)
                     addSourceAndDestinationHint {src=dsReg, dst=dReg}
 
@@ -420,12 +420,10 @@ struct
 
         |   registerAllocate{instr=StoreRelease{source, base, ...}, ...} = allocateGenRegs[source, base]
 
-        |   registerAllocate{instr=BitField{ source, dest, destAsSource, ... }, ...} =
-            (
-                case source of SOME source => allocateGenReg source | NONE => ();
-                case destAsSource of SOME dAsS => allocateGenReg dAsS | NONE => ();
-                allocateGenReg dest
-            )
+        |   registerAllocate{instr=BitFieldShift{ source, dest, ... }, ...} = allocateGenRegs[source, dest]
+
+        |   registerAllocate{instr=BitFieldInsert{ source, dest, destAsSource, ... }, ...} =
+                allocateGenRegs[source, destAsSource, dest]
 
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

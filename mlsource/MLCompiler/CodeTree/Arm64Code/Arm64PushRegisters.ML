@@ -239,10 +239,6 @@ struct
                     fun mapOptDest NONE = (NONE, [])
                     |   mapOptDest (SOME destReg) =
                         let val (destVal, destCode) = mapDestReg destReg in (SOME destVal, destCode) end
-                    
-                    and mapOptSource NONE = (NONE, [])
-                    |   mapOptSource (SOME sourceReg) =
-                        let val (srcVal, srcCode) = mapSrcReg sourceReg in (SOME srcVal, srcCode) end
 
                     (* Adjust a stack offset from the old state to the new state. *)
                     fun mapContainerAndStack(StackLoc{rno, size}, field) =
@@ -718,14 +714,24 @@ struct
                             StoreRelease{ base=baseVal, source=sourceVal, loadType=loadType} :: baseCode @ sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=BitField{source, destAsSource, dest, fieldType, length, immr, imms}, ...}, code) =
+                    |   pushRegisters({instr=BitFieldShift{source, dest, isSigned, length, immr, imms}, ...}, code) =
                         let
-                            val (sourceVal, sourceCode) = mapOptSource source
-                            val (destSrcVal, destSrcCode) = mapOptSource destAsSource
+                            val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
                         in
                             destCode @
-                                BitField { source=sourceVal, destAsSource=destSrcVal, dest=destVal, fieldType=fieldType, immr=immr, imms=imms, length=length} ::
+                                BitFieldShift { source=sourceVal, dest=destVal, isSigned=isSigned, immr=immr, imms=imms, length=length} ::
+                                    sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=BitFieldInsert{source, destAsSource, dest, length, immr, imms}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destSrcVal, destSrcCode) = mapSrcReg destAsSource
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @
+                                BitFieldInsert { source=sourceVal, destAsSource=destSrcVal, dest=destVal, immr=immr, imms=imms, length=length} ::
                                     destSrcCode @ sourceCode @ code
                         end
 
