@@ -105,8 +105,11 @@ struct
             |   instructionUses(UnboxTagFloat{source, ...}) = used source (* TODO: Could depend on whether dest is used. *)
             |   instructionUses(LoadAcquire{base, ...}) = used base (* TODO: Could depend on whether dest is used. *)
             |   instructionUses(StoreRelease{source, base, ...}) = (used source; used base)
-            |   instructionUses(BitField{source=SOME src, ...}) = used src
-            |   instructionUses(BitField{source=NONE, ...}) = ()
+            |   instructionUses(BitField{source, destAsSource, ...}) =
+                (
+                    case source of SOME src => used src | NONE => ();
+                    case destAsSource of SOME ds => used ds | NONE => ()
+                )
 
             (* Depth-first scan. *)
             val visited = Array.array(numBlocks, false)
@@ -422,12 +425,7 @@ struct
 
         |   codeExtended _ (AllocateMemoryFixed{ bytesRequired, dest, saveRegs, ... }, code) =
             let
-                val realSaveRegs = getSaveRegs saveRegs
-                (* We may have X30 in the set but we're going to use it if we trap.
-                   We could move it out but it's probably better to save it across the call
-                   even though that's two instructions since traps are infrequent. *)
-                val saveX30 = List.exists (fn r => r = X30) realSaveRegs
-                val preserve = List.filter (fn r => r <> X30) realSaveRegs
+                val {saveX30, saveRegs=preserve} = getSaveRegsAndSeparate saveRegs
                 val label = createLabel()
                 val destReg = getAllocatedGenReg dest
                 (* N.B.  This is in reverse order so read from the bottom up. *)
@@ -450,14 +448,57 @@ struct
 
         |   codeExtended _ (AllocateMemoryVariable{ size, dest, saveRegs, ... }, code) =
             let
+                val {saveX30, saveRegs=preserve} = getSaveRegsAndSeparate saveRegs
+                val trapLabel = createLabel() and noTrapLabel = createLabel()
+                val destReg = getAllocatedGenReg dest and sizeReg = getAllocatedGenReg size
+                (* Subtract the size into the result register.  Subtract a further word for
+                   the length word and round down in 32-in-64. *)
+                val subtractSize =
+                    if is32in64
+                    then bitwiseAndImmediate{bits= ~ 0w8, regN=destReg, regD=destReg} ::
+                            subImmediate{regN=destReg, regD=destReg, immed=0w4, shifted=false} ::
+                            subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftLSL 0w2} :: code
+                    else subImmediate{regN=destReg, regD=destReg, immed=0w8, shifted=false} ::
+                            subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftLSL 0w3} :: code
+                (* Check against the limit. If the size is large enough it is possible that this could wrap round. 
+                   To check for that we trap if either the result is less than the limit or if it is
+                   now greater than the allocation pointer. *)
             in
-                raise Fallback "AllocateMemoryVariable"
+                (* N.B.  This is in reverse order so read from the bottom up. *)
+                moveRegToReg{sReg=destReg, dReg=X_MLHeapAllocPtr} ::
+                setLabel noTrapLabel ::
+                (if saveX30 then [loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8}] else []) @
+                registerMask preserve :: branchAndLinkReg workReg1 ::
+                loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset} ::
+                (if saveX30 then [storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8}] else []) @
+                setLabel trapLabel ::
+                conditionalBranch(CondCarryClear, noTrapLabel) ::
+                subSShiftedReg{regM=X_MLHeapAllocPtr, regN=destReg, regD=XZero, shift=ShiftNone} ::
+                conditionalBranch(CondCarryClear, trapLabel) ::
+                subSShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone} :: subtractSize
             end
 
         |   codeExtended _ (InitialiseMem{ size, addr, init}, code) =
             let
+                val sizeReg = getAllocatedGenReg size
+                and addrReg = getAllocatedGenReg addr
+                and initReg = getAllocatedGenReg init
+                val exitLabel = createLabel() and loopLabel = createLabel()
+                (* Yhis uses a loop to initialise.  It's possible the size is
+                   zero so we have to check at the top of the loop. *)
             in
-                raise Fallback "InitialiseMem"
+                setLabel exitLabel ::
+                unconditionalBranch loopLabel ::
+                (if is32in64
+                 then storeRegPreIndex32{regT=initReg, regN=workReg1, byteOffset= ~4}
+                 else storeRegPreIndex{regT=initReg, regN=workReg1, byteOffset= ~8}) ::
+                conditionalBranch(CondEqual, exitLabel) ::
+                (* Are we at the start? *)
+                subSShiftedReg{regM=workReg1, regN=addrReg, regD=XZero, shift=ShiftNone} ::
+                setLabel loopLabel ::
+                (* Add the length in bytes so we point at the end. *)
+                addShiftedReg{regM=sizeReg, regN=addrReg, regD=workReg1,
+                            shift=ShiftLSL(if is32in64 then 0w2 else 0w3)} :: code
             end
 
         |   codeExtended _ (BeginLoop, code) = code
@@ -955,20 +996,27 @@ struct
                 storeInstr{regT=getAllocatedGenReg source, regN=getAllocatedGenReg base} :: code
             end
 
-        |   codeExtended _ (BitField{ source, dest, fieldType, length, immr, imms }, code) =
+        |   codeExtended _ (BitField{ source, destAsSource, dest, fieldType, length, immr, imms }, code) =
             let
                 val bfInstr =
                     case (fieldType, length) of
                         (BitFieldSigned, OpSize64) => signedBitfieldMove64
-                    |   (BitFieldUnsigned, OpSize64) => bitfieldMove64
-                    |   (BitFieldMove, OpSize64) => unsignedBitfieldMove64
+                    |   (BitFieldUnsigned, OpSize64) => unsignedBitfieldMove64
+                    |   (BitFieldMove, OpSize64) => bitfieldMove64
                     |   (BitFieldSigned, OpSize32) => signedBitfieldMove32
-                    |   (BitFieldUnsigned, OpSize32) => bitfieldMove32
-                    |   (BitFieldMove, OpSize32) => unsignedBitfieldMove32
+                    |   (BitFieldUnsigned, OpSize32) => unsignedBitfieldMove32
+                    |   (BitFieldMove, OpSize32) => bitfieldMove32
                 val srcReg =
                     case source of SOME src => getAllocatedGenReg src | NONE => XZero
+                (* If we're using BitFieldMove we retain some of the bits of the
+                   destination.  The higher levels require us to treat that as a source.  *)
+                val destReg = getAllocatedGenReg dest
+                val moveCode =
+                    case destAsSource of
+                        SOME ds => moveIfNecessary({src=getAllocatedGenReg ds, dst=destReg}, code)
+                    |   NONE => code
             in
-                bfInstr{immr=immr, imms=imms, regN=srcReg, regD=getAllocatedGenReg dest} :: code
+                bfInstr{immr=immr, imms=imms, regN=srcReg, regD=destReg} :: moveCode
             end
 
 

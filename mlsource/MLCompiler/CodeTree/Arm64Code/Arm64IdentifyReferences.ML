@@ -208,11 +208,9 @@ struct
     |   getInstructionState(StoreRelease { base, source, ...}) =
         { sources=[source, base], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionState(BitField{ source=NONE, dest, ... }) =
-        { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
-
-    |   getInstructionState(BitField{ source=SOME src, dest, ... }) =
-        { sources=[src], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+    |   getInstructionState(BitField{ source, destAsSource, dest, ... }) =
+        { sources=(case source of SOME src => [src] | NONE => []) @ (case destAsSource of SOME ds => [ds] | NONE => []),
+          dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)

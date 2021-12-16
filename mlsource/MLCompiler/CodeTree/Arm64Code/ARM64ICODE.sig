@@ -278,8 +278,11 @@ sig
 
         (*  General bit field operation.  This is used for shifts but is more general.  The source
             can be zero to clear specific bits.  immr and imms are the immediate fields that
-            control the shift and which bits are affected. *)
-    |   BitField of { source: preg option, dest: preg, fieldType: bitfieldType, length: opSize, immr: word, imms: word }
+            control the shift and which bits are affected.
+            If fieldType is BitFieldMove some of the destination bits are retained and the
+            destination is effectively a source so has to be included as a separate source. *)
+    |   BitField of { source: preg option, destAsSource: preg option, dest: preg,
+                      fieldType: bitfieldType, length: opSize, immr: word, imms: word }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =

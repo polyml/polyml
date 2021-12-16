@@ -1268,9 +1268,37 @@ struct
 
         |   codeToICodeRev(BICBlockOperation _, _, _, _, _) = raise Fallback "codeToICodeRev: BICBlockOperation"
 
-        |   codeToICodeRev(BICAllocateWordMemory _, _, _, _, _) = raise Fallback "codeToICodeRev: BICAllocateWordMemory"
+        |   codeToICodeRev(BICAllocateWordMemory {numWords, flags, initial }, context, _, destination, tailCode) =
+            let
+                (* Allocate a block of memory and initialise it. *)
+                val target = asTarget destination
+                val (codeSize, sizeReg, _) = codeToICodeRev(numWords, context, false, AnyReg, tailCode)
+                val (codeFlags, flagsReg, _) = codeToICodeRev(flags, context, false, AnyReg, codeSize)
+                val (codeInit, initReg, _) = codeToICodeRev(initial, context, false, AnyReg, codeFlags)
+                val uSizeReg = newUReg() and shiftFReg = newUReg() and lengthWord = newUReg()
+                val absAddr = if is32in64 then newUReg() else target
+                val untagSize = untagValue{source=sizeReg, dest=uSizeReg, opSize=polyWordOpSize, isSigned=false} :: codeInit
+                val allocateMem = allocateMemoryVariable{ size=uSizeReg, dest=absAddr, saveRegs=[]} :: untagSize
+                (* Make the length word by first shifting the flags into the length word reg by
+                   55 or 23 bits.  This puts the tag bit in the top bit of the size.  Then insert the size
+                   into this which will overwrite the flag's tag bit. *)
+                val makeLengthWord =
+                    bitField{ source=SOME uSizeReg, destAsSource=SOME shiftFReg, dest=lengthWord, fieldType=BitFieldMove, length=polyWordOpSize,
+                              immr=0w0 (*bit 0*), imms=if is32in64 then 0w23 else 0w55 (*width-1*) } ::
+                    shiftConstant{direction=Arm64ICode.ShiftLeft, dest=shiftFReg, source=flagsReg,
+                        shift=if is32in64 then 0w23 else 0w55, opSize=polyWordOpSize } :: allocateMem
+                val setLengthWordAndInit =
+                    initialiseMem{ size=uSizeReg, addr=absAddr, init=initReg} ::
+                    storeWithConstantOffset{ source=lengthWord, base=absAddr,
+                        byteOffset= ~(Word.toInt wordSize), loadType=polyWordLoadSize } :: makeLengthWord
+                val finalCode =
+                    if is32in64 then absoluteToObjectIndex{ source=absAddr, dest=target } :: setLengthWordAndInit
+                    else setLengthWordAndInit
+            in
+                (finalCode, target, false)
+            end
 
-        |   codeToICodeRev(BICHandle _, _, _, _, _) = raise Fallback "codeToICodeRev: BICAllocateWordMemory"
+        |   codeToICodeRev(BICHandle _, _, _, _, _) = raise Fallback "codeToICodeRev: BICHandle"
 
         and codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
        (* Jump optimisation is done later.  Just generate the general case.
@@ -1328,7 +1356,7 @@ struct
                 val immr = if is32in64 then Word.~ lsb mod 0w32 else Word.~ lsb mod 0w64
                 val imms = width-0w1
                 val maskAndShift =
-                    bitField{source=SOME ureg1, dest=ureg2, fieldType=BitFieldMove,
+                    bitField{source=SOME ureg1, dest=ureg2, destAsSource=NONE, fieldType=BitFieldUnsigned,
                         length=polyWordOpSize, immr=immr, imms=imms} :: codeLoad
                 val target = asTarget destination
                 val addTag =

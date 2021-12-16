@@ -2074,6 +2074,45 @@ struct
                 )
             end
 
+            else if (wordValue andb 0wx7f800000) = 0wx33000000
+            then (* bitfield move *)
+            let
+                val sf = wordValue >> 0w31
+                (* N is always the same as sf. *)
+                (*val nBit = (wordValue >> 0w22) andb 0w1*)
+                val immr = (wordValue >> 0w16) andb 0wx3f
+                val imms = (wordValue >> 0w10) andb 0wx3f
+                val rN = (wordValue >> 0w5) andb 0wx1f
+                val rD = wordValue andb 0wx1f
+                val (r, wordSize) = if sf = 0w0 then ("w", 0w32) else ("x", 0w64)
+            in
+                if imms < immr
+                then if rD = 0wx31 then printStream "bfc\t" else printStream "bfi\t"
+                else printStream "bfxil\t";
+                if imms >= immr orelse rD <> 0w31
+                then
+                (
+                    printStream r;
+                    printStream(Word32.fmt StringCvt.DEC rD);
+                    printStream ","
+                )
+                else ();
+                printStream r;
+                printStream(Word32.fmt StringCvt.DEC rN);
+                (* Not certain that these are correct. *)
+                if imms < immr
+                then
+                (
+                    printStream ",#0x"; printStream(Word32.toString(wordSize - immr));
+                    printStream ",#0x"; printStream(Word32.toString(imms+0w1))
+                )
+                else
+                (
+                    printStream ",#0x"; printStream(Word32.toString immr);
+                    printStream ",#0x"; printStream(Word32.toString(imms+0w1-immr))
+                )
+            end
+
             else if (wordValue andb 0wx7f800000) = 0wx53000000
             then (* unsigned bitfield move *)
             let
@@ -2087,21 +2126,47 @@ struct
                 val (r, wordSize) = if sf = 0w0 then ("w", 0w32) else ("x", 0w64)
             in
                 if imms + 0w1 = immr
-                then printStream "lsl\t"
+                then
+                (
+                    printStream "lsl\t";
+                    printStream r;
+                    printStream(Word32.fmt StringCvt.DEC rD);
+                    printStream ",";
+                    printStream r;
+                    printStream(Word32.fmt StringCvt.DEC rN);
+                    printStream ",#0x"; printStream(Word32.toString(wordSize - immr))
+                )
                 else if imms = wordSize - 0w1
-                then printStream "lsr\t"
-                else printStream "ubfm\t";
-                printStream r;
-                printStream(Word32.fmt StringCvt.DEC rD);
-                printStream ",";
-                printStream r;
-                printStream(Word32.fmt StringCvt.DEC rN);
-                if imms + 0w1 = immr
-                then (printStream ",#0x"; printStream(Word32.toString(wordSize - immr)))
-                else if imms = wordSize - 0w1
-                then (printStream ",#0x"; printStream(Word32.toString immr))
+                then
+                (
+                    printStream "lsr\t";
+                    printStream r;
+                    printStream(Word32.fmt StringCvt.DEC rD);
+                    printStream ",";
+                    printStream r;
+                    printStream(Word32.fmt StringCvt.DEC rN);
+                    printStream ",#0x"; printStream(Word32.toString immr)
+                )
+                else if imms < immr
+                then
+                (
+                    printStream "ubfiz\t";
+                    printStream r;
+                    printStream(Word32.fmt StringCvt.DEC rD);
+                    printStream ",";
+                    printStream r;
+                    printStream(Word32.fmt StringCvt.DEC rN);
+                    printStream ",#0x"; printStream(Word32.toString(wordSize - immr));
+                    printStream ",#0x"; printStream(Word32.toString(imms+0w1))
+                )
                 else
                 (
+                    printStream "ubfm\t";
+                    printStream r;
+                    printStream(Word32.fmt StringCvt.DEC rD);
+                    printStream ",";
+                    printStream r;
+                    printStream(Word32.fmt StringCvt.DEC rN);
                     printStream ",#0x"; printStream(Word32.toString immr);
                     printStream ",#0x"; printStream(Word32.toString imms)
                 )

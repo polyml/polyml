@@ -237,8 +237,11 @@ struct
 
         (*  General bit field operation.  This is used for shifts but is more general.  The source
             can be zero to clear specific bits.  immr and imms are the immediate fields that
-            control the shift and which bits are affected. *)
-    |   BitField of { source: preg option, dest: preg, fieldType: bitfieldType, length: opSize, immr: word, imms: word }
+            control the shift and which bits are affected.
+            If fieldType is BitFieldMove some of the destination bits are retained and the
+            destination is effectively a source so has to be included as a separate source. *)
+    |   BitField of { source: preg option, destAsSource: preg option, dest: preg,
+                      fieldType: bitfieldType, length: opSize, immr: word, imms: word }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -610,14 +613,15 @@ struct
                 printReg(base, stream); stream "]"
             )
 
-        |   printICode(BitField{ source, dest, fieldType, length, immr, imms }, stream) =
+        |   printICode(BitField{ source, dest, destAsSource, fieldType, length, immr, imms }, stream) =
             (
                 stream "\tBitField";  stream(arithRepr length); stream "\t";
                 case source of NONE => stream "0" | SOME source => printReg(source, stream);
+                case destAsSource of NONE => () | SOME destSource => (stream " with "; printReg(destSource, stream));
                 stream " => "; printReg(dest, stream); stream " type=";
                 stream(case fieldType of BitFieldSigned => "S" | BitFieldUnsigned => "U" | BitFieldMove => "M");
-                stream " immr="; stream(Word.toString immr);
-                stream " imms="; stream(Word.toString imms)
+                stream " immr="; stream(Word.fmt StringCvt.DEC immr);
+                stream " imms="; stream(Word.fmt StringCvt.DEC imms)
             )
 
         and printCondition(cond,  stream)  = stream(condToString cond)
@@ -672,7 +676,7 @@ struct
             |   (ShiftRightArithmetic, OpSize64) => (BitFieldSigned, shift, 0wx3f)
             |   (ShiftRightArithmetic, OpSize32) => (BitFieldSigned, shift, 0wx1f)
     in
-        BitField{ source=SOME source, dest=dest, fieldType=fieldType, length=opSize, immr=immr, imms=imms }
+        BitField{ source=SOME source, destAsSource=NONE, dest=dest, fieldType=fieldType, length=opSize, immr=immr, imms=imms }
     end
 
     structure Sharing =

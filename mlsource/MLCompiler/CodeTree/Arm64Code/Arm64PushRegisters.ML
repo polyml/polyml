@@ -239,6 +239,10 @@ struct
                     fun mapOptDest NONE = (NONE, [])
                     |   mapOptDest (SOME destReg) =
                         let val (destVal, destCode) = mapDestReg destReg in (SOME destVal, destCode) end
+                    
+                    and mapOptSource NONE = (NONE, [])
+                    |   mapOptSource (SOME sourceReg) =
+                        let val (srcVal, srcCode) = mapSrcReg sourceReg in (SOME srcVal, srcCode) end
 
                     (* Adjust a stack offset from the old state to the new state. *)
                     fun mapContainerAndStack(StackLoc{rno, size}, field) =
@@ -714,21 +718,15 @@ struct
                             StoreRelease{ base=baseVal, source=sourceVal, loadType=loadType} :: baseCode @ sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=BitField{source=NONE, dest, fieldType, length, immr, imms}, ...}, code) =
+                    |   pushRegisters({instr=BitField{source, destAsSource, dest, fieldType, length, immr, imms}, ...}, code) =
                         let
-                            val (destVal, destCode) = mapDestReg dest
-                        in
-                            destCode @ BitField { source=NONE, dest=destVal, fieldType=fieldType, immr=immr, imms=imms, length=length} :: code
-                        end
-
-                    |   pushRegisters({instr=BitField{source=SOME source, dest, fieldType, length, immr, imms}, ...}, code) =
-                        let
-                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (sourceVal, sourceCode) = mapOptSource source
+                            val (destSrcVal, destSrcCode) = mapOptSource destAsSource
                             val (destVal, destCode) = mapDestReg dest
                         in
                             destCode @
-                                BitField { source=SOME sourceVal, dest=destVal, fieldType=fieldType, immr=immr, imms=imms, length=length} ::
-                                    sourceCode @ code
+                                BitField { source=sourceVal, destAsSource=destSrcVal, dest=destVal, fieldType=fieldType, immr=immr, imms=imms, length=length} ::
+                                    destSrcCode @ sourceCode @ code
                         end
 
                     local

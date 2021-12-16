@@ -99,7 +99,11 @@ struct
             (* Add the hints to steer the register allocation.  The idea is to avoid moves between
                registers by getting values into the appropriate register in advance. *)
             fun addHints{instr=MoveRegister{source=PReg sreg, dest=PReg dreg, ...}, ...} =
-                addSourceAndDestinationHint {src=sreg, dst=dreg}
+                    addSourceAndDestinationHint {src=sreg, dst=dreg}
+
+            |   addHints{instr=BitField{destAsSource=SOME(PReg dsReg), dest=PReg dReg, ...}, ...} =
+                    (* The "destAsSource" is the destination if some bits are retained. *)
+                    addSourceAndDestinationHint {src=dsReg, dst=dReg}
 
             |   addHints{instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg retReg, ... }, ...} =
                 (
@@ -416,9 +420,10 @@ struct
 
         |   registerAllocate{instr=StoreRelease{source, base, ...}, ...} = allocateGenRegs[source, base]
 
-        |   registerAllocate{instr=BitField{ source, dest, ... }, ...} =
+        |   registerAllocate{instr=BitField{ source, dest, destAsSource, ... }, ...} =
             (
                 case source of SOME source => allocateGenReg source | NONE => ();
+                case destAsSource of SOME dAsS => allocateGenReg dAsS | NONE => ();
                 allocateGenReg dest
             )
 
