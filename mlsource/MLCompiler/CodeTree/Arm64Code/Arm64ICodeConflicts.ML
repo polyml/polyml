@@ -90,14 +90,15 @@ struct
             local
                 (* In almost all circumstances the destination and sources don't
                    conflict and the same register can be used as a destination and
-                   a source.  The exceptions are AllocateMemoryVariable and BoxValues
-                   which can only store the size or the contents after the memory has
-                   been allocated.  We also have to make sure that the test and
-                   work registers are different in IndexedCase. *)
+                   a source.  BoxLarge can only store the value after the memory
+                   has been allocated.  BitFieldInsert has to copy the "destAsSource"
+                   value into the destination so cannot use the same register for
+                   the "source". *)
                 val postInstruction =
                     case instr of
                         BoxLarge _ => destRegNos @ sourceRegNos
                     |   BoxTagFloat _ => destRegNos @ sourceRegNos (* Not sure about this. *)
+                    |   BitFieldInsert{source, ...} => regNo source :: destRegNos
                     |   _ => destRegNos
             in
                 (* If there is more than one destination they conflict with each other. *)

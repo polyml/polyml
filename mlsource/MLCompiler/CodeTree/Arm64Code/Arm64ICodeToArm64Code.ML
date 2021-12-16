@@ -876,7 +876,7 @@ struct
                 then List.rev(boxFloat{source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
                                     workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
                 else raise InternalError "BoxTagFloat: tagged float"
-
+ 
         |   codeExtended _ (UnboxTagFloat _, _) = raise InternalError "codeExtended; Unbox"
 
         |   codeExtended _ (LoadAcquire{dest, base, loadType, ...}, code) =
@@ -917,14 +917,15 @@ struct
                 bfInstr{immr=immr, imms=imms, regN=srcReg, regD=destReg} :: code
             end
 
-
         |   codeExtended _ (BitFieldInsert{ source, destAsSource, dest, length, immr, imms }, code) =
             let
-                val bfInstr =
-                    case length of OpSize64 => bitfieldMove64 | OpSize32 => bitfieldMove32
                 (* If we're using BitFieldMove we retain some of the bits of the
                    destination.  The higher levels require us to treat that as a source.  *)
-                val destReg = getAllocatedGenReg dest
+                val sourceReg = getAllocatedGenReg source
+                and destReg = getAllocatedGenReg dest
+                val _ = sourceReg = destReg andalso raise InternalError "codeExtended: bitfield: dest=source"
+                val bfInstr =
+                    case length of OpSize64 => bitfieldMove64 | OpSize32 => bitfieldMove32
             in
                 bfInstr{immr=immr, imms=imms, regN=getAllocatedGenReg source, regD=destReg} ::
                     moveIfNecessary({src=getAllocatedGenReg destAsSource, dst=destReg}, code)
