@@ -1381,7 +1381,19 @@ struct
             end
 
         |   codeToICodeUnaryRev({oper=ClearMutableFlag, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: ClearMutableFlag"
+            let
+                val (codeBase, baseReg, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (codeRealBase, realBaseReg) = getAbsoluteAddress(codeBase, baseReg)
+                val ureg1 = newUReg() and ureg2 = newUReg()
+                (* Load the flags, mask off the mutable bit and store it back. *)
+                val code =
+                    storeWithConstantOffset{ base=realBaseReg, source=ureg2, byteOffset=flagsByteOffset, loadType=Load8 } ::
+                    logicalImmediate{ source=ureg1, dest=SOME ureg2, ccRef=NONE,
+                                      immed=Word64.xorb(0wxffffffff, 0wx40), logOp=LogAnd, length=OpSize32 } ::
+                    loadWithConstantOffset{ base=realBaseReg, dest=ureg1, byteOffset=flagsByteOffset, loadType=Load8 } :: codeRealBase
+            in
+                returnUnit(destination, code, false)
+            end
 
         |   codeToICodeUnaryRev({oper=LongWordToTagged, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: LongWordToTagged"
@@ -1653,8 +1665,36 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=AllocateByteMemory, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: AllocateByteMemory"
+        |   codeToICodeBinaryRev({oper=AllocateByteMemory, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                (* Allocate a block of memory and without initialisation.  If the flags include
+                   the "bytes" bit the GC won't look at it so it doesn't matter that it's not
+                   initialised.
+                   This is identical to AllocateWordMemory apart from the lack of initialisation. *)
+                val target = asTarget destination
+                val (codeSize, sizeReg, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (codeFlags, flagsReg, _) = codeToICodeRev(arg2, context, false, AnyReg, codeSize)
+                val uSizeReg = newUReg() and shiftFReg = newUReg() and lengthWord = newUReg()
+                val absAddr = if is32in64 then newUReg() else target
+                val untagSize = untagValue{source=sizeReg, dest=uSizeReg, opSize=polyWordOpSize, isSigned=false} :: codeFlags
+                val allocateMem = allocateMemoryVariable{ size=uSizeReg, dest=absAddr, saveRegs=[]} :: untagSize
+                (* Make the length word by first shifting the flags into the length word reg by
+                   55 or 23 bits.  This puts the tag bit in the top bit of the size.  Then insert the size
+                   into this which will overwrite the flag's tag bit. *)
+                val makeLengthWord =
+                    bitFieldInsert{ source=uSizeReg, destAsSource=shiftFReg, dest=lengthWord, length=polyWordOpSize,
+                              immr=0w0 (*bit 0*), imms=if is32in64 then 0w23 else 0w55 (*width-1*) } ::
+                    shiftConstant{direction=Arm64ICode.ShiftLeft, dest=shiftFReg, source=flagsReg,
+                        shift=if is32in64 then 0w23 else 0w55, opSize=polyWordOpSize } :: allocateMem
+                val setLengthWordAndInit =
+                    storeWithConstantOffset{ source=lengthWord, base=absAddr,
+                        byteOffset= ~(Word.toInt wordSize), loadType=polyWordLoadSize } :: makeLengthWord
+                val finalCode =
+                    if is32in64 then absoluteToObjectIndex{ source=absAddr, dest=target } :: setLengthWordAndInit
+                    else setLengthWordAndInit
+            in
+                (finalCode, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=LargeWordComparison test, arg1, arg2}, context, _, destination, tailCode) =
             let
