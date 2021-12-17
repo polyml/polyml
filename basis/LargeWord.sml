@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Word and LargeWord Structure
-    Copyright   David Matthews 1999, 2005, 2012, 2016
+    Copyright   David Matthews 1999, 2005, 2012, 2016, 2021
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -192,7 +192,12 @@ in
                 if signed < 0 then maxWordP1 + signed else signed
             end
 
-        fun toInt x = LargeInt.toInt(toLargeInt x)
+        (* If int is arbitrary precision we just convert it
+           otherwise we have to check the range. *)
+        val toInt =
+            case Int.maxInt of
+                NONE => (fn x => LargeInt.toInt(toLargeInt x))
+            |   SOME m => (fn x => if x > fromInt m then raise Overflow else toIntX x)
 
         fun scan radix getc src =
             case scanWord radix getc src of
