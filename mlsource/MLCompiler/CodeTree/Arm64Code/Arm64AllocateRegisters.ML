@@ -348,8 +348,11 @@ struct
 
         |   registerAllocate{instr=ShiftRegister{ dest, source, shift, ... }, ...} = allocateGenRegs[dest, source, shift]
 
-        |   registerAllocate{instr=BeginFunction _, ...} = ()
-            (* Any registers that are referenced will have been allocated real registers. *)
+        |   registerAllocate{instr=BeginFunction{regArgs, ...}, ...} =
+                (* Check that every argument has a register allocated including any that are unused.
+                   Unused arguments should be discarded at a higher level because we could allocate
+                   a different register and copy the argument register only to discard it. *)
+                allocateGenRegs(List.map #1 regArgs)
 
         |   registerAllocate({instr=TailRecursiveCall{regArgs=regArgs, stackArgs=stackArgs, ...}, ...}) =
             let
@@ -470,8 +473,8 @@ struct
         processBlocks 0;
         (* If the failures list is empty we succeeded. *)
         case !failures of
-            [] =>  (* Return the allocation vector.  If a register isn't used replace it with X0. *)
-                AllocateSuccess(Vector.tabulate(maxPRegs, fn i => getOpt(Array.sub(allocatedRegs, i), GenReg X0)))
+            [] =>  (* Return the allocation vector.  We may have unused registers, *)
+                AllocateSuccess(Vector.tabulate(maxPRegs, fn i => getOpt(Array.sub(allocatedRegs, i), GenReg XZero)))
             (* Else we'll have to spill something. *)
         |   l => AllocateFailure l
     end
