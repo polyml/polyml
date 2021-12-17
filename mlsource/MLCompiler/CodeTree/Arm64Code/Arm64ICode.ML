@@ -611,7 +611,7 @@ struct
 
         |   printICode(BitFieldShift{ source, dest, isSigned, length, immr, imms }, stream) =
             (
-                stream "\tBitFieldShift"; stream(if isSigned then "Signed" else "Unsigned"); stream(arithRepr length); stream "\t";
+                stream "\tBitShift"; stream(if isSigned then "Signed" else "Unsigned"); stream(arithRepr length); stream "\t";
                 printReg(source, stream);
                 stream " => "; printReg(dest, stream);
                 stream " immr="; stream(Word.fmt StringCvt.DEC immr);
@@ -620,7 +620,7 @@ struct
 
         |   printICode(BitFieldInsert{ source, dest, destAsSource, length, immr, imms }, stream) =
             (
-                stream "\tBitFieldInsert";  stream(arithRepr length); stream "\t";
+                stream "\tBitInsert";  stream(arithRepr length); stream "\t";
                 printReg(source, stream); stream " with "; printReg(destAsSource, stream);
                 stream " => "; printReg(dest, stream);
                 stream " immr="; stream(Word.fmt StringCvt.DEC immr);

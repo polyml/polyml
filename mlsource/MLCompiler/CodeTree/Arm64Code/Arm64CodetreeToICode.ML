@@ -1396,13 +1396,50 @@ struct
             end
 
         |   codeToICodeUnaryRev({oper=LongWordToTagged, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: LongWordToTagged"
+            let
+                val (codeBase, baseReg, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val uReg = newUReg()
+                val target = asTarget destination
+                val code =
+                    tagValue{ source=uReg, dest=target, isSigned=false, opSize=polyWordOpSize } ::
+                    unboxLarge{ source=baseReg, dest=uReg } :: codeBase
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=SignedToLongWord, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: SignedToLongWord"
+            let
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val uReg = newUReg()
+                val target = asTarget destination
+                (* We can use a single instruction here on both 32-in-64 and native 64-bits.
+                   On 64-bits this is equivalent to an arithmetic shift; on 32-bits
+                   it propagates the sign bit into the high-order part. *)
+                val code =
+                    boxLarge{ source=uReg, dest=target, saveRegs=[] } ::
+                    bitFieldShift{ source=aReg1, dest=uReg, isSigned=true, length=OpSize64,
+                                   immr=0w1, imms=if is32in64 then 0wx1f else 0wx3f } ::
+                    arg1Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=UnsignedToLongWord, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: UnsignedToLongWord"
+            let
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val uReg = newUReg()
+                val target = asTarget destination
+                (* This amounts to a logical shift.  Since the top half of the
+                   register is zero in 32-in-64 we don't have to select just the
+                   low word but there's no advantage in not. *)
+                val code =
+                    boxLarge{ source=uReg, dest=target, saveRegs=[] } ::
+                    bitFieldShift{ source=aReg1, dest=uReg, isSigned=false, length=OpSize64,
+                                   immr=0w1, imms=if is32in64 then 0wx1f else 0wx3f } ::
+                    arg1Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=RealAbs _, arg1}, context, _, destination, tailCode) =
                 raise Fallback "codeToICodeUnaryRev: RealAbs"
