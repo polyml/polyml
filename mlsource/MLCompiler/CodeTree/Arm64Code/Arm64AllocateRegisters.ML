@@ -175,7 +175,6 @@ struct
                 fun findAReg [] =
                     (
                         (* This failed.  We're going to have to spill something. *)
-                        raise Fallback "findAReg"; (* Raise an exception for the moment. *)
                         failures := conflicts :: ! failures;
                         hd regSet (* Return a register to satisfy everything. *)
                     )
