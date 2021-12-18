@@ -240,6 +240,10 @@ struct
                     |   mapOptDest (SOME destReg) =
                         let val (destVal, destCode) = mapDestReg destReg in (SOME destVal, destCode) end
 
+                    fun mapOptSrc NONE = (NONE, [])
+                    |   mapOptSrc (SOME srcReg) =
+                        let val (srcVal, srcCode) = mapSrcReg srcReg in (SOME srcVal, srcCode) end
+
                     (* Adjust a stack offset from the old state to the new state. *)
                     fun mapContainerAndStack(StackLoc{rno, size}, field) =
                     let
@@ -497,6 +501,27 @@ struct
                         in
                             destCode @ ShiftRegister { source=srcVal, shift=shiftVal, dest=destVal,
                                                        direction=direction, opSize=opSize} :: op2Code @ op1Code @ code
+                        end
+
+                    |   pushRegisters({instr=Multiplication{ kind, dest, sourceA, sourceM, sourceN }, ...}, code) =
+                        let
+                            val (srcAVal, srcACode) = mapOptSrc sourceA
+                            val (srcMVal, srcMCode) = mapSrcReg sourceM
+                            val (srcNVal, srcNCode) = mapSrcReg sourceN
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ Multiplication { kind=kind, sourceA=srcAVal, sourceM=srcMVal, sourceN=srcNVal, dest=destVal} ::
+                                srcNCode @ srcMCode @ srcACode @ code
+                        end
+
+                    |   pushRegisters({instr=Division{ isSigned, dest, dividend, divisor, opSize }, ...}, code) =
+                        let
+                            val (dividendVal, dividendCode) = mapSrcReg dividend
+                            val (divisorVal, divisorCode) = mapSrcReg divisor
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ Division { isSigned=isSigned, dividend=dividendVal, divisor=divisorVal, dest=destVal,
+                                                       opSize=opSize} :: divisorCode @ dividendCode @ code
                         end
 
                     |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, ...}, code) =

@@ -94,6 +94,10 @@ sig
     and callKind = Recursive | ConstantCode of machineWord | FullCall
     and floatSize = Float32 | Double64
     and shiftDirection = ShiftLeft | ShiftRightLogical | ShiftRightArithmetic
+    and multKind =
+        MultAdd32 | MultSub32 | MultAdd64 | MultSub64 |
+        SignedMultAddLong (* 32bit*32bit + 64bit => 64Bit *) |
+        SignedMultHigh (* High order part of 64bit*64Bit *)
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
@@ -180,6 +184,13 @@ sig
 
         (* Shift a word by an amount specified in a register. *)
     |   ShiftRegister of { direction: shiftDirection, dest: preg, source: preg, shift: preg, opSize: opSize }
+
+        (* The various forms of multiply all take three arguments and the general form is
+           dest = M * N +/- A..   *)
+    |   Multiplication of { kind: multKind, dest: preg, sourceA: preg option, sourceM: preg, sourceN: preg }
+
+        (* Signed or unsigned division.  Sets the result to zero if the divisor is zero. *)
+    |   Division of { isSigned: bool, dest: preg, dividend: preg, divisor: preg, opSize: opSize }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
@@ -354,5 +365,6 @@ sig
         and  callKind       = callKind
         and  floatSize      = floatSize
         and  shiftDirection = shiftDirection
+        and  multKind       = multKind
    end
 end;

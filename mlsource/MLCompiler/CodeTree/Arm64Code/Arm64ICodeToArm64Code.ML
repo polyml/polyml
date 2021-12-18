@@ -587,6 +587,36 @@ struct
                 instr{regN=getAllocatedGenReg source, regM=getAllocatedGenReg shift, regD=getAllocatedGenReg dest} :: code
             end
 
+        |   codeExtended _ (Multiplication{ kind, dest, sourceA, sourceM, sourceN }, code) =
+            let
+                val destReg = getAllocatedGenReg dest
+                and srcAReg = case sourceA of SOME srcA => getAllocatedGenReg srcA | NONE => XZero
+                and srcNReg = getAllocatedGenReg sourceN
+                and srcMReg = getAllocatedGenReg sourceM
+                val instr =
+                    case kind of
+                        MultAdd32 => multiplyAndAdd32{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
+                    |   MultSub32 => multiplyAndSub32{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
+                    |   MultAdd64 => multiplyAndAdd{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
+                    |   MultSub64 => multiplyAndSub32{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
+                    |   SignedMultAddLong => signedMultiplyAndAddLong{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
+                    |   SignedMultHigh => signedMultiplyHigh{regM=srcMReg, regN=srcNReg, regD=destReg}
+            in
+                instr :: code
+            end
+
+        |   codeExtended _ (Division{ isSigned, dest, dividend, divisor, opSize }, code) =
+            let
+                val instr =
+                    case (isSigned, opSize) of
+                        (true, OpSize64) => signedDivide
+                    |   (true, OpSize32) => signedDivide32
+                    |   (false, OpSize64) => unsignedDivide
+                    |   (false, OpSize32) => unsignedDivide32
+            in
+                instr{regN=getAllocatedGenReg dividend, regM=getAllocatedGenReg divisor, regD=getAllocatedGenReg dest} :: code
+            end
+
         |   codeExtended _ (BeginFunction{regArgs, ...}, code) =
             let
                 (* The real registers used for arguments. X30 is there but saved separately. *)
@@ -594,7 +624,7 @@ struct
                 val skipCheck = createLabel()
                 val defaultWords = 10 (* This is wired into the RTS. *)
                 val workRegister = workReg1
-                val debugTrapAlways = true (*false*) (* Can be set to true for debugging *)
+                val debugTrapAlways = false (* Can be set to true for debugging *)
 
                 (* Test with either the stack-pointer or a high-water value.
                    The RTS assumes that X9 has been used as the high-water if it is

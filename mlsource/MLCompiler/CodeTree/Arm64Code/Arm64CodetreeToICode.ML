@@ -68,11 +68,8 @@ struct
     and logicalImmediate = BlockSimple o LogicalImmediate
     and logicalRegister = BlockSimple o LogicalRegister
     and shiftRegister = BlockSimple o ShiftRegister
-(*  and beginFunction = BlockSimple o BeginFunction
-    and functionCall = BlockSimple o FunctionCall
-    and tailRecursiveCall = BlockSimple o TailRecursiveCall
-    and returnResultFromFunction = BlockSimple o ReturnResultFromFunction
-    and raiseExceptionPacket = BlockSimple o RaiseExceptionPacket *)
+    and multiplication = BlockSimple o Multiplication
+    and division = BlockSimple o Division
     and pushToStack = BlockSimple o PushToStack
     and loadStack = BlockSimple o LoadStack
     and storeToStack = BlockSimple o StoreToStack
@@ -462,23 +459,24 @@ struct
             loadAndStoreWithAddress codeValue (address, getStoreValue, loadType, false, loadStoreOffset, loadStoreIndex, context, code)
         end
 
-        (* Overflow check.  This raises Overflow if the overflow bit is set in the cc.  This generates
+        (* Overflow check.  This raises Overflow if the condition is satisfied.  Normally this will be
+           that the overflow bit is set but for multiplication it's more complicated.  This generates
            a single block for the function unless there is a handler.
            As well as reducing the size of the code this also means that overflow checks are generally
            BO instructions to the end of the code.  Since the default branch prediction is not to take
            forward jumps this should improve prefetching on the normal, non-overflow, path. *)
-        fun checkOverflow ({currHandler=NONE, overflowBlock=ref(SOME overFlowLab), ...}) ccRef =
+        fun checkOverflow (condition, {currHandler=NONE, overflowBlock=ref(SOME overFlowLab), ...}, ccRef) =
             (* It's already been set and there's no surrounding handler - use this. *)
             let
                 val noOverflowLab = newLabel()
             in
                 [
                     BlockLabel noOverflowLab,
-                    BlockFlow(Conditional{ ccRef=ccRef, condition=CondOverflow, trueJump=overFlowLab, falseJump=noOverflowLab })
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=condition, trueJump=overFlowLab, falseJump=noOverflowLab })
                 ]
             end
 
-        |   checkOverflow ({currHandler=NONE, overflowBlock, ...}) ccRef =
+        |   checkOverflow (condition, {currHandler=NONE, overflowBlock, ...}, ccRef) =
             let
                 (* *)
                 val overFlowLab = newLabel() and noOverflowLab = newLabel()
@@ -490,11 +488,11 @@ struct
                     BlockExit(RaiseExceptionPacket{packetReg=packetReg}),
                     loadAddressConstant{source=toMachineWord(Overflow), dest=packetReg},
                     BlockLabel overFlowLab,
-                    BlockFlow(Conditional{ ccRef=ccRef, condition=CondOverflow, trueJump=overFlowLab, falseJump=noOverflowLab })
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=condition, trueJump=overFlowLab, falseJump=noOverflowLab })
                 ]
             end
 
-        |   checkOverflow ({currHandler=SOME h, ...}) ccRef =
+        |   checkOverflow (condition, {currHandler=SOME h, ...}, ccRef) =
             let
                 val overFlowLab = newLabel() and noOverflowLab = newLabel()
                 val packetReg = newPReg()
@@ -504,7 +502,7 @@ struct
                     BlockRaiseAndHandle(RaiseExceptionPacket{packetReg=packetReg}, h),
                     loadAddressConstant{source=toMachineWord(Overflow), dest=packetReg},
                     BlockLabel overFlowLab,
-                    BlockFlow(Conditional{ ccRef=ccRef, condition=CondOverflow, trueJump=overFlowLab, falseJump=noOverflowLab })
+                    BlockFlow(Conditional{ ccRef=ccRef, condition=condition, trueJump=overFlowLab, falseJump=noOverflowLab })
                 ]
             end
 
@@ -974,6 +972,10 @@ struct
         |   codeToICodeRev(BICNullary {oper=CreateMutex}, _, _, _, _) =
                 raise Fallback "codeToICodeRev: BICNullary: CreateMutex"
 
+        |   codeToICodeRev(BICArbitrary { oper=ArithMult, longCall, ... }, context, isTail, destination, tailCode) =
+                (* Just call the long function to do this.  Overflow detection makes this too complicated. *)
+                codeToICodeRev(longCall, context, isTail, destination, tailCode)
+
         |   codeToICodeRev(BICArbitrary { oper, shortCond, arg1, arg2, longCall }, context, _, destination, tailCode) =
             let
                 val startLong = newLabel() and resultLabel = newLabel()
@@ -1015,8 +1017,6 @@ struct
                             addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize,
                                             ccRef=NONE, isAdd=false}:: arg2Code
                         end
-
-                    |   ArithMult => raise Fallback "codeToICodeRev: BICArbitrary: ArithMult"
 
                     |   _ => raise InternalError "BICArbitrary: unimplemented operation"
 
@@ -1680,7 +1680,7 @@ struct
                 val uReg = newUReg()
                 val chkOverflow = newCCRef()
                 val code =
-                    checkOverflow context chkOverflow @
+                    checkOverflow(CondOverflow, context, chkOverflow) @
                     addSubRegister{base=firstReg, shifted=uReg, dest=SOME target, length=polyWordOpSize,
                                  ccRef=SOME chkOverflow, isAdd=true, shift=ShiftNone} ::
                     addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
@@ -1696,7 +1696,7 @@ struct
                 val uReg = newUReg()
                 val chkOverflow = newCCRef()
                 val code =
-                    checkOverflow context chkOverflow @
+                    checkOverflow(CondOverflow, context, chkOverflow) @
                     addSubRegister{base=aReg1, shifted=uReg, dest=SOME target, length=polyWordOpSize,
                                  ccRef=SOME chkOverflow, isAdd=false, shift=ShiftNone} ::
                     addSubImmediate{dest=SOME uReg, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
@@ -1704,8 +1704,44 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithMult, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith: ArithMult"
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithMult, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg() and uReg4 = newUReg()
+                val chkOverflow = newCCRef()
+
+                (* Untag one argument. subtract the tag from the second, multiply and add back the tag. *)
+                val multiplyCode =
+                    addSubImmediate{dest=SOME target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=true} ::
+                    multiplication{kind=if is32in64 then SignedMultAddLong else MultAdd64, dest=uReg3, sourceA=NONE,
+                                   sourceM=uReg1, sourceN=uReg2} ::
+                    addSubImmediate{dest=SOME uReg2, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
+                    untagValue{ source=aReg1, dest=uReg1, isSigned=true, opSize=polyWordOpSize } ::
+                    arg2Code
+
+                (* Overflow check:  The condition for overflow is that the high order part (64-bits in native
+                   64-bits, 32-bits in 32-in-64) must be zero if the result is positive and all ones if the
+                   result is negative.  The high-order part is in uReg3 in 32-in-64 since we've already used
+                   SignedMultAddLong but in native 64-bits we need to use SignedMultHigh to get the
+                   high order part.  In both cases we can use a comparison with ShiftASR to give a
+                   value containing just the sign of the result. *)
+                val checkOverflowCode =
+                    if is32in64
+                    then addSubRegister{ base=uReg4, shifted=target, dest=NONE, ccRef=SOME chkOverflow,
+                            isAdd=false, length=OpSize32, shift=ShiftASR 0w31 } ::
+                         shiftConstant{direction=Arm64ICode.ShiftRightArithmetic, source=uReg3, dest=uReg4, shift=0w32,
+                            opSize=OpSize64 (* Have to start with 64-bits *)} :: multiplyCode
+                    else addSubRegister{ base=uReg4, shifted=target, dest=NONE, ccRef=SOME chkOverflow,
+                            isAdd=false, length=OpSize64, shift=ShiftASR 0w63 } ::
+                         multiplication{kind=SignedMultHigh, dest=uReg4, sourceA=NONE,
+                                       sourceM=uReg1, sourceN=uReg2} :: multiplyCode
+                val code =
+                    checkOverflow(CondNotEqual, context, chkOverflow) @ checkOverflowCode
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithQuot, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith: ArithQuot"
@@ -1754,8 +1790,22 @@ struct
                 (code , target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=WordArith ArithMult, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: WordArith: ArithMult"
+        |   codeToICodeBinaryRev({oper=WordArith ArithMult, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                (* Untag one argument. subtract the tag from the second, multiply and add back the tag. *)
+                val code =
+                    addSubImmediate{dest=SOME target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=true} ::
+                    multiplication{kind=if is32in64 then MultAdd32 else MultAdd64, dest=uReg3, sourceA=NONE,
+                                   sourceM=uReg1, sourceN=uReg2} ::
+                    addSubImmediate{dest=SOME uReg2, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
+                    untagValue{ source=aReg1, dest=uReg1, isSigned=false, opSize=polyWordOpSize } :: arg2Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=WordArith ArithDiv, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: WordArith: ArithDiv"
@@ -1955,8 +2005,20 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=LargeWordArith ArithMult, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: LargeWordArith: ArithMult"
+        |   codeToICodeBinaryRev({oper=LargeWordArith ArithMult, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                val code =
+                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
+                    multiplication{kind=MultAdd64, sourceA=NONE, sourceM=uReg1, sourceN=uReg2, dest=uReg3} ::
+                    unboxLarge{ source=aReg2, dest=uReg2 } ::
+                    unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=LargeWordArith ArithDiv, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: LargeWordArith: ArithDiv"

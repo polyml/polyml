@@ -133,6 +133,13 @@ struct
     |   getInstructionState(ShiftRegister{ source, shift, dest, ... }) =
         { sources=[source, shift], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(Multiplication{ dest, sourceA, sourceM, sourceN, ... }) =
+        { sources=(case sourceA of SOME srcA => [srcA] | NONE => []) @ [sourceM, sourceN],
+          dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(Division{ dest, dividend, divisor, ... }) =
+        { sources=[dividend, divisor], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
             { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 

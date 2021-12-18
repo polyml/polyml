@@ -349,6 +349,11 @@ struct
 
         |   registerAllocate{instr=ShiftRegister{ dest, source, shift, ... }, ...} = allocateGenRegs[dest, source, shift]
 
+        |   registerAllocate{instr=Multiplication{ dest, sourceA, sourceM, sourceN, ... }, ...} =
+                (allocateGenRegs[dest, sourceM, sourceN]; case sourceA of SOME srcA => allocateGenReg srcA | NONE => ())
+
+        |   registerAllocate{instr=Division{ dest, dividend, divisor, ... }, ...} = allocateGenRegs[dest, dividend, divisor]
+
         |   registerAllocate{instr=BeginFunction{regArgs, ...}, ...} =
                 (* Check that every argument has a register allocated including any that are unused.
                    Unused arguments should be discarded at a higher level because we could allocate
