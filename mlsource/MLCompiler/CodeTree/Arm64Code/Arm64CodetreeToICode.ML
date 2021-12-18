@@ -1743,11 +1743,43 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithQuot, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith: ArithQuot"
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithQuot, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                (* The word version avoids an extra shift.  Don't do that here at least
+                   for the moment.  Division by zero and overflow are checked for at
+                   the higher level. *)
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                val code =
+                    tagValue { source=uReg3, dest=target, opSize=polyWordOpSize, isSigned=true } ::
+                    division{isSigned=true, opSize=polyWordOpSize, dest=uReg3, dividend=uReg1, divisor=uReg2} ::
+                    untagValue{ source=aReg2, dest=uReg2, isSigned=true, opSize=polyWordOpSize } ::
+                    untagValue{ source=aReg1, dest=uReg1, isSigned=true, opSize=polyWordOpSize } :: arg2Code
+            in
+                (code, target, false)
+            end
 
-        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithRem, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: FixedPrecisionArith: ArithRem"
+        |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithRem, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                (* For the moment we remove the tags and then retag afterwards.  The word
+                   version avoids this but at least for the moment we do it the longer way. *)
+                (* There's no direct way to get the remainder - have to use divide and multiply. *)
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg() and uReg4 = newUReg()
+                val code =
+                    tagValue { source=uReg4, dest=target, opSize=polyWordOpSize, isSigned=true } ::
+                    multiplication{kind=if is32in64 then MultSub32 else MultSub64, dest=uReg4,
+                                   sourceM=uReg3, sourceN=uReg2, sourceA=SOME aReg1} ::
+                    division{isSigned=true, opSize=polyWordOpSize, dest=uReg3, dividend=uReg1, divisor=uReg2} ::
+                    untagValue{ source=aReg2, dest=uReg2, isSigned=true, opSize=polyWordOpSize } ::
+                    untagValue{ source=aReg1, dest=uReg1, isSigned=true, opSize=polyWordOpSize } :: arg2Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=FixedPrecisionArith ArithDiv, ...}, _, _, _, _) =
                raise InternalError "unimplemented operation: FixedPrecisionArith ArithDiv"
@@ -1807,11 +1839,48 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=WordArith ArithDiv, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: WordArith: ArithDiv"
+        |   codeToICodeBinaryRev({oper=WordArith ArithDiv, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                (* Untag the divisor (into uReg2). subtract the tag from the dividend (into uReg1),
+                   divide and or in the tag.  The tag may have been set already depending on
+                   the result of the division. *)
+                val code =
+                    logicalImmediate{dest=SOME target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, logOp=LogOr} ::
+                    division{isSigned=false, opSize=polyWordOpSize, dest=uReg3, dividend=uReg1, divisor=uReg2} ::
+                    addSubImmediate{dest=SOME uReg1, source=aReg1, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
+                    untagValue{ source=aReg2, dest=uReg2, isSigned=false, opSize=polyWordOpSize } :: arg2Code
+            in
+                (code, target, false)
+            end
 
-        |   codeToICodeBinaryRev({oper=WordArith ArithMod, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: WordArith: ArithMod"
+        |   codeToICodeBinaryRev({oper=WordArith ArithMod, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                (* There's no direct way to get the remainder - have to use divide and multiply. *)
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg() and uReg4 = newUReg()
+                (* Untag the divisor (into uReg2). subtract the tag from the dividend (into uReg1)
+                Untag one argument. subtract the tag from the second, divide and or in the tag.  The
+                   tag may have been set already depending on the result of the division. *)
+                val tagBitMask = Word64.<<(Word64.fromInt ~1, 0w1) (* Requires a 64-bit AND. *)
+                val code =
+                    (* Multiply the result of the division by the divisor and subtract this from the original, tagged
+                       dividend.  This leaves us a tagged value so it can go straight into the result. *)
+                    multiplication{kind=if is32in64 then MultSub32 else MultSub64, dest=target,
+                                   sourceM=uReg4, sourceN=uReg2, sourceA=SOME aReg1} ::
+                    (* Clear the bottom bit before the multiplication. *)
+                    logicalImmediate{dest=SOME uReg4, source=uReg3, immed=tagBitMask, length=OpSize64, ccRef=NONE, logOp=LogAnd} ::
+                    division{isSigned=false, opSize=polyWordOpSize, dest=uReg3, dividend=uReg1, divisor=uReg2} ::
+                    addSubImmediate{dest=SOME uReg1, source=aReg1, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
+                    untagValue{ source=aReg2, dest=uReg2, isSigned=false, opSize=polyWordOpSize } :: arg2Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=WordArith _, ...}, _, _, _, _) =
                 raise InternalError "WordArith - unimplemented instruction"
@@ -2336,7 +2405,7 @@ struct
             codeFunctionToArm64(lambda, if tryNewCG > 1 then newDebugSwitches else debugSwitches, closure)
                 handle Fallback reason =>
                     (
-                        printStream "Fallback-"; printStream reason; printStream "\n";
+                        printStream "Fallback-"; printStream reason; printStream " at "; printStream name; printStream "\n";
                         Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
                     )
         end
