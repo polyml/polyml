@@ -1063,7 +1063,109 @@ struct
                 (finalCode, target, false)
             end
 
-        |   codeToICodeRev(BICCase _, _, _, _, _) = raise Fallback "codeToICodeRev: BICCase"
+        |   codeToICodeRev(BICCase { cases, test, default, isExhaustive, firstIndex}, context, isTail, destination, tailCode) =
+            let
+                (* We have to create a new preg for the result in case we need to push
+                   it to the stack. *)
+                val targetReg = newMergeReg()
+                
+                local
+                    val (testCode, initialTestReg, _) = codeToICodeRev(test, context, false, AnyReg, tailCode)
+                    (* Subtract the minimum even if it is zero to remove the tag.
+                       This leaves us with a shifted but untagged value. Don't check for overflow.
+                       Instead allow large values to wrap around and check later. *)
+                    val cReg1 = newUReg()
+                    val subValue = taggedWord64(Word64.fromLarge(Word.toLargeX firstIndex))
+                in
+                    val testReg = newUReg()
+                    val testCode =
+                        addSubRegister{ base=initialTestReg, shifted=cReg1, dest=SOME testReg, ccRef=NONE, isAdd=false,
+                                        length=polyWordOpSize, shift=ShiftNone} ::
+                        loadNonAddressConstant{ source=subValue, dest=cReg1 } :: testCode
+                end
+
+                val (rangeCheck, extraDefaults) =
+                    if isExhaustive then (testCode, [])
+                    else
+                    let
+                        (* Check the value is within the number of cases, *2 because this is shifted. *)
+                        val cReg2 = newUReg() and ccRef1 = newCCRef()
+                        val nCases = List.length cases
+                        val continueLab = newLabel() and defaultLab1 = newLabel()
+                        val rangeCheck =
+                            BlockLabel continueLab ::
+                            BlockFlow(Conditional{ccRef=ccRef1, condition=CondCarrySet, trueJump=defaultLab1, falseJump=continueLab}) ::
+                            addSubRegister{base=testReg, shifted=cReg2, dest=NONE, ccRef=SOME ccRef1, isAdd=false,
+                                           length=OpSize64, shift=ShiftNone} ::
+                            loadNonAddressConstant{ source=Word64.fromInt nCases * 0w2, dest=cReg2 } :: testCode
+                    in
+                        (rangeCheck, [defaultLab1])
+                    end
+
+                (* Make a label for each item in the list. *)
+                val codeLabels = map (fn _ => newLabel()) cases
+
+                (* Create an exit label in case it's needed. *)
+                val labelForExit = newLabel()
+
+                (* Generate the code for each of the cases and the default.  We need to put an
+                   unconditional branch after each to skip the other cases. *)
+                fun codeCases (SOME c :: otherCases, startLabel :: otherLabels, tailCode) =
+                    let
+                        val caseTarget = if isTail then newPReg() else targetReg
+                        (* Put in the case with a jump to the end of the sequence. *)
+                        val (codeThisCase, _, caseExited) =
+                            codeToICodeRev(c, context, isTail, SpecificPReg caseTarget,
+                                BlockLabel startLabel :: tailCode) 
+                        val exitThisCase =
+                            if caseExited then codeThisCase
+                            else if isTail then returnInstruction(context, caseTarget, codeThisCase)
+                            else BlockFlow(Unconditional labelForExit) :: codeThisCase
+                    in
+                        codeCases(otherCases, otherLabels, exitThisCase)
+                    end
+
+                |   codeCases(NONE :: otherCases, _ :: otherLabels, tailCode) = codeCases(otherCases, otherLabels, tailCode)
+                        
+                |   codeCases ([], [], tailCode) =
+                    let
+                        (* We need to add labels for all the gaps we filled and also for a "default" label for
+                           the indexed-case instruction itself as well as any range checks. *)
+                        fun addDefault (startLabel, NONE, l) = BlockLabel startLabel :: l
+                        |   addDefault (_, SOME _, l) = l
+                        fun asForward l = BlockLabel l
+                        val dLabs = map asForward extraDefaults @ tailCode
+                        val defLabels = ListPair.foldlEq addDefault dLabs (codeLabels, cases)
+                        val defaultTarget = if isTail then newPReg() else targetReg
+                        val (defaultCode, _, defaultExited) =
+                            codeToICodeRev(default, context, isTail, SpecificPReg defaultTarget, defLabels)
+                    in
+                        (* Put in the default.  Because this is the last we don't need to
+                           jump round it.  However if this is a tail and we haven't exited
+                           we put in a return.  That way the case will always have
+                           exited if this is a tail. *)
+                         if isTail andalso not defaultExited
+                         then returnInstruction(context, defaultTarget, defaultCode)
+                         else defaultCode
+                    end
+
+                |   codeCases _ = raise InternalError "codeCases: mismatch"
+                    
+                val codedCases =
+                    codeCases(cases, codeLabels,
+                        BlockFlow(IndexedBr codeLabels) ::
+                        BlockSimple(IndexedCaseOperation{testReg=testReg}) ::
+                        rangeCheck)
+   
+                (* We can now copy to the target.  If we need to push the result this load
+                   will be converted into a push. *)
+                val target = asTarget destination
+                val copyToTarget =
+                    if isTail then codedCases
+                    else moveRegister{source=targetReg, dest=target} :: BlockLabel labelForExit :: codedCases
+            in
+                (copyToTarget, target, isTail (* We have always exited on a tail. *))
+            end
 
         |   codeToICodeRev(BICBeginLoop {loop, arguments}, context as { stackPtr, currHandler, overflowBlock, ...},
                            isTail, destination, tailCode) =
@@ -1299,7 +1401,70 @@ struct
                 (finalCode, target, false)
             end
 
-        |   codeToICodeRev(BICHandle _, _, _, _, _) = raise Fallback "codeToICodeRev: BICHandle"
+        |   codeToICodeRev(BICHandle{exp, handler, exPacketAddr}, context as { stackPtr, loopArgs, overflowBlock, ... }, isTail, destination, tailCode) =
+            let
+                (* As with BICCond and BICCase we need to create a new register for the
+                   result in case we need to push it to the stack. *)
+                val handleResult = newMergeReg()
+                val handlerLab = newLabel() and startHandling = newLabel()
+                val (bodyTarget, handlerTarget) =
+                    if isTail then (newPReg(), newPReg()) else (handleResult, handleResult)
+                (* TODO: Even if we don't actually want a result we force one in here by
+                   using "asTarget".  *)
+                (* The expression cannot be treated as a tail because the handler has
+                   to be removed after.  It may "exit" if it has raised an unconditional
+                   exception.  If it has we mustn't generate a PopExceptionHandler because
+                   there won't be any result for resultReg.
+                   We need to add two words to the stack to account for the items pushed by
+                   PushExceptionHandler.
+                   We create an instruction to push the handler followed by a block fork to
+                   the start of the code and, potentially the handler, then a label to start
+                   the code that the handler is in effect for. *)
+                val initialCode =
+                    BlockLabel startHandling ::
+                    BlockFlow(SetHandler{handler=handlerLab, continue=startHandling}) ::
+                    BlockSimple(PushExceptionHandler) :: tailCode
+                val (expCode, _, expExit) =
+                    codeToICodeRev(exp, {stackPtr=stackPtr+2, loopArgs=loopArgs, currHandler=SOME handlerLab, overflowBlock=overflowBlock},
+                        false (* Not tail *), SpecificPReg bodyTarget, initialCode)
+                (* If this is the tail we can replace the jump at the end of the
+                   handled code with returns.  If the handler has exited we don't need
+                   a return there.  Otherwise we need to add an unconditional jump to
+                   skip the handler. *)
+                val (atExpEnd, skipExpLabel) =
+                    case (isTail, expExit) of
+                        (true, true) => (* Tail and exited. *) (expCode, NONE)
+                    |   (true, false) => (* Tail and not exited. *)
+                            (returnInstruction(context, bodyTarget, BlockSimple(PopExceptionHandler) :: expCode), NONE)
+                    |   (false, true) => (* Not tail but exited. *) (expCode, NONE)
+                    |   (false, false) =>
+                        let
+                            val skipHandler = newLabel()
+                        in
+                            (BlockFlow(Unconditional skipHandler) ::
+                             BlockSimple(PopExceptionHandler) :: expCode, SOME skipHandler)
+                        end
+                (* Make a register to hold the exception packet and put eax into it. *)
+                val packetAddr = newPReg()
+                val () = Array.update(locToPregArray, exPacketAddr, PregLocation packetAddr)
+                val (handleCode, _, handleExit) =
+                    codeToICodeRev(handler, context, isTail, SpecificPReg handlerTarget,
+                        BlockSimple(BeginHandler{packetReg=packetAddr}) :: BlockLabel handlerLab :: atExpEnd)
+                val target = asTarget destination
+                val afterHandler =
+                    case (isTail, handleExit) of
+                        (true, true) => (* Tail and exited. *) handleCode
+                    |   (true, false) => (* Tail and not exited. *)
+                            returnInstruction(context, handlerTarget, handleCode)
+                    |   (false, _) => (* Not tail. *) handleCode
+                
+                val addLabel =
+                    case skipExpLabel of
+                        SOME lab => BlockLabel lab:: afterHandler
+                    |   NONE => afterHandler
+            in
+                (moveRegister{source=handleResult, dest=target} :: addLabel, target, isTail)
+            end
 
         and codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
        (* Jump optimisation is done later.  Just generate the general case.

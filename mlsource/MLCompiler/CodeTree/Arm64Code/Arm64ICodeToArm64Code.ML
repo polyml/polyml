@@ -269,6 +269,10 @@ struct
 
         val startOfFunctionLabel = createLabel() (* Used for recursive calls/jumps *)
 
+        val blockToLabelMap = Vector.tabulate(numBlocks, fn _ => createLabel())
+
+        fun getBlockLabel blockNo = Vector.sub(blockToLabelMap, blockNo)
+
         fun codeExtended _ (MoveRegister{source, dest, ...}, code) =
             moveIfNecessary({src=getAllocatedGenReg source, dst=getAllocatedGenReg dest}, code)
 
@@ -931,9 +935,66 @@ struct
                     moveIfNecessary({src=getAllocatedGenReg destAsSource, dst=destReg}, code)
             end
 
-        val blockToLabelMap = Vector.tabulate(numBlocks, fn _ => createLabel())
+        |   codeExtended {flow} (IndexedCaseOperation{testReg}, code) =
+            let
+                (* testReg contains the original value after the lowest value has been subtracted.
+                   Since both the original value and the lowest value were tagged it contains a
+                   shifted but untagged value. *)
+                (* This should only be within a block with an IndexedBr flow type. *)
+                val cases =
+                    case flow of IndexedBr cases => cases | _ => raise InternalError "codeGenICode: IndexedCaseOperation"
+                val caseLabels = map getBlockLabel cases
+                val tableLabel = createLabel()
+                val startOfCase =
+                    setLabel tableLabel ::
+                    branchRegister workReg1 ::
+                    (* Add the value shifted by one since it's already shifted. *)
+                    addShiftedReg{regN=workReg1, regD=workReg1, regM=getAllocatedGenReg testReg, shift=ShiftLSL 0w1} ::
+                    loadLabelAddress(workReg1, tableLabel) :: code
+                val addCases =
+                    List.foldl (fn (label, code) => unconditionalBranch label :: code) startOfCase caseLabels
+            in
+                addCases
+            end
 
-        fun getBlockLabel blockNo = Vector.sub(blockToLabelMap, blockNo)
+        |   codeExtended {flow} (PushExceptionHandler, code) =
+            let
+                (* This should only be within a block with a SetHandler flow type. *)
+                val handleLabel =
+                    case flow of
+                        SetHandler{ handler, ...} => handler
+                    |   _ => raise InternalError "codeGenICode: PushExceptionHandler"
+                val labelRef = getBlockLabel handleLabel
+            in
+                (* Push the old handler and the handler entry point and set the "current handler"
+                   to point to the stack after we've pushed these. *)
+                storeRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset} ::
+                storeRegPreIndex{regT=workReg2, regN=X_MLStackPtr, byteOffset= ~8} ::
+                storeRegPreIndex{regT=workReg1, regN=X_MLStackPtr, byteOffset= ~8} ::
+                loadLabelAddress(workReg2, labelRef) ::
+                loadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset} :: code
+            end
+
+        |   codeExtended _ (PopExceptionHandler, code) =
+                (* Remove and discard the handler we've set up.  Pop the previous handler
+                   and put into "current handler". *)
+                storeRegScaled{regT=workReg2, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset} ::
+                loadRegPostIndex{regT=workReg2, regN=X_MLStackPtr, byteOffset=8} ::
+                loadRegPostIndex{regT=workReg1, regN=X_MLStackPtr, byteOffset=8} :: code
+
+        |   codeExtended _ (BeginHandler{packetReg}, code) =
+            let
+                val beginHandleCode =
+                    (* Remove the handler entry for this handler. *)
+                    storeRegScaled{regT=workReg2, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset} ::
+                    loadRegPostIndex{regT=workReg2, regN=X_MLStackPtr, byteOffset=8} ::
+                    loadRegPostIndex{regT=workReg1, regN=X_MLStackPtr, byteOffset=8} ::
+                    (* The exception raise code resets the stack pointer to the value in the exception handler
+                           so this is probably redundant.  Leave it for the moment, *)
+                    loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset} :: code
+            in
+                moveIfNecessary({src=X0, dst=getAllocatedGenReg packetReg }, beginHandleCode)
+            end
 
         local
             (* processed - set to true when a block has been processed. *)

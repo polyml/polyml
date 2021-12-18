@@ -280,6 +280,19 @@ sig
     |   BitFieldInsert of { source: preg, destAsSource: preg, dest: preg,
                             length: opSize, immr: word, imms: word }
 
+        (* Indexed case. *)
+    |   IndexedCaseOperation of { testReg: preg }
+
+        (* Exception handling.  - Set up an exception handler. *)
+    |   PushExceptionHandler
+
+        (* End of a handled section.  Restore the previous handler. *)
+    |   PopExceptionHandler
+
+        (* Marks the start of a handler.  This sets the stack pointer and
+           restores the old handler.  Sets the exception packet register. *) 
+    |   BeginHandler of { packetReg: preg }
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)

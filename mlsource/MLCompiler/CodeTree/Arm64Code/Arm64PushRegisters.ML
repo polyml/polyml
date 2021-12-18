@@ -735,6 +735,56 @@ struct
                                     destSrcCode @ sourceCode @ code
                         end
 
+                    |   pushRegisters({instr=IndexedCaseOperation{testReg}, ...}, code) =
+                        let
+                            val (testVal, testCode) = mapSrcReg testReg
+                        in
+                            IndexedCaseOperation{testReg=testVal} :: testCode @ code
+                        end
+
+                    |   pushRegisters({instr=PushExceptionHandler, ...}, code) =
+                        let
+                            (* Add a handler entry to the stack. *)
+                            val () = pushItemToStack HandlerEntry
+                        in
+                            PushExceptionHandler :: code
+                        end
+
+                    |   pushRegisters({instr=PopExceptionHandler, ...}, code) =
+                        let
+                            (* Appears at the end of the block whose exceptions are being handled.  Delete the
+                               handler and anything above it. *)
+                            (* Get the state after removing the handler. *)
+                            fun popContext ([], _) = raise InternalError "pushRegisters - pop handler"
+                            |   popContext (HandlerEntry :: tl, new) = (tl, new-2)
+                            |   popContext (OriginalEntry{stackLoc=StackLoc{size, ...}, ...} :: tl, new) = popContext(tl, new-size)
+                            |   popContext (NewEntry _ :: tl, new) = popContext(tl, new-1)
+                            val (newStack, nnCount) = popContext(!stack, !stackCount)
+                            val () = stack := newStack
+                            val oldStackPtr = ! stackCount
+                            val () = stackCount := nnCount
+                            (* Reset the stack to just above the two words of the handler. *)
+                            val resetCode =
+                                if oldStackPtr <> nnCount+2
+                                then [ResetStackPtr{numWords=oldStackPtr-nnCount-2}]
+                                else []
+                        in
+                            PopExceptionHandler :: resetCode @ code
+                        end
+
+                    |   pushRegisters({instr=BeginHandler{packetReg}, ...}, code) =
+                        let
+                            (* Start of a handler.  The top active entry should be the handler. *)
+                            val () =
+                                case !stack of
+                                    HandlerEntry :: tl => stack := tl
+                                |   _ => raise InternalError "pushRegisters: BeginHandler"
+                            val () = stackCount := !stackCount - 2
+                            val (packetVal, packetCode) = mapDestReg packetReg
+                        in
+                            packetCode @ BeginHandler{packetReg=packetVal} :: code
+                        end
+
                     local
                         fun doPush(instr as {kill, ...}, code) =
                         let

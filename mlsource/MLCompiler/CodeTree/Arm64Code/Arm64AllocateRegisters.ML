@@ -138,7 +138,9 @@ struct
                     List.app setHint regArgs
                 end
 
+                (* Exception packets are in X0 *)
             |   addHints{instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...} = addRealHint(preg, GenReg X0)
+            |   addHints{instr=BeginHandler{ packetReg=PReg preg }, ...} = addRealHint(preg, GenReg X0)
 
             |   addHints _ = ()
         
@@ -426,6 +428,13 @@ struct
 
         |   registerAllocate{instr=BitFieldInsert{ source, dest, destAsSource, ... }, ...} =
                 allocateGenRegs[source, destAsSource, dest]
+
+        |   registerAllocate({instr=IndexedCaseOperation{testReg}, ...}) = allocateGenReg testReg
+        
+        |   registerAllocate({instr=PushExceptionHandler, ...}) = ()
+        |   registerAllocate({instr=PopExceptionHandler, ...}) = ()
+
+        |   registerAllocate({instr=BeginHandler{packetReg}, ...}) = allocateGenReg packetReg
 
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

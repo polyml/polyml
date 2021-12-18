@@ -214,6 +214,19 @@ struct
     |   getInstructionState(BitFieldInsert{ source, destAsSource, dest, ... }) =
         { sources=[source, destAsSource], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(IndexedCaseOperation{ testReg }) =
+        { sources=[testReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(PushExceptionHandler) =
+        { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(PopExceptionHandler) =
+        { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(BeginHandler{packetReg}) =
+        (* The packet register is a destination since this provides its definition. *)
+        { sources=[], dests=[packetReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
     fun eliminateable(MoveRegister _) = true
