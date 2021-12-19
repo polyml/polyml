@@ -2289,10 +2289,23 @@ struct
                     loadAndStoreWithAbsolute codeToICodeRev (address, getStoreValue, polyWordLoadSize, storeOp, context, tailCode)
                 end
 
-            |   LoadStoreMLWord {isImmutable=true} => raise InternalError "codeStoreOperation: MLWord immutable" (* Not allowed *)
+            |   LoadStoreMLWord {isImmutable=true} =>
+                let
+                    (* Used when initialising immutables that do not require store-release. *)
+                    fun loadConstOffset(base, offset, valReg, code) =
+                        storeWithConstantOffset{base=base, source=valReg, byteOffset=offset, loadType=polyWordLoadSize} :: code
+                    fun loadIndexed(base, index, valReg, code) =
+                        storeWithIndexedOffset{base=base, source=valReg, index=index, loadType=polyWordLoadSize} :: code
+                    fun getStoreValue code =
+                        let val (sCode, sReg, _) = codeToICodeRev(value, context, false, AnyReg, code) in (sCode, sReg) end
+                in
+                    loadAndStoreWithAddress codeToICodeRev
+                        (address, getStoreValue, polyWordLoadSize, false, loadConstOffset, loadIndexed, context, tailCode)
+                end
 
             |   LoadStoreMLByte {isImmutable=false} =>
                 let
+                    (* Used when initialising immutables that do not require store-release. *)
                     fun getStoreValue code =
                     let
                         (* The value to store has to be untagged. *)
@@ -2307,14 +2320,52 @@ struct
                     loadAndStoreWithAbsolute codeToICodeRev (address, getStoreValue, Load8, storeOp, context, tailCode)
                 end
 
-            |   LoadStoreMLByte {isImmutable=true} => raise InternalError "codeStoreOperation: MLByte immutable" (* Not allowed *)
+            |   LoadStoreMLByte {isImmutable=true} =>
+                let
+                    (* Used when initialising immutables that do not require store-release. *)
+                    fun getStoreValue code =
+                    let
+                        (* The value to store has to be untagged. *)
+                        val (sCode, sReg, _) = codeToICodeRev(value, context, false, AnyReg, code)
+                        val tReg = newUReg()
+                    in
+                        (untagValue{source=sReg, dest=tReg, isSigned=false, opSize=OpSize32} :: sCode, tReg)
+                    end
+                    fun loadConstOffset(base, offset, valReg, code) =
+                        storeWithConstantOffset{base=base, source=valReg, byteOffset=offset, loadType=Load8} :: code
+                    fun loadIndexed(base, index, valReg, code) =
+                        storeWithIndexedOffset{base=base, source=valReg, index=index, loadType=Load8} :: code
+                in
+                    loadAndStoreWithAddress codeToICodeRev
+                        (address, getStoreValue, Load8, false, loadConstOffset, loadIndexed, context, tailCode)
+                end
+
             |   LoadStoreC8 => raise Fallback "codeStoreOperation: LoadStoreC8 "
             |   LoadStoreC16 => raise Fallback "codeStoreOperation: LoadStoreC16 "
             |   LoadStoreC32 => raise Fallback "codeStoreOperation: LoadStoreC32 "
             |   LoadStoreC64 => raise Fallback "codeStoreOperation: LoadStoreC64 "
             |   LoadStoreCFloat => raise Fallback "codeStoreOperation: LoadStoreCFloat "
             |   LoadStoreCDouble => raise Fallback "codeStoreOperation: LoadStoreCDouble "
-            |   LoadStoreUntaggedUnsigned => raise Fallback "codeStoreOperation: LoadStoreUntaggedUnsigned"
+
+            |   LoadStoreUntaggedUnsigned =>
+                let
+                    (* Only used when initialising strings so this does not require store-release. *)
+                    fun loadConstOffset(base, offset, valReg, code) =
+                        storeWithConstantOffset{base=base, source=valReg, byteOffset=offset, loadType=polyWordLoadSize} :: code
+                    fun loadIndexed(base, index, valReg, code) =
+                        storeWithIndexedOffset{base=base, source=valReg, index=index, loadType=polyWordLoadSize} :: code
+                    fun getStoreValue code =
+                    let
+                        (* The value to store has to be untagged. *)
+                        val (sCode, sReg, _) = codeToICodeRev(value, context, false, AnyReg, code)
+                        val tReg = newUReg()
+                    in
+                        (untagValue{source=sReg, dest=tReg, isSigned=false, opSize=polyWordOpSize} :: sCode, tReg)
+                    end
+                in
+                    loadAndStoreWithAddress codeToICodeRev
+                        (address, getStoreValue, polyWordLoadSize, false, loadConstOffset, loadIndexed, context, tailCode)
+                end
         in
             returnUnit(destination, storeCode, false)
         end
