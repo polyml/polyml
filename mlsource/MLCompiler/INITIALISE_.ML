@@ -354,6 +354,12 @@ struct
             (* Store a byte *)
             val () = enterRunCall ("storeByte",
                     makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLByte{isImmutable=false})), mkProductType[a, Word, b] ->> Unit)
+            (* Store a word without release semantics. *)
+            val () = enterRunCall ("storeWordInitialise",
+                    makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLWord{isImmutable=true})), mkProductType[a, Word, b] ->> Unit)
+            (* Store a byte without release semantics *)
+            val () = enterRunCall ("storeByteInitialise",
+                    makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLByte{isImmutable=true})), mkProductType[a, Word, b] ->> Unit)
             (* Lock a mutable cell. *)
             val () = enterRunCall ("clearMutableBit",
                     makePolymorphic([a], mkUnaryFn ClearMutableFlag), a ->> Unit)
