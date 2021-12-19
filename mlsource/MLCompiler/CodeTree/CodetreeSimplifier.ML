@@ -406,9 +406,9 @@ struct
                         val _ = reprocess := true (* Frequently the source will be a constant. *)
                         val {base=baseSrc, index=indexSrc, offset=offsetSrc} = genSrcAddress
                         and {base=baseDst, index=indexDst, offset=offsetDst} = genDstAddress
-                        (* We don't know if the source is immutable but the destination definitely isn't *)
+                        (* This is uses non-synchronised load and store so we set isImmutable to true *)
                         val moveKind =
-                            if isByteMove then LoadStoreMLByte{isImmutable=false} else LoadStoreMLWord{isImmutable=false}
+                            if isByteMove then LoadStoreMLByte{isImmutable=true} else LoadStoreMLWord{isImmutable=true}
                         fun makeMoves offset =
                         if offset = Word.toInt length
                         then []
@@ -425,7 +425,7 @@ struct
                     let
                         val {base=baseSrc, index=indexSrc, offset=offsetSrc} = genSrcAddress
                         and {base=baseDst, index=indexDst, offset=offsetDst} = genDstAddress
-                        val moveKind = LoadStoreMLByte{isImmutable=false}
+                        val moveKind = LoadStoreMLByte{isImmutable=true}
                         
                         (* Build andalso tree to check each byte.  For the null string this simply returns "true". *)
                         fun makeComparison offset =
