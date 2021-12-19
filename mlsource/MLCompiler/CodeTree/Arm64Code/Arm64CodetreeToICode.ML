@@ -1773,7 +1773,7 @@ struct
                 val code =
                     tagValue { source=uReg4, dest=target, opSize=polyWordOpSize, isSigned=true } ::
                     multiplication{kind=if is32in64 then MultSub32 else MultSub64, dest=uReg4,
-                                   sourceM=uReg3, sourceN=uReg2, sourceA=SOME aReg1} ::
+                                   sourceM=uReg3, sourceN=uReg2, sourceA=SOME uReg1} ::
                     division{isSigned=true, opSize=polyWordOpSize, dest=uReg3, dividend=uReg1, divisor=uReg2} ::
                     untagValue{ source=aReg2, dest=uReg2, isSigned=true, opSize=polyWordOpSize } ::
                     untagValue{ source=aReg1, dest=uReg1, isSigned=true, opSize=polyWordOpSize } :: arg2Code

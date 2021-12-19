@@ -303,6 +303,7 @@ struct
                     |   Load32 => (loadRegScaled32, 4)
                     |   Load16 => (loadRegScaled16, 2)
                     |   Load8 => (loadRegScaledByte, 1)
+                val _ = byteOffset mod scale = 0 orelse raise InternalError "codeExtended: constant offset not aligned"
             in
                 loadInstr{regT=getAllocatedGenReg dest, regN=getAllocatedGenReg base, unitOffset=byteOffset div scale} :: code
             end
