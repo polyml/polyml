@@ -399,16 +399,16 @@ struct
                             let
                                 (* If there's some constant offset add it to the index.  Because it's a byte offset
                                    we need to divide it by the scale but it should always be a multiple. *)
-                                val cReg = newUReg() and iReg2 = newUReg()
+                                val cReg = newUReg() and iReg3 = newUReg()
                                 val shift = case loadType of Load64 => 0w3 | Load32 => 0w2 | Load16 => 0w1 | Load8 => 0w0
                                 val offsetAsWord = LargeWord.fromInt offset
                                 (* It could be negative if it's a C address. *)
                                 val shiftedOffset = (if isCAddress then LargeWord.~>> else LargeWord.>>) (offsetAsWord, shift)
                             in
-                                (addSubRegister{ base=iReg2, shifted=cReg, dest=SOME iReg2, ccRef=NONE, isAdd=true,
+                                (addSubRegister{ base=iReg2, shifted=cReg, dest=SOME iReg3, ccRef=NONE, isAdd=true,
                                     length=OpSize64, shift=ShiftNone} ::
                                  loadNonAddressConstant{ source=shiftedOffset, dest=cReg } :: iCode2,
-                                 SOME iReg2)
+                                 SOME iReg3)
                             end
                         end
 
@@ -2451,7 +2451,7 @@ struct
         open Debug Universal
         val tryNewCG = Debug.getParameter Debug.compilerDebugTag debugSwitches
     in
-        if false andalso tryNewCG = 0
+        if (*false andalso*) tryNewCG = 0
         then Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
         else
         let
