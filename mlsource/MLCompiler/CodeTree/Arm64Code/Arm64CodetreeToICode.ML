@@ -1369,7 +1369,14 @@ struct
         |   codeToICodeRev(BICStoreOperation{ kind, address, value}, context, _, destination, tailCode) =
                 codeStoreOperation(kind, address, value, context, destination, tailCode)
 
-        |   codeToICodeRev(BICBlockOperation _, _, _, _, _) = raise Fallback "codeToICodeRev: BICBlockOperation"
+        |   codeToICodeRev(BICBlockOperation{ kind=BlockOpMove{isByteMove}, sourceLeft, destRight, length }, _, _, _, _) =
+                raise Fallback "codeToICodeRev: BICBlockOperation: BlockOpMove"
+
+        |   codeToICodeRev(BICBlockOperation{ kind=BlockOpEqualByte, sourceLeft, destRight, length }, _, _, _, _) =
+                raise Fallback "codeToICodeRev: BICBlockOperation: BlockOpEqualByte"
+
+        |   codeToICodeRev(BICBlockOperation{ kind=BlockOpCompareByte, sourceLeft, destRight, length }, _, _, _, _) =
+                raise Fallback "codeToICodeRev: BICBlockOperation: BlockOpCompareByte"
 
         |   codeToICodeRev(BICAllocateWordMemory {numWords, flags, initial }, context, _, destination, tailCode) =
             let
