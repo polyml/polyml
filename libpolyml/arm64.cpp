@@ -463,6 +463,27 @@ void Arm64TaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length,
     }
     ASSERT(old == ((stackItem*)old_stack) + old_length);
     ASSERT(newp == ((stackItem*)new_stack) + new_length);
+    // And change any registers that pointed into the old stack
+    for (int j = 0; j < 16; j++)
+    {
+        if (saveRegisterMask & (1 << j))
+        {
+            stackItem* regAddr = &(assemblyInterface.registers[i]);
+            stackItem old_word = *regAddr;
+            if (old_word.w().IsDataPtr() && old_word.stackAddr >= old_base && old_word.stackAddr <= old_top)
+                old_word.stackAddr = old_word.stackAddr + offset;
+            else if (old_word.w().IsDataPtr() && IsHeapAddress(old_word.stackAddr))
+            {
+                stackItem* addr = (stackItem*)old_word.w().AsStackAddr();
+                if (addr >= old_base && addr <= old_top)
+                {
+                    addr += offset;
+                    old_word = PolyWord::FromStackAddr((PolyWord*)addr);
+                }
+            }
+            *regAddr = old_word;
+        }
+    }
 }
 
 void Arm64TaskData::EnterPolyCode()
