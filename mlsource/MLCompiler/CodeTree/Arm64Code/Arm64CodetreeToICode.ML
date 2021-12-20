@@ -2210,11 +2210,36 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=LargeWordArith ArithDiv, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: LargeWordArith: ArithDiv"
+        |   codeToICodeBinaryRev({oper=LargeWordArith ArithDiv, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                val code =
+                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
+                    division{isSigned=false, opSize=OpSize64, dividend=uReg1, divisor=uReg2, dest=uReg3} ::
+                    unboxLarge{ source=aReg2, dest=uReg2 } ::
+                    unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
+            in
+                (code, target, false)
+            end
 
-        |   codeToICodeBinaryRev({oper=LargeWordArith ArithMod, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: LargeWordArith: ArithMod"
+        |   codeToICodeBinaryRev({oper=LargeWordArith ArithMod, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg() and uReg4 = newUReg()
+                val code =
+                    boxLarge{ source=uReg4, dest=target, saveRegs=[] } ::
+                    multiplication{kind=MultSub64, dest=uReg4, sourceM=uReg3, sourceN=uReg2, sourceA=SOME uReg1} ::
+                    division{isSigned=false, opSize=OpSize64, dividend=uReg1, divisor=uReg2, dest=uReg3} ::
+                    unboxLarge{ source=aReg2, dest=uReg2 } ::
+                    unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=LargeWordArith _, ...}, _, _, _, _) =
                 raise InternalError "LargeWordArith - unimplemented instruction"
