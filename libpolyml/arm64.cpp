@@ -464,11 +464,11 @@ void Arm64TaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length,
     ASSERT(old == ((stackItem*)old_stack) + old_length);
     ASSERT(newp == ((stackItem*)new_stack) + new_length);
     // And change any registers that pointed into the old stack
-    for (int j = 0; j < 16; j++)
+    for (int j = 0; j < 25; j++)
     {
         if (saveRegisterMask & (1 << j))
         {
-            stackItem* regAddr = &(assemblyInterface.registers[i]);
+            stackItem* regAddr = &(assemblyInterface.registers[j]);
             stackItem old_word = *regAddr;
             if (old_word.w().IsDataPtr() && old_word.stackAddr >= old_base && old_word.stackAddr <= old_top)
                 old_word.stackAddr = old_word.stackAddr + offset;
