@@ -85,6 +85,8 @@ struct
     and storeRelease = BlockSimple o StoreRelease
     and bitFieldShift = BlockSimple o BitFieldShift
     and bitFieldInsert = BlockSimple o BitFieldInsert
+    and compareByteVectors = BlockSimple o CompareByteVectors
+    and blockMove = BlockSimple o BlockMove
 
     val shiftConstant = BlockSimple o shiftConstant
 
@@ -358,17 +360,15 @@ struct
             ( case Array.sub(locToPregArray, l) of ContainerLocation container => SOME container | _ => NONE )
         |   getContainerIfPresent _ = NONE
 
-        (* General function for loads and stores.  We want this to be mutually recursive so need to pass codeToICodeRev
-           explicitly *)
-        fun loadAndStoreWithAddress codeValue
-                ({base, index, offset}, getStoreValue, loadType, isCAddress, loadStoreOffset, loadStoreIndex, context, code) =
+        (* General function for loads and stores. *)
+        fun loadAndStoreWithAddress
+                ({base=bReg1, index, offset}, loadType, isCAddress, loadStoreOffset, loadStoreIndex, code) =
         let
             val opWordSize = opWordSize loadType
             val byteOffset = offset * opWordSize
             (* Get the base register value *)
-            val (bCode, bReg1, _) = codeValue(base, context, false, AnyReg, code)
-            (* If this is a store get the value to store here. *)
-            val (sCode, sValue) = getStoreValue bCode
+            val bCode = code
+            val sCode = bCode
 
             (* Get any index register value. *)
             val (iCode, iReg1Opt) =
@@ -382,9 +382,9 @@ struct
                         in
                             (loadNonAddressConstant{ source=LargeWord.fromInt offset, dest=iReg } :: sCode, SOME iReg)
                         end
-                |   SOME index =>
+                |   SOME iReg1 =>
                         let
-                            val (iCode1, iReg1, _) = codeValue(index, context, false, AnyReg, sCode)
+                            val iCode1 = sCode
                             (* The index is a tagged integer containing the number of units (words, bytes etc).
                                It has to be untagged.  If this is a C address it may be negative. *)
                             val iReg2 = newUReg()
@@ -423,26 +423,26 @@ struct
 
         in
             case iReg1Opt of
-                SOME iReg => loadStoreIndex(effBReg, iReg, sValue, effBCode)
-            |   NONE => loadStoreOffset(effBReg, offset, sValue, effBCode)
+                SOME iReg => loadStoreIndex(effBReg, iReg, effBCode)
+            |   NONE => loadStoreOffset(effBReg, offset, effBCode)
         end
 
         (* Some operations require a single absolute address. *)
-        fun loadAndStoreWithAbsolute codeValue (address, getStoreValue, loadType, loadStore, context, code) =
+        fun loadAndStoreWithAbsolute (address, loadType, loadStore, code) =
         let
             (* Have to add the offset/index register. *)
-            fun loadStoreOffset(bReg, 0, sReg, code) = loadStore(bReg, sReg, code)
-            |   loadStoreOffset(bReg, offset, sReg, code) =
+            fun loadStoreOffset(bReg, 0, code) = loadStore(bReg, code)
+            |   loadStoreOffset(bReg, offset, code) =
                 let
                     val cReg = newUReg() and aReg = newUReg()
                 in
-                    loadStore(aReg, sReg,
+                    loadStore(aReg,
                         addSubRegister{ base=bReg, shifted=cReg, dest=SOME aReg, ccRef=NONE, isAdd=true,
                                         length=OpSize64, shift=ShiftNone} ::
                         loadNonAddressConstant{ source=LargeWord.fromInt offset, dest=cReg } :: code)
                 end
 
-            and loadStoreIndex(bReg, iReg, sReg, code) =
+            and loadStoreIndex(bReg, iReg, code) =
             let
                 val aReg = newUReg()
                 (* The index register is a number of words/bytes etc so has to be multiplied when it's
@@ -451,12 +451,12 @@ struct
                     case loadType of
                         Load64 => ShiftLSL 0w3 | Load32 => ShiftLSL 0w2 | Load16 => ShiftLSL 0w1 | Load8 => ShiftNone
             in
-                loadStore(aReg, sReg,
+                loadStore(aReg,
                     addSubRegister{ base=bReg, shifted=iReg, dest=SOME aReg, ccRef=NONE, isAdd=true,
                                     length=OpSize64, shift=indexShift} :: code)
             end
         in
-            loadAndStoreWithAddress codeValue (address, getStoreValue, loadType, false, loadStoreOffset, loadStoreIndex, context, code)
+            loadAndStoreWithAddress (address, loadType, false, loadStoreOffset, loadStoreIndex, code)
         end
 
         (* Overflow check.  This raises Overflow if the condition is satisfied.  Normally this will be
@@ -688,11 +688,11 @@ struct
                     then (* When converting to Word64 we do NOT want to use sign-extension.
                             In 32-in-64 signed fixed-precision ints need to have zeros
                             in the top 32 bits. *)
-                        LoadNonAddressConstant{source=taggedWord64(Word64.fromLarge(Word.toLarge(toShort w))),
+                        loadNonAddressConstant{source=taggedWord64(Word64.fromLarge(Word.toLarge(toShort w))),
                             dest=dReg}
-                    else LoadAddressConstant{source=w, dest=dReg}
+                    else loadAddressConstant{source=w, dest=dReg}
             in
-                (BlockSimple instr :: tailCode, dReg, false)
+                (instr :: tailCode, dReg, false)
             end
 
         |   codeToICodeRev(BICField{base, offset}, context, _, destination, tailCode) =
@@ -1369,14 +1369,128 @@ struct
         |   codeToICodeRev(BICStoreOperation{ kind, address, value}, context, _, destination, tailCode) =
                 codeStoreOperation(kind, address, value, context, destination, tailCode)
 
-        |   codeToICodeRev(BICBlockOperation{ kind=BlockOpMove{isByteMove}, sourceLeft, destRight, length }, _, _, _, _) =
-                raise Fallback "codeToICodeRev: BICBlockOperation: BlockOpMove"
+        |   codeToICodeRev(BICBlockOperation{ kind=BlockOpMove{isByteMove}, sourceLeft, destRight, length }, context, _, destination, tailCode) =
+                (* Assume these are copying immutable data i.e. vector to vector and string to string.
+                   The simplifier now assumes that when optimising short constant moves e.g. concatenating
+                   with a constant string. *)
+            let
+                (* Move bytes or words from the source to the destination.  Need to get the start addresses
+                   and length into new registers because they will be modified. *)
+                val (leftAddr, codeLft) = addressToPregAddress(sourceLeft, context, tailCode)
+                val (rightAddr, codeRt) = addressToPregAddress(destRight, context, codeLft)
+                val (codeLength, lengthReg, _) = codeToICodeRev(length, context, false, AnyReg, codeRt)
+                val loadOp = if isByteMove then Load8 else if is32in64 then Load32 else Load64
 
-        |   codeToICodeRev(BICBlockOperation{ kind=BlockOpEqualByte, sourceLeft, destRight, length }, _, _, _, _) =
-                raise Fallback "codeToICodeRev: BICBlockOperation: BlockOpEqualByte"
+                (* This threads the calls through two calls to loadAndStoreWithAbsolute to compute the addresses. *)
+                fun getDestAndMove(ltReg, tailCode) =
+                let
+                    fun doMove (rtReg, code) =
+                    let
+                        val lengthReg2 = newUReg() and ltReg2 = newUReg() and rtReg2 = newUReg()
+                    in
+                        blockMove{ srcAddr=ltReg2, destAddr=rtReg2, length=lengthReg2, isByteMove=isByteMove } ::
+                        moveRegister{dest=rtReg2, source=rtReg} ::
+                        moveRegister{dest=ltReg2, source=ltReg} ::
+                        untagValue{dest=lengthReg2, source=lengthReg, isSigned=false, opSize=polyWordOpSize} :: code
+                    end
+                in
+                    loadAndStoreWithAbsolute (rightAddr, loadOp, doMove, tailCode)
+                end
+            in
+                returnUnit(destination, loadAndStoreWithAbsolute (leftAddr, loadOp, getDestAndMove, codeLength), false)
+            end
 
-        |   codeToICodeRev(BICBlockOperation{ kind=BlockOpCompareByte, sourceLeft, destRight, length }, _, _, _, _) =
-                raise Fallback "codeToICodeRev: BICBlockOperation: BlockOpCompareByte"
+        |   codeToICodeRev(BICBlockOperation{ kind=BlockOpEqualByte, sourceLeft, destRight, length }, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val ccRef = newCCRef()
+                (* Compare bytes for equality.  Need to get the start addresses and length into new registers
+                   because they will be modified. *)
+                val (leftAddr, codeLft) = addressToPregAddress(sourceLeft, context, tailCode)
+                val (rightAddr, codeRt) = addressToPregAddress(destRight, context, codeLft)
+                val (codeLength, lengthReg, _) = codeToICodeRev(length, context, false, AnyReg, codeRt)
+
+                (* This threads the calls through two calls to loadAndStoreWithAbsolute to compute the addresses. *)
+
+                fun getRightAndCompare(ltReg, tailCode) =
+                let
+                    fun doComparison (rtReg, code) =
+                    let
+                        val lengthReg2 = newUReg() and ltReg2 = newUReg() and rtReg2 = newUReg()
+                    in
+                        compareByteVectors{ vec1Addr=ltReg2, vec2Addr=rtReg2, length=lengthReg2, ccRef=ccRef } ::
+                        moveRegister{dest=rtReg2, source=rtReg} ::
+                        moveRegister{dest=ltReg2, source=ltReg} ::
+                        untagValue{dest=lengthReg2, source=lengthReg, isSigned=false, opSize=polyWordOpSize} :: code
+                    end
+                in
+                    loadAndStoreWithAbsolute (rightAddr, Load8, doComparison, tailCode)
+                end
+
+                val testCode =
+                    loadAndStoreWithAbsolute (leftAddr, Load8, getRightAndCompare, codeLength)
+            in
+                (makeBoolResultRev(CondEqual, ccRef, target, testCode), target, false)
+            end
+
+        |   codeToICodeRev(BICBlockOperation{ kind=BlockOpCompareByte, sourceLeft, destRight, length }, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val ccRef = newCCRef()
+                (* Similar to OpEqualByte except it returns -1, 0, +1 depending on the condition code. *)
+                (* Compare bytes for equality.  Need to get the start addresses and length into new registers
+                   because they will be modified. *)
+                val (leftAddr, codeLft) = addressToPregAddress(sourceLeft, context, tailCode)
+                val (rightAddr, codeRt) = addressToPregAddress(destRight, context, codeLft)
+                val (codeLength, lengthReg, _) = codeToICodeRev(length, context, false, AnyReg, codeRt)
+
+                (* This threads the calls through two calls to loadAndStoreWithAbsolute to compute the addresses. *)
+
+                fun getRightAndCompare(ltReg, tailCode) =
+                let
+                    fun doComparison (rtReg, code) =
+                    let
+                        val lengthReg2 = newUReg() and ltReg2 = newUReg() and rtReg2 = newUReg()
+                        val exitLab = newLabel() and labGreater = newLabel() and labNotGreater = newLabel() 
+                        and labLess = newLabel() and labNotLess = newLabel()
+                        val mergeResult = newMergeReg()
+                        val taggedMinus1 =
+                            if is32in64 then 0wxffffffff else 0wxffffffffffffffff
+                    in
+                        (* Compare the words then a series of comparisons to set the result.
+                           TODO; The old code-generator makes the "equal" exit of compareByteVectors jump
+                           directly to code to set the result to zero.  It then uses
+                           loadNonAddress(X0, Word64.fromInt(tag 1)) followed by
+                           conditionalSetInverted{regD=X0, regTrue=X0, regFalse=XZero, cond=CondUnsignedHigher}
+                           to set the result to one or minus one. N.B.  This needs to use a 32-bit operation on
+                           32-in-64. *)
+                        moveRegister{dest=target, source=mergeResult} ::
+                        BlockLabel exitLab ::
+                        loadNonAddressConstant{source=taggedWord64 0w1, dest=mergeResult} ::
+                        BlockLabel labGreater ::
+                        BlockFlow(Unconditional exitLab) ::
+                        loadNonAddressConstant{source=taggedMinus1, dest=mergeResult} ::
+                        BlockLabel labLess ::
+                        BlockFlow(Unconditional exitLab) ::
+                        loadNonAddressConstant{source=taggedWord64 0w0, dest=mergeResult} ::
+                        BlockLabel labNotGreater ::
+                        BlockFlow(Conditional{ ccRef=ccRef, condition=CondUnsignedHigher, trueJump=labGreater, falseJump=labNotGreater }) ::
+                        BlockLabel labNotLess ::
+                        BlockFlow(Conditional{ ccRef=ccRef, condition=CondCarryClear, trueJump=labLess, falseJump=labNotLess }) ::
+                        compareByteVectors{ vec1Addr=ltReg2, vec2Addr=rtReg2, length=lengthReg2, ccRef=ccRef } ::
+                        moveRegister{dest=rtReg2, source=rtReg} ::
+                        moveRegister{dest=ltReg2, source=ltReg} ::
+                        untagValue{dest=lengthReg2, source=lengthReg, isSigned=false, opSize=polyWordOpSize} :: code
+                    end
+                in
+                    loadAndStoreWithAbsolute (rightAddr, Load8, doComparison, tailCode)
+                end
+
+                val testCode =
+                    loadAndStoreWithAbsolute (leftAddr, Load8, getRightAndCompare, codeLength)
+            in
+                (testCode, target, false)
+            end
 
         |   codeToICodeRev(BICAllocateWordMemory {numWords, flags, initial }, context, _, destination, tailCode) =
             let
@@ -2167,6 +2281,22 @@ struct
         |   codeToICodeBinaryRev({oper=FreeCStack, arg1, arg2}, context, isTail, destination, tailCode) =
             raise Fallback "codeToICodeBinaryRev: FreeCStack"
 
+        (* Code-generate an address into one or two Pregs. At this point they are in a state where
+           we can code-generate arbitrary code before the address is used *)
+        and addressToPregAddress({base, index, offset}, context, code) =
+        let
+            val (bCode, bReg, _) = codeToICodeRev(base, context, false, AnyReg, code)
+        in
+            case index of
+                NONE => ({base=bReg, index=NONE, offset=offset}, bCode)
+            |   SOME index =>
+                let
+                    val (iCode, iReg, _) = codeToICodeRev(index, context, false, AnyReg, bCode)
+                in
+                    ({base=bReg, index=SOME iReg, offset=offset}, iCode)
+                end
+        end
+
         (* Store the code address and the closure items into a previously allocated closure on the
            heap.  This is used both in the simple case and also with mutually recursive declarations. *)
         and storeIntoClosure(lambda as { closure, ...}, absClosureAddr, context, tailCode) =
@@ -2210,50 +2340,50 @@ struct
         (* Load operations. *)
         and codeLoadOperation(kind, address, context, target, tailCode) =
         let
+            val (regAddr, codeAddr) = addressToPregAddress(address, context, tailCode)
+
             val code =
             case kind of
                 LoadStoreMLWord {isImmutable=false} =>
                 let
-                    fun loadOp(addrReg, _, code) =
+                    fun loadOp(addrReg, code) =
                         loadAcquire{base=addrReg, dest=target, loadType=polyWordLoadSize} :: code
                 in
-                    loadAndStoreWithAbsolute codeToICodeRev (address, fn code => (code, ()), polyWordLoadSize, loadOp, context, tailCode)
+                    loadAndStoreWithAbsolute (regAddr, polyWordLoadSize, loadOp, codeAddr)
                 end
 
             |   LoadStoreMLWord {isImmutable=true} =>
                 let
-                    fun loadConstOffset(base, offset, _, code) =
+                    fun loadConstOffset(base, offset, code) =
                         loadWithConstantOffset{base=base, dest=target, byteOffset=offset, loadType=polyWordLoadSize} :: code
-                    fun loadIndexed(base, index, _, code) =
+                    fun loadIndexed(base, index, code) =
                         loadWithIndexedOffset{base=base, dest=target, index=index, loadType=polyWordLoadSize} :: code
                 in
-                    loadAndStoreWithAddress codeToICodeRev
-                        (address, fn code => (code, ()), polyWordLoadSize, false, loadConstOffset, loadIndexed, context, tailCode)
+                    loadAndStoreWithAddress (regAddr, polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
                 end
 
             |   LoadStoreMLByte {isImmutable=false} =>
                 let
                     (* Have to load into a ureg and then tag it. *)
                     val destReg = newUReg()
-                    fun loadOp(addrReg, _, code) =
+                    fun loadOp(addrReg, code) =
                         loadAcquire{base=addrReg, dest=destReg, loadType=Load8} :: code
                 in
                     tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
-                        loadAndStoreWithAbsolute codeToICodeRev (address, fn code => (code, ()), Load8, loadOp, context, tailCode)
+                        loadAndStoreWithAbsolute (regAddr, Load8, loadOp, codeAddr)
                 end
 
             |   LoadStoreMLByte {isImmutable=true} =>
                 let
                     (* Have to load into a ureg and then tag it. *)
                     val destReg = newUReg()
-                    fun loadConstOffset(base, offset, _, code) =
+                    fun loadConstOffset(base, offset, code) =
                         loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load8} :: code
-                    fun loadIndexed(base, index, _, code) =
+                    fun loadIndexed(base, index, code) =
                         loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load8} :: code
                 in
                     tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
-                        loadAndStoreWithAddress codeToICodeRev
-                            (address, fn code => (code, ()), Load8, false, loadConstOffset, loadIndexed, context, tailCode)
+                        loadAndStoreWithAddress(regAddr, Load8, false, loadConstOffset, loadIndexed, codeAddr)
                 end
 
             |   LoadStoreC8 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
@@ -2267,14 +2397,13 @@ struct
                 let
                     (* LoadStoreMLWord {isImmutable=true} except it has to be tagged. *)
                     val ureg = newUReg()
-                    fun loadConstOffset(base, offset, _, code) =
+                    fun loadConstOffset(base, offset, code) =
                         loadWithConstantOffset{base=base, dest=ureg, byteOffset=offset, loadType=polyWordLoadSize} :: code
-                    fun loadIndexed(base, index, _, code) =
+                    fun loadIndexed(base, index, code) =
                         loadWithIndexedOffset{base=base, dest=ureg, index=index, loadType=polyWordLoadSize} :: code
                 in
                     tagValue{source=ureg, dest=target, isSigned=false, opSize=polyWordOpSize} ::
-                        loadAndStoreWithAddress codeToICodeRev
-                            (address, fn code => (code, ()), polyWordLoadSize, false, loadConstOffset, loadIndexed, context, tailCode)
+                        loadAndStoreWithAddress(regAddr, polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
                 end
 
         in
@@ -2282,69 +2411,65 @@ struct
         end
 
         (* Store operations. *)
-        and codeStoreOperation(kind, address, value, context, destination, tailCode) =
+        and codeStoreOperation(kind, address, value, context, destination, tailCode1) =
         let
+            val (regAddr, codeAddr) = addressToPregAddress(address, context, tailCode1)
+            val (sourceCode, sourceReg, _) = codeToICodeRev(value, context, false, AnyReg, codeAddr)
+            
             val storeCode =
             case kind of
                 LoadStoreMLWord {isImmutable=false} =>
                 let
-                    fun getStoreValue code =
-                        let val (sCode, sReg, _) = codeToICodeRev(value, context, false, AnyReg, code) in (sCode, sReg) end
-                    fun storeOp(addrReg, valReg, code) =
-                        storeRelease{base=addrReg, source=valReg, loadType=polyWordLoadSize} :: code
+                    fun storeOp(addrReg, code) =
+                        storeRelease{base=addrReg, source=sourceReg, loadType=polyWordLoadSize} :: code
                 in
-                    loadAndStoreWithAbsolute codeToICodeRev (address, getStoreValue, polyWordLoadSize, storeOp, context, tailCode)
+                    loadAndStoreWithAbsolute(regAddr, polyWordLoadSize, storeOp, sourceCode)
                 end
 
             |   LoadStoreMLWord {isImmutable=true} =>
                 let
                     (* Used when initialising immutables that do not require store-release. *)
-                    fun loadConstOffset(base, offset, valReg, code) =
-                        storeWithConstantOffset{base=base, source=valReg, byteOffset=offset, loadType=polyWordLoadSize} :: code
-                    fun loadIndexed(base, index, valReg, code) =
-                        storeWithIndexedOffset{base=base, source=valReg, index=index, loadType=polyWordLoadSize} :: code
-                    fun getStoreValue code =
-                        let val (sCode, sReg, _) = codeToICodeRev(value, context, false, AnyReg, code) in (sCode, sReg) end
+                    fun loadConstOffset(base, offset, code) =
+                        storeWithConstantOffset{base=base, source=sourceReg, byteOffset=offset, loadType=polyWordLoadSize} :: code
+                    fun loadIndexed(base, index, code) =
+                        storeWithIndexedOffset{base=base, source=sourceReg, index=index, loadType=polyWordLoadSize} :: code
                 in
-                    loadAndStoreWithAddress codeToICodeRev
-                        (address, getStoreValue, polyWordLoadSize, false, loadConstOffset, loadIndexed, context, tailCode)
+                    loadAndStoreWithAddress (regAddr, polyWordLoadSize, false, loadConstOffset, loadIndexed, sourceCode)
                 end
 
             |   LoadStoreMLByte {isImmutable=false} =>
                 let
-                    (* Used when initialising immutables that do not require store-release. *)
-                    fun getStoreValue code =
+                    fun storeOp(addrReg, code) =
                     let
-                        (* The value to store has to be untagged. *)
-                        val (sCode, sReg, _) = codeToICodeRev(value, context, false, AnyReg, code)
                         val tReg = newUReg()
                     in
-                        (untagValue{source=sReg, dest=tReg, isSigned=false, opSize=OpSize32} :: sCode, tReg)
+                        storeRelease{base=addrReg, source=tReg, loadType=Load8} ::
+                        untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
                     end
-                    fun storeOp(addrReg, valReg, code) =
-                        storeRelease{base=addrReg, source=valReg, loadType=Load8} :: code
                 in
-                    loadAndStoreWithAbsolute codeToICodeRev (address, getStoreValue, Load8, storeOp, context, tailCode)
+                    loadAndStoreWithAbsolute(regAddr, Load8, storeOp, sourceCode)
                 end
 
             |   LoadStoreMLByte {isImmutable=true} =>
                 let
                     (* Used when initialising immutables that do not require store-release. *)
-                    fun getStoreValue code =
+                    fun loadConstOffset(base, offset, code) =
                     let
-                        (* The value to store has to be untagged. *)
-                        val (sCode, sReg, _) = codeToICodeRev(value, context, false, AnyReg, code)
                         val tReg = newUReg()
                     in
-                        (untagValue{source=sReg, dest=tReg, isSigned=false, opSize=OpSize32} :: sCode, tReg)
+                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=Load8} ::
+                        untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
                     end
-                    fun loadConstOffset(base, offset, valReg, code) =
-                        storeWithConstantOffset{base=base, source=valReg, byteOffset=offset, loadType=Load8} :: code
-                    fun loadIndexed(base, index, valReg, code) =
-                        storeWithIndexedOffset{base=base, source=valReg, index=index, loadType=Load8} :: code
+
+                    fun loadIndexed(base, index, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load8} ::
+                        untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
+                    end
                 in
-                    loadAndStoreWithAddress codeToICodeRev
-                        (address, getStoreValue, Load8, false, loadConstOffset, loadIndexed, context, tailCode)
+                    loadAndStoreWithAddress(regAddr, Load8, false, loadConstOffset, loadIndexed, sourceCode)
                 end
 
             |   LoadStoreC8 => raise Fallback "codeStoreOperation: LoadStoreC8 "
@@ -2357,21 +2482,22 @@ struct
             |   LoadStoreUntaggedUnsigned =>
                 let
                     (* Only used when initialising strings so this does not require store-release. *)
-                    fun loadConstOffset(base, offset, valReg, code) =
-                        storeWithConstantOffset{base=base, source=valReg, byteOffset=offset, loadType=polyWordLoadSize} :: code
-                    fun loadIndexed(base, index, valReg, code) =
-                        storeWithIndexedOffset{base=base, source=valReg, index=index, loadType=polyWordLoadSize} :: code
-                    fun getStoreValue code =
+                    fun loadConstOffset(base, offset, code) =
                     let
-                        (* The value to store has to be untagged. *)
-                        val (sCode, sReg, _) = codeToICodeRev(value, context, false, AnyReg, code)
                         val tReg = newUReg()
                     in
-                        (untagValue{source=sReg, dest=tReg, isSigned=false, opSize=polyWordOpSize} :: sCode, tReg)
+                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=polyWordLoadSize} ::
+                        untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=polyWordOpSize} :: code
+                    end
+                    fun loadIndexed(base, index, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=polyWordLoadSize} ::
+                        untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=polyWordOpSize} :: code
                     end
                 in
-                    loadAndStoreWithAddress codeToICodeRev
-                        (address, getStoreValue, polyWordLoadSize, false, loadConstOffset, loadIndexed, context, tailCode)
+                    loadAndStoreWithAddress(regAddr, polyWordLoadSize, false, loadConstOffset, loadIndexed, sourceCode)
                 end
         in
             returnUnit(destination, storeCode, false)
@@ -2451,7 +2577,7 @@ struct
         open Debug Universal
         val tryNewCG = Debug.getParameter Debug.compilerDebugTag debugSwitches
     in
-        if (*false andalso*) tryNewCG = 0
+        if false andalso tryNewCG = 0
         then Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
         else
         let

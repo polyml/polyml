@@ -263,6 +263,16 @@ struct
            restores the old handler.  Sets the exception packet register. *) 
     |   BeginHandler of { packetReg: preg }
 
+        (* Compare two vectors of bytes and set the condition code on the result.
+           The registers are modified by the instruction. *)
+    |   CompareByteVectors of
+            { vec1Addr: preg, vec2Addr: preg, length: preg, ccRef: ccRef }
+
+        (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
+           number of items (bytes or words) to move. The registers are modified by
+           the instruction. *)
+    |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -689,6 +699,22 @@ struct
                 printReg(packetReg, stream)
             )
 
+        |   printICode(CompareByteVectors{vec1Addr, vec2Addr, length, ccRef, ...}, stream) =
+            (
+                stream "\tCompareByteVectors\t";
+                printReg(vec1Addr, stream); stream ",";
+                printReg(vec2Addr, stream); stream ",";
+                printReg(length, stream);
+                stream " => "; printCC(ccRef, stream)
+            )
+
+        |   printICode(BlockMove{srcAddr, destAddr, length, isByteMove}, stream) =
+            (
+                stream(if isByteMove then "\tBlockByteMove\t" else "\tBlockWordMove\t");
+                stream "src="; printReg(srcAddr, stream);
+                stream ",dest="; printReg(destAddr, stream);
+                stream ",len="; printReg(length, stream)
+            )
 
         and printCondition(cond,  stream)  = stream(condToString cond)
 

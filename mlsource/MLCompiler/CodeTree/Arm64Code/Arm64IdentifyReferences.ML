@@ -234,6 +234,12 @@ struct
         (* The packet register is a destination since this provides its definition. *)
         { sources=[], dests=[packetReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(CompareByteVectors{vec1Addr, vec2Addr, length, ccRef, ...}) =
+            { sources=[vec1Addr, vec2Addr, length], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+
+    |   getInstructionState(BlockMove{srcAddr, destAddr, length, ...}) =
+            { sources=[srcAddr, destAddr, length], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
     fun eliminateable(MoveRegister _) = true

@@ -810,6 +810,26 @@ struct
                             packetCode @ BeginHandler{packetReg=packetVal} :: code
                         end
 
+                    |   pushRegisters({instr=CompareByteVectors{vec1Addr, vec2Addr, length, ccRef}, ...}, code) =
+                        let
+                            val (vec1Val, vec1Code) = mapSrcReg vec1Addr
+                            val (vec2Val, vec2Code) = mapSrcReg vec2Addr
+                            val (lenVal, lenCode) = mapSrcReg length
+                        in
+                            CompareByteVectors{vec1Addr=vec1Val, vec2Addr=vec2Val, length=lenVal, ccRef=ccRef} ::
+                                lenCode @ vec2Code @ vec1Code @ code
+                        end
+
+                    |   pushRegisters({instr=BlockMove{srcAddr, destAddr, length, isByteMove}, ...}, code) =
+                        let
+                            val (srcVal, srcCode) = mapSrcReg srcAddr
+                            val (destVal, destCode) = mapSrcReg destAddr
+                            val (lenVal, lenCode) = mapSrcReg length
+                        in
+                            BlockMove{srcAddr=srcVal, destAddr=destVal, length=lenVal, isByteMove=isByteMove} ::
+                                lenCode @ destCode @ srcCode @ code
+                        end
+
                     local
                         fun doPush(instr as {kill, ...}, code) =
                         let

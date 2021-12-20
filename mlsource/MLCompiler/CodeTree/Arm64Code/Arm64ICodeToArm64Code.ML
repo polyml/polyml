@@ -1027,6 +1027,63 @@ struct
                 moveIfNecessary({src=X0, dst=getAllocatedGenReg packetReg }, beginHandleCode)
             end
 
+        |   codeExtended _ (CompareByteVectors{vec1Addr, vec2Addr, length,  ...}, code) =
+            let
+                (* Construct a loop to compare two vectors of bytes. *)
+                val vec1Reg = getAllocatedGenReg vec1Addr
+                and vec2Reg = getAllocatedGenReg vec2Addr
+                and lenReg = getAllocatedGenReg length
+                val loopLabel = createLabel() and exitLabel = createLabel()
+                (*  N.B. the code is in reverse order - read from the bottom up. *)
+            in
+                setLabel exitLabel ::
+                conditionalBranch(CondEqual, loopLabel) :: (* Loop if they're equal *)
+                (* Compare *)
+                subSShiftedReg32{regM=workReg2, regN=workReg1, regD=XZero, shift=ShiftNone} ::
+                subImmediate{regN=lenReg, regD=lenReg, immed=0w1, shifted=false} :: (* Decr len *)
+                (* Load the bytes for the comparison and increment each. *)
+                loadRegPostIndexByte{regT=workReg2, regN=vec2Reg, byteOffset=1} ::            
+                loadRegPostIndexByte{regT=workReg1, regN=vec1Reg, byteOffset=1} ::
+                compareBranchZero(lenReg, exitLabel) :: (* Go to the end when len = zero *)
+                setLabel loopLabel :: (* Start of loop *)
+                (* Set the CC to Equal before we start in case length = 0 *)
+                subSShiftedReg{regM=lenReg, regN=lenReg, regD=XZero, shift=ShiftNone} :: code
+            end
+
+        |   codeExtended _ (BlockMove{srcAddr, destAddr, length, isByteMove}, code) =
+            let
+                (* Construct a loop to move the data. *)
+                val srcReg = getAllocatedGenReg srcAddr
+                and destReg = getAllocatedGenReg destAddr
+                and lenReg = getAllocatedGenReg length
+                val loopLabel = createLabel() and exitLabel = createLabel()
+            in
+                setLabel exitLabel :: (* Exit from the loop. *)
+                unconditionalBranch loopLabel :: (* Back to the start *)
+                subImmediate{regN=lenReg, regD=lenReg, immed=0w1, shifted=false} :: (* Decr len *)
+                (
+                    if isByteMove
+                    then
+                    [
+                        storeRegPostIndexByte{regT=workReg1, regN=destReg, byteOffset=1},
+                        loadRegPostIndexByte{regT=workReg1, regN=srcReg, byteOffset=1}
+                    ]
+                    else if is32in64
+                    then
+                    [
+                        storeRegPostIndex32{regT=workReg1, regN=destReg, byteOffset=4},
+                        loadRegPostIndex32{regT=workReg1, regN=srcReg, byteOffset=4}
+                    ]
+                    else
+                    [
+                        storeRegPostIndex{regT=workReg1, regN=destReg, byteOffset=8},
+                        loadRegPostIndex{regT=workReg1, regN=srcReg, byteOffset=8}
+                    ]
+                ) @
+                compareBranchZero(lenReg, exitLabel) :: (* Exit when length = 0 *)
+                setLabel loopLabel (* Start of loop *) :: code
+            end
+
         local
             (* processed - set to true when a block has been processed. *)
             val processed = Array.array(numBlocks, false)

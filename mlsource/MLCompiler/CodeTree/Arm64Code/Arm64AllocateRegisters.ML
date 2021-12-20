@@ -441,6 +441,12 @@ struct
 
         |   registerAllocate({instr=BeginHandler{packetReg}, ...}) = allocateGenReg packetReg
 
+        |   registerAllocate({instr=CompareByteVectors{vec1Addr, vec2Addr, length, ...}, ...}) =
+                allocateGenRegs[vec1Addr, vec2Addr, length]
+
+        |   registerAllocate({instr=BlockMove{srcAddr, destAddr, length, ...}, ...}) =
+                allocateGenRegs[srcAddr, destAddr, length]
+
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)
 
