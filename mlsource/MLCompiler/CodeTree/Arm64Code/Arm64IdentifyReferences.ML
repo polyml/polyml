@@ -143,7 +143,7 @@ struct
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
             { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(FunctionCall{regArgs, stackArgs, dest, ...}) =
+    |   getInstructionState(FunctionCall{regArgs, stackArgs, dest, containers, ...}) =
         let
             (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
             fun getSourceFromRegs((ArgInReg reg, _), (regArgs, stackArgs)) = (reg :: regArgs, stackArgs)
@@ -153,7 +153,7 @@ struct
             val (argSources, stackSources) =
                 List.foldl getSourceFromRegs (List.foldl getSourceFromStack ([], []) stackArgs) regArgs
         in
-            { sources=argSources, dests=[dest], sStacks=stackSources, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=argSources, dests=[dest], sStacks=stackSources @ containers, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
     |   getInstructionState(TailRecursiveCall{regArgs, stackArgs, ...}) =

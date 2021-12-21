@@ -159,10 +159,13 @@ struct
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through X8 which has been loaded
-           as one of the argument registers.  The result is stored in the destination register. *)
+           as one of the argument registers.  The result is stored in the destination register.
+           The "containers" argument is used to ensure that any container whose address is passed
+           as one of the other arguments continues to be referenced until the function is called
+           since there's a possibility that it isn't actually used after the function. *)
     |   FunctionCall of
             { callKind: callKind, regArgs: (fnarg * xReg) list,
-              stackArgs: fnarg list, dest: preg, saveRegs: preg list}
+              stackArgs: fnarg list, dest: preg, saveRegs: preg list, containers: stackLocn list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
@@ -536,7 +539,7 @@ struct
                 List.app(fn s => printStackLoc(s, stream)) stackArgs
             )
 
-        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, saveRegs}, stream) =
+        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, saveRegs, containers}, stream) =
             (
                 stream "\tFunctionCall\t";
                 case callKind of
@@ -546,7 +549,9 @@ struct
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs;
                 List.app(fn arg => (stream "p="; printArg(arg, stream); stream " ")) stackArgs;
                 stream "=> "; printReg(dest, stream);
-                stream " save="; printSaves(saveRegs, stream)
+                stream " save="; printSaves(saveRegs, stream);
+                if null containers then ()
+                else (stream " containers="; List.app (fn c => (printStackLoc(c, stream); stream " ")) containers)
             )
 
         |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize, ...}, stream) =

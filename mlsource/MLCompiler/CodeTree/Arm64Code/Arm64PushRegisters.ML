@@ -548,7 +548,7 @@ struct
                             pushCode @ BeginFunction {regArgs=newRegArgs, stackArgs=newStackArgs} :: code
                         end
 
-                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest, ...}, ...}, code) =
+                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest, containers, ...}, ...}, code) =
                         let
                             (* It's possible that this could lead to having to spill registers in order
                                to load others.  Leave that problem for the moment. *)
@@ -568,9 +568,10 @@ struct
                             end
                             val newRegArgs = List.foldr loadRegArg [] regArgs
                             val (destVal, destCode) = mapDestReg dest
+                            val newContainers = List.map(fn c => #2(mapContainerAndStack(c, 0))) containers
                         in
                             destCode @ FunctionCall{ callKind=callKind, regArgs=newRegArgs, stackArgs=newStackArgs,
-                                                  dest=destVal, saveRegs=[]} :: code
+                                                  dest=destVal, saveRegs=[], containers=newContainers} :: code
                         end
 
                     |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, ...}, ...}, code) =

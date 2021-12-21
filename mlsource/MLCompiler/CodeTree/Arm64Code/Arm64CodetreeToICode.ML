@@ -924,9 +924,26 @@ struct
                     end
                     else
                     let
+                        local
+                            (* When a container is passed as an argument we put the address into a register.
+                               Normally the container will be referenced after the call in order to extract
+                               the values but if it's discarded we need to make sure it will continue to
+                               be referenced at least as far as the call.  This isn't a problem for the X86
+                               code-generator since container addresses are a form of the "argument"
+                               datatype. *)
+                            fun getContainers(BICExtract(BICLoadLocal l), _) =
+                                (
+                                    case Array.sub(locToPregArray, l) of
+                                        ContainerLocation{container, ...} => SOME container
+                                    |   _ => NONE
+                                )
+                            |   getContainers _ = NONE
+                        in
+                            val containers = List.mapPartial getContainers argList
+                        end
                         val call =
                             FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target,
-                                         callKind=callKind, saveRegs=[]}
+                                         callKind=callKind, saveRegs=[], containers=containers}
                         val callBlock =
                             case currHandler of
                                 NONE => BlockSimple call :: codeArgs
