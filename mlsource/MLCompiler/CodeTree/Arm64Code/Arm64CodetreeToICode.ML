@@ -107,10 +107,21 @@ struct
     (* The flags byte is the high-order byte of length word. *)
     val flagsByteOffset = if isBigEndian then ~ (Word.toInt wordSize) else ~1
 
+    (* Size of operand in bytes and therefore the scale factor. *)
     fun opWordSize Load64 = 8
     |   opWordSize Load32 = 4
     |   opWordSize Load16 = 2
     |   opWordSize Load8 = 1
+    |   opWordSize LoadDouble = 8
+    |   opWordSize LoadFloat = 4
+
+    (* Shift for each size.  i.e. log2 of opWordSize. *)
+    fun loadShift Load64 = 0w3
+    |   loadShift Load32 = 0w2
+    |   loadShift Load16 = 0w1
+    |   loadShift Load8 = 0w0
+    |   loadShift LoadDouble = 0w3
+    |   loadShift LoadFloat = 0w2
 
     fun codeFunctionToArm64({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
@@ -405,7 +416,7 @@ struct
                                 (* If there's some constant offset add it to the index.  Because it's a byte offset
                                    we need to divide it by the scale but it should always be a multiple. *)
                                 val cReg = newUReg() and iReg3 = newUReg()
-                                val shift = case loadType of Load64 => 0w3 | Load32 => 0w2 | Load16 => 0w1 | Load8 => 0w0
+                                val shift = loadShift loadType
                                 val offsetAsWord = LargeWord.fromInt offset
                                 (* It could be negative if it's a C address. *)
                                 val shiftedOffset = (if isCAddress then LargeWord.~>> else LargeWord.>>) (offsetAsWord, shift)
@@ -420,10 +431,15 @@ struct
             (* If this is 32in64 get the absolute address. *)
             val (absBCode, absBReg) = getAbsoluteAddress(iCode, bReg1)
 
-            (* If this is a C address the "base address" is actually a LargeWord value that needs to be unboxed. *)
+            (* If this is a C address the "base address" is actually a box containing the address. *)
             val (effBCode, effBReg) =
                 if isCAddress
-                then let val bReg = newUReg() in (unboxLarge{ source=absBReg, dest=bReg } :: absBCode, bReg) end
+                then
+                    let
+                        val bReg = newUReg()
+                    in
+                        (loadWithConstantOffset{ base=absBReg, dest=bReg, byteOffset=0, loadType=Load64 } :: absBCode, bReg)
+                    end
                 else (absBCode, absBReg)
 
         in
@@ -453,8 +469,7 @@ struct
                 (* The index register is a number of words/bytes etc so has to be multiplied when it's
                    added in. *)
                 val indexShift =
-                    case loadType of
-                        Load64 => ShiftLSL 0w3 | Load32 => ShiftLSL 0w2 | Load16 => ShiftLSL 0w1 | Load8 => ShiftNone
+                    let val v = loadShift loadType in if v = 0w0 then ShiftNone else ShiftLSL(Word8.fromLarge(Word.toLarge v)) end
             in
                 loadStore(aReg,
                     addSubRegister{ base=bReg, shifted=iReg, dest=SOME aReg, ccRef=NONE, isAdd=true,
@@ -2568,12 +2583,87 @@ struct
                         loadAndStoreWithAddress(regAddr, Load8, false, loadConstOffset, loadIndexed, codeAddr)
                 end
 
-            |   LoadStoreC8 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
-            |   LoadStoreC16 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
-            |   LoadStoreC32 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
-            |   LoadStoreC64 => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
-            |   LoadStoreCFloat => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
-            |   LoadStoreCDouble => raise Fallback "codeLoadOperation: LoadStoreC8 immutable"
+            |   LoadStoreC8 =>
+                let
+                    (* Have to load into a ureg and then tag it. *)
+                    val destReg = newUReg()
+                    fun loadConstOffset(base, offset, code) =
+                        loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load8} :: code
+                    fun loadIndexed(base, index, code) =
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load8} :: code
+                in
+                    tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
+                        loadAndStoreWithAddress(regAddr, Load8, true, loadConstOffset, loadIndexed, codeAddr)
+                end
+
+            |   LoadStoreC16 =>
+                let
+                    (* Have to load into a ureg and then tag it. *)
+                    val destReg = newUReg()
+                    fun loadConstOffset(base, offset, code) =
+                        loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load16} :: code
+                    fun loadIndexed(base, index, code) =
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load16} :: code
+                in
+                    tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
+                        loadAndStoreWithAddress(regAddr, Load16, true, loadConstOffset, loadIndexed, codeAddr)
+                end
+
+            |   LoadStoreC32 =>
+                let
+                    (* This is tagged in native 64-bits and boxed in 32-in-64. *)
+                    val destReg = newUReg()
+                    fun loadConstOffset(base, offset, code) =
+                        loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load32} :: code
+                    fun loadIndexed(base, index, code) =
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load32} :: code
+                in
+                    (if is32in64
+                     then boxLarge{ source=destReg, dest=target, saveRegs=[] }
+                     else tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize64 (* It becomes 33 bits *)}) ::
+                        loadAndStoreWithAddress(regAddr, Load32, true, loadConstOffset, loadIndexed, codeAddr)
+                end
+
+            |   LoadStoreC64 =>
+                let
+                    (* This is always boxed. *)
+                    val destReg = newUReg()
+                    fun loadConstOffset(base, offset, code) =
+                        loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load64} :: code
+                    fun loadIndexed(base, index, code) =
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load64} :: code
+                in
+                    boxLarge{ source=destReg, dest=target, saveRegs=[]} ::
+                        loadAndStoreWithAddress(regAddr, Load64, true, loadConstOffset, loadIndexed, codeAddr)
+                end
+
+            |   LoadStoreCFloat =>
+                let
+                    (* This always returns a double, not a 32-bit float. *)
+                    val destReg = newUReg() and convertReg = newUReg()
+                    fun loadConstOffset(base, offset, code) =
+                        loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=LoadFloat} :: code
+                    fun loadIndexed(base, index, code) =
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=LoadFloat} :: code
+                    fun convertFloatToDouble _ = raise Fallback "TODO"
+                in
+                    boxTagFloat{floatSize=Double64, source=convertReg, dest=target, saveRegs=[]} ::
+                        convertFloatToDouble{source=destReg, dest=convertReg} ::
+                        loadAndStoreWithAddress(regAddr, LoadFloat, true, loadConstOffset, loadIndexed, codeAddr)
+                end
+
+            |   LoadStoreCDouble =>
+                let
+                    (* This is always boxed. *)
+                    val destReg = newUReg()
+                    fun loadConstOffset(base, offset, code) =
+                        loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=LoadDouble} :: code
+                    fun loadIndexed(base, index, code) =
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=LoadDouble} :: code
+                in
+                    boxTagFloat{floatSize=Double64, source=destReg, dest=target, saveRegs=[]} ::
+                        loadAndStoreWithAddress(regAddr, LoadDouble, true, loadConstOffset, loadIndexed, codeAddr)
+                end
 
             |   LoadStoreUntaggedUnsigned =>
                 let
@@ -2654,12 +2744,137 @@ struct
                     loadAndStoreWithAddress(regAddr, Load8, false, loadConstOffset, loadIndexed, sourceCode)
                 end
 
-            |   LoadStoreC8 => raise Fallback "codeStoreOperation: LoadStoreC8 "
-            |   LoadStoreC16 => raise Fallback "codeStoreOperation: LoadStoreC16 "
-            |   LoadStoreC32 => raise Fallback "codeStoreOperation: LoadStoreC32 "
-            |   LoadStoreC64 => raise Fallback "codeStoreOperation: LoadStoreC64 "
-            |   LoadStoreCFloat => raise Fallback "codeStoreOperation: LoadStoreCFloat "
-            |   LoadStoreCDouble => raise Fallback "codeStoreOperation: LoadStoreCDouble "
+            |   LoadStoreC8 =>
+                let
+                    fun loadConstOffset(base, offset, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=Load8} ::
+                        untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
+                    end
+
+                    fun loadIndexed(base, index, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load8} ::
+                        untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
+                    end
+                in
+                    loadAndStoreWithAddress(regAddr, Load8, true, loadConstOffset, loadIndexed, sourceCode)
+                end
+
+            |   LoadStoreC16 =>
+                let
+                    fun loadConstOffset(base, offset, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=Load16} ::
+                        untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
+                    end
+
+                    fun loadIndexed(base, index, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load16} ::
+                        untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
+                    end
+                in
+                    loadAndStoreWithAddress(regAddr, Load16, true, loadConstOffset, loadIndexed, sourceCode)
+                end
+
+            |   LoadStoreC32 =>
+                let
+                    fun loadConstOffset(base, offset, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=Load32} ::
+                        (if is32in64 then unboxLarge{source=sourceReg, dest=tReg}
+                         else untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize64}) :: code
+                    end
+
+                    fun loadIndexed(base, index, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load32} ::
+                        (if is32in64 then unboxLarge{source=sourceReg, dest=tReg}
+                         else untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize64}) :: code
+                    end
+                in
+                    loadAndStoreWithAddress(regAddr, Load32, true, loadConstOffset, loadIndexed, sourceCode)
+                end
+
+            |   LoadStoreC64 =>
+                let
+                    fun loadConstOffset(base, offset, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=Load64} ::
+                        unboxLarge{source=sourceReg, dest=tReg} :: code
+                    end
+
+                    fun loadIndexed(base, index, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load64} ::
+                        unboxLarge{source=sourceReg, dest=tReg} :: code
+                    end
+                in
+                    loadAndStoreWithAddress(regAddr, Load64, true, loadConstOffset, loadIndexed, sourceCode)
+                end
+
+            |   LoadStoreCFloat =>
+                let
+                    (* The "real" value is a double, not a 32-bit float *)
+                    fun convertDoubleToFloat _ = raise Fallback "TODO"
+                    fun loadConstOffset(base, offset, code) =
+                    let
+                        val tReg = newUReg() and cReg = newUReg()
+                    in
+                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=LoadFloat} ::
+                        convertDoubleToFloat{source=cReg, dest=tReg} ::
+                        unboxTagFloat{floatSize=Double64, source=sourceReg, dest=cReg} :: code
+                    end
+
+                    fun loadIndexed(base, index, code) =
+                    let
+                        val tReg = newUReg() and cReg = newUReg()
+                    in
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=LoadFloat} ::
+                        convertDoubleToFloat{source=cReg, dest=tReg} ::
+                        unboxTagFloat{floatSize=Double64, source=sourceReg, dest=cReg} :: code
+                    end
+                in
+                    loadAndStoreWithAddress(regAddr, LoadFloat, true, loadConstOffset, loadIndexed, sourceCode)
+                end
+
+            |   LoadStoreCDouble =>
+                let
+                    fun loadConstOffset(base, offset, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=LoadDouble} ::
+                        unboxTagFloat{floatSize=Double64, source=sourceReg, dest=tReg} :: code
+                    end
+
+                    fun loadIndexed(base, index, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=LoadDouble} ::
+                        unboxTagFloat{floatSize=Double64, source=sourceReg, dest=tReg} :: code
+                    end
+                in
+                    loadAndStoreWithAddress(regAddr, LoadDouble, true, loadConstOffset, loadIndexed, sourceCode)
+                end
 
             |   LoadStoreUntaggedUnsigned =>
                 let

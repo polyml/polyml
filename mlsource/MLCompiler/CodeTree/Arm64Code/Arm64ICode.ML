@@ -48,9 +48,8 @@ struct
     datatype ccRef = CcRef of int
     datatype reg = GenReg of xReg | FPReg of vReg
 
-    datatype loadType = Load64 | Load32 | Load16 | Load8
+    datatype loadType = Load64 | Load32 | Load16 | Load8 | LoadDouble | LoadFloat
 
-    datatype loadType = Load64 | Load32 | Load16 | Load8
     and opSize = OpSize32 | OpSize64
     and logicalOp = LogAnd | LogOr | LogXor
     and callKind = Recursive | ConstantCode of machineWord | FullCall
@@ -350,6 +349,8 @@ struct
         |   printLoadType(Load32, stream) = stream "32"
         |   printLoadType(Load16, stream) = stream "16"
         |   printLoadType(Load8, stream) = stream "8"
+        |   printLoadType(LoadDouble, stream) = stream "D"
+        |   printLoadType(LoadFloat, stream) = stream "F"
 
         fun printSaves([], _) = ()
         |   printSaves([areg], stream) = printReg(areg, stream)

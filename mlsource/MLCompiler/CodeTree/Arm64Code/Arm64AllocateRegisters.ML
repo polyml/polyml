@@ -293,10 +293,17 @@ struct
 
         |   registerAllocate{instr=LoadAddressConstant{dest, ...}, ...} = allocateGenReg dest
 
-        |   registerAllocate{instr=LoadWithConstantOffset{dest, base, ...}, ...} = allocateGenRegs[dest, base]
+        |   registerAllocate{instr=LoadWithConstantOffset{dest, base, loadType, ...}, ...} =
+            (
+                case loadType of LoadFloat => allocateFloatReg dest | LoadDouble => allocateFloatReg dest | _ => allocateGenReg dest;
+                allocateGenReg  base
+            )
 
-        |   registerAllocate{instr=LoadWithIndexedOffset{dest, base, index, ...}, ...} =
-                allocateGenRegs[dest, base, index]
+        |   registerAllocate{instr=LoadWithIndexedOffset{dest, base, index, loadType, ...}, ...} =
+            (
+                case loadType of LoadFloat => allocateFloatReg dest | LoadDouble => allocateFloatReg dest | _ => allocateGenReg dest;
+                allocateGenRegs[base, index]
+            )
 
         |   registerAllocate{instr=LoadMemReg { dest, ...}, ...} = allocateGenReg dest
 
@@ -320,9 +327,17 @@ struct
                 case checkInterrupt of SOME regs => List.app(fn reg => allocateGenReg reg) regs | NONE => ()
             )
 
-        |   registerAllocate{instr=StoreWithConstantOffset{source, base, ...}, ...} = allocateGenRegs[source, base]
+        |   registerAllocate{instr=StoreWithConstantOffset{source, base, loadType, ...}, ...} =
+            (
+                case loadType of LoadFloat => allocateFloatReg source | LoadDouble => allocateFloatReg source | _ => allocateGenReg source;
+                allocateGenReg base
+            )
 
-        |   registerAllocate{instr=StoreWithIndexedOffset{source, base, index, ...}, ...} = allocateGenRegs[source, base, index]
+        |   registerAllocate{instr=StoreWithIndexedOffset{source, base, index, loadType, ...}, ...} =
+            (
+                case loadType of LoadFloat => allocateFloatReg source | LoadDouble => allocateFloatReg source | _ => allocateGenReg source;
+                allocateGenRegs[base, index]
+            )
 
         |   registerAllocate{instr=AddSubImmediate{ source, dest, ... }, ...} =
             (

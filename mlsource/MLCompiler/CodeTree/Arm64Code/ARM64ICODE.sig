@@ -91,7 +91,7 @@ sig
     (* The reference to a condition code. *)
     datatype ccRef = CcRef of int
 
-    datatype loadType = Load64 | Load32 | Load16 | Load8
+    datatype loadType = Load64 | Load32 | Load16 | Load8 | LoadDouble | LoadFloat
     and opSize = OpSize32 | OpSize64
     and logicalOp = LogAnd | LogOr | LogXor
     and callKind = Recursive | ConstantCode of machineWord | FullCall
