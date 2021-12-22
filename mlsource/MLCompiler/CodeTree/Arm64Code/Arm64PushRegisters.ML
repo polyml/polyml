@@ -236,13 +236,21 @@ struct
                     end
                     
                     (* Optional destination for arithmetic and logical ops. *)
-                    fun mapOptDest NONE = (NONE, [])
-                    |   mapOptDest (SOME destReg) =
+                    fun mapOptDestOld NONE = (NONE, [])
+                    |   mapOptDestOld (SOME destReg) =
                         let val (destVal, destCode) = mapDestReg destReg in (SOME destVal, destCode) end
 
-                    fun mapOptSrc NONE = (NONE, [])
-                    |   mapOptSrc (SOME srcReg) =
+                    fun mapOptSrcOld NONE = (NONE, [])
+                    |   mapOptSrcOld (SOME srcReg) =
                         let val (srcVal, srcCode) = mapSrcReg srcReg in (SOME srcVal, srcCode) end
+
+                    fun mapOptDest ZeroReg = (ZeroReg, [])
+                    |   mapOptDest (SomeReg destReg) =
+                        let val (destVal, destCode) = mapDestReg destReg in (SomeReg destVal, destCode) end
+
+                    fun mapOptSrc ZeroReg = (ZeroReg, [])
+                    |   mapOptSrc (SomeReg srcReg) =
+                        let val (srcVal, srcCode) = mapSrcReg srcReg in (SomeReg srcVal, srcCode) end
 
                     (* Adjust a stack offset from the old state to the new state. *)
                     fun mapContainerAndStack(StackLoc{rno, size}, field) =
@@ -458,7 +466,7 @@ struct
                     |   pushRegisters({instr=AddSubImmediate{ source, dest, ccRef, immed, isAdd, length }, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
-                            val (destVal, destCode) = mapOptDest dest
+                            val (destVal, destCode) = mapOptDestOld dest
                         in
                             destCode @ AddSubImmediate { source=sourceVal, dest=destVal, ccRef=ccRef,
                                                          immed=immed, isAdd=isAdd, length=length} :: sourceCode @ code
@@ -468,7 +476,7 @@ struct
                         let
                             val (op1Val, op1Code) = mapSrcReg base
                             val (op2Val, op2Code) = mapSrcReg shifted
-                            val (destVal, destCode) = mapOptDest dest
+                            val (destVal, destCode) = mapOptDestOld dest
                         in
                             destCode @ AddSubRegister { base=op1Val, shifted=op2Val, dest=destVal, ccRef=ccRef,
                                                          isAdd=isAdd, length=length, shift=shift} :: op2Code @ op1Code @ code
@@ -477,7 +485,7 @@ struct
                     |   pushRegisters({instr=LogicalImmediate{ source, dest, ccRef, immed, logOp, length }, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
-                            val (destVal, destCode) = mapOptDest dest
+                            val (destVal, destCode) = mapOptDestOld dest
                         in
                             destCode @ LogicalImmediate { source=sourceVal, dest=destVal, ccRef=ccRef,
                                                           immed=immed, logOp=logOp, length=length} :: sourceCode @ code
@@ -487,7 +495,7 @@ struct
                         let
                             val (op1Val, op1Code) = mapSrcReg base
                             val (op2Val, op2Code) = mapSrcReg shifted
-                            val (destVal, destCode) = mapOptDest dest
+                            val (destVal, destCode) = mapOptDestOld dest
                         in
                             destCode @ LogicalRegister { base=op1Val, shifted=op2Val, dest=destVal, ccRef=ccRef,
                                                          logOp=logOp, length=length, shift=shift} :: op2Code @ op1Code @ code
@@ -505,7 +513,7 @@ struct
 
                     |   pushRegisters({instr=Multiplication{ kind, dest, sourceA, sourceM, sourceN }, ...}, code) =
                         let
-                            val (srcAVal, srcACode) = mapOptSrc sourceA
+                            val (srcAVal, srcACode) = mapOptSrcOld sourceA
                             val (srcMVal, srcMCode) = mapSrcReg sourceM
                             val (srcNVal, srcNCode) = mapSrcReg sourceN
                             val (destVal, destCode) = mapDestReg dest
@@ -830,6 +838,41 @@ struct
                             BlockMove{srcAddr=srcVal, destAddr=destVal, length=lenVal, isByteMove=isByteMove} ::
                                 lenCode @ destCode @ srcCode @ code
                         end
+
+
+                    |   pushRegisters({instr=AddSubXSP{source, dest, isAdd}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapOptDest dest
+                        in
+                            destCode @ AddSubXSP { source=sourceVal, dest=destVal, isAdd=isAdd} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=TouchValue{source, ...}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                        in
+                            TouchValue { source=sourceVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=LoadAcquireExclusive{ base, dest }, ...}, code) =
+                        let
+                            val (baseVal, baseCode) = mapSrcReg base
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ LoadAcquireExclusive { base=baseVal, dest=destVal} :: baseCode @ code
+                        end
+
+                    |   pushRegisters({instr=StoreReleaseExclusive{ base, source, result }, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapOptSrc source
+                            val (baseVal, baseCode) = mapSrcReg base 
+                            val (resVal, resCode) = mapDestReg result
+                        in
+                            resCode @ StoreReleaseExclusive{ base=baseVal, source=sourceVal, result=resVal} :: baseCode @ sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=MemoryBarrier, ...}, code) = MemoryBarrier :: code
 
                     local
                         fun doPush(instr as {kill, ...}, code) =

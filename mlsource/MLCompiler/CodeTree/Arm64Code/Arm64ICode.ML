@@ -28,6 +28,9 @@ struct
 
     open Address
     datatype preg = PReg of int (* A pseudo-register - an abstract register. *)
+
+    (* If the value is zero we can use X0/W0. *)
+    datatype pregOrZero = SomeReg of preg | ZeroReg
     
     (* A location on the stack.  May be more than word if this is a container or a handler entry. *)
     datatype stackLocn = StackLoc of {size: int, rno: int }
@@ -276,6 +279,24 @@ struct
            the instruction. *)
     |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
 
+        (* Add or subtract to the system stack pointer and optionally return the new value.
+           This is used to allocate and deallocate C space. *)
+    |   AddSubXSP of { source: preg, dest: pregOrZero, isAdd: bool  }
+
+        (* Ensures the value will actually be referenced although it doesn't generate any code. *)
+    |   TouchValue of { source: preg }
+
+        (* Load a value at the address and get exclusive access.  Always loads a
+           64-bit value. *)
+    |   LoadAcquireExclusive of { base: preg, dest: preg }
+
+        (* Store a value into an address releasing the lock.  Sets the result to
+           either 0 or 1 if it succeeds or fails. *)
+    |   StoreReleaseExclusive of { base: preg, source: pregOrZero, result: preg }
+
+        (* Insert a memory barrier. dmb ish. *)
+    |   MemoryBarrier
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -311,6 +332,9 @@ struct
     local
         fun printReg(PReg i, stream) = stream("R" ^ Int.toString i)
         and printCC(CcRef ccRef, stream) = stream ("CC" ^ Int.toString ccRef)
+        
+        fun printOptReg(ZeroReg, stream) = stream "Zero"
+        |   printOptReg(SomeReg reg, stream) = printReg(reg, stream)
          
         fun printStackLoc(StackLoc{size, rno}, stream) =
             (stream "S"; stream(Int.toString rno); stream "("; stream(Int.toString size); stream ")")
@@ -721,6 +745,32 @@ struct
                 stream ",len="; printReg(length, stream)
             )
 
+        |   printICode(AddSubXSP{ source, dest, isAdd }, stream) =
+            (
+                stream(if isAdd then "\tAdd\t" else "\tSubtract\t");
+                printReg(source, stream); stream " XSP => ";
+                printOptReg(dest, stream)
+            )
+
+        |   printICode(TouchValue{ source }, stream) =
+            ( stream "\tTouchValue\t"; printReg(source, stream) )
+
+        |   printICode(LoadAcquireExclusive{ base, dest }, stream) =
+            (
+                stream "\tLoadExclusive\t["; printReg(base, stream);
+                stream "] => "; printReg(dest, stream)
+            )
+
+        |   printICode(StoreReleaseExclusive{ base, source, result }, stream) =
+            (
+                stream "\tStoreExclusive\t";
+                printOptReg(source, stream); stream " => [";
+                printReg(base, stream); stream "] result => ";
+                printReg(result, stream)
+            )
+
+        |   printICode(MemoryBarrier, stream) = stream "\tMemoryBarrier"
+
         and printCondition(cond,  stream)  = stream(condToString cond)
 
         (* Print a basic block. *)
@@ -785,6 +835,7 @@ struct
         and  shiftType      = shiftType
         and  arm64ICode     = arm64ICode
         and  preg           = preg
+        and  pregOrZero     = pregOrZero
         and  controlFlow    = controlFlow
         and  basicBlock     = basicBlock
         and  stackLocn      = stackLocn

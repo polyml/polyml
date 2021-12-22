@@ -72,6 +72,9 @@ sig
     |   ShiftNone
 
     datatype preg = PReg of int (* A pseudo-register - an abstract register. *)
+
+    (* If the value is zero we can use X0/W0. *)
+    datatype pregOrZero = SomeReg of preg | ZeroReg
     
     (* A location on the stack.  May be more than word if this is a container or a handler entry. *)
     datatype stackLocn = StackLoc of {size: int, rno: int }
@@ -317,6 +320,24 @@ sig
            the instruction. *)
     |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
 
+        (* Add or subtract to the system stack pointer and optionally return the new value.
+           This is used to allocate and deallocate C space. *)
+    |   AddSubXSP of { source: preg, dest: pregOrZero, isAdd: bool  }
+
+        (* Ensures the value will actually be referenced although it doesn't generate any code. *)
+    |   TouchValue of { source: preg }
+
+        (* Load a value at the address and get exclusive access.  Always loads a
+           64-bit value. *)
+    |   LoadAcquireExclusive of { base: preg, dest: preg }
+
+        (* Store a value into an address releasing the lock.  Sets the result to
+           either 0 or 1 if it succeeds or fails. *)
+    |   StoreReleaseExclusive of { base: preg, source: pregOrZero, result: preg }
+
+        (* Insert a memory barrier. dmb ish. *)
+    |   MemoryBarrier
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -365,6 +386,7 @@ sig
         and  shiftType      = shiftType
         and  arm64ICode     = arm64ICode
         and  preg           = preg
+        and  pregOrZero     = pregOrZero
         and  controlFlow    = controlFlow
         and  basicBlock     = basicBlock
         and  stackLocn      = stackLocn

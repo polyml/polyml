@@ -53,6 +53,9 @@ struct
         and getAllocatedFPReg r =
             case getAllocatedReg r of FPReg r => r | GenReg _ => raise InternalError "getAllocatedFPReg: returned Gen Reg"
 
+        fun getAllocatedGenRegOrZero ZeroReg = XZero
+        |   getAllocatedGenRegOrZero (SomeReg reg) = getAllocatedGenReg reg
+
         (* Load from and store to stack. *)
         fun loadFromStack(destReg, wordOffset, code) =
             if wordOffset >= 4096
@@ -1083,6 +1086,31 @@ struct
                 compareBranchZero(lenReg, exitLabel) :: (* Exit when length = 0 *)
                 setLabel loopLabel (* Start of loop *) :: code
             end
+
+        |   codeExtended _ (AddSubXSP{ source, dest, isAdd }, code) =
+            let
+                val allocFreeCode =
+                    (if isAdd then addExtendedReg else subExtendedReg)
+                        {regM=getAllocatedGenReg source, regN=XSP, regD=XSP, extend=ExtUXTX 0w0} :: code
+            in
+                case dest of
+                    ZeroReg => allocFreeCode
+                |   SomeReg destReg =>
+                        (* We have to use add here to get the SP into the destination instead of the usual move. *)
+                        addImmediate{regN=XSP, regD=getAllocatedGenReg destReg, immed=0w0, shifted=false} ::
+                            allocFreeCode
+            end
+
+        |   codeExtended _ (TouchValue _, code) = code (* Don't need to do anything now. *)
+
+        |   codeExtended _ (LoadAcquireExclusive{ base, dest }, code) =
+                loadAcquireExclusiveRegister{regN=getAllocatedGenReg base, regT=getAllocatedGenReg dest} :: code
+
+        |   codeExtended _ (StoreReleaseExclusive{ base, source, result }, code) =
+                storeReleaseExclusiveRegister{regS=getAllocatedGenReg result,
+                        regT=getAllocatedGenRegOrZero source, regN=getAllocatedGenReg base} :: code
+
+        |   codeExtended _ (MemoryBarrier, code) = dmbIsh :: code
 
         local
             (* processed - set to true when a block has been processed. *)

@@ -87,6 +87,11 @@ struct
     and bitFieldInsert = BlockSimple o BitFieldInsert
     and compareByteVectors = BlockSimple o CompareByteVectors
     and blockMove = BlockSimple o BlockMove
+    and addSubXSP = BlockSimple o AddSubXSP
+    and touchValue = BlockSimple o TouchValue
+    and loadAcquireExclusive = BlockSimple o LoadAcquireExclusive
+    and storeReleaseExclusive = BlockSimple o StoreReleaseExclusive
+    and memoryBarrier = BlockSimple MemoryBarrier
 
     val shiftConstant = BlockSimple o shiftConstant
 
@@ -986,8 +991,26 @@ struct
                 returnUnit(destination, code, false)
             end
 
-        |   codeToICodeRev(BICNullary {oper=CreateMutex}, _, _, _, _) =
-                raise Fallback "codeToICodeRev: BICNullary: CreateMutex"
+        |   codeToICodeRev(BICNullary {oper=CreateMutex}, _, _, destination, tailCode) =
+            let
+                (* Allocate memory for a mutex.  Use a native word as a mutable, weak, no-overwrite, byte cell
+                   which is the same as a volatileRef. This ensures that it will always be cleared when it is
+                   loaded even if it was locked when it was saved. *)
+                val target = asTarget destination
+                val flags = Word8.orb(F_mutable, Word8.orb(F_weak, Word8.orb(F_noOverwrite, F_bytes))) (* 0wx69 *)
+                val absAddr = if is32in64 then newUReg() else target
+                val zeroReg = newUReg()
+                val allocAndStore =
+                    storeWithConstantOffset{ source=zeroReg, base=absAddr, byteOffset=0, loadType=Load64 } ::
+                    loadNonAddressConstant{source=0w0, dest=zeroReg} ::
+                    allocateWithProfileRev(if is32in64 then 2 else 1, flags, absAddr, tailCode)
+                val code =
+                    if is32in64
+                    then absoluteToObjectIndex{source=absAddr, dest=target} :: allocAndStore
+                    else allocAndStore
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeRev(BICArbitrary { oper=ArithMult, longCall, ... }, context, isTail, destination, tailCode) =
                 (* Just call the long function to do this.  Overflow detection makes this too complicated. *)
@@ -1763,19 +1786,124 @@ struct
                 raise Fallback "codeToICodeUnaryRev: RealToInt"
 
         |   codeToICodeUnaryRev({oper=TouchAddress, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: TouchAddress"
+            let
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+            in
+                returnUnit(destination, touchValue{source=aReg1} :: arg1Code, false)
+            end
 
         |   codeToICodeUnaryRev({oper=AllocCStack, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: AllocCStack"
+            let
+                (* Allocate space on the stack.  The higher levels have already aligned
+                   the size to a multiple of 16. The number of bytes to allocate is a
+                   Word.word value.  The result is a boxed large word. *)
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val uReg1 = newUReg() and uReg2 = newUReg()
+                val target = asTarget destination
+                val code =
+                    boxLarge{ source=uReg2, dest=target, saveRegs=[] } ::
+                    addSubXSP{ source=uReg1, dest=SomeReg uReg2, isAdd=false  } ::
+                    untagValue{ source=aReg1, dest=uReg1, isSigned=false, opSize=polyWordOpSize } ::
+                    arg1Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=LockMutex, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: LockMutex"
+            (* The earliest versions of the Arm8 do not have the LDADD instruction which
+               will do this directly.  To preserve compatibility we use LDAXR/STLXR
+               which require a loop. *)
+            let
+                local
+                    val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                in
+                    val (baseCode, baseReg) = getAbsoluteAddress(arg1Code, aReg1)
+                end
+                val loopLabel = newLabel() and noLoopLabel = newLabel()
+                val target = asTarget destination
+                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val uRegNew = newUReg() and uRegTest = newUReg() and uRegOld = newUReg()
+                (* N.B. in reverse order. *)
+                val code =
+                    (* The result is true if the old value was zero. *)
+                    addSubImmediate{source=uRegOld, dest=NONE, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
+                    memoryBarrier :: (* Put in the memory barrier. *)
+                    (* If the result is zero we've been successful otherwise we loop. *)
+                    BlockLabel noLoopLabel ::
+                    BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
+                    addSubImmediate{source=uRegTest, dest=NONE, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
+                    (* Add and try to store the result *)
+                    storeReleaseExclusive{ base=baseReg, source=SomeReg uRegNew, result=uRegTest } ::
+                    addSubImmediate{source=uRegOld, dest=SOME uRegNew, immed=0w1, isAdd=true, length=OpSize64, ccRef=NONE} ::
+                    loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
+                    BlockLabel loopLabel :: baseCode
+            in
+                (makeBoolResultRev(CondEqual, ccRef2, target, code), target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=TryLockMutex, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: TryLockMutex"
+            (* *)
+            let
+            (* Could use LDUMAXAL to set it the greater of the current value or 1. *)
+                local
+                    val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                in
+                    val (baseCode, baseReg) = getAbsoluteAddress(arg1Code, aReg1)
+                end
+                val loopLabel = newLabel() and noLoopLabel = newLabel() and okLabel = newLabel()
+                val target = asTarget destination
+                val ccRef0 = newCCRef() and ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val uRegNew = newUReg() and uRegTest = newUReg() and uRegOld = newUReg()
+                val code =
+                    (* The result is true if the old value was zero. *)
+                    addSubImmediate{source=uRegOld, dest=NONE, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
+                    memoryBarrier :: (* Put in the memory barrier. *)
+                    (* If the result is zero we've been successful otherwise we loop. *)
+                    BlockLabel noLoopLabel ::
+                    BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
+                    addSubImmediate{source=uRegTest, dest=NONE, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
+                    (* If the lock wasn't taken set it to one to lock it. *)
+                    storeReleaseExclusive{ base=baseReg, source=SomeReg uRegNew, result=uRegTest } ::
+                    loadNonAddressConstant{source=0w1, dest=uRegNew } :: BlockLabel okLabel ::
+                    (* If it's not zero don't try to store anything back and exit the loop. *)
+                    BlockFlow(Conditional{ ccRef=ccRef0, condition=CondNotEqual, trueJump=noLoopLabel, falseJump=okLabel }) ::
+                    addSubImmediate{source=uRegOld, dest=NONE, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef0} ::
+                    (* Get the old value and see if it's zero i.e. unlocked. *)
+                    loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
+                    BlockLabel loopLabel :: baseCode
+            in
+                (makeBoolResultRev(CondEqual, ccRef2, target, code), target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=UnlockMutex, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: UnlockMutex"
+            (* Get the previous value of the mutex to see if another thread had tried to
+               lock it and set the result to zero. *)
+            let (* Could use SWAPAL *)
+                local
+                    val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                in
+                    val (baseCode, baseReg) = getAbsoluteAddress(arg1Code, aReg1)
+                end
+                val loopLabel = newLabel() and noLoopLabel = newLabel()
+                val target = asTarget destination
+                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val uRegTest = newUReg() and uRegOld = newUReg()
+                val code =
+                    (* The result is true if the old value was one. i.e. we were the only thread
+                       that locked it. *)
+                    addSubImmediate{source=uRegOld, dest=NONE, immed=0w1, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
+                    memoryBarrier :: (* Put in the memory barrier. *)
+                    (* If the result is zero we've been successful otherwise we loop. *)
+                    BlockLabel noLoopLabel ::
+                    BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
+                    addSubImmediate{source=uRegTest, dest=NONE, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
+                    (* Try to set this to zero *)
+                    storeReleaseExclusive{ base=baseReg, source=ZeroReg, result=uRegTest } ::
+                    loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
+                    BlockLabel loopLabel :: baseCode
+            in
+                (makeBoolResultRev(CondEqual, ccRef2, target, code), target, false)
+            end
 
         and codeToICodeBinaryRev({oper=WordComparison{test, isSigned}, arg1, arg2},
                 context, _, destination, tailCode) =
@@ -2320,8 +2448,20 @@ struct
                 (makeBoolResultRev(CondEqual, ccRef, target, comparison), target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=FreeCStack, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: FreeCStack"
+        |   codeToICodeBinaryRev({oper=FreeCStack, arg1, arg2}, context, _, destination, tailCode) =
+            let
+                (* Free space on the C stack. This is a binary operation that takes the base address
+                   and the size.  The base address isn't used in this version. *)
+                val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val uReg = newUReg()
+                val code =
+                    addSubXSP{ source=uReg, dest=ZeroReg, isAdd=true  } ::
+                    untagValue{ source=aReg2, dest=uReg, isSigned=false, opSize=polyWordOpSize } ::
+                    arg2Code
+            in
+                returnUnit(destination, code, false)
+            end
 
         (* Code-generate an address into one or two Pregs. At this point they are in a state where
            we can code-generate arbitrary code before the address is used *)

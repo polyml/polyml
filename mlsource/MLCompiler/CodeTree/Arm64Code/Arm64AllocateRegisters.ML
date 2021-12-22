@@ -278,6 +278,7 @@ struct
 
         fun allocateGenReg(PReg r) = allocateRegister(r, NONE, generalRegisters)
         and allocateFloatReg(PReg r) = allocateRegister(r, NONE, floatingPtRegisters)
+        and allocateOptGenReg(SomeReg reg) = allocateGenReg reg | allocateOptGenReg ZeroReg = ()
 
         val allocateGenRegs = List.app allocateGenReg
 
@@ -446,6 +447,18 @@ struct
 
         |   registerAllocate({instr=BlockMove{srcAddr, destAddr, length, ...}, ...}) =
                 allocateGenRegs[srcAddr, destAddr, length]
+
+        |   registerAllocate({instr=AddSubXSP{source, dest, ...}, ...}) =
+                ( allocateOptGenReg dest; allocateGenReg source )
+
+        |   registerAllocate({instr=TouchValue{source, ...}, ...}) = allocateGenReg source
+
+        |   registerAllocate({instr=LoadAcquireExclusive{ base, dest }, ...}) = allocateGenRegs[base, dest]
+
+        |   registerAllocate({instr=StoreReleaseExclusive{ base, source, result }, ...}) =
+                ( allocateGenRegs[base, result];  allocateOptGenReg source )
+
+        |   registerAllocate({instr=MemoryBarrier, ...}) = ()
 
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

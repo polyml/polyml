@@ -58,6 +58,7 @@ struct
     (* Return the list of blocks that are the immediate successor of this. *)
     fun blockSuccessors(BasicBlock{flow, ...}) = successorBlocks flow
 
+    fun getOptReg(SomeReg reg) = [reg] | getOptReg ZeroReg = []
 
     fun getInstructionState(MoveRegister { source, dest, ...}) =
         { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
@@ -239,6 +240,22 @@ struct
 
     |   getInstructionState(BlockMove{srcAddr, destAddr, length, ...}) =
             { sources=[srcAddr, destAddr, length], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(AddSubXSP{source, dest, ...}) =
+            { sources=[source], dests=getOptReg dest, sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(TouchValue{source}) =
+            { sources=[source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(LoadAcquireExclusive{base, dest}) =
+            { sources=[base], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(StoreReleaseExclusive{base, source, result}) =
+            { sources=[base] @ getOptReg source, dests=[result], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(MemoryBarrier) =
+            { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
 
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
