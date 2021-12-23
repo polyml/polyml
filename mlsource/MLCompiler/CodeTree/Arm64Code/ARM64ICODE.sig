@@ -23,8 +23,6 @@ sig
     type address = Address.address
     
     type closureRef
-    
-    exception Fallback of string (* Temporarily for development. *)
 
     (* Registers. *)
     datatype xReg = XReg of Word8.word | XZero | XSP

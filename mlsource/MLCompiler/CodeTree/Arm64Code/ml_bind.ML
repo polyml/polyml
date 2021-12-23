@@ -105,16 +105,6 @@ local
             structure Codegen       = Arm64ICodeGenerate
         )
 
-    structure Arm64Fallback =
-        Arm64GenCode(
-            structure BackendTree = BackendIntermediateCode
-            and       CodeArray   = CodeArray
-            and       Arm64Assembly = Arm64Assembly
-            and       Arm64Foreign = Arm64Foreign
-            and       Arm64Sequences = Arm64Sequences
-            and       Debug = Debug
-        )
-
 in
 
     structure Arm64Code = 
@@ -125,8 +115,6 @@ in
             structure Arm64Foreign  = Arm64Foreign
             structure ICodeTransform = Arm64ICodeTransform
             structure CodeArray    = CodeArray
-            
-            structure Arm64Fallback = Arm64Fallback
             and       Pretty = Pretty
         )
 

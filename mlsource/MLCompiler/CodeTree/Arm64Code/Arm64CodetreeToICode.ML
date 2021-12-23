@@ -22,11 +22,9 @@ functor Arm64CodetreeToICode(
     structure Arm64Foreign: FOREIGNCALL
     structure ICodeTransform: ARM64ICODETRANSFORM
     structure CodeArray: CODEARRAY
-    
-    structure Arm64Fallback: GENCODE
     structure Pretty:PRETTY
 
-    sharing Arm64ICode.Sharing = ICodeTransform.Sharing = CodeArray.Sharing = Arm64Fallback.Sharing = BackendTree.Sharing
+    sharing Arm64ICode.Sharing = ICodeTransform.Sharing = CodeArray.Sharing = BackendTree.Sharing
 ): GENCODE =
 struct
     open BackendTree
@@ -421,7 +419,9 @@ struct
                             else
                             let
                                 (* If there's some constant offset add it to the index.  Because it's a byte offset
-                                   we need to divide it by the scale but it should always be a multiple. *)
+                                   we need to divide it by the scale but it should always be a multiple.
+                                   N.B. In 32-in-64 the index register contains a 32-bit value even when
+                                   the offset is negative. *)
                                 val cReg = newUReg() and iReg3 = newUReg()
                                 val shift = loadShift loadType
                                 val offsetAsWord = LargeWord.fromInt offset
@@ -429,7 +429,7 @@ struct
                                 val shiftedOffset = (if isCAddress then LargeWord.~>> else LargeWord.>>) (offsetAsWord, shift)
                             in
                                 (addSubRegister{ base=iReg2, shifted=cReg, dest=SOME iReg3, ccRef=NONE, isAdd=true,
-                                    length=OpSize64, shift=ShiftNone} ::
+                                    length=polyWordOpSize, shift=ShiftNone} ::
                                  loadNonAddressConstant{ source=shiftedOffset, dest=cReg } :: iCode2,
                                  SOME iReg3)
                             end
@@ -455,7 +455,8 @@ struct
             |   NONE => loadStoreOffset(effBReg, offset, effBCode)
         end
 
-        (* Some operations require a single absolute address. *)
+        (* Some operations require a single absolute address.
+           These are all ML addresses so the index/offset is always unsigned. *)
         fun loadAndStoreWithAbsolute (address, loadType, loadStore, code) =
         let
             (* Have to add the offset/index register. *)
@@ -3108,28 +3109,7 @@ struct
             profileObject = profileObject}
     end
 
-    fun gencodeLambda(lambda as { name, ...}, debugSwitches, closure) =
-    let
-        open Debug Universal
-        val tryNewCG = Debug.getParameter Debug.compilerDebugTag debugSwitches
-    in
-        if false andalso tryNewCG = 0
-        then Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
-        else
-        let
-            val newDebugSwitches =
-                [tagInject icodeTag true,
-                tagInject assemblyCodeTag true] @ debugSwitches
-            val printStream = Pretty.getSimplePrinter(debugSwitches, [])
-        in
-            codeFunctionToArm64(lambda, if tryNewCG > 1 then newDebugSwitches else debugSwitches, closure)
-                handle Fallback reason =>
-                    (
-                        printStream "Fallback-"; printStream reason; printStream " at "; printStream name; printStream "\n";
-                        Arm64Fallback.gencodeLambda(lambda, debugSwitches, closure)
-                    )
-        end
-    end
+    val gencodeLambda = codeFunctionToArm64
 
     structure Foreign = Arm64Foreign
     

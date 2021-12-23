@@ -23,8 +23,6 @@ functor Arm64ICode(
 
 struct
     open Arm64Code
-    
-    exception Fallback of string (* Temporarily for development. *)
 
     open Address
     datatype preg = PReg of int (* A pseudo-register - an abstract register. *)
