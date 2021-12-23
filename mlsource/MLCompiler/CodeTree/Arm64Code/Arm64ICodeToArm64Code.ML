@@ -319,14 +319,17 @@ struct
         |   codeExtended _ (LoadWithIndexedOffset{dest, base, index, loadType, ...}, code) =
             let
                 val baseReg = getAllocatedGenReg base and indexReg = getAllocatedGenReg index
+                (* In 32-in-64 the index is a 32-bit value in the low order 32-bits.  It may be
+                   signed if it is a C address. *)
+                val scaleType = if is32in64 then ExtSXTW else ExtUXTX
                 val loadInstr =
                     case loadType of
-                        Load64 => loadRegIndexed{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=ExtUXTX ScaleOrShift}
-                    |   Load32 => loadRegIndexed32{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=ExtUXTX ScaleOrShift}
-                    |   Load16 => loadRegIndexed16{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=ExtUXTX ScaleOrShift}
-                    |   Load8 => loadRegIndexedByte{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=ExtUXTX NoScale}
-                    |   LoadFloat => loadRegIndexedFloat{regT=getAllocatedFPReg dest, regN=baseReg, regM=indexReg, option=ExtUXTX ScaleOrShift}
-                    |   LoadDouble => loadRegIndexedDouble{regT=getAllocatedFPReg dest, regN=baseReg, regM=indexReg, option=ExtUXTX ScaleOrShift}
+                        Load64 => loadRegIndexed{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+                    |   Load32 => loadRegIndexed32{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+                    |   Load16 => loadRegIndexed16{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+                    |   Load8 => loadRegIndexedByte{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=scaleType NoScale}
+                    |   LoadFloat => loadRegIndexedFloat{regT=getAllocatedFPReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+                    |   LoadDouble => loadRegIndexedDouble{regT=getAllocatedFPReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
             in
                 loadInstr :: code
             end
@@ -492,14 +495,17 @@ struct
         |   codeExtended _ (StoreWithIndexedOffset{source, base, index, loadType, ...}, code) =
             let
                 val baseReg = getAllocatedGenReg base and indexReg = getAllocatedGenReg index
+                (* In 32-in-64 the index is a 32-bit value in the low order 32-bits.  It may be
+                   signed if it is a C address. *)
+                val scaleType = if is32in64 then ExtSXTW else ExtUXTX
                 val storeInstr =
                     case loadType of
-                        Load64 => storeRegIndexed{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=ExtUXTX ScaleOrShift}
-                    |   Load32 => storeRegIndexed32{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=ExtUXTX ScaleOrShift}
-                    |   Load16 => storeRegIndexed16{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=ExtUXTX ScaleOrShift}
-                    |   Load8 => storeRegIndexedByte{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=ExtUXTX NoScale}
-                    |   LoadFloat => storeRegIndexedFloat{regT=getAllocatedFPReg source, regN=baseReg, regM=indexReg, option=ExtUXTX ScaleOrShift}
-                    |   LoadDouble => storeRegIndexedDouble{regT=getAllocatedFPReg source, regN=baseReg, regM=indexReg, option=ExtUXTX ScaleOrShift}
+                        Load64 => storeRegIndexed{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+                    |   Load32 => storeRegIndexed32{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+                    |   Load16 => storeRegIndexed16{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+                    |   Load8 => storeRegIndexedByte{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=scaleType NoScale}
+                    |   LoadFloat => storeRegIndexedFloat{regT=getAllocatedFPReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+                    |   LoadDouble => storeRegIndexedDouble{regT=getAllocatedFPReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
             in
                 storeInstr :: code
             end
@@ -619,7 +625,7 @@ struct
                         MultAdd32 => multiplyAndAdd32{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
                     |   MultSub32 => multiplyAndSub32{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
                     |   MultAdd64 => multiplyAndAdd{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
-                    |   MultSub64 => multiplyAndSub32{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
+                    |   MultSub64 => multiplyAndSub{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
                     |   SignedMultAddLong => signedMultiplyAndAddLong{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
                     |   SignedMultHigh => signedMultiplyHigh{regM=srcMReg, regN=srcNReg, regD=destReg}
             in
