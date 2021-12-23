@@ -59,6 +59,8 @@ struct
         MultAdd32 | MultSub32 | MultAdd64 | MultSub64 |
         SignedMultAddLong (* 32bit*32bit + 64bit => 64Bit *) |
         SignedMultHigh (* High order part of 64bit*64Bit *)
+    and fpUnary = NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble | ConvDbleToFloat
+    and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
@@ -296,6 +298,23 @@ struct
         (* Insert a memory barrier. dmb ish. *)
     |   MemoryBarrier
 
+        (* Convert an integer to a floating point value. *)
+    |   ConvertIntToFloat of { source: preg, dest: preg, srcSize: opSize, destSize: floatSize }
+
+        (* Convert a floating point value to an integer using the specified rounding mode.
+           We could get an overflow here but fortunately the ARM generates a value
+           that will cause an overflow when we tag it, provided we tag it explicitly. *)
+    |   ConvertFloatToInt of { source: preg, dest: preg, srcSize: floatSize, destSize: opSize, rounding: IEEEReal.rounding_mode }
+
+        (* Unary floating point.  This includes conversions between float and double. *)
+    |   UnaryFloatingPt of { source: preg, dest: preg, fpOp: fpUnary }
+
+        (* Binary floating point: addition, subtraction, multiplication and division. *)
+    |   BinaryFloatingPoint of { arg1: preg, arg2: preg, dest: preg, fpOp: fpBinary, opSize: floatSize }
+
+        (* Floating point comparison. *)
+    |   CompareFloatingPoint of { arg1: preg, arg2: preg, ccRef: ccRef, opSize: floatSize }
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -344,7 +363,7 @@ struct
 
         fun arithRepr OpSize64 = "64"
         |   arithRepr OpSize32 = "32"
-        
+
         fun printLoadType(Load64, stream) = stream "64"
         |   printLoadType(Load32, stream) = stream "32"
         |   printLoadType(Load16, stream) = stream "16"
@@ -484,8 +503,7 @@ struct
                 stream (if isAdd then "\tAddImmediate" else "\tSubImmediate"); stream(arithRepr length);
                 stream "\t"; printReg(source, stream); stream ",0x"; stream(Word.toString immed);
                 stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
-                stream ", ";
-                case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
+                case ccRef of NONE => () | SOME cc => (stream ", "; printCC(cc, stream))
             )
 
         |   printICode(AddSubRegister{ base, shifted, dest, ccRef, isAdd, length, shift }, stream) =
@@ -494,8 +512,7 @@ struct
                 stream "\t"; printReg(base, stream); stream ", ";
                 printReg(shifted, stream); printShift(shift, stream);
                 stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
-                stream ", ";
-                case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
+                case ccRef of NONE => () | SOME cc => (stream ", "; printCC(cc, stream))
             )
 
         |   printICode(LogicalImmediate{ source, dest, ccRef, immed, logOp, length }, stream) =
@@ -504,8 +521,7 @@ struct
                 stream(arithRepr length);
                 stream "\t"; printReg(source, stream); stream ",0x"; stream(Word64.toString immed);
                 stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
-                stream ", ";
-                case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
+                case ccRef of NONE => () | SOME cc => (stream ", "; printCC(cc, stream))
             )
 
         |   printICode(LogicalRegister{ base, shifted, dest, ccRef, logOp, length, shift }, stream) =
@@ -515,8 +531,7 @@ struct
                 stream "\t"; printReg(base, stream); stream ", ";
                 printReg(shifted, stream); printShift(shift, stream);
                 stream " => "; case dest of NONE => stream "_" | SOME reg => printReg(reg, stream);
-                stream ", ";
-                case ccRef of NONE => stream "_" | SOME cc => printCC(cc, stream)
+                case ccRef of NONE => () | SOME cc => (stream ", "; printCC(cc, stream))
             )
 
         |   printICode(ShiftRegister{ direction, dest, source, shift, opSize }, stream) =
@@ -772,6 +787,64 @@ struct
 
         |   printICode(MemoryBarrier, stream) = stream "\tMemoryBarrier"
 
+        |   printICode(ConvertIntToFloat{ source, dest, srcSize, destSize}, stream) =
+            (
+                stream "\tConvert"; stream(arithRepr srcSize); stream "To";
+                printFloatSize(destSize, stream); stream "\t";
+                printReg(source, stream); stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(ConvertFloatToInt{ source, dest, srcSize, destSize, rounding}, stream) =
+            let
+                open IEEEReal
+            in
+                stream "\tConvert"; printFloatSize(srcSize, stream); stream "To";
+                stream(arithRepr destSize); stream "\t";
+                printReg(source, stream); stream " => "; printReg(dest, stream);
+                stream(
+                    case rounding of
+                        TO_NEAREST => " rounding"
+                    |   TO_NEGINF => " rounding down"
+                    |   TO_POSINF => " rounding up"
+                    |   TO_ZERO => " truncating"
+                )
+            end
+
+        |   printICode(UnaryFloatingPt{ source, dest, fpOp}, stream) =
+            (
+                stream(
+                    case fpOp of
+                        NegFloat => "\tNegFloat\t"
+                    |   NegDouble => "\tNegDouble\t"
+                    |   AbsFloat => "\tAbsFloat\t"
+                    |   AbsDouble => "\tAbsDouble\t"
+                    |   ConvFloatToDble => "\tFloatToDble\t"
+                    |   ConvDbleToFloat => "\t\t"
+                );
+                printReg(source, stream); stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(BinaryFloatingPoint{ arg1, arg2, dest, fpOp, opSize}, stream) =
+            (
+                stream(
+                    case fpOp of
+                        MultiplyFP => "\tMultiply"
+                    |   DivideFP => "\tDivide"
+                    |   AddFP => "\tAdd"
+                    |   SubtractFP => "\tSubtract"
+                );
+                printFloatSize(opSize, stream); stream "\t";
+                printReg(arg1, stream); stream ", "; printReg(arg2, stream);
+                stream " => "; printReg(dest, stream)
+            )
+
+        |   printICode(CompareFloatingPoint{ arg1, arg2, opSize, ccRef}, stream) =
+            (
+                stream "\tCompare"; printFloatSize(opSize, stream); stream "\t";
+                printReg(arg1, stream); stream ", "; printReg(arg2, stream);
+                stream ", "; printCC(ccRef, stream)
+            )
+
         and printCondition(cond,  stream)  = stream(condToString cond)
 
         (* Print a basic block. *)
@@ -851,6 +924,8 @@ struct
         and  floatSize      = floatSize
         and  shiftDirection = shiftDirection
         and  multKind       = multKind
+        and  fpUnary        = fpUnary
+        and  fpBinary       = fpBinary
    end
 end;
 

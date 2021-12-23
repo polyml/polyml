@@ -874,6 +874,53 @@ struct
 
                     |   pushRegisters({instr=MemoryBarrier, ...}, code) = MemoryBarrier :: code
 
+                    |   pushRegisters({instr=ConvertIntToFloat{ source, dest, srcSize, destSize}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @
+                                ConvertIntToFloat{ source=sourceVal, dest=destVal, srcSize=srcSize, destSize=destSize} ::
+                                sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=ConvertFloatToInt{ source, dest, srcSize, destSize, rounding}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @
+                                ConvertFloatToInt{ source=sourceVal, dest=destVal, srcSize=srcSize, destSize=destSize, rounding=rounding} ::
+                                sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=UnaryFloatingPt{ source, dest, fpOp}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ UnaryFloatingPt{ source=sourceVal, dest=destVal, fpOp=fpOp} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=BinaryFloatingPoint{ arg1, arg2, dest, fpOp, opSize}, ...}, code) =
+                        let
+                            val (arg1Val, arg1Code) = mapSrcReg arg1
+                            val (arg2Val, arg2Code) = mapSrcReg arg2
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ BinaryFloatingPoint{ arg1=arg1Val, arg2=arg2Val, dest=destVal, fpOp=fpOp, opSize=opSize} ::
+                                arg2Code @ arg1Code @ code
+                        end
+
+                    |   pushRegisters({instr=CompareFloatingPoint{ arg1, arg2, opSize, ccRef}, ...}, code) =
+                        let
+                            val (arg1Val, arg1Code) = mapSrcReg arg1
+                            val (arg2Val, arg2Code) = mapSrcReg arg2
+                        in
+                            CompareFloatingPoint{ arg1=arg1Val, arg2=arg2Val, opSize=opSize, ccRef=ccRef} ::
+                                arg2Code @ arg1Code @ code
+                        end
+
                     local
                         fun doPush(instr as {kill, ...}, code) =
                         let

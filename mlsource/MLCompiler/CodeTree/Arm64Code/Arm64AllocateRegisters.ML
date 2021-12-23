@@ -281,6 +281,7 @@ struct
         and allocateOptGenReg(SomeReg reg) = allocateGenReg reg | allocateOptGenReg ZeroReg = ()
 
         val allocateGenRegs = List.app allocateGenReg
+        and allocateFloatRegs = List.app allocateFloatReg
 
         fun registerAllocate{instr=MoveRegister{source=PReg sreg, dest=PReg dreg}, ...} =
             let
@@ -474,6 +475,21 @@ struct
                 ( allocateGenRegs[base, result];  allocateOptGenReg source )
 
         |   registerAllocate({instr=MemoryBarrier, ...}) = ()
+
+        |   registerAllocate({instr=ConvertIntToFloat{ source, dest, ...}, ...}) =
+                (allocateFloatReg dest; allocateGenReg source)
+
+        |   registerAllocate({instr=ConvertFloatToInt{ source, dest, ...}, ...}) =
+                (allocateGenReg dest; allocateFloatReg source)
+
+        |   registerAllocate({instr=UnaryFloatingPt{ source, dest, ...}, ...}) =
+                allocateFloatRegs[source, dest]
+
+        |   registerAllocate({instr=BinaryFloatingPoint{ arg1, arg2, dest, ...}, ...}) =
+                allocateFloatRegs[arg1, arg2, dest]
+
+        |   registerAllocate({instr=CompareFloatingPoint{ arg1, arg2, ...}, ...})  =
+                allocateFloatRegs[arg1, arg2]
 
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

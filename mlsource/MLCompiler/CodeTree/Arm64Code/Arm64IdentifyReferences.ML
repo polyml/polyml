@@ -256,6 +256,21 @@ struct
     |   getInstructionState(MemoryBarrier) =
             { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(ConvertIntToFloat{ source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(ConvertFloatToInt{ source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(UnaryFloatingPt{ source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(BinaryFloatingPoint{ arg1, arg2, dest, ...}) =
+            { sources=[arg1, arg2], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(CompareFloatingPoint{ arg1, arg2, ccRef, ...}) =
+            { sources=[arg1, arg2], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+
 
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)

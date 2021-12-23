@@ -1156,7 +1156,63 @@ struct
                 storeReleaseExclusiveRegister{regS=getAllocatedGenReg result,
                         regT=getAllocatedGenRegOrZero source, regN=getAllocatedGenReg base} :: code
 
-        |   codeExtended _ (MemoryBarrier, code) = dmbIsh :: code
+        |   codeExtended _ (MemoryBarrier, code) = code
+
+        |   codeExtended _ (ConvertIntToFloat{ source, dest, srcSize, destSize}, code) =
+            let
+                val instr =
+                    case (srcSize, destSize) of
+                        (OpSize32, Float32) => convertInt32ToFloat
+                    |   (OpSize64, Float32) => convertIntToFloat
+                    |   (OpSize32, Double64) => convertInt32ToDouble
+                    |   (OpSize64, Double64) => convertIntToDouble
+            in
+                instr{regN=getAllocatedGenReg source, regD=getAllocatedFPReg dest} :: code
+            end
+
+        |   codeExtended _ (ConvertFloatToInt{ source, dest, srcSize, destSize, rounding}, code) =
+            let
+                val instr =
+                    case (srcSize, destSize) of
+                        (Float32, OpSize32) => convertFloatToInt32
+                    |   (Float32, OpSize64) => convertFloatToInt
+                    |   (Double64, OpSize32) => convertDoubleToInt32
+                    |   (Double64, OpSize64) => convertDoubleToInt
+            in
+                instr rounding {regN=getAllocatedFPReg source, regD=getAllocatedGenReg dest} :: code
+            end
+
+        |   codeExtended _ (UnaryFloatingPt{ source, dest, fpOp}, code) =
+            let
+                val instr =
+                    case fpOp of
+                        NegFloat => negFloat | NegDouble => negDouble
+                    |   AbsFloat => absFloat | AbsDouble => absDouble
+                    |   ConvFloatToDble => convertFloatToDouble
+                    |   ConvDbleToFloat => convertDoubleToFloat
+            in
+                instr {regN=getAllocatedFPReg source, regD=getAllocatedFPReg dest} :: code
+            end
+
+        |   codeExtended _ (BinaryFloatingPoint{ arg1, arg2, dest, fpOp, opSize}, code) =
+            let
+                val instr =
+                    case (fpOp, opSize) of
+                        (MultiplyFP, Float32) => multiplyFloat
+                    |   (DivideFP, Float32) => divideFloat
+                    |   (AddFP, Float32) => addFloat
+                    |   (SubtractFP, Float32) => subtractFloat
+                    |   (MultiplyFP, Double64) => multiplyDouble
+                    |   (DivideFP, Double64) => divideDouble
+                    |   (AddFP, Double64) => addDouble
+                    |   (SubtractFP, Double64) => subtractDouble
+            in
+                instr {regN=getAllocatedFPReg arg1, regM=getAllocatedFPReg arg2, regD=getAllocatedFPReg dest} :: code
+            end
+
+        |   codeExtended _ (CompareFloatingPoint{ arg1, arg2, opSize, ...}, code) =
+            (case opSize of Float32 => compareFloat | Double64 => compareDouble)
+                {regN=getAllocatedFPReg arg1, regM=getAllocatedFPReg arg2} :: code
 
         local
             (* processed - set to true when a block has been processed. *)

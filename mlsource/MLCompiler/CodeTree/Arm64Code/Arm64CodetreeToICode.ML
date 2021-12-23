@@ -92,6 +92,11 @@ struct
     and loadAcquireExclusive = BlockSimple o LoadAcquireExclusive
     and storeReleaseExclusive = BlockSimple o StoreReleaseExclusive
     and memoryBarrier = BlockSimple MemoryBarrier
+    and convertIntToFloat = BlockSimple o ConvertIntToFloat
+    and convertFloatToInt = BlockSimple o ConvertFloatToInt
+    and unaryFloatingPt = BlockSimple o UnaryFloatingPt
+    and binaryFloatingPoint = BlockSimple o BinaryFloatingPoint
+    and compareFloatingPoint = BlockSimple o CompareFloatingPoint
 
     val shiftConstant = BlockSimple o shiftConstant
 
@@ -122,6 +127,8 @@ struct
     |   loadShift Load8 = 0w0
     |   loadShift LoadDouble = 0w3
     |   loadShift LoadFloat = 0w2
+
+    fun precisionToFpSize PrecSingle = Float32 | precisionToFpSize PrecDouble = Double64
 
     fun codeFunctionToArm64({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
@@ -1782,23 +1789,107 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeUnaryRev({oper=RealAbs _, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: RealAbs"
+        |   codeToICodeUnaryRev({oper=RealAbs precision, arg1}, context, _, destination, tailCode) =
+            let
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val uReg1 = newUReg() and uReg2 = newUReg()
+                val target = asTarget destination
+                val fpSize = precisionToFpSize precision
+                val fpOp = case precision of PrecSingle => AbsFloat | PrecDouble => AbsDouble
+                val code =
+                    boxTagFloat{ floatSize=fpSize, source=uReg2, dest=target, saveRegs=[] } ::
+                    unaryFloatingPt{ source=uReg1, dest=uReg2, fpOp=fpOp } ::
+                    unboxTagFloat{ floatSize=fpSize, source=aReg1, dest=uReg1 } ::
+                    arg1Code
+            in
+                (code, target, false)
+            end
 
-        |   codeToICodeUnaryRev({oper=RealNeg _, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: RealNeg"
+        |   codeToICodeUnaryRev({oper=RealNeg precision, arg1}, context, _, destination, tailCode) =
+            let
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val uReg1 = newUReg() and uReg2 = newUReg()
+                val target = asTarget destination
+                val fpSize = precisionToFpSize precision
+                val fpOp = case precision of PrecSingle => NegFloat | PrecDouble => NegDouble
+                val code =
+                    boxTagFloat{ floatSize=fpSize, source=uReg2, dest=target, saveRegs=[] } ::
+                    unaryFloatingPt{ source=uReg1, dest=uReg2, fpOp=fpOp } ::
+                    unboxTagFloat{ floatSize=fpSize, source=aReg1, dest=uReg1 } ::
+                    arg1Code
+            in
+                (code, target, false)
+            end
 
-        |   codeToICodeUnaryRev({oper=RealFixedInt _, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: RealFixedInt"
+        |   codeToICodeUnaryRev({oper=RealFixedInt precision, arg1}, context, _, destination, tailCode) =
+            let
+                (* Convert a tagged integer (FixedInt.int) to float or double. *)
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val uReg1 = newUReg() and uReg2 = newUReg()
+                val target = asTarget destination
+                val fpSize = precisionToFpSize precision
+                val code =
+                    boxTagFloat{ floatSize=fpSize, source=uReg2, dest=target, saveRegs=[] } ::
+                    convertIntToFloat{ source=uReg1, dest=uReg2, srcSize=polyWordOpSize, destSize=fpSize } ::
+                    untagValue{ source=aReg1, dest=uReg1, opSize=polyWordOpSize, isSigned=true } ::
+                    arg1Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=FloatToDouble, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: FloatToDouble"
+            let
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val uReg1 = newUReg() and uReg2 = newUReg()
+                val target = asTarget destination
+                val code =
+                    boxTagFloat{ floatSize=Double64, source=uReg2, dest=target, saveRegs=[] } ::
+                    unaryFloatingPt{ source=uReg1, dest=uReg2, fpOp=ConvFloatToDble } ::
+                    unboxTagFloat{ floatSize=Float32, source=aReg1, dest=uReg1 } ::
+                    arg1Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=DoubleToFloat, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: DoubleToFloat"
+            let
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val uReg1 = newUReg() and uReg2 = newUReg()
+                val target = asTarget destination
+                val code =
+                    boxTagFloat{ floatSize=Float32, source=uReg2, dest=target, saveRegs=[] } ::
+                    unaryFloatingPt{ source=uReg1, dest=uReg2, fpOp=ConvDbleToFloat } ::
+                    unboxTagFloat{ floatSize=Double64, source=aReg1, dest=uReg1 } ::
+                    arg1Code
+            in
+                (code, target, false)
+            end
 
-        |   codeToICodeUnaryRev({oper=RealToInt _, arg1}, context, _, destination, tailCode) =
-                raise Fallback "codeToICodeUnaryRev: RealToInt"
+        |   codeToICodeUnaryRev({oper=RealToInt(precision, rounding), arg1}, context, _, destination, tailCode) =
+            let
+                (* Convert a float or double to a tagged int.
+                   We could get an overflow in either the conversion to integer
+                   or in the conversion to a tagged value.  Fortunately if the
+                   conversion detects an overflow it sets the result to a
+                   value that will cause an overflow in the addition. *)
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val target = asTarget destination
+                val chkOverflow = newCCRef()
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                val fpSize = precisionToFpSize precision
+                val code =
+                    (* Set the tag bit. *)
+                    addSubImmediate{dest=SOME target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=true} ::
+                    checkOverflow(CondOverflow, context, chkOverflow) @
+                    (* Add it to itself and set the condition code. *)
+                    addSubRegister{base=uReg2, shifted=uReg2, dest=SOME uReg3, length=polyWordOpSize,
+                                 ccRef=SOME chkOverflow, isAdd=true, shift=ShiftNone} ::
+                    convertFloatToInt{ source=uReg1, dest=uReg2, srcSize=fpSize, destSize=polyWordOpSize, rounding=rounding } ::
+                    unboxTagFloat{ floatSize=fpSize, source=aReg1, dest=uReg1 } ::
+                    arg1Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeUnaryRev({oper=TouchAddress, arg1}, context, _, destination, tailCode) =
             let
@@ -2442,11 +2533,61 @@ struct
                 (code, target, false)
             end
 
-        |   codeToICodeBinaryRev({oper=RealComparison _, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: RealComparison"
+        |   codeToICodeBinaryRev({oper=RealComparison(test, precision), arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val ccRef = newCCRef()
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val fpSize = precisionToFpSize precision
+                val uReg1 = newUReg() and uReg2 = newUReg()
+                (* Floating point comparisons.
+                   The fcmp instruction differs from integer comparison.  If either
+                   argument is a NaN the overflow bit is set and the other bits are
+                   cleared.  That means that in order to get a true result only
+                   if the values are not NaNs we have to test that at least one of
+                   C, N, or Z are set.  We use unsigned tests for < and <=
+                   and signed tests for > and >=. *)
+                val cond =
+                    case test of
+                        TestEqual => CondEqual
+                    |   TestLess => CondCarryClear
+                    |   TestLessEqual => CondUnsignedLowOrEq
+                    |   TestGreater => CondSignedGreater
+                    |   TestGreaterEqual => CondSignedGreaterEq
+                    |   TestUnordered => CondOverflow
+                val code =
+                    compareFloatingPoint{arg1=uReg1, arg2=uReg2, ccRef=ccRef, opSize=fpSize} ::
+                    unboxTagFloat{ floatSize=fpSize, source=aReg2, dest=uReg2 } ::
+                    unboxTagFloat{ floatSize=fpSize, source=aReg1, dest=uReg1 } ::
+                    arg2Code
+            in
+                (makeBoolResultRev(cond, ccRef, target, code), target, false)
+            end
 
-        |   codeToICodeBinaryRev({oper=RealArith _, arg1, arg2}, context, isTail, destination, tailCode) =
-            raise Fallback "codeToICodeBinaryRev: RealArith"
+        |   codeToICodeBinaryRev({oper=RealArith(oper, precision), arg1, arg2}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
+                val fpSize = precisionToFpSize precision
+                val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
+                val fpOp =
+                    case oper of
+                        ArithAdd => AddFP
+                    |   ArithSub => SubtractFP
+                    |   ArithMult => MultiplyFP
+                    |   ArithDiv => DivideFP
+                    |   _ => raise InternalError "RealArith - unimplemented instruction"
+                val code =
+                    boxTagFloat{ floatSize=fpSize, source=uReg3, dest=target, saveRegs=[] } ::
+                    binaryFloatingPoint{arg1=uReg1, arg2=uReg2, dest=uReg3, fpOp=fpOp, opSize=fpSize } ::
+                    unboxTagFloat{ floatSize=fpSize, source=aReg2, dest=uReg2 } ::
+                    unboxTagFloat{ floatSize=fpSize, source=aReg1, dest=uReg1 } ::
+                    arg2Code
+            in
+                (code, target, false)
+            end
 
         |   codeToICodeBinaryRev({oper=PointerEq, arg1, arg2}, context, _, destination, tailCode) =
             let
@@ -2645,10 +2786,9 @@ struct
                         loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=LoadFloat} :: code
                     fun loadIndexed(base, index, code) =
                         loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=LoadFloat} :: code
-                    fun convertFloatToDouble _ = raise Fallback "TODO"
                 in
                     boxTagFloat{floatSize=Double64, source=convertReg, dest=target, saveRegs=[]} ::
-                        convertFloatToDouble{source=destReg, dest=convertReg} ::
+                        unaryFloatingPt{source=destReg, dest=convertReg, fpOp=ConvFloatToDble} ::
                         loadAndStoreWithAddress(regAddr, LoadFloat, true, loadConstOffset, loadIndexed, codeAddr)
                 end
 
@@ -2833,13 +2973,12 @@ struct
             |   LoadStoreCFloat =>
                 let
                     (* The "real" value is a double, not a 32-bit float *)
-                    fun convertDoubleToFloat _ = raise Fallback "TODO"
                     fun loadConstOffset(base, offset, code) =
                     let
                         val tReg = newUReg() and cReg = newUReg()
                     in
                         storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=LoadFloat} ::
-                        convertDoubleToFloat{source=cReg, dest=tReg} ::
+                        unaryFloatingPt{source=cReg, dest=tReg, fpOp=ConvDbleToFloat} ::
                         unboxTagFloat{floatSize=Double64, source=sourceReg, dest=cReg} :: code
                     end
 
@@ -2848,7 +2987,7 @@ struct
                         val tReg = newUReg() and cReg = newUReg()
                     in
                         storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=LoadFloat} ::
-                        convertDoubleToFloat{source=cReg, dest=tReg} ::
+                        unaryFloatingPt{source=cReg, dest=tReg, fpOp=ConvDbleToFloat} ::
                         unboxTagFloat{floatSize=Double64, source=sourceReg, dest=cReg} :: code
                     end
                 in

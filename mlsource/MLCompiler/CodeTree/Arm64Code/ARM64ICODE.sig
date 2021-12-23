@@ -101,6 +101,8 @@ sig
         MultAdd32 | MultSub32 | MultAdd64 | MultSub64 |
         SignedMultAddLong (* 32bit*32bit + 64bit => 64Bit *) |
         SignedMultHigh (* High order part of 64bit*64Bit *)
+    and fpUnary = NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble | ConvDbleToFloat
+    and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
@@ -338,6 +340,23 @@ sig
         (* Insert a memory barrier. dmb ish. *)
     |   MemoryBarrier
 
+        (* Convert an integer to a floating point value. *)
+    |   ConvertIntToFloat of { source: preg, dest: preg, srcSize: opSize, destSize: floatSize }
+
+        (* Convert a floating point value to an integer using the specified rounding mode.
+           We could get an overflow here but fortunately the ARM generates a value
+           that will cause an overflow when we tag it, provided we tag it explicitly. *)
+    |   ConvertFloatToInt of { source: preg, dest: preg, srcSize: floatSize, destSize: opSize, rounding: IEEEReal.rounding_mode }
+
+        (* Unary floating point.  This includes conversions between float and double. *)
+    |   UnaryFloatingPt of { source: preg, dest: preg, fpOp: fpUnary }
+
+        (* Binary floating point: addition, subtraction, multiplication and division. *)
+    |   BinaryFloatingPoint of { arg1: preg, arg2: preg, dest: preg, fpOp: fpBinary, opSize: floatSize }
+
+        (* Floating point comparison. *)
+    |   CompareFloatingPoint of { arg1: preg, arg2: preg, ccRef: ccRef, opSize: floatSize }
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -401,5 +420,7 @@ sig
         and  floatSize      = floatSize
         and  shiftDirection = shiftDirection
         and  multKind       = multKind
+        and  fpUnary        = fpUnary
+        and  fpBinary       = fpBinary
    end
 end;
