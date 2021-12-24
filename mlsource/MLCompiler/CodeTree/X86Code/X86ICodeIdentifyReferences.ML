@@ -729,14 +729,6 @@ struct
                                 then FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dest=dest,
                                         realDest=realDest, saveRegs=getSaveSet(regNo dest) }
                                 else instr
-                        
-                            |   instr as LoadArgument{dest=PReg dreg, ...} =>
-                                (
-                                    if member(dreg, activeAfterThis)
-                                    then ()
-                                    else print("Register " ^ Int.toString dreg ^ " inactive-" ^ PolyML.makestring instr ^ "\n");
-                                    instr
-                                )
 
                             |   _ => instr
                     end
