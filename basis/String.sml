@@ -52,7 +52,7 @@ local
         val () = RunCall.clearMutableBit charMap
     in
         (* Since we've covered the full range from 0 to 255 we don't need a bounds check. *)
-        fun charAsString (ch: char): string = RunCall.loadWord(charMap, RunCall.unsafeCast ch)
+        fun charAsString (ch: char): string = RunCall.loadWordFromImmmutable(charMap, RunCall.unsafeCast ch)
     end
 
     val bcopy: string*string*word*word*word -> unit = RunCall.moveBytes
