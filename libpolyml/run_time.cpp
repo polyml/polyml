@@ -163,7 +163,6 @@ static Handle make_exn(TaskData *taskData, int id, Handle arg, const char *fileN
     case EXC_syserr: exName = "SysErr"; break;
     case EXC_size: exName = "Size"; break;
     case EXC_overflow: exName = "Overflow"; break;
-    case EXC_underflow: exName = "Underflow"; break;
     case EXC_divide: exName = "Div"; break;
     case EXC_conversion: exName = "Conversion"; break;
     case EXC_XWindows: exName = "XWindows"; break;
@@ -171,7 +170,6 @@ static Handle make_exn(TaskData *taskData, int id, Handle arg, const char *fileN
     case EXC_foreign: exName = "Foreign"; break;
     case EXC_Fail: exName = "Fail"; break;
     case EXC_thread: exName = "Thread"; break;
-    case EXC_extrace: exName = "ExTrace"; break;
     default: ASSERT(0); exName = "Unknown"; // Shouldn't happen.
     }
    
