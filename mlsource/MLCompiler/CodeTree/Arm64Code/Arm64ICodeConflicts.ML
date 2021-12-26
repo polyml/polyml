@@ -141,6 +141,14 @@ struct
                         (* We're going to put the return value in X0 so we can't use that for
                            the return address. *)
                         addRealConflict(retReg, GenReg X0)
+
+                |   RaiseExceptionPacket{ packetReg } =>
+                        (* This wasn't needed previously because we always pushed the registers
+                           across an exception. *)
+                        reserveRegister([regNo packetReg], GenReg X0)
+                
+                |   BeginHandler { packetReg, ...} =>
+                        reserveRegister([regNo packetReg], GenReg X0)
                 
                 |   FunctionCall { dest, regArgs, ...} =>
                         (* This is only needed if we are saving the registers rather
