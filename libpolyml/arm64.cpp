@@ -156,7 +156,7 @@ public:
         return (this->stack->top - (PolyWord*)assemblyInterface.stackPtr) + OVERFLOW_STACK_SIZE;
     }
 
-    virtual void addProfileCount(POLYUNSIGNED words) { addSynchronousCount(interpreterPc, words); }
+    virtual void addProfileCount(POLYUNSIGNED words) { addSynchronousCount((POLYCODEPTR)assemblyInterface.entryPoint, words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
     virtual void PreRTSCall(void) { TaskData::PreRTSCall();  SaveMemRegisters(); }
