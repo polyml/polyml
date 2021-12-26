@@ -162,6 +162,10 @@ struct
                         List.app(fn (_, r) => reserveRegister([regNo dest], GenReg r)) regArgs
                     )
 
+                    (* We can't use X30 as the result because it's needed for the return addr if we have to GC. *)
+                |   AllocateMemoryFixed{dest=PReg destReg, ...} => addRealConflict(destReg, GenReg X30)
+                |   AllocateMemoryVariable{dest=PReg destReg, ...} => addRealConflict(destReg, GenReg X30)
+
                 |   _ => ()
         in
             ()
