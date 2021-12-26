@@ -33,7 +33,7 @@ local
     (* All the arrays are initially created containing zeros and then initialised. *)
     fun alloc len = RunCall.allocateWordMemory(Word.fromInt len, 0wx40, 0w0)
     
-    fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.loadWordImmutable (vecAsWord v, intAsWord i)
+    fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.loadWordFromImmutable (vecAsWord v, intAsWord i)
     and unsafeUpdate(v: 'a vector, i: int, new: 'a): unit =
         RunCall.storeWordInitialise (vecAsWord v, intAsWord i, RunCall.unsafeCast new)
 in
