@@ -689,14 +689,15 @@ struct
                                 in
                                     JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=SOME check}
                                 end
-(*
-                            |   FunctionCall{regArgs, stackArgs=[], dest, realDest, callKind as ConstantCode m, saveRegs=_} =>
+
+                            |   FunctionCall{regArgs, stackArgs=[], dest, callKind as ConstantCode m,
+                                             saveRegs=_, containers} =>
                                 (* If this is arbitrary precision push the registers rather than marking them as "save".
                                    stringOfWord returns 'CODE "PolyAddArbitrary"' etc. *)
                                 if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
                                 then FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dest=dest,
-                                        realDest=realDest, saveRegs=getSaveSet(regNo dest) }
-                                else instr  *)
+                                        containers=containers, saveRegs=getSaveSet(regNo dest) }
+                                else instr
 
                             |   _ => instr
                     end
@@ -721,10 +722,10 @@ struct
                     in
                         val () =
                            case instr of
-                                FunctionCall{ stackArgs=[], callKind=ConstantCode _, ...} =>
-                                (*if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
+                                FunctionCall{ stackArgs=[], callKind=ConstantCode m, ...} =>
+                                if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
                                 then ()
-                                else*) pushRegisters ()
+                                else pushRegisters ()
                             
                             |   FunctionCall _ => pushRegisters ()
                             
