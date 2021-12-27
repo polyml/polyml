@@ -1907,7 +1907,6 @@ struct
                 val s = (wordValue >> 0w30) andb 0w1
                 (* The offset is in 32-bit words *)
                 val byteAddr = word32ToWord(((wordValue andb 0wx00ffffe0) >> (0w5-0w2))) + byteNo
-                val wordAddr = byteAddr div wordSize
                 (* We must NOT use codeVecGetWord if this is in the non-address
                    area.  It may well not be a tagged value. *)
                 local
@@ -1920,10 +1919,7 @@ struct
                             getConstant(Word64.orb(Word64.<<(cVal, 0w8), byteVal), offset-0w1)
                         end
                 in
-                    val constantValue =
-                        if wordAddr <= wordsOfCode
-                        then "0x" ^ Word64.toString(getConstant(0w0, 0w8)) (* It's a non-address constant *)
-                        else stringOfWord(codeVecGetWord(codeVec, wordAddr))
+                    val constantValue = "0x" ^ Word64.toString(getConstant(0w0, 0w8)) (* It's a non-address constant *)
                 end
             in
                 printStream "ldr\t"; printStream (if s = 0w0 then "w" else "x");
