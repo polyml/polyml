@@ -446,7 +446,7 @@ struct
         |   printICode(AllocateMemoryFixed{bytesRequired, dest, saveRegs}, stream) =
             (
                 stream "\tAllocateMemory\t";
-                stream(Word64.toString bytesRequired); stream " => ";
+                stream(Word64.fmt StringCvt.DEC bytesRequired); stream " => ";
                 printReg(dest, stream); stream " save="; printSaves(saveRegs, stream)
             )
 

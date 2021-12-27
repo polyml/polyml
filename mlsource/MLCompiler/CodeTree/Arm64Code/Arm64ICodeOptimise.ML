@@ -70,8 +70,8 @@ struct
         (* Constant values in registers. *)
         datatype regValue =
             SomeValue
-        |   AConstant of Word64.word
-        |   WordConstant of machineWord
+        |   NonAddressConst of Word64.word
+        |   AddressConstant of machineWord
 
         (* If this argument is a register and the register is mapped to a constant
            or another register replace the value.  Unlike the X86 version we
@@ -102,7 +102,7 @@ struct
                     val (repArg1, memRefsOut) = getRegisterValue(source, kill, regMap)
                 in
                     case repArg1 of
-                        AConstant test =>
+                        NonAddressConst test =>
                         (* AddSubImmediate is put in by CodetreeToIcode to test a boolean value.  It can also
                            arise as the result of pattern matching on booleans or even by tests such as = true.
                            If the source register is now a constant we want to propagate the constant
@@ -138,7 +138,7 @@ struct
                     val (repArg1, newMap) = getRegisterValue(source, kill, regMap)
                 in
                     case repArg1 of
-                        AConstant cVal =>
+                        NonAddressConst cVal =>
                         let
                             val addSub = if isAdd then cVal + Word.toLarge immed else cVal - Word.toLarge immed
                             (* Mask the result to 32-bits if this is a 32-bit operation. *)
@@ -146,7 +146,7 @@ struct
                                 case length of OpSize32 => Word64.andb(addSub, Word64.<<(0w1, 0w32) - 0w1) | OpSize64 => addSub
                         in
                             optCode(rest, BRNone,
-                                {dest=dest, source=AConstant result} :: newMap,
+                                {dest=dest, source=NonAddressConst result} :: newMap,
                                     LoadNonAddressConstant{dest=dest, source=result} :: code, true)
                         end
 
@@ -162,9 +162,9 @@ struct
                     val (repOp2, mapOp2) = getRegisterValue(shifted, kill, mapOp1)
                     val regAndImmed =
                         case (repOp1, repOp2, isAdd, shift) of
-                            (_, AConstant immed, _, ShiftNone) => if immed < 0w4096 then SOME(base, immed) else NONE
+                            (_, NonAddressConst immed, _, ShiftNone) => if immed < 0w4096 then SOME(base, immed) else NONE
                             (* If this is an ADD we can also use the immediate if the first arg is a constant. *)
-                        |   (AConstant immed, _, true, ShiftNone) => if immed < 0w4096 then SOME(shifted, immed) else NONE
+                        |   (NonAddressConst immed, _, true, ShiftNone) => if immed < 0w4096 then SOME(shifted, immed) else NONE
                         |   _ => NONE
                 in
                     case regAndImmed of
@@ -185,9 +185,9 @@ struct
                     val (repOp2, mapOp2) = getRegisterValue(shifted, kill, mapOp1)
                     val regAndImmed =
                         case (repOp1, repOp2, shift) of
-                            (_, AConstant immed, ShiftNone) =>
+                            (_, NonAddressConst immed, ShiftNone) =>
                                 if isEncodableBitPattern (immed, length) then SOME(base, immed) else NONE
-                        |   (AConstant immed, _, ShiftNone) =>
+                        |   (NonAddressConst immed, _, ShiftNone) =>
                                 if isEncodableBitPattern (immed, length) then SOME(shifted, immed) else NONE
                         |   _ => NONE
                 in
@@ -220,16 +220,16 @@ struct
                        destination register contains the constant.
                        The X86 version always uses a load-constant here. *)
                     val newInstr =
-                        case List.find(fn {source=AConstant c, ... } => c = source | _ => false) regMap of
+                        case List.find(fn {source=NonAddressConst c, ... } => c = source | _ => false) regMap of
                             SOME{dest=cDest, ...} => MoveRegister{dest=dest, source=cDest}
                         |   NONE => instr
                 in
-                    optCode(rest, inCond, {dest=dest, source=AConstant source} :: regMap, newInstr :: code, changed)
+                    optCode(rest, inCond, {dest=dest, source=NonAddressConst source} :: regMap, newInstr :: code, changed)
                 end
 
             |   optCode({instr as LoadAddressConstant{dest, source}, ...} :: rest, inCond, regMap, code, changed) =
                     (* Address constant.  This is used in conjunction with UnboxValue *)
-                    optCode(rest, inCond, {dest=dest, source=WordConstant source} :: regMap, instr :: code, changed)
+                    optCode(rest, inCond, {dest=dest, source=AddressConstant source} :: regMap, instr :: code, changed)
 
             |   optCode({instr as UnboxLarge{ source, dest, ... }, kill, ...} :: rest,
                         inCond, regMap, code, changed) =
@@ -239,17 +239,139 @@ struct
                     (* If we're unboxing a constant address we can unpack it now.  This is
                        intended to handle constant aruments to LargeWord operations. *)
                     case repSource of
-                        WordConstant cVal =>
+                        AddressConstant cVal =>
                         let
                             (* Check this looks like a boxed large word. *)
                             open Address
                             val addr = toAddress cVal
                             val _ = isBytes addr andalso length addr = 0w8 div wordSize
                             val wordConst: LargeWord.word = RunCall.unsafeCast cVal
-                            val newMap = {dest=dest, source=AConstant wordConst} :: mapAfterReplace
+                            val newMap = {dest=dest, source=NonAddressConst wordConst} :: mapAfterReplace
                         in
                             optCode(rest, inCond, newMap, LoadNonAddressConstant{dest=dest, source=wordConst} :: code, true)
                         end
+                    |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                end
+
+            |   optCode({instr as UntagValue{ source, dest, isSigned, opSize }, kill, ...} :: rest, inCond, regMap, code, changed) =
+                (* If we're untagging a constant we can produce the result now. *)
+                let
+                    val (repSource, mapAfterReplace) = getRegisterValue(source, kill, regMap)
+                in
+                    case repSource of
+                        NonAddressConst cVal =>
+                        let
+                            (* The result depends on the kind of untagging.  Unsigned values
+                               can just be left shifted but signed values need to be treated
+                               differently for 32-bit and 64-bit operations. *)
+                            val wordConst =
+                                case (isSigned, opSize) of
+                                    (false, _) => LargeWord.>>(cVal, 0w1)
+                                |   (true, OpSize64) => LargeWord.~>>(cVal, 0w1)
+                                |   (true, OpSize32) => Word32.toLarge(Word32.~>>(Word32.fromLarge cVal, 0w1))
+                            val newMap = {dest=dest, source=NonAddressConst wordConst} :: mapAfterReplace
+                        in
+                            optCode(rest, inCond, newMap, LoadNonAddressConstant{dest=dest, source=wordConst} :: code, true)
+                        end
+                    |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                end
+
+                (* Some of these are specifically to reduce "ref" to its simplest form since it's generated
+                   as a variable-length item. *)
+
+            |   optCode({instr as AllocateMemoryVariable{ size, dest, saveRegs }, kill, ...} :: rest, inCond, regMap, code, changed) =
+                (* Turn a variable size allocation into a fixed size allocation if the size is a constant. *)
+                let
+                    val (repSize, mapAfterReplace) = getRegisterValue(size, kill, regMap)
+                in
+                    case repSize of
+                        NonAddressConst words =>
+                        let
+                            val wordsRequired =
+                                if is32in64
+                                then (* Have to round this up to 8 bytes *)
+                                    Word64.andb(words+0w2, ~ 0w2)
+                                else words+0w1
+                            val bytesRequired = Word64.fromLarge(Word.toLarge Address.wordSize) * wordsRequired
+                        in
+                            optCode(rest, inCond, mapAfterReplace,
+                                AllocateMemoryFixed{bytesRequired=bytesRequired, dest=dest, saveRegs=saveRegs} :: code, true)
+                        end
+                    |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                end
+
+            |   optCode({instr as InitialiseMem{size, addr, init}, kill, ...} :: rest, inCond, regMap, code, changed) =
+                (* If we're initialising "a few" words we're better off unrolling the loop. *)
+                let
+                    val (repSize, mapAfterReplace) = getRegisterValue(size, kill, regMap)
+                in
+                    case repSize of
+                        NonAddressConst words =>
+                            if words <= 0w8
+                            then
+                            let
+                                val nWords = LargeWord.toInt words
+                                fun unroll(n, l) =
+                                    if n = nWords then l
+                                    else StoreWithConstantOffset{ source=init, base=addr,
+                                            byteOffset=n*Word.toInt Address.wordSize, loadType=if is32in64 then Load32 else Load64 } :: l
+                            in
+                                optCode(rest, inCond, mapAfterReplace, unroll(0, code), true)
+                            end
+                            else optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                    |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                end
+
+            |   optCode({instr as BitFieldShift{ source, dest, isSigned, length, immr, imms }, kill, ...} :: rest,
+                            inCond, regMap, code, changed) =
+                (* Bit shift.  Specifically this is used to shift the flags byte to construct a length word.  The flags are
+                   frequently a constant.  Unlike BitFieldInsert this sets unused bits to either zero or the sign bit. *)
+                let
+                    val (repSource, mapAfterReplace) = getRegisterValue(source, kill, regMap)
+                in
+                    case repSource of
+                        NonAddressConst cVal =>
+                        let
+                            val regSize = case length of OpSize32 => 0w32 | OpSize64 => 0w64
+                        in
+                            if not isSigned andalso imms + 0w1 = immr
+                            then (* Simple left shift: ignore the other cases for the moment. *)
+                            let
+                                val wordConst64 = Word64.<<(cVal, regSize-immr)
+                                val wordConst =
+                                    case length of OpSize64 => wordConst64 | OpSize32 => Word64.andb(wordConst64, 0wxffffffff)
+                                val newMap = {dest=dest, source=NonAddressConst wordConst} :: mapAfterReplace
+                            in
+                                optCode(rest, inCond, newMap, LoadNonAddressConstant{dest=dest, source=wordConst} :: code, true)
+                            end
+                            else optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                        end
+                    |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                end
+
+
+            |   optCode({instr as BitFieldInsert{ source, dest, destAsSource, length=_, immr, imms }, kill, ...} :: rest,
+                    inCond, regMap, code, changed) =
+                (* Bit field insertion.  This is used to insert the length field into the register containing the
+                   shifted flags value. *)
+                let
+                    val (repSource, mapAfterRepSrc) = getRegisterValue(source, kill, regMap)
+                    val (repDestAs, mapAfterReplace) = getRegisterValue(destAsSource, kill, mapAfterRepSrc)
+                in
+                    case (repSource, repDestAs) of
+                        (NonAddressConst srcVal, NonAddressConst dstVal) =>
+                        if immr = 0w0
+                        then (* Insert new bits without shifting. *)
+                        let
+                            (* We take imms-immr+1 bits from the source. *)
+                            val maskSrc = Word64.>>(Word64.notb 0w0, 0w64-(imms+0w1))
+                            val maskDst = Word64.notb maskSrc
+                            val wordConst = Word64.orb(Word64.andb(dstVal, maskDst), Word64.andb(srcVal, maskSrc))
+                            val newMap = {dest=dest, source=NonAddressConst wordConst} :: mapAfterReplace
+                        in
+                            optCode(rest, inCond, newMap, LoadNonAddressConstant{dest=dest, source=wordConst} :: code, true)
+                        end
+                        else optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
@@ -355,7 +477,7 @@ struct
                             val isReplace = List.find(fn {dest, ... } => dest = source) regMap
                         in
                             case isReplace of
-                                SOME {source=AConstant _, ...} => isSimple(instrs, moves, regMap)
+                                SOME {source=NonAddressConst _, ...} => isSimple(instrs, moves, regMap)
                             |   _ => false
                         end
                     |   isSimple _ = false
