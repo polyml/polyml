@@ -291,7 +291,7 @@ struct
                        they are the same.  This seems to save more time than including
                        the length word in the byte comparison. *)
                     mkCand(
-                        mkEqualPointerOrWord( (* Because we're not actually tagging these we use pointerEq here. *)
+                        mkEqualTaggedWord(
                             mkLoadOperation(LoadStoreUntaggedUnsigned, mkLoadArgument 0, CodeZero),
                             mkLoadOperation(LoadStoreUntaggedUnsigned, mkLoadArgument 1, CodeZero)),
                         mkBlockOperation{kind=BlockOpEqualByte, leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1,
