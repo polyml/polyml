@@ -313,8 +313,8 @@ struct
                                 val nWords = LargeWord.toInt words
                                 fun unroll(n, l) =
                                     if n = nWords then l
-                                    else StoreWithConstantOffset{ source=init, base=addr,
-                                            byteOffset=n*Word.toInt Address.wordSize, loadType=if is32in64 then Load32 else Load64 } :: l
+                                    else unroll(n+1, StoreWithConstantOffset{ source=init, base=addr,
+                                            byteOffset=n*Word.toInt Address.wordSize, loadType=if is32in64 then Load32 else Load64 } :: l)
                             in
                                 optCode(rest, inCond, mapAfterReplace, unroll(0, code), true)
                             end
