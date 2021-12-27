@@ -68,6 +68,16 @@ struct
         bitwiseOrImmediate{regN=fixedReg, regD=fixedReg, bits=0w1}
     ]
 
+
+    (* Call the RTS.  Previously this did not check for exceptions raised in the RTS and instead
+       there was code added after each call.  Doing it after the call doesn't affect the time
+       taken but makes the code larger especially as this is needed in every arbitrary precision
+       operation.
+       Currently we clear the RTS exception packet field before the call.  The field is
+       cleared in "full" calls that may raise an exception but not in fast calls.  They
+       may not raise an exception but the packet may not have been cleared from a
+       previous call. *)
+
     fun rtsCallFastGeneral (functionName, argFormats, resultFormat, debugSwitches) =
     let
         val entryPointAddr = makeEntryPoint functionName
@@ -89,12 +99,17 @@ struct
                 loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
         |   loadArgs _ = raise InternalError "rtsCall: Too many arguments"
 
+        val noRTSException = createLabel()
+
         val instructions =
             loadArgs(argFormats,
                 (* ML Arguments *) [X0, X1, X2, X3, X4, X5, X6, X7],
                 (* C fixed pt args *) [X0, X1, X2, X3, X4, X5, X6, X7],
                 (* C floating pt args *) [V0, V1, V2, V3, V4, V5, V6, V7]) @
+                (* Clear the RTS exception state. *)
+                loadNonAddress(X16, 0w1) @
             [
+                storeRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset},
                 (* Move X30 to X23, a callee-save register. *)
                 (* Note: maybe we should push X24 just in case this is the only
                    reachable reference to the code. *)
@@ -113,7 +128,18 @@ struct
                 loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
                 (* Load the heap allocation ptr and limit.  We could have GCed in the RTS call. *)
                 loadRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
-                loadRegScaled{regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset}
+                loadRegScaled{regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset},
+                (* Check the RTS exception. *)
+                loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset},
+                subSImmediate{regN=X16, regD=XZero, immed=0w1, shifted=false},
+                conditionalBranch(CondEqual, noRTSException),
+                    (* If it isn't then raise the exception. *)
+                moveRegToReg{sReg=X16, dReg=X0},
+                loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset},
+                loadRegScaled{regT=X16, regN=X_MLStackPtr, unitOffset=0},
+                branchRegister X16,
+                setLabel noRTSException
+
             ] @
             (
                 case resultFormat of

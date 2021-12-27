@@ -991,28 +991,9 @@ struct
                 (loadMemReg{wordOffset=threadIdOffset, dest=target} :: tailCode, target, false)
             end
 
-        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, { currHandler, ...}, _, destination, tailCode) =
-            (* TODO: This really does need to be part of the RTS call.  It's included
-               in the long case of every arbitrary precision operation as well as
-               every other RTS call. *)
-            let
-                (* Raise an exception in ML if the last RTS call set the exception packet. *)
-                val haveException = newLabel() and noException = newLabel()
-                val ccRef = newCCRef()
-                val testReg = newPReg()
-                val raiseCode = RaiseExceptionPacket{packetReg=testReg}
-                val code =
-                    BlockLabel noException ::
-                    (case currHandler of
-                        NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h)) ::
-                    BlockLabel haveException ::
-                    BlockFlow(Conditional{ ccRef=ccRef, condition=CondNotEqual, trueJump=haveException, falseJump=noException }) ::
-                    addSubImmediate{source=testReg, dest=NONE, immed=taggedWord 0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef} ::
-                    loadMemReg{wordOffset=exceptionPacketOffset, dest=testReg} ::
-                    tailCode
-            in
-                returnUnit(destination, code, false)
-            end
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, _, _, destination, tailCode) =
+            (* This is now done in the RTS call code. *)
+                returnUnit(destination, tailCode, false)
 
         |   codeToICodeRev(BICNullary {oper=CreateMutex}, _, _, destination, tailCode) =
             let
