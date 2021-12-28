@@ -380,12 +380,25 @@ struct
                     optCode(rest, BRNone, [], instr::code, changed)                
 
             |   optCode({instr as BeginLoop, ...} :: rest, _, _, code, changed) =
-                    (* Any register value from outside the loop are not valid inside. *)
+                    (* Any register value from outside the loop is not valid inside. *)
                     optCode(rest, BRNone, [], instr::code, changed)                
 
             |   optCode({instr as JumpLoop _, ...} :: rest, _, _, code, changed) =
                     (* Likewise at the end of the loop.  Not sure if this is essential. *)
                     optCode(rest, BRNone, [], instr::code, changed)
+
+                (* CompareByteVectors and BlockMove modify their arguments.  In particular
+                   if we have the length as a constant in a register it won't still
+                   have that value at the end.
+                   TODO: This coult be refined. *)
+            |   optCode({instr as CompareByteVectors _, ...} :: rest, _, _, code, changed) =
+                    (* Likewise at the end of the loop.  Not sure if this is essential. *)
+                    optCode(rest, BRNone, [], instr::code, changed)
+
+            |   optCode({instr as BlockMove _, ...} :: rest, _, _, code, changed) =
+                    (* Likewise at the end of the loop.  Not sure if this is essential. *)
+                    optCode(rest, BRNone, [], instr::code, changed)
+            
 
             |   optCode({instr, ...} :: rest, inCond, regMap, code, changed) =
                 let
