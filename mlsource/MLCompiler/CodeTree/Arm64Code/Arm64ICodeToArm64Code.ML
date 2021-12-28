@@ -296,8 +296,6 @@ struct
                 |   Load32 => loadRegUnscaled32{regT=getAllocatedGenReg dest, regN=baseReg, byteOffset=byteOffset}
                 |   Load16 => loadRegUnscaled16{regT=getAllocatedGenReg dest, regN=baseReg, byteOffset=byteOffset}
                 |   Load8 => loadRegUnscaledByte{regT=getAllocatedGenReg dest, regN=baseReg, byteOffset=byteOffset}
-                |   LoadFloat => loadRegUnscaledFloat{regT=getAllocatedFPReg dest, regN=baseReg, byteOffset=byteOffset}
-                |   LoadDouble => loadRegUnscaledDouble{regT=getAllocatedFPReg dest, regN=baseReg, byteOffset=byteOffset}
             in
                 loadInstr :: code
             end
@@ -310,8 +308,29 @@ struct
                     |   Load32 => loadRegScaled32{regT=getAllocatedGenReg dest, regN=baseReg, unitOffset=Int.quot(byteOffset, 4)}
                     |   Load16 => loadRegScaled16{regT=getAllocatedGenReg dest, regN=baseReg, unitOffset=Int.quot(byteOffset, 2)}
                     |   Load8 => loadRegScaledByte{regT=getAllocatedGenReg dest, regN=baseReg, unitOffset=byteOffset}
-                    |   LoadFloat => loadRegScaledFloat{regT=getAllocatedFPReg dest, regN=baseReg, unitOffset=Int.quot(byteOffset, 4)}
-                    |   LoadDouble => loadRegScaledDouble{regT=getAllocatedFPReg dest, regN=baseReg, unitOffset=Int.quot(byteOffset, 8)}
+            in
+                loadInstr :: code
+            end
+
+        |   codeExtended _ (LoadFPWithConstantOffset{dest, base, byteOffset, floatSize, ...}, code) =
+            if byteOffset < 0
+            then
+            let
+                val baseReg = getAllocatedGenReg base
+                val loadInstr =
+                case floatSize of
+                    Float32 => loadRegUnscaledFloat{regT=getAllocatedFPReg dest, regN=baseReg, byteOffset=byteOffset}
+                |   Double64 => loadRegUnscaledDouble{regT=getAllocatedFPReg dest, regN=baseReg, byteOffset=byteOffset}
+            in
+                loadInstr :: code
+            end
+            else
+            let
+                val baseReg = getAllocatedGenReg base
+                val loadInstr =
+                    case floatSize of
+                        Float32 => loadRegScaledFloat{regT=getAllocatedFPReg dest, regN=baseReg, unitOffset=Int.quot(byteOffset, 4)}
+                    |   Double64 => loadRegScaledDouble{regT=getAllocatedFPReg dest, regN=baseReg, unitOffset=Int.quot(byteOffset, 8)}
             in
                 loadInstr :: code
             end
@@ -328,15 +347,27 @@ struct
                     |   Load32 => loadRegIndexed32{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
                     |   Load16 => loadRegIndexed16{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
                     |   Load8 => loadRegIndexedByte{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=scaleType NoScale}
-                    |   LoadFloat => loadRegIndexedFloat{regT=getAllocatedFPReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
-                    |   LoadDouble => loadRegIndexedDouble{regT=getAllocatedFPReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
             in
                 loadInstr :: code
             end
 
-        |   codeExtended _ (LoadMemReg { wordOffset, dest}, code) =
-                (* Load the thread id or RTS exception.  This is always a 64-bit value. *)
-                loadRegScaled{regT=getAllocatedGenReg dest, regN=X_MLAssemblyInt, unitOffset=wordOffset} :: code
+        |   codeExtended _ (LoadFPWithIndexedOffset{dest, base, index, floatSize, ...}, code) =
+            let
+                val baseReg = getAllocatedGenReg base and indexReg = getAllocatedGenReg index
+                (* In 32-in-64 the index is a 32-bit value in the low order 32-bits.  It may be
+                   signed if it is a C address. *)
+                val scaleType = if is32in64 then ExtSXTW else ExtUXTX
+                val loadInstr =
+                    case floatSize of
+                        Float32 => loadRegIndexedFloat{regT=getAllocatedFPReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+                    |   Double64 => loadRegIndexedDouble{regT=getAllocatedFPReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+            in
+                loadInstr :: code
+            end
+
+        |   codeExtended _ (GetThreadId { dest}, code) =
+                (* Load the thread id.  This is always a 64-bit value. *)
+                loadRegScaled{regT=getAllocatedGenReg dest, regN=X_MLAssemblyInt, unitOffset=threadIdOffset} :: code
 
         |   codeExtended _ (ObjectIndexAddressToAbsolute{source, dest, ...}, code) =
                 addShiftedReg{regM=getAllocatedGenReg source, regN=X_Base32in64, regD=getAllocatedGenReg dest, shift=ShiftLSL 0w2} :: code
@@ -472,8 +503,6 @@ struct
                 |   Load32 => storeRegUnscaled32{regT=getAllocatedGenReg source, regN=baseReg, byteOffset=byteOffset}
                 |   Load16 => storeRegUnscaled16{regT=getAllocatedGenReg source, regN=baseReg, byteOffset=byteOffset}
                 |   Load8 => storeRegUnscaledByte{regT=getAllocatedGenReg source, regN=baseReg, byteOffset=byteOffset}
-                |   LoadFloat => storeRegUnscaledFloat{regT=getAllocatedFPReg source, regN=baseReg, byteOffset=byteOffset}
-                |   LoadDouble => storeRegUnscaledDouble{regT=getAllocatedFPReg source, regN=baseReg, byteOffset=byteOffset}
             in
                 storeInstr :: code
             end
@@ -486,8 +515,29 @@ struct
                     |   Load32 => storeRegScaled32{regT=getAllocatedGenReg source, regN=baseReg, unitOffset=Int.quot(byteOffset, 4)}
                     |   Load16 => storeRegScaled16{regT=getAllocatedGenReg source, regN=baseReg, unitOffset=Int.quot(byteOffset, 2)}
                     |   Load8 => storeRegScaledByte{regT=getAllocatedGenReg source, regN=baseReg, unitOffset=byteOffset}
-                    |   LoadFloat => storeRegScaledFloat{regT=getAllocatedFPReg source, regN=baseReg, unitOffset=Int.quot(byteOffset, 4)}
-                    |   LoadDouble => storeRegScaledDouble{regT=getAllocatedFPReg source, regN=baseReg, unitOffset=Int.quot(byteOffset, 8)}
+            in
+                storeInstr :: code
+            end
+
+        |   codeExtended _ (StoreFPWithConstantOffset{source, base, byteOffset, floatSize, ...}, code) =
+            if byteOffset < 0
+            then
+            let
+                val baseReg = getAllocatedGenReg base
+                val storeInstr =
+                case floatSize of
+                    Float32 => storeRegUnscaledFloat{regT=getAllocatedFPReg source, regN=baseReg, byteOffset=byteOffset}
+                |   Double64 => storeRegUnscaledDouble{regT=getAllocatedFPReg source, regN=baseReg, byteOffset=byteOffset}
+            in
+                storeInstr :: code
+            end
+            else
+            let
+                val baseReg = getAllocatedGenReg base
+                val storeInstr =
+                    case floatSize of
+                        Float32 => storeRegScaledFloat{regT=getAllocatedFPReg source, regN=baseReg, unitOffset=Int.quot(byteOffset, 4)}
+                    |   Double64 => storeRegScaledDouble{regT=getAllocatedFPReg source, regN=baseReg, unitOffset=Int.quot(byteOffset, 8)}
             in
                 storeInstr :: code
             end
@@ -504,8 +554,20 @@ struct
                     |   Load32 => storeRegIndexed32{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
                     |   Load16 => storeRegIndexed16{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
                     |   Load8 => storeRegIndexedByte{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=scaleType NoScale}
-                    |   LoadFloat => storeRegIndexedFloat{regT=getAllocatedFPReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
-                    |   LoadDouble => storeRegIndexedDouble{regT=getAllocatedFPReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+            in
+                storeInstr :: code
+            end
+
+        |   codeExtended _ (StoreFPWithIndexedOffset{source, base, index, floatSize, ...}, code) =
+            let
+                val baseReg = getAllocatedGenReg base and indexReg = getAllocatedGenReg index
+                (* In 32-in-64 the index is a 32-bit value in the low order 32-bits.  It may be
+                   signed if it is a C address. *)
+                val scaleType = if is32in64 then ExtSXTW else ExtUXTX
+                val storeInstr =
+                    case floatSize of
+                        Float32 => storeRegIndexedFloat{regT=getAllocatedFPReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
+                    |   Double64 => storeRegIndexedDouble{regT=getAllocatedFPReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift}
             in
                 storeInstr :: code
             end

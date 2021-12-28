@@ -89,7 +89,7 @@ sig
     (* The reference to a condition code. *)
     datatype ccRef = CcRef of int
 
-    datatype loadType = Load64 | Load32 | Load16 | Load8 | LoadDouble | LoadFloat
+    datatype loadType = Load64 | Load32 | Load16 | Load8
     and opSize = OpSize32 | OpSize64
     and logicalOp = LogAnd | LogOr | LogXor
     and callKind = Recursive | ConstantCode of machineWord | FullCall
@@ -120,12 +120,17 @@ sig
            is in the range of -256 to (+4095*unit size). *)
     |   LoadWithConstantOffset of { base: preg, dest: preg, byteOffset: int, loadType: loadType }
 
+        (* Similarly for FP registers. *)
+    |   LoadFPWithConstantOffset of { base: preg, dest: preg, byteOffset: int, floatSize: floatSize }
+
         (* Load a value into a register using an index register. *)
     |   LoadWithIndexedOffset of { base: preg, dest: preg, index: preg, loadType: loadType }
 
-        (* Load an entry from the "memory registers".  Used for ThreadSelf and CheckRTSException.
-           These are always 64-bit values. *)
-    |   LoadMemReg of { wordOffset: int, dest: preg }
+        (* Ditto for FP. *)
+    |   LoadFPWithIndexedOffset of { base: preg, dest: preg, index: preg, floatSize: floatSize }
+
+        (* Returns the current thread ID.  Always a 64-bit value.. *)
+    |   GetThreadId of { dest: preg }
 
         (* Convert a 32-in-64 object index into an absolute address. *)
     |   ObjectIndexAddressToAbsolute of { source: preg, dest: preg }
@@ -163,8 +168,14 @@ sig
            is in the range of -256 to (+4095*unit size). *)
     |   StoreWithConstantOffset of { source: preg, base: preg, byteOffset: int, loadType: loadType }
 
+        (* Ditto for FP regs. *)
+    |   StoreFPWithConstantOffset of { source: preg, base: preg, byteOffset: int, floatSize: floatSize }
+
         (* Store a register using an index register. *)
     |   StoreWithIndexedOffset of { source: preg, base: preg, index: preg, loadType: loadType }
+
+        (* and for FP regs. *)
+    |   StoreFPWithIndexedOffset of { source: preg, base: preg, index: preg, floatSize: floatSize }
 
         (* Add/Subtract immediate.  The destination is optional in which case XZero is used.
            ccRef is optional.  If it is NONE the version of the instruction that does not generate
@@ -388,11 +399,6 @@ sig
     (* This generates a  BitField instruction with the appropriate values for immr and imms. *)
     val shiftConstant:
         { direction: shiftDirection, dest: preg, source: preg, shift: word, opSize: opSize } -> arm64ICode
-
-    (* Offsets in the assembly code interface pointed at by X26
-       These are in units of 64-bits NOT bytes. *)
-    val exceptionPacketOffset: int
-    and threadIdOffset: int
     
     structure Sharing:
     sig

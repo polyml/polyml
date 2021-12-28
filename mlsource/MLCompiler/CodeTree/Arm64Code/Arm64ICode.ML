@@ -17,7 +17,7 @@
 
 functor Arm64ICode(
 
-    structure Arm64Code: ARM64ASSEMBLY
+    structure Arm64Code: ARM64PREASSEMBLY
 
 ): ARM64ICODE =
 
@@ -46,23 +46,12 @@ struct
     datatype ccRef = CcRef of int
     datatype reg = GenReg of xReg | FPReg of vReg
 
-    datatype loadType = Load64 | Load32 | Load16 | Load8 | LoadDouble | LoadFloat
-
-    and opSize = OpSize32 | OpSize64
-    and logicalOp = LogAnd | LogOr | LogXor
-    and callKind = Recursive | ConstantCode of machineWord | FullCall
-    and floatSize = Float32 | Double64
-    and shiftDirection = ShiftLeft | ShiftRightLogical | ShiftRightArithmetic
-    and multKind =
-        MultAdd32 | MultSub32 | MultAdd64 | MultSub64 |
-        SignedMultAddLong (* 32bit*32bit + 64bit => 64Bit *) |
-        SignedMultHigh (* High order part of 64bit*64Bit *)
-    and fpUnary = NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble | ConvDbleToFloat
-    and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
+    datatype callKind = Recursive | ConstantCode of machineWord | FullCall
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
     datatype fnarg = ArgInReg of preg | ArgOnStack of { wordOffset: int, container: stackLocn, field: int }
+
 
     datatype arm64ICode =
         (* Move the contents of one preg to another.  These are always 64-bits. *)
@@ -78,12 +67,17 @@ struct
            is in the range of -256 to (+4095*unit size). *)
     |   LoadWithConstantOffset of { base: preg, dest: preg, byteOffset: int, loadType: loadType }
 
+        (* Similarly for FP registers. *)
+    |   LoadFPWithConstantOffset of { base: preg, dest: preg, byteOffset: int, floatSize: floatSize }
+
         (* Load a value into a register using an index register. *)
     |   LoadWithIndexedOffset of { base: preg, dest: preg, index: preg, loadType: loadType }
 
-        (* Load an entry from the "memory registers".  Used for ThreadSelf and CheckRTSException.
-           These are always 64-bit values. *)
-    |   LoadMemReg of { wordOffset: int, dest: preg }
+        (* Ditto for FP. *)
+    |   LoadFPWithIndexedOffset of { base: preg, dest: preg, index: preg, floatSize: floatSize }
+
+        (* Returns the current thread ID.  Always a 64-bit value.. *)
+    |   GetThreadId of { dest: preg }
 
         (* Convert a 32-in-64 object index into an absolute address. *)
     |   ObjectIndexAddressToAbsolute of { source: preg, dest: preg }
@@ -121,8 +115,14 @@ struct
            is in the range of -256 to (+4095*unit size). *)
     |   StoreWithConstantOffset of { source: preg, base: preg, byteOffset: int, loadType: loadType }
 
+        (* Ditto for FP regs. *)
+    |   StoreFPWithConstantOffset of { source: preg, base: preg, byteOffset: int, floatSize: floatSize }
+
         (* Store a register using an index register. *)
     |   StoreWithIndexedOffset of { source: preg, base: preg, index: preg, loadType: loadType }
+
+        (* and for FP regs. *)
+    |   StoreFPWithIndexedOffset of { source: preg, base: preg, index: preg, floatSize: floatSize }
 
         (* Add/Subtract immediate.  The destination is optional in which case XZero is used.
            ccRef is optional.  If it is NONE the version of the instruction that does not generate
@@ -366,8 +366,6 @@ struct
         |   printLoadType(Load32, stream) = stream "32"
         |   printLoadType(Load16, stream) = stream "16"
         |   printLoadType(Load8, stream) = stream "8"
-        |   printLoadType(LoadDouble, stream) = stream "D"
-        |   printLoadType(LoadFloat, stream) = stream "F"
 
         fun printSaves([], _) = ()
         |   printSaves([areg], stream) = printReg(areg, stream)
@@ -421,6 +419,15 @@ struct
                 printReg(dest, stream)
             )
 
+        |   printICode(LoadFPWithConstantOffset{ base, dest, byteOffset, floatSize }, stream) =
+            (
+                stream "\tLoadConstOffset"; printFloatSize(floatSize, stream); stream "\t[";
+                printReg(base, stream); stream "]+";
+                stream(Int.toString byteOffset);
+                stream " => ";
+                printReg(dest, stream)
+            )
+
         |   printICode(LoadWithIndexedOffset{ base, dest, index, loadType }, stream) =
             (
                 stream "\tLoadIndexed"; printLoadType(loadType, stream); stream "\t[";
@@ -428,8 +435,15 @@ struct
                 stream "] => "; printReg(dest, stream)
             )
 
-        |   printICode(LoadMemReg { wordOffset, dest}, stream) =
-                ( stream "\tLoadMemReg\t"; stream(Int.toString wordOffset); stream " => "; printReg(dest, stream) )
+        |   printICode(LoadFPWithIndexedOffset{ base, dest, index, floatSize }, stream) =
+            (
+                stream "\tLoadIndexed"; printFloatSize(floatSize, stream); stream "\t[";
+                printReg(base, stream); stream "+"; printReg(index, stream);
+                stream "] => "; printReg(dest, stream)
+            )
+
+        |   printICode(GetThreadId { dest}, stream) =
+                ( stream "\tGetThreadId\t"; stream " => "; printReg(dest, stream) )
 
         |   printICode(ObjectIndexAddressToAbsolute{ source, dest }, stream) =
             (
@@ -489,9 +503,24 @@ struct
                 stream(Int.toString byteOffset); stream "]"
             )
 
+        |   printICode(StoreFPWithConstantOffset{ base, source, byteOffset, floatSize }, stream) =
+            (
+                stream "\tStoreConstOffset"; printFloatSize(floatSize, stream); stream "\t";
+                printReg(source, stream); stream " => [";
+                printReg(base, stream); stream "+";
+                stream(Int.toString byteOffset); stream "]"
+            )
+
         |   printICode(StoreWithIndexedOffset{ base, source, index, loadType }, stream) =
             (
                 stream "\tStoreIndexed"; printLoadType(loadType, stream); stream "\t";
+                printReg(source, stream); stream " => [";
+                printReg(base, stream); stream "+"; printReg(index, stream); stream "]"
+            )
+
+        |   printICode(StoreFPWithIndexedOffset{ base, source, index, floatSize }, stream) =
+            (
+                stream "\tStoreIndexed"; printFloatSize(floatSize, stream); stream "\t";
                 printReg(source, stream); stream " => [";
                 printReg(base, stream); stream "+"; printReg(index, stream); stream "]"
             )

@@ -61,6 +61,8 @@ use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64ASSEMBLY.sig";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64Assembly.sml";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64SEQUENCES.sig";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64Sequences.sml";
+use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64PREASSEMBLY.sig";
+use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64PreAssembly.ML";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64GenCode.sml";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64ICODE.sig";
 use "mlsource/MLCompiler/CodeTree/INTSET.sig";

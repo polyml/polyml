@@ -52,15 +52,19 @@ struct
     and loadNonAddressConstant = BlockSimple o LoadNonAddressConstant
     and loadAddressConstant = BlockSimple o LoadAddressConstant
     and loadWithConstantOffset = BlockSimple o LoadWithConstantOffset
+    and loadFPWithConstantOffset = BlockSimple o LoadFPWithConstantOffset
     and loadWithIndexedOffset = BlockSimple o LoadWithIndexedOffset
-    and loadMemReg = BlockSimple o LoadMemReg
+    and loadFPWithIndexedOffset = BlockSimple o LoadFPWithIndexedOffset
+    and getThreadId = BlockSimple o GetThreadId
     and objectIndexAddressToAbsolute = BlockSimple o ObjectIndexAddressToAbsolute
     and absoluteToObjectIndex = BlockSimple o AbsoluteToObjectIndex
     and allocateMemoryFixed = BlockSimple o AllocateMemoryFixed
     and allocateMemoryVariable = BlockSimple o AllocateMemoryVariable
     and initialiseMem = BlockSimple o InitialiseMem
     and storeWithConstantOffset = BlockSimple o StoreWithConstantOffset
+    and storeFPWithConstantOffset = BlockSimple o StoreFPWithConstantOffset
     and storeWithIndexedOffset = BlockSimple o StoreWithIndexedOffset
+    and storeFPWithIndexedOffset = BlockSimple o StoreFPWithIndexedOffset
     and addSubImmediate = BlockSimple o AddSubImmediate
     and addSubRegister = BlockSimple o AddSubRegister
     and logicalImmediate = BlockSimple o LogicalImmediate
@@ -115,16 +119,12 @@ struct
     |   opWordSize Load32 = 4
     |   opWordSize Load16 = 2
     |   opWordSize Load8 = 1
-    |   opWordSize LoadDouble = 8
-    |   opWordSize LoadFloat = 4
 
     (* Shift for each size.  i.e. log2 of opWordSize. *)
     fun loadShift Load64 = 0w3
     |   loadShift Load32 = 0w2
     |   loadShift Load16 = 0w1
     |   loadShift Load8 = 0w0
-    |   loadShift LoadDouble = 0w3
-    |   loadShift LoadFloat = 0w2
 
     fun precisionToFpSize PrecSingle = Float32 | precisionToFpSize PrecDouble = Double64
 
@@ -383,10 +383,9 @@ struct
 
         (* General function for loads and stores. *)
         fun loadAndStoreWithAddress
-                ({base=bReg1, index, offset}, loadType, isCAddress, loadStoreOffset, loadStoreIndex, code) =
+                ({base=bReg1, index, offset}, loadSize, loadShift, isCAddress, loadStoreOffset, loadStoreIndex, code) =
         let
-            val opWordSize = opWordSize loadType
-            val byteOffset = offset * opWordSize
+            val byteOffset = offset * loadSize
             (* Get the base register value *)
             val bCode = code
             val sCode = bCode
@@ -423,10 +422,9 @@ struct
                                    N.B. In 32-in-64 the index register contains a 32-bit value even when
                                    the offset is negative. *)
                                 val cReg = newUReg() and iReg3 = newUReg()
-                                val shift = loadShift loadType
                                 val offsetAsWord = LargeWord.fromInt offset
                                 (* It could be negative if it's a C address. *)
-                                val shiftedOffset = (if isCAddress then LargeWord.~>> else LargeWord.>>) (offsetAsWord, shift)
+                                val shiftedOffset = (if isCAddress then LargeWord.~>> else LargeWord.>>) (offsetAsWord, loadShift)
                             in
                                 (addSubRegister{ base=iReg2, shifted=cReg, dest=SOME iReg3, ccRef=NONE, isAdd=true,
                                     length=polyWordOpSize, shift=ShiftNone} ::
@@ -457,7 +455,7 @@ struct
 
         (* Some operations require a single absolute address.
            These are all ML addresses so the index/offset is always unsigned. *)
-        fun loadAndStoreWithAbsolute (address, loadType, loadStore, code) =
+        fun loadAndStoreWithAbsolute (address, loadSize, loadShift, loadStore, code) =
         let
             (* Have to add the offset/index register. *)
             fun loadStoreOffset(bReg, 0, code) = loadStore(bReg, code)
@@ -477,14 +475,14 @@ struct
                 (* The index register is a number of words/bytes etc so has to be multiplied when it's
                    added in. *)
                 val indexShift =
-                    let val v = loadShift loadType in if v = 0w0 then ShiftNone else ShiftLSL(Word8.fromLarge(Word.toLarge v)) end
+                    if loadShift = 0w0 then ShiftNone else ShiftLSL(Word8.fromLarge(Word.toLarge loadShift))
             in
                 loadStore(aReg,
                     addSubRegister{ base=bReg, shifted=iReg, dest=SOME aReg, ccRef=NONE, isAdd=true,
                                     length=OpSize64, shift=indexShift} :: code)
             end
         in
-            loadAndStoreWithAddress (address, loadType, false, loadStoreOffset, loadStoreIndex, code)
+            loadAndStoreWithAddress (address, loadSize, loadShift, false, loadStoreOffset, loadStoreIndex, code)
         end
 
         (* Overflow check.  This raises Overflow if the condition is satisfied.  Normally this will be
@@ -988,7 +986,7 @@ struct
             let
                 val target = asTarget destination
             in
-                (loadMemReg{wordOffset=threadIdOffset, dest=target} :: tailCode, target, false)
+                (getThreadId{dest=target} :: tailCode, target, false)
             end
 
         |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, _, _, destination, tailCode) =
@@ -1438,10 +1436,10 @@ struct
                         untagValue{dest=lengthReg2, source=lengthReg, isSigned=false, opSize=polyWordOpSize} :: code
                     end
                 in
-                    loadAndStoreWithAbsolute (rightAddr, loadOp, doMove, tailCode)
+                    loadAndStoreWithAbsolute (rightAddr, opWordSize loadOp, loadShift loadOp, doMove, tailCode)
                 end
             in
-                returnUnit(destination, loadAndStoreWithAbsolute (leftAddr, loadOp, getDestAndMove, codeLength), false)
+                returnUnit(destination, loadAndStoreWithAbsolute (leftAddr, opWordSize loadOp, loadShift loadOp, getDestAndMove, codeLength), false)
             end
 
         |   codeToICodeRev(BICBlockOperation{ kind=BlockOpEqualByte, sourceLeft, destRight, length }, context, _, destination, tailCode) =
@@ -1468,11 +1466,11 @@ struct
                         untagValue{dest=lengthReg2, source=lengthReg, isSigned=false, opSize=polyWordOpSize} :: code
                     end
                 in
-                    loadAndStoreWithAbsolute (rightAddr, Load8, doComparison, tailCode)
+                    loadAndStoreWithAbsolute (rightAddr, opWordSize Load8, loadShift Load8, doComparison, tailCode)
                 end
 
                 val testCode =
-                    loadAndStoreWithAbsolute (leftAddr, Load8, getRightAndCompare, codeLength)
+                    loadAndStoreWithAbsolute (leftAddr, opWordSize Load8, loadShift Load8, getRightAndCompare, codeLength)
             in
                 (makeBoolResultRev(CondEqual, ccRef, target, testCode), target, false)
             end
@@ -1527,11 +1525,11 @@ struct
                         untagValue{dest=lengthReg2, source=lengthReg, isSigned=false, opSize=polyWordOpSize} :: code
                     end
                 in
-                    loadAndStoreWithAbsolute (rightAddr, Load8, doComparison, tailCode)
+                    loadAndStoreWithAbsolute (rightAddr, opWordSize Load8, loadShift Load8, doComparison, tailCode)
                 end
 
                 val testCode =
-                    loadAndStoreWithAbsolute (leftAddr, Load8, getRightAndCompare, codeLength)
+                    loadAndStoreWithAbsolute (leftAddr, opWordSize Load8, loadShift Load8, getRightAndCompare, codeLength)
             in
                 (testCode, target, false)
             end
@@ -2669,7 +2667,7 @@ struct
                     fun loadOp(addrReg, code) =
                         loadAcquire{base=addrReg, dest=target, loadType=polyWordLoadSize} :: code
                 in
-                    loadAndStoreWithAbsolute (regAddr, polyWordLoadSize, loadOp, codeAddr)
+                    loadAndStoreWithAbsolute (regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, loadOp, codeAddr)
                 end
 
             |   LoadStoreMLWord {isImmutable=true} =>
@@ -2679,7 +2677,7 @@ struct
                     fun loadIndexed(base, index, code) =
                         loadWithIndexedOffset{base=base, dest=target, index=index, loadType=polyWordLoadSize} :: code
                 in
-                    loadAndStoreWithAddress (regAddr, polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
+                    loadAndStoreWithAddress (regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
                 end
 
             |   LoadStoreMLByte {isImmutable=false} =>
@@ -2690,7 +2688,7 @@ struct
                         loadAcquire{base=addrReg, dest=destReg, loadType=Load8} :: code
                 in
                     tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
-                        loadAndStoreWithAbsolute (regAddr, Load8, loadOp, codeAddr)
+                        loadAndStoreWithAbsolute (regAddr, opWordSize Load8, loadShift Load8, loadOp, codeAddr)
                 end
 
             |   LoadStoreMLByte {isImmutable=true} =>
@@ -2703,7 +2701,7 @@ struct
                         loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load8} :: code
                 in
                     tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
-                        loadAndStoreWithAddress(regAddr, Load8, false, loadConstOffset, loadIndexed, codeAddr)
+                        loadAndStoreWithAddress(regAddr, opWordSize Load8, loadShift Load8, false, loadConstOffset, loadIndexed, codeAddr)
                 end
 
             |   LoadStoreC8 =>
@@ -2716,7 +2714,7 @@ struct
                         loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load8} :: code
                 in
                     tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
-                        loadAndStoreWithAddress(regAddr, Load8, true, loadConstOffset, loadIndexed, codeAddr)
+                        loadAndStoreWithAddress(regAddr, opWordSize Load8, loadShift Load8, true, loadConstOffset, loadIndexed, codeAddr)
                 end
 
             |   LoadStoreC16 =>
@@ -2729,7 +2727,7 @@ struct
                         loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load16} :: code
                 in
                     tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
-                        loadAndStoreWithAddress(regAddr, Load16, true, loadConstOffset, loadIndexed, codeAddr)
+                        loadAndStoreWithAddress(regAddr, opWordSize Load16, loadShift Load16, true, loadConstOffset, loadIndexed, codeAddr)
                 end
 
             |   LoadStoreC32 =>
@@ -2744,7 +2742,7 @@ struct
                     (if is32in64
                      then boxLarge{ source=destReg, dest=target, saveRegs=[] }
                      else tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize64 (* It becomes 33 bits *)}) ::
-                        loadAndStoreWithAddress(regAddr, Load32, true, loadConstOffset, loadIndexed, codeAddr)
+                        loadAndStoreWithAddress(regAddr, opWordSize Load32, loadShift Load32, true, loadConstOffset, loadIndexed, codeAddr)
                 end
 
             |   LoadStoreC64 =>
@@ -2757,7 +2755,7 @@ struct
                         loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load64} :: code
                 in
                     boxLarge{ source=destReg, dest=target, saveRegs=[]} ::
-                        loadAndStoreWithAddress(regAddr, Load64, true, loadConstOffset, loadIndexed, codeAddr)
+                        loadAndStoreWithAddress(regAddr, opWordSize Load64, loadShift Load64, true, loadConstOffset, loadIndexed, codeAddr)
                 end
 
             |   LoadStoreCFloat =>
@@ -2765,13 +2763,13 @@ struct
                     (* This always returns a double, not a 32-bit float. *)
                     val destReg = newUReg() and convertReg = newUReg()
                     fun loadConstOffset(base, offset, code) =
-                        loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=LoadFloat} :: code
+                        loadFPWithConstantOffset{base=base, dest=destReg, byteOffset=offset, floatSize=Float32} :: code
                     fun loadIndexed(base, index, code) =
-                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=LoadFloat} :: code
+                        loadFPWithIndexedOffset{base=base, dest=destReg, index=index, floatSize=Float32} :: code
                 in
                     boxTagFloat{floatSize=Double64, source=convertReg, dest=target, saveRegs=[]} ::
                         unaryFloatingPt{source=destReg, dest=convertReg, fpOp=ConvFloatToDble} ::
-                        loadAndStoreWithAddress(regAddr, LoadFloat, true, loadConstOffset, loadIndexed, codeAddr)
+                        loadAndStoreWithAddress(regAddr, 4, 0w2, true, loadConstOffset, loadIndexed, codeAddr)
                 end
 
             |   LoadStoreCDouble =>
@@ -2779,12 +2777,12 @@ struct
                     (* This is always boxed. *)
                     val destReg = newUReg()
                     fun loadConstOffset(base, offset, code) =
-                        loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=LoadDouble} :: code
+                        loadFPWithConstantOffset{base=base, dest=destReg, byteOffset=offset, floatSize=Double64} :: code
                     fun loadIndexed(base, index, code) =
-                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=LoadDouble} :: code
+                        loadFPWithIndexedOffset{base=base, dest=destReg, index=index, floatSize=Double64} :: code
                 in
                     boxTagFloat{floatSize=Double64, source=destReg, dest=target, saveRegs=[]} ::
-                        loadAndStoreWithAddress(regAddr, LoadDouble, true, loadConstOffset, loadIndexed, codeAddr)
+                        loadAndStoreWithAddress(regAddr, 8, 0w3, true, loadConstOffset, loadIndexed, codeAddr)
                 end
 
             |   LoadStoreUntaggedUnsigned =>
@@ -2797,7 +2795,7 @@ struct
                         loadWithIndexedOffset{base=base, dest=ureg, index=index, loadType=polyWordLoadSize} :: code
                 in
                     tagValue{source=ureg, dest=target, isSigned=false, opSize=polyWordOpSize} ::
-                        loadAndStoreWithAddress(regAddr, polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
+                        loadAndStoreWithAddress(regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
                 end
 
         in
@@ -2817,7 +2815,7 @@ struct
                     fun storeOp(addrReg, code) =
                         storeRelease{base=addrReg, source=sourceReg, loadType=polyWordLoadSize} :: code
                 in
-                    loadAndStoreWithAbsolute(regAddr, polyWordLoadSize, storeOp, sourceCode)
+                    loadAndStoreWithAbsolute(regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, storeOp, sourceCode)
                 end
 
             |   LoadStoreMLWord {isImmutable=true} =>
@@ -2828,7 +2826,7 @@ struct
                     fun loadIndexed(base, index, code) =
                         storeWithIndexedOffset{base=base, source=sourceReg, index=index, loadType=polyWordLoadSize} :: code
                 in
-                    loadAndStoreWithAddress (regAddr, polyWordLoadSize, false, loadConstOffset, loadIndexed, sourceCode)
+                    loadAndStoreWithAddress (regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, sourceCode)
                 end
 
             |   LoadStoreMLByte {isImmutable=false} =>
@@ -2841,7 +2839,7 @@ struct
                         untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
                     end
                 in
-                    loadAndStoreWithAbsolute(regAddr, Load8, storeOp, sourceCode)
+                    loadAndStoreWithAbsolute(regAddr, opWordSize Load8, loadShift Load8, storeOp, sourceCode)
                 end
 
             |   LoadStoreMLByte {isImmutable=true} =>
@@ -2863,7 +2861,7 @@ struct
                         untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
                     end
                 in
-                    loadAndStoreWithAddress(regAddr, Load8, false, loadConstOffset, loadIndexed, sourceCode)
+                    loadAndStoreWithAddress(regAddr, opWordSize Load8, loadShift Load8, false, loadConstOffset, loadIndexed, sourceCode)
                 end
 
             |   LoadStoreC8 =>
@@ -2884,7 +2882,7 @@ struct
                         untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
                     end
                 in
-                    loadAndStoreWithAddress(regAddr, Load8, true, loadConstOffset, loadIndexed, sourceCode)
+                    loadAndStoreWithAddress(regAddr, opWordSize Load8, loadShift Load8, true, loadConstOffset, loadIndexed, sourceCode)
                 end
 
             |   LoadStoreC16 =>
@@ -2905,7 +2903,7 @@ struct
                         untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
                     end
                 in
-                    loadAndStoreWithAddress(regAddr, Load16, true, loadConstOffset, loadIndexed, sourceCode)
+                    loadAndStoreWithAddress(regAddr, opWordSize Load16, loadShift Load16, true, loadConstOffset, loadIndexed, sourceCode)
                 end
 
             |   LoadStoreC32 =>
@@ -2928,7 +2926,7 @@ struct
                          else untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize64}) :: code
                     end
                 in
-                    loadAndStoreWithAddress(regAddr, Load32, true, loadConstOffset, loadIndexed, sourceCode)
+                    loadAndStoreWithAddress(regAddr, opWordSize Load32, loadShift Load32, true, loadConstOffset, loadIndexed, sourceCode)
                 end
 
             |   LoadStoreC64 =>
@@ -2949,7 +2947,7 @@ struct
                         unboxLarge{source=sourceReg, dest=tReg} :: code
                     end
                 in
-                    loadAndStoreWithAddress(regAddr, Load64, true, loadConstOffset, loadIndexed, sourceCode)
+                    loadAndStoreWithAddress(regAddr, opWordSize Load64, loadShift Load64, true, loadConstOffset, loadIndexed, sourceCode)
                 end
 
             |   LoadStoreCFloat =>
@@ -2959,7 +2957,7 @@ struct
                     let
                         val tReg = newUReg() and cReg = newUReg()
                     in
-                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=LoadFloat} ::
+                        storeFPWithConstantOffset{base=base, source=tReg, byteOffset=offset, floatSize=Float32} ::
                         unaryFloatingPt{source=cReg, dest=tReg, fpOp=ConvDbleToFloat} ::
                         unboxTagFloat{floatSize=Double64, source=sourceReg, dest=cReg} :: code
                     end
@@ -2968,12 +2966,12 @@ struct
                     let
                         val tReg = newUReg() and cReg = newUReg()
                     in
-                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=LoadFloat} ::
+                        storeFPWithIndexedOffset{base=base, source=tReg, index=index, floatSize=Float32} ::
                         unaryFloatingPt{source=cReg, dest=tReg, fpOp=ConvDbleToFloat} ::
                         unboxTagFloat{floatSize=Double64, source=sourceReg, dest=cReg} :: code
                     end
                 in
-                    loadAndStoreWithAddress(regAddr, LoadFloat, true, loadConstOffset, loadIndexed, sourceCode)
+                    loadAndStoreWithAddress(regAddr, 4, 0w2, true, loadConstOffset, loadIndexed, sourceCode)
                 end
 
             |   LoadStoreCDouble =>
@@ -2982,7 +2980,7 @@ struct
                     let
                         val tReg = newUReg()
                     in
-                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=LoadDouble} ::
+                        storeFPWithConstantOffset{base=base, source=tReg, byteOffset=offset, floatSize=Double64} ::
                         unboxTagFloat{floatSize=Double64, source=sourceReg, dest=tReg} :: code
                     end
 
@@ -2990,11 +2988,11 @@ struct
                     let
                         val tReg = newUReg()
                     in
-                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=LoadDouble} ::
+                        storeFPWithIndexedOffset{base=base, source=tReg, index=index, floatSize=Double64} ::
                         unboxTagFloat{floatSize=Double64, source=sourceReg, dest=tReg} :: code
                     end
                 in
-                    loadAndStoreWithAddress(regAddr, LoadDouble, true, loadConstOffset, loadIndexed, sourceCode)
+                    loadAndStoreWithAddress(regAddr, 8, 0w3, true, loadConstOffset, loadIndexed, sourceCode)
                 end
 
             |   LoadStoreUntaggedUnsigned =>
@@ -3015,7 +3013,7 @@ struct
                         untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=polyWordOpSize} :: code
                     end
                 in
-                    loadAndStoreWithAddress(regAddr, polyWordLoadSize, false, loadConstOffset, loadIndexed, sourceCode)
+                    loadAndStoreWithAddress(regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, sourceCode)
                 end
         in
             returnUnit(destination, storeCode, false)

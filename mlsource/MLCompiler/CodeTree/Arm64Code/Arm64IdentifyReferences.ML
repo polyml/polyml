@@ -72,10 +72,16 @@ struct
     |   getInstructionState(LoadWithConstantOffset { base, dest, ...}) =
         { sources=[base], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(LoadFPWithConstantOffset { base, dest, ...}) =
+        { sources=[base], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(LoadWithIndexedOffset { base, dest, index, ...}) =
         { sources=[base, index], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionState(LoadMemReg { dest, ...}) =
+    |   getInstructionState(LoadFPWithIndexedOffset { base, dest, index, ...}) =
+        { sources=[base, index], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(GetThreadId { dest, ...}) =
         { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(ObjectIndexAddressToAbsolute { source, dest, ...}) =
@@ -112,7 +118,13 @@ struct
     |   getInstructionState(StoreWithConstantOffset { base, source, ...}) =
         { sources=[source, base], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(StoreFPWithConstantOffset { base, source, ...}) =
+        { sources=[source, base], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(StoreWithIndexedOffset { base, source, index, ...}) =
+        { sources=[source, base, index], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(StoreFPWithIndexedOffset { base, source, index, ...}) =
         { sources=[source, base, index], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(AddSubImmediate{ source, dest, ccRef, ... }) =

@@ -294,19 +294,31 @@ struct
 
         |   registerAllocate{instr=LoadAddressConstant{dest, ...}, ...} = allocateGenReg dest
 
-        |   registerAllocate{instr=LoadWithConstantOffset{dest, base, loadType, ...}, ...} =
+        |   registerAllocate{instr=LoadWithConstantOffset{dest, base, ...}, ...} =
             (
-                case loadType of LoadFloat => allocateFloatReg dest | LoadDouble => allocateFloatReg dest | _ => allocateGenReg dest;
+                allocateGenReg dest;
+                allocateGenReg base
+            )
+
+        |   registerAllocate{instr=LoadFPWithConstantOffset{dest, base, ...}, ...} =
+            (
+                allocateFloatReg dest;
                 allocateGenReg  base
             )
 
-        |   registerAllocate{instr=LoadWithIndexedOffset{dest, base, index, loadType, ...}, ...} =
+        |   registerAllocate{instr=LoadWithIndexedOffset{dest, base, index, ...}, ...} =
             (
-                case loadType of LoadFloat => allocateFloatReg dest | LoadDouble => allocateFloatReg dest | _ => allocateGenReg dest;
+                allocateGenReg dest;
                 allocateGenRegs[base, index]
             )
 
-        |   registerAllocate{instr=LoadMemReg { dest, ...}, ...} = allocateGenReg dest
+        |   registerAllocate{instr=LoadFPWithIndexedOffset{dest, base, index, ...}, ...} =
+            (
+                allocateFloatReg dest;
+                allocateGenRegs[base, index]
+            )
+
+        |   registerAllocate{instr=GetThreadId { dest, ...}, ...} = allocateGenReg dest
 
         |   registerAllocate{instr=ObjectIndexAddressToAbsolute{dest, source, ...}, ...} = allocateGenRegs[dest, source]
 
@@ -328,15 +340,19 @@ struct
                 case checkInterrupt of SOME regs => List.app(fn reg => allocateGenReg reg) regs | NONE => ()
             )
 
-        |   registerAllocate{instr=StoreWithConstantOffset{source, base, loadType, ...}, ...} =
+        |   registerAllocate{instr=StoreWithConstantOffset{source, base, ...}, ...} = allocateGenRegs[source, base]
+
+        |   registerAllocate{instr=StoreFPWithConstantOffset{source, base, ...}, ...} =
             (
-                case loadType of LoadFloat => allocateFloatReg source | LoadDouble => allocateFloatReg source | _ => allocateGenReg source;
+                allocateFloatReg source;
                 allocateGenReg base
             )
 
-        |   registerAllocate{instr=StoreWithIndexedOffset{source, base, index, loadType, ...}, ...} =
+        |   registerAllocate{instr=StoreWithIndexedOffset{source, base, index, ...}, ...} = allocateGenRegs[source, base, index]
+
+        |   registerAllocate{instr=StoreFPWithIndexedOffset{source, base, index, ...}, ...} =
             (
-                case loadType of LoadFloat => allocateFloatReg source | LoadDouble => allocateFloatReg source | _ => allocateGenReg source;
+                allocateFloatReg source;
                 allocateGenRegs[base, index]
             )
 

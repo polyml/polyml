@@ -120,6 +120,8 @@
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64ICODETRANSFORM.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64IdentifyReferences.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64IDENTIFYREFERENCES.sig" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64PreAssembly.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64PREASSEMBLY.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\Arm64PushRegisters.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64PUSHREGISTERS.sig" />
 	<source name="mlsource\MLCompiler\CodeTree\Arm64Code\ARM64SEQUENCES.sig" />

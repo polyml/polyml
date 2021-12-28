@@ -28,6 +28,13 @@ local
             structure Arm64Assembly = Arm64Assembly
         )
 
+    structure Arm64Preassembly =
+        Arm64PreAssembly (
+            structure Arm64Assembly = Arm64Assembly
+            and       Debug = Debug
+            and       Pretty = Pretty
+        )
+
     structure Arm64Foreign =
         Arm64ForeignCall (
             structure CodeArray   = CodeArray
@@ -38,7 +45,7 @@ local
 
     structure Arm64ICode =
         Arm64ICode (
-            structure Arm64Code       = Arm64Assembly
+            structure Arm64Code     = Arm64Preassembly
         )
 
     structure Arm64ICodeIdentify =

@@ -342,6 +342,16 @@ struct
                                     baseCode @ code
                         end
 
+                    |   pushRegisters({instr=LoadFPWithConstantOffset { base, dest, byteOffset, floatSize}, ...}, code) =
+                        let
+                            val (baseVal, baseCode) = mapSrcReg base
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @
+                                LoadFPWithConstantOffset { base=baseVal, dest=destVal, byteOffset=byteOffset, floatSize=floatSize} ::
+                                    baseCode @ code
+                        end
+
                     |   pushRegisters({instr=LoadWithIndexedOffset { base, dest, index, loadType}, ...}, code) =
                         let
                             val (baseVal, baseCode) = mapSrcReg base
@@ -353,11 +363,22 @@ struct
                                     indexCode @ baseCode @ code
                         end
 
-                    |   pushRegisters({instr=LoadMemReg { wordOffset, dest}, ...}, code) =
+                    |   pushRegisters({instr=LoadFPWithIndexedOffset { base, dest, index, floatSize}, ...}, code) =
+                        let
+                            val (baseVal, baseCode) = mapSrcReg base
+                            val (indexVal, indexCode) = mapSrcReg index
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @
+                                LoadFPWithIndexedOffset { base=baseVal, dest=destVal, index=indexVal, floatSize=floatSize} ::
+                                    indexCode @ baseCode @ code
+                        end
+
+                    |   pushRegisters({instr=GetThreadId { dest}, ...}, code) =
                         let
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ LoadMemReg { wordOffset=wordOffset, dest=destVal} :: code
+                            destCode @ GetThreadId { dest=destVal} :: code
                         end
 
                     |   pushRegisters({instr=ObjectIndexAddressToAbsolute { source, dest}, ...}, code) =
@@ -443,13 +464,21 @@ struct
                             JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check} :: code
                         end
 
-
                     |   pushRegisters({instr=StoreWithConstantOffset { base, source, byteOffset, loadType}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (baseVal, baseCode) = mapSrcReg base 
                         in
                             StoreWithConstantOffset{ base=baseVal, source=sourceVal, byteOffset=byteOffset, loadType=loadType} ::
+                                baseCode @ sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=StoreFPWithConstantOffset { base, source, byteOffset, floatSize}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (baseVal, baseCode) = mapSrcReg base 
+                        in
+                            StoreFPWithConstantOffset{ base=baseVal, source=sourceVal, byteOffset=byteOffset, floatSize=floatSize} ::
                                 baseCode @ sourceCode @ code
                         end
 
@@ -460,6 +489,16 @@ struct
                             val (indexVal, indexCode) = mapSrcReg index 
                         in
                             StoreWithIndexedOffset{ base=baseVal, source=sourceVal, index=indexVal, loadType=loadType} ::
+                                indexCode @ baseCode @ sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=StoreFPWithIndexedOffset { base, source, index, floatSize}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (baseVal, baseCode) = mapSrcReg base 
+                            val (indexVal, indexCode) = mapSrcReg index 
+                        in
+                            StoreFPWithIndexedOffset{ base=baseVal, source=sourceVal, index=indexVal, floatSize=floatSize} ::
                                 indexCode @ baseCode @ sourceCode @ code
                         end
 
