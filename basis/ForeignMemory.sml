@@ -94,7 +94,7 @@ struct
            a saved state but there's a problem if it is contained in a parent state.
            Then loading a child state will clear it because we reload all the parents
            when we load a child. *)
-        val v = RunCall.allocateWordMemory(sysWordSize div wordSize, 0wx69, 0w0)
+        val v = RunCall.allocateByteMemory(sysWordSize div wordSize, 0wx69)
         (* Copy the SysWord into it. *)
         val () = memMove(init, RunCall.unsafeCast v, 0w0, 0w0, sysWordSize)
     in
