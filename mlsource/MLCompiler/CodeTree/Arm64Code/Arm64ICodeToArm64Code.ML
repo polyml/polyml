@@ -31,17 +31,22 @@ functor Arm64ICodeToArm64Code(
             val stronglyConnectedComponents: {nodeAddress: 'a -> int, arcs: 'a -> int list } -> 'a list -> 'a list list
         end
     
-    sharing Arm64PreAssembly.Sharing = Arm64Assembly.Sharing = Arm64Sequences.Sharing =
-            Arm64ICode.Sharing = Identify.Sharing = IntSet
+    sharing Arm64PreAssembly.Sharing = Arm64Assembly.Sharing = Arm64ICode.Sharing = Identify.Sharing = IntSet = Arm64Sequences.Sharing
 ): ARM64ICODEGENERATE =
 struct
     open Identify
     open Arm64ICode
     open Arm64PreAssembly
     open Arm64Assembly
-    open Arm64Sequences
     open Address
     exception InternalError = Misc.InternalError
+
+    (*fun loadNonAddress args = toInstrs([LoadNonAddr args])*)
+
+    (* Reversed cons and append to make the code easier to read. *)
+    infix 5 <::> <@>
+    fun tl <::> hd = hd :: tl
+    and snd <@> fst = fst @ snd
 
     (* These aren't currently used for anything. *)
     val workReg1 = X16 and workReg2 = X17
@@ -63,13 +68,13 @@ struct
         fun loadFromStack(destReg, wordOffset, code) =
             if wordOffset >= 4096
             then loadRegIndexed{regT=destReg, regN=X_MLStackPtr, regM=destReg, option=ExtUXTX ScaleOrShift} ::
-                    List.rev(loadNonAddress(destReg, Word64.fromInt wordOffset)) @ code
+                    toInstrs([LoadNonAddr(destReg, Word64.fromInt wordOffset)]) @ code
             else toInstr(LoadRegScaled{regT=destReg, regN=X_MLStackPtr, unitOffset=wordOffset, loadType=Load64}) :: code
 
         and storeToStack(sourceReg, wordOffset, workReg, code) =
             if wordOffset >= 4096
             then storeRegIndexed{regT=sourceReg, regN=X_MLStackPtr, regM=workReg, option=ExtUXTX ScaleOrShift} ::
-                    List.rev(loadNonAddress(workReg, Word64.fromInt wordOffset)) @ code
+                    toInstrs([LoadNonAddr(workReg, Word64.fromInt wordOffset)]) @ code
             else toInstr(StoreRegScaled{regT=sourceReg, regN=X_MLStackPtr, unitOffset=wordOffset, loadType=Load64}) :: code
 
         datatype srcAndDest = IsInReg of xReg | IsOnStack of int
@@ -107,7 +112,7 @@ struct
                     val ordered = stronglyConnected arguments
                     
                     fun loadIntoReg(IsInReg sReg, dReg, code) =
-                            if sReg = dReg then code else moveRegToReg{sReg=sReg, dReg=dReg} :: code
+                            if sReg = dReg then code else toInstr(MoveXRegToXReg{sReg=sReg, dReg=dReg}) :: code
                     |   loadIntoReg(IsOnStack wordOffset, dReg, code) =
                             loadFromStack(dReg, wordOffset, code)
 
@@ -145,17 +150,17 @@ struct
                                is worth it. *)
                             local
                                 fun storeToDest(sReg, IsInReg dReg, _, code) =
-                                        moveRegToReg{sReg=sReg, dReg=dReg} :: code
+                                        toInstr(MoveXRegToXReg{sReg=sReg, dReg=dReg}) :: code
                                 |   storeToDest(sReg, IsOnStack wordOffset, work, code) =
                                         storeToStack(sReg, wordOffset, work, code)
                             in
                                 fun exchange(IsInReg arg1Reg, arg2, code) =
-                                    moveRegToReg{sReg=workReg2, dReg=arg1Reg} ::
+                                    toInstr(MoveXRegToXReg{sReg=workReg2, dReg=arg1Reg}) ::
                                     storeToDest(arg1Reg, arg2, workReg1,
                                         loadIntoReg(arg2, workReg2, code))
 
                                 |   exchange(arg1, IsInReg arg2Reg, code) =
-                                    moveRegToReg{sReg=workReg2, dReg=arg2Reg} ::
+                                    toInstr(MoveXRegToXReg{sReg=workReg2, dReg=arg2Reg}) ::
                                     storeToDest(arg2Reg, arg1, workReg1,
                                         loadIntoReg(arg1, workReg2, code))
 
@@ -213,13 +218,13 @@ struct
 
         fun moveIfNecessary({src, dst}, code) =
             if src = dst then code
-            else moveRegToReg{sReg=src, dReg=dst} :: code
+            else toInstr(MoveXRegToXReg{sReg=src, dReg=dst}) :: code
 
         (* Add a constant word to the source register and put the result in the
            destination.  regW is used as a work register if necessary.  This is used
            both for addition and subtraction. *)
         fun addConstantWord({regS, regD, value=0w0, ...}, code) =
-            if regS = regD then code else moveRegToReg{sReg=regS, dReg=regD} :: code
+            if regS = regD then code else toInstr(MoveXRegToXReg{sReg=regS, dReg=regD}) :: code
     
         |   addConstantWord({regS, regD, regW, value}, code) =
             let
@@ -256,9 +261,9 @@ struct
                         else (value, shift)
                     val (shifted, shift) = getShift(unsigned, 0w0)
                 in
-                    toInstr((if isSub then SubShiftedReg else AddShiftedReg)
-                        {regM=regW, regN=regS, regD=regD, shift=ShiftLSL shift, setFlags=false, opSize=OpSize64}) ::
-                    List.rev (loadNonAddress(regW, shifted)) @ code
+                    code <@> toInstrs([LoadNonAddr(regW, shifted)]) <::>
+                        toInstr((if isSub then SubShiftedReg else AddShiftedReg)
+                            {regM=regW, regN=regS, regD=regD, shift=ShiftLSL shift, setFlags=false, opSize=OpSize64})
                 end
             end
 
@@ -283,7 +288,7 @@ struct
             moveIfNecessary({src=getAllocatedGenReg source, dst=getAllocatedGenReg dest}, code)
 
         |   codeExtended _ (LoadNonAddressConstant{source, dest, ...}, code) =
-                List.rev(loadNonAddress(getAllocatedGenReg dest, source)) @ code
+                code <@> toInstrs([LoadNonAddr(getAllocatedGenReg dest, source)])
 
         |   codeExtended _ (LoadAddressConstant{source, dest, ...}, code) =
                 loadAddressConstant(getAllocatedGenReg dest, source) :: code
@@ -368,7 +373,7 @@ struct
                 val destReg = getAllocatedGenReg dest
                 (* N.B.  This is in reverse order so read from the bottom up. *)
             in
-                moveRegToReg{sReg=destReg, dReg=X_MLHeapAllocPtr} ::
+                toInstr(MoveXRegToXReg{sReg=destReg, dReg=X_MLHeapAllocPtr}) ::
                 setLabel label ::
                 (if saveX30
                  then [toInstr(LoadRegUnscaled{regT=X30, regN=X_MLStackPtr, byteOffset= 8, loadType=Load64, unscaledType=PostIndex})]
@@ -408,7 +413,7 @@ struct
                    now greater than the allocation pointer. *)
             in
                 (* N.B.  This is in reverse order so read from the bottom up. *)
-                moveRegToReg{sReg=destReg, dReg=X_MLHeapAllocPtr} ::
+                toInstr(MoveXRegToXReg{sReg=destReg, dReg=X_MLHeapAllocPtr}) ::
                 setLabel noTrapLabel ::
                 (if saveX30
                  then [toInstr(LoadRegUnscaled{regT=X30, regN=X_MLStackPtr, byteOffset= 8, loadType=Load64, unscaledType=PostIndex})]
@@ -588,20 +593,6 @@ struct
 
         |   codeExtended _ (LogicalRegister{ base, shifted, dest, logOp, length, ccRef, shift}, code) =
             let
-                val instr =
-                    case (logOp, ccRef, length) of
-                        (LogAnd, NONE, OpSize64) => andShiftedReg
-                    |   (LogAnd, SOME _, OpSize64) => andsShiftedReg
-                    |   (LogOr, NONE, OpSize64) => orrShiftedReg
-                    |   (LogXor, NONE, OpSize64) => eorShiftedReg
-
-                    |   (LogAnd, NONE, OpSize32) => andShiftedReg32
-                    |   (LogAnd, SOME _, OpSize32) => andsShiftedReg32
-                    |   (LogOr, NONE, OpSize32) => orrShiftedReg32
-                    |   (LogXor, NONE, OpSize32) => eorShiftedReg32
-
-                    |   _ => raise InternalError "ccRef not valid with OR or XOR"
-                
                 (* There are also versions of AND/OR/XOR which operate on a complement (NOT)
                    of the shifted register.  It's probably not worth looking for a use for them. *)
                 val destReg =
@@ -609,7 +600,8 @@ struct
                         NONE => XZero
                     |   SOME dreg => getAllocatedGenReg dreg
             in
-                instr{regN=getAllocatedGenReg base, regM=getAllocatedGenReg shifted, regD=destReg, shift=shift} :: code
+                toInstr(LogicalShiftedReg{regN=getAllocatedGenReg base, regM=getAllocatedGenReg shifted, regD=destReg,
+                                          shift=shift, opSize=length, logOp=logOp, setFlags=isSome ccRef}) :: code
             end
 
         |   codeExtended _ (ShiftRegister{ direction, dest, source, shift, opSize }, code) =
@@ -632,29 +624,13 @@ struct
                 and srcAReg = case sourceA of SOME srcA => getAllocatedGenReg srcA | NONE => XZero
                 and srcNReg = getAllocatedGenReg sourceN
                 and srcMReg = getAllocatedGenReg sourceM
-                val instr =
-                    case kind of
-                        MultAdd32 => multiplyAndAdd32{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
-                    |   MultSub32 => multiplyAndSub32{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
-                    |   MultAdd64 => multiplyAndAdd{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
-                    |   MultSub64 => multiplyAndSub{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
-                    |   SignedMultAddLong => signedMultiplyAndAddLong{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg}
-                    |   SignedMultHigh => signedMultiplyHigh{regM=srcMReg, regN=srcNReg, regD=destReg}
             in
-                instr :: code
+                toInstr(MultiplyAndAddSub{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg, multKind=kind}) :: code
             end
 
         |   codeExtended _ (Division{ isSigned, dest, dividend, divisor, opSize }, code) =
-            let
-                val instr =
-                    case (isSigned, opSize) of
-                        (true, OpSize64) => signedDivide
-                    |   (true, OpSize32) => signedDivide32
-                    |   (false, OpSize64) => unsignedDivide
-                    |   (false, OpSize32) => unsignedDivide32
-            in
-                instr{regN=getAllocatedGenReg dividend, regM=getAllocatedGenReg divisor, regD=getAllocatedGenReg dest} :: code
-            end
+                toInstr(DivideRegs{regN=getAllocatedGenReg dividend, regM=getAllocatedGenReg divisor,
+                                   regD=getAllocatedGenReg dest, isSigned=isSigned, opSize=opSize}) :: code
 
         |   codeExtended _ (BeginFunction{regArgs, ...}, code) =
             let
@@ -681,7 +657,7 @@ struct
                     (if debugTrapAlways then []
                      else
                      [conditionalBranch(CondCarrySet, skipCheck),
-                      subSShiftedReg{regM=workRegister, regN=testReg, regD=XZero, shift=ShiftNone}]) @
+                      toInstr(SubShiftedReg{regM=workRegister, regN=testReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64})]) @
                     (* Load the end-of-stack value. *)
                     loadRegScaled{regT=workRegister, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset} :: code1
 
@@ -783,13 +759,15 @@ struct
                             val adjustedOffset = wordOffset+argNum
                         in
                             pushStackArgs(args, argNum+1,
-                                storeRegPreIndex{regT=workReg1, regN=X_MLStackPtr, byteOffset= ~8} ::
-                                    loadFromStack(workReg1, adjustedOffset, code))
+                                loadFromStack(workReg1, adjustedOffset, code) <::>
+                                toInstr(StoreRegUnscaled{regT=workReg1, regN=X_MLStackPtr, byteOffset= ~8, unscaledType=PreIndex, loadType=Load64}))
                         end
 
                     |   pushStackArgs (ArgInReg reg ::args, argNum, code) =
                             pushStackArgs(args, argNum+1,
-                                storeRegPreIndex{regT=getAllocatedGenReg reg, regN=X_MLStackPtr, byteOffset= ~8} :: code)
+                                code <::>
+                                toInstr(StoreRegUnscaled{regT=getAllocatedGenReg reg, regN=X_MLStackPtr, byteOffset= ~8,
+                                                         unscaledType=PreIndex, loadType=Load64}))
 
                     val pushedArgs = pushStackArgs(stackArgs, 0, code (* Initial code *))
 
@@ -806,30 +784,29 @@ struct
 
                 (* Push the registers before the call and pop them afterwards. *)
                 fun makeSavesAndCall([], code) =
-                    let
-                        val callFunctionCode =
-                            case callKind of
-                                Recursive => [branchAndLink startOfFunctionLabel]
-                            |   ConstantCode m =>
-                                    if is32in64
-                                    then raise InternalError "ConstantCode" (* Not currently *)
-                                    else [branchAndLinkReg workReg1, loadAddressConstant(workReg1, m)]
-                            |   FullCall =>
-                                    if is32in64
-                                    then [branchAndLinkReg workReg1,
-                                         loadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0},
-                                         toInstr(AddShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64})]
-                                    else [branchAndLinkReg workReg1,loadRegScaled{regT=workReg1, regN=X8, unitOffset=0}]
-                    in
-                        callFunctionCode @ code
-                    end
+                    (
+                        case callKind of
+                            Recursive => code <::> branchAndLink startOfFunctionLabel
+                        |   ConstantCode m =>
+                                if is32in64
+                                then raise InternalError "ConstantCode" (* Not currently *)
+                                else code <::> loadAddressConstant(workReg1, m) <::> branchAndLinkReg workReg1
+                        |   FullCall =>
+                                if is32in64
+                                then code <::>
+                                    toInstr(AddShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64}) <::>
+                                    toInstr(LoadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0, loadType=Load64}) <::>
+                                    branchAndLinkReg workReg1
+                                else code <::> toInstr(LoadRegScaled{regT=workReg1, regN=X8, unitOffset=0, loadType=Load64}) <::> branchAndLinkReg workReg1
+                    )
 
                 |   makeSavesAndCall(reg::regs, code) =
                     let
                         val areg = getAllocatedGenReg reg
                     in
-                        loadRegPostIndex{regT=areg, regN=X_MLStackPtr, byteOffset= 8} ::
-                            makeSavesAndCall(regs, storeRegPreIndex{regT=areg, regN=X_MLStackPtr, byteOffset= ~8} :: code)
+                        makeSavesAndCall(regs,
+                                code <::> toInstr(StoreRegUnscaled{regT=areg, regN=X_MLStackPtr, byteOffset= ~8, loadType=Load64, unscaledType=PreIndex})) <::>
+                            toInstr(LoadRegUnscaled{regT=areg, regN=X_MLStackPtr, byteOffset= 8, loadType=Load64, unscaledType=PostIndex})
                     end
 
             in
@@ -889,8 +866,8 @@ struct
                 val byteOffset = stackOffset * Word.toInt nativeWordSize
             in
                 if byteOffset >= 4096
-                then toInstr(AddShiftedReg{regN=X_MLStackPtr, regM=destReg, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64}) ::
-                        List.rev(loadNonAddress(destReg, Word64.fromInt byteOffset)) @ code
+                then code <@> toInstrs([LoadNonAddr(destReg, Word64.fromInt byteOffset)]) <::>
+                        toInstr(AddShiftedReg{regN=X_MLStackPtr, regM=destReg, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64})
                 else toInstr(AddImmediate{regN=X_MLStackPtr, regD=destReg, immed=Word.fromInt byteOffset,
                                           shifted=false, setFlags=false, opSize=OpSize64}) :: code
             end
@@ -928,8 +905,11 @@ struct
             end
 
         |   codeExtended _ (BoxLarge{ source, dest, saveRegs }, code) =
-                List.rev(boxSysWord{source=getAllocatedGenReg source, destination=getAllocatedGenReg dest,
+                List.rev(Arm64Sequences.boxSysWord{source=getAllocatedGenReg source, destination=getAllocatedGenReg dest,
                                     workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
+(*                code <@>
+                    toInstrs(boxSysWord({source=getAllocatedGenReg source, destination=getAllocatedGenReg dest,
+                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))*)
 
         |   codeExtended _ (UnboxLarge{ source, dest }, code) =
             let
@@ -944,8 +924,11 @@ struct
             end
 
         |   codeExtended _ (BoxTagFloat{ floatSize=Double64, source, dest, saveRegs }, code) =
-                List.rev(boxDouble{source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
+                List.rev(Arm64Sequences.boxDouble{source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
                                     workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
+(*                code <@>
+                    toInstrs(boxDouble({source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
+                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))*)
 
         |   codeExtended _ (BoxTagFloat{ floatSize=Float32, source, dest, saveRegs }, code) =
             let
@@ -953,8 +936,8 @@ struct
                 and fixedReg = getAllocatedGenReg dest
             in
                 if is32in64
-                then List.rev(boxFloat{source=floatReg, destination=fixedReg,
-                                       workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
+                then code <@> toInstrs(boxFloat({source=floatReg, destination=fixedReg,
+                                       workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))
                 else bitwiseOrImmediate{regN=fixedReg, regD=fixedReg, bits=0w1} ::
                     logicalShiftLeft{shift=0w32, regN=fixedReg, regD=fixedReg} ::
                     moveFloatToGeneral{regN=floatReg, regD=fixedReg} :: code
@@ -985,28 +968,10 @@ struct
             end
 
         |   codeExtended _ (LoadAcquire{dest, base, loadType, ...}, code) =
-            let
-                val loadInstr  =
-                    case loadType of
-                        Load64 => loadAcquire
-                    |   Load32 => loadAcquire32
-                    |   Load8 => loadAcquireByte
-                    |   _ => raise InternalError "LoadAcquire: Unsupported size" (* Not used *)
-            in
-                loadInstr{regT=getAllocatedGenReg dest, regN=getAllocatedGenReg base} :: code
-            end
+                toInstr(LoadAcquireReg{regT=getAllocatedGenReg dest, regN=getAllocatedGenReg base, loadType=loadType}) :: code
 
         |   codeExtended _ (StoreRelease{source, base, loadType, ...}, code) =
-            let
-                val storeInstr  =
-                    case loadType of
-                        Load64 => storeRelease
-                    |   Load32 => storeRelease32
-                    |   Load8 => storeReleaseByte
-                    |   _ => raise InternalError "StoreRelease: Unsupported size" (* Not used *)
-            in
-                storeInstr{regT=getAllocatedGenReg source, regN=getAllocatedGenReg base} :: code
-            end
+                toInstr(StoreReleaseReg{regT=getAllocatedGenReg source, regN=getAllocatedGenReg base, loadType=loadType}) :: code
 
         |   codeExtended _ (BitFieldShift{ source, dest, isSigned, length, immr, imms }, code) =
             let
@@ -1104,20 +1069,20 @@ struct
                 and vec2Reg = getAllocatedGenReg vec2Addr
                 and lenReg = getAllocatedGenReg length
                 val loopLabel = createLabel() and exitLabel = createLabel()
-                (*  N.B. the code is in reverse order - read from the bottom up. *)
             in
-                setLabel exitLabel ::
-                conditionalBranch(CondEqual, loopLabel) :: (* Loop if they're equal *)
-                (* Compare *)
-                subSShiftedReg32{regM=workReg2, regN=workReg1, regD=XZero, shift=ShiftNone} ::
-                toInstr(SubImmediate{regN=lenReg, regD=lenReg, immed=0w1, shifted=false, setFlags=false, opSize=OpSize64}) :: (* Decr len *)
-                (* Load the bytes for the comparison and increment each. *)
-                loadRegPostIndexByte{regT=workReg2, regN=vec2Reg, byteOffset=1} ::            
-                loadRegPostIndexByte{regT=workReg1, regN=vec1Reg, byteOffset=1} ::
-                compareBranchZero(lenReg, exitLabel) :: (* Go to the end when len = zero *)
-                setLabel loopLabel :: (* Start of loop *)
+                code <::>
                 (* Set the CC to Equal before we start in case length = 0 *)
-                subSShiftedReg{regM=lenReg, regN=lenReg, regD=XZero, shift=ShiftNone} :: code
+                toInstr(SubShiftedReg{regM=lenReg, regN=lenReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
+                setLabel loopLabel <::> (* Start of loop *)
+                compareBranchZero(lenReg, exitLabel) <::> (* Go to the end when len = zero *)
+                (* Load the bytes for the comparison and increment each. *)
+                toInstr(LoadRegUnscaled{regT=workReg1, regN=vec1Reg, byteOffset=1, unscaledType=PostIndex, loadType=Load8}) <::>
+                toInstr(LoadRegUnscaled{regT=workReg2, regN=vec2Reg, byteOffset=1, unscaledType=PostIndex, loadType=Load8}) <::>            
+                toInstr(SubImmediate{regN=lenReg, regD=lenReg, immed=0w1, shifted=false, setFlags=false, opSize=OpSize64}) <::> (* Decr len *)
+                (* Compare *)
+                toInstr(SubShiftedReg{regM=workReg2, regN=workReg1, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
+                conditionalBranch(CondEqual, loopLabel) <::> (* Loop if they're equal *)
+                setLabel exitLabel
             end
 
         |   codeExtended _ (BlockMove{srcAddr, destAddr, length, isByteMove}, code) =
@@ -1127,31 +1092,15 @@ struct
                 and destReg = getAllocatedGenReg destAddr
                 and lenReg = getAllocatedGenReg length
                 val loopLabel = createLabel() and exitLabel = createLabel()
+                val (offset, loadType) = if isByteMove then (1, Load8) else if is32in64 then (4, Load32) else (8, Load64)
             in
-                setLabel exitLabel :: (* Exit from the loop. *)
-                unconditionalBranch loopLabel :: (* Back to the start *)
-                toInstr(SubImmediate{regN=lenReg, regD=lenReg, immed=0w1, shifted=false, setFlags=false, opSize=OpSize64}) :: (* Decr len *)
-                (
-                    if isByteMove
-                    then
-                    [
-                        storeRegPostIndexByte{regT=workReg1, regN=destReg, byteOffset=1},
-                        loadRegPostIndexByte{regT=workReg1, regN=srcReg, byteOffset=1}
-                    ]
-                    else if is32in64
-                    then
-                    [
-                        storeRegPostIndex32{regT=workReg1, regN=destReg, byteOffset=4},
-                        loadRegPostIndex32{regT=workReg1, regN=srcReg, byteOffset=4}
-                    ]
-                    else
-                    [
-                        storeRegPostIndex{regT=workReg1, regN=destReg, byteOffset=8},
-                        loadRegPostIndex{regT=workReg1, regN=srcReg, byteOffset=8}
-                    ]
-                ) @
-                compareBranchZero(lenReg, exitLabel) :: (* Exit when length = 0 *)
-                setLabel loopLabel (* Start of loop *) :: code
+                code <::> setLabel loopLabel (* Start of loop *) <::> 
+                compareBranchZero(lenReg, exitLabel) <::> (* Exit when length = 0 *)
+                toInstr(LoadRegUnscaled{regT=workReg1, regN=srcReg, byteOffset=offset, loadType=loadType, unscaledType=PostIndex}) <::>
+                toInstr(StoreRegUnscaled{regT=workReg1, regN=destReg, byteOffset=offset, loadType=loadType, unscaledType=PostIndex}) <::>
+                toInstr(SubImmediate{regN=lenReg, regD=lenReg, immed=0w1, shifted=false, setFlags=false, opSize=OpSize64}) <::> (* Decr len *)
+                unconditionalBranch loopLabel <::> (* Back to the start *)
+                setLabel exitLabel
             end
 
         |   codeExtended _ (AddSubXSP{ source, dest, isAdd }, code) =

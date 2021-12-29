@@ -107,6 +107,7 @@ sig
     and unscaledType = NoUpdate | PreIndex | PostIndex
     and condSet = CondSet | CondSetIncr | CondSetInvert | CondSetNegate
     and bitfieldKind = BFUnsigned | BFSigned | BFInsert
+    and brRegType = BRRBranch | BRRAndLink | BRRReturn
 
     datatype precode =
         (* Basic instructions *)
@@ -116,8 +117,7 @@ sig
     |   SubShiftedReg of {regM: xReg, regN: xReg, regD: xReg, shift: shiftType, opSize: opSize, setFlags: bool}
     |   AddExtendedReg of {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend, opSize: opSize, setFlags: bool}
     |   SubExtendedReg of {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend, opSize: opSize, setFlags: bool}
-    |   MultiplyAndAddSub of
-            {regM: xReg, regN: xReg, regA: xReg, regD: xReg, isAdd: bool, opSize: opSize, multKind: multKind}
+    |   MultiplyAndAddSub of {regM: xReg, regN: xReg, regA: xReg, regD: xReg, multKind: multKind}
     |   DivideRegs of
             {regM: xReg, regN: xReg, regD: xReg, isSigned: bool, opSize: opSize}
     |   LogicalShiftedReg of
@@ -161,6 +161,7 @@ sig
     |   ConditionalBranch of condition * labels
     |   UnconditionalBranch of labels
     |   BranchAndLink of labels
+    |   BranchReg of {regD: xReg, brRegType: brRegType }
     |   LoadLabelAddress of xReg * labels
     |   TestBitBranch of { test: xReg, bit: Word8.word, label: labels, onZero: bool }
     |   CompareBranch of { test: xReg, label: labels, onZero: bool, opSize: opSize }
@@ -172,6 +173,17 @@ sig
 
     val createLabel: unit -> labels
 
+    (* Wrapper for BitField *)
+    val shiftConstant: { direction: shiftDirection, regD: xReg, regN: xReg, shift: word, opSize: opSize } -> precode
+    
+    (* Convenient sequences.  N.B. These are in reverse order. *)
+    val boxDouble:
+        {source: vReg, destination: xReg, workReg: xReg, saveRegs: xReg list} * precode list -> precode list
+    and boxFloat:
+        {source: vReg, destination: xReg, workReg: xReg, saveRegs: xReg list} * precode list -> precode list
+    and boxSysWord:
+        {source: xReg, destination: xReg, workReg: xReg, saveRegs: xReg list} * precode list -> precode list
+
     (* Create the vector of code from the list of instructions and update the
        closure reference to point to it. *)
     val generateFinalCode:
@@ -181,6 +193,9 @@ sig
     (* Temporarily for development. *)
     type instr
     val toInstr: precode -> instr
+
+    (* Convert to assembler instructions preserving the order. *)
+    val toInstrs: precode list -> instr list
  
     (* Offsets in the assembly code interface pointed at by X26
        These are in units of 64-bits NOT bytes. *)
@@ -212,6 +227,7 @@ sig
         type unscaledType = unscaledType
         type condSet = condSet
         type bitfieldKind = bitfieldKind
+        type brRegType = brRegType
         type precode = precode
         type xReg = xReg
         type vReg = vReg
