@@ -28,7 +28,7 @@ local
             structure Arm64Assembly = Arm64Assembly
         )
 
-    structure Arm64Preassembly =
+    structure Arm64PreAssembly =
         Arm64PreAssembly (
             structure Arm64Assembly = Arm64Assembly
             and       Debug = Debug
@@ -45,7 +45,7 @@ local
 
     structure Arm64ICode =
         Arm64ICode (
-            structure Arm64Code     = Arm64Preassembly
+            structure Arm64Code     = Arm64PreAssembly
         )
 
     structure Arm64ICodeIdentify =
@@ -64,7 +64,7 @@ local
 
     structure Arm64PushRegs =
         Arm64PushRegisters (
-            structure Arm64ICode         = Arm64ICode
+            structure Arm64ICode    = Arm64ICode
             structure IntSet        = IntSet
             structure Identify      = Arm64ICodeIdentify
         )
@@ -93,6 +93,7 @@ local
             structure Identify      = Arm64ICodeIdentify
             structure Pretty        = Pretty
             structure IntSet        = IntSet
+            structure Arm64PreAssembly = Arm64PreAssembly
             structure Arm64Assembly = Arm64Assembly
             structure Arm64Sequences = Arm64Sequences
             structure Strongly      = StronglyConnected

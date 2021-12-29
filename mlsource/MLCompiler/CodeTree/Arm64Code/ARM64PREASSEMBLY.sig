@@ -106,16 +106,16 @@ sig
     and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
     and unscaledType = NoUpdate | PreIndex | PostIndex
     and condSet = CondSet | CondSetIncr | CondSetInvert | CondSetNegate
-    and bitfieldKind = BitFieldUnsigned | BitFieldSigned | BitFieldInsert
+    and bitfieldKind = BFUnsigned | BFSigned | BFInsert
 
     datatype precode =
         (* Basic instructions *)
-        AddSubImmediate of
-            {regN: xReg, regD: xReg, immed: word, shifted: bool, isAdd: bool, opSize: opSize, setFlags: bool}
-    |   AddSubShiftedReg of
-            {regM: xReg, regN: xReg, regD: xReg, shift: shiftType, isAdd: bool, opSize: opSize, setFlags: bool}
-    |   AddSubExtendedReg of
-            {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend, isAdd: bool, opSize: opSize, setFlags: bool}
+        AddImmediate of {regN: xReg, regD: xReg, immed: word, shifted: bool, opSize: opSize, setFlags: bool}
+    |   SubImmediate of {regN: xReg, regD: xReg, immed: word, shifted: bool, opSize: opSize, setFlags: bool}
+    |   AddShiftedReg of {regM: xReg, regN: xReg, regD: xReg, shift: shiftType, opSize: opSize, setFlags: bool}
+    |   SubShiftedReg of {regM: xReg, regN: xReg, regD: xReg, shift: shiftType, opSize: opSize, setFlags: bool}
+    |   AddExtendedReg of {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend, opSize: opSize, setFlags: bool}
+    |   SubExtendedReg of {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend, opSize: opSize, setFlags: bool}
     |   MultiplyAndAddSub of
             {regM: xReg, regN: xReg, regA: xReg, regD: xReg, isAdd: bool, opSize: opSize, multKind: multKind}
     |   DivideRegs of
@@ -138,8 +138,8 @@ sig
             {regT: vReg, regN: xReg, byteOffset: int, floatSize: floatSize, unscaledType: unscaledType}
     |   StoreFPRegUnscaled of
             {regT: vReg, regN: xReg, byteOffset: int, floatSize: floatSize, unscaledType: unscaledType}
-    |   LoadAcquire of {regN: xReg, regT: xReg, loadType: loadType}
-    |   StoreRelease of {regN: xReg, regT: xReg, loadType: loadType}
+    |   LoadAcquireReg of {regN: xReg, regT: xReg, loadType: loadType}
+    |   StoreReleaseReg of {regN: xReg, regT: xReg, loadType: loadType}
     |   LoadRegPair of { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
     |   StoreRegPair of{ regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
     |   LoadFPRegPair of { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
@@ -151,8 +151,8 @@ sig
         (* Floating point *)
     |   MoveGeneralToFP of { regN: xReg, regD: vReg, floatSize: floatSize}
     |   MoveFPToGeneral of {regN: vReg, regD: xReg, floatSize: floatSize}
-    |   ConvertIntToFP of { regN: xReg, regD: vReg, floatSize: floatSize, opSize: opSize}
-    |   ConvertFloatToInt of { round: IEEEReal.rounding_mode, regN: vReg, regD: xReg, floatSize: floatSize, opSize: opSize}
+    |   CvtIntToFP of { regN: xReg, regD: vReg, floatSize: floatSize, opSize: opSize}
+    |   CvtFloatToInt of { round: IEEEReal.rounding_mode, regN: vReg, regD: xReg, floatSize: floatSize, opSize: opSize}
     |   FPBinaryOp of { regM: vReg, regN: vReg, regD: vReg, floatSize: floatSize, fpOp: fpBinary}
     |   FPComparison of { regM: vReg, regN: vReg, floatSize: floatSize}
     |   FPUnaryOp of {regN: vReg, regD: vReg, floatSize: floatSize, fpOp: fpUnary}
@@ -168,15 +168,19 @@ sig
     |   MoveXRegToXReg of {sReg: xReg, dReg: xReg}
     |   LoadNonAddr of xReg * Word64.word
     |   LoadAddr of xReg * machineWord
+    |   RTSTrap of { rtsEntry: int, work: xReg, save: xReg list }
 
     val createLabel: unit -> labels
 
     (* Create the vector of code from the list of instructions and update the
        closure reference to point to it. *)
-    val generateCode:
+    val generateFinalCode:
         {instrs: precode list, name: string, parameters: Universal.universal list, resultClosure: closureRef,
          profileObject: machineWord} -> unit
 
+    (* Temporarily for development. *)
+    type instr
+    val toInstr: precode -> instr
  
     (* Offsets in the assembly code interface pointed at by X26
        These are in units of 64-bits NOT bytes. *)
@@ -197,6 +201,17 @@ sig
     structure Sharing:
     sig
         type closureRef = closureRef
+        type loadType = loadType
+        type opSize = opSize
+        type logicalOp = logicalOp
+        type floatSize = floatSize
+        type shiftDirection = shiftDirection
+        type multKind = multKind
+        type fpUnary = fpUnary
+        type fpBinary = fpBinary
+        type unscaledType = unscaledType
+        type condSet = condSet
+        type bitfieldKind = bitfieldKind
         type precode = precode
         type xReg = xReg
         type vReg = vReg
@@ -206,6 +221,7 @@ sig
         type wordSize = wordSize
         type 'a extend = 'a extend
         type scale = scale
+        type instr = instr
     end
 
 end;

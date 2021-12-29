@@ -44,16 +44,16 @@ struct
     and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
     and unscaledType = NoUpdate | PreIndex | PostIndex
     and condSet = CondSet | CondSetIncr | CondSetInvert | CondSetNegate
-    and bitfieldKind = BitFieldUnsigned | BitFieldSigned | BitFieldInsert
+    and bitfieldKind = BFUnsigned | BFSigned | BFInsert
 
     datatype precode =
         (* Basic instructions *)
-        AddSubImmediate of
-            {regN: xReg, regD: xReg, immed: word, shifted: bool, isAdd: bool, opSize: opSize, setFlags: bool}
-    |   AddSubShiftedReg of
-            {regM: xReg, regN: xReg, regD: xReg, shift: shiftType, isAdd: bool, opSize: opSize, setFlags: bool}
-    |   AddSubExtendedReg of
-            {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend, isAdd: bool, opSize: opSize, setFlags: bool}
+        AddImmediate of {regN: xReg, regD: xReg, immed: word, shifted: bool, opSize: opSize, setFlags: bool}
+    |   SubImmediate of {regN: xReg, regD: xReg, immed: word, shifted: bool, opSize: opSize, setFlags: bool}
+    |   AddShiftedReg of {regM: xReg, regN: xReg, regD: xReg, shift: shiftType, opSize: opSize, setFlags: bool}
+    |   SubShiftedReg of {regM: xReg, regN: xReg, regD: xReg, shift: shiftType, opSize: opSize, setFlags: bool}
+    |   AddExtendedReg of {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend, opSize: opSize, setFlags: bool}
+    |   SubExtendedReg of {regM: xReg, regN: xReg, regD: xReg, extend: Word8.word extend, opSize: opSize, setFlags: bool}
     |   MultiplyAndAddSub of
             {regM: xReg, regN: xReg, regA: xReg, regD: xReg, isAdd: bool, opSize: opSize, multKind: multKind}
     |   DivideRegs of
@@ -76,8 +76,8 @@ struct
             {regT: vReg, regN: xReg, byteOffset: int, floatSize: floatSize, unscaledType: unscaledType}
     |   StoreFPRegUnscaled of
             {regT: vReg, regN: xReg, byteOffset: int, floatSize: floatSize, unscaledType: unscaledType}
-    |   LoadAcquire of {regN: xReg, regT: xReg, loadType: loadType}
-    |   StoreRelease of {regN: xReg, regT: xReg, loadType: loadType}
+    |   LoadAcquireReg of {regN: xReg, regT: xReg, loadType: loadType}
+    |   StoreReleaseReg of {regN: xReg, regT: xReg, loadType: loadType}
     |   LoadRegPair of { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
     |   StoreRegPair of{ regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
     |   LoadFPRegPair of { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
@@ -89,8 +89,8 @@ struct
         (* Floating point *)
     |   MoveGeneralToFP of { regN: xReg, regD: vReg, floatSize: floatSize}
     |   MoveFPToGeneral of {regN: vReg, regD: xReg, floatSize: floatSize}
-    |   ConvertIntToFP of { regN: xReg, regD: vReg, floatSize: floatSize, opSize: opSize}
-    |   ConvertFloatToInt of { round: IEEEReal.rounding_mode, regN: vReg, regD: xReg, floatSize: floatSize, opSize: opSize}
+    |   CvtIntToFP of { regN: xReg, regD: vReg, floatSize: floatSize, opSize: opSize}
+    |   CvtFloatToInt of { round: IEEEReal.rounding_mode, regN: vReg, regD: xReg, floatSize: floatSize, opSize: opSize}
     |   FPBinaryOp of { regM: vReg, regN: vReg, regD: vReg, floatSize: floatSize, fpOp: fpBinary}
     |   FPComparison of { regM: vReg, regN: vReg, floatSize: floatSize}
     |   FPUnaryOp of {regN: vReg, regD: vReg, floatSize: floatSize, fpOp: fpUnary}
@@ -106,8 +106,199 @@ struct
     |   MoveXRegToXReg of {sReg: xReg, dReg: xReg}
     |   LoadNonAddr of xReg * Word64.word
     |   LoadAddr of xReg * machineWord
+    |   RTSTrap of { rtsEntry: int, work: xReg, save: xReg list }
 
-    fun generateCode
+
+    fun toAssembler([], code) = code
+
+    |   toAssembler(AddImmediate{regN, regD, immed, shifted, opSize, setFlags} :: rest, code) =
+        let
+            val instr =
+                case (opSize, setFlags) of
+                    (OpSize64, false) => addImmediate
+                |   (OpSize32, false) => addImmediate32
+                |   (OpSize64, true) => addSImmediate
+                |   (OpSize32, true) => addSImmediate32
+        in
+            toAssembler(rest, instr{regN=regN, regD=regD, immed=immed, shifted=shifted} :: code)
+        end
+
+    |   toAssembler(SubImmediate{regN, regD, immed, shifted, opSize, setFlags} :: rest, code) =
+        let
+            val instr =
+                case (opSize, setFlags) of
+                    (OpSize64, false) => subImmediate
+                |   (OpSize32, false) => subImmediate32
+                |   (OpSize64, true) => subSImmediate
+                |   (OpSize32, true) => subSImmediate32
+        in
+            toAssembler(rest, instr{regN=regN, regD=regD, immed=immed, shifted=shifted} :: code)
+        end
+
+    |   toAssembler(AddShiftedReg{regM, regN, regD, shift, opSize, setFlags} :: rest, code) =
+        let
+            val instr =
+                case (opSize, setFlags) of
+                    (OpSize64, false) => addShiftedReg
+                |   (OpSize32, false) => addShiftedReg32
+                |   (OpSize64, true) => addSShiftedReg
+                |   (OpSize32, true) => addSShiftedReg32
+        in
+            toAssembler(rest, instr{regM=regM, regN=regN, regD=regD, shift=shift} :: code)
+        end
+
+    |   toAssembler(SubShiftedReg{regM, regN, regD, shift, opSize, setFlags} :: rest, code) =
+        let
+            val instr =
+                case (opSize, setFlags) of
+                    (OpSize64, false) => subShiftedReg
+                |   (OpSize32, false) => subShiftedReg32
+                |   (OpSize64, true) => subSShiftedReg
+                |   (OpSize32, true) => subSShiftedReg32
+        in
+            toAssembler(rest, instr{regM=regM, regN=regN, regD=regD, shift=shift} :: code)
+        end
+
+    |   toAssembler(AddExtendedReg{regM, regN, regD, extend, opSize, setFlags} :: rest, code) =
+        (* Add/SubExtended are only used to access XSP. *)
+        let
+            val instr =
+                case (opSize, setFlags) of
+                    (OpSize64, false) => addExtendedReg
+                |   (OpSize32, false) => raise InternalError "AddExtendedReg; 32"
+                |   (OpSize64, true) => addSExtendedReg
+                |   (OpSize32, true) => raise InternalError "AddExtendedReg; 32"
+        in
+            toAssembler(rest, instr{regM=regM, regN=regN, regD=regD, extend=extend} :: code)
+        end
+
+    |   toAssembler(SubExtendedReg{regM, regN, regD, extend, opSize, setFlags} :: rest, code) =
+        let
+            val instr =
+                case (opSize, setFlags) of
+                    (OpSize64, false) => subExtendedReg
+                |   (OpSize32, false) => raise InternalError "AddExtendedReg; 32"
+                |   (OpSize64, true) => subSExtendedReg
+                |   (OpSize32, true) => raise InternalError "AddExtendedReg; 32"
+        in
+            toAssembler(rest, instr{regM=regM, regN=regN, regD=regD, extend=extend} :: code)
+        end
+
+    |   toAssembler(LoadRegScaled{regT, regN, unitOffset, loadType} :: rest, code) =
+        let
+            val instr =
+                case loadType of
+                    Load64 => loadRegScaled
+                |   Load32 => loadRegScaled32
+                |   Load16 => loadRegScaled16
+                |   Load8 => loadRegScaledByte
+        in
+            toAssembler(rest, instr{regT=regT, regN=regN, unitOffset=unitOffset} :: code)
+        end
+
+    |   toAssembler(LoadFPRegScaled{regT, regN, unitOffset, floatSize} :: rest, code) =
+        let
+            val instr =
+                case floatSize of
+                    Float32 => loadRegScaledFloat
+                |   Double64 => loadRegScaledDouble
+        in
+            toAssembler(rest, instr{regT=regT, regN=regN, unitOffset=unitOffset} :: code)
+        end
+
+    |   toAssembler(StoreRegScaled{regT, regN, unitOffset, loadType} :: rest, code) =
+        let
+            val instr =
+                case loadType of
+                    Load64 => storeRegScaled
+                |   Load32 => storeRegScaled32
+                |   Load16 => storeRegScaled16
+                |   Load8 => storeRegScaledByte
+        in
+            toAssembler(rest, instr{regT=regT, regN=regN, unitOffset=unitOffset} :: code)
+        end
+
+    |   toAssembler(StoreFPRegScaled{regT, regN, unitOffset, floatSize} :: rest, code) =
+        let
+            val instr =
+                case floatSize of
+                    Float32 => storeRegScaledFloat
+                |   Double64 => storeRegScaledDouble
+        in
+            toAssembler(rest, instr{regT=regT, regN=regN, unitOffset=unitOffset} :: code)
+        end
+
+    |   toAssembler(LoadRegUnscaled{regT, regN, byteOffset, loadType, unscaledType} :: rest, code) =
+        let
+            val instr =
+                case (loadType, unscaledType) of
+                    (Load64, NoUpdate) => loadRegUnscaled
+                |   (Load32, NoUpdate) => loadRegUnscaled32
+                |   (Load16, NoUpdate) => loadRegUnscaled16
+                |   (Load8, NoUpdate) => loadRegUnscaledByte
+                |   (Load64, PreIndex) => loadRegPreIndex
+                |   (Load32, PreIndex) => loadRegPreIndex32
+                |   (Load16, PreIndex) => raise InternalError "loadRegPreIndex16"
+                |   (Load8, PreIndex) => loadRegPreIndexByte
+                |   (Load64, PostIndex) => loadRegPostIndex
+                |   (Load32, PostIndex) => loadRegPostIndex32
+                |   (Load16, PostIndex) => raise InternalError "loadRegPostIndex16"
+                |   (Load8, PostIndex) => loadRegPostIndexByte
+        in
+            toAssembler(rest, instr{regT=regT, regN=regN, byteOffset=byteOffset} :: code)
+        end
+
+    |   toAssembler(LoadFPRegUnscaled{regT, regN, byteOffset, floatSize, unscaledType} :: rest, code) =
+        let
+            val instr =
+                case (floatSize, unscaledType) of
+                    (Float32, NoUpdate) => loadRegUnscaledFloat
+                |   (Double64, NoUpdate) => loadRegUnscaledDouble
+                |   _ => raise InternalError "LoadFPRegUnscaled: pre/post indexed"
+        in
+            toAssembler(rest, instr{regT=regT, regN=regN, byteOffset=byteOffset} :: code)
+        end
+
+    |   toAssembler(StoreRegUnscaled{regT, regN, byteOffset, loadType, unscaledType} :: rest, code) =
+        let
+            val instr =
+                case (loadType, unscaledType) of
+                    (Load64, NoUpdate) => storeRegUnscaled
+                |   (Load32, NoUpdate) => storeRegUnscaled32
+                |   (Load16, NoUpdate) => storeRegUnscaled16
+                |   (Load8, NoUpdate) => storeRegUnscaledByte
+                |   (Load64, PreIndex) => storeRegPreIndex
+                |   (Load32, PreIndex) => storeRegPreIndex32
+                |   (Load16, PreIndex) => raise InternalError "storeRegPreIndex16"
+                |   (Load8, PreIndex) => storeRegPreIndexByte
+                |   (Load64, PostIndex) => storeRegPostIndex
+                |   (Load32, PostIndex) => storeRegPostIndex32
+                |   (Load16, PostIndex) => raise InternalError "storeRegPostIndex16"
+                |   (Load8, PostIndex) => storeRegPostIndexByte
+        in
+            toAssembler(rest, instr{regT=regT, regN=regN, byteOffset=byteOffset} :: code)
+        end
+
+    |   toAssembler(StoreFPRegUnscaled{regT, regN, byteOffset, floatSize, unscaledType} :: rest, code) =
+        let
+            val instr =
+                case (floatSize, unscaledType) of
+                    (Float32, NoUpdate) => storeRegUnscaledFloat
+                |   (Double64, NoUpdate) => storeRegUnscaledDouble
+                |   _ => raise InternalError "StoreFPRegUnscaled: pre/post indexed"
+        in
+            toAssembler(rest, instr{regT=regT, regN=regN, byteOffset=byteOffset} :: code)
+        end
+ 
+    |   toAssembler _ = raise Fail "TODO"
+
+
+    fun toInstr precode =
+        case toAssembler([precode], []) of
+            [single] => single
+        |   _ => raise InternalError "toInstr"
+
+    fun generateFinalCode
         {instrs, name, parameters, resultClosure, profileObject} = raise Fail "TODO"
 
 
@@ -115,6 +306,17 @@ struct
     structure Sharing =
     struct
         type closureRef = closureRef
+        type loadType = loadType
+        type opSize = opSize
+        type logicalOp = logicalOp
+        type floatSize = floatSize
+        type shiftDirection = shiftDirection
+        type multKind = multKind
+        type fpUnary = fpUnary
+        type fpBinary = fpBinary
+        type unscaledType = unscaledType
+        type condSet = condSet
+        type bitfieldKind = bitfieldKind
         type precode = precode
         type xReg = xReg
         type vReg = vReg
@@ -124,6 +326,7 @@ struct
         type wordSize = wordSize
         type 'a extend = 'a extend
         type scale = scale
+        type instr = instr
     end
 
 end;
