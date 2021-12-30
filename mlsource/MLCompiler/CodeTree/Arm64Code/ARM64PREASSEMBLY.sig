@@ -138,6 +138,10 @@ sig
             {regT: vReg, regN: xReg, byteOffset: int, floatSize: floatSize, unscaledType: unscaledType}
     |   StoreFPRegUnscaled of
             {regT: vReg, regN: xReg, byteOffset: int, floatSize: floatSize, unscaledType: unscaledType}
+    |   LoadRegIndexed of {regT: xReg, regN: xReg, regM: xReg, loadType: loadType, option: scale extend}
+    |   StoreRegIndexed of {regT: xReg, regN: xReg, regM: xReg, loadType: loadType, option: scale extend}
+    |   LoadFPRegIndexed of {regT: vReg, regN: xReg, regM: xReg, floatSize: floatSize, option: scale extend}
+    |   StoreFPRegIndexed of {regT: vReg, regN: xReg, regM: xReg, floatSize: floatSize, option: scale extend}
     |   LoadAcquireReg of {regN: xReg, regT: xReg, loadType: loadType}
     |   StoreReleaseReg of {regN: xReg, regT: xReg, loadType: loadType}
     |   LoadRegPair of { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}

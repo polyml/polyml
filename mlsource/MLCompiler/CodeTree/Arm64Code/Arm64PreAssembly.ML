@@ -81,6 +81,10 @@ struct
             {regT: vReg, regN: xReg, byteOffset: int, floatSize: floatSize, unscaledType: unscaledType}
     |   StoreFPRegUnscaled of
             {regT: vReg, regN: xReg, byteOffset: int, floatSize: floatSize, unscaledType: unscaledType}
+    |   LoadRegIndexed of {regT: xReg, regN: xReg, regM: xReg, loadType: loadType, option: scale extend}
+    |   StoreRegIndexed of {regT: xReg, regN: xReg, regM: xReg, loadType: loadType, option: scale extend}
+    |   LoadFPRegIndexed of {regT: vReg, regN: xReg, regM: xReg, floatSize: floatSize, option: scale extend}
+    |   StoreFPRegIndexed of {regT: vReg, regN: xReg, regM: xReg, floatSize: floatSize, option: scale extend}
     |   LoadAcquireReg of {regN: xReg, regT: xReg, loadType: loadType}
     |   StoreReleaseReg of {regN: xReg, regT: xReg, loadType: loadType}
     |   LoadRegPair of { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
@@ -355,6 +359,50 @@ struct
             toAssembler(rest, code <::> loadInstr{regT=regT, regN=regN})
         end
 
+    |   toAssembler(LoadRegIndexed{regT, regN, regM, loadType, option} :: rest, code) =
+        let
+            val instr =
+                case loadType of
+                    Load64 => loadRegIndexed
+                |   Load32 => loadRegIndexed32
+                |   Load16 => loadRegIndexed16
+                |   Load8 => loadRegIndexedByte
+        in
+            toAssembler(rest, code <::> instr{regT=regT, regN=regN, regM=regM, option=option})
+        end
+
+    |   toAssembler(StoreRegIndexed{regT, regN, regM, loadType, option} :: rest, code) =
+        let
+            val instr =
+                case loadType of
+                    Load64 => storeRegIndexed
+                |   Load32 => storeRegIndexed32
+                |   Load16 => storeRegIndexed16
+                |   Load8 => storeRegIndexedByte
+        in
+            toAssembler(rest, code <::> instr{regT=regT, regN=regN, regM=regM, option=option})
+        end
+
+    |   toAssembler(LoadFPRegIndexed{regT, regN, regM, floatSize, option} :: rest, code) =
+        let
+            val instr =
+                case floatSize of
+                    Float32 => loadRegIndexedFloat
+                |   Double64 => loadRegIndexedDouble
+        in
+            toAssembler(rest, code <::> instr{regT=regT, regN=regN, regM=regM, option=option})
+        end
+
+    |   toAssembler(StoreFPRegIndexed{regT, regN, regM, floatSize, option} :: rest, code) =
+        let
+            val instr =
+                case floatSize of
+                    Float32 => storeRegIndexedFloat
+                |   Double64 => storeRegIndexedDouble
+        in
+            toAssembler(rest, code <::> instr{regT=regT, regN=regN, regM=regM, option=option})
+        end
+
     |   toAssembler(StoreReleaseReg{regN, regT, loadType} :: rest, code) =
         let
             val storeInstr  =
@@ -377,11 +425,44 @@ struct
 
     |   toAssembler(ConditionalSet{regD, regTrue, regFalse, cond, condSet} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
 
-    |   toAssembler(BitField{immr, imms, regN, regD, opSize, bitfieldKind} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(BitField{immr, imms, regN, regD, opSize, bitfieldKind} :: rest, code) =
+        let
+        in
+            toAssembler(rest, code <::> (raise Fail "TODO"))
+        end
 
-    |   toAssembler(ShiftRegisterVariable{regM, regN, regD, opSize, shiftDirection} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(ShiftRegisterVariable{regM, regN, regD, opSize, shiftDirection} :: rest, code) =
+        let
+            val instr =
+                case (shiftDirection, opSize) of
+                    (ShiftLeft, OpSize64) => logicalShiftLeftVariable
+                |   (ShiftLeft, OpSize32) => logicalShiftLeftVariable32
+                |   (ShiftRightLogical, OpSize64) => logicalShiftRightVariable
+                |   (ShiftRightLogical, OpSize32) => logicalShiftRightVariable32
+                |   (ShiftRightArithmetic, OpSize64) => arithmeticShiftRightVariable
+                |   (ShiftRightArithmetic, OpSize32) => arithmeticShiftRightVariable32
+        in
+            toAssembler(rest, code <::> instr{regN=regN, regM=regM, regD=regD})
+        end
 
-    |   toAssembler(BitwiseLogical{ bits, regN, regD, opSize, setFlags, logOp} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(BitwiseLogical{ bits, regN, regD, opSize, setFlags, logOp} :: rest, code) =
+        let
+            val instr =
+                case (logOp, setFlags, opSize) of
+                    (LogAnd, false, OpSize64) => bitwiseAndImmediate
+                |   (LogAnd, true, OpSize64) => bitwiseAndSImmediate
+                |   (LogOr, false, OpSize64) => bitwiseOrImmediate
+                |   (LogXor, false, OpSize64) => bitwiseXorImmediate
+
+                |   (LogAnd, false, OpSize32) => bitwiseAndImmediate32
+                |   (LogAnd, true, OpSize32) => bitwiseAndSImmediate32
+                |   (LogOr, false, OpSize32) => bitwiseOrImmediate32
+                |   (LogXor, false, OpSize32) => bitwiseXorImmediate32
+
+                |   _ => raise InternalError "flags not valid with OR or XOR"
+        in
+            toAssembler(rest, code <::> instr{regN=regN, regD=regD, bits=bits})
+        end
 
     |   toAssembler(MoveGeneralToFP{ regN, regD, floatSize} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
 
