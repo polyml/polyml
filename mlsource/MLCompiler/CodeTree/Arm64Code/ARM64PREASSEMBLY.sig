@@ -194,7 +194,7 @@ sig
     type instr
     val toInstr: precode -> instr
 
-    (* Convert to assembler instructions preserving the order. *)
+    (* Take a forward order sequence of instructions and generate a forward order output sequence. *)
     val toInstrs: precode list -> instr list
  
     (* Offsets in the assembly code interface pointed at by X26

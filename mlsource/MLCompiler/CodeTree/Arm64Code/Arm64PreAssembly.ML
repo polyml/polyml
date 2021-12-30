@@ -406,7 +406,7 @@ struct
                     else if lo = 0w0
                     then code <::> moveZero32{regD=xReg, immediate=hi, shift=0w16}
                     else if isEncodableBitPattern(value, WordSize32)
-                    then [bitwiseOrImmediate32{bits=value, regN=XZero, regD=xReg}]
+                    then code <::> bitwiseOrImmediate32{bits=value, regN=XZero, regD=xReg}
                     else (* Have to use two instructions *)
                         code <::>
                             moveZero32{regD=xReg, immediate=lo, shift=0w0} <::>
@@ -448,7 +448,7 @@ struct
             [single] => single
         |   _ => raise InternalError "toInstr"
 
-    (* Map a list of precode instructions to assembler instructions preserving the order. *)
+    (* Take a forward order sequence of instructions and generate a forward order output sequence. *)
     fun toInstrs precode = List.rev(toAssembler(precode, []))
 
     (* Constant shifts are encoded in the immr and imms fields of the bit-field instruction. *)

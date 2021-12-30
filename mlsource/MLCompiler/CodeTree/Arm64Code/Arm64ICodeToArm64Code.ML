@@ -19,7 +19,6 @@ functor Arm64ICodeToArm64Code(
 
     structure Arm64PreAssembly: ARM64PREASSEMBLY
     structure Arm64Assembly: ARM64ASSEMBLY
-    structure Arm64Sequences: ARM64SEQUENCES
     structure Debug: DEBUG
     structure Arm64ICode: ARM64ICODE
     structure Identify: ARM64IDENTIFYREFERENCES
@@ -31,7 +30,7 @@ functor Arm64ICodeToArm64Code(
             val stronglyConnectedComponents: {nodeAddress: 'a -> int, arcs: 'a -> int list } -> 'a list -> 'a list list
         end
     
-    sharing Arm64PreAssembly.Sharing = Arm64Assembly.Sharing = Arm64ICode.Sharing = Identify.Sharing = IntSet = Arm64Sequences.Sharing
+    sharing Arm64PreAssembly.Sharing = Arm64Assembly.Sharing = Arm64ICode.Sharing = Identify.Sharing = IntSet
 ): ARM64ICODEGENERATE =
 struct
     open Identify
@@ -40,8 +39,6 @@ struct
     open Arm64Assembly
     open Address
     exception InternalError = Misc.InternalError
-
-    (*fun loadNonAddress args = toInstrs([LoadNonAddr args])*)
 
     (* Reversed cons and append to make the code easier to read. *)
     infix 5 <::> <@>
@@ -68,13 +65,13 @@ struct
         fun loadFromStack(destReg, wordOffset, code) =
             if wordOffset >= 4096
             then loadRegIndexed{regT=destReg, regN=X_MLStackPtr, regM=destReg, option=ExtUXTX ScaleOrShift} ::
-                    toInstrs([LoadNonAddr(destReg, Word64.fromInt wordOffset)]) @ code
+                    List.rev(toInstrs([LoadNonAddr(destReg, Word64.fromInt wordOffset)])) @ code
             else toInstr(LoadRegScaled{regT=destReg, regN=X_MLStackPtr, unitOffset=wordOffset, loadType=Load64}) :: code
 
         and storeToStack(sourceReg, wordOffset, workReg, code) =
             if wordOffset >= 4096
             then storeRegIndexed{regT=sourceReg, regN=X_MLStackPtr, regM=workReg, option=ExtUXTX ScaleOrShift} ::
-                    toInstrs([LoadNonAddr(workReg, Word64.fromInt wordOffset)]) @ code
+                    List.rev(toInstrs([LoadNonAddr(workReg, Word64.fromInt wordOffset)])) @ code
             else toInstr(StoreRegScaled{regT=sourceReg, regN=X_MLStackPtr, unitOffset=wordOffset, loadType=Load64}) :: code
 
         datatype srcAndDest = IsInReg of xReg | IsOnStack of int
@@ -261,7 +258,7 @@ struct
                         else (value, shift)
                     val (shifted, shift) = getShift(unsigned, 0w0)
                 in
-                    code <@> toInstrs([LoadNonAddr(regW, shifted)]) <::>
+                    code <@> List.rev(toInstrs([LoadNonAddr(regW, shifted)])) <::>
                         toInstr((if isSub then SubShiftedReg else AddShiftedReg)
                             {regM=regW, regN=regS, regD=regD, shift=ShiftLSL shift, setFlags=false, opSize=OpSize64})
                 end
@@ -288,7 +285,7 @@ struct
             moveIfNecessary({src=getAllocatedGenReg source, dst=getAllocatedGenReg dest}, code)
 
         |   codeExtended _ (LoadNonAddressConstant{source, dest, ...}, code) =
-                code <@> toInstrs([LoadNonAddr(getAllocatedGenReg dest, source)])
+                code <@> List.rev(toInstrs([LoadNonAddr(getAllocatedGenReg dest, source)]))
 
         |   codeExtended _ (LoadAddressConstant{source, dest, ...}, code) =
                 loadAddressConstant(getAllocatedGenReg dest, source) :: code
@@ -866,7 +863,7 @@ struct
                 val byteOffset = stackOffset * Word.toInt nativeWordSize
             in
                 if byteOffset >= 4096
-                then code <@> toInstrs([LoadNonAddr(destReg, Word64.fromInt byteOffset)]) <::>
+                then code <@> List.rev(toInstrs([LoadNonAddr(destReg, Word64.fromInt byteOffset)])) <::>
                         toInstr(AddShiftedReg{regN=X_MLStackPtr, regM=destReg, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64})
                 else toInstr(AddImmediate{regN=X_MLStackPtr, regD=destReg, immed=Word.fromInt byteOffset,
                                           shifted=false, setFlags=false, opSize=OpSize64}) :: code
@@ -905,11 +902,10 @@ struct
             end
 
         |   codeExtended _ (BoxLarge{ source, dest, saveRegs }, code) =
-                List.rev(Arm64Sequences.boxSysWord{source=getAllocatedGenReg source, destination=getAllocatedGenReg dest,
-                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
-(*                code <@>
-                    toInstrs(boxSysWord({source=getAllocatedGenReg source, destination=getAllocatedGenReg dest,
-                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))*)
+               code <@>
+                    List.rev(toInstrs(
+                        List.rev(boxSysWord({source=getAllocatedGenReg source, destination=getAllocatedGenReg dest,
+                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))))
 
         |   codeExtended _ (UnboxLarge{ source, dest }, code) =
             let
@@ -924,11 +920,9 @@ struct
             end
 
         |   codeExtended _ (BoxTagFloat{ floatSize=Double64, source, dest, saveRegs }, code) =
-                List.rev(Arm64Sequences.boxDouble{source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
-                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}) @ code
-(*                code <@>
-                    toInstrs(boxDouble({source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
-                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))*)
+               code <@>
+                    List.rev(toInstrs(List.rev(boxDouble({source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
+                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))))
 
         |   codeExtended _ (BoxTagFloat{ floatSize=Float32, source, dest, saveRegs }, code) =
             let
@@ -936,8 +930,9 @@ struct
                 and fixedReg = getAllocatedGenReg dest
             in
                 if is32in64
-                then code <@> toInstrs(boxFloat({source=floatReg, destination=fixedReg,
-                                       workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))
+                then code <@>
+                        List.rev(toInstrs(List.rev(boxFloat({source=floatReg, destination=fixedReg,
+                                       workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))))
                 else bitwiseOrImmediate{regN=fixedReg, regD=fixedReg, bits=0w1} ::
                     logicalShiftLeft{shift=0w32, regN=fixedReg, regD=fixedReg} ::
                     moveFloatToGeneral{regN=floatReg, regD=fixedReg} :: code
