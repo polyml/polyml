@@ -261,18 +261,27 @@ sig
     and loadPairPostIndexed: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
     and storePairPreIndexed: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
     and loadPairPreIndexed: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+
+    and storePairOffset32: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairOffset32: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and storePairPostIndexed32: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPostIndexed32: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and storePairPreIndexed32: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPreIndexed32: {regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int} -> instr
+
     and storePairOffsetFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
     and loadPairOffsetFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
     and storePairPostIndexedFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
-    and loadPairPostIndexesFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPostIndexedFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
     and storePairPreIndexedFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
-    and loadPairPreIndexesFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPreIndexedFloat: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+
     and storePairOffsetDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
     and loadPairOffsetDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
     and storePairPostIndexedDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
-    and loadPairPostIndexesDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPostIndexedDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
     and storePairPreIndexedDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
-    and loadPairPreIndexesDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
+    and loadPairPreIndexedDouble: {regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int} -> instr
 
     (* This word is put in after a call to the RTS trap-handler.  All the registers
        are saved and restored across a call to the trap-handler; the register
@@ -307,11 +316,19 @@ sig
        incremented, inverted and negated. *)
     val conditionalSet:
         {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
-    val conditionalSetIncrement:
+    and conditionalSetIncrement:
         {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
-    val conditionalSetInverted:
+    and conditionalSetInverted:
         {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
-    val conditionalSetNegated:
+    and conditionalSetNegated:
+        {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
+    and conditionalSet32:
+        {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
+    and conditionalSetIncrement32:
+        {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
+    and conditionalSetInverted32:
+        {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
+    and conditionalSetNegated32:
         {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition} -> instr
 
     (* General form of shift/bit extraction. *)

@@ -685,24 +685,33 @@ struct
         and loadStorePairPostIndexed args = loadStorePair 0w1 args
         and loadStorePairPreIndexed args = loadStorePair 0w3 args
     in
-        val storePairOffset = loadStorePairOffset(0w2, 0w0, 0w0, xRegOnly)
-        and loadPairOffset =  loadStorePairOffset(0w2, 0w0, 0w1, xRegOnly)
-        and storePairPostIndexed = loadStorePairPostIndexed(0w2, 0w0, 0w0, xRegOnly)
-        and loadPairPostIndexed =  loadStorePairPostIndexed(0w2, 0w0, 0w1, xRegOnly)
-        and storePairPreIndexed = loadStorePairPreIndexed(0w2, 0w0, 0w0, xRegOnly)
-        and loadPairPreIndexed =  loadStorePairPreIndexed(0w2, 0w0, 0w1, xRegOnly)
+        val storePairOffset = loadStorePairOffset(0w2, 0w0, 0w0, xRegOrXZ)
+        and loadPairOffset =  loadStorePairOffset(0w2, 0w0, 0w1, xRegOrXZ)
+        and storePairPostIndexed = loadStorePairPostIndexed(0w2, 0w0, 0w0, xRegOrXZ)
+        and loadPairPostIndexed =  loadStorePairPostIndexed(0w2, 0w0, 0w1, xRegOrXZ)
+        and storePairPreIndexed = loadStorePairPreIndexed(0w2, 0w0, 0w0, xRegOrXZ)
+        and loadPairPreIndexed =  loadStorePairPreIndexed(0w2, 0w0, 0w1, xRegOrXZ)
+        
+        and storePairOffset32 = loadStorePairOffset(0w0, 0w0, 0w0, xRegOrXZ)
+        and loadPairOffset32 =  loadStorePairOffset(0w0, 0w0, 0w1, xRegOrXZ)
+        and storePairPostIndexed32 = loadStorePairPostIndexed(0w0, 0w0, 0w0, xRegOrXZ)
+        and loadPairPostIndexed32 =  loadStorePairPostIndexed(0w0, 0w0, 0w1, xRegOrXZ)
+        and storePairPreIndexed32 = loadStorePairPreIndexed(0w0, 0w0, 0w0, xRegOrXZ)
+        and loadPairPreIndexed32 =  loadStorePairPreIndexed(0w0, 0w0, 0w1, xRegOrXZ)
+
         and storePairOffsetFloat = loadStorePairOffset(0w0, 0w1, 0w0, vReg)
         and loadPairOffsetFloat = loadStorePairOffset(0w0, 0w1, 0w1, vReg)
         and storePairPostIndexedFloat = loadStorePairPostIndexed(0w0, 0w1, 0w0, vReg)
-        and loadPairPostIndexesFloat = loadStorePairPostIndexed(0w0, 0w1, 0w1, vReg)
+        and loadPairPostIndexedFloat = loadStorePairPostIndexed(0w0, 0w1, 0w1, vReg)
         and storePairPreIndexedFloat = loadStorePairPreIndexed(0w0, 0w1, 0w0, vReg)
-        and loadPairPreIndexesFloat = loadStorePairPreIndexed(0w0, 0w1, 0w1, vReg)
+        and loadPairPreIndexedFloat = loadStorePairPreIndexed(0w0, 0w1, 0w1, vReg)
+
         and storePairOffsetDouble = loadStorePairOffset(0w0, 0w1, 0w0, vReg)
         and loadPairOffsetDouble = loadStorePairOffset(0w0, 0w1, 0w1, vReg)
         and storePairPostIndexedDouble = loadStorePairPostIndexed(0w1, 0w1, 0w0, vReg)
-        and loadPairPostIndexesDouble = loadStorePairPostIndexed(0w1, 0w1, 0w1, vReg)
+        and loadPairPostIndexedDouble = loadStorePairPostIndexed(0w1, 0w1, 0w1, vReg)
         and storePairPreIndexedDouble = loadStorePairPreIndexed(0w1, 0w1, 0w0, vReg)
-        and loadPairPreIndexesDouble = loadStorePairPreIndexed(0w1, 0w1, 0w1, vReg)
+        and loadPairPreIndexedDouble = loadStorePairPreIndexed(0w1, 0w1, 0w1, vReg)
     end
 
     (* Addresses must go in the constant area at the end of the code where they
@@ -799,6 +808,10 @@ struct
         and conditionalSetIncrement = conditionalSelect(0w1, 0w0, 0w1)
         and conditionalSetInverted = conditionalSelect(0w1, 0w1, 0w0)
         and conditionalSetNegated = conditionalSelect(0w1, 0w1, 0w1)
+        and conditionalSet32 = conditionalSelect(0w0, 0w0, 0w0)
+        and conditionalSetIncrement32 = conditionalSelect(0w0, 0w0, 0w1)
+        and conditionalSetInverted32 = conditionalSelect(0w0, 0w1, 0w0)
+        and conditionalSetNegated32 = conditionalSelect(0w0, 0w1, 0w1)
     end
 
     (* This combines the effect of a left and right shift.  There are various

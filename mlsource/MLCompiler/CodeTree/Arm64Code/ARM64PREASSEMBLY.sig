@@ -148,11 +148,16 @@ sig
         (* LoadAcquireExclusiveRegister and StoreReleaseExclusiveRegister are used for mutexes. *)
     |   LoadAcquireExclusiveRegister of {regN: xReg, regT: xReg}
     |   StoreReleaseExclusiveRegister of {regS: xReg, regT: xReg, regN: xReg}
-    |   LoadRegPair of { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
-    |   StoreRegPair of{ regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
-    |   LoadFPRegPair of { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
-    |   StoreFPRegPair of { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
-    |   ConditionalSet of {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition, condSet: condSet}
+    |   LoadRegPair of
+            { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, loadType: loadType, unscaledType: unscaledType}
+    |   StoreRegPair of
+            { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, loadType: loadType, unscaledType: unscaledType}
+    |   LoadFPRegPair of
+            { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, floatSize: floatSize, unscaledType: unscaledType}
+    |   StoreFPRegPair of
+            { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, floatSize: floatSize, unscaledType: unscaledType}
+    |   ConditionalSet of
+            {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition, condSet: condSet, opSize: opSize}
     |   BitField of {immr: word, imms: word, regN: xReg, regD: xReg, opSize: opSize, bitfieldKind: bitfieldKind}
     |   ShiftRegisterVariable of {regM: xReg, regN: xReg, regD: xReg, opSize: opSize, shiftDirection: shiftDirection}
     |   BitwiseLogical of { bits: Word64.word, regN: xReg, regD: xReg, opSize: opSize, setFlags: bool, logOp: logicalOp}

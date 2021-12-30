@@ -91,11 +91,16 @@ struct
         (* LoadAcquireExclusiveRegister and StoreReleaseExclusiveRegister are used for mutexes. *)
     |   LoadAcquireExclusiveRegister of {regN: xReg, regT: xReg}
     |   StoreReleaseExclusiveRegister of {regS: xReg, regT: xReg, regN: xReg}
-    |   LoadRegPair of { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
-    |   StoreRegPair of{ regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
-    |   LoadFPRegPair of { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
-    |   StoreFPRegPair of { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
-    |   ConditionalSet of {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition, condSet: condSet}
+    |   LoadRegPair of
+            { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, loadType: loadType, unscaledType: unscaledType}
+    |   StoreRegPair of
+            { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, loadType: loadType, unscaledType: unscaledType}
+    |   LoadFPRegPair of
+            { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, floatSize: floatSize, unscaledType: unscaledType}
+    |   StoreFPRegPair of
+            { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, floatSize: floatSize, unscaledType: unscaledType}
+    |   ConditionalSet of
+            {regD: xReg, regTrue: xReg, regFalse: xReg, cond: condition, condSet: condSet, opSize: opSize}
     |   BitField of {immr: word, imms: word, regN: xReg, regD: xReg, opSize: opSize, bitfieldKind: bitfieldKind}
     |   ShiftRegisterVariable of {regM: xReg, regN: xReg, regD: xReg, opSize: opSize, shiftDirection: shiftDirection}
     |   BitwiseLogical of { bits: Word64.word, regN: xReg, regD: xReg, opSize: opSize, setFlags: bool, logOp: logicalOp}
@@ -425,15 +430,79 @@ struct
     |   toAssembler(StoreReleaseExclusiveRegister{regN, regT, regS} :: rest, code) =
             toAssembler(rest, code <::> storeReleaseExclusiveRegister{regN=regN, regT=regT, regS=regS})
 
-    |   toAssembler(LoadRegPair{ regT1, regT2, regN, unitOffset, unscaledType} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(LoadRegPair{ regT1, regT2, regN, unitOffset, loadType, unscaledType} :: rest, code) =
+        let
+            val instr =
+                case (loadType, unscaledType) of
+                    (Load64, NoUpdate) => loadPairOffset
+                |   (Load64, PreIndex) => loadPairPreIndexed
+                |   (Load64, PostIndex) => loadPairPostIndexed
+                |   (Load32, NoUpdate) => loadPairOffset32
+                |   (Load32, PreIndex) => loadPairPreIndexed32
+                |   (Load32, PostIndex) => loadPairPostIndexed32
+                |   _ => raise InternalError "LoadRegPair: unimplemented"
+        in
+            toAssembler(rest, code <::> instr{regT1=regT1, regT2=regT2, regN=regN, unitOffset=unitOffset})
+        end
 
-    |   toAssembler(StoreRegPair{ regT1, regT2, regN, unitOffset, unscaledType} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(StoreRegPair{ regT1, regT2, regN, unitOffset, loadType, unscaledType} :: rest, code) =
+        let
+            val instr =
+                case (loadType, unscaledType) of
+                    (Load64, NoUpdate) => storePairOffset
+                |   (Load64, PreIndex) => storePairPreIndexed
+                |   (Load64, PostIndex) => storePairPostIndexed
+                |   (Load32, NoUpdate) => storePairOffset32
+                |   (Load32, PreIndex) => storePairPreIndexed32
+                |   (Load32, PostIndex) => storePairPostIndexed32
+                |   _ => raise InternalError "StoreRegPair: unimplemented"
+        in
+            toAssembler(rest, code <::> instr{regT1=regT1, regT2=regT2, regN=regN, unitOffset=unitOffset})
+        end
 
-    |   toAssembler(LoadFPRegPair{ regT1, regT2, regN, unitOffset, unscaledType} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(LoadFPRegPair{ regT1, regT2, regN, unitOffset, floatSize, unscaledType} :: rest, code) =
+        let
+            val instr =
+                case (floatSize, unscaledType) of
+                    (Double64, NoUpdate) => loadPairOffsetDouble
+                |   (Double64, PreIndex) => loadPairPreIndexedDouble
+                |   (Double64, PostIndex) => loadPairPostIndexedDouble
+                |   (Float32, NoUpdate) => loadPairOffsetFloat
+                |   (Float32, PreIndex) => loadPairPreIndexedFloat
+                |   (Float32, PostIndex) => loadPairPostIndexedFloat
+        in
+            toAssembler(rest, code <::> instr{regT1=regT1, regT2=regT2, regN=regN, unitOffset=unitOffset})
+        end
 
-    |   toAssembler(StoreFPRegPair{ regT1, regT2, regN, unitOffset, unscaledType} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(StoreFPRegPair{ regT1, regT2, regN, unitOffset, floatSize, unscaledType} :: rest, code) =
+        let
+            val instr =
+                case (floatSize, unscaledType) of
+                    (Double64, NoUpdate) => storePairOffsetDouble
+                |   (Double64, PreIndex) => storePairPreIndexedDouble
+                |   (Double64, PostIndex) => storePairPostIndexedDouble
+                |   (Float32, NoUpdate) => storePairOffsetFloat
+                |   (Float32, PreIndex) => storePairPreIndexedFloat
+                |   (Float32, PostIndex) => storePairPostIndexedFloat
+        in
+            toAssembler(rest, code <::> instr{regT1=regT1, regT2=regT2, regN=regN, unitOffset=unitOffset})
+        end
 
-    |   toAssembler(ConditionalSet{regD, regTrue, regFalse, cond, condSet} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(ConditionalSet{regD, regTrue, regFalse, cond, condSet, opSize} :: rest, code) =
+        let
+            val instr =
+                case (condSet, opSize) of
+                    (CondSet, OpSize64) => conditionalSet
+                |   (CondSetIncr, OpSize64) => conditionalSetIncrement
+                |   (CondSetInvert, OpSize64) => conditionalSetInverted
+                |   (CondSetNegate, OpSize64) => conditionalSetNegated
+                |   (CondSet, OpSize32) => conditionalSet32
+                |   (CondSetIncr, OpSize32) => conditionalSetIncrement32
+                |   (CondSetInvert, OpSize32) => conditionalSetInverted32
+                |   (CondSetNegate, OpSize32) => conditionalSetNegated32
+        in
+            toAssembler(rest, code <::> instr{regD=regD, regTrue=regTrue, regFalse=regFalse, cond=cond})
+        end
 
     |   toAssembler(BitField{immr, imms, regN, regD, opSize, bitfieldKind} :: rest, code) =
         let
@@ -719,8 +788,9 @@ struct
     end
 
 
-    fun generateFinalCode
-        {instrs, name, parameters, resultClosure, profileObject} = raise Fail "TODO"
+    fun generateFinalCode {instrs, name, parameters, resultClosure, profileObject} =
+        generateCode{instrs=List.rev(toAssembler(instrs, [])), name=name, parameters=parameters,
+                     resultClosure=resultClosure, profileObject=profileObject}
 
 
 
