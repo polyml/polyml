@@ -265,15 +265,6 @@ struct
             end
 
         val getSaveRegs = List.map getAllocatedGenReg
-        
-        fun getSaveRegsAndSeparate saveRegs =
-        let
-            val realSaveRegs = getSaveRegs saveRegs
-            val saveX30 = List.exists (fn r => r = X30) realSaveRegs
-            val preserve = List.filter (fn r => r <> X30) realSaveRegs
-        in
-            { saveX30=saveX30, saveRegs=preserve }
-        end
 
         val startOfFunctionLabel = createLabel() (* Used for recursive calls/jumps *)
 
@@ -410,21 +401,20 @@ struct
                 and addrReg = getAllocatedGenReg addr
                 and initReg = getAllocatedGenReg init
                 val exitLabel = createLabel() and loopLabel = createLabel()
-                (* Yhis uses a loop to initialise.  It's possible the size is
+                (* This uses a loop to initialise.  It's possible the size is
                    zero so we have to check at the top of the loop. *)
+                val (bShift, offset, loadType) = if is32in64 then (0w2, ~4, Load32) else (0w3, ~8, Load64)
             in
-                setLabel exitLabel ::
-                unconditionalBranch loopLabel ::
-                (if is32in64
-                 then storeRegPreIndex32{regT=initReg, regN=workReg1, byteOffset= ~4}
-                 else storeRegPreIndex{regT=initReg, regN=workReg1, byteOffset= ~8}) ::
-                conditionalBranch(CondEqual, exitLabel) ::
-                (* Are we at the start? *)
-                toInstr(SubShiftedReg{regM=workReg1, regN=addrReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) ::
-                setLabel loopLabel ::
+                code <::>
                 (* Add the length in bytes so we point at the end. *)
-                toInstr(AddShiftedReg{regM=sizeReg, regN=addrReg, regD=workReg1,
-                            shift=ShiftLSL(if is32in64 then 0w2 else 0w3), setFlags=false, opSize=OpSize64}) :: code
+                toInstr(AddShiftedReg{regM=sizeReg, regN=addrReg, regD=workReg1, shift=ShiftLSL bShift, setFlags=false, opSize=OpSize64}) <::>
+                toInstr(SetLabel loopLabel) <::>
+                (* Are we at the start? *)
+                toInstr(SubShiftedReg{regM=workReg1, regN=addrReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
+                toInstr(ConditionalBranch(CondEqual, exitLabel)) <::>
+                toInstr(StoreRegUnscaled{regT=initReg, regN=workReg1, byteOffset=offset, loadType=loadType, unscaledType=PreIndex }) <::>
+                toInstr(UnconditionalBranch loopLabel) <::>
+                toInstr(SetLabel exitLabel)
             end
 
         |   codeExtended _ (BeginLoop, code) = code
@@ -444,20 +434,15 @@ struct
                     NONE => code2
                 |   SOME saveRegs =>
                     let
-                        val {saveX30, saveRegs} = getSaveRegsAndSeparate saveRegs
                         val skipCheck = createLabel()
                     in
+                        code2 <::>
                         (* Put in stack-check code to allow this to be interrupted. *)
-                        setLabel skipCheck ::
-                        (if saveX30 then [loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8}] else []) @
-                        registerMask saveRegs ::
-                        branchAndLinkReg workReg1 ::
-                        loadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=stackOverflowCallOffset} ::
-                        (if saveX30 then [storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8}] else []) @
-                        conditionalBranch(CondCarrySet, skipCheck) ::
-                        subSShiftedReg{regM=workReg1, regN=X_MLStackPtr, regD=XZero, shift=ShiftNone} ::
-                        loadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset}  ::
-                        code2
+                        toInstr(LoadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset, loadType=Load64}) <::>
+                        toInstr(SubShiftedReg{regM=workReg1, regN=X_MLStackPtr, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
+                        toInstr(ConditionalBranch(CondCarrySet, skipCheck)) <@>
+                        List.rev(toInstrs(List.rev([RTSTrap{rtsEntry=stackOverflowCallOffset, work=workReg1, save=getSaveRegs saveRegs}]))) <::>
+                        toInstr(SetLabel skipCheck)
                     end
             end
 
@@ -576,8 +561,6 @@ struct
 
         |   codeExtended _ (BeginFunction{regArgs, ...}, code) =
             let
-                (* The real registers used for arguments. X30 is there but saved separately. *)
-                val saveRegs = List.filter (fn r => r <> X30) (List.map #2 regArgs)
                 val skipCheck = createLabel()
                 val defaultWords = 10 (* This is wired into the RTS. *)
                 val workRegister = workReg1
@@ -598,19 +581,15 @@ struct
                 val code2 =
                     (if debugTrapAlways then []
                      else
-                     [conditionalBranch(CondCarrySet, skipCheck),
+                     [toInstr(ConditionalBranch(CondCarrySet, skipCheck)),
                       toInstr(SubShiftedReg{regM=workRegister, regN=testReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64})]) @
                     (* Load the end-of-stack value. *)
-                    loadRegScaled{regT=workRegister, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset} :: code1
+                    toInstr(LoadRegScaled{regT=workRegister, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset, loadType=Load64}) :: code1
 
                 val code3 =
-                    (* Call the RTS but save X30 across the call *)
-                    setLabel skipCheck ::
-                    loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8} ::
-                    registerMask saveRegs ::
-                    branchAndLinkReg X16 ::
-                    loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=entryPt} ::
-                    storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8} :: code2
+                    code2 <@>
+                        List.rev(toInstrs(List.rev([RTSTrap{rtsEntry=entryPt, work=workReg1, save=List.map #2 regArgs}]))) <::>
+                        toInstr(SetLabel skipCheck)
 
                 val usedRegs = regArgs
                 fun mkPair(pr, rr) = {src=rr,dst=getAllocatedGenReg pr}
@@ -768,7 +747,7 @@ struct
                         addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
                                         value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt nItems}, code)
             in
-                returnRegister returnReg :: resetStack(numStackArgs, moveIfNecessary({src=resultReg, dst=X0}, code))
+                toInstr(BranchReg{regD=returnReg, brRegType=BRRReturn}) :: resetStack(numStackArgs, moveIfNecessary({src=resultReg, dst=X0}, code))
             end
 
         |   codeExtended _ (RaiseExceptionPacket{ packetReg }, code) =
@@ -779,10 +758,10 @@ struct
                    the next handler.  This is set up in the handler.  We have a lot
                    more raises than handlers since most raises are exceptional conditions
                    such as overflow so it makes sense to minimise the code in each raise. *)
-                branchRegister workReg1 :: 
-                loadRegScaled{regT=workReg1, regN=X_MLStackPtr, unitOffset=0} ::
-                loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset} ::
-                moveIfNecessary({src=getAllocatedGenReg packetReg, dst=X0}, code)
+                moveIfNecessary({src=getAllocatedGenReg packetReg, dst=X0}, code) <::>
+                toInstr(LoadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64}) <::>
+                toInstr(LoadRegScaled{regT=workReg1, regN=X_MLStackPtr, unitOffset=0, loadType=Load64}) <::>
+                toInstr(BranchReg{regD=workReg1, brRegType=BRRBranch })
 
         |   codeExtended _ (PushToStack{ source, copies, ... }, code) =
             let
@@ -918,16 +897,11 @@ struct
 
         |   codeExtended _ (BitFieldShift{ source, dest, isSigned, length, immr, imms }, code) =
             let
-                val bfInstr =
-                    case (isSigned, length) of
-                        (true, OpSize64) => signedBitfieldMove64
-                    |   (false, OpSize64) => unsignedBitfieldMove64
-                    |   (true, OpSize32) => signedBitfieldMove32
-                    |   (false, OpSize32) => unsignedBitfieldMove32
                 val srcReg = getAllocatedGenReg source
                 val destReg = getAllocatedGenReg dest
             in
-                bfInstr{immr=immr, imms=imms, regN=srcReg, regD=destReg} :: code
+                toInstr(BitField{immr=immr, imms=imms, regN=srcReg, regD=destReg,
+                                 bitfieldKind=if isSigned then BFSigned else BFUnsigned, opSize=length}) :: code
             end
 
         |   codeExtended _ (BitFieldInsert{ source, destAsSource, dest, length, immr, imms }, code) =
@@ -937,10 +911,8 @@ struct
                 val sourceReg = getAllocatedGenReg source
                 and destReg = getAllocatedGenReg dest
                 val _ = sourceReg = destReg andalso raise InternalError "codeExtended: bitfield: dest=source"
-                val bfInstr =
-                    case length of OpSize64 => bitfieldMove64 | OpSize32 => bitfieldMove32
             in
-                bfInstr{immr=immr, imms=imms, regN=getAllocatedGenReg source, regD=destReg} ::
+                toInstr(BitField{immr=immr, imms=imms, regN=getAllocatedGenReg source, regD=destReg, bitfieldKind=BFInsert, opSize=length}) ::
                     moveIfNecessary({src=getAllocatedGenReg destAsSource, dst=destReg}, code)
             end
 

@@ -427,8 +427,16 @@ struct
 
     |   toAssembler(BitField{immr, imms, regN, regD, opSize, bitfieldKind} :: rest, code) =
         let
+            val bfInstr =
+                case (bitfieldKind, opSize) of
+                    (BFSigned, OpSize64) => signedBitfieldMove64
+                |   (BFUnsigned, OpSize64) => unsignedBitfieldMove64
+                |   (BFInsert, OpSize64) => bitfieldMove64
+                |   (BFSigned, OpSize32) => signedBitfieldMove32
+                |   (BFUnsigned, OpSize32) => unsignedBitfieldMove32
+                |   (BFInsert, OpSize32) => bitfieldMove32
         in
-            toAssembler(rest, code <::> (raise Fail "TODO"))
+            toAssembler(rest, code <::> bfInstr{immr=immr, imms=imms, regN=regN, regD=regD})
         end
 
     |   toAssembler(ShiftRegisterVariable{regM, regN, regD, opSize, shiftDirection} :: rest, code) =
