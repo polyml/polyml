@@ -91,6 +91,7 @@ struct
         (* LoadAcquireExclusiveRegister and StoreReleaseExclusiveRegister are used for mutexes. *)
     |   LoadAcquireExclusiveRegister of {regN: xReg, regT: xReg}
     |   StoreReleaseExclusiveRegister of {regS: xReg, regT: xReg, regN: xReg}
+    |   MemBarrier
     |   LoadRegPair of
             { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, loadType: loadType, unscaledType: unscaledType}
     |   StoreRegPair of
@@ -429,6 +430,9 @@ struct
 
     |   toAssembler(StoreReleaseExclusiveRegister{regN, regT, regS} :: rest, code) =
             toAssembler(rest, code <::> storeReleaseExclusiveRegister{regN=regN, regT=regT, regS=regS})
+
+    |   toAssembler(MemBarrier :: rest, code) =
+            toAssembler(rest, code <::> dmbIsh)
 
     |   toAssembler(LoadRegPair{ regT1, regT2, regN, unitOffset, loadType, unscaledType} :: rest, code) =
         let

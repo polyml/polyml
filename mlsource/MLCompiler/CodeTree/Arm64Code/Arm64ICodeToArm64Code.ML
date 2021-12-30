@@ -16,9 +16,7 @@
 *)
 
 functor Arm64ICodeToArm64Code(
-
     structure Arm64PreAssembly: ARM64PREASSEMBLY
-    structure Arm64Assembly: ARM64ASSEMBLY
     structure Debug: DEBUG
     structure Arm64ICode: ARM64ICODE
     structure Identify: ARM64IDENTIFYREFERENCES
@@ -30,7 +28,7 @@ functor Arm64ICodeToArm64Code(
             val stronglyConnectedComponents: {nodeAddress: 'a -> int, arcs: 'a -> int list } -> 'a list -> 'a list list
         end
     
-    sharing Arm64PreAssembly.Sharing = Arm64Assembly.Sharing = Arm64ICode.Sharing = Identify.Sharing = IntSet
+    sharing Arm64PreAssembly.Sharing = Arm64ICode.Sharing = Identify.Sharing = IntSet
 ): ARM64ICODEGENERATE =
 struct
     open Identify
@@ -63,15 +61,15 @@ struct
         (* Load from and store to stack. *)
         fun loadFromStack(destReg, wordOffset, code) =
             if wordOffset >= 4096
-            then toInstr(LoadRegIndexed{regT=destReg, regN=X_MLStackPtr, regM=destReg, option=ExtUXTX ScaleOrShift, loadType=Load64}) ::
-                    List.rev(toInstrs([LoadNonAddr(destReg, Word64.fromInt wordOffset)])) @ code
-            else toInstr(LoadRegScaled{regT=destReg, regN=X_MLStackPtr, unitOffset=wordOffset, loadType=Load64}) :: code
+            then (LoadRegIndexed{regT=destReg, regN=X_MLStackPtr, regM=destReg, option=ExtUXTX ScaleOrShift, loadType=Load64}) ::
+                    [LoadNonAddr(destReg, Word64.fromInt wordOffset)] @ code
+            else (LoadRegScaled{regT=destReg, regN=X_MLStackPtr, unitOffset=wordOffset, loadType=Load64}) :: code
 
         and storeToStack(sourceReg, wordOffset, workReg, code) =
             if wordOffset >= 4096
-            then toInstr(StoreRegIndexed{regT=sourceReg, regN=X_MLStackPtr, regM=workReg, option=ExtUXTX ScaleOrShift, loadType=Load64}) ::
-                    List.rev(toInstrs([LoadNonAddr(workReg, Word64.fromInt wordOffset)])) @ code
-            else toInstr(StoreRegScaled{regT=sourceReg, regN=X_MLStackPtr, unitOffset=wordOffset, loadType=Load64}) :: code
+            then (StoreRegIndexed{regT=sourceReg, regN=X_MLStackPtr, regM=workReg, option=ExtUXTX ScaleOrShift, loadType=Load64}) ::
+                    [LoadNonAddr(workReg, Word64.fromInt wordOffset)] @ code
+            else (StoreRegScaled{regT=sourceReg, regN=X_MLStackPtr, unitOffset=wordOffset, loadType=Load64}) :: code
 
         datatype srcAndDest = IsInReg of xReg | IsOnStack of int
 
@@ -108,7 +106,7 @@ struct
                     val ordered = stronglyConnected arguments
                     
                     fun loadIntoReg(IsInReg sReg, dReg, code) =
-                            if sReg = dReg then code else toInstr(MoveXRegToXReg{sReg=sReg, dReg=dReg}) :: code
+                            if sReg = dReg then code else (MoveXRegToXReg{sReg=sReg, dReg=dReg}) :: code
                     |   loadIntoReg(IsOnStack wordOffset, dReg, code) =
                             loadFromStack(dReg, wordOffset, code)
 
@@ -146,27 +144,27 @@ struct
                                is worth it. *)
                             local
                                 fun storeToDest(sReg, IsInReg dReg, _, code) =
-                                        toInstr(MoveXRegToXReg{sReg=sReg, dReg=dReg}) :: code
+                                        (MoveXRegToXReg{sReg=sReg, dReg=dReg}) :: code
                                 |   storeToDest(sReg, IsOnStack wordOffset, work, code) =
                                         storeToStack(sReg, wordOffset, work, code)
                             in
                                 fun exchange(IsInReg arg1Reg, arg2, code) =
-                                    toInstr(MoveXRegToXReg{sReg=workReg2, dReg=arg1Reg}) ::
+                                    (MoveXRegToXReg{sReg=workReg2, dReg=arg1Reg}) ::
                                     storeToDest(arg1Reg, arg2, workReg1,
                                         loadIntoReg(arg2, workReg2, code))
 
                                 |   exchange(arg1, IsInReg arg2Reg, code) =
-                                    toInstr(MoveXRegToXReg{sReg=workReg2, dReg=arg2Reg}) ::
+                                    (MoveXRegToXReg{sReg=workReg2, dReg=arg2Reg}) ::
                                     storeToDest(arg2Reg, arg1, workReg1,
                                         loadIntoReg(arg1, workReg2, code))
 
                                 |   exchange(arg1, arg2, code) =
                                     (* The hardware stack must be 16-byte aligned. *)
                                     storeToDest(workReg2, arg2, workReg1,
-                                        toInstr(LoadRegUnscaled{regT=workReg2, regN=XSP, byteOffset=16, loadType=Load64, unscaledType=PostIndex}) ::
+                                        (LoadRegUnscaled{regT=workReg2, regN=XSP, byteOffset=16, loadType=Load64, unscaledType=PostIndex}) ::
                                         storeToDest(workReg2, arg1, workReg1,
                                             loadIntoReg(arg2, workReg2,
-                                                toInstr(StoreRegUnscaled{regT=workReg2, regN=XSP, byteOffset= ~16, loadType=Load64, unscaledType=PreIndex}) ::
+                                                (StoreRegUnscaled{regT=workReg2, regN=XSP, byteOffset= ~16, loadType=Load64, unscaledType=PreIndex}) ::
                                                     loadIntoReg(arg1, workReg2, code))))
                             end
                             
@@ -214,13 +212,13 @@ struct
 
         fun moveIfNecessary({src, dst}, code) =
             if src = dst then code
-            else toInstr(MoveXRegToXReg{sReg=src, dReg=dst}) :: code
+            else MoveXRegToXReg{sReg=src, dReg=dst} :: code
 
         (* Add a constant word to the source register and put the result in the
            destination.  regW is used as a work register if necessary.  This is used
            both for addition and subtraction. *)
         fun addConstantWord({regS, regD, value=0w0, ...}, code) =
-            if regS = regD then code else toInstr(MoveXRegToXReg{sReg=regS, dReg=regD}) :: code
+            if regS = regD then code else MoveXRegToXReg{sReg=regS, dReg=regD} :: code
     
         |   addConstantWord({regS, regD, regW, value}, code) =
             let
@@ -242,10 +240,10 @@ struct
                     if high <> 0w0
                     then
                     (
-                        (if low <> 0w0 then [toInstr(addSub{regN=regD, regD=regD, immed=low, shifted=false, setFlags=false, opSize=OpSize64})] else []) @
-                        toInstr(addSub{regN=regS, regD=regD, immed=high, shifted=true, setFlags=false, opSize=OpSize64}) :: code
+                        (if low <> 0w0 then [addSub{regN=regD, regD=regD, immed=low, shifted=false, setFlags=false, opSize=OpSize64}] else []) @
+                        addSub{regN=regS, regD=regD, immed=high, shifted=true, setFlags=false, opSize=OpSize64} :: code
                     )
-                    else toInstr(addSub{regN=regS, regD=regD, immed=low, shifted=false, setFlags=false, opSize=OpSize64}) :: code
+                    else addSub{regN=regS, regD=regD, immed=low, shifted=false, setFlags=false, opSize=OpSize64} :: code
                 end
                 else
                 let
@@ -257,9 +255,9 @@ struct
                         else (value, shift)
                     val (shifted, shift) = getShift(unsigned, 0w0)
                 in
-                    code <@> List.rev(toInstrs([LoadNonAddr(regW, shifted)])) <::>
-                        toInstr((if isSub then SubShiftedReg else AddShiftedReg)
-                            {regM=regW, regN=regS, regD=regD, shift=ShiftLSL shift, setFlags=false, opSize=OpSize64})
+                    code <::> LoadNonAddr(regW, shifted) <::>
+                        (if isSub then SubShiftedReg else AddShiftedReg)
+                            {regM=regW, regN=regS, regD=regD, shift=ShiftLSL shift, setFlags=false, opSize=OpSize64}
                 end
             end
 
@@ -275,15 +273,15 @@ struct
             moveIfNecessary({src=getAllocatedGenReg source, dst=getAllocatedGenReg dest}, code)
 
         |   codeExtended _ (LoadNonAddressConstant{source, dest, ...}, code) =
-                code <@> List.rev(toInstrs([LoadNonAddr(getAllocatedGenReg dest, source)]))
+                code <::> LoadNonAddr(getAllocatedGenReg dest, source)
 
         |   codeExtended _ (LoadAddressConstant{source, dest, ...}, code) =
-                code <::> toInstr(LoadAddr(getAllocatedGenReg dest, source))
+                code <::> LoadAddr(getAllocatedGenReg dest, source)
 
         |   codeExtended _ (LoadWithConstantOffset{dest, base, byteOffset, loadType, ...}, code) =
             if byteOffset < 0
-            then toInstr(LoadRegUnscaled{regT=getAllocatedGenReg dest, regN=getAllocatedGenReg base, byteOffset=byteOffset,
-                                        loadType=loadType, unscaledType=NoUpdate}) :: code
+            then LoadRegUnscaled{regT=getAllocatedGenReg dest, regN=getAllocatedGenReg base, byteOffset=byteOffset,
+                                        loadType=loadType, unscaledType=NoUpdate} :: code
             else
             let
                 val unitOffset =
@@ -293,18 +291,18 @@ struct
                     |   Load16 => Int.quot(byteOffset, 2)
                     |   Load8 => byteOffset
             in
-                toInstr(LoadRegScaled{regT=getAllocatedGenReg dest, regN=getAllocatedGenReg base, unitOffset=unitOffset, loadType=loadType}) :: code
+                LoadRegScaled{regT=getAllocatedGenReg dest, regN=getAllocatedGenReg base, unitOffset=unitOffset, loadType=loadType} :: code
             end
 
         |   codeExtended _ (LoadFPWithConstantOffset{dest, base, byteOffset, floatSize, ...}, code) =
             if byteOffset < 0
-            then toInstr(LoadFPRegUnscaled{regT=getAllocatedFPReg dest, regN=getAllocatedGenReg base, byteOffset=byteOffset,
+            then (LoadFPRegUnscaled{regT=getAllocatedFPReg dest, regN=getAllocatedGenReg base, byteOffset=byteOffset,
                                         floatSize=floatSize, unscaledType=NoUpdate}) :: code
             else
             let
                 val unitOffset = Int.quot(byteOffset, case floatSize of Float32 => 4 | Double64 => 8)
             in
-                toInstr(LoadFPRegScaled{regT=getAllocatedFPReg dest, regN=getAllocatedGenReg base, unitOffset=unitOffset, floatSize=floatSize}) :: code
+                (LoadFPRegScaled{regT=getAllocatedFPReg dest, regN=getAllocatedGenReg base, unitOffset=unitOffset, floatSize=floatSize}) :: code
             end
 
         |   codeExtended _ (LoadWithIndexedOffset{dest, base, index, loadType, ...}, code) =
@@ -315,7 +313,7 @@ struct
                 val scaleType = if is32in64 then ExtSXTW else ExtUXTX
                 val scale = case loadType of Load8 => NoScale | _ => ScaleOrShift
             in
-                toInstr(LoadRegIndexed{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=scaleType scale, loadType=loadType}) :: code
+                (LoadRegIndexed{regT=getAllocatedGenReg dest, regN=baseReg, regM=indexReg, option=scaleType scale, loadType=loadType}) :: code
             end
 
         |   codeExtended _ (LoadFPWithIndexedOffset{dest, base, index, floatSize, ...}, code) =
@@ -325,15 +323,15 @@ struct
                    signed if it is a C address. *)
                 val scaleType = if is32in64 then ExtSXTW else ExtUXTX
             in
-                toInstr(LoadFPRegIndexed{regT=getAllocatedFPReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift, floatSize=floatSize}) :: code
+                (LoadFPRegIndexed{regT=getAllocatedFPReg dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift, floatSize=floatSize}) :: code
             end
 
         |   codeExtended _ (GetThreadId { dest}, code) =
                 (* Load the thread id.  This is always a 64-bit value. *)
-                toInstr(LoadRegScaled{regT=getAllocatedGenReg dest, regN=X_MLAssemblyInt, unitOffset=threadIdOffset, loadType=Load64}) :: code
+                (LoadRegScaled{regT=getAllocatedGenReg dest, regN=X_MLAssemblyInt, unitOffset=threadIdOffset, loadType=Load64}) :: code
 
         |   codeExtended _ (ObjectIndexAddressToAbsolute{source, dest, ...}, code) =
-                toInstr(AddShiftedReg{regM=getAllocatedGenReg source, regN=X_Base32in64, regD=getAllocatedGenReg dest,
+                (AddShiftedReg{regM=getAllocatedGenReg source, regN=X_Base32in64, regD=getAllocatedGenReg dest,
                                       shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64}) :: code
 
         |   codeExtended _ (AbsoluteToObjectIndex{source, dest, ...}, code) =
@@ -341,8 +339,8 @@ struct
                 val destReg = getAllocatedGenReg dest
             in
                 code <::>
-                toInstr(SubShiftedReg{regM=X_Base32in64, regN=getAllocatedGenReg source, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64}) <::>
-                toInstr(shiftConstant{shift=0w2, regN=destReg, regD=destReg, direction=ShiftRightLogical, opSize=OpSize64})
+                (SubShiftedReg{regM=X_Base32in64, regN=getAllocatedGenReg source, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64}) <::>
+                (shiftConstant{shift=0w2, regN=destReg, regD=destReg, direction=ShiftRightLogical, opSize=OpSize64})
             end
 
         |   codeExtended _ (AllocateMemoryFixed{ bytesRequired, dest, saveRegs, ... }, code) =
@@ -353,17 +351,17 @@ struct
                 code <@>
                 (* Subtract the number of bytes required from the heap pointer and put in result reg. *)
                 (if bytesRequired >= 0w4096
-                then [toInstr(SubShiftedReg{regM=workReg1, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64}),
-                      toInstr(LoadNonAddr(workReg1, bytesRequired))]
-                else [toInstr(SubImmediate{regN=X_MLHeapAllocPtr, regD=destReg, immed=Word.fromLarge bytesRequired,
-                                shifted=false, setFlags=false, opSize=OpSize64})]
+                then [SubShiftedReg{regM=workReg1, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64},
+                      LoadNonAddr(workReg1, bytesRequired)]
+                else [SubImmediate{regN=X_MLHeapAllocPtr, regD=destReg, immed=Word.fromLarge bytesRequired,
+                                shifted=false, setFlags=false, opSize=OpSize64}]
                 ) <::>
                 (* Compare with heap limit. *)
-                toInstr(SubShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
-                toInstr(ConditionalBranch(CondCarrySet, label)) <@> (* Skip the trap if it's ok. *)
-                List.rev(toInstrs(List.rev([RTSTrap{rtsEntry=heapOverflowCallOffset, work=workReg1, save=getSaveRegs saveRegs}]))) <::>
-                toInstr(SetLabel label) <::>
-                toInstr(MoveXRegToXReg{sReg=destReg, dReg=X_MLHeapAllocPtr})
+                SubShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
+                ConditionalBranch(CondCarrySet, label) <::> (* Skip the trap if it's ok. *)
+                RTSTrap{rtsEntry=heapOverflowCallOffset, work=workReg1, save=getSaveRegs saveRegs} <::>
+                SetLabel label <::>
+                MoveXRegToXReg{sReg=destReg, dReg=X_MLHeapAllocPtr}
             end
 
         |   codeExtended _ (AllocateMemoryVariable{ size, dest, saveRegs, ... }, code) =
@@ -374,24 +372,24 @@ struct
                    the length word and round down in 32-in-64. *)
                 val subtractSize =
                     if is32in64
-                    then toInstr(BitwiseLogical{bits= ~ 0w8, regN=destReg, regD=destReg, logOp=LogAnd, opSize=OpSize64, setFlags=false}) ::
-                            toInstr(SubImmediate{regN=destReg, regD=destReg, immed=0w4, shifted=false, setFlags=false, opSize=OpSize64}) ::
-                            toInstr(SubShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64}) :: code
-                    else toInstr(SubImmediate{regN=destReg, regD=destReg, immed=0w8, shifted=false, setFlags=false, opSize=OpSize64}) ::
-                            toInstr(SubShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftLSL 0w3, setFlags=false, opSize=OpSize64}) :: code
+                    then BitwiseLogical{bits= ~ 0w8, regN=destReg, regD=destReg, logOp=LogAnd, opSize=OpSize64, setFlags=false} ::
+                            SubImmediate{regN=destReg, regD=destReg, immed=0w4, shifted=false, setFlags=false, opSize=OpSize64} ::
+                            SubShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64} :: code
+                    else SubImmediate{regN=destReg, regD=destReg, immed=0w8, shifted=false, setFlags=false, opSize=OpSize64} ::
+                            SubShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftLSL 0w3, setFlags=false, opSize=OpSize64} :: code
                 (* Check against the limit. If the size is large enough it is possible that this could wrap round. 
                    To check for that we trap if either the result is less than the limit or if it is
                    now greater than the allocation pointer. *)
             in
                 subtractSize <::>
-                toInstr(SubShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
-                toInstr(ConditionalBranch(CondCarryClear, trapLabel)) <::>
-                toInstr(SubShiftedReg{regM=X_MLHeapAllocPtr, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
-                toInstr(ConditionalBranch(CondCarryClear, noTrapLabel)) <::>
-                toInstr(SetLabel trapLabel) <@>
-                List.rev(toInstrs(List.rev([RTSTrap{rtsEntry=heapOverflowCallOffset, work=workReg1, save=getSaveRegs saveRegs}]))) <::>
-                toInstr(SetLabel noTrapLabel) <::>
-                toInstr(MoveXRegToXReg{sReg=destReg, dReg=X_MLHeapAllocPtr})
+                SubShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
+                ConditionalBranch(CondCarryClear, trapLabel) <::>
+                SubShiftedReg{regM=X_MLHeapAllocPtr, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
+                ConditionalBranch(CondCarryClear, noTrapLabel) <::>
+                SetLabel trapLabel <::>
+                RTSTrap{rtsEntry=heapOverflowCallOffset, work=workReg1, save=getSaveRegs saveRegs} <::>
+                SetLabel noTrapLabel <::>
+                MoveXRegToXReg{sReg=destReg, dReg=X_MLHeapAllocPtr}
             end
 
         |   codeExtended _ (InitialiseMem{ size, addr, init}, code) =
@@ -406,14 +404,14 @@ struct
             in
                 code <::>
                 (* Add the length in bytes so we point at the end. *)
-                toInstr(AddShiftedReg{regM=sizeReg, regN=addrReg, regD=workReg1, shift=ShiftLSL bShift, setFlags=false, opSize=OpSize64}) <::>
-                toInstr(SetLabel loopLabel) <::>
+                AddShiftedReg{regM=sizeReg, regN=addrReg, regD=workReg1, shift=ShiftLSL bShift, setFlags=false, opSize=OpSize64} <::>
+                SetLabel loopLabel <::>
                 (* Are we at the start? *)
-                toInstr(SubShiftedReg{regM=workReg1, regN=addrReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
-                toInstr(ConditionalBranch(CondEqual, exitLabel)) <::>
-                toInstr(StoreRegUnscaled{regT=initReg, regN=workReg1, byteOffset=offset, loadType=loadType, unscaledType=PreIndex }) <::>
-                toInstr(UnconditionalBranch loopLabel) <::>
-                toInstr(SetLabel exitLabel)
+                SubShiftedReg{regM=workReg1, regN=addrReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
+                ConditionalBranch(CondEqual, exitLabel) <::>
+                StoreRegUnscaled{regT=initReg, regN=workReg1, byteOffset=offset, loadType=loadType, unscaledType=PreIndex } <::>
+                UnconditionalBranch loopLabel <::>
+                SetLabel exitLabel
             end
 
         |   codeExtended _ (BeginLoop, code) = code
@@ -437,17 +435,17 @@ struct
                     in
                         code2 <::>
                         (* Put in stack-check code to allow this to be interrupted. *)
-                        toInstr(LoadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset, loadType=Load64}) <::>
-                        toInstr(SubShiftedReg{regM=workReg1, regN=X_MLStackPtr, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
-                        toInstr(ConditionalBranch(CondCarrySet, skipCheck)) <@>
-                        List.rev(toInstrs(List.rev([RTSTrap{rtsEntry=stackOverflowCallOffset, work=workReg1, save=getSaveRegs saveRegs}]))) <::>
-                        toInstr(SetLabel skipCheck)
+                        LoadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset, loadType=Load64} <::>
+                        SubShiftedReg{regM=workReg1, regN=X_MLStackPtr, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
+                        ConditionalBranch(CondCarrySet, skipCheck) <::>
+                        RTSTrap{rtsEntry=stackOverflowCallOffset, work=workReg1, save=getSaveRegs saveRegs} <::>
+                        SetLabel skipCheck
                     end
             end
 
         |   codeExtended _ (StoreWithConstantOffset{source, base, byteOffset, loadType, ...}, code) =
             if byteOffset < 0
-            then toInstr(StoreRegUnscaled{regT=getAllocatedGenReg source, regN=getAllocatedGenReg base, byteOffset=byteOffset,
+            then (StoreRegUnscaled{regT=getAllocatedGenReg source, regN=getAllocatedGenReg base, byteOffset=byteOffset,
                                         loadType=loadType, unscaledType=NoUpdate}) :: code
             else
             let
@@ -458,18 +456,18 @@ struct
                     |   Load16 => Int.quot(byteOffset, 2)
                     |   Load8 => byteOffset
             in
-                toInstr(StoreRegScaled{regT=getAllocatedGenReg source, regN=getAllocatedGenReg base, unitOffset=unitOffset, loadType=loadType}) :: code
+                (StoreRegScaled{regT=getAllocatedGenReg source, regN=getAllocatedGenReg base, unitOffset=unitOffset, loadType=loadType}) :: code
             end
 
         |   codeExtended _ (StoreFPWithConstantOffset{source, base, byteOffset, floatSize, ...}, code) =
             if byteOffset < 0
-            then toInstr(StoreFPRegUnscaled{regT=getAllocatedFPReg source, regN=getAllocatedGenReg base, byteOffset=byteOffset,
+            then (StoreFPRegUnscaled{regT=getAllocatedFPReg source, regN=getAllocatedGenReg base, byteOffset=byteOffset,
                                         floatSize=floatSize, unscaledType=NoUpdate}) :: code
             else
             let
                 val unitOffset = Int.quot(byteOffset, case floatSize of Float32 => 4 | Double64 => 8)
             in
-                toInstr(StoreFPRegScaled{regT=getAllocatedFPReg source, regN=getAllocatedGenReg base, unitOffset=unitOffset, floatSize=floatSize}) :: code
+                (StoreFPRegScaled{regT=getAllocatedFPReg source, regN=getAllocatedGenReg base, unitOffset=unitOffset, floatSize=floatSize}) :: code
             end
 
         |   codeExtended _ (StoreWithIndexedOffset{source, base, index, loadType, ...}, code) =
@@ -480,7 +478,7 @@ struct
                 val scaleType = if is32in64 then ExtSXTW else ExtUXTX
                 val scale = case loadType of Load8 => NoScale | _ => ScaleOrShift
             in
-                toInstr(StoreRegIndexed{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=scaleType scale, loadType=loadType}) :: code
+                (StoreRegIndexed{regT=getAllocatedGenReg source, regN=baseReg, regM=indexReg, option=scaleType scale, loadType=loadType}) :: code
             end
 
         |   codeExtended _ (StoreFPWithIndexedOffset{source, base, index, floatSize, ...}, code) =
@@ -490,7 +488,7 @@ struct
                    signed if it is a C address. *)
                 val scaleType = if is32in64 then ExtSXTW else ExtUXTX
             in
-                toInstr(StoreFPRegIndexed{regT=getAllocatedFPReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift, floatSize=floatSize}) :: code
+                (StoreFPRegIndexed{regT=getAllocatedFPReg source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift, floatSize=floatSize}) :: code
             end
 
         |   codeExtended _ (AddSubImmediate{ source, dest, immed, isAdd, length, ccRef}, code) =
@@ -500,7 +498,7 @@ struct
                         NONE => XZero
                     |   SOME dreg => getAllocatedGenReg dreg
             in
-                toInstr((if isAdd then AddImmediate else SubImmediate)
+                ((if isAdd then AddImmediate else SubImmediate)
                     {regN=getAllocatedGenReg source, regD=destReg, immed=immed, shifted=false, opSize=length, setFlags=isSome ccRef}) :: code
             end
 
@@ -511,7 +509,7 @@ struct
                         NONE => XZero
                     |   SOME dreg => getAllocatedGenReg dreg
             in
-                toInstr(
+                (
                     (if isAdd then AddShiftedReg else SubShiftedReg)
                         {regN=getAllocatedGenReg base, regM=getAllocatedGenReg shifted, regD=destReg, shift=shift, opSize=length, setFlags=isSome ccRef}) :: code
             end           
@@ -523,7 +521,7 @@ struct
                         NONE => XZero
                     |   SOME dreg => getAllocatedGenReg dreg
             in
-                toInstr(BitwiseLogical{regN=getAllocatedGenReg source, regD=destReg, bits=immed, opSize=length,
+                (BitwiseLogical{regN=getAllocatedGenReg source, regD=destReg, bits=immed, opSize=length,
                                        logOp=logOp, setFlags=isSome ccRef}) :: code
             end
 
@@ -536,12 +534,12 @@ struct
                         NONE => XZero
                     |   SOME dreg => getAllocatedGenReg dreg
             in
-                toInstr(LogicalShiftedReg{regN=getAllocatedGenReg base, regM=getAllocatedGenReg shifted, regD=destReg,
+                (LogicalShiftedReg{regN=getAllocatedGenReg base, regM=getAllocatedGenReg shifted, regD=destReg,
                                           shift=shift, opSize=length, logOp=logOp, setFlags=isSome ccRef}) :: code
             end
 
         |   codeExtended _ (ShiftRegister{ direction, dest, source, shift, opSize }, code) =
-                toInstr(ShiftRegisterVariable{regN=getAllocatedGenReg source, regM=getAllocatedGenReg shift, regD=getAllocatedGenReg dest,
+                (ShiftRegisterVariable{regN=getAllocatedGenReg source, regM=getAllocatedGenReg shift, regD=getAllocatedGenReg dest,
                                               shiftDirection=direction, opSize=opSize}) :: code
 
         |   codeExtended _ (Multiplication{ kind, dest, sourceA, sourceM, sourceN }, code) =
@@ -551,11 +549,11 @@ struct
                 and srcNReg = getAllocatedGenReg sourceN
                 and srcMReg = getAllocatedGenReg sourceM
             in
-                toInstr(MultiplyAndAddSub{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg, multKind=kind}) :: code
+                (MultiplyAndAddSub{regM=srcMReg, regN=srcNReg, regA=srcAReg, regD=destReg, multKind=kind}) :: code
             end
 
         |   codeExtended _ (Division{ isSigned, dest, dividend, divisor, opSize }, code) =
-                toInstr(DivideRegs{regN=getAllocatedGenReg dividend, regM=getAllocatedGenReg divisor,
+                (DivideRegs{regN=getAllocatedGenReg dividend, regM=getAllocatedGenReg divisor,
                                    regD=getAllocatedGenReg dest, isSigned=isSigned, opSize=opSize}) :: code
 
         |   codeExtended _ (BeginFunction{regArgs, ...}, code) =
@@ -580,15 +578,15 @@ struct
                 val code2 =
                     (if debugTrapAlways then []
                      else
-                     [toInstr(ConditionalBranch(CondCarrySet, skipCheck)),
-                      toInstr(SubShiftedReg{regM=workRegister, regN=testReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64})]) @
+                     [ConditionalBranch(CondCarrySet, skipCheck),
+                      SubShiftedReg{regM=workRegister, regN=testReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}]) @
                     (* Load the end-of-stack value. *)
-                    toInstr(LoadRegScaled{regT=workRegister, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset, loadType=Load64}) :: code1
+                    LoadRegScaled{regT=workRegister, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset, loadType=Load64} :: code1
 
                 val code3 =
-                    code2 <@>
-                        List.rev(toInstrs(List.rev([RTSTrap{rtsEntry=entryPt, work=workReg1, save=List.map #2 regArgs}]))) <::>
-                        toInstr(SetLabel skipCheck)
+                    code2 <::>
+                        RTSTrap{rtsEntry=entryPt, work=workReg1, save=List.map #2 regArgs} <::>
+                        SetLabel skipCheck
 
                 val usedRegs = regArgs
                 fun mkPair(pr, rr) = {src=rr,dst=getAllocatedGenReg pr}
@@ -597,7 +595,7 @@ struct
                 moveMultipleRegisters(regPairs, code3)
             end
 
-        |   codeExtended _ (TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize}, code: instr list) =
+        |   codeExtended _ (TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize}, code) =
             let
                 fun convertArg(ArgOnStack{wordOffset, ...}) = IsOnStack wordOffset
                 |   convertArg(ArgInReg reg) = IsInReg(getAllocatedGenReg reg)
@@ -631,10 +629,10 @@ struct
                         val pushCode =
                             case argM1 of
                                 IsOnStack wordOffset =>
-                                    toInstr(StoreRegUnscaled{regT=workReg2, regN=X_MLStackPtr, byteOffset= ~8, unscaledType=PreIndex, loadType=Load64}) ::
+                                    (StoreRegUnscaled{regT=workReg2, regN=X_MLStackPtr, byteOffset= ~8, unscaledType=PreIndex, loadType=Load64}) ::
                                         loadFromStack(workReg2, wordOffset, code)
                             |   IsInReg reg =>
-                                    toInstr(StoreRegUnscaled{regT=reg, regN=X_MLStackPtr, byteOffset= ~8, unscaledType=PreIndex, loadType=Load64}) :: code
+                                    (StoreRegUnscaled{regT=reg, regN=X_MLStackPtr, byteOffset= ~8, unscaledType=PreIndex, loadType=Load64}) :: code
                                 
                     in
                         codeTailCall(renumberArgs arguments, stackAdjust+1, pushCode)
@@ -652,23 +650,23 @@ struct
                 
                 val jumpToFunctionCode =
                     case callKind of
-                        Recursive => [toInstr(UnconditionalBranch startOfFunctionLabel)]
+                        Recursive => [(UnconditionalBranch startOfFunctionLabel)]
                     |   ConstantCode m =>
                             if is32in64
                             then raise InternalError "ConstantCode" (* Not currently *)
-                            else [toInstr(BranchReg{regD=workReg1, brRegType=BRRBranch}), toInstr(LoadAddr(workReg1, m))]
+                            else [(BranchReg{regD=workReg1, brRegType=BRRBranch}), (LoadAddr(workReg1, m))]
                     |   FullCall =>
                             if is32in64
-                            then [toInstr(BranchReg{regD=workReg1, brRegType=BRRBranch}),
-                                 toInstr(LoadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0, loadType=Load64}),
-                                 toInstr(AddShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64})]
-                            else [toInstr(BranchReg{regD=workReg1, brRegType=BRRBranch}),
-                                    toInstr(LoadRegScaled{regT=workReg1, regN=X8, unitOffset=0, loadType=Load64})]
+                            then [BranchReg{regD=workReg1, brRegType=BRRBranch},
+                                 LoadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0, loadType=Load64},
+                                 AddShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64}]
+                            else [BranchReg{regD=workReg1, brRegType=BRRBranch},
+                                    LoadRegScaled{regT=workReg1, regN=X8, unitOffset=0, loadType=Load64}]
             in
                 jumpToFunctionCode @ setArgumentsCode
             end
 
-        |   codeExtended _ (FunctionCall{callKind, regArgs=regArgs, stackArgs=stackArgs, dest, saveRegs, ...}, code: instr list) =
+        |   codeExtended _ (FunctionCall{callKind, regArgs=regArgs, stackArgs=stackArgs, dest, saveRegs, ...}, code) =
             let
                 val destReg = getAllocatedGenReg dest
 
@@ -682,13 +680,13 @@ struct
                         in
                             pushStackArgs(args, argNum+1,
                                 loadFromStack(workReg1, adjustedOffset, code) <::>
-                                toInstr(StoreRegUnscaled{regT=workReg1, regN=X_MLStackPtr, byteOffset= ~8, unscaledType=PreIndex, loadType=Load64}))
+                                StoreRegUnscaled{regT=workReg1, regN=X_MLStackPtr, byteOffset= ~8, unscaledType=PreIndex, loadType=Load64})
                         end
 
                     |   pushStackArgs (ArgInReg reg ::args, argNum, code) =
                             pushStackArgs(args, argNum+1,
                                 code <::>
-                                toInstr(StoreRegUnscaled{regT=getAllocatedGenReg reg, regN=X_MLStackPtr, byteOffset= ~8,
+                                (StoreRegUnscaled{regT=getAllocatedGenReg reg, regN=X_MLStackPtr, byteOffset= ~8,
                                                          unscaledType=PreIndex, loadType=Load64}))
 
                     val pushedArgs = pushStackArgs(stackArgs, 0, code (* Initial code *))
@@ -708,19 +706,20 @@ struct
                 fun makeSavesAndCall([], code) =
                     (
                         case callKind of
-                            Recursive => code <::> toInstr(BranchAndLink startOfFunctionLabel)
+                            Recursive => code <::> (BranchAndLink startOfFunctionLabel)
                         |   ConstantCode m =>
                                 if is32in64
                                 then raise InternalError "ConstantCode" (* Not currently *)
-                                else code <::> toInstr(LoadAddr(workReg1, m)) <::> toInstr(BranchReg{regD=workReg1, brRegType=BRRAndLink})
+                                else code <::> (LoadAddr(workReg1, m)) <::> (BranchReg{regD=workReg1, brRegType=BRRAndLink})
                         |   FullCall =>
                                 if is32in64
                                 then code <::>
-                                    toInstr(AddShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64}) <::>
-                                    toInstr(LoadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0, loadType=Load64}) <::>
-                                    toInstr(BranchReg{regD=workReg1, brRegType=BRRAndLink})
-                                else code <::> toInstr(LoadRegScaled{regT=workReg1, regN=X8, unitOffset=0, loadType=Load64}) <::>
-                                            toInstr(BranchReg{regD=workReg1, brRegType=BRRAndLink})
+                                    AddShiftedReg{regM=X8, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2,
+                                                  setFlags=false, opSize=OpSize64} <::>
+                                    LoadRegScaled{regT=workReg1, regN=workReg1, unitOffset=0, loadType=Load64} <::>
+                                    BranchReg{regD=workReg1, brRegType=BRRAndLink}
+                                else code <::> LoadRegScaled{regT=workReg1, regN=X8, unitOffset=0, loadType=Load64} <::>
+                                            BranchReg{regD=workReg1, brRegType=BRRAndLink}
                     )
 
                 |   makeSavesAndCall(reg::regs, code) =
@@ -728,8 +727,9 @@ struct
                         val areg = getAllocatedGenReg reg
                     in
                         makeSavesAndCall(regs,
-                                code <::> toInstr(StoreRegUnscaled{regT=areg, regN=X_MLStackPtr, byteOffset= ~8, loadType=Load64, unscaledType=PreIndex})) <::>
-                            toInstr(LoadRegUnscaled{regT=areg, regN=X_MLStackPtr, byteOffset= 8, loadType=Load64, unscaledType=PostIndex})
+                                code <::> StoreRegUnscaled{regT=areg, regN=X_MLStackPtr, byteOffset= ~8,
+                                                           loadType=Load64, unscaledType=PreIndex}) <::>
+                            LoadRegUnscaled{regT=areg, regN=X_MLStackPtr, byteOffset= 8, loadType=Load64, unscaledType=PostIndex}
                     end
 
             in
@@ -746,7 +746,7 @@ struct
                         addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
                                         value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt nItems}, code)
             in
-                toInstr(BranchReg{regD=returnReg, brRegType=BRRReturn}) :: resetStack(numStackArgs, moveIfNecessary({src=resultReg, dst=X0}, code))
+                BranchReg{regD=returnReg, brRegType=BRRReturn} :: resetStack(numStackArgs, moveIfNecessary({src=resultReg, dst=X0}, code))
             end
 
         |   codeExtended _ (RaiseExceptionPacket{ packetReg }, code) =
@@ -758,9 +758,9 @@ struct
                    more raises than handlers since most raises are exceptional conditions
                    such as overflow so it makes sense to minimise the code in each raise. *)
                 moveIfNecessary({src=getAllocatedGenReg packetReg, dst=X0}, code) <::>
-                toInstr(LoadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64}) <::>
-                toInstr(LoadRegScaled{regT=workReg1, regN=X_MLStackPtr, unitOffset=0, loadType=Load64}) <::>
-                toInstr(BranchReg{regD=workReg1, brRegType=BRRBranch })
+                LoadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64} <::>
+                LoadRegScaled{regT=workReg1, regN=X_MLStackPtr, unitOffset=0, loadType=Load64} <::>
+                BranchReg{regD=workReg1, brRegType=BRRBranch }
 
         |   codeExtended _ (PushToStack{ source, copies, ... }, code) =
             let
@@ -769,7 +769,7 @@ struct
                 fun pushn(0, c) = c
                 |   pushn(n, c) =
                         pushn(n-1,
-                            toInstr(StoreRegUnscaled{regT=reg, regN=X_MLStackPtr, byteOffset= ~8, loadType=Load64, unscaledType=PreIndex}) :: c)
+                            (StoreRegUnscaled{regT=reg, regN=X_MLStackPtr, byteOffset= ~8, loadType=Load64, unscaledType=PreIndex}) :: c)
             in
                 pushn(copies, code)
             end
@@ -789,10 +789,10 @@ struct
                 val byteOffset = stackOffset * Word.toInt nativeWordSize
             in
                 if byteOffset >= 4096
-                then code <@> List.rev(toInstrs([LoadNonAddr(destReg, Word64.fromInt byteOffset)])) <::>
-                        toInstr(AddShiftedReg{regN=X_MLStackPtr, regM=destReg, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64})
-                else toInstr(AddImmediate{regN=X_MLStackPtr, regD=destReg, immed=Word.fromInt byteOffset,
-                                          shifted=false, setFlags=false, opSize=OpSize64}) :: code
+                then code <::> LoadNonAddr(destReg, Word64.fromInt byteOffset) <::>
+                        AddShiftedReg{regN=X_MLStackPtr, regM=destReg, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64}
+                else code <::> AddImmediate{regN=X_MLStackPtr, regD=destReg, immed=Word.fromInt byteOffset,
+                                          shifted=false, setFlags=false, opSize=OpSize64}
             end
 
         |   codeExtended _ (ResetStackPtr{ numWords, ... }, code) =
@@ -806,20 +806,18 @@ struct
                 (* Shift left by one bit and add one. *)
             in
                 code <::>
-                    toInstr(shiftConstant{ direction=ShiftLeft, regD=destReg, regN=sourceReg, shift=0w1, opSize=opSize }) <::>
-                    toInstr(BitwiseLogical{ bits=0w1, regN=destReg, regD=destReg, opSize=opSize, setFlags=false, logOp=LogOr})
+                    shiftConstant{ direction=ShiftLeft, regD=destReg, regN=sourceReg, shift=0w1, opSize=opSize } <::>
+                    BitwiseLogical{ bits=0w1, regN=destReg, regD=destReg, opSize=opSize, setFlags=false, logOp=LogOr}
             end
 
         |   codeExtended _ (UntagValue{ source, dest, isSigned, opSize }, code) =
                 code <::>
-                    toInstr(shiftConstant{ direction=if isSigned then ShiftRightArithmetic else ShiftRightLogical,
-                                    regD=getAllocatedGenReg dest, regN=getAllocatedGenReg source, shift=0w1, opSize=opSize })
+                    shiftConstant{ direction=if isSigned then ShiftRightArithmetic else ShiftRightLogical,
+                                    regD=getAllocatedGenReg dest, regN=getAllocatedGenReg source, shift=0w1, opSize=opSize }
 
         |   codeExtended _ (BoxLarge{ source, dest, saveRegs }, code) =
-               code <@>
-                    List.rev(toInstrs(
-                        List.rev(boxSysWord({source=getAllocatedGenReg source, destination=getAllocatedGenReg dest,
-                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))))
+               boxSysWord({source=getAllocatedGenReg source, destination=getAllocatedGenReg dest,
+                           workReg=workReg1, saveRegs=getSaveRegs saveRegs}, code)
 
         |   codeExtended _ (UnboxLarge{ source, dest }, code) =
             let
@@ -828,15 +826,14 @@ struct
                 and srcReg = getAllocatedGenReg source
             in
                 if is32in64
-                then toInstr(LoadRegScaled{regT=destReg, regN=destReg, unitOffset=0, loadType=Load64}) ::
-                        toInstr(AddShiftedReg{regM=srcReg, regN=X_Base32in64, regD=destReg, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64}) :: code
-                else toInstr(LoadRegScaled{regT=destReg, regN=srcReg, unitOffset=0, loadType=Load64}) :: code
+                then LoadRegScaled{regT=destReg, regN=destReg, unitOffset=0, loadType=Load64} ::
+                        AddShiftedReg{regM=srcReg, regN=X_Base32in64, regD=destReg, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64} :: code
+                else LoadRegScaled{regT=destReg, regN=srcReg, unitOffset=0, loadType=Load64} :: code
             end
 
         |   codeExtended _ (BoxTagFloat{ floatSize=Double64, source, dest, saveRegs }, code) =
-               code <@>
-                    List.rev(toInstrs(List.rev(boxDouble({source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
-                                    workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))))
+                boxDouble({source=getAllocatedFPReg source, destination=getAllocatedGenReg dest,
+                           workReg=workReg1, saveRegs=getSaveRegs saveRegs}, code)
 
         |   codeExtended _ (BoxTagFloat{ floatSize=Float32, source, dest, saveRegs }, code) =
             let
@@ -844,14 +841,13 @@ struct
                 and fixedReg = getAllocatedGenReg dest
             in
                 if is32in64
-                then code <@>
-                        List.rev(toInstrs(List.rev(boxFloat({source=floatReg, destination=fixedReg,
-                                       workReg=workReg1, saveRegs=getSaveRegs saveRegs}, []))))
+                then boxFloat({source=floatReg, destination=fixedReg,
+                               workReg=workReg1, saveRegs=getSaveRegs saveRegs}, code)
                 else
                     code <::>
-                        toInstr(MoveFPToGeneral{regN=floatReg, regD=fixedReg, floatSize=Float32}) <::>
-                        toInstr(shiftConstant{ direction=ShiftLeft, shift=0w32, regN=fixedReg, regD=fixedReg, opSize=OpSize64}) <::>
-                        toInstr(BitwiseLogical{ bits=0w1, regN=fixedReg, regD=fixedReg, opSize=OpSize64, setFlags=false, logOp=LogOr})
+                        MoveFPToGeneral{regN=floatReg, regD=fixedReg, floatSize=Float32} <::>
+                        shiftConstant{ direction=ShiftLeft, shift=0w32, regN=fixedReg, regD=fixedReg, opSize=OpSize64} <::>
+                        BitwiseLogical{ bits=0w1, regN=fixedReg, regD=fixedReg, opSize=OpSize64, setFlags=false, logOp=LogOr}
             end
 
         |   codeExtended _ (UnboxTagFloat { floatSize=Double64, source, dest }, code) =
@@ -861,10 +857,10 @@ struct
             in
                 if is32in64
                 then code <::>
-                    toInstr(AddShiftedReg{regM=addrReg, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2,
-                                          setFlags=false, opSize=OpSize64}) <::>
-                    toInstr(LoadFPRegScaled{regT=valReg, regN=workReg1, unitOffset=0, floatSize=Double64})
-                else code <::> toInstr(LoadFPRegScaled{regT=valReg, regN=addrReg, unitOffset=0, floatSize=Double64})
+                    AddShiftedReg{regM=addrReg, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2,
+                                          setFlags=false, opSize=OpSize64} <::>
+                    LoadFPRegScaled{regT=valReg, regN=workReg1, unitOffset=0, floatSize=Double64}
+                else code <::> LoadFPRegScaled{regT=valReg, regN=addrReg, unitOffset=0, floatSize=Double64}
             end
 
         |   codeExtended _ (UnboxTagFloat { floatSize=Float32, source, dest }, code) =
@@ -875,26 +871,26 @@ struct
                    can use an indexed load directly. *)
             in
                 if is32in64
-                then code <::> toInstr(LoadFPRegIndexed{regN=X_Base32in64, regM=addrReg, regT=valReg, option=ExtUXTX ScaleOrShift, floatSize=Float32})
+                then code <::> LoadFPRegIndexed{regN=X_Base32in64, regM=addrReg, regT=valReg, option=ExtUXTX ScaleOrShift, floatSize=Float32}
                 else
                     code <::>
-                        toInstr(shiftConstant{direction=ShiftRightLogical, shift=0w32, regN=addrReg, regD=workReg1, opSize=OpSize64}) <::>
-                        toInstr(MoveGeneralToFP{regN=workReg1, regD=valReg, floatSize=Float32})
+                        shiftConstant{direction=ShiftRightLogical, shift=0w32, regN=addrReg, regD=workReg1, opSize=OpSize64} <::>
+                        MoveGeneralToFP{regN=workReg1, regD=valReg, floatSize=Float32}
             end
 
         |   codeExtended _ (LoadAcquire{dest, base, loadType, ...}, code) =
-                toInstr(LoadAcquireReg{regT=getAllocatedGenReg dest, regN=getAllocatedGenReg base, loadType=loadType}) :: code
+                LoadAcquireReg{regT=getAllocatedGenReg dest, regN=getAllocatedGenReg base, loadType=loadType} :: code
 
         |   codeExtended _ (StoreRelease{source, base, loadType, ...}, code) =
-                toInstr(StoreReleaseReg{regT=getAllocatedGenReg source, regN=getAllocatedGenReg base, loadType=loadType}) :: code
+                StoreReleaseReg{regT=getAllocatedGenReg source, regN=getAllocatedGenReg base, loadType=loadType} :: code
 
         |   codeExtended _ (BitFieldShift{ source, dest, isSigned, length, immr, imms }, code) =
             let
                 val srcReg = getAllocatedGenReg source
                 val destReg = getAllocatedGenReg dest
             in
-                toInstr(BitField{immr=immr, imms=imms, regN=srcReg, regD=destReg,
-                                 bitfieldKind=if isSigned then BFSigned else BFUnsigned, opSize=length}) :: code
+                BitField{immr=immr, imms=imms, regN=srcReg, regD=destReg,
+                         bitfieldKind=if isSigned then BFSigned else BFUnsigned, opSize=length} :: code
             end
 
         |   codeExtended _ (BitFieldInsert{ source, destAsSource, dest, length, immr, imms }, code) =
@@ -905,7 +901,7 @@ struct
                 and destReg = getAllocatedGenReg dest
                 val _ = sourceReg = destReg andalso raise InternalError "codeExtended: bitfield: dest=source"
             in
-                toInstr(BitField{immr=immr, imms=imms, regN=getAllocatedGenReg source, regD=destReg, bitfieldKind=BFInsert, opSize=length}) ::
+                BitField{immr=immr, imms=imms, regN=getAllocatedGenReg source, regD=destReg, bitfieldKind=BFInsert, opSize=length} ::
                     moveIfNecessary({src=getAllocatedGenReg destAsSource, dst=destReg}, code)
             end
 
@@ -921,14 +917,14 @@ struct
                 val tableLabel = createLabel()
                 val startOfCase =
                     code <::>
-                        toInstr(LoadLabelAddress(workReg1, tableLabel)) <::>
+                        LoadLabelAddress(workReg1, tableLabel) <::>
                         (* Add the value shifted by one since it's already shifted. *)
-                        toInstr(AddShiftedReg{regN=workReg1, regD=workReg1, regM=getAllocatedGenReg testReg,
-                                              shift=ShiftLSL 0w1, setFlags=false, opSize=OpSize64}) <::>
-                        toInstr(BranchReg{regD=workReg1, brRegType=BRRBranch}) <::>
-                        toInstr(SetLabel tableLabel)
+                        AddShiftedReg{regN=workReg1, regD=workReg1, regM=getAllocatedGenReg testReg,
+                                              shift=ShiftLSL 0w1, setFlags=false, opSize=OpSize64} <::>
+                        BranchReg{regD=workReg1, brRegType=BRRBranch} <::>
+                        SetLabel tableLabel
                 val addCases =
-                    List.foldl (fn (label, code) => toInstr(UnconditionalBranch label) :: code) startOfCase caseLabels
+                    List.foldl (fn (label, code) => (UnconditionalBranch label) :: code) startOfCase caseLabels
             in
                 addCases
             end
@@ -945,20 +941,18 @@ struct
                 (* Push the old handler and the handler entry point and set the "current handler"
                    to point to the stack after we've pushed these. *)
                 code <::>
-                    toInstr(LoadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64}) <::>
-                    toInstr(LoadLabelAddress(workReg2, labelRef)) <::>
-                    toInstr(StoreRegUnscaled{regT=workReg1, regN=X_MLStackPtr, byteOffset= ~8, unscaledType=PreIndex, loadType=Load64}) <::>
-                    toInstr(StoreRegUnscaled{regT=workReg2, regN=X_MLStackPtr, byteOffset= ~8, unscaledType=PreIndex, loadType=Load64}) <::>
-                    toInstr(StoreRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64})
+                    LoadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64} <::>
+                    LoadLabelAddress(workReg2, labelRef) <::>
+                    StoreRegPair{regT1=workReg2, regT2=workReg1, regN=X_MLStackPtr, unitOffset= ~2, unscaledType=PreIndex, loadType=Load64} <::>
+                    StoreRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64}
             end
 
         |   codeExtended _ (PopExceptionHandler, code) =
                 (* Remove and discard the handler we've set up.  Pop the previous handler
                    and put into "current handler". *)
-               code <::>
-                    toInstr(LoadRegUnscaled{regT=workReg1, regN=X_MLStackPtr, byteOffset=8, unscaledType=PostIndex, loadType=Load64}) <::>
-                    toInstr(LoadRegUnscaled{regT=workReg2, regN=X_MLStackPtr, byteOffset=8, unscaledType=PostIndex, loadType=Load64}) <::>
-                    toInstr(StoreRegScaled{regT=workReg2, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64})
+                code <::>
+                    LoadRegPair{regT1=XZero, regT2=workReg2, regN=X_MLStackPtr, unitOffset=2, unscaledType=PostIndex, loadType=Load64} <::>
+                    StoreRegScaled{regT=workReg2, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64}
 
         |   codeExtended _ (BeginHandler{packetReg}, code) =
             let
@@ -966,10 +960,9 @@ struct
                     code <::>
                         (* The exception raise code resets the stack pointer to the value in the exception handler
                            so this is probably redundant.  Leave it for the moment, *)
-                        toInstr(LoadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64}) <::>
-                        toInstr(LoadRegUnscaled{regT=workReg1, regN=X_MLStackPtr, byteOffset=8, unscaledType=PostIndex, loadType=Load64}) <::>
-                        toInstr(LoadRegUnscaled{regT=workReg2, regN=X_MLStackPtr, byteOffset=8, unscaledType=PostIndex, loadType=Load64}) <::>
-                        toInstr(StoreRegScaled{regT=workReg2, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64})
+                        LoadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64} <::>
+                        LoadRegPair{regT1=XZero, regT2=workReg2, regN=X_MLStackPtr, unitOffset=2, unscaledType=PostIndex, loadType=Load64} <::>
+                        StoreRegScaled{regT=workReg2, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64}
             in
                 moveIfNecessary({src=X0, dst=getAllocatedGenReg packetReg }, beginHandleCode)
             end
@@ -984,17 +977,17 @@ struct
             in
                 code <::>
                 (* Set the CC to Equal before we start in case length = 0 *)
-                toInstr(SubShiftedReg{regM=lenReg, regN=lenReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
-                toInstr(SetLabel loopLabel) <::> (* Start of loop *)
-                toInstr(CompareBranch{ test=lenReg, label=exitLabel, onZero=true, opSize=OpSize64}) <::> (* Go to the end when len = zero *)
+                SubShiftedReg{regM=lenReg, regN=lenReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
+                SetLabel loopLabel <::> (* Start of loop *)
+                CompareBranch{ test=lenReg, label=exitLabel, onZero=true, opSize=OpSize64} <::> (* Go to the end when len = zero *)
                 (* Load the bytes for the comparison and increment each. *)
-                toInstr(LoadRegUnscaled{regT=workReg1, regN=vec1Reg, byteOffset=1, unscaledType=PostIndex, loadType=Load8}) <::>
-                toInstr(LoadRegUnscaled{regT=workReg2, regN=vec2Reg, byteOffset=1, unscaledType=PostIndex, loadType=Load8}) <::>            
-                toInstr(SubImmediate{regN=lenReg, regD=lenReg, immed=0w1, shifted=false, setFlags=false, opSize=OpSize64}) <::> (* Decr len *)
+                LoadRegUnscaled{regT=workReg1, regN=vec1Reg, byteOffset=1, unscaledType=PostIndex, loadType=Load8} <::>
+                LoadRegUnscaled{regT=workReg2, regN=vec2Reg, byteOffset=1, unscaledType=PostIndex, loadType=Load8} <::>            
+                SubImmediate{regN=lenReg, regD=lenReg, immed=0w1, shifted=false, setFlags=false, opSize=OpSize64} <::> (* Decr len *)
                 (* Compare *)
-                toInstr(SubShiftedReg{regM=workReg2, regN=workReg1, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64}) <::>
-                toInstr(ConditionalBranch(CondEqual, loopLabel)) <::> (* Loop if they're equal *)
-                toInstr(SetLabel exitLabel)
+                SubShiftedReg{regM=workReg2, regN=workReg1, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
+                ConditionalBranch(CondEqual, loopLabel) <::> (* Loop if they're equal *)
+                SetLabel exitLabel
             end
 
         |   codeExtended _ (BlockMove{srcAddr, destAddr, length, isByteMove}, code) =
@@ -1006,26 +999,26 @@ struct
                 val loopLabel = createLabel() and exitLabel = createLabel()
                 val (offset, loadType) = if isByteMove then (1, Load8) else if is32in64 then (4, Load32) else (8, Load64)
             in
-                code <::> toInstr(SetLabel loopLabel) (* Start of loop *) <::> 
-                toInstr(CompareBranch{ test=lenReg, label=exitLabel, onZero=true, opSize=OpSize64}) <::> (* Exit when length = 0 *)
-                toInstr(LoadRegUnscaled{regT=workReg1, regN=srcReg, byteOffset=offset, loadType=loadType, unscaledType=PostIndex}) <::>
-                toInstr(StoreRegUnscaled{regT=workReg1, regN=destReg, byteOffset=offset, loadType=loadType, unscaledType=PostIndex}) <::>
-                toInstr(SubImmediate{regN=lenReg, regD=lenReg, immed=0w1, shifted=false, setFlags=false, opSize=OpSize64}) <::> (* Decr len *)
-                toInstr(UnconditionalBranch loopLabel )<::> (* Back to the start *)
-                toInstr(SetLabel exitLabel)
+                code <::> SetLabel loopLabel (* Start of loop *) <::> 
+                CompareBranch{ test=lenReg, label=exitLabel, onZero=true, opSize=OpSize64} <::> (* Exit when length = 0 *)
+                LoadRegUnscaled{regT=workReg1, regN=srcReg, byteOffset=offset, loadType=loadType, unscaledType=PostIndex} <::>
+                StoreRegUnscaled{regT=workReg1, regN=destReg, byteOffset=offset, loadType=loadType, unscaledType=PostIndex} <::>
+                SubImmediate{regN=lenReg, regD=lenReg, immed=0w1, shifted=false, setFlags=false, opSize=OpSize64} <::> (* Decr len *)
+                UnconditionalBranch loopLabel <::> (* Back to the start *)
+                SetLabel exitLabel
             end
 
         |   codeExtended _ (AddSubXSP{ source, dest, isAdd }, code) =
             let
                 val allocFreeCode =
-                    toInstr((if isAdd then AddExtendedReg else SubExtendedReg)
-                        {regM=getAllocatedGenReg source, regN=XSP, regD=XSP, extend=ExtUXTX 0w0, setFlags=false, opSize=OpSize64}) :: code
+                    (if isAdd then AddExtendedReg else SubExtendedReg)
+                        {regM=getAllocatedGenReg source, regN=XSP, regD=XSP, extend=ExtUXTX 0w0, setFlags=false, opSize=OpSize64} :: code
             in
                 case dest of
                     ZeroReg => allocFreeCode
                 |   SomeReg destReg =>
                         (* We have to use add here to get the SP into the destination instead of the usual move. *)
-                        toInstr(AddImmediate{regN=XSP, regD=getAllocatedGenReg destReg, immed=0w0, shifted=false, setFlags=false, opSize=OpSize64}) ::
+                        AddImmediate{regN=XSP, regD=getAllocatedGenReg destReg, immed=0w0, shifted=false, setFlags=false, opSize=OpSize64} ::
                             allocFreeCode
             end
 
@@ -1033,30 +1026,30 @@ struct
 
             (* Used in mutex operations. *)
         |   codeExtended _ (LoadAcquireExclusive{ base, dest }, code) =
-                toInstr(LoadAcquireExclusiveRegister{regN=getAllocatedGenReg base, regT=getAllocatedGenReg dest}) :: code
+                LoadAcquireExclusiveRegister{regN=getAllocatedGenReg base, regT=getAllocatedGenReg dest} :: code
 
         |   codeExtended _ (StoreReleaseExclusive{ base, source, result }, code) =
-                toInstr(StoreReleaseExclusiveRegister{regS=getAllocatedGenReg result,
-                        regT=getAllocatedGenRegOrZero source, regN=getAllocatedGenReg base}) :: code
+                StoreReleaseExclusiveRegister{regS=getAllocatedGenReg result,
+                        regT=getAllocatedGenRegOrZero source, regN=getAllocatedGenReg base} :: code
 
-        |   codeExtended _ (MemoryBarrier, code) = code
+        |   codeExtended _ (MemoryBarrier, code) = code <::> MemBarrier
 
         |   codeExtended _ (ConvertIntToFloat{ source, dest, srcSize, destSize}, code) =
-                toInstr(CvtIntToFP{regN=getAllocatedGenReg source, regD=getAllocatedFPReg dest, floatSize=destSize, opSize=srcSize}) :: code
+                (CvtIntToFP{regN=getAllocatedGenReg source, regD=getAllocatedFPReg dest, floatSize=destSize, opSize=srcSize}) :: code
 
         |   codeExtended _ (ConvertFloatToInt{ source, dest, srcSize, destSize, rounding}, code) =
-                toInstr(CvtFloatToInt{regN=getAllocatedFPReg source, regD=getAllocatedGenReg dest,
+                (CvtFloatToInt{regN=getAllocatedFPReg source, regD=getAllocatedGenReg dest,
                                       round=rounding, floatSize=srcSize, opSize=destSize}) :: code
 
         |   codeExtended _ (UnaryFloatingPt{ source, dest, fpOp}, code) =
-                toInstr(FPUnaryOp{regN=getAllocatedFPReg source, regD=getAllocatedFPReg dest, fpOp=fpOp}) :: code
+                (FPUnaryOp{regN=getAllocatedFPReg source, regD=getAllocatedFPReg dest, fpOp=fpOp}) :: code
 
         |   codeExtended _ (BinaryFloatingPoint{ arg1, arg2, dest, fpOp, opSize}, code) =
-                toInstr(FPBinaryOp{regN=getAllocatedFPReg arg1, regM=getAllocatedFPReg arg2, regD=getAllocatedFPReg dest,
+                (FPBinaryOp{regN=getAllocatedFPReg arg1, regM=getAllocatedFPReg arg2, regD=getAllocatedFPReg dest,
                             floatSize=opSize, fpOp=fpOp}) :: code
 
         |   codeExtended _ (CompareFloatingPoint{ arg1, arg2, opSize, ...}, code) =
-                toInstr(FPComparison{regN=getAllocatedFPReg arg1, regM=getAllocatedFPReg arg2, floatSize=opSize}) :: code
+                (FPComparison{regN=getAllocatedFPReg arg1, regM=getAllocatedFPReg arg2, floatSize=opSize}) :: code
 
         local
             (* processed - set to true when a block has been processed. *)
@@ -1071,7 +1064,7 @@ struct
 
             datatype flowCode =
                 FlowCodeSimple of int
-            |   FlowCodeCMove of {code: instr list, trueJump: int, falseJump: int}
+            |   FlowCodeCMove of {code: precode list, trueJump: int, falseJump: int}
             
             (* Process this recursively to set the references.  If we have
                unreachable blocks, perhaps because they've been merged, we
@@ -1116,15 +1109,15 @@ struct
                         case lastFlow of
                             ExitCode => []
                         |   IndexedBr _ => []
-                        |   Unconditional dest => [toInstr(UnconditionalBranch(getBlockLabel dest))]
+                        |   Unconditional dest => [(UnconditionalBranch(getBlockLabel dest))]
                         |   Conditional { condition, trueJump, falseJump, ...} =>
                                 [
-                                    toInstr(UnconditionalBranch(getBlockLabel falseJump)),
-                                    toInstr(ConditionalBranch(condition, getBlockLabel trueJump))
+                                    (UnconditionalBranch(getBlockLabel falseJump)),
+                                    (ConditionalBranch(condition, getBlockLabel trueJump))
                                 ]
-                        |   SetHandler { continue, ...} => [toInstr(UnconditionalBranch(getBlockLabel continue))]
+                        |   SetHandler { continue, ...} => [(UnconditionalBranch(getBlockLabel continue))]
                         |   UnconditionalHandle _ => []
-                        |   ConditionalHandle { continue, ...} => [toInstr(UnconditionalBranch(getBlockLabel continue))]
+                        |   ConditionalHandle { continue, ...} => [(UnconditionalBranch(getBlockLabel continue))]
                 in
                     finalBranch @ code (* Done. *)
                 end
@@ -1202,23 +1195,23 @@ struct
                                 |   IndexedBr _ => []
                                 |   UnconditionalHandle _ => []
                                 |   Unconditional dest =>
-                                        if dest = picked then [] else [toInstr(UnconditionalBranch(getBlockLabel dest))]
+                                        if dest = picked then [] else [(UnconditionalBranch(getBlockLabel dest))]
                                 |   ConditionalHandle { continue, ...} =>
-                                        if continue = picked then [] else [toInstr(UnconditionalBranch(getBlockLabel continue))]
+                                        if continue = picked then [] else [(UnconditionalBranch(getBlockLabel continue))]
                                 |   SetHandler { continue, ... } =>
-                                        if continue = picked then [] else [toInstr(UnconditionalBranch(getBlockLabel continue))]
+                                        if continue = picked then [] else [(UnconditionalBranch(getBlockLabel continue))]
                                 |   Conditional { condition, trueJump, falseJump, ...} =>
                                     if picked = falseJump (* Usual case. *)
-                                    then [toInstr(ConditionalBranch(condition, getBlockLabel trueJump))]
+                                    then [(ConditionalBranch(condition, getBlockLabel trueJump))]
                                     else if picked = trueJump
                                     then (* We have a jump to the true condition. Invert the jump.
                                             This is more than an optimisation.  Because this immediately precedes the
                                             true block we're not going to generate a label. *)
-                                        [toInstr(ConditionalBranch(invertTest condition, getBlockLabel falseJump))]
+                                        [(ConditionalBranch(invertTest condition, getBlockLabel falseJump))]
                                     else
                                     [
-                                        toInstr(UnconditionalBranch(getBlockLabel falseJump)),
-                                        toInstr(ConditionalBranch(condition, getBlockLabel trueJump))
+                                        (UnconditionalBranch(getBlockLabel falseJump)),
+                                        (ConditionalBranch(condition, getBlockLabel trueJump))
                                     ]
 
                             (* Code-generate the body with the code we've done so far
@@ -1243,7 +1236,7 @@ struct
                                     |   UnconditionalHandle _ => false
                                     |   ConditionalHandle { continue, ...} => onlyJumpingHere continue
                             in
-                                val startLabel = if noLabel then [] else [toInstr(SetLabel(getBlockLabel picked))]
+                                val startLabel = if noLabel then [] else [(SetLabel(getBlockLabel picked))]
                             end
 
                             val ExtendedBasicBlock { flow, block, ...} = Vector.sub(blocks, picked)
@@ -1292,10 +1285,10 @@ struct
                         end
                 end
         in
-            val ops = genCode([0], ExitCode, [toInstr(SetLabel startOfFunctionLabel)])
+            val ops = genCode([0], ExitCode, [(SetLabel startOfFunctionLabel)])
         end
     in
-        Arm64Assembly.generateCode{instrs=List.rev ops, name=functionName, resultClosure=resultClosure,
+        generateFinalCode{instrs=List.rev ops, name=functionName, resultClosure=resultClosure,
                                    parameters=debugSwitches, profileObject=profileObject}
     end
 

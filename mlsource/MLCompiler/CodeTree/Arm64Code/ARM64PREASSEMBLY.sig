@@ -148,6 +148,7 @@ sig
         (* LoadAcquireExclusiveRegister and StoreReleaseExclusiveRegister are used for mutexes. *)
     |   LoadAcquireExclusiveRegister of {regN: xReg, regT: xReg}
     |   StoreReleaseExclusiveRegister of {regS: xReg, regT: xReg, regN: xReg}
+    |   MemBarrier
     |   LoadRegPair of
             { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, loadType: loadType, unscaledType: unscaledType}
     |   StoreRegPair of
