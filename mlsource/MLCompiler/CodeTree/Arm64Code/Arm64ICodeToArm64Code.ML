@@ -164,10 +164,10 @@ struct
                                 |   exchange(arg1, arg2, code) =
                                     (* The hardware stack must be 16-byte aligned. *)
                                     storeToDest(workReg2, arg2, workReg1,
-                                        loadRegPostIndex{regT=workReg2, regN=XSP, byteOffset=16} ::
+                                        toInstr(LoadRegUnscaled{regT=workReg2, regN=XSP, byteOffset=16, loadType=Load64, unscaledType=PostIndex}) ::
                                         storeToDest(workReg2, arg1, workReg1,
                                             loadIntoReg(arg2, workReg2,
-                                                storeRegPreIndex{regT=workReg2, regN=XSP, byteOffset= ~16} ::
+                                                toInstr(StoreRegUnscaled{regT=workReg2, regN=XSP, byteOffset= ~16, loadType=Load64, unscaledType=PreIndex}) ::
                                                     loadIntoReg(arg1, workReg2, code))))
                             end
                             
@@ -288,7 +288,7 @@ struct
                 code <@> List.rev(toInstrs([LoadNonAddr(getAllocatedGenReg dest, source)]))
 
         |   codeExtended _ (LoadAddressConstant{source, dest, ...}, code) =
-                loadAddressConstant(getAllocatedGenReg dest, source) :: code
+                code <::> toInstr(LoadAddr(getAllocatedGenReg dest, source))
 
         |   codeExtended _ (LoadWithConstantOffset{dest, base, byteOffset, loadType, ...}, code) =
             if byteOffset < 0
@@ -732,7 +732,7 @@ struct
                     |   ConstantCode m =>
                             if is32in64
                             then raise InternalError "ConstantCode" (* Not currently *)
-                            else [branchRegister workReg1, loadAddressConstant(workReg1, m)]
+                            else [branchRegister workReg1, toInstr(LoadAddr(workReg1, m))]
                     |   FullCall =>
                             if is32in64
                             then [branchRegister workReg1,
@@ -787,7 +787,7 @@ struct
                         |   ConstantCode m =>
                                 if is32in64
                                 then raise InternalError "ConstantCode" (* Not currently *)
-                                else code <::> loadAddressConstant(workReg1, m) <::> branchAndLinkReg workReg1
+                                else code <::> toInstr(LoadAddr(workReg1, m)) <::> branchAndLinkReg workReg1
                         |   FullCall =>
                                 if is32in64
                                 then code <::>
@@ -1125,60 +1125,21 @@ struct
         |   codeExtended _ (MemoryBarrier, code) = code
 
         |   codeExtended _ (ConvertIntToFloat{ source, dest, srcSize, destSize}, code) =
-            let
-                val instr =
-                    case (srcSize, destSize) of
-                        (OpSize32, Float32) => convertInt32ToFloat
-                    |   (OpSize64, Float32) => convertIntToFloat
-                    |   (OpSize32, Double64) => convertInt32ToDouble
-                    |   (OpSize64, Double64) => convertIntToDouble
-            in
-                instr{regN=getAllocatedGenReg source, regD=getAllocatedFPReg dest} :: code
-            end
+                toInstr(CvtIntToFP{regN=getAllocatedGenReg source, regD=getAllocatedFPReg dest, floatSize=destSize, opSize=srcSize}) :: code
 
         |   codeExtended _ (ConvertFloatToInt{ source, dest, srcSize, destSize, rounding}, code) =
-            let
-                val instr =
-                    case (srcSize, destSize) of
-                        (Float32, OpSize32) => convertFloatToInt32
-                    |   (Float32, OpSize64) => convertFloatToInt
-                    |   (Double64, OpSize32) => convertDoubleToInt32
-                    |   (Double64, OpSize64) => convertDoubleToInt
-            in
-                instr rounding {regN=getAllocatedFPReg source, regD=getAllocatedGenReg dest} :: code
-            end
+                toInstr(CvtFloatToInt{regN=getAllocatedFPReg source, regD=getAllocatedGenReg dest,
+                                      round=rounding, floatSize=srcSize, opSize=destSize}) :: code
 
         |   codeExtended _ (UnaryFloatingPt{ source, dest, fpOp}, code) =
-            let
-                val instr =
-                    case fpOp of
-                        NegFloat => negFloat | NegDouble => negDouble
-                    |   AbsFloat => absFloat | AbsDouble => absDouble
-                    |   ConvFloatToDble => convertFloatToDouble
-                    |   ConvDbleToFloat => convertDoubleToFloat
-            in
-                instr {regN=getAllocatedFPReg source, regD=getAllocatedFPReg dest} :: code
-            end
+                toInstr(FPUnaryOp{regN=getAllocatedFPReg source, regD=getAllocatedFPReg dest, fpOp=fpOp}) :: code
 
         |   codeExtended _ (BinaryFloatingPoint{ arg1, arg2, dest, fpOp, opSize}, code) =
-            let
-                val instr =
-                    case (fpOp, opSize) of
-                        (MultiplyFP, Float32) => multiplyFloat
-                    |   (DivideFP, Float32) => divideFloat
-                    |   (AddFP, Float32) => addFloat
-                    |   (SubtractFP, Float32) => subtractFloat
-                    |   (MultiplyFP, Double64) => multiplyDouble
-                    |   (DivideFP, Double64) => divideDouble
-                    |   (AddFP, Double64) => addDouble
-                    |   (SubtractFP, Double64) => subtractDouble
-            in
-                instr {regN=getAllocatedFPReg arg1, regM=getAllocatedFPReg arg2, regD=getAllocatedFPReg dest} :: code
-            end
+                toInstr(FPBinaryOp{regN=getAllocatedFPReg arg1, regM=getAllocatedFPReg arg2, regD=getAllocatedFPReg dest,
+                            floatSize=opSize, fpOp=fpOp}) :: code
 
         |   codeExtended _ (CompareFloatingPoint{ arg1, arg2, opSize, ...}, code) =
-            (case opSize of Float32 => compareFloat | Double64 => compareDouble)
-                {regN=getAllocatedFPReg arg1, regM=getAllocatedFPReg arg2} :: code
+                toInstr(FPComparison{regN=getAllocatedFPReg arg1, regM=getAllocatedFPReg arg2, floatSize=opSize}) :: code
 
         local
             (* processed - set to true when a block has been processed. *)

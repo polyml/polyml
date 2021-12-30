@@ -155,7 +155,7 @@ sig
     |   CvtFloatToInt of { round: IEEEReal.rounding_mode, regN: vReg, regD: xReg, floatSize: floatSize, opSize: opSize}
     |   FPBinaryOp of { regM: vReg, regN: vReg, regD: vReg, floatSize: floatSize, fpOp: fpBinary}
     |   FPComparison of { regM: vReg, regN: vReg, floatSize: floatSize}
-    |   FPUnaryOp of {regN: vReg, regD: vReg, floatSize: floatSize, fpOp: fpUnary}
+    |   FPUnaryOp of {regN: vReg, regD: vReg, fpOp: fpUnary}
         (* Branches and Labels. *)
     |   SetLabel of labels
     |   ConditionalBranch of condition * labels

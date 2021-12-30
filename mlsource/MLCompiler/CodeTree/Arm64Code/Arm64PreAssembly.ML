@@ -98,7 +98,7 @@ struct
     |   CvtFloatToInt of { round: IEEEReal.rounding_mode, regN: vReg, regD: xReg, floatSize: floatSize, opSize: opSize}
     |   FPBinaryOp of { regM: vReg, regN: vReg, regD: vReg, floatSize: floatSize, fpOp: fpBinary}
     |   FPComparison of { regM: vReg, regN: vReg, floatSize: floatSize}
-    |   FPUnaryOp of {regN: vReg, regD: vReg, floatSize: floatSize, fpOp: fpUnary}
+    |   FPUnaryOp of {regN: vReg, regD: vReg, fpOp: fpUnary}
         (* Branches and Labels. *)
     |   SetLabel of labels
     |   ConditionalBranch of condition * labels
@@ -249,16 +249,6 @@ struct
             toAssembler(rest, code <::> instr{regT=regT, regN=regN, unitOffset=unitOffset})
         end
 
-    |   toAssembler(LoadFPRegScaled{regT, regN, unitOffset, floatSize} :: rest, code) =
-        let
-            val instr =
-                case floatSize of
-                    Float32 => loadRegScaledFloat
-                |   Double64 => loadRegScaledDouble
-        in
-            toAssembler(rest, code <::> instr{regT=regT, regN=regN, unitOffset=unitOffset})
-        end
-
     |   toAssembler(StoreRegScaled{regT, regN, unitOffset, loadType} :: rest, code) =
         let
             val instr =
@@ -267,6 +257,16 @@ struct
                 |   Load32 => storeRegScaled32
                 |   Load16 => storeRegScaled16
                 |   Load8 => storeRegScaledByte
+        in
+            toAssembler(rest, code <::> instr{regT=regT, regN=regN, unitOffset=unitOffset})
+        end
+
+    |   toAssembler(LoadFPRegScaled{regT, regN, unitOffset, floatSize} :: rest, code) =
+        let
+            val instr =
+                case floatSize of
+                    Float32 => loadRegScaledFloat
+                |   Double64 => loadRegScaledDouble
         in
             toAssembler(rest, code <::> instr{regT=regT, regN=regN, unitOffset=unitOffset})
         end
@@ -367,9 +367,98 @@ struct
             toAssembler(rest, code <::> storeInstr{regT=regT, regN=regN})
         end
 
+    |   toAssembler(LoadRegPair{ regT1, regT2, regN, unitOffset, unscaledType} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(StoreRegPair{ regT1, regT2, regN, unitOffset, unscaledType} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(LoadFPRegPair{ regT1, regT2, regN, unitOffset, unscaledType} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(StoreFPRegPair{ regT1, regT2, regN, unitOffset, unscaledType} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(ConditionalSet{regD, regTrue, regFalse, cond, condSet} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(BitField{immr, imms, regN, regD, opSize, bitfieldKind} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(ShiftRegisterVariable{regM, regN, regD, opSize, shiftDirection} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(BitwiseLogical{ bits, regN, regD, opSize, setFlags, logOp} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(MoveGeneralToFP{ regN, regD, floatSize} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(MoveFPToGeneral{ regN, regD, floatSize} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(CvtIntToFP{ regN, regD, floatSize, opSize} :: rest, code) =
+        let
+            val instr =
+                case (opSize, floatSize) of
+                    (OpSize32, Float32) => convertInt32ToFloat
+                |   (OpSize64, Float32) => convertIntToFloat
+                |   (OpSize32, Double64) => convertInt32ToDouble
+                |   (OpSize64, Double64) => convertIntToDouble
+        in
+            toAssembler(rest, code <::> instr{regN=regN, regD=regD})
+        end
+
+    |   toAssembler(CvtFloatToInt{ round, regN, regD, floatSize, opSize} :: rest, code) =
+        let
+            val instr =
+                case (floatSize, opSize) of
+                    (Float32, OpSize32) => convertFloatToInt32
+                |   (Float32, OpSize64) => convertFloatToInt
+                |   (Double64, OpSize32) => convertDoubleToInt32
+                |   (Double64, OpSize64) => convertDoubleToInt
+        in
+            toAssembler(rest, code <::> instr round {regN=regN, regD=regD})
+        end
+
+    |   toAssembler(FPBinaryOp{ regM, regN, regD, floatSize, fpOp} :: rest, code) =
+        let
+            val instr =
+                case (fpOp, floatSize) of
+                    (MultiplyFP, Float32) => multiplyFloat
+                |   (DivideFP, Float32) => divideFloat
+                |   (AddFP, Float32) => addFloat
+                |   (SubtractFP, Float32) => subtractFloat
+                |   (MultiplyFP, Double64) => multiplyDouble
+                |   (DivideFP, Double64) => divideDouble
+                |   (AddFP, Double64) => addDouble
+                |   (SubtractFP, Double64) => subtractDouble
+        in
+            toAssembler(rest, code <::> instr {regN=regN, regM=regM, regD=regD})
+        end
+
+    |   toAssembler(FPComparison{ regM, regN, floatSize} :: rest, code) =
+            toAssembler(rest, code <::> (case floatSize of Float32 => compareFloat | Double64 => compareDouble){regN=regN, regM=regM})
+
+    |   toAssembler(FPUnaryOp{ regN, regD, fpOp} :: rest, code) =
+        let
+            val instr =
+                case fpOp of
+                    NegFloat => negFloat | NegDouble => negDouble
+                |   AbsFloat => absFloat | AbsDouble => absDouble
+                |   ConvFloatToDble => convertFloatToDouble
+                |   ConvDbleToFloat => convertDoubleToFloat
+        in
+            toAssembler(rest, code <::> instr {regN=regN, regD=regD})
+        end
+
     |   toAssembler(SetLabel label :: rest, code) = toAssembler(rest, code <::> setLabel label)
 
     |   toAssembler(ConditionalBranch(cond, label) :: rest, code) = toAssembler(rest, code <::> conditionalBranch(cond, label))
+
+    |   toAssembler(UnconditionalBranch label :: rest, code) = toAssembler(rest, code <::> unconditionalBranch label)
+
+    |   toAssembler(BranchAndLink label :: rest, code) = toAssembler(rest, code <::> branchAndLink label)
+
+    |   toAssembler(BranchReg{regD, brRegType=BRRBranch} :: rest, code) = toAssembler(rest, code <::> branchRegister regD)
+    |   toAssembler(BranchReg{regD, brRegType=BRRAndLink} :: rest, code) = toAssembler(rest, code <::> branchAndLinkReg regD)
+    |   toAssembler(BranchReg{regD, brRegType=BRRReturn} :: rest, code) = toAssembler(rest, code <::> returnRegister regD)
+
+    |   toAssembler(LoadLabelAddress(reg, label) :: rest, code) = toAssembler(rest, code <::> loadLabelAddress(reg, label))
+
+    |   toAssembler(TestBitBranch{ test, bit, label, onZero } :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+
+    |   toAssembler(CompareBranch{ test, label, onZero, opSize } :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
 
         (* Register-register moves - special case for XSP. *)
     |   toAssembler(MoveXRegToXReg{sReg=XSP, dReg} :: rest, code) =
@@ -423,6 +512,8 @@ struct
             toAssembler(rest, nextCode)
         end
 
+    |   toAssembler(LoadAddr(dReg, source) :: rest, code) = toAssembler(rest, loadAddressConstant(dReg, source) :: code)
+
     |   toAssembler(RTSTrap{ rtsEntry, work, save } :: rest, code) =
         let
             (* Because X30 is used in the branchAndLink it has to be pushed
@@ -439,9 +530,6 @@ struct
                 (if saveX30 then [loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8}] else [])
             )
         end
-
-    |   toAssembler _ = raise Fail "TODO"
-
 
     fun toInstr precode =
         case toAssembler([precode], []) of
