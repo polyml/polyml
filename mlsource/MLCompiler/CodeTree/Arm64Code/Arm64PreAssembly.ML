@@ -85,8 +85,12 @@ struct
     |   StoreRegIndexed of {regT: xReg, regN: xReg, regM: xReg, loadType: loadType, option: scale extend}
     |   LoadFPRegIndexed of {regT: vReg, regN: xReg, regM: xReg, floatSize: floatSize, option: scale extend}
     |   StoreFPRegIndexed of {regT: vReg, regN: xReg, regM: xReg, floatSize: floatSize, option: scale extend}
+        (* LoadAcquire and StoreRelease are used for mutables. *)
     |   LoadAcquireReg of {regN: xReg, regT: xReg, loadType: loadType}
     |   StoreReleaseReg of {regN: xReg, regT: xReg, loadType: loadType}
+        (* LoadAcquireExclusiveRegister and StoreReleaseExclusiveRegister are used for mutexes. *)
+    |   LoadAcquireExclusiveRegister of {regN: xReg, regT: xReg}
+    |   StoreReleaseExclusiveRegister of {regS: xReg, regT: xReg, regN: xReg}
     |   LoadRegPair of { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
     |   StoreRegPair of{ regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
     |   LoadFPRegPair of { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
@@ -347,18 +351,6 @@ struct
             toAssembler(rest, code <::> instr{regT=regT, regN=regN, byteOffset=byteOffset})
         end
 
-    |   toAssembler(LoadAcquireReg{regN, regT, loadType} :: rest, code) =
-        let
-            val loadInstr  =
-                case loadType of
-                    Load64 => loadAcquire
-                |   Load32 => loadAcquire32
-                |   Load8 => loadAcquireByte
-                |   _ => raise InternalError "LoadAcquire: Unsupported size" (* Not used *)
-        in
-            toAssembler(rest, code <::> loadInstr{regT=regT, regN=regN})
-        end
-
     |   toAssembler(LoadRegIndexed{regT, regN, regM, loadType, option} :: rest, code) =
         let
             val instr =
@@ -403,6 +395,18 @@ struct
             toAssembler(rest, code <::> instr{regT=regT, regN=regN, regM=regM, option=option})
         end
 
+    |   toAssembler(LoadAcquireReg{regN, regT, loadType} :: rest, code) =
+        let
+            val loadInstr  =
+                case loadType of
+                    Load64 => loadAcquire
+                |   Load32 => loadAcquire32
+                |   Load8 => loadAcquireByte
+                |   _ => raise InternalError "LoadAcquire: Unsupported size" (* Not used *)
+        in
+            toAssembler(rest, code <::> loadInstr{regT=regT, regN=regN})
+        end
+
     |   toAssembler(StoreReleaseReg{regN, regT, loadType} :: rest, code) =
         let
             val storeInstr  =
@@ -414,6 +418,12 @@ struct
         in
             toAssembler(rest, code <::> storeInstr{regT=regT, regN=regN})
         end
+
+    |   toAssembler(LoadAcquireExclusiveRegister{regN, regT} :: rest, code) =
+            toAssembler(rest, code <::> loadAcquireExclusiveRegister{regN=regN, regT=regT})
+
+    |   toAssembler(StoreReleaseExclusiveRegister{regN, regT, regS} :: rest, code) =
+            toAssembler(rest, code <::> storeReleaseExclusiveRegister{regN=regN, regT=regT, regS=regS})
 
     |   toAssembler(LoadRegPair{ regT1, regT2, regN, unitOffset, unscaledType} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
 
@@ -472,9 +482,15 @@ struct
             toAssembler(rest, code <::> instr{regN=regN, regD=regD, bits=bits})
         end
 
-    |   toAssembler(MoveGeneralToFP{ regN, regD, floatSize} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(MoveGeneralToFP{ regN, regD, floatSize=Float32} :: rest, code) =
+            toAssembler(rest, code <::> moveGeneralToFloat{regN=regN, regD=regD})
+    |   toAssembler(MoveGeneralToFP{ regN, regD, floatSize=Double64} :: rest, code) =
+            toAssembler(rest, code <::> moveGeneralToDouble{regN=regN, regD=regD})
 
-    |   toAssembler(MoveFPToGeneral{ regN, regD, floatSize} :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(MoveFPToGeneral{ regN, regD, floatSize=Float32} :: rest, code) =
+            toAssembler(rest, code <::> moveFloatToGeneral{regN=regN, regD=regD})
+    |   toAssembler(MoveFPToGeneral{ regN, regD, floatSize=Double64} :: rest, code) =
+            toAssembler(rest, code <::> moveDoubleToGeneral{regN=regN, regD=regD})
 
     |   toAssembler(CvtIntToFP{ regN, regD, floatSize, opSize} :: rest, code) =
         let
@@ -545,9 +561,20 @@ struct
 
     |   toAssembler(LoadLabelAddress(reg, label) :: rest, code) = toAssembler(rest, code <::> loadLabelAddress(reg, label))
 
-    |   toAssembler(TestBitBranch{ test, bit, label, onZero } :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(TestBitBranch{ test, bit, label, onZero } :: rest, code) =
+            toAssembler(rest, code <::> (if onZero then testBitBranchZero else testBitBranchNonZero)(test, bit, label))
 
-    |   toAssembler(CompareBranch{ test, label, onZero, opSize } :: rest, code) = toAssembler(rest, code <::> (raise Fail "TODO"))
+    |   toAssembler(CompareBranch{ test, label, onZero, opSize } :: rest, code) =
+        let
+            val instr =
+                case (onZero, opSize) of
+                    (true, OpSize64) => compareBranchZero
+                |   (false, OpSize64) => compareBranchNonZero
+                |   (true, OpSize32) => compareBranchZero32
+                |   (false, OpSize32) => compareBranchNonZero32
+        in
+            toAssembler(rest, code <::> instr(test, label))
+        end
 
         (* Register-register moves - special case for XSP. *)
     |   toAssembler(MoveXRegToXReg{sReg=XSP, dReg} :: rest, code) =

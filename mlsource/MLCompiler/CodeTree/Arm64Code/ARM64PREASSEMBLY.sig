@@ -142,8 +142,12 @@ sig
     |   StoreRegIndexed of {regT: xReg, regN: xReg, regM: xReg, loadType: loadType, option: scale extend}
     |   LoadFPRegIndexed of {regT: vReg, regN: xReg, regM: xReg, floatSize: floatSize, option: scale extend}
     |   StoreFPRegIndexed of {regT: vReg, regN: xReg, regM: xReg, floatSize: floatSize, option: scale extend}
+        (* LoadAcquire and StoreRelease are used for mutables. *)
     |   LoadAcquireReg of {regN: xReg, regT: xReg, loadType: loadType}
     |   StoreReleaseReg of {regN: xReg, regT: xReg, loadType: loadType}
+        (* LoadAcquireExclusiveRegister and StoreReleaseExclusiveRegister are used for mutexes. *)
+    |   LoadAcquireExclusiveRegister of {regN: xReg, regT: xReg}
+    |   StoreReleaseExclusiveRegister of {regS: xReg, regT: xReg, regN: xReg}
     |   LoadRegPair of { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
     |   StoreRegPair of{ regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
     |   LoadFPRegPair of { regT1: vReg, regT2: vReg, regN: xReg, unitOffset: int, unscaledType: unscaledType}
