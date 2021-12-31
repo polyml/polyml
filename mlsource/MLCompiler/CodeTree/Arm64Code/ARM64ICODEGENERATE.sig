@@ -17,22 +17,22 @@
 
 signature ARM64ICODEGENERATE =
 sig
-    type intSet and extendedBasicBlock and regProperty and reg
-    type closureRef
+    type ('genReg, 'optGenReg, 'fpReg) basicBlock and xReg and vReg and closureRef
+    
+    type basicBlockConcrete = (xReg, xReg, vReg) basicBlock
     
     val icodeToArm64Code :
         {
-            blocks: extendedBasicBlock vector, allocatedRegisters: reg vector, functionName: string,
+            blocks: basicBlockConcrete vector, functionName: string,
             stackRequired: int, debugSwitches: Universal.universal list, resultClosure: closureRef,
             profileObject: Address.machineWord
         } -> unit
     
     structure Sharing:
     sig
-        type intSet             = intSet
-        and extendedBasicBlock  = extendedBasicBlock
-        and regProperty         = regProperty
-        and reg                 = reg
-        and closureRef          = closureRef
+        type ('genReg, 'optGenReg, 'fpReg) basicBlock = ('genReg, 'optGenReg, 'fpReg) basicBlock
+        and xReg        = xReg
+        and vReg        = vReg
+        and closureRef  = closureRef
     end
 end;

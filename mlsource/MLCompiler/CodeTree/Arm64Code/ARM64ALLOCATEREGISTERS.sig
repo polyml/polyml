@@ -17,8 +17,12 @@
 
 signature ARM64ALLOCATEREGISTERS =
 sig
-    type intSet and extendedBasicBlock and regProperty and reg
-    type address = Address.address 
+    type intSet and extendedBasicBlock and regProperty and reg and ('genReg, 'optGenReg, 'fpReg) basicBlock
+    and xReg and vReg
+
+    type address = Address.address
+
+    type basicBlockConcrete = (xReg, xReg, vReg) basicBlock
     
     type conflictState =
     {
@@ -26,7 +30,7 @@ sig
     }
 
     datatype allocateResult =
-        AllocateSuccess of reg vector
+        AllocateSuccess of basicBlockConcrete vector
     |   AllocateFailure of intSet list
     
     val allocateRegisters :
@@ -42,8 +46,11 @@ sig
     sig
         type intSet             = intSet
         and extendedBasicBlock  = extendedBasicBlock
+        and ('genReg, 'optGenReg, 'fpReg) basicBlock = ('genReg, 'optGenReg, 'fpReg) basicBlock
         and regProperty         = regProperty
         and reg                 = reg
+        and xReg                = xReg
+        and vReg                = vReg
         and allocateResult      = allocateResult
     end
 end;

@@ -152,13 +152,13 @@ struct
         val icodeTabs = [8, 20, 60]
         val wantPrintCode = Debug.getParameter Debug.icodeTag debugSwitches
         
-        fun printCode identifiedCode =
+        fun printCode printCodeKind identifiedCode =
             (* Print the code before the transformation. *)
             let
                 val printStream = Pretty.getSimplePrinter(debugSwitches, icodeTabs)
             in
                 printStream(functionName ^ "\n");
-                printICodeAbstract(identifiedCode, printStream);
+                printCodeKind(identifiedCode, printStream);
                 printStream "\n"
             end
         
@@ -181,18 +181,6 @@ struct
                 Vector.appi printRegData regStates
             end
 
-        fun printRegisters(regAlloc: reg vector) =
-        let
-            val printStream = Pretty.getSimplePrinter(debugSwitches, icodeTabs)
-            fun regRepr (GenReg(XReg w)) = "X" ^ Int.toString(Word8.toInt w)
-            |   regRepr (GenReg XZero) = "X0"
-            |   regRepr (GenReg XSP) = "SP"
-            |   regRepr (FPReg(VReg w)) = "V" ^ Int.toString(Word8.toInt w)
-            fun printRegAlloc(i, reg) = printStream (Int.toString i ^ "\t=> " ^ regRepr reg ^ "\n");
-        in
-            Vector.appi printRegAlloc regAlloc
-        end
-        
         (* Limit the number of passes. *)
         val maxOptimisePasses = 30
         val maxTotalPasses = maxOptimisePasses + 40
@@ -203,7 +191,7 @@ struct
             val _ = passes < maxTotalPasses orelse raise InternalError "Too many passes"
             val () =
                 if wantPrintCode
-                then printCode basicBlocks
+                then printCode printICodeAbstract basicBlocks
                 else ()
             (* First pass - identify register use patterns *)
             val (identified, regStates) = identifyRegisters(basicBlocks, pregProps)
@@ -294,15 +282,15 @@ struct
                         in
                             val () =
                                 if wantPrintCode
-                                then (printCode(Vector.map mapFromExtended identified); printConflicts conflictSets)
+                                then (printCode printICodeAbstract (Vector.map mapFromExtended identified); printConflicts conflictSets)
                                 else ()
                         end
                     in
                         case allocateRegisters {blocks=identified, regStates=conflictSets, regProps=pregProps } of
-                            AllocateSuccess allocatedRegs =>
+                            AllocateSuccess concreteCode =>
                                 (
-                                    if wantPrintCode then printRegisters allocatedRegs else ();
-                                    icodeToArm64Code{blocks=identified, functionName=functionName, allocatedRegisters=allocatedRegs,
+                                    if wantPrintCode then printCode printICodeConcrete concreteCode else ();
+                                    icodeToArm64Code{blocks=concreteCode, functionName=functionName,
                                                stackRequired=maxStack, debugSwitches=debugSwitches, resultClosure=resultClosure,
                                                profileObject=profileObject}
                                 )
