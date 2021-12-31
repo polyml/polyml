@@ -21,20 +21,18 @@ functor Arm64ICodeTransform(
     structure Codegen: ARM64ICODEGENERATE
     structure Allocate: ARM64ALLOCATEREGISTERS
     structure Identify: ARM64IDENTIFYREFERENCES
-    structure ConflictSets: ARM64ICODECONFLICTS
     structure PushRegisters: ARM64PUSHREGISTERS
     structure Optimise: ARM64ICODEOPTIMISE
     structure Pretty: PRETTY
     structure IntSet: INTSET
     sharing Arm64ICode.Sharing = Codegen.Sharing = Allocate.Sharing = Identify.Sharing =
-            ConflictSets.Sharing = PushRegisters.Sharing = IntSet = Optimise.Sharing
+            PushRegisters.Sharing = IntSet = Optimise.Sharing
 ) : ARM64ICODETRANSFORM
 =
 struct
     open Arm64ICode
     open Address
     open Identify
-    open ConflictSets
     open PushRegisters
     open IntSet
     open Codegen
@@ -161,25 +159,6 @@ struct
                 printCodeKind(identifiedCode, printStream);
                 printStream "\n"
             end
-        
-        fun printConflicts(regStates: conflictState vector) =
-            let
-                val printStream = Pretty.getSimplePrinter(debugSwitches, icodeTabs)
-
-                fun printRegs([], _) = ()
-                |   printRegs(_, 0) = printStream "..."
-                |   printRegs([i], _) = printStream(Int.toString i)
-                |   printRegs(i::l, n) = (printStream(Int.toString i ^ ","); printRegs(l, n-1))
-                
-                fun printRegData(i, { conflicts, ... }) =
-                (
-                    printStream (Int.toString i ^ "\t");
-                    printStream ("Conflicts="); printRegs(setToList conflicts, 20);
-                    printStream "\n"
-                )
-            in
-                Vector.appi printRegData regStates
-            end
 
         (* Limit the number of passes. *)
         val maxOptimisePasses = 30
@@ -273,20 +252,9 @@ struct
                         in
                             Array.vector pushArray
                         end
-                
-                        (* Now get the conflict sets. *)
-                        val conflictSets = getConflictStates(identified, maxPRegs)
-                        local
-                            fun mapFromExtended(ExtendedBasicBlock{block, flow, ...}) =
-                                BasicBlock{block=List.map #instr block, flow=flow}
-                        in
-                            val () =
-                                if wantPrintCode
-                                then (printCode printICodeAbstract (Vector.map mapFromExtended identified); printConflicts conflictSets)
-                                else ()
-                        end
+
                     in
-                        case allocateRegisters {blocks=identified, regStates=conflictSets, regProps=pregProps } of
+                        case allocateRegisters {blocks=identified, maxPRegs=maxPRegs, regProps=pregProps } of
                             AllocateSuccess concreteCode =>
                                 (
                                     if wantPrintCode then printCode printICodeConcrete concreteCode else ();

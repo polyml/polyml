@@ -252,8 +252,6 @@ struct
                 end
             end
 
-        fun getSaveRegs r = r
-
         val startOfFunctionLabel = createLabel() (* Used for recursive calls/jumps *)
 
         val blockToLabelMap = Vector.tabulate(numBlocks, fn _ => createLabel())
@@ -350,7 +348,7 @@ struct
                 (* Compare with heap limit. *)
                 SubShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
                 ConditionalBranch(CondCarrySet, label) <::> (* Skip the trap if it's ok. *)
-                RTSTrap{rtsEntry=heapOverflowCallOffset, work=workReg1, save=getSaveRegs saveRegs} <::>
+                RTSTrap{rtsEntry=heapOverflowCallOffset, work=workReg1, save=saveRegs} <::>
                 SetLabel label <::>
                 MoveXRegToXReg{sReg=destReg, dReg=X_MLHeapAllocPtr}
             end
@@ -378,7 +376,7 @@ struct
                 SubShiftedReg{regM=X_MLHeapAllocPtr, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
                 ConditionalBranch(CondCarryClear, noTrapLabel) <::>
                 SetLabel trapLabel <::>
-                RTSTrap{rtsEntry=heapOverflowCallOffset, work=workReg1, save=getSaveRegs saveRegs} <::>
+                RTSTrap{rtsEntry=heapOverflowCallOffset, work=workReg1, save=saveRegs} <::>
                 SetLabel noTrapLabel <::>
                 MoveXRegToXReg{sReg=destReg, dReg=X_MLHeapAllocPtr}
             end
@@ -429,7 +427,7 @@ struct
                         LoadRegScaled{regT=workReg1, regN=X_MLAssemblyInt, unitOffset=stackLimitOffset, loadType=Load64} <::>
                         SubShiftedReg{regM=workReg1, regN=X_MLStackPtr, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
                         ConditionalBranch(CondCarrySet, skipCheck) <::>
-                        RTSTrap{rtsEntry=stackOverflowCallOffset, work=workReg1, save=getSaveRegs saveRegs} <::>
+                        RTSTrap{rtsEntry=stackOverflowCallOffset, work=workReg1, save=saveRegs} <::>
                         SetLabel skipCheck
                     end
             end
@@ -717,9 +715,6 @@ struct
 
         |   codeExtended _ (ReturnResultFromFunction { resultReg, returnReg, numStackArgs }, code) =
             let
-                val resultReg = resultReg
-                and returnReg = returnReg
-
                 fun resetStack(0, code) = code
                 |   resetStack(nItems, code) =
                         addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
@@ -763,14 +758,13 @@ struct
         |   codeExtended _ (ContainerAddress{ dest, stackOffset, ... }, code) =
                 (* Set the register to an offset in the stack. *)
             let
-                val destReg = dest
                 val _ = stackOffset >= 0 orelse raise InternalError "codeGenICode: ContainerAddress - negative offset"
                 val byteOffset = stackOffset * Word.toInt nativeWordSize
             in
                 if byteOffset >= 4096
-                then code <::> LoadNonAddr(destReg, Word64.fromInt byteOffset) <::>
-                        AddShiftedReg{regN=X_MLStackPtr, regM=destReg, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64}
-                else code <::> AddImmediate{regN=X_MLStackPtr, regD=destReg, immed=Word.fromInt byteOffset,
+                then code <::> LoadNonAddr(dest, Word64.fromInt byteOffset) <::>
+                        AddShiftedReg{regN=X_MLStackPtr, regM=dest, regD=dest, shift=ShiftNone, setFlags=false, opSize=OpSize64}
+                else code <::> AddImmediate{regN=X_MLStackPtr, regD=dest, immed=Word.fromInt byteOffset,
                                           shifted=false, setFlags=false, opSize=OpSize64}
             end
 
@@ -779,15 +773,10 @@ struct
                     value=Word64.fromInt numWords * Word.toLarge nativeWordSize}, code)
 
         |   codeExtended _ (TagValue{ source, dest, isSigned=_, opSize }, code) =
-            let
-                val sourceReg = source
-                and destReg = dest
                 (* Shift left by one bit and add one. *)
-            in
                 code <::>
-                    shiftConstant{ direction=ShiftLeft, regD=destReg, regN=sourceReg, shift=0w1, opSize=opSize } <::>
-                    BitwiseLogical{ bits=0w1, regN=destReg, regD=destReg, opSize=opSize, setFlags=false, logOp=LogOr}
-            end
+                    shiftConstant{ direction=ShiftLeft, regD=dest, regN=source, shift=0w1, opSize=opSize } <::>
+                    BitwiseLogical{ bits=0w1, regN=dest, regD=dest, opSize=opSize, setFlags=false, logOp=LogOr}
 
         |   codeExtended _ (UntagValue{ source, dest, isSigned, opSize }, code) =
                 code <::>
@@ -796,7 +785,7 @@ struct
 
         |   codeExtended _ (BoxLarge{ source, dest, saveRegs }, code) =
                boxSysWord({source=source, destination=dest,
-                           workReg=workReg1, saveRegs=getSaveRegs saveRegs}, code)
+                           workReg=workReg1, saveRegs=saveRegs}, code)
 
         |   codeExtended _ (UnboxLarge{ source, dest }, code) =
             let
@@ -812,7 +801,7 @@ struct
 
         |   codeExtended _ (BoxTagFloat{ floatSize=Double64, source, dest, saveRegs }, code) =
                 boxDouble({source=source, destination=dest,
-                           workReg=workReg1, saveRegs=getSaveRegs saveRegs}, code)
+                           workReg=workReg1, saveRegs=saveRegs}, code)
 
         |   codeExtended _ (BoxTagFloat{ floatSize=Float32, source, dest, saveRegs }, code) =
             let
@@ -821,7 +810,7 @@ struct
             in
                 if is32in64
                 then boxFloat({source=floatReg, destination=fixedReg,
-                               workReg=workReg1, saveRegs=getSaveRegs saveRegs}, code)
+                               workReg=workReg1, saveRegs=saveRegs}, code)
                 else
                     code <::>
                         MoveFPToGeneral{regN=floatReg, regD=fixedReg, floatSize=Float32} <::>
@@ -830,32 +819,21 @@ struct
             end
 
         |   codeExtended _ (UnboxTagFloat { floatSize=Double64, source, dest }, code) =
-            let
-                val addrReg = source
-                and valReg = dest
-            in
                 if is32in64
                 then code <::>
-                    AddShiftedReg{regM=addrReg, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2,
+                    AddShiftedReg{regM=source, regN=X_Base32in64, regD=workReg1, shift=ShiftLSL 0w2,
                                           setFlags=false, opSize=OpSize64} <::>
-                    LoadFPRegScaled{regT=valReg, regN=workReg1, unitOffset=0, floatSize=Double64}
-                else code <::> LoadFPRegScaled{regT=valReg, regN=addrReg, unitOffset=0, floatSize=Double64}
-            end
+                    LoadFPRegScaled{regT=dest, regN=workReg1, unitOffset=0, floatSize=Double64}
+                else code <::> LoadFPRegScaled{regT=dest, regN=source, unitOffset=0, floatSize=Double64}
 
         |   codeExtended _ (UnboxTagFloat { floatSize=Float32, source, dest }, code) =
-            let
-                val addrReg = source
-                and valReg = dest
                 (* This is tagged in native 64-bits.  In 32-in-64 we're loading 32-bits so we
                    can use an indexed load directly. *)
-            in
                 if is32in64
-                then code <::> LoadFPRegIndexed{regN=X_Base32in64, regM=addrReg, regT=valReg, option=ExtUXTX ScaleOrShift, floatSize=Float32}
-                else
-                    code <::>
-                        shiftConstant{direction=ShiftRightLogical, shift=0w32, regN=addrReg, regD=workReg1, opSize=OpSize64} <::>
-                        MoveGeneralToFP{regN=workReg1, regD=valReg, floatSize=Float32}
-            end
+                then code <::> LoadFPRegIndexed{regN=X_Base32in64, regM=source, regT=dest, option=ExtUXTX ScaleOrShift, floatSize=Float32}
+                else code <::>
+                        shiftConstant{direction=ShiftRightLogical, shift=0w32, regN=source, regD=workReg1, opSize=OpSize64} <::>
+                        MoveGeneralToFP{regN=workReg1, regD=dest, floatSize=Float32}
 
         |   codeExtended _ (LoadAcquire{dest, base, loadType, ...}, code) =
                 LoadAcquireReg{regT=dest, regN=base, loadType=loadType} :: code
@@ -864,24 +842,17 @@ struct
                 StoreReleaseReg{regT=source, regN=base, loadType=loadType} :: code
 
         |   codeExtended _ (BitFieldShift{ source, dest, isSigned, length, immr, imms }, code) =
-            let
-                val srcReg = source
-                val destReg = dest
-            in
-                BitField{immr=immr, imms=imms, regN=srcReg, regD=destReg,
+                BitField{immr=immr, imms=imms, regN=source, regD=dest,
                          bitfieldKind=if isSigned then BFSigned else BFUnsigned, opSize=length} :: code
-            end
 
         |   codeExtended _ (BitFieldInsert{ source, destAsSource, dest, length, immr, imms }, code) =
             let
                 (* If we're using BitFieldMove we retain some of the bits of the
                    destination.  The higher levels require us to treat that as a source.  *)
-                val sourceReg = source
-                and destReg = dest
-                val _ = sourceReg = destReg andalso raise InternalError "codeExtended: bitfield: dest=source"
+                val _ = source = dest andalso raise InternalError "codeExtended: bitfield: dest=source"
             in
-                BitField{immr=immr, imms=imms, regN=source, regD=destReg, bitfieldKind=BFInsert, opSize=length} ::
-                    moveIfNecessary({src=destAsSource, dst=destReg}, code)
+                BitField{immr=immr, imms=imms, regN=source, regD=dest, bitfieldKind=BFInsert, opSize=length} ::
+                    moveIfNecessary({src=destAsSource, dst=dest}, code)
             end
 
         |   codeExtended {flow} (IndexedCaseOperation{testReg}, code) =
@@ -1017,15 +988,13 @@ struct
                 (CvtIntToFP{regN=source, regD=dest, floatSize=destSize, opSize=srcSize}) :: code
 
         |   codeExtended _ (ConvertFloatToInt{ source, dest, srcSize, destSize, rounding}, code) =
-                (CvtFloatToInt{regN=source, regD=dest,
-                                      round=rounding, floatSize=srcSize, opSize=destSize}) :: code
+                (CvtFloatToInt{regN=source, regD=dest, round=rounding, floatSize=srcSize, opSize=destSize}) :: code
 
         |   codeExtended _ (UnaryFloatingPt{ source, dest, fpOp}, code) =
                 (FPUnaryOp{regN=source, regD=dest, fpOp=fpOp}) :: code
 
         |   codeExtended _ (BinaryFloatingPoint{ arg1, arg2, dest, fpOp, opSize}, code) =
-                (FPBinaryOp{regN=arg1, regM=arg2, regD=dest,
-                            floatSize=opSize, fpOp=fpOp}) :: code
+                (FPBinaryOp{regN=arg1, regM=arg2, regD=dest, floatSize=opSize, fpOp=fpOp}) :: code
 
         |   codeExtended _ (CompareFloatingPoint{ arg1, arg2, opSize, ...}, code) =
                 (FPComparison{regN=arg1, regM=arg2, floatSize=opSize}) :: code

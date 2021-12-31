@@ -55,13 +55,6 @@ local
             structure IntSet        = IntSet
         )
 
-    structure Arm64ICodeConflicts =
-        Arm64ICodeConflicts (
-            structure Arm64ICode         = Arm64ICode
-            structure IntSet        = IntSet
-            structure Identify      = Arm64ICodeIdentify
-        )
-
     structure Arm64PushRegs =
         Arm64PushRegisters (
             structure Arm64ICode    = Arm64ICode
@@ -82,7 +75,6 @@ local
         Arm64AllocateRegisters (
             structure Arm64ICode    = Arm64ICode
             structure Identify      = Arm64ICodeIdentify
-            structure ConflictSets  = Arm64ICodeConflicts
             structure IntSet        = IntSet
         )
 
@@ -104,7 +96,6 @@ local
             structure Debug         = Debug
             structure Arm64ICode    = Arm64ICode
             structure Identify      = Arm64ICodeIdentify
-            structure ConflictSets  = Arm64ICodeConflicts
             structure Allocate      = Arm64IAllocate
             structure PushRegisters = Arm64PushRegs
             structure Optimise      = Arm64Opt

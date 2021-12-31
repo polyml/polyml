@@ -23,11 +23,6 @@ sig
     type address = Address.address
 
     type basicBlockConcrete = (xReg, xReg, vReg) basicBlock
-    
-    type conflictState =
-    {
-        conflicts: intSet, realConflicts: reg list
-    }
 
     datatype allocateResult =
         AllocateSuccess of basicBlockConcrete vector
@@ -36,7 +31,7 @@ sig
     val allocateRegisters :
         {
             blocks: extendedBasicBlock vector,
-            regStates: conflictState vector,
+            maxPRegs: int,
             regProps: regProperty vector
         } -> allocateResult
 

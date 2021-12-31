@@ -71,8 +71,6 @@ use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64ICode.ML";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64ForeignCall.sml";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64IDENTIFYREFERENCES.sig";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64IdentifyReferences.ML";
-use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64ICODECONFLICTS.sig";
-use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64ICodeConflicts.ML";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64PUSHREGISTERS.sig";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/Arm64PushRegisters.ML";
 use "mlsource/MLCompiler/CodeTree/Arm64Code/ARM64ICODEOPTIMISE.sig";
