@@ -104,55 +104,55 @@ sig
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
-    datatype fnarg = ArgInReg of preg | ArgOnStack of { wordOffset: int, container: stackLocn, field: int }
+    datatype 'genReg fnarg = ArgInReg of 'genReg | ArgOnStack of { wordOffset: int, container: stackLocn, field: int }
 
-    datatype arm64ICode =
+    datatype ('genReg, 'optGenReg, 'fpReg) arm64ICode =
         (* Move the contents of one preg to another.  These are always 64-bits. *)
-        MoveRegister of { source: preg, dest: preg }
+        MoveRegister of { source: 'genReg, dest: 'genReg }
 
         (* Numerical constant. *)
-    |   LoadNonAddressConstant of { source: Word64.word, dest: preg }
+    |   LoadNonAddressConstant of { source: Word64.word, dest: 'genReg }
 
         (* Address constant. *)
-    |   LoadAddressConstant of { source: machineWord, dest: preg }
+    |   LoadAddressConstant of { source: machineWord, dest: 'genReg }
 
         (* Load a value into a register using a constant, signed, byte offset.  The offset
            is in the range of -256 to (+4095*unit size). *)
-    |   LoadWithConstantOffset of { base: preg, dest: preg, byteOffset: int, loadType: loadType }
+    |   LoadWithConstantOffset of { base: 'genReg, dest: 'genReg, byteOffset: int, loadType: loadType }
 
         (* Similarly for FP registers. *)
-    |   LoadFPWithConstantOffset of { base: preg, dest: preg, byteOffset: int, floatSize: floatSize }
+    |   LoadFPWithConstantOffset of { base: 'genReg, dest: 'fpReg, byteOffset: int, floatSize: floatSize }
 
         (* Load a value into a register using an index register. *)
-    |   LoadWithIndexedOffset of { base: preg, dest: preg, index: preg, loadType: loadType }
+    |   LoadWithIndexedOffset of { base: 'genReg, dest: 'genReg, index: 'genReg, loadType: loadType }
 
         (* Ditto for FP. *)
-    |   LoadFPWithIndexedOffset of { base: preg, dest: preg, index: preg, floatSize: floatSize }
+    |   LoadFPWithIndexedOffset of { base: 'genReg, dest: 'fpReg, index: 'genReg, floatSize: floatSize }
 
         (* Returns the current thread ID.  Always a 64-bit value.. *)
-    |   GetThreadId of { dest: preg }
+    |   GetThreadId of { dest: 'genReg }
 
         (* Convert a 32-in-64 object index into an absolute address. *)
-    |   ObjectIndexAddressToAbsolute of { source: preg, dest: preg }
+    |   ObjectIndexAddressToAbsolute of { source: 'genReg, dest: 'genReg }
 
         (* Convert an absolute address into an object index. *)
-    |   AbsoluteToObjectIndex of { source: preg, dest: preg }
+    |   AbsoluteToObjectIndex of { source: 'genReg, dest: 'genReg }
 
         (* Allocate a fixed sized piece of memory and puts the absolute address into dest.
            bytesRequired is the total number of bytes including the length word and any alignment
            necessary for 32-in-64. saveRegs is the list of registers that need to be saved if we
            need to do a garbage collection. *)
-    |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: preg, saveRegs: preg list }
+    |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: 'genReg, saveRegs: 'genReg list }
 
         (* Allocate a piece of memory.  The size argument is an untagged value containing
            the number of words i.e. the same value used for InitialiseMemory and to store
            in the length word. *)
-    |   AllocateMemoryVariable of { size: preg, dest: preg, saveRegs: preg list }
+    |   AllocateMemoryVariable of { size: 'genReg, dest: 'genReg, saveRegs: 'genReg list }
 
         (* Initialise a piece of memory by writing "size" copies of the value
            in "init".  N.B. The size is an untagged value containing the
            number of words. *)
-    |   InitialiseMem of { size: preg, addr: preg, init: preg }
+    |   InitialiseMem of { size: 'genReg, addr: 'genReg, init: 'genReg }
 
         (* Mark the beginning of a loop.  This is really only to prevent the initialisation code being
            duplicated in ICodeOptimise. *)
@@ -160,57 +160,57 @@ sig
 
         (* Set up the registers for a jump back to the start of a loop. *)
     |   JumpLoop of
-            { regArgs: {src: fnarg, dst: preg} list,
-              stackArgs: {src: fnarg, wordOffset: int, stackloc: stackLocn} list,
-              checkInterrupt: preg list option }
+            { regArgs: {src: 'genReg fnarg, dst: 'genReg} list,
+              stackArgs: {src: 'genReg fnarg, wordOffset: int, stackloc: stackLocn} list,
+              checkInterrupt: 'genReg list option }
 
         (* Store a register using a constant, signed, byte offset.  The offset
            is in the range of -256 to (+4095*unit size). *)
-    |   StoreWithConstantOffset of { source: preg, base: preg, byteOffset: int, loadType: loadType }
+    |   StoreWithConstantOffset of { source: 'genReg, base: 'genReg, byteOffset: int, loadType: loadType }
 
         (* Ditto for FP regs. *)
-    |   StoreFPWithConstantOffset of { source: preg, base: preg, byteOffset: int, floatSize: floatSize }
+    |   StoreFPWithConstantOffset of { source: 'fpReg, base: 'genReg, byteOffset: int, floatSize: floatSize }
 
         (* Store a register using an index register. *)
-    |   StoreWithIndexedOffset of { source: preg, base: preg, index: preg, loadType: loadType }
+    |   StoreWithIndexedOffset of { source: 'genReg, base: 'genReg, index: 'genReg, loadType: loadType }
 
         (* and for FP regs. *)
-    |   StoreFPWithIndexedOffset of { source: preg, base: preg, index: preg, floatSize: floatSize }
+    |   StoreFPWithIndexedOffset of { source: 'fpReg, base: 'genReg, index: 'genReg, floatSize: floatSize }
 
         (* Add/Subtract immediate.  The destination is optional in which case XZero is used.
            ccRef is optional.  If it is NONE the version of the instruction that does not generate
            a condition code is used. immed must be < 0wx1000. *)
-    |   AddSubImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: word,
+    |   AddSubImmediate of { source: 'genReg, dest: 'optGenReg, ccRef: ccRef option, immed: word,
                              isAdd: bool, length: opSize }
 
         (* Add/Subtract register.  As with AddSubImmediate, both the destination and cc are optional. *)
-    |   AddSubRegister of { base: preg, shifted: preg, dest: preg option, ccRef: ccRef option,
+    |   AddSubRegister of { base: 'genReg, shifted: 'genReg, dest: 'optGenReg, ccRef: ccRef option,
                             isAdd: bool, length: opSize, shift: shiftType }
 
         (* Bitwise logical operations.  The immediate value must be a valid bit pattern.  ccRef can
            only be SOME if logOp is LogAnd. *)
-    |   LogicalImmediate of { source: preg, dest: preg option, ccRef: ccRef option, immed: Word64.word,
+    |   LogicalImmediate of { source: 'genReg, dest: 'optGenReg, ccRef: ccRef option, immed: Word64.word,
                               logOp: logicalOp, length: opSize }
 
         (* Register logical operations.  ccRef can only be SOME if logOp is LogAnd.*)
-    |   LogicalRegister of { base: preg, shifted: preg, dest: preg option, ccRef: ccRef option,
+    |   LogicalRegister of { base: 'genReg, shifted: 'genReg, dest: 'optGenReg, ccRef: ccRef option,
                              logOp: logicalOp, length: opSize, shift: shiftType }
 
         (* Shift a word by an amount specified in a register. *)
-    |   ShiftRegister of { direction: shiftDirection, dest: preg, source: preg, shift: preg, opSize: opSize }
+    |   ShiftRegister of { direction: shiftDirection, dest: 'genReg, source: 'genReg, shift: 'genReg, opSize: opSize }
 
         (* The various forms of multiply all take three arguments and the general form is
            dest = M * N +/- A..   *)
-    |   Multiplication of { kind: multKind, dest: preg, sourceA: preg option, sourceM: preg, sourceN: preg }
+    |   Multiplication of { kind: multKind, dest: 'genReg, sourceA: 'optGenReg, sourceM: 'genReg, sourceN: 'genReg }
 
         (* Signed or unsigned division.  Sets the result to zero if the divisor is zero. *)
-    |   Division of { isSigned: bool, dest: preg, dividend: preg, divisor: preg, opSize: opSize }
+    |   Division of { isSigned: bool, dest: 'genReg, dividend: 'genReg, divisor: 'genReg, opSize: opSize }
 
         (* Start of function.  Set the register arguments.  stackArgs is the list of
            stack arguments.  If the function has a real closure regArgs includes the
            closure register (X8).  The register arguments include the return register
            (X30). *)
-    |   BeginFunction of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
+    |   BeginFunction of { regArgs: ('genReg * xReg) list, stackArgs: stackLocn list }
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through X8 which has been loaded
@@ -219,8 +219,8 @@ sig
            as one of the other arguments continues to be referenced until the function is called
            since there's a possibility that it isn't actually used after the function. *)
     |   FunctionCall of
-            { callKind: callKind, regArgs: (fnarg * xReg) list,
-              stackArgs: fnarg list, dest: preg, saveRegs: preg list, containers: stackLocn list}
+            { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
+              stackArgs: 'genReg fnarg list, dest: 'genReg, saveRegs: 'genReg list, containers: stackLocn list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
@@ -229,61 +229,61 @@ sig
            (negative) to the stack before the call.
            currStackSize contains the number of items currently on the stack. *)
     |   TailRecursiveCall of
-            { callKind: callKind, regArgs: (fnarg * xReg) list,
-              stackArgs: {src: fnarg, stack: int} list,
+            { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
+              stackArgs: {src: 'genReg fnarg, stack: int} list,
               stackAdjust: int, currStackSize: int }
 
         (* Return from the function.  resultReg is the preg that contains the result,
            returnReg is the preg that contains the return address. *)
-    |   ReturnResultFromFunction of { resultReg: preg, returnReg: preg, numStackArgs: int }
+    |   ReturnResultFromFunction of { resultReg: 'genReg, returnReg: 'genReg, numStackArgs: int }
 
         (* Raise an exception.  The packet is always loaded into X0. *)
-    |   RaiseExceptionPacket of { packetReg: preg }
+    |   RaiseExceptionPacket of { packetReg: 'genReg }
 
         (* Push a register to the stack.  This is used both for a normal push, copies=1, and
            also to reserve a container. *)
-    |   PushToStack of { source: preg, copies: int, container: stackLocn }
+    |   PushToStack of { source: 'genReg, copies: int, container: stackLocn }
 
         (* Load a register from the stack.  The container is the stack location identifier,
            the field is an offset in a container. *)
-    |   LoadStack of { dest: preg, wordOffset: int, container: stackLocn, field: int }
+    |   LoadStack of { dest: 'genReg, wordOffset: int, container: stackLocn, field: int }
 
         (* Store a value into the stack. *)
-    |   StoreToStack of { source: preg, container: stackLocn, field: int, stackOffset: int }
+    |   StoreToStack of { source: 'genReg, container: stackLocn, field: int, stackOffset: int }
 
         (* Set the register to the address of the container i.e. a specific offset on the stack. *)
-    |   ContainerAddress of { dest: preg, container: stackLocn, stackOffset: int }
+    |   ContainerAddress of { dest: 'genReg, container: stackLocn, stackOffset: int }
 
         (* Remove items from the stack.  Used to remove containers or
            registers pushed to the stack.. *)
     |   ResetStackPtr of { numWords: int }
 
         (* Tag a value by shifting and setting the tag bit. *)
-    |   TagValue of { source: preg, dest: preg, isSigned: bool, opSize: opSize }
+    |   TagValue of { source: 'genReg, dest: 'genReg, isSigned: bool, opSize: opSize }
 
         (* Shift a value to remove the tag bit.  The cache is used if this is untagging a
            value that has previously been tagged. *)
-    |   UntagValue of { source: preg, dest: preg, isSigned: bool, opSize: opSize }
+    |   UntagValue of { source: 'genReg, dest: 'genReg, isSigned: bool, opSize: opSize }
 
         (* Box a largeword value.  Stores a value
            into a byte area.  This can be implemented using AllocateMemoryFixed
            but keeping it separate makes optimisation easier.
            The result is always an address and needs to be converted to an
            object index on 32-in-64. *)
-    |   BoxLarge of { source: preg, dest: preg, saveRegs: preg list }
+    |   BoxLarge of { source: 'genReg, dest: 'genReg, saveRegs: 'genReg list }
 
         (* Load a value from a box.  This can be implemented using a load but
            is kept separate to simplify optimisation.  The source is always
            an absolute address. *)
-    |   UnboxLarge of { source: preg, dest: preg }
+    |   UnboxLarge of { source: 'genReg, dest: 'genReg }
 
         (* Convert a floating point value into a value suitable for storing
            in the heap.  This normally involves boxing except that 32-bit
            floats can be tagged in native 64-bits. *)
-    |   BoxTagFloat of { floatSize: floatSize, source: preg, dest: preg, saveRegs: preg list }
+    |   BoxTagFloat of { floatSize: floatSize, source: 'fpReg, dest: 'genReg, saveRegs: 'genReg list }
 
         (* The reverse of BoxTagFloat. *)
-    |   UnboxTagFloat of { floatSize: floatSize, source: preg, dest: preg }
+    |   UnboxTagFloat of { floatSize: floatSize, source: 'genReg, dest: 'fpReg }
 
         (* Load a value with acquire semantics.  This means that any other
            load in this thread after this sees the value of the shared
@@ -292,24 +292,24 @@ sig
            built a data structure on the heap and then assigns the
            address to a shared ref this thread will see the updated heap
            and not any locally cached previous version. *)
-    |   LoadAcquire of { base: preg, dest: preg, loadType: loadType }
+    |   LoadAcquire of { base: 'genReg, dest: 'genReg, loadType: loadType }
 
         (* Store a value with release semantics.  This ensures that any
            other write completes before this operation and works with
            LoadAcquire. *)
-    |   StoreRelease of { base: preg, source: preg, loadType: loadType }
+    |   StoreRelease of { base: 'genReg, source: 'genReg, loadType: loadType }
 
         (* This is a generalised constant shift which includes selection of a
            range of bits. *)
-    |   BitFieldShift of { source: preg, dest: preg, isSigned: bool, length: opSize, immr: word, imms: word }
+    |   BitFieldShift of { source: 'genReg, dest: 'genReg, isSigned: bool, length: opSize, immr: word, imms: word }
 
         (*  Copy a range of bits and insert it into another register.  This is the
             only case where a register functions both as a source and a destination. *)
-    |   BitFieldInsert of { source: preg, destAsSource: preg, dest: preg,
+    |   BitFieldInsert of { source: 'genReg, destAsSource: 'genReg, dest: 'genReg,
                             length: opSize, immr: word, imms: word }
 
         (* Indexed case. *)
-    |   IndexedCaseOperation of { testReg: preg }
+    |   IndexedCaseOperation of { testReg: 'genReg }
 
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler
@@ -319,52 +319,52 @@ sig
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  Sets the exception packet register. *) 
-    |   BeginHandler of { packetReg: preg }
+    |   BeginHandler of { packetReg: 'genReg }
 
         (* Compare two vectors of bytes and set the condition code on the result.
            The registers are modified by the instruction. *)
     |   CompareByteVectors of
-            { vec1Addr: preg, vec2Addr: preg, length: preg, ccRef: ccRef }
+            { vec1Addr: 'genReg, vec2Addr: 'genReg, length: 'genReg, ccRef: ccRef }
 
         (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
            number of items (bytes or words) to move. The registers are modified by
            the instruction. *)
-    |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
+    |   BlockMove of { srcAddr: 'genReg, destAddr: 'genReg, length: 'genReg, isByteMove: bool }
 
         (* Add or subtract to the system stack pointer and optionally return the new value.
            This is used to allocate and deallocate C space. *)
-    |   AddSubXSP of { source: preg, dest: pregOrZero, isAdd: bool  }
+    |   AddSubXSP of { source: 'genReg, dest: 'optGenReg, isAdd: bool  }
 
         (* Ensures the value will actually be referenced although it doesn't generate any code. *)
-    |   TouchValue of { source: preg }
+    |   TouchValue of { source: 'genReg }
 
         (* Load a value at the address and get exclusive access.  Always loads a
            64-bit value. *)
-    |   LoadAcquireExclusive of { base: preg, dest: preg }
+    |   LoadAcquireExclusive of { base: 'genReg, dest: 'genReg }
 
         (* Store a value into an address releasing the lock.  Sets the result to
            either 0 or 1 if it succeeds or fails. *)
-    |   StoreReleaseExclusive of { base: preg, source: pregOrZero, result: preg }
+    |   StoreReleaseExclusive of { base: 'genReg, source: 'optGenReg, result: 'genReg }
 
         (* Insert a memory barrier. dmb ish. *)
     |   MemoryBarrier
 
         (* Convert an integer to a floating point value. *)
-    |   ConvertIntToFloat of { source: preg, dest: preg, srcSize: opSize, destSize: floatSize }
+    |   ConvertIntToFloat of { source: 'genReg, dest: 'fpReg, srcSize: opSize, destSize: floatSize }
 
         (* Convert a floating point value to an integer using the specified rounding mode.
            We could get an overflow here but fortunately the ARM generates a value
            that will cause an overflow when we tag it, provided we tag it explicitly. *)
-    |   ConvertFloatToInt of { source: preg, dest: preg, srcSize: floatSize, destSize: opSize, rounding: IEEEReal.rounding_mode }
+    |   ConvertFloatToInt of { source: 'fpReg, dest: 'genReg, srcSize: floatSize, destSize: opSize, rounding: IEEEReal.rounding_mode }
 
         (* Unary floating point.  This includes conversions between float and double. *)
-    |   UnaryFloatingPt of { source: preg, dest: preg, fpOp: fpUnary }
+    |   UnaryFloatingPt of { source: 'fpReg, dest: 'fpReg, fpOp: fpUnary }
 
         (* Binary floating point: addition, subtraction, multiplication and division. *)
-    |   BinaryFloatingPoint of { arg1: preg, arg2: preg, dest: preg, fpOp: fpBinary, opSize: floatSize }
+    |   BinaryFloatingPoint of { arg1: 'fpReg, arg2: 'fpReg, dest: 'fpReg, fpOp: fpBinary, opSize: floatSize }
 
         (* Floating point comparison. *)
-    |   CompareFloatingPoint of { arg1: preg, arg2: preg, ccRef: ccRef, opSize: floatSize }
+    |   CompareFloatingPoint of { arg1: 'fpReg, arg2: 'fpReg, ccRef: ccRef, opSize: floatSize }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -386,19 +386,24 @@ sig
            function within the scope of a handler.  It may jump to the handler. *)
     |   ConditionalHandle of { handler: int, continue: int }
 
-    and basicBlock = BasicBlock of { block: arm64ICode list, flow: controlFlow }
+    and ('genReg, 'optGenReg, 'fpReg) basicBlock =
+            BasicBlock of { block: ('genReg, 'optGenReg, 'fpReg) arm64ICode list, flow: controlFlow }
     
     (* Return the successor blocks from a control flow. *)
     val successorBlocks: controlFlow -> int list
 
-    val printICodeAbstract: basicBlock vector * (string -> unit) -> unit
+    type iCodeAbstract = (preg, pregOrZero, preg) arm64ICode and basicBlockAbstract = (preg, pregOrZero, preg) basicBlock
+    and  iCodeConcrete = (xReg, xReg, vReg) arm64ICode and basicBlockConcrete = (xReg, xReg, vReg) basicBlock
+
+    val printICodeAbstract: basicBlockAbstract vector * (string -> unit) -> unit
+    and printICodeConcrete: basicBlockConcrete vector * (string -> unit) -> unit
 
     (* Check whether this value is acceptable for LogicalImmediate. *)
     val isEncodableBitPattern: Word64.word * opSize -> bool
 
     (* This generates a  BitField instruction with the appropriate values for immr and imms. *)
     val shiftConstant:
-        { direction: shiftDirection, dest: preg, source: preg, shift: word, opSize: opSize } -> arm64ICode
+        { direction: shiftDirection, dest: preg, source: preg, shift: word, opSize: opSize } -> iCodeAbstract
     
     structure Sharing:
     sig
@@ -407,15 +412,15 @@ sig
         and  reg            = reg
         and  condition      = condition
         and  shiftType      = shiftType
-        and  arm64ICode     = arm64ICode
+        and  ('genReg, 'optGenReg, 'fpReg) arm64ICode = ('genReg, 'optGenReg, 'fpReg) arm64ICode
         and  preg           = preg
         and  pregOrZero     = pregOrZero
         and  controlFlow    = controlFlow
-        and  basicBlock     = basicBlock
+        and  ('genReg, 'optGenReg, 'fpReg) basicBlock = ('genReg, 'optGenReg, 'fpReg) basicBlock
         and  stackLocn      = stackLocn
         and  regProperty    = regProperty
         and  ccRef          = ccRef
-        and  fnarg          = fnarg
+        and  'genReg fnarg  = 'genReg fnarg
         and  closureRef     = closureRef
         and  loadType       = loadType
         and  opSize         = opSize

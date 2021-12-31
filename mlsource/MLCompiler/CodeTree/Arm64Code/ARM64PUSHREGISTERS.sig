@@ -17,16 +17,19 @@
 
 signature ARM64PUSHREGISTERS =
 sig
-    type extendedBasicBlock and basicBlock and regProperty
+    type extendedBasicBlock and ('genReg, 'optGenReg, 'fpReg) basicBlock and regProperty
+    and preg and pregOrZero
 
     val addRegisterPushes :
         { code: extendedBasicBlock vector, pushVec: bool vector, pregProps: regProperty vector, firstPass: bool } ->
-            { code: basicBlock vector, pregProps: regProperty vector, maxStack: int }
+            { code: (preg, pregOrZero, preg) basicBlock vector, pregProps: regProperty vector, maxStack: int }
 
     structure Sharing:
     sig
         type extendedBasicBlock = extendedBasicBlock
-        and basicBlock = basicBlock
+        and ('genReg, 'optGenReg, 'fpReg) basicBlock =  ('genReg, 'optGenReg, 'fpReg) basicBlock
         and regProperty = regProperty
+        and preg = preg
+        and pregOrZero = pregOrZero
     end
 end;

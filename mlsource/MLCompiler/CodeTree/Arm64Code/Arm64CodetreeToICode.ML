@@ -32,6 +32,8 @@ struct
     open Arm64ICode
     open CodeArray
     open BuiltIns
+
+    type iCodeAbstract = (preg, pregOrZero, preg) arm64ICode and basicBlockAbstract = (preg, pregOrZero, preg) basicBlock
     
     exception InternalError = Misc.InternalError
     
@@ -39,13 +41,13 @@ struct
     and taggedWord w: word = w * 0w2 + 0w1
     
     datatype blockStruct =
-        BlockSimple of arm64ICode
-    |   BlockExit of arm64ICode
+        BlockSimple of iCodeAbstract
+    |   BlockExit of iCodeAbstract
     |   BlockLabel of int
     |   BlockFlow of controlFlow
     |   BlockBegin of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
-    |   BlockRaiseAndHandle of arm64ICode * int
-    |   BlockOptionalHandle of {call: arm64ICode, handler: int, label: int }
+    |   BlockRaiseAndHandle of iCodeAbstract * int
+    |   BlockOptionalHandle of {call: iCodeAbstract, handler: int, label: int }
 
 
     val moveRegister = BlockSimple o MoveRegister
@@ -426,7 +428,7 @@ struct
                                 (* It could be negative if it's a C address. *)
                                 val shiftedOffset = (if isCAddress then LargeWord.~>> else LargeWord.>>) (offsetAsWord, loadShift)
                             in
-                                (addSubRegister{ base=iReg2, shifted=cReg, dest=SOME iReg3, ccRef=NONE, isAdd=true,
+                                (addSubRegister{ base=iReg2, shifted=cReg, dest=SomeReg iReg3, ccRef=NONE, isAdd=true,
                                     length=polyWordOpSize, shift=ShiftNone} ::
                                  loadNonAddressConstant{ source=shiftedOffset, dest=cReg } :: iCode2,
                                  SOME iReg3)
@@ -464,7 +466,7 @@ struct
                     val cReg = newUReg() and aReg = newUReg()
                 in
                     loadStore(aReg,
-                        addSubRegister{ base=bReg, shifted=cReg, dest=SOME aReg, ccRef=NONE, isAdd=true,
+                        addSubRegister{ base=bReg, shifted=cReg, dest=SomeReg aReg, ccRef=NONE, isAdd=true,
                                         length=OpSize64, shift=ShiftNone} ::
                         loadNonAddressConstant{ source=LargeWord.fromInt offset, dest=cReg } :: code)
                 end
@@ -478,7 +480,7 @@ struct
                     if loadShift = 0w0 then ShiftNone else ShiftLSL(Word8.fromLarge(Word.toLarge loadShift))
             in
                 loadStore(aReg,
-                    addSubRegister{ base=bReg, shifted=iReg, dest=SOME aReg, ccRef=NONE, isAdd=true,
+                    addSubRegister{ base=bReg, shifted=iReg, dest=SomeReg aReg, ccRef=NONE, isAdd=true,
                                     length=OpSize64, shift=indexShift} :: code)
             end
         in
@@ -1043,9 +1045,9 @@ struct
                             val uReg = newUReg() and chkOverflow = newCCRef()
                         in
                             BlockFlow(Conditional{ ccRef=chkOverflow, condition=CondOverflow, trueJump=startLong, falseJump=resultLabel }) ::
-                            addSubRegister{base=firstReg, shifted=uReg, dest=SOME condResult, length=polyWordOpSize,
+                            addSubRegister{base=firstReg, shifted=uReg, dest=SomeReg condResult, length=polyWordOpSize,
                                          ccRef=SOME chkOverflow, isAdd=true, shift=ShiftNone} ::
-                            addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize,
+                            addSubImmediate{dest=SomeReg uReg, source=secondReg, immed=0w1, length=polyWordOpSize,
                                             ccRef=NONE, isAdd=false}:: arg2Code
                         end
 
@@ -1054,9 +1056,9 @@ struct
                             val uReg = newUReg() and chkOverflow = newCCRef()
                         in
                             BlockFlow(Conditional{ ccRef=chkOverflow, condition=CondOverflow, trueJump=startLong, falseJump=resultLabel }) ::
-                            addSubRegister{base=firstReg, shifted=uReg, dest=SOME condResult, length=polyWordOpSize,
+                            addSubRegister{base=firstReg, shifted=uReg, dest=SomeReg condResult, length=polyWordOpSize,
                                          ccRef=SOME chkOverflow, isAdd=false, shift=ShiftNone} ::
-                            addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize,
+                            addSubImmediate{dest=SomeReg uReg, source=secondReg, immed=0w1, length=polyWordOpSize,
                                             ccRef=NONE, isAdd=false}:: arg2Code
                         end
 
@@ -1121,7 +1123,7 @@ struct
                 in
                     val testReg = newUReg()
                     val testCode =
-                        addSubRegister{ base=initialTestReg, shifted=cReg1, dest=SOME testReg, ccRef=NONE, isAdd=false,
+                        addSubRegister{ base=initialTestReg, shifted=cReg1, dest=SomeReg testReg, ccRef=NONE, isAdd=false,
                                         length=polyWordOpSize, shift=ShiftNone} ::
                         loadNonAddressConstant{ source=subValue, dest=cReg1 } :: testCode
                 end
@@ -1137,7 +1139,7 @@ struct
                         val rangeCheck =
                             BlockLabel continueLab ::
                             BlockFlow(Conditional{ccRef=ccRef1, condition=CondCarrySet, trueJump=defaultLab1, falseJump=continueLab}) ::
-                            addSubRegister{base=testReg, shifted=cReg2, dest=NONE, ccRef=SOME ccRef1, isAdd=false,
+                            addSubRegister{base=testReg, shifted=cReg2, dest=ZeroReg, ccRef=SOME ccRef1, isAdd=false,
                                            length=OpSize64, shift=ShiftNone} ::
                             loadNonAddressConstant{ source=Word64.fromInt nCases * 0w2, dest=cReg2 } :: testCode
                     in
@@ -1641,7 +1643,7 @@ struct
             BlockFlow(Conditional{ccRef=ccRef,
                        condition=if jumpOn then CondEqual else CondNotEqual, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
             (* Compare: SUBS XZ,reg,3.  Can use 32-bit comparison because it's either tagged 0 or tagged 1. *)
-            addSubImmediate{source=testReg, immed=taggedWord 0w1, isAdd=false, dest=NONE, length=OpSize32, ccRef=SOME ccRef} ::
+            addSubImmediate{source=testReg, immed=taggedWord 0w1, isAdd=false, dest=ZeroReg, length=OpSize32, ccRef=SOME ccRef} ::
             testCode
         end
 
@@ -1655,7 +1657,7 @@ struct
                    or the result is used in a test this will be better than using XOR. *)
                 (makeBoolResultRev(CondNotEqual, ccRef, target,
                         addSubImmediate{source=testDest, immed=taggedWord 0w1, isAdd=false,
-                                dest=NONE, length=OpSize32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef} ::
+                                dest=ZeroReg, length=OpSize32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef} ::
                             argCode), target, false)
             end
 
@@ -1669,7 +1671,7 @@ struct
                    a lower level to use a test-and-branch. *)
                 (makeBoolResultRev(CondNotEqual, ccRef, target,
                             logicalImmediate{source=testDest, immed=0w1 (* The tag bit*), logOp=LogAnd,
-                                dest=NONE, length=OpSize32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef} ::
+                                dest=ZeroReg, length=OpSize32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef} ::
                             argCode), target, false)
             end
 
@@ -1688,7 +1690,7 @@ struct
                     bitFieldShift{source=ureg1, dest=ureg2, isSigned=false, length=polyWordOpSize, immr=immr, imms=imms} :: codeLoad
                 val target = asTarget destination
                 val addTag =
-                    addSubImmediate{dest=SOME target, source=ureg2, immed=0w1, length=polyWordOpSize,
+                    addSubImmediate{dest=SomeReg target, source=ureg2, immed=0w1, length=polyWordOpSize,
                                             ccRef=NONE, isAdd=true} :: maskAndShift
             in
                 (addTag, target, false)
@@ -1716,7 +1718,7 @@ struct
                 (* Load the flags, mask off the mutable bit and store it back. *)
                 val code =
                     storeWithConstantOffset{ base=realBaseReg, source=ureg2, byteOffset=flagsByteOffset, loadType=Load8 } ::
-                    logicalImmediate{ source=ureg1, dest=SOME ureg2, ccRef=NONE,
+                    logicalImmediate{ source=ureg1, dest=SomeReg ureg2, ccRef=NONE,
                                       immed=Word64.xorb(0wxffffffff, 0wx40), logOp=LogAnd, length=OpSize32 } ::
                     loadWithConstantOffset{ base=realBaseReg, dest=ureg1, byteOffset=flagsByteOffset, loadType=Load8 } :: codeRealBase
             in
@@ -1859,10 +1861,10 @@ struct
                 val fpSize = precisionToFpSize precision
                 val code =
                     (* Set the tag bit. *)
-                    addSubImmediate{dest=SOME target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=true} ::
+                    addSubImmediate{dest=SomeReg target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=true} ::
                     checkOverflow(CondOverflow, context, chkOverflow) @
                     (* Add it to itself and set the condition code. *)
-                    addSubRegister{base=uReg2, shifted=uReg2, dest=SOME uReg3, length=polyWordOpSize,
+                    addSubRegister{base=uReg2, shifted=uReg2, dest=SomeReg uReg3, length=polyWordOpSize,
                                  ccRef=SOME chkOverflow, isAdd=true, shift=ShiftNone} ::
                     convertFloatToInt{ source=uReg1, dest=uReg2, srcSize=fpSize, destSize=polyWordOpSize, rounding=rounding } ::
                     unboxTagFloat{ floatSize=fpSize, source=aReg1, dest=uReg1 } ::
@@ -1912,15 +1914,15 @@ struct
                 (* N.B. in reverse order. *)
                 val code =
                     (* The result is true if the old value was zero. *)
-                    addSubImmediate{source=uRegOld, dest=NONE, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
+                    addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
                     memoryBarrier :: (* Put in the memory barrier. *)
                     (* If the result is zero we've been successful otherwise we loop. *)
                     BlockLabel noLoopLabel ::
                     BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
-                    addSubImmediate{source=uRegTest, dest=NONE, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
+                    addSubImmediate{source=uRegTest, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
                     (* Add and try to store the result *)
                     storeReleaseExclusive{ base=baseReg, source=SomeReg uRegNew, result=uRegTest } ::
-                    addSubImmediate{source=uRegOld, dest=SOME uRegNew, immed=0w1, isAdd=true, length=OpSize64, ccRef=NONE} ::
+                    addSubImmediate{source=uRegOld, dest=SomeReg uRegNew, immed=0w1, isAdd=true, length=OpSize64, ccRef=NONE} ::
                     loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
                     BlockLabel loopLabel :: baseCode
             in
@@ -1942,18 +1944,18 @@ struct
                 val uRegNew = newUReg() and uRegTest = newUReg() and uRegOld = newUReg()
                 val code =
                     (* The result is true if the old value was zero. *)
-                    addSubImmediate{source=uRegOld, dest=NONE, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
+                    addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
                     memoryBarrier :: (* Put in the memory barrier. *)
                     (* If the result is zero we've been successful otherwise we loop. *)
                     BlockLabel noLoopLabel ::
                     BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
-                    addSubImmediate{source=uRegTest, dest=NONE, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
+                    addSubImmediate{source=uRegTest, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
                     (* If the lock wasn't taken set it to one to lock it. *)
                     storeReleaseExclusive{ base=baseReg, source=SomeReg uRegNew, result=uRegTest } ::
                     loadNonAddressConstant{source=0w1, dest=uRegNew } :: BlockLabel okLabel ::
                     (* If it's not zero don't try to store anything back and exit the loop. *)
                     BlockFlow(Conditional{ ccRef=ccRef0, condition=CondNotEqual, trueJump=noLoopLabel, falseJump=okLabel }) ::
-                    addSubImmediate{source=uRegOld, dest=NONE, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef0} ::
+                    addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef0} ::
                     (* Get the old value and see if it's zero i.e. unlocked. *)
                     loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
                     BlockLabel loopLabel :: baseCode
@@ -1977,12 +1979,12 @@ struct
                 val code =
                     (* The result is true if the old value was one. i.e. we were the only thread
                        that locked it. *)
-                    addSubImmediate{source=uRegOld, dest=NONE, immed=0w1, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
+                    addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w1, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
                     memoryBarrier :: (* Put in the memory barrier. *)
                     (* If the result is zero we've been successful otherwise we loop. *)
                     BlockLabel noLoopLabel ::
                     BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
-                    addSubImmediate{source=uRegTest, dest=NONE, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
+                    addSubImmediate{source=uRegTest, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
                     (* Try to set this to zero *)
                     storeReleaseExclusive{ base=baseReg, source=ZeroReg, result=uRegTest } ::
                     loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
@@ -1999,7 +2001,7 @@ struct
                 val (testCode1, testDest1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
                 val (testCode2, testDest2, _) = codeToICodeRev(arg2, context, false, AnyReg, testCode1)
                 val comparison =
-                    addSubRegister{base=testDest1, shifted=testDest2, dest=NONE, length=polyWordOpSize,
+                    addSubRegister{base=testDest1, shifted=testDest2, dest=ZeroReg, length=polyWordOpSize,
                                    ccRef=SOME ccRef, isAdd=false, shift=ShiftNone} :: testCode2
                 val target = asTarget destination
                 open BuiltIns
@@ -2033,9 +2035,9 @@ struct
                 val chkOverflow = newCCRef()
                 val code =
                     checkOverflow(CondOverflow, context, chkOverflow) @
-                    addSubRegister{base=firstReg, shifted=uReg, dest=SOME target, length=polyWordOpSize,
+                    addSubRegister{base=firstReg, shifted=uReg, dest=SomeReg target, length=polyWordOpSize,
                                  ccRef=SOME chkOverflow, isAdd=true, shift=ShiftNone} ::
-                    addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
+                    addSubImmediate{dest=SomeReg uReg, source=secondReg, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
             in
                 (code , target, false)
             end
@@ -2049,9 +2051,9 @@ struct
                 val chkOverflow = newCCRef()
                 val code =
                     checkOverflow(CondOverflow, context, chkOverflow) @
-                    addSubRegister{base=aReg1, shifted=uReg, dest=SOME target, length=polyWordOpSize,
+                    addSubRegister{base=aReg1, shifted=uReg, dest=SomeReg target, length=polyWordOpSize,
                                  ccRef=SOME chkOverflow, isAdd=false, shift=ShiftNone} ::
-                    addSubImmediate{dest=SOME uReg, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
+                    addSubImmediate{dest=SomeReg uReg, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
             in
                 (code , target, false)
             end
@@ -2066,10 +2068,10 @@ struct
 
                 (* Untag one argument. subtract the tag from the second, multiply and add back the tag. *)
                 val multiplyCode =
-                    addSubImmediate{dest=SOME target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=true} ::
-                    multiplication{kind=if is32in64 then SignedMultAddLong else MultAdd64, dest=uReg3, sourceA=NONE,
+                    addSubImmediate{dest=SomeReg target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=true} ::
+                    multiplication{kind=if is32in64 then SignedMultAddLong else MultAdd64, dest=uReg3, sourceA=ZeroReg,
                                    sourceM=uReg1, sourceN=uReg2} ::
-                    addSubImmediate{dest=SOME uReg2, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
+                    addSubImmediate{dest=SomeReg uReg2, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
                     untagValue{ source=aReg1, dest=uReg1, isSigned=true, opSize=polyWordOpSize } ::
                     arg2Code
 
@@ -2081,13 +2083,13 @@ struct
                    value containing just the sign of the result. *)
                 val checkOverflowCode =
                     if is32in64
-                    then addSubRegister{ base=uReg4, shifted=target, dest=NONE, ccRef=SOME chkOverflow,
+                    then addSubRegister{ base=uReg4, shifted=target, dest=ZeroReg, ccRef=SOME chkOverflow,
                             isAdd=false, length=OpSize32, shift=ShiftASR 0w31 } ::
                          shiftConstant{direction=Arm64ICode.ShiftRightArithmetic, source=uReg3, dest=uReg4, shift=0w32,
                             opSize=OpSize64 (* Have to start with 64-bits *)} :: multiplyCode
-                    else addSubRegister{ base=uReg4, shifted=target, dest=NONE, ccRef=SOME chkOverflow,
+                    else addSubRegister{ base=uReg4, shifted=target, dest=ZeroReg, ccRef=SOME chkOverflow,
                             isAdd=false, length=OpSize64, shift=ShiftASR 0w63 } ::
-                         multiplication{kind=SignedMultHigh, dest=uReg4, sourceA=NONE,
+                         multiplication{kind=SignedMultHigh, dest=uReg4, sourceA=ZeroReg,
                                        sourceM=uReg1, sourceN=uReg2} :: multiplyCode
                 val code =
                     checkOverflow(CondNotEqual, context, chkOverflow) @ checkOverflowCode
@@ -2125,7 +2127,7 @@ struct
                 val code =
                     tagValue { source=uReg4, dest=target, opSize=polyWordOpSize, isSigned=true } ::
                     multiplication{kind=if is32in64 then MultSub32 else MultSub64, dest=uReg4,
-                                   sourceM=uReg3, sourceN=uReg2, sourceA=SOME uReg1} ::
+                                   sourceM=uReg3, sourceN=uReg2, sourceA=SomeReg uReg1} ::
                     division{isSigned=true, opSize=polyWordOpSize, dest=uReg3, dividend=uReg1, divisor=uReg2} ::
                     untagValue{ source=aReg2, dest=uReg2, isSigned=true, opSize=polyWordOpSize } ::
                     untagValue{ source=aReg1, dest=uReg1, isSigned=true, opSize=polyWordOpSize } :: arg2Code
@@ -2151,9 +2153,9 @@ struct
                     case arg1 of BICConstnt _ => (aReg2, aReg1) | _ => (aReg1, aReg2)
                 val uReg = newUReg()
                 val code =
-                    addSubRegister{base=firstReg, shifted=uReg, dest=SOME target, length=polyWordOpSize,
+                    addSubRegister{base=firstReg, shifted=uReg, dest=SomeReg target, length=polyWordOpSize,
                                  ccRef=NONE, isAdd=true, shift=ShiftNone} ::
-                    addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
+                    addSubImmediate{dest=SomeReg uReg, source=secondReg, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
             in
                 (code , target, false)
             end
@@ -2167,9 +2169,9 @@ struct
                 (* TODO: If the first argument is a constant we could add one to that rather than
                    subtracting one from the second argument.  We're not concerned with overflow. *)
                 val code =
-                    addSubRegister{base=aReg1, shifted=uReg, dest=SOME target, length=polyWordOpSize,
+                    addSubRegister{base=aReg1, shifted=uReg, dest=SomeReg target, length=polyWordOpSize,
                                  ccRef=NONE, isAdd=false, shift=ShiftNone} ::
-                    addSubImmediate{dest=SOME uReg, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
+                    addSubImmediate{dest=SomeReg uReg, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
             in
                 (code , target, false)
             end
@@ -2182,10 +2184,10 @@ struct
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 (* Untag one argument. subtract the tag from the second, multiply and add back the tag. *)
                 val code =
-                    addSubImmediate{dest=SOME target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=true} ::
-                    multiplication{kind=if is32in64 then MultAdd32 else MultAdd64, dest=uReg3, sourceA=NONE,
+                    addSubImmediate{dest=SomeReg target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=true} ::
+                    multiplication{kind=if is32in64 then MultAdd32 else MultAdd64, dest=uReg3, sourceA=ZeroReg,
                                    sourceM=uReg1, sourceN=uReg2} ::
-                    addSubImmediate{dest=SOME uReg2, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
+                    addSubImmediate{dest=SomeReg uReg2, source=aReg2, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
                     untagValue{ source=aReg1, dest=uReg1, isSigned=false, opSize=polyWordOpSize } :: arg2Code
             in
                 (code, target, false)
@@ -2201,9 +2203,9 @@ struct
                    divide and or in the tag.  The tag may have been set already depending on
                    the result of the division. *)
                 val code =
-                    logicalImmediate{dest=SOME target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, logOp=LogOr} ::
+                    logicalImmediate{dest=SomeReg target, source=uReg3, immed=0w1, length=polyWordOpSize, ccRef=NONE, logOp=LogOr} ::
                     division{isSigned=false, opSize=polyWordOpSize, dest=uReg3, dividend=uReg1, divisor=uReg2} ::
-                    addSubImmediate{dest=SOME uReg1, source=aReg1, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
+                    addSubImmediate{dest=SomeReg uReg1, source=aReg1, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
                     untagValue{ source=aReg2, dest=uReg2, isSigned=false, opSize=polyWordOpSize } :: arg2Code
             in
                 (code, target, false)
@@ -2224,11 +2226,11 @@ struct
                     (* Multiply the result of the division by the divisor and subtract this from the original, tagged
                        dividend.  This leaves us a tagged value so it can go straight into the result. *)
                     multiplication{kind=if is32in64 then MultSub32 else MultSub64, dest=target,
-                                   sourceM=uReg4, sourceN=uReg2, sourceA=SOME aReg1} ::
+                                   sourceM=uReg4, sourceN=uReg2, sourceA=SomeReg aReg1} ::
                     (* Clear the bottom bit before the multiplication. *)
-                    logicalImmediate{dest=SOME uReg4, source=uReg3, immed=tagBitMask, length=OpSize64, ccRef=NONE, logOp=LogAnd} ::
+                    logicalImmediate{dest=SomeReg uReg4, source=uReg3, immed=tagBitMask, length=OpSize64, ccRef=NONE, logOp=LogAnd} ::
                     division{isSigned=false, opSize=polyWordOpSize, dest=uReg3, dividend=uReg1, divisor=uReg2} ::
-                    addSubImmediate{dest=SOME uReg1, source=aReg1, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
+                    addSubImmediate{dest=SomeReg uReg1, source=aReg1, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false} ::
                     untagValue{ source=aReg2, dest=uReg2, isSigned=false, opSize=polyWordOpSize } :: arg2Code
             in
                 (code, target, false)
@@ -2244,7 +2246,7 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 (* Since both values are tagged the tag will be preserved. *)
                 val code =
-                    logicalRegister{base=aReg1, shifted=aReg2, dest=SOME target, length=polyWordOpSize,
+                    logicalRegister{base=aReg1, shifted=aReg2, dest=SomeReg target, length=polyWordOpSize,
                                     ccRef=NONE, logOp=LogAnd, shift=ShiftNone} :: arg2Code
             in
                 (code , target, false)
@@ -2257,7 +2259,7 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 (* Since both values are tagged the tag will be preserved. *)
                 val code =
-                    logicalRegister{base=aReg1, shifted=aReg2, dest=SOME target, length=polyWordOpSize,
+                    logicalRegister{base=aReg1, shifted=aReg2, dest=SomeReg target, length=polyWordOpSize,
                                     ccRef=NONE, logOp=LogOr, shift=ShiftNone} :: arg2Code
             in
                 (code , target, false)
@@ -2275,9 +2277,9 @@ struct
                     case arg1 of BICConstnt _ => (aReg2, aReg1) | _ => (aReg1, aReg2)
                 val uReg = newUReg()
                 val code =
-                    logicalRegister{base=firstReg, shifted=uReg, dest=SOME target, length=polyWordOpSize,
+                    logicalRegister{base=firstReg, shifted=uReg, dest=SomeReg target, length=polyWordOpSize,
                                  ccRef=NONE, logOp=LogXor, shift=ShiftNone} ::
-                    addSubImmediate{dest=SOME uReg, source=secondReg, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
+                    addSubImmediate{dest=SomeReg uReg, source=secondReg, immed=0w1, length=polyWordOpSize, ccRef=NONE, isAdd=false}:: arg2Code
             in
                 (code , target, false)
             end
@@ -2290,13 +2292,13 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val code =
                     (* Put back the tag. *)
-                    logicalImmediate{ source=ureg3, dest=SOME target, ccRef=NONE, immed=0w1, logOp=LogOr, length=polyWordOpSize } ::
+                    logicalImmediate{ source=ureg3, dest=SomeReg target, ccRef=NONE, immed=0w1, logOp=LogOr, length=polyWordOpSize } ::
                     (* Do the shift *)
                     shiftRegister{direction=Arm64ICode.ShiftLeft, dest=ureg3, source=ureg1, shift=ureg2, opSize=polyWordOpSize} ::
                     (* Untag the shift amount.  Since it's at most 64 we can use a 32-bit operation. *)
                     untagValue{source=aReg2, dest=ureg2, opSize=OpSize32, isSigned=false} ::
                     (* Remove tag bit from the value we're shifting. *)
-                    logicalImmediate{ source=aReg1, dest=SOME ureg1, ccRef=NONE, immed=polyWordTagBitMask,
+                    logicalImmediate{ source=aReg1, dest=SomeReg ureg1, ccRef=NONE, immed=polyWordTagBitMask,
                               logOp=LogAnd, length=polyWordOpSize } :: arg2Code
             in
                 (code, target, false)
@@ -2310,7 +2312,7 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val code =
                     (* Put back the tag. *)
-                    logicalImmediate{ source=ureg2, dest=SOME target, ccRef=NONE, immed=0w1, logOp=LogOr, length=polyWordOpSize } ::
+                    logicalImmediate{ source=ureg2, dest=SomeReg target, ccRef=NONE, immed=0w1, logOp=LogOr, length=polyWordOpSize } ::
                     (* Do the shift *)
                     shiftRegister{direction=Arm64ICode.ShiftRightLogical, dest=ureg2, source=aReg1, shift=ureg1, opSize=polyWordOpSize} ::
                     (* Untag the shift amount.  Since it's at most 64 we can use a 32-bit operation. *)
@@ -2328,7 +2330,7 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val code =
                     (* Put back the tag. *)
-                    logicalImmediate{ source=ureg2, dest=SOME target, ccRef=NONE, immed=0w1, logOp=LogOr, length=polyWordOpSize } ::
+                    logicalImmediate{ source=ureg2, dest=SomeReg target, ccRef=NONE, immed=0w1, logOp=LogOr, length=polyWordOpSize } ::
                     (* Do the shift *)
                     shiftRegister{direction=Arm64ICode.ShiftRightArithmetic, dest=ureg2, source=aReg1, shift=ureg1, opSize=polyWordOpSize} ::
                     (* Untag the shift amount.  Since it's at most 64 we can use a 32-bit operation. *)
@@ -2377,7 +2379,7 @@ struct
                 val (testCode2, testDest2, _) = codeToICodeRev(arg2, context, false, AnyReg, testCode1)
                 val uReg1 = newUReg() and uReg2 = newUReg()
                 val comparison =
-                    addSubRegister{base=uReg1, shifted=uReg2, dest=NONE, length=OpSize64,
+                    addSubRegister{base=uReg1, shifted=uReg2, dest=ZeroReg, length=OpSize64,
                                    ccRef=SOME ccRef, isAdd=false, shift=ShiftNone} ::
                     unboxLarge{ source=testDest2, dest=uReg2 } ::
                     unboxLarge{ source=testDest1, dest=uReg1 } :: testCode2
@@ -2402,7 +2404,7 @@ struct
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 val code =
                     boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
-                    addSubRegister{base=uReg1, shifted=uReg2, dest=SOME uReg3, length=OpSize64,
+                    addSubRegister{base=uReg1, shifted=uReg2, dest=SomeReg uReg3, length=OpSize64,
                                    ccRef=NONE, isAdd=true, shift=ShiftNone} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
                     unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
@@ -2418,7 +2420,7 @@ struct
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 val code =
                     boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
-                    addSubRegister{base=uReg1, shifted=uReg2, dest=SOME uReg3, length=OpSize64,
+                    addSubRegister{base=uReg1, shifted=uReg2, dest=SomeReg uReg3, length=OpSize64,
                                    ccRef=NONE, isAdd=false, shift=ShiftNone} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
                     unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
@@ -2434,7 +2436,7 @@ struct
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 val code =
                     boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
-                    multiplication{kind=MultAdd64, sourceA=NONE, sourceM=uReg1, sourceN=uReg2, dest=uReg3} ::
+                    multiplication{kind=MultAdd64, sourceA=ZeroReg, sourceM=uReg1, sourceN=uReg2, dest=uReg3} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
                     unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
             in
@@ -2464,7 +2466,7 @@ struct
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg() and uReg4 = newUReg()
                 val code =
                     boxLarge{ source=uReg4, dest=target, saveRegs=[] } ::
-                    multiplication{kind=MultSub64, dest=uReg4, sourceM=uReg3, sourceN=uReg2, sourceA=SOME uReg1} ::
+                    multiplication{kind=MultSub64, dest=uReg4, sourceM=uReg3, sourceN=uReg2, sourceA=SomeReg uReg1} ::
                     division{isSigned=false, opSize=OpSize64, dividend=uReg1, divisor=uReg2, dest=uReg3} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
                     unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
@@ -2484,7 +2486,7 @@ struct
                 val logicalOp = case logop of LogicalAnd => LogAnd | LogicalOr => LogOr | LogicalXor => LogXor
                 val code =
                     boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
-                    logicalRegister{base=uReg1, shifted=uReg2, dest=SOME uReg3, length=OpSize64,
+                    logicalRegister{base=uReg1, shifted=uReg2, dest=SomeReg uReg3, length=OpSize64,
                                    ccRef=NONE, logOp=logicalOp, shift=ShiftNone} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
                     unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
@@ -2577,7 +2579,7 @@ struct
                 val (testCode1, testDest1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
                 val (testCode2, testDest2, _) = codeToICodeRev(arg2, context, false, AnyReg, testCode1)
                 val comparison =
-                    addSubRegister{base=testDest1, shifted=testDest2, dest=NONE, length=polyWordOpSize,
+                    addSubRegister{base=testDest1, shifted=testDest2, dest=ZeroReg, length=polyWordOpSize,
                                    ccRef=SOME ccRef, isAdd=false, shift=ShiftNone} :: testCode2
                 val target = asTarget destination
             in

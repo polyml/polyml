@@ -17,9 +17,10 @@
 
 signature ARM64ICODEOPTIMISE =
 sig
-    type extendedBasicBlock and basicBlock and regProperty
+    type extendedBasicBlock and ('genReg, 'optGenReg, 'fpReg) basicBlock
+    and regProperty and preg and pregOrZero
 
-    datatype optimise = Changed of basicBlock vector * regProperty vector | Unchanged
+    datatype optimise = Changed of (preg, pregOrZero, preg) basicBlock vector * regProperty vector | Unchanged
     
     val optimiseICode:
         { code: extendedBasicBlock vector, pregProps: regProperty vector, ccCount: int,
@@ -28,8 +29,10 @@ sig
     structure Sharing:
     sig
         type extendedBasicBlock = extendedBasicBlock
-        and basicBlock = basicBlock
+        and ('genReg, 'optGenReg, 'fpReg) basicBlock = ('genReg, 'optGenReg, 'fpReg) basicBlock
         and regProperty = regProperty
         and optimise = optimise
+        and preg = preg
+        and pregOrZero = pregOrZero
     end
 end;

@@ -17,16 +17,18 @@
 
 signature ARM64ICODETRANSFORM =
 sig
-    type basicBlock and regProperty and closureRef
+    type ('genReg, 'optGenReg, 'fpReg) basicBlock and regProperty and closureRef and preg and pregOrZero
 
-    val codeICodeFunctionToArm64: {blocks: basicBlock vector, functionName: string, pregProps: regProperty vector,
+    val codeICodeFunctionToArm64: {blocks: (preg, pregOrZero, preg) basicBlock vector, functionName: string, pregProps: regProperty vector,
                                  ccCount: int, debugSwitches: Universal.universal list, resultClosure: closureRef,
                                  profileObject: Address.machineWord} -> unit
 
     structure Sharing:
     sig
-        type basicBlock  = basicBlock
+        type ('genReg, 'optGenReg, 'fpReg) basicBlock  = ('genReg, 'optGenReg, 'fpReg) basicBlock
         and regProperty = regProperty
         and closureRef  = closureRef
+        and preg        = preg
+        and pregOrZero  = pregOrZero
     end
 end;

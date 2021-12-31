@@ -493,10 +493,7 @@ struct
 
         |   codeExtended _ (AddSubImmediate{ source, dest, immed, isAdd, length, ccRef}, code) =
             let
-                val destReg =
-                    case dest of
-                        NONE => XZero
-                    |   SOME dreg => getAllocatedGenReg dreg
+                val destReg = getAllocatedGenRegOrZero dest
             in
                 ((if isAdd then AddImmediate else SubImmediate)
                     {regN=getAllocatedGenReg source, regD=destReg, immed=immed, shifted=false, opSize=length, setFlags=isSome ccRef}) :: code
@@ -504,10 +501,7 @@ struct
 
         |   codeExtended _ (AddSubRegister{ base, shifted, dest, isAdd, length, ccRef, shift}, code) =
             let
-                val destReg =
-                    case dest of
-                        NONE => XZero
-                    |   SOME dreg => getAllocatedGenReg dreg
+                val destReg = getAllocatedGenRegOrZero dest
             in
                 (
                     (if isAdd then AddShiftedReg else SubShiftedReg)
@@ -516,10 +510,7 @@ struct
 
         |   codeExtended _ (LogicalImmediate{ source, dest, immed, logOp, length, ccRef}, code) =
             let
-                val destReg =
-                    case dest of
-                        NONE => XZero
-                    |   SOME dreg => getAllocatedGenReg dreg
+                val destReg = getAllocatedGenRegOrZero dest
             in
                 (BitwiseLogical{regN=getAllocatedGenReg source, regD=destReg, bits=immed, opSize=length,
                                        logOp=logOp, setFlags=isSome ccRef}) :: code
@@ -529,10 +520,7 @@ struct
             let
                 (* There are also versions of AND/OR/XOR which operate on a complement (NOT)
                    of the shifted register.  It's probably not worth looking for a use for them. *)
-                val destReg =
-                    case dest of
-                        NONE => XZero
-                    |   SOME dreg => getAllocatedGenReg dreg
+                val destReg = getAllocatedGenRegOrZero dest
             in
                 (LogicalShiftedReg{regN=getAllocatedGenReg base, regM=getAllocatedGenReg shifted, regD=destReg,
                                           shift=shift, opSize=length, logOp=logOp, setFlags=isSome ccRef}) :: code
@@ -545,7 +533,7 @@ struct
         |   codeExtended _ (Multiplication{ kind, dest, sourceA, sourceM, sourceN }, code) =
             let
                 val destReg = getAllocatedGenReg dest
-                and srcAReg = case sourceA of SOME srcA => getAllocatedGenReg srcA | NONE => XZero
+                and srcAReg = getAllocatedGenRegOrZero sourceA
                 and srcNReg = getAllocatedGenReg sourceN
                 and srcMReg = getAllocatedGenReg sourceM
             in

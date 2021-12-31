@@ -144,7 +144,7 @@ struct
         Array.vector pushArray
     end
      
-    type triple = {instr: arm64ICode, current: intSet, active: intSet}
+    type triple = {instr: (xReg, xReg, vReg) arm64ICode, current: intSet, active: intSet}
 
     fun codeICodeFunctionToArm64{blocks, functionName, pregProps, ccCount, debugSwitches, resultClosure, profileObject, ...} =
     let
@@ -197,7 +197,7 @@ struct
         val maxOptimisePasses = 30
         val maxTotalPasses = maxOptimisePasses + 40
 
-        fun processCode(basicBlocks: basicBlock vector, pregProps: regProperty vector, maxStack, passes, optPasses) =
+        fun processCode(basicBlocks: (preg, pregOrZero, preg) basicBlock vector, pregProps: regProperty vector, maxStack, passes, optPasses) =
         let
             (* This should only require a few passes. *)
             val _ = passes < maxTotalPasses orelse raise InternalError "Too many passes"
@@ -323,8 +323,10 @@ struct
     end
     structure Sharing =
     struct
-        type basicBlock  = basicBlock
+        type ('genReg, 'optGenReg, 'fpReg) basicBlock  = ('genReg, 'optGenReg, 'fpReg) basicBlock
         and regProperty = regProperty
         and closureRef  = closureRef
+        and preg        = preg
+        and pregOrZero  = pregOrZero
     end
 end;

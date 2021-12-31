@@ -28,7 +28,8 @@ struct
     open IntSet
     open Identify
 
-    datatype optimise = Changed of basicBlock vector * regProperty vector | Unchanged
+    datatype optimise =
+        Changed of (preg, pregOrZero, preg) basicBlock vector * regProperty vector | Unchanged
     
     exception InternalError = Misc.InternalError
     
@@ -96,7 +97,7 @@ struct
         let
             fun optCode([], brCond, regMap, code, changed) = (code, brCond, regMap, changed)
 
-            |   optCode({instr as AddSubImmediate{source, dest=NONE, ccRef=SOME ccRefOut, immed, isAdd=false, length}, kill, ...} :: rest,
+            |   optCode({instr as AddSubImmediate{source, dest=ZeroReg, ccRef=SOME ccRefOut, immed, isAdd=false, length}, kill, ...} :: rest,
                         _, regMap, code, changed) =
                 let
                     val (repArg1, memRefsOut) = getRegisterValue(source, kill, regMap)
@@ -131,7 +132,7 @@ struct
                     |   _ => optCode(rest, BRNone, memRefsOut, instr :: code, changed)
                 end
 
-            |   optCode({instr as AddSubImmediate{source, dest=SOME dest, ccRef=NONE, immed, isAdd, length}, kill, ...} :: rest, _, regMap, code, changed) =
+            |   optCode({instr as AddSubImmediate{source, dest=SomeReg dest, ccRef=NONE, immed, isAdd, length}, kill, ...} :: rest, _, regMap, code, changed) =
                 (* This is frequently used to remove a tag from a value before an addition or subtraction.
                    If it's a constant we want to do that now. *)
                 let
@@ -485,7 +486,7 @@ struct
                             moves = 0 andalso isSimple(instrs, moves+1, regMap)
                     |   isSimple ({instr=LoadAddressConstant _, ...} :: instrs, moves, regMap) =
                             moves = 0 andalso isSimple(instrs, moves+1, regMap)
-                    |   isSimple ({instr=AddSubImmediate{source, dest=NONE, ...}, ...} :: instrs, moves, regMap) =
+                    |   isSimple ({instr=AddSubImmediate{source, dest=ZeroReg, ...}, ...} :: instrs, moves, regMap) =
                         let
                             val isReplace = List.find(fn {dest, ... } => dest = source) regMap
                         in
@@ -526,8 +527,8 @@ struct
                                 LoadNonAddressConstant{source=source, dest=mapReg dest}
                         |   mapInstr(LoadAddressConstant{source, dest}) =
                                 LoadAddressConstant{source=source, dest=mapReg dest}
-                        |   mapInstr(AddSubImmediate{source, dest=NONE, immed, ccRef, isAdd, length}) =
-                                AddSubImmediate{source=mapReg source, dest=NONE, immed=immed, ccRef=ccRef, isAdd=isAdd, length=length}
+                        |   mapInstr(AddSubImmediate{source, dest=ZeroReg, immed, ccRef, isAdd, length}) =
+                                AddSubImmediate{source=mapReg source, dest=ZeroReg, immed=immed, ccRef=ccRef, isAdd=isAdd, length=length}
                         |   mapInstr _ = raise InternalError "mapInstr: other instruction"
                         fun mapRegNo i = case(mapReg(PReg i)) of PReg r => r
                         (* Map the instructions and the sets although we only use the kill set. *)
@@ -564,8 +565,10 @@ struct
     structure Sharing =
     struct
         type extendedBasicBlock = extendedBasicBlock
-        and basicBlock = basicBlock
+        and ('genReg, 'optGenReg, 'fpReg) basicBlock = ('genReg, 'optGenReg, 'fpReg) basicBlock
         and regProperty = regProperty
         and optimise = optimise
+        and preg = preg
+        and pregOrZero = pregOrZero
     end
 end;

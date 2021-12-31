@@ -31,7 +31,7 @@ struct
         conflicts: intSet, realConflicts: reg list
     }
     
-    type triple = {instr: arm64ICode, current: intSet, active: intSet}
+    type triple = {instr: iCodeAbstract, current: intSet, active: intSet}
 
     exception InternalError = Misc.InternalError
 
@@ -210,8 +210,7 @@ struct
  
     structure Sharing =
     struct
-        type arm64ICode = arm64ICode
-        and reg = reg
+        type reg = reg
         and preg = preg
         and intSet = intSet
         and extendedBasicBlock = extendedBasicBlock

@@ -17,7 +17,7 @@
 
 signature ARM64ICODECONFLICTS =
 sig
-    type arm64ICode and reg and preg and controlFlow and extendedBasicBlock    
+    type reg and preg and controlFlow and extendedBasicBlock    
     type intSet
     
     type conflictState =
@@ -29,8 +29,7 @@ sig
 
     structure Sharing:
     sig
-        type arm64ICode = arm64ICode
-        and reg = reg
+        type reg = reg
         and preg = preg
         and intSet = intSet
         and extendedBasicBlock = extendedBasicBlock

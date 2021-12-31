@@ -29,19 +29,17 @@ struct
         active: int, refs: int, pushState: bool, prop: regProperty
     }
 
-    (* CC states before and after.  The instruction may use the CC or ignore it. The only
-       instructions to use the CC is X87FPGetCondition.  Conditional branches
-       are handled at the block level.
+    (* CC states before and after.  Currently no instruction uses the
+       condition; conditional branches are handled at the block level.
        The result of executing the instruction may be to set the condition code to a
-       defined state, an undefined state or leave it unchanged.
-       N.B. Some "instructions" may involve a stack reset that could affect the CC. *)
+       defined state, an undefined state or leave it unchanged. *)
     datatype outCCState = CCSet of ccRef | CCIndeterminate | CCUnchanged
     and inCCState = CCNeeded of ccRef | CCUnused
     
     datatype extendedBasicBlock =
         ExtendedBasicBlock of
         {
-            block: {instr: arm64ICode, current: intSet, active: intSet, kill: intSet } list,
+            block: {instr: iCodeAbstract, current: intSet, active: intSet, kill: intSet } list,
             flow: controlFlow,
             locals: intSet, (* Defined and used entirely within the block. *)
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
@@ -128,26 +126,26 @@ struct
         { sources=[source, base, index], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(AddSubImmediate{ source, dest, ccRef, ... }) =
-        { sources=[source], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
+        { sources=[source], dests=getOptReg dest, sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
 
     |   getInstructionState(AddSubRegister{ base, shifted, dest, ccRef, ... }) =
-        { sources=[base, shifted], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
+        { sources=[base, shifted], dests=getOptReg dest, sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
 
     |   getInstructionState(LogicalImmediate{ source, dest, ccRef, ... }) =
-        { sources=[source], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
+        { sources=[source], dests=getOptReg dest, sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
 
     |   getInstructionState(LogicalRegister{ base, shifted, dest, ccRef, ... }) =
-        { sources=[base, shifted], dests=case dest of NONE => [] | SOME d => [d], sStacks=[], dStacks=[],
+        { sources=[base, shifted], dests=getOptReg dest, sStacks=[], dStacks=[],
           ccIn=CCUnused, ccOut=case ccRef of NONE => CCUnchanged | SOME cc => CCSet cc }
 
     |   getInstructionState(ShiftRegister{ source, shift, dest, ... }) =
         { sources=[source, shift], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(Multiplication{ dest, sourceA, sourceM, sourceN, ... }) =
-        { sources=(case sourceA of SOME srcA => [srcA] | NONE => []) @ [sourceM, sourceN],
+        { sources=getOptReg sourceA @ [sourceM, sourceN],
           dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(Division{ dest, dividend, divisor, ... }) =
@@ -292,16 +290,11 @@ struct
     |   eliminateable(LoadWithConstantOffset _) = true
     |   eliminateable(LoadWithIndexedOffset _) = true
     |   eliminateable(ObjectIndexAddressToAbsolute _) = true
-
     |   eliminateable(TagValue _) = true
     |   eliminateable(UntagValue _) = true
     |   eliminateable(BoxLarge _) = true
     |   eliminateable(UnboxLarge _) = true
-(*
-    |   eliminateable(CopyToCache _) = true
-    |   eliminateable(LoadMemReg _) = true
 
-*)
     |   eliminateable _ = false
    
 
@@ -868,10 +861,11 @@ struct
 
     structure Sharing =
     struct
-        type arm64ICode         = arm64ICode
+        type ('genReg, 'optGenReg, 'fpReg) arm64ICode = ('genReg, 'optGenReg, 'fpReg) arm64ICode
         and preg                = preg
+        and pregOrZero          = pregOrZero
         and intSet              = intSet
-        and basicBlock          = basicBlock
+        and ('genReg, 'optGenReg, 'fpReg) basicBlock = ('genReg, 'optGenReg, 'fpReg) basicBlock
         and extendedBasicBlock  = extendedBasicBlock
         and controlFlow         = controlFlow
         and regProperty         = regProperty

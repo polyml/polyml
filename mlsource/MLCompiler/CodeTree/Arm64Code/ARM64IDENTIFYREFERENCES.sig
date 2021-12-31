@@ -17,8 +17,11 @@
 
 signature ARM64IDENTIFYREFERENCES =
 sig
-    type arm64ICode and preg and basicBlock and controlFlow
+    type ('genReg, 'optGenReg, 'fpReg) arm64ICode and preg and pregOrZero
+    and ('genReg, 'optGenReg, 'fpReg) basicBlock and controlFlow
     and regProperty and ccRef
+
+    type iCodeAbstract = (preg, pregOrZero, preg) arm64ICode
 
     datatype outCCState = CCSet of ccRef | CCIndeterminate | CCUnchanged
 
@@ -34,7 +37,7 @@ sig
     datatype extendedBasicBlock =
         ExtendedBasicBlock of
         {
-            block: {instr: arm64ICode, current: intSet, active: intSet, kill: intSet } list,
+            block: {instr: iCodeAbstract, current: intSet, active: intSet, kill: intSet } list,
             flow: controlFlow,
             locals: intSet, (* Defined and used entirely within the block. *)
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
@@ -46,18 +49,19 @@ sig
             outCCState: ccRef option (* The condition code set by this block.  SOME _ if at least one successor needs it. *)
         }
 
-    val identifyRegisters: basicBlock vector * regProperty vector -> extendedBasicBlock vector * regState vector
+    val identifyRegisters: (preg, pregOrZero, preg) basicBlock vector * regProperty vector -> extendedBasicBlock vector * regState vector
     
     (* Get the registers for an instruction.  *)
-    val getInstructionRegisters: arm64ICode -> { sources: preg list, dests: preg list }
-    val getInstructionCC: arm64ICode -> outCCState
+    val getInstructionRegisters: iCodeAbstract -> { sources: preg list, dests: preg list }
+    val getInstructionCC: iCodeAbstract -> outCCState
 
     structure Sharing:
     sig
-        type arm64ICode         = arm64ICode
+        type ('genReg, 'optGenReg, 'fpReg) arm64ICode = ('genReg, 'optGenReg, 'fpReg) arm64ICode
         and preg                = preg
+        and pregOrZero          = pregOrZero
         and intSet              = intSet
-        and basicBlock          = basicBlock
+        and ('genReg, 'optGenReg, 'fpReg) basicBlock = ('genReg, 'optGenReg, 'fpReg) basicBlock
         and extendedBasicBlock  = extendedBasicBlock
         and controlFlow         = controlFlow
         and regProperty         = regProperty

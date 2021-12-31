@@ -27,6 +27,8 @@ struct
     open IntSet
     open Identify
     
+    type basicBlockAbstract = (preg, pregOrZero, preg) basicBlock
+    
     (* Curried subscript functions *)
     fun asub a i = Array.sub(a, i)
     and vsub v i = Vector.sub(v, i)
@@ -62,7 +64,7 @@ struct
         val blockOutput = Array.array(numberOfBlocks, {code=[], stackCount=0})
         
         (* Extra blocks to adjust the stack are added here. *)
-        val extraBlocks: basicBlock list ref = ref []
+        val extraBlocks: basicBlockAbstract list ref = ref []
         val blockCounter = ref numberOfBlocks
         
         (* Get the blocks that are inputs for each one. *)
@@ -236,14 +238,6 @@ struct
                     end
                     
                     (* Optional destination for arithmetic and logical ops. *)
-                    fun mapOptDestOld NONE = (NONE, [])
-                    |   mapOptDestOld (SOME destReg) =
-                        let val (destVal, destCode) = mapDestReg destReg in (SOME destVal, destCode) end
-
-                    fun mapOptSrcOld NONE = (NONE, [])
-                    |   mapOptSrcOld (SOME srcReg) =
-                        let val (srcVal, srcCode) = mapSrcReg srcReg in (SOME srcVal, srcCode) end
-
                     fun mapOptDest ZeroReg = (ZeroReg, [])
                     |   mapOptDest (SomeReg destReg) =
                         let val (destVal, destCode) = mapDestReg destReg in (SomeReg destVal, destCode) end
@@ -505,7 +499,7 @@ struct
                     |   pushRegisters({instr=AddSubImmediate{ source, dest, ccRef, immed, isAdd, length }, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
-                            val (destVal, destCode) = mapOptDestOld dest
+                            val (destVal, destCode) = mapOptDest dest
                         in
                             destCode @ AddSubImmediate { source=sourceVal, dest=destVal, ccRef=ccRef,
                                                          immed=immed, isAdd=isAdd, length=length} :: sourceCode @ code
@@ -515,7 +509,7 @@ struct
                         let
                             val (op1Val, op1Code) = mapSrcReg base
                             val (op2Val, op2Code) = mapSrcReg shifted
-                            val (destVal, destCode) = mapOptDestOld dest
+                            val (destVal, destCode) = mapOptDest dest
                         in
                             destCode @ AddSubRegister { base=op1Val, shifted=op2Val, dest=destVal, ccRef=ccRef,
                                                          isAdd=isAdd, length=length, shift=shift} :: op2Code @ op1Code @ code
@@ -524,7 +518,7 @@ struct
                     |   pushRegisters({instr=LogicalImmediate{ source, dest, ccRef, immed, logOp, length }, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
-                            val (destVal, destCode) = mapOptDestOld dest
+                            val (destVal, destCode) = mapOptDest dest
                         in
                             destCode @ LogicalImmediate { source=sourceVal, dest=destVal, ccRef=ccRef,
                                                           immed=immed, logOp=logOp, length=length} :: sourceCode @ code
@@ -534,7 +528,7 @@ struct
                         let
                             val (op1Val, op1Code) = mapSrcReg base
                             val (op2Val, op2Code) = mapSrcReg shifted
-                            val (destVal, destCode) = mapOptDestOld dest
+                            val (destVal, destCode) = mapOptDest dest
                         in
                             destCode @ LogicalRegister { base=op1Val, shifted=op2Val, dest=destVal, ccRef=ccRef,
                                                          logOp=logOp, length=length, shift=shift} :: op2Code @ op1Code @ code
@@ -552,7 +546,7 @@ struct
 
                     |   pushRegisters({instr=Multiplication{ kind, dest, sourceA, sourceM, sourceN }, ...}, code) =
                         let
-                            val (srcAVal, srcACode) = mapOptSrcOld sourceA
+                            val (srcAVal, srcACode) = mapOptSrc sourceA
                             val (srcMVal, srcMCode) = mapSrcReg sourceM
                             val (srcNVal, srcNCode) = mapSrcReg sourceN
                             val (destVal, destCode) = mapDestReg dest
@@ -1137,7 +1131,9 @@ struct
     structure Sharing =
     struct
         type extendedBasicBlock = extendedBasicBlock
-        and basicBlock = basicBlock
+        and ('genReg, 'optGenReg, 'fpReg) basicBlock =  ('genReg, 'optGenReg, 'fpReg) basicBlock
         and regProperty = regProperty
+        and preg = preg
+        and pregOrZero = pregOrZero
     end
 end;

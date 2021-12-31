@@ -358,32 +358,32 @@ struct
 
         |   registerAllocate{instr=AddSubImmediate{ source, dest, ... }, ...} =
             (
-                case dest of SOME dest => allocateGenReg dest | NONE => ();
+                allocateOptGenReg dest;
                 allocateGenReg source
             )
 
         |   registerAllocate{instr=AddSubRegister{ base, shifted, dest, ... }, ...} =
             (
-                case dest of SOME dest => allocateGenReg dest | NONE => ();
+                allocateOptGenReg dest;
                 allocateGenRegs[base, shifted]
             )
 
         |   registerAllocate{instr=LogicalImmediate{ source, dest, ... }, ...} =
             (
-                case dest of SOME dest => allocateGenReg dest | NONE => ();
+                allocateOptGenReg dest;
                 allocateGenReg source
             )
 
         |   registerAllocate{instr=LogicalRegister{ base, shifted, dest, ... }, ...} =
             (
-                case dest of SOME dest => allocateGenReg dest | NONE => ();
+                allocateOptGenReg dest;
                 allocateGenRegs[base, shifted]
             )
 
         |   registerAllocate{instr=ShiftRegister{ dest, source, shift, ... }, ...} = allocateGenRegs[dest, source, shift]
 
         |   registerAllocate{instr=Multiplication{ dest, sourceA, sourceM, sourceN, ... }, ...} =
-                (allocateGenRegs[dest, sourceM, sourceN]; case sourceA of SOME srcA => allocateGenReg srcA | NONE => ())
+                (allocateGenRegs[dest, sourceM, sourceN]; allocateOptGenReg sourceA)
 
         |   registerAllocate{instr=Division{ dest, dividend, divisor, ... }, ...} = allocateGenRegs[dest, dividend, divisor]
 
