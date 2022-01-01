@@ -211,9 +211,11 @@ struct
         in
             ()
         end
-        
-        
+
         val () = Vector.app conflictsForBlock blocks
+        
+        (* Test - ensure that conflicts are symmetrical. *)
+        val () = Array.appi(fn (rno, rconflicts) => List.app (fn a => addConflictsTo([a], listToSet[rno])) (setToList rconflicts)) regConflicts
         
         val conflictState: conflictState vector =
             Vector.tabulate(maxPRegs,
@@ -228,7 +230,7 @@ struct
 
     (* Get the conflict states, allocate registers and return the code with the allocated
        registers if it is successful. *)
-    fun allocateRegisters{blocks, regProps, maxPRegs, ...} =
+    fun allocateRegisters{blocks, regProps=_, maxPRegs, ...} =
     let
         val regStates = getConflictStates(blocks, maxPRegs)
     
@@ -339,7 +341,18 @@ struct
            5.  Look at all the registers and find one. *)
         fun findRegister(r, pref, regSet) =
         case Array.sub(allocatedRegs, r) of
-            SOME reg => reg
+            SOME reg =>
+                let
+                    val {conflicts, realConflicts, ...} = Vector.sub(regStates, r)
+                    (* Find the registers we've already allocated that may conflict. *)
+                    val conflictingRegs =
+                        List.mapPartial(fn i => if i = r then NONE else Array.sub(allocatedRegs, i)) (setToList conflicts) @
+                            realConflicts
+                    
+                    val _ = if null(!failures) andalso List.exists(fn q => q=reg) conflictingRegs then raise InternalError "bad" else ()
+                in
+                    reg
+                end
         |   NONE =>
             let
                 val {conflicts, realConflicts, ...} = Vector.sub(regStates, r)
@@ -357,11 +370,14 @@ struct
                         else NONE
 
                 fun findAReg [] =
-                    (
+                    let
                         (* This failed.  We're going to have to spill something. *)
-                        failures := conflicts :: ! failures;
-                        hd regSet (* Return a register to satisfy everything. *)
-                    )
+                        val () = failures := conflicts :: ! failures
+                        val reg = hd regSet (* Pick a register to satisfy everything. *)
+                        val () = Array.update(allocatedRegs, r, SOME reg)
+                    in
+                        reg
+                    end
                 |   findAReg (reg::regs) =
                         if isFree reg then (Array.update(allocatedRegs, r, SOME reg); reg)
                         else findAReg regs
@@ -456,289 +472,13 @@ struct
             end
             
         fun allocateRegister args = ignore(findRegister args)
-        val allocateFindRegister = findRegister
-
-        fun allocateGenReg(PReg r) = allocateRegister(r, NONE, generalRegisters)
-        and allocateFloatReg(PReg r) = allocateRegister(r, NONE, floatingPtRegisters)
-        and allocateOptGenReg(SomeReg reg) = allocateGenReg reg | allocateOptGenReg ZeroReg = ()
-
-        val allocateGenRegs = List.app allocateGenReg
-        and allocateFloatRegs = List.app allocateFloatReg
-
-        fun registerAllocate{instr=MoveRegister{source=PReg sreg, dest=PReg dreg}, ...} =
-            let
-                val realDestReg = findRegister(dreg, NONE, generalRegisters)
-            in
-                allocateRegister(sreg, SOME realDestReg, generalRegisters)
-            end
-
-        |   registerAllocate{instr=LoadNonAddressConstant{dest, ...}, ...} = allocateGenReg dest
-
-        |   registerAllocate{instr=LoadAddressConstant{dest, ...}, ...} = allocateGenReg dest
-
-        |   registerAllocate{instr=LoadWithConstantOffset{dest, base, ...}, ...} =
-            (
-                allocateGenReg dest;
-                allocateGenReg base
-            )
-
-        |   registerAllocate{instr=LoadFPWithConstantOffset{dest, base, ...}, ...} =
-            (
-                allocateFloatReg dest;
-                allocateGenReg  base
-            )
-
-        |   registerAllocate{instr=LoadWithIndexedOffset{dest, base, index, ...}, ...} =
-            (
-                allocateGenReg dest;
-                allocateGenRegs[base, index]
-            )
-
-        |   registerAllocate{instr=LoadFPWithIndexedOffset{dest, base, index, ...}, ...} =
-            (
-                allocateFloatReg dest;
-                allocateGenRegs[base, index]
-            )
-
-        |   registerAllocate{instr=GetThreadId { dest, ...}, ...} = allocateGenReg dest
-
-        |   registerAllocate{instr=ObjectIndexAddressToAbsolute{dest, source, ...}, ...} = allocateGenRegs[dest, source]
-
-        |   registerAllocate{instr=AbsoluteToObjectIndex{dest, source, ...}, ...} = allocateGenRegs[dest, source]
-
-        |   registerAllocate({instr=AllocateMemoryFixed{ dest, saveRegs, ...}, ...}) = allocateGenRegs (dest :: saveRegs)
-
-        |   registerAllocate({instr=AllocateMemoryVariable{ size, dest, saveRegs, ...}, ...}) =
-                allocateGenRegs (size :: dest :: saveRegs)
-
-        |   registerAllocate({instr=InitialiseMem{ size, addr, init}, ...}) = allocateGenRegs [size, addr, init]
-
-        |   registerAllocate{instr=BeginLoop, ...} = ()
-
-        |   registerAllocate({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...}) =
-            (
-                List.app (fn {src=ArgInReg sreg, dst} => (allocateGenReg sreg; allocateGenReg dst) | _ => ()) regArgs;
-                List.app (fn {src=ArgInReg sreg, ...} => allocateGenReg sreg | _ => ()) stackArgs;
-                case checkInterrupt of SOME regs => List.app(fn reg => allocateGenReg reg) regs | NONE => ()
-            )
-
-        |   registerAllocate{instr=StoreWithConstantOffset{source, base, ...}, ...} = allocateGenRegs[source, base]
-
-        |   registerAllocate{instr=StoreFPWithConstantOffset{source, base, ...}, ...} =
-            (
-                allocateFloatReg source;
-                allocateGenReg base
-            )
-
-        |   registerAllocate{instr=StoreWithIndexedOffset{source, base, index, ...}, ...} = allocateGenRegs[source, base, index]
-
-        |   registerAllocate{instr=StoreFPWithIndexedOffset{source, base, index, ...}, ...} =
-            (
-                allocateFloatReg source;
-                allocateGenRegs[base, index]
-            )
-
-        |   registerAllocate{instr=AddSubImmediate{ source, dest, ... }, ...} =
-            (
-                allocateOptGenReg dest;
-                allocateGenReg source
-            )
-
-        |   registerAllocate{instr=AddSubRegister{ base, shifted, dest, ... }, ...} =
-            (
-                allocateOptGenReg dest;
-                allocateGenRegs[base, shifted]
-            )
-
-        |   registerAllocate{instr=LogicalImmediate{ source, dest, ... }, ...} =
-            (
-                allocateOptGenReg dest;
-                allocateGenReg source
-            )
-
-        |   registerAllocate{instr=LogicalRegister{ base, shifted, dest, ... }, ...} =
-            (
-                allocateOptGenReg dest;
-                allocateGenRegs[base, shifted]
-            )
-
-        |   registerAllocate{instr=ShiftRegister{ dest, source, shift, ... }, ...} = allocateGenRegs[dest, source, shift]
-
-        |   registerAllocate{instr=Multiplication{ dest, sourceA, sourceM, sourceN, ... }, ...} =
-                (allocateGenRegs[dest, sourceM, sourceN]; allocateOptGenReg sourceA)
-
-        |   registerAllocate{instr=Division{ dest, dividend, divisor, ... }, ...} = allocateGenRegs[dest, dividend, divisor]
-
-        |   registerAllocate{instr=BeginFunction{regArgs, ...}, ...} =
-                (* Check that every argument has a register allocated including any that are unused.
-                   Unused arguments should be discarded at a higher level because we could allocate
-                   a different register and copy the argument register only to discard it. *)
-                allocateGenRegs(List.map #1 regArgs)
-
-        |   registerAllocate({instr=TailRecursiveCall{regArgs=regArgs, stackArgs=stackArgs, ...}, ...}) =
-            let
-                fun allocateRegArg(ArgInReg argReg, _) = allocateGenReg argReg
-                |   allocateRegArg _ = ()
-            in
-                (* We've already hinted the arguments but we want to allocate these first
-                   to reduce the chance that they'll be used for stack arguments. *)
-                List.app allocateRegArg regArgs;
-                List.app (fn {src=ArgInReg argReg, ...} => allocateGenReg argReg | _ => ()) stackArgs
-            end
-
-        |   registerAllocate({instr=FunctionCall{regArgs=regArgs, stackArgs=stackArgs, dest=PReg dReg, saveRegs, ...}, ...}) =
-            let
-                fun allocateRegArg(ArgInReg argReg, _) = allocateGenReg argReg
-                |   allocateRegArg _ = ()
-            in
-                (* We've already hinted the arguments but we want to allocate these first
-                   to reduce the chance that they'll be used for stack arguments. *)
-                List.app allocateRegArg regArgs;
-                List.app (fn ArgInReg argReg => allocateGenReg argReg | _ => ()) stackArgs;
-                allocateGenRegs saveRegs;
-                (* Result will be in X0. *)
-                allocateRegister(dReg, SOME(GenReg X0), [GenReg X0])
-            end
-
-        |   registerAllocate{instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg, ... }, ...} =
-            (
-                allocateRegister(resReg, SOME(GenReg X0), [GenReg X0] (* It MUST be in this register *));
-                allocateGenReg returnReg
-            )
-
-        |   registerAllocate{instr=RaiseExceptionPacket{packetReg}, ...} = allocateGenReg packetReg
-
-        |   registerAllocate{instr=PushToStack{ source, ... }, ...} = allocateGenReg source
-
-        |   registerAllocate{instr=LoadStack{ dest,  ... }, ...} = allocateGenReg dest
-
-        |   registerAllocate{instr=StoreToStack{ source, ... }, ...} = allocateGenReg source
-
-        |   registerAllocate{instr=ContainerAddress{ dest, ... }, ...} = allocateGenReg dest
-
-        |   registerAllocate{instr=ResetStackPtr _, ...} = ()
-
-        |   registerAllocate({instr=TagValue{source, dest, ...}, ...}) = allocateGenRegs[source, dest]
-
-        |   registerAllocate({instr=UntagValue{source, dest, ...}, ...}) = allocateGenRegs[source, dest]
-
-        |   registerAllocate({instr=BoxLarge{source, dest, saveRegs}, ...}) =
-                (allocateGenRegs saveRegs; allocateGenRegs[source, dest])
-
-        |   registerAllocate({instr=UnboxLarge{source, dest}, ...}) = allocateGenRegs[source, dest]
-
-        |   registerAllocate({instr=BoxTagFloat{source, dest, saveRegs, ...}, ...}) =
-            (
-                allocateGenRegs saveRegs;
-                allocateFloatReg source;
-                allocateGenReg dest
-            )
-
-        |   registerAllocate({instr=UnboxTagFloat{source, dest, ...}, ...}) =
-            (
-                allocateFloatReg dest;
-                allocateGenReg source
-            )
-
-        |   registerAllocate{instr=LoadAcquire{dest, base, ...}, ...} = allocateGenRegs[dest, base]
-
-        |   registerAllocate{instr=StoreRelease{source, base, ...}, ...} = allocateGenRegs[source, base]
-
-        |   registerAllocate{instr=BitFieldShift{ source, dest, ... }, ...} = allocateGenRegs[source, dest]
-
-        |   registerAllocate{instr=BitFieldInsert{ source, dest, destAsSource, ... }, ...} =
-                allocateGenRegs[source, destAsSource, dest]
-
-        |   registerAllocate({instr=IndexedCaseOperation{testReg}, ...}) = allocateGenReg testReg
-        
-        |   registerAllocate({instr=PushExceptionHandler, ...}) = ()
-        |   registerAllocate({instr=PopExceptionHandler, ...}) = ()
-
-        |   registerAllocate({instr=BeginHandler{packetReg}, ...}) = allocateGenReg packetReg
-
-        |   registerAllocate({instr=CompareByteVectors{vec1Addr, vec2Addr, length, ...}, ...}) =
-                allocateGenRegs[vec1Addr, vec2Addr, length]
-
-        |   registerAllocate({instr=BlockMove{srcAddr, destAddr, length, ...}, ...}) =
-                allocateGenRegs[srcAddr, destAddr, length]
-
-        |   registerAllocate({instr=AddSubXSP{source, dest, ...}, ...}) =
-                ( allocateOptGenReg dest; allocateGenReg source )
-
-        |   registerAllocate({instr=TouchValue{source, ...}, ...}) = allocateGenReg source
-
-        |   registerAllocate({instr=LoadAcquireExclusive{ base, dest }, ...}) = allocateGenRegs[base, dest]
-
-        |   registerAllocate({instr=StoreReleaseExclusive{ base, source, result }, ...}) =
-                ( allocateGenRegs[base, result];  allocateOptGenReg source )
-
-        |   registerAllocate({instr=MemoryBarrier, ...}) = ()
-
-        |   registerAllocate({instr=ConvertIntToFloat{ source, dest, ...}, ...}) =
-                (allocateFloatReg dest; allocateGenReg source)
-
-        |   registerAllocate({instr=ConvertFloatToInt{ source, dest, ...}, ...}) =
-                (allocateGenReg dest; allocateFloatReg source)
-
-        |   registerAllocate({instr=UnaryFloatingPt{ source, dest, ...}, ...}) =
-                allocateFloatRegs[source, dest]
-
-        |   registerAllocate({instr=BinaryFloatingPoint{ arg1, arg2, dest, ...}, ...}) =
-                allocateFloatRegs[arg1, arg2, dest]
-
-        |   registerAllocate({instr=CompareFloatingPoint{ arg1, arg2, ...}, ...})  =
-                allocateFloatRegs[arg1, arg2]
-
-        (* Depth-first scan. *)
-        val visited = Array.array(numBlocks, false)
-
-        fun processBlocks blockNo =
-        if Array.sub(visited, blockNo)
-        then ()  (* Done or currently being done. *)
-        else
-        let
-            val () = Array.update(visited, blockNo, true)
-            val ExtendedBasicBlock { flow, block, passThrough, exports, ...} =
-                Vector.sub(blocks, blockNo)
-            (* Add the hints for this block before the actual allocation of registers. *)
-            val _ = List.app addHints block
-            val () =
-                (* Process the dependencies first. *)
-                case flow of
-                    ExitCode => ()
-                |   Unconditional m => processBlocks m
-                |   Conditional {trueJump, falseJump, ...} =>
-                        (processBlocks trueJump; processBlocks falseJump)
-                |   IndexedBr cases => List.app processBlocks cases
-                |   SetHandler{ handler, continue } =>
-                        (processBlocks handler; processBlocks continue)
-                |   UnconditionalHandle _ => ()
-                |   ConditionalHandle { continue, ...} => processBlocks continue
-            (* Now this block. *)
-            local
-                (* We assume that anything used later will have been allocated a register.
-                   This is generally true except for a loop where the use may occur earlier. *)
-                val exported = setToList passThrough @ setToList exports
-                fun findAReg r =
-                    case Vector.sub(regProps, r) of
-                        RegPropStack _ => ()
-                    |   _ => ignore(allocateFindRegister(r, NONE, generalRegisters))
-            in
-                val () = List.app findAReg exported
-            end
-        in
-            List.foldr(fn (c, ()) => registerAllocate c) () block
-        end
-
 
         (* Turn the abstract icode into a concrete version by allocating the registers. *)
         local
-            fun getAllocatedReg(PReg r) = getOpt(Array.sub(allocatedRegs, r), GenReg XZero)
-        
-            fun getAllocatedGenReg r =
-                case getAllocatedReg r of GenReg r => r | FPReg _ => raise InternalError "getAllocateGenReg: returned FP Reg"
-            and getAllocatedFPReg r =
-                case getAllocatedReg r of FPReg r => r | GenReg _ => raise InternalError "getAllocatedFPReg: returned Gen Reg"
+            fun getAllocatedGenReg(PReg r) =
+                case findRegister(r, NONE, generalRegisters) of GenReg reg => reg | _ => raise InternalError "getAllocatedGenReg"
+            and getAllocatedFPReg(PReg r) =
+                case findRegister(r, NONE, floatingPtRegisters) of FPReg reg => reg | _ => raise InternalError "getAllocatedFPReg"
 
             fun getAllocatedGenRegOrZero ZeroReg = XZero
             |   getAllocatedGenRegOrZero (SomeReg reg) = getAllocatedGenReg reg
@@ -748,8 +488,15 @@ struct
 
             val getSaveRegs = List.map getAllocatedGenReg
 
-            fun absToConcrete({instr=MoveRegister{ source, dest}, ...}): iCodeConcrete =
-                    MoveRegister { source=getAllocatedGenReg source, dest=getAllocatedGenReg dest}
+            fun absToConcrete({instr=MoveRegister{ source, dest as PReg dReg}, ...}): iCodeConcrete =
+                let
+                    (* Try to use the register we've allocated for the source as the destination so
+                       that we can eliminate this instruction altogether. *)
+                    val sourceReg = getAllocatedGenReg source
+                    val () = allocateRegister(dReg, SOME(GenReg sourceReg), generalRegisters)
+                in
+                    MoveRegister { source=sourceReg, dest=getAllocatedGenReg dest}
+                end
 
             |   absToConcrete({instr=LoadNonAddressConstant { dest, source}, ...}) =
                     LoadNonAddressConstant { dest=getAllocatedGenReg dest, source=source}
@@ -966,12 +713,38 @@ struct
                     BasicBlock{block=map absToConcrete block, flow=flow}
         end
 
+        val resultArray = Array.array(numBlocks, NONE)
+
+        fun processBlocks blockNo =
+        case Array.sub(resultArray, blockNo) of
+            SOME _ => () (* Done . *)
+        |   NONE =>
+            let
+                val thisBlock as ExtendedBasicBlock { flow, block, ...} = Vector.sub(blocks, blockNo)
+            in
+                (* Add the hints for this block before the actual allocation of registers. *)
+                List.app addHints block;
+                (* Process this block and add it to the results. *)
+                Array.update(resultArray, blockNo, SOME(concreteBlock thisBlock));
+            
+                (* Now the blocks that depend on this. *)
+                case flow of
+                    ExitCode => ()
+                |   Unconditional m => processBlocks m
+                |   Conditional {trueJump, falseJump, ...} =>
+                        (processBlocks trueJump; processBlocks falseJump)
+                |   IndexedBr cases => List.app processBlocks cases
+                |   SetHandler{ handler, continue } =>
+                        (processBlocks handler; processBlocks continue)
+                |   UnconditionalHandle _ => ()
+                |   ConditionalHandle { continue, ...} => processBlocks continue
+            end
     in
         processBlocks 0;
         (* If the failures list is empty we succeeded. *)
         case !failures of
             [] =>  (* Return the allocation vector.  We may have unused registers, *)
-                AllocateSuccess(Vector.map concreteBlock blocks)
+                AllocateSuccess(Vector.tabulate(numBlocks, fn i => valOf(Array.sub(resultArray, i))) )
             (* Else we'll have to spill something. *)
         |   l => AllocateFailure l
     end
