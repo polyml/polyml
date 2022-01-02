@@ -53,9 +53,9 @@ struct
 
     exception InternalError = Misc.InternalError
 
-    (* Get the conflict sets.  This code was originally part of identifyRegisterState and
-       was split off. *)
-    fun getConflictStates (blocks: extendedBasicBlock vector, maxPRegs) =
+    (* Get the conflict states, allocate registers and return the code with the allocated
+       registers if it is successful. *)
+    fun allocateRegisters{blocks, regProps=_, maxPRegs, ...} =
     let
         (* Other registers that conflict with this i.e. cannot share the same
            real register. *)
@@ -214,36 +214,17 @@ struct
 
         val () = Vector.app conflictsForBlock blocks
         
-        (* Test - ensure that conflicts are symmetrical. *)
+        (* Temporary - ensure that conflicts are symmetrical. *)
         val () = Array.appi(fn (rno, rconflicts) => List.app (fn a => addConflictsTo([a], listToSet[rno])) (setToList rconflicts)) regConflicts
-        
-        val conflictState: conflictState vector =
-            Vector.tabulate(maxPRegs,
-                fn i => {
-                    conflicts = Array.sub(regConflicts, i),
-                    realConflicts = Array.sub(regRealConflicts, i)
-                }
-            )
-    in
-        conflictState
-    end
-
-    (* Get the conflict states, allocate registers and return the code with the allocated
-       registers if it is successful. *)
-    fun allocateRegisters{blocks, regProps=_, maxPRegs, ...} =
-    let
-        val regStates = getConflictStates(blocks, maxPRegs)
-    
-        val numBlocks = Vector.length blocks
 
         (* Hint values.  The idea of hints is that by using a hinted register
            we may avoid an unnecessary move instruction.  realHints is set when
            a pseudo-register is going to be loaded from a specific register
-           e.g. a register argument, or moved into one e.g. ecx for a shift.
-           friends is set to the other pseudo-registers that may be associated
-           with the pseudo-register.  E.g. the argument and destination of
-           an arithmetic operation where choosing the same register for
-           each may avoid a move. *)
+           e.g. a register argument, or moved into one e.g. X0 for the
+           function result.
+           friends is set to the other pReg that may be associated
+           with the pReg.  Typically this is where we have a merge
+           register that we move some value into. *)
         val realHints = Array.array(maxPRegs, NONE: reg option)
 
         (* Sources and destinations.  These indicate the registers that are
@@ -253,14 +234,24 @@ struct
         val sourceRegs = Array.array(maxPRegs, []: int list)
         and destinationRegs = Array.array(maxPRegs, []: int list)
         local
+            (* Real hints.  If this is the source of a value e.g. a function argument in a register,
+               we'll use it directly.  If, though, this is the result of a function and we want the
+               result to end up in a specific register we want to propagate it to any pReg that
+               moves its value into this. *)
             fun addRealHint(r, reg) =
                 case Array.sub(realHints, r) of
-                    NONE => Array.update(realHints, r, SOME reg)
-                |   SOME _ => ()
-        
+                    SOME _ => ()
+                |   NONE =>
+                    (
+                        (* Add to this pReg *)
+                        Array.update(realHints, r, SOME reg);
+                        (* and to any other pReg that moves here. *)
+                        List.app(fn r => addRealHint(r, reg)) (Array.sub(sourceRegs, r))
+                    )
+
             fun addSourceAndDestinationHint{src, dst} =
             let
-                val {conflicts, ...} = Vector.sub(regStates, src)
+                val conflicts = Array.sub(regConflicts, src)
             in
                 (* If they conflict we can't add them. *)
                 if member(dst, conflicts)
@@ -270,18 +261,36 @@ struct
                     val currentDests = Array.sub(destinationRegs, src)
                     val currentSources = Array.sub(sourceRegs, dst)
                 in
+                    (* Add the destination for this source i.e. the registers we move
+                       this source into. *)
                     if List.exists(fn i => i=dst) currentDests
                     then ()
                     else Array.update(destinationRegs, src, dst :: currentDests);
+
+                    (* Add the source to the list of sources for this destination.
+                       A merge register may have several sources, a different one
+                       for each path. If the destination has a real hint we want to
+                       propagate that back.  That isn't needed for the destinations
+                       because we allocate the registers from the start forward. *)
                     if List.exists(fn i => i=src) currentSources
                     then ()
-                    else Array.update(sourceRegs, dst, src :: currentSources)
+                    else
+                    let
+                        val sources = src :: currentSources
+                        val () = Array.update(sourceRegs, dst, sources)
+                    in
+                        case Array.sub(realHints, dst) of
+                            NONE => ()
+                        |   SOME real => List.app(fn r => addRealHint(r, real)) sources
+                    end
                 end
             end
-        
-        in
+
             (* Add the hints to steer the register allocation.  The idea is to avoid moves between
-               registers by getting values into the appropriate register in advance. *)
+               registers by getting values into the appropriate register in advance.
+               We don't actually need to add real hints where the real register is providing
+               the value, e.g. BeginFunction, because the allocation process will take care of
+               that. *)
             fun addHints{instr=MoveRegister{source=PReg sreg, dest=PReg dreg, ...}, ...} =
                     addSourceAndDestinationHint {src=sreg, dst=dreg}
 
@@ -290,10 +299,7 @@ struct
                     addSourceAndDestinationHint {src=dsReg, dst=dReg}
 
             |   addHints{instr=ReturnResultFromFunction { resultReg=PReg resReg, returnReg=PReg retReg, ... }, ...} =
-                (
-                    addRealHint(resReg, GenReg X0);
-                    addRealHint(retReg, GenReg X30) (* It may be there from earlier. *)
-                )
+                    addRealHint(resReg, GenReg X0)
 
             |   addHints{instr=JumpLoop{regArgs, ...}, ...} =
                 let
@@ -327,8 +333,10 @@ struct
             |   addHints{instr=BeginHandler{ packetReg=PReg preg }, ...} = addRealHint(preg, GenReg X0)
 
             |   addHints _ = ()
-        
+        in
+            val () = Vector.app(fn ExtendedBasicBlock { block, ...} => List.app addHints block) blocks        
         end
+
 
         val allocatedRegs = Array.array(maxPRegs, NONE: reg option)
         val failures = ref []: intSet list ref
@@ -343,7 +351,9 @@ struct
         case Array.sub(allocatedRegs, r) of
             SOME reg =>
                 let
-                    val {conflicts, realConflicts, ...} = Vector.sub(regStates, r)
+                    val conflicts = Array.sub(regConflicts, r)
+                    and realConflicts = Array.sub(regRealConflicts, r)
+
                     (* Find the registers we've already allocated that may conflict. *)
                     val conflictingRegs =
                         List.mapPartial(fn i => if i = r then NONE else Array.sub(allocatedRegs, i)) (setToList conflicts) @
@@ -355,7 +365,8 @@ struct
                 end
         |   NONE =>
             let
-                val {conflicts, realConflicts, ...} = Vector.sub(regStates, r)
+                val conflicts = Array.sub(regConflicts, r)
+                and realConflicts = Array.sub(regRealConflicts, r)
                 (* Find the registers we've already allocated that may conflict. *)
                 val conflictingRegs =
                     List.mapPartial(fn i => Array.sub(allocatedRegs, i)) (setToList conflicts) @
@@ -759,6 +770,7 @@ struct
             end
         end
 
+        val numBlocks = Vector.length blocks
         val resultArray = Array.array(numBlocks, NONE)
 
         fun processBlocks blockNo =
@@ -766,10 +778,8 @@ struct
             SOME _ => () (* Done . *)
         |   NONE =>
             let
-                val thisBlock as ExtendedBasicBlock { flow, block, ...} = Vector.sub(blocks, blockNo)
+                val thisBlock as ExtendedBasicBlock { flow, ...} = Vector.sub(blocks, blockNo)
             in
-                (* Add the hints for this block before the actual allocation of registers. *)
-                List.app addHints block;
                 (* Process this block and add it to the results. *)
                 Array.update(resultArray, blockNo, SOME(concreteBlock thisBlock));
             
