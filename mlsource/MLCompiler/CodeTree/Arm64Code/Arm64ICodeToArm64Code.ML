@@ -999,6 +999,17 @@ struct
         |   codeExtended _ (CompareFloatingPoint{ arg1, arg2, opSize, ...}, code) =
                 (FPComparison{regN=arg1, regM=arg2, floatSize=opSize}) :: code
 
+        |   codeExtended _ (CacheCheck{ arg1, arg2 }, code) =
+            let
+                val okLabel = createLabel()
+            in
+                (code <::> SubShiftedReg {regM=arg1, regN=arg2, regD=XZero, shift=ShiftNone, opSize=OpSize64, setFlags=true} <::>
+                    ConditionalBranch(CondEqual, okLabel) <::>
+                    MoveXRegToXReg{sReg=XZero, dReg=X16} <::>
+                    LoadRegScaled{regT=X16, regN=X16, unitOffset=0, loadType=Load16} <::>
+                    SetLabel okLabel)
+            end
+
         local
             (* processed - set to true when a block has been processed. *)
             val processed = Array.array(numBlocks, false)

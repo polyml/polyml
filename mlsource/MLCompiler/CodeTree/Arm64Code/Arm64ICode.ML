@@ -312,6 +312,9 @@ struct
         (* Floating point comparison. *)
     |   CompareFloatingPoint of { arg1: 'fpReg, arg2: 'fpReg, ccRef: ccRef, opSize: floatSize }
 
+        (* Debugging - fault if values don't match. *)
+    |   CacheCheck of { arg1: 'genReg, arg2: 'genReg }
+
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
