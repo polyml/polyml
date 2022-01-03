@@ -344,7 +344,7 @@ struct
            3.  Try the realHints value if there is one.
            4.  See if there is a "friend" that has an appropriate register
            5.  Look at all the registers and find one. *)
-        fun findRegister(r, pref, regSet) =
+        fun findRegister(r, pref, regSet, cache) =
         case Array.sub(allocatedRegs, r) of
             SOME reg => reg
 
@@ -364,20 +364,6 @@ struct
                         if isFree prefReg
                         then (Array.update(allocatedRegs, r, somePref); somePref)
                         else NONE
-
-                fun findAReg [] =
-                    let
-                        (* This failed.  We're going to have to spill something. *)
-                        val () = failures := conflicts :: ! failures
-                        val reg = hd regSet (* Pick a register to satisfy everything. *)
-                        val () = Array.update(allocatedRegs, r, SOME reg)
-                    in
-                        reg
-                    end
-                |   findAReg (reg::regs) =
-                        if isFree reg then (Array.update(allocatedRegs, r, SOME reg); reg)
-                        else findAReg regs
-
 
                 (* Search the sources and destinations to see if a register has
                    already been allocated or there is a hint. *)
@@ -435,8 +421,34 @@ struct
                             (
                                 case findAFriend(Array.sub(destinationRegs, r), Array.sub(sourceRegs, r), []) of
                                     SOME r => r
-                                    (* Look through the registers to find one that's free. *)
-                                |   NONE => findAReg regSet
+                                    (* Look through the registers to find one that's free.  First try excluding
+                                       the cache registers. *)
+                                |   NONE =>
+                                    let
+                                        (* First try filtering all the cache registers to see if we can find a
+                                           register.  If not see if it works by *)
+                                        fun filterCache(filteredRegset, []) = List.find isFree filteredRegset
+
+                                        |   filterCache(filteredRegset, (cReg, _) :: cache) =
+                                            (
+                                                case filterCache(List.filter(fn r => r <> cReg) filteredRegset, cache) of
+                                                    NONE => if isFree cReg then SOME cReg else NONE
+                                                |   result => result
+                                            )
+
+                                       val pick =
+                                            case filterCache(regSet, cache) of
+                                                SOME reg => reg
+                                            |   NONE =>
+                                                (
+                                                    (* This failed.  We're going to have to spill something. *)
+                                                    failures := conflicts :: ! failures;
+                                                    hd regSet (* Return something to allow this pass to complete *)
+                                                )
+                                        val () = Array.update(allocatedRegs, r, SOME pick)
+                                    in
+                                        pick
+                                    end
                             )
                     )
             end
@@ -461,7 +473,7 @@ struct
                         )
                 |   NONE =>
                     let
-                        val reg = findRegister(r, pref, regSet)
+                        val reg = findRegister(r, pref, regSet, cacheList)
                     in
                         (reg, pruneCache(reg, cacheList))
                     end
