@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021
+    Copyright David C. J. Matthews 2021-2
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -873,6 +873,9 @@ struct
                 printFPReg arg1; stream ", "; printFPReg arg2;
                 stream ", "; printCC(ccRef, stream)
             )
+
+        |   printICode (stream, printGenReg, _, _) (CacheCheck{ arg1, arg2}) =
+            ( stream "\tCacheCheck\t"; printGenReg arg1; stream ", "; printGenReg arg2 )
 
         and printCondition(cond,  stream)  = stream(condToString cond)
 

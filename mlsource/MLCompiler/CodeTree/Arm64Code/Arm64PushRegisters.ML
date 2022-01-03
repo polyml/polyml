@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021
+    Copyright David C. J. Matthews 2021-2
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -953,6 +953,8 @@ struct
                             CompareFloatingPoint{ arg1=arg1Val, arg2=arg2Val, opSize=opSize, ccRef=ccRef} ::
                                 arg2Code @ arg1Code @ code
                         end
+
+                    |   pushRegisters({instr=CacheCheck _, ...}, _) = raise InternalError "pushRegisters: CacheCheck"
 
                     local
                         fun doPush(instr as {kill, ...}, code) =

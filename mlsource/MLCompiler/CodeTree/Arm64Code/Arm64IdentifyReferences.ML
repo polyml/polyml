@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021 David C.J. Matthews
+    Copyright (c) 2021-2 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -281,6 +281,8 @@ struct
     |   getInstructionState(CompareFloatingPoint{ arg1, arg2, ccRef, ...}) =
             { sources=[arg1, arg2], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
+    |   getInstructionState(CacheCheck{ arg1, arg2}) =
+            { sources=[arg1, arg2], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)

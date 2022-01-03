@@ -2,7 +2,7 @@
     Title:  Globals for the system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright David C. J. Matthews 2017-21
+    Copyright David C. J. Matthews 2017-22
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
@@ -350,6 +350,7 @@ union stackItem
     POLYCODEPTR codeAddr; // Return addresses
     stackItem* stackAddr; // Stack addresses
     uintptr_t argValue; // Treat an address as an int
+    PolyObject* absAddress; // It could be an absolute address to the heap
 };
 
 

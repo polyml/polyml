@@ -1,7 +1,7 @@
 /*
     Machine-dependent code for ARM64
 
-    Copyright David C.J. Matthews 2020-21.
+    Copyright David C.J. Matthews 2020-22.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -387,13 +387,19 @@ void Arm64TaskData::ScanStackAddress(ScanAddress *process, stackItem& stackItem,
     }
     else
     {
-        // Could be a code address or a stack address.
+        // Could be a code address, a stack address or a heap address that has been
+        // converted from an object pointer.  Currently local addresses only occur
+        // in registers, not on the stack.
         MemSpace* space = gMem.SpaceForAddress(stackItem.codeAddr - 1);
-        if (space == 0 || space->spaceType != ST_CODE) return;
-        PolyObject* obj = gMem.FindCodeObject(stackItem.codeAddr);
-        ASSERT(obj != 0);
-        // Process the address of the start.  Don't update anything.
-        process->ScanObjectAddress(obj);
+        if (space->spaceType == ST_CODE)
+        {
+            PolyObject* obj = gMem.FindCodeObject(stackItem.codeAddr);
+            ASSERT(obj != 0);
+            // Process the address of the start.  Don't update anything.
+            process->ScanObjectAddress(obj);
+        }
+        else if (space->spaceType == ST_LOCAL)
+            stackItem.absAddress = process->ScanObjectAddress(stackItem.absAddress);
     }
 #else
     MemSpace* space = gMem.SpaceForAddress(stackItem.codeAddr - 1);
@@ -625,7 +631,7 @@ void Arm64TaskData::HandleTrap()
             moveInstr = fromARMInstr(assemblyInterface.entryPoint[1]);
         ASSERT((moveInstr & 0xffe0ffff) == 0xaa0003fb); // mov x27,xN
         allocReg = (moveInstr >> 16) & 0x1f;
-        allocWords = (allocPointer - (PolyWord*)assemblyInterface.registers[allocReg].stackAddr) + 1;
+        allocWords = (POLYUNSIGNED)((allocPointer - (PolyWord*)assemblyInterface.registers[allocReg].stackAddr) + 1);
         assemblyInterface.registers[allocReg] = TAGGED(0); // Clear this - it's not a valid address.
         if (profileMode == kProfileStoreAllocation)
             addProfileCount(allocWords);
@@ -956,11 +962,8 @@ void Arm64Dependent::UpdateGlobalHeapReference(PolyObject* addr)
 // This saves having to define it in the MASM assembly code.
 static uintptr_t Arm64AsmAtomicExchange(PolyObject* mutexp, uintptr_t value)
 {
-#   if (SIZEOF_POLYWORD == 8)
+    // Mutexes are always 64-bit values even on 32-in-64.
     return InterlockedExchange64((LONG64*)mutexp, value);
-#   else
-    return InterlockedExchange((LONG*)mutexp, value);
-#  endif
 }
 
 #else

@@ -30,6 +30,8 @@ struct
     
     exception InternalError = Misc.InternalError
 
+    val checkCache = true (* Check the cache rather than use it *)
+
     datatype allocateResult =
         AllocateSuccess of basicBlockConcrete vector
     |   AllocateFailure of intSet list
@@ -457,6 +459,9 @@ struct
 
         (* Turn the abstract icode into a concrete version by allocating the registers. *)
         local
+            fun asGenReg(GenReg reg) = reg | asGenReg _ = raise InternalError "asGenReg"
+            and asFPReg(FPReg reg) = reg | asFPReg _ = raise InternalError "asFPReg"
+
             datatype cacheItem =
                 CacheStack of stackLocn
             |   CacheObjectAddress of preg
@@ -464,6 +469,9 @@ struct
             (* Remove any reference to newly allocated registers from the cache.  Also used after
                block move and comparison that modify registers *)
             fun pruneCache(reg: reg, cache) = List.filter(fn (r, _) => r <> reg) cache
+
+            (* Return the cache registers that contain valid addresses. *)
+            fun cachedAddressRegs cache = List.map (asGenReg o #1) cache
 
             fun allocateNewDestination(PReg r, pref, regSet, cacheList) =
                 case Array.sub(allocatedRegs, r) of
@@ -479,9 +487,6 @@ struct
                     in
                         (reg, pruneCache(reg, cacheList))
                     end
-
-            fun asGenReg(GenReg reg) = reg | asGenReg _ = raise InternalError "asGenReg"
-            and asFPReg(FPReg reg) = reg | asFPReg _ = raise InternalError "asFPReg"
 
             fun allocateGenReg(r, cache) =
             let
@@ -593,6 +598,8 @@ struct
                     val (newCode, destReg, newCache) =
                         case List.find(fn (_, CacheObjectAddress c) => c=source | _ => false) cache of
                             SOME (srcReg, _) =>
+                            if checkCache
+                            then
                             let
                                 val (destReg, newCache) = allocateGenReg(dest, cache)
                             in
@@ -600,7 +607,8 @@ struct
                                     <::> CacheCheck{ arg1=destReg, arg2=asGenReg srcReg },
                                  GenReg destReg, newCache)
                             end
-(*                            let
+                            else
+                            let
                                 (* Try to use the cache register as the destination if we can. *)
                                 val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
                                 val dReg = asGenReg destReg
@@ -610,7 +618,8 @@ struct
                                 then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
                                 else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
                                         if killThis then pruneCache(srcReg, newCache) else newCache)
-                            end*)
+                            end
+
                         |   NONE =>
                             let
                                 val (destReg, newCache) = allocateGenReg(dest, cache)
@@ -634,18 +643,20 @@ struct
                 let
                     val (destReg, newCache) = allocateGenReg(dest, cache)
                     val filteredCache = pruneCache(GenReg X30, newCache)
+                    val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        AllocateMemoryFixed { dest=destReg, bytesRequired=bytesRequired, saveRegs=getSaveRegs saveRegs})
+                        AllocateMemoryFixed { dest=destReg, bytesRequired=bytesRequired, saveRegs=saved})
                 end
 
             |   absToConcrete({instr=AllocateMemoryVariable{size, dest, saveRegs}, ...} :: rest, cache, code) =
                 let
                     val (destReg, newCache) = allocateGenReg(dest, cache)
                     val filteredCache = pruneCache(GenReg X30, newCache)
+                    val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        AllocateMemoryVariable{size=getAllocatedGenReg size, dest=destReg, saveRegs=getSaveRegs saveRegs})
+                        AllocateMemoryVariable{size=getAllocatedGenReg size, dest=destReg, saveRegs=saved})
                 end
 
             |   absToConcrete({instr=InitialiseMem{size, addr, init}, ...} :: rest, context, code) =
@@ -765,8 +776,8 @@ struct
                 let
                     fun getRegArg(src, dst) = (getAllocatedArg src, dst)
                     val (destReg, _) = allocateGenReg(dest, [])
-                    (* Currently we empty the cache at this point.  At the very least we need to remove
-                       any registers that could be modified e.g. X0 and X30. *)
+                    (* Currently we empty the cache at this point.  Saving the resgisters across
+                       the call would probably be more expensive than reloading them. *)
                 in
                     absToConcrete(rest, [] (* Empty after a function call. *), code <::>
                         FunctionCall{ callKind=callKind, regArgs=map getRegArg regArgs, stackArgs=map getAllocatedArg stackArgs,
@@ -806,6 +817,8 @@ struct
                     val (newCode, destReg, newCache) =
                         case List.find(fn (_, CacheStack c) => c=container | _ => false) cache of
                             SOME (srcReg, _) =>
+                            if checkCache
+                            then
                             let
                                 val (destReg, newCache) = allocateGenReg(dest, cache)
                             in
@@ -813,7 +826,7 @@ struct
                                     <::> CacheCheck{ arg1=destReg, arg2=asGenReg srcReg },
                                  GenReg destReg, newCache)
                             end
-                            (*
+                            else
                             let
                                 (* Try to use the cache register as the destination if we can. *)
                                 val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
@@ -824,7 +837,8 @@ struct
                                 then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
                                 else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
                                         if killThis then pruneCache(srcReg, newCache) else newCache)
-                            end*)
+                            end
+
                         |   NONE =>
                             let
                                 val (destReg, newCache) = allocateGenReg(dest, cache)
@@ -878,9 +892,10 @@ struct
                 let
                     val (destReg, newCache) = allocateGenReg(dest, cache)
                     val filteredCache = pruneCache(GenReg X30, newCache)
+                    val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        BoxLarge{source=getAllocatedGenReg source, dest=destReg, saveRegs=getSaveRegs saveRegs})
+                        BoxLarge{source=getAllocatedGenReg source, dest=destReg, saveRegs=saved})
                 end
 
             |   absToConcrete({instr=UnboxLarge{source, dest}, ...} :: rest, cache, code) =
@@ -894,9 +909,10 @@ struct
                 let
                     val (destReg, newCache) = allocateGenReg(dest, cache)
                     val filteredCache = pruneCache(GenReg X30, newCache)
+                    val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
-                    absToConcrete(rest, filteredCache, code <::> BoxTagFloat{floatSize=floatSize, source=getAllocatedFPReg source,
-                                dest=destReg, saveRegs=getSaveRegs saveRegs})
+                    absToConcrete(rest, filteredCache, code <::>
+                        BoxTagFloat{floatSize=floatSize, source=getAllocatedFPReg source, dest=destReg, saveRegs=saved})
                 end
 
             |   absToConcrete({instr=UnboxTagFloat{floatSize, source, dest}, ...} :: rest, cache, code) =
@@ -1033,6 +1049,9 @@ struct
                     absToConcrete(rest, context, code <::>
                         CompareFloatingPoint{ arg1=getAllocatedFPReg arg1, arg2=getAllocatedFPReg arg2, opSize=opSize, ccRef=ccRef})
 
+            |   absToConcrete({instr=CacheCheck _, ...} :: _, _, _) =  (* Concrete only. *)
+                    raise InternalError "absToConcrete: CheckCache"
+                    
         in
             fun concreteBlock(ExtendedBasicBlock{ block, flow, ...}) =
             let
