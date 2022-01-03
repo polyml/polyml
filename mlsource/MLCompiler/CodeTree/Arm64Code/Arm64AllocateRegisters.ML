@@ -463,8 +463,9 @@ struct
             and asFPReg(FPReg reg) = reg | asFPReg _ = raise InternalError "asFPReg"
 
             datatype cacheItem =
-                CacheStack of stackLocn
-            |   CacheObjectAddress of preg
+                CacheStack of stackLocn             (* A value loaded from the stack. *)
+            |   CacheAbsAddress of preg             (* 32-in-64: An absolute address from an object ID *)
+            |   CacheAbsAddrOnStack of stackLocn    (* 32-in-64: An absolute address from an object loaded from the stack. *)
         
             (* Remove any reference to newly allocated registers from the cache.  Also used after
                block move and comparison that modify registers *)
@@ -596,16 +597,18 @@ struct
                        source entry we don't want it in the cache any longer. *)
                     val killThis = member(srcNo, kill)
                     val (newCode, destReg, newCache) =
-                        case List.find(fn (_, CacheObjectAddress c) => c=source | _ => false) cache of
+                        case List.find(fn (_, CacheAbsAddress c) => c=source | _ => false) cache of
                             SOME (srcReg, _) =>
                             if checkCache
                             then
                             let
-                                val (destReg, newCache) = allocateGenReg(dest, cache)
+                                val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
+                                val dReg = asGenReg destReg
+                                and sReg = asGenReg srcReg
                             in
-                                (code <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg}
-                                    <::> CacheCheck{ arg1=destReg, arg2=asGenReg srcReg },
-                                 GenReg destReg, newCache)
+                                (code <::> MoveRegister{source=sReg, dest=X17} <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=dReg}
+                                    <::> CacheCheck{ arg1=dReg, arg2=X17 },
+                                 destReg, newCache)
                             end
                             else
                             let
@@ -628,7 +631,7 @@ struct
                                  GenReg destReg, newCache)
                             end
                 in
-                    absToConcrete(rest, if killThis then newCache else (destReg, CacheObjectAddress source) :: newCache, newCode)
+                    absToConcrete(rest, if killThis then newCache else (destReg, CacheAbsAddress source) :: newCache, newCode)
                 end
 
             |   absToConcrete({instr=AbsoluteToObjectIndex { source, dest}, ...} :: rest, cache, code) =
@@ -820,11 +823,12 @@ struct
                             if checkCache
                             then
                             let
-                                val (destReg, newCache) = allocateGenReg(dest, cache)
+                                val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
+                                val dReg = asGenReg destReg
+                                and sReg = asGenReg srcReg
                             in
-                                (code <::> LoadStack{ dest=destReg, container=container, field=0, wordOffset=wordOffset }
-                                    <::> CacheCheck{ arg1=destReg, arg2=asGenReg srcReg },
-                                 GenReg destReg, newCache)
+                                (code <::> MoveRegister{source=sReg, dest=X17} <::> LoadStack{ dest=dReg, container=container, field=0, wordOffset=wordOffset }
+                                    <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg, newCache)
                             end
                             else
                             let
