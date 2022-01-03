@@ -213,9 +213,6 @@ struct
         end
 
         val () = Vector.app conflictsForBlock blocks
-        
-        (* Temporary - ensure that conflicts are symmetrical. *)
-        val () = Array.appi(fn (rno, rconflicts) => List.app (fn a => addConflictsTo([a], listToSet[rno])) (setToList rconflicts)) regConflicts
 
         (* Hint values.  The idea of hints is that by using a hinted register
            we may avoid an unnecessary move instruction.  realHints is set when
