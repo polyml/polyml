@@ -816,8 +816,10 @@ struct
                               (restPlusOia as {instr=ObjectIndexAddressToAbsolute { source as PReg srcNo, dest=destOia}, kill=killOia, ...} :: rest), cache, code) =
                 (* If a preg has been pushed to the stack every subsequent reference will be via the stack.  If we want to
                    be able to cache object index to absolute addresses for them we have to recognise this combination. *)
-                if destLoad <> source
-                then (* They could be unrelated in which case process the LoadStack and then the ObjectIndex... *)
+                if destLoad <> source andalso member(srcNo, killOia)
+                then (* They could be unrelated in which case process the LoadStack and then the ObjectIndex...
+                        It seems there are also rare circumstances(??) where the result of the load is not
+                        killed and so would have to be preserved. *)
                 let
                     val (newCache, newCode) = processLoadStack(destLoad, container, wordOffset, kill, cache, code)
                 in
@@ -825,8 +827,6 @@ struct
                 end
                 else
                 let
-                    (* This should kill the preg because of the way pushRegisters generates code. *)
-                    val _ = member(srcNo, killOia) orelse raise InternalError "absToConcrete: LoadStack+ObjectIndexAddressToAbsolute"
                     val killThis = member(rno, kill) (* Is it the last reference to the stack entry? *)
 
                     val (newCode, destReg, newCache) =
