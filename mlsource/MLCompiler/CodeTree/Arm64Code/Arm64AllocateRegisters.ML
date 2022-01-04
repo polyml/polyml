@@ -601,20 +601,22 @@ struct
                         LoadFPWithConstantOffset { base=getAllocatedGenReg base, dest=destReg, byteOffset=byteOffset, floatSize=floatSize})
                 end
 
-            |   absToConcrete({instr=LoadWithIndexedOffset { base, dest, index, loadType}, ...} :: rest, cache, code) =
+            |   absToConcrete({instr=LoadWithIndexedOffset { base, dest, index, loadType, signExtendIndex}, ...} :: rest, cache, code) =
                 let
                     val (destReg, newCache) = allocateGenReg(dest, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
-                        LoadWithIndexedOffset { base=getAllocatedGenReg base, dest=destReg, index=getAllocatedGenReg index, loadType=loadType})
+                        LoadWithIndexedOffset { base=getAllocatedGenReg base, dest=destReg, index=getAllocatedGenReg index,
+                                                loadType=loadType, signExtendIndex=signExtendIndex})
                 end
 
-            |   absToConcrete({instr=LoadFPWithIndexedOffset { base, dest, index, floatSize}, ...} :: rest, cache, code) =
+            |   absToConcrete({instr=LoadFPWithIndexedOffset { base, dest, index, floatSize, signExtendIndex}, ...} :: rest, cache, code) =
                 let
                     val (destReg, newCache) = allocateFPReg(dest, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
-                        LoadFPWithIndexedOffset { base=getAllocatedGenReg base, dest=destReg, index=getAllocatedGenReg index, floatSize=floatSize})
+                        LoadFPWithIndexedOffset { base=getAllocatedGenReg base, dest=destReg, index=getAllocatedGenReg index,
+                                                  floatSize=floatSize, signExtendIndex=signExtendIndex})
                 end
 
             |   absToConcrete({instr=GetThreadId { dest}, ...} :: rest, cache, code) =
@@ -624,47 +626,68 @@ struct
                     absToConcrete(rest, newCache, code <::> GetThreadId { dest=destReg})
                 end
 
-            |   absToConcrete({instr=ObjectIndexAddressToAbsolute { source as PReg srcNo, dest}, kill, ...} :: rest, cache, code) =
+            |   absToConcrete({instr=ObjectIndexAddressToAbsolute { source as PReg srcNo, dest=destOiA as PReg doia}, kill, ...}
+                                    :: rest, cache, code) =
                 let
                     (* See if this is in the cache and use it if it is.  If this is the last reference to this
                        source entry we don't want it in the cache any longer. *)
                     val killThis = member(srcNo, kill)
-                    val (newCode, destReg, newCache) =
+                    val (newCode, destReg, newCache, next) =
                         case List.find(fn (_, CacheAbsAddress c) => c=source | _ => false) cache of
                             SOME (srcReg, _) =>
-                            if checkCache
-                            then
-                            let
-                                val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
-                                val dReg = asGenReg destReg
-                                and sReg = asGenReg srcReg
-                            in
-                                (code <::> MoveRegister{source=sReg, dest=X17} <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=dReg}
-                                    <::> CacheCheck{ arg1=dReg, arg2=X17 },
-                                 destReg, newCache)
-                            end
-                            else
                             let
                                 (* Try to use the cache register as the destination if we can. *)
-                                val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
+                                val (destReg, newCache) = allocateNewDestination(destOiA, SOME srcReg, generalRegisters, cache)
                                 val dReg = asGenReg destReg
                                 and sReg = asGenReg srcReg
                             in
-                                if dReg = sReg
-                                then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
+                                if checkCache
+                                then (code <::> MoveRegister{source=sReg, dest=X17} <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=dReg}
+                                        <::> CacheCheck{ arg1=dReg, arg2=X17 },
+                                     destReg, newCache, rest)
+                                else if dReg = sReg
+                                then (code, destReg, newCache, rest) (* We will have pruned this since it's the destination. *)
                                 else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
-                                        if killThis then pruneCache(srcReg, newCache) else newCache)
+                                        if killThis then pruneCache(srcReg, newCache) else newCache, rest)
                             end
 
                         |   NONE =>
-                            let
-                                val (destReg, newCache) = allocateGenReg(dest, cache)
-                            in
-                                (code <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg},
-                                 GenReg destReg, newCache)
-                            end
+                                (* If this is the last reference and the next instruction is loading with a zero
+                                   offset we can use an indexed load and avoid converting to an absolute address.
+                                   If this is not the last reference it's likely that we're loading another field
+                                   so it's probably better to convert the object index and cache it.  We might
+                                   manage to use a load-pair instruction. *)
+                            (
+                                case (killThis, rest) of
+                                    (true, {instr=LoadWithConstantOffset{ byteOffset=0, loadType=Load32, base, dest=destLoad, ... },
+                                            kill=killLoad, ...} :: next) =>
+                                    if base = destOiA (* of objectindex *) andalso member(doia, killLoad)
+                                    then
+                                    let
+                                        val (destReg, newCache) = allocateGenReg(destLoad, cache)
+                                    in
+                                        (code <::> LoadWithIndexedOffset{ base=X24(*X_Base32in64*), dest=destReg,
+                                                        index=getAllocatedGenReg source, loadType=Load32, signExtendIndex=false },
+                                                        GenReg destReg, newCache, next)
+                                    end
+                                    else
+                                    let
+                                        val (destReg, newCache) = allocateGenReg(destOiA, cache)
+                                    in
+                                        (code <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg},
+                                         GenReg destReg, newCache, rest)
+                                    end
+                                    
+                                |   _ =>
+                                    let
+                                        val (destReg, newCache) = allocateGenReg(destOiA, cache)
+                                    in
+                                        (code <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg},
+                                         GenReg destReg, newCache, rest)
+                                    end
+                            )
                 in
-                    absToConcrete(rest, if killThis then newCache else (destReg, CacheAbsAddress source) :: newCache, newCode)
+                    absToConcrete(next, if killThis then newCache else (destReg, CacheAbsAddress source) :: newCache, newCode)
                 end
 
             |   absToConcrete({instr=AbsoluteToObjectIndex { source, dest}, ...} :: rest, cache, code) =
@@ -718,13 +741,15 @@ struct
                     absToConcrete(rest, context, code <::>
                         StoreFPWithConstantOffset{ base=getAllocatedGenReg base, source=getAllocatedFPReg source, byteOffset=byteOffset, floatSize=floatSize})
 
-            |   absToConcrete({instr=StoreWithIndexedOffset { base, source, index, loadType}, ...} :: rest, context, code) =
+            |   absToConcrete({instr=StoreWithIndexedOffset { base, source, index, loadType, signExtendIndex}, ...} :: rest, context, code) =
                     absToConcrete(rest, context, code <::>
-                        StoreWithIndexedOffset{ base=getAllocatedGenReg base, source=getAllocatedGenReg source, index=getAllocatedGenReg index, loadType=loadType})
+                        StoreWithIndexedOffset{ base=getAllocatedGenReg base, source=getAllocatedGenReg source, index=getAllocatedGenReg index,
+                                                loadType=loadType, signExtendIndex=signExtendIndex})
 
-            |   absToConcrete({instr=StoreFPWithIndexedOffset { base, source, index, floatSize}, ...} :: rest, context, code) =
+            |   absToConcrete({instr=StoreFPWithIndexedOffset { base, source, index, floatSize, signExtendIndex}, ...} :: rest, context, code) =
                     absToConcrete(rest, context, code <::>
-                        StoreFPWithIndexedOffset{ base=getAllocatedGenReg base, source=getAllocatedFPReg source, index=getAllocatedGenReg index, floatSize=floatSize})
+                        StoreFPWithIndexedOffset{ base=getAllocatedGenReg base, source=getAllocatedFPReg source, index=getAllocatedGenReg index,
+                                                  floatSize=floatSize, signExtendIndex=signExtendIndex})
 
             |   absToConcrete({instr=AddSubImmediate{ source, dest, ccRef, immed, isAdd, length }, ...} :: rest, cache, code) =
                 let

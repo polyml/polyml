@@ -294,23 +294,23 @@ struct
                 (LoadFPRegScaled{regT=dest, regN=base, unitOffset=unitOffset, floatSize=floatSize}) :: code
             end
 
-        |   codeExtended _ (LoadWithIndexedOffset{dest, base, index, loadType, ...}, code) =
+        |   codeExtended _ (LoadWithIndexedOffset{dest, base, index, loadType, signExtendIndex, ...}, code) =
             let
                 val baseReg = base and indexReg = index
                 (* In 32-in-64 the index is a 32-bit value in the low order 32-bits.  It may be
                    signed if it is a C address. *)
-                val scaleType = if is32in64 then ExtSXTW else ExtUXTX
+                val scaleType = if is32in64 andalso signExtendIndex then ExtSXTW else ExtUXTX
                 val scale = case loadType of Load8 => NoScale | _ => ScaleOrShift
             in
                 (LoadRegIndexed{regT=dest, regN=baseReg, regM=indexReg, option=scaleType scale, loadType=loadType}) :: code
             end
 
-        |   codeExtended _ (LoadFPWithIndexedOffset{dest, base, index, floatSize, ...}, code) =
+        |   codeExtended _ (LoadFPWithIndexedOffset{dest, base, index, floatSize, signExtendIndex, ...}, code) =
             let
                 val baseReg = base and indexReg = index
                 (* In 32-in-64 the index is a 32-bit value in the low order 32-bits.  It may be
                    signed if it is a C address. *)
-                val scaleType = if is32in64 then ExtSXTW else ExtUXTX
+                val scaleType = if is32in64 andalso signExtendIndex then ExtSXTW else ExtUXTX
             in
                 (LoadFPRegIndexed{regT=dest, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift, floatSize=floatSize}) :: code
             end
@@ -459,23 +459,23 @@ struct
                 (StoreFPRegScaled{regT=source, regN=base, unitOffset=unitOffset, floatSize=floatSize}) :: code
             end
 
-        |   codeExtended _ (StoreWithIndexedOffset{source, base, index, loadType, ...}, code) =
+        |   codeExtended _ (StoreWithIndexedOffset{source, base, index, loadType, signExtendIndex, ...}, code) =
             let
                 val baseReg = base and indexReg = index
                 (* In 32-in-64 the index is a 32-bit value in the low order 32-bits.  It may be
                    signed if it is a C address. *)
-                val scaleType = if is32in64 then ExtSXTW else ExtUXTX
+                val scaleType = if is32in64 andalso signExtendIndex then ExtSXTW else ExtUXTX
                 val scale = case loadType of Load8 => NoScale | _ => ScaleOrShift
             in
                 (StoreRegIndexed{regT=source, regN=baseReg, regM=indexReg, option=scaleType scale, loadType=loadType}) :: code
             end
 
-        |   codeExtended _ (StoreFPWithIndexedOffset{source, base, index, floatSize, ...}, code) =
+        |   codeExtended _ (StoreFPWithIndexedOffset{source, base, index, floatSize, signExtendIndex, ...}, code) =
             let
                 val baseReg = base and indexReg = index
                 (* In 32-in-64 the index is a 32-bit value in the low order 32-bits.  It may be
                    signed if it is a C address. *)
-                val scaleType = if is32in64 then ExtSXTW else ExtUXTX
+                val scaleType = if is32in64 andalso signExtendIndex then ExtSXTW else ExtUXTX
             in
                 (StoreFPRegIndexed{regT=source, regN=baseReg, regM=indexReg, option=scaleType ScaleOrShift, floatSize=floatSize}) :: code
             end

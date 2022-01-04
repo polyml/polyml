@@ -70,10 +70,10 @@ struct
     |   LoadFPWithConstantOffset of { base: 'genReg, dest: 'fpReg, byteOffset: int, floatSize: floatSize }
 
         (* Load a value into a register using an index register. *)
-    |   LoadWithIndexedOffset of { base: 'genReg, dest: 'genReg, index: 'genReg, loadType: loadType }
+    |   LoadWithIndexedOffset of { base: 'genReg, dest: 'genReg, index: 'genReg, loadType: loadType, signExtendIndex: bool }
 
         (* Ditto for FP. *)
-    |   LoadFPWithIndexedOffset of { base: 'genReg, dest: 'fpReg, index: 'genReg, floatSize: floatSize }
+    |   LoadFPWithIndexedOffset of { base: 'genReg, dest: 'fpReg, index: 'genReg, floatSize: floatSize, signExtendIndex: bool }
 
         (* Returns the current thread ID.  Always a 64-bit value.. *)
     |   GetThreadId of { dest: 'genReg }
@@ -118,10 +118,10 @@ struct
     |   StoreFPWithConstantOffset of { source: 'fpReg, base: 'genReg, byteOffset: int, floatSize: floatSize }
 
         (* Store a register using an index register. *)
-    |   StoreWithIndexedOffset of { source: 'genReg, base: 'genReg, index: 'genReg, loadType: loadType }
+    |   StoreWithIndexedOffset of { source: 'genReg, base: 'genReg, index: 'genReg, loadType: loadType, signExtendIndex: bool }
 
         (* and for FP regs. *)
-    |   StoreFPWithIndexedOffset of { source: 'fpReg, base: 'genReg, index: 'genReg, floatSize: floatSize }
+    |   StoreFPWithIndexedOffset of { source: 'fpReg, base: 'genReg, index: 'genReg, floatSize: floatSize, signExtendIndex: bool }
 
         (* Add/Subtract immediate.  The destination is optional in which case XZero is used.
            ccRef is optional.  If it is NONE the version of the instruction that does not generate
@@ -430,17 +430,17 @@ struct
                 printFPReg dest
             )
 
-        |   printICode (stream, printGenReg, _, _) (LoadWithIndexedOffset{ base, dest, index, loadType }) =
+        |   printICode (stream, printGenReg, _, _) (LoadWithIndexedOffset{ base, dest, index, loadType, signExtendIndex }) =
             (
                 stream "\tLoadIndexed"; printLoadType(loadType, stream); stream "\t[";
-                printGenReg base; stream "+"; printGenReg index;
+                printGenReg base; stream "+"; printGenReg index; if signExtendIndex then stream " SX" else ();
                 stream "] => "; printGenReg dest
             )
 
-        |   printICode (stream, printGenReg, _, printFPReg) (LoadFPWithIndexedOffset{ base, dest, index, floatSize }) =
+        |   printICode (stream, printGenReg, _, printFPReg) (LoadFPWithIndexedOffset{ base, dest, index, floatSize, signExtendIndex }) =
             (
                 stream "\tLoadIndexed"; printFloatSize(floatSize, stream); stream "\t[";
-                printGenReg base; stream "+"; printGenReg index;
+                printGenReg base; stream "+"; printGenReg index; if signExtendIndex then stream " SX" else ();
                 stream "] => "; printFPReg dest
             )
 
@@ -513,18 +513,20 @@ struct
                 stream(Int.toString byteOffset); stream "]"
             )
 
-        |   printICode (stream, printGenReg, _, _) (StoreWithIndexedOffset{ base, source, index, loadType }) =
+        |   printICode (stream, printGenReg, _, _) (StoreWithIndexedOffset{ base, source, index, loadType, signExtendIndex }) =
             (
                 stream "\tStoreIndexed"; printLoadType(loadType, stream); stream "\t";
                 printGenReg source; stream " => [";
-                printGenReg base; stream "+"; printGenReg index; stream "]"
+                printGenReg base; stream "+"; printGenReg index;
+                if signExtendIndex then stream " SX" else (); stream "]"
             )
 
-        |   printICode (stream, printGenReg, _, printFPReg) (StoreFPWithIndexedOffset{ base, source, index, floatSize }) =
+        |   printICode (stream, printGenReg, _, printFPReg) (StoreFPWithIndexedOffset{ base, source, index, floatSize, signExtendIndex }) =
             (
                 stream "\tStoreIndexed"; printFloatSize(floatSize, stream); stream "\t";
                 printFPReg source; stream " => [";
-                printGenReg base; stream "+"; printGenReg index; stream "]"
+                printGenReg base; stream "+"; printGenReg index;
+                if signExtendIndex then stream " SX" else (); stream "]"
             )
 
         |   printICode (stream, printGenReg, printOptGenReg, _) (AddSubImmediate{ source, dest, ccRef, immed, isAdd, length }) =

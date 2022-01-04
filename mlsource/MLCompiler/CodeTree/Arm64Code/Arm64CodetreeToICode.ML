@@ -285,7 +285,7 @@ struct
             let
                 val indexReg = newUReg()
             in
-                storeWithIndexedOffset{ base=base, source=toStore, index=indexReg, loadType=loadSize } ::
+                storeWithIndexedOffset{ base=base, source=toStore, index=indexReg, loadType=loadSize, signExtendIndex=false } ::
                     loadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg } :: tailCode
             end
         end
@@ -371,7 +371,7 @@ struct
                 let
                     val indexReg = newUReg()
                 in
-                    loadWithIndexedOffset{ base=baseReg, dest=dReg, index=indexReg, loadType=loadOp } ::
+                    loadWithIndexedOffset{ base=baseReg, dest=dReg, index=indexReg, loadType=loadOp, signExtendIndex=false } ::
                         loadNonAddressConstant{ source=LargeWord.fromInt offset, dest=indexReg } :: codeBase
                 end
         in
@@ -2677,7 +2677,7 @@ struct
                     fun loadConstOffset(base, offset, code) =
                         loadWithConstantOffset{base=base, dest=target, byteOffset=offset, loadType=polyWordLoadSize} :: code
                     fun loadIndexed(base, index, code) =
-                        loadWithIndexedOffset{base=base, dest=target, index=index, loadType=polyWordLoadSize} :: code
+                        loadWithIndexedOffset{base=base, dest=target, index=index, loadType=polyWordLoadSize, signExtendIndex=false} :: code
                 in
                     loadAndStoreWithAddress (regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
                 end
@@ -2700,7 +2700,7 @@ struct
                     fun loadConstOffset(base, offset, code) =
                         loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load8} :: code
                     fun loadIndexed(base, index, code) =
-                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load8} :: code
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load8, signExtendIndex=false} :: code
                 in
                     tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
                         loadAndStoreWithAddress(regAddr, opWordSize Load8, loadShift Load8, false, loadConstOffset, loadIndexed, codeAddr)
@@ -2713,7 +2713,7 @@ struct
                     fun loadConstOffset(base, offset, code) =
                         loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load8} :: code
                     fun loadIndexed(base, index, code) =
-                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load8} :: code
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load8, signExtendIndex=true} :: code
                 in
                     tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
                         loadAndStoreWithAddress(regAddr, opWordSize Load8, loadShift Load8, true, loadConstOffset, loadIndexed, codeAddr)
@@ -2726,7 +2726,7 @@ struct
                     fun loadConstOffset(base, offset, code) =
                         loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load16} :: code
                     fun loadIndexed(base, index, code) =
-                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load16} :: code
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load16, signExtendIndex=true} :: code
                 in
                     tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize32} ::
                         loadAndStoreWithAddress(regAddr, opWordSize Load16, loadShift Load16, true, loadConstOffset, loadIndexed, codeAddr)
@@ -2739,7 +2739,7 @@ struct
                     fun loadConstOffset(base, offset, code) =
                         loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load32} :: code
                     fun loadIndexed(base, index, code) =
-                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load32} :: code
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load32, signExtendIndex=true} :: code
                 in
                     (if is32in64
                      then boxLarge{ source=destReg, dest=target, saveRegs=[] }
@@ -2754,7 +2754,7 @@ struct
                     fun loadConstOffset(base, offset, code) =
                         loadWithConstantOffset{base=base, dest=destReg, byteOffset=offset, loadType=Load64} :: code
                     fun loadIndexed(base, index, code) =
-                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load64} :: code
+                        loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load64, signExtendIndex=true} :: code
                 in
                     boxLarge{ source=destReg, dest=target, saveRegs=[]} ::
                         loadAndStoreWithAddress(regAddr, opWordSize Load64, loadShift Load64, true, loadConstOffset, loadIndexed, codeAddr)
@@ -2767,7 +2767,7 @@ struct
                     fun loadConstOffset(base, offset, code) =
                         loadFPWithConstantOffset{base=base, dest=destReg, byteOffset=offset, floatSize=Float32} :: code
                     fun loadIndexed(base, index, code) =
-                        loadFPWithIndexedOffset{base=base, dest=destReg, index=index, floatSize=Float32} :: code
+                        loadFPWithIndexedOffset{base=base, dest=destReg, index=index, floatSize=Float32, signExtendIndex=true} :: code
                 in
                     boxTagFloat{floatSize=Double64, source=convertReg, dest=target, saveRegs=[]} ::
                         unaryFloatingPt{source=destReg, dest=convertReg, fpOp=ConvFloatToDble} ::
@@ -2781,7 +2781,7 @@ struct
                     fun loadConstOffset(base, offset, code) =
                         loadFPWithConstantOffset{base=base, dest=destReg, byteOffset=offset, floatSize=Double64} :: code
                     fun loadIndexed(base, index, code) =
-                        loadFPWithIndexedOffset{base=base, dest=destReg, index=index, floatSize=Double64} :: code
+                        loadFPWithIndexedOffset{base=base, dest=destReg, index=index, floatSize=Double64, signExtendIndex=true} :: code
                 in
                     boxTagFloat{floatSize=Double64, source=destReg, dest=target, saveRegs=[]} ::
                         loadAndStoreWithAddress(regAddr, 8, 0w3, true, loadConstOffset, loadIndexed, codeAddr)
@@ -2794,7 +2794,7 @@ struct
                     fun loadConstOffset(base, offset, code) =
                         loadWithConstantOffset{base=base, dest=ureg, byteOffset=offset, loadType=polyWordLoadSize} :: code
                     fun loadIndexed(base, index, code) =
-                        loadWithIndexedOffset{base=base, dest=ureg, index=index, loadType=polyWordLoadSize} :: code
+                        loadWithIndexedOffset{base=base, dest=ureg, index=index, loadType=polyWordLoadSize, signExtendIndex=false} :: code
                 in
                     tagValue{source=ureg, dest=target, isSigned=false, opSize=polyWordOpSize} ::
                         loadAndStoreWithAddress(regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
@@ -2826,7 +2826,7 @@ struct
                     fun loadConstOffset(base, offset, code) =
                         storeWithConstantOffset{base=base, source=sourceReg, byteOffset=offset, loadType=polyWordLoadSize} :: code
                     fun loadIndexed(base, index, code) =
-                        storeWithIndexedOffset{base=base, source=sourceReg, index=index, loadType=polyWordLoadSize} :: code
+                        storeWithIndexedOffset{base=base, source=sourceReg, index=index, loadType=polyWordLoadSize, signExtendIndex=false} :: code
                 in
                     loadAndStoreWithAddress (regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, sourceCode)
                 end
@@ -2859,7 +2859,7 @@ struct
                     let
                         val tReg = newUReg()
                     in
-                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load8} ::
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load8, signExtendIndex=false} ::
                         untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
                     end
                 in
@@ -2880,7 +2880,7 @@ struct
                     let
                         val tReg = newUReg()
                     in
-                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load8} ::
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load8, signExtendIndex=true} ::
                         untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
                     end
                 in
@@ -2901,7 +2901,7 @@ struct
                     let
                         val tReg = newUReg()
                     in
-                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load16} ::
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load16, signExtendIndex=true} ::
                         untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize32} :: code
                     end
                 in
@@ -2923,7 +2923,7 @@ struct
                     let
                         val tReg = newUReg()
                     in
-                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load32} ::
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load32, signExtendIndex=true} ::
                         (if is32in64 then unboxLarge{source=sourceReg, dest=tReg}
                          else untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=OpSize64}) :: code
                     end
@@ -2945,7 +2945,7 @@ struct
                     let
                         val tReg = newUReg()
                     in
-                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load64} ::
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load64, signExtendIndex=true} ::
                         unboxLarge{source=sourceReg, dest=tReg} :: code
                     end
                 in
@@ -2968,7 +2968,7 @@ struct
                     let
                         val tReg = newUReg() and cReg = newUReg()
                     in
-                        storeFPWithIndexedOffset{base=base, source=tReg, index=index, floatSize=Float32} ::
+                        storeFPWithIndexedOffset{base=base, source=tReg, index=index, floatSize=Float32, signExtendIndex=true} ::
                         unaryFloatingPt{source=cReg, dest=tReg, fpOp=ConvDbleToFloat} ::
                         unboxTagFloat{floatSize=Double64, source=sourceReg, dest=cReg} :: code
                     end
@@ -2990,7 +2990,7 @@ struct
                     let
                         val tReg = newUReg()
                     in
-                        storeFPWithIndexedOffset{base=base, source=tReg, index=index, floatSize=Double64} ::
+                        storeFPWithIndexedOffset{base=base, source=tReg, index=index, floatSize=Double64, signExtendIndex=true} ::
                         unboxTagFloat{floatSize=Double64, source=sourceReg, dest=tReg} :: code
                     end
                 in
@@ -3011,7 +3011,7 @@ struct
                     let
                         val tReg = newUReg()
                     in
-                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=polyWordLoadSize} ::
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=polyWordLoadSize, signExtendIndex=false} ::
                         untagValue{source=sourceReg, dest=tReg, isSigned=false, opSize=polyWordOpSize} :: code
                     end
                 in

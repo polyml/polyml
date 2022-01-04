@@ -348,25 +348,27 @@ struct
                                     baseCode @ code
                         end
 
-                    |   pushRegisters({instr=LoadWithIndexedOffset { base, dest, index, loadType}, ...}, code) =
+                    |   pushRegisters({instr=LoadWithIndexedOffset { base, dest, index, loadType, signExtendIndex}, ...}, code) =
                         let
                             val (baseVal, baseCode) = mapSrcReg base
                             val (indexVal, indexCode) = mapSrcReg index
                             val (destVal, destCode) = mapDestReg dest
                         in
                             destCode @
-                                LoadWithIndexedOffset { base=baseVal, dest=destVal, index=indexVal, loadType=loadType} ::
+                                LoadWithIndexedOffset { base=baseVal, dest=destVal, index=indexVal,
+                                                        loadType=loadType, signExtendIndex=signExtendIndex} ::
                                     indexCode @ baseCode @ code
                         end
 
-                    |   pushRegisters({instr=LoadFPWithIndexedOffset { base, dest, index, floatSize}, ...}, code) =
+                    |   pushRegisters({instr=LoadFPWithIndexedOffset { base, dest, index, floatSize, signExtendIndex}, ...}, code) =
                         let
                             val (baseVal, baseCode) = mapSrcReg base
                             val (indexVal, indexCode) = mapSrcReg index
                             val (destVal, destCode) = mapDestReg dest
                         in
                             destCode @
-                                LoadFPWithIndexedOffset { base=baseVal, dest=destVal, index=indexVal, floatSize=floatSize} ::
+                                LoadFPWithIndexedOffset { base=baseVal, dest=destVal, index=indexVal,
+                                                          floatSize=floatSize, signExtendIndex=signExtendIndex} ::
                                     indexCode @ baseCode @ code
                         end
 
@@ -478,23 +480,25 @@ struct
                                 baseCode @ sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=StoreWithIndexedOffset { base, source, index, loadType}, ...}, code) =
+                    |   pushRegisters({instr=StoreWithIndexedOffset { base, source, index, loadType, signExtendIndex}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (baseVal, baseCode) = mapSrcReg base 
                             val (indexVal, indexCode) = mapSrcReg index 
                         in
-                            StoreWithIndexedOffset{ base=baseVal, source=sourceVal, index=indexVal, loadType=loadType} ::
+                            StoreWithIndexedOffset{ base=baseVal, source=sourceVal, index=indexVal,
+                                                    loadType=loadType, signExtendIndex=signExtendIndex} ::
                                 indexCode @ baseCode @ sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=StoreFPWithIndexedOffset { base, source, index, floatSize}, ...}, code) =
+                    |   pushRegisters({instr=StoreFPWithIndexedOffset { base, source, index, floatSize, signExtendIndex}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (baseVal, baseCode) = mapSrcReg base 
                             val (indexVal, indexCode) = mapSrcReg index 
                         in
-                            StoreFPWithIndexedOffset{ base=baseVal, source=sourceVal, index=indexVal, floatSize=floatSize} ::
+                            StoreFPWithIndexedOffset{ base=baseVal, source=sourceVal, index=indexVal,
+                                                      floatSize=floatSize, signExtendIndex=signExtendIndex} ::
                                 indexCode @ baseCode @ sourceCode @ code
                         end
 

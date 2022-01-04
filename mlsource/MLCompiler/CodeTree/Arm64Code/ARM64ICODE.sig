@@ -124,10 +124,10 @@ sig
     |   LoadFPWithConstantOffset of { base: 'genReg, dest: 'fpReg, byteOffset: int, floatSize: floatSize }
 
         (* Load a value into a register using an index register. *)
-    |   LoadWithIndexedOffset of { base: 'genReg, dest: 'genReg, index: 'genReg, loadType: loadType }
+    |   LoadWithIndexedOffset of { base: 'genReg, dest: 'genReg, index: 'genReg, loadType: loadType, signExtendIndex: bool }
 
         (* Ditto for FP. *)
-    |   LoadFPWithIndexedOffset of { base: 'genReg, dest: 'fpReg, index: 'genReg, floatSize: floatSize }
+    |   LoadFPWithIndexedOffset of { base: 'genReg, dest: 'fpReg, index: 'genReg, floatSize: floatSize, signExtendIndex: bool }
 
         (* Returns the current thread ID.  Always a 64-bit value.. *)
     |   GetThreadId of { dest: 'genReg }
@@ -172,10 +172,10 @@ sig
     |   StoreFPWithConstantOffset of { source: 'fpReg, base: 'genReg, byteOffset: int, floatSize: floatSize }
 
         (* Store a register using an index register. *)
-    |   StoreWithIndexedOffset of { source: 'genReg, base: 'genReg, index: 'genReg, loadType: loadType }
+    |   StoreWithIndexedOffset of { source: 'genReg, base: 'genReg, index: 'genReg, loadType: loadType, signExtendIndex: bool }
 
         (* and for FP regs. *)
-    |   StoreFPWithIndexedOffset of { source: 'fpReg, base: 'genReg, index: 'genReg, floatSize: floatSize }
+    |   StoreFPWithIndexedOffset of { source: 'fpReg, base: 'genReg, index: 'genReg, floatSize: floatSize, signExtendIndex: bool }
 
         (* Add/Subtract immediate.  The destination is optional in which case XZero is used.
            ccRef is optional.  If it is NONE the version of the instruction that does not generate
