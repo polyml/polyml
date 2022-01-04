@@ -812,46 +812,59 @@ struct
                     absToConcrete(rest, newCache, code <::> PushToStack{source=srcReg, container=container, copies=copies})
                 end
 
-            |   absToConcrete({instr=LoadStack{ dest, container as StackLoc{rno, ...} , field=0, wordOffset}, kill, ...} :: rest, cache, code) =
+            |   absToConcrete({instr=LoadStack{ dest=destLoad, container as StackLoc{rno, ...} , field=0, wordOffset}, kill, ...} :: 
+                              (restPlusOia as {instr=ObjectIndexAddressToAbsolute { source as PReg srcNo, dest=destOia}, kill=killOia, ...} :: rest), cache, code) =
+                (* If a preg has been pushed to the stack every subsequent reference will be via the stack.  If we want to
+                   be able to cache object index to absolute addresses for them we have to recognise this combination. *)
+                if destLoad <> source
+                then (* They could be unrelated in which case process the LoadStack and then the ObjectIndex... *)
                 let
-                    (* See if this is in the cache and use it if it is.  If this is the last reference to this
-                       stack entry we don't want it in the cache any longer. *)
-                    val killThis = member(rno, kill)
+                    val (newCache, newCode) = processLoadStack(destLoad, container, wordOffset, kill, cache, code)
+                in
+                    absToConcrete(restPlusOia, newCache, newCode)
+                end
+                else
+                let
+                    (* This should kill the preg because of the way pushRegisters generates code. *)
+                    val _ = member(srcNo, killOia) orelse raise InternalError "absToConcrete: LoadStack+ObjectIndexAddressToAbsolute"
+                    val killThis = member(rno, kill) (* Is it the last reference to the stack entry? *)
+
                     val (newCode, destReg, newCache) =
-                        case List.find(fn (_, CacheStack c) => c=container | _ => false) cache of
+                        case List.find(fn (_, CacheAbsAddrOnStack c) => c=container | _ => false) cache of
                             SOME (srcReg, _) =>
-                            if checkCache
-                            then
-                            let
-                                val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
-                                val dReg = asGenReg destReg
-                                and sReg = asGenReg srcReg
-                            in
-                                (code <::> MoveRegister{source=sReg, dest=X17} <::> LoadStack{ dest=dReg, container=container, field=0, wordOffset=wordOffset }
-                                    <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg, newCache)
-                            end
-                            else
                             let
                                 (* Try to use the cache register as the destination if we can. *)
-                                val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
+                                val (destReg, newCache) = allocateNewDestination(destOia, SOME srcReg, generalRegisters, cache)
                                 val dReg = asGenReg destReg
                                 and sReg = asGenReg srcReg
                             in
-                                if dReg = sReg
+                                if checkCache
+                                then (code <::> MoveRegister{source=sReg, dest=X17} <::> LoadStack{ dest=X16, container=container, field=0, wordOffset=wordOffset } <::>
+                                        ObjectIndexAddressToAbsolute { source=X16, dest=dReg} <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg, newCache)
+                                else if dReg = sReg
                                 then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
                                 else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
                                         if killThis then pruneCache(srcReg, newCache) else newCache)
                             end
 
-                        |   NONE =>
+                        |   NONE => (* It's not in the cache - load it which could be cached. *)
                             let
-                                val (destReg, newCache) = allocateGenReg(dest, cache)
+                                val (cachePostLoad, loadCode) =
+                                    processLoadStack(destLoad, container, wordOffset, kill, cache, code)
+                                val (destReg, cachePlusOia) = allocateGenReg(destOia, cachePostLoad)
                             in
-                                (code <::> LoadStack{ dest=destReg, container=container, field=0, wordOffset=wordOffset },
-                                 GenReg destReg, newCache)
+                                (loadCode <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg},
+                                 GenReg destReg, cachePlusOia)
                             end
                 in
-                    absToConcrete(rest, if killThis then newCache else (destReg, CacheStack container) :: newCache, newCode)
+                    absToConcrete(rest, if killThis then newCache else (destReg, CacheAbsAddrOnStack container) :: newCache, newCode)
+                end
+
+            |   absToConcrete({instr=LoadStack{ dest, container, wordOffset, field=0, ...}, kill, ...} :: rest, cache, code) =
+                let
+                    val (newCache, newCode) = processLoadStack(dest, container, wordOffset, kill, cache, code)
+                in
+                    absToConcrete(rest, newCache, newCode)
                 end
 
             |   absToConcrete({instr=LoadStack{ dest, container, field, wordOffset}, ...} :: rest, cache, code) =
@@ -1055,7 +1068,42 @@ struct
 
             |   absToConcrete({instr=CacheCheck _, ...} :: _, _, _) =  (* Concrete only. *)
                     raise InternalError "absToConcrete: CheckCache"
-                    
+
+            (* LoadStack. *)
+            and processLoadStack(dest, container as StackLoc{rno, ...}, wordOffset, kill, cache, code) =
+            let
+                (* See if this is in the cache and use it if it is.  If this is the last reference to this
+                   stack entry we don't want it in the cache any longer. *)
+                val killThis = member(rno, kill)
+
+                val (newCode, destReg, newCache) =
+                    case List.find(fn (_, CacheStack c) => c=container | _ => false) cache of
+                        SOME (srcReg, _) =>
+                        let
+                            val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
+                            val dReg = asGenReg destReg
+                            and sReg = asGenReg srcReg
+                        in
+                            if checkCache
+                            then (code <::> MoveRegister{source=sReg, dest=X17} <::> LoadStack{ dest=dReg, container=container, field=0, wordOffset=wordOffset }
+                                <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg, newCache)
+                            else if dReg = sReg
+                            then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
+                            else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
+                                    if killThis then pruneCache(srcReg, newCache) else newCache)
+                        end
+
+                    |   NONE =>
+                        let
+                            val (destReg, newCache) = allocateGenReg(dest, cache)
+                        in
+                            (code <::> LoadStack{ dest=destReg, container=container, field=0, wordOffset=wordOffset },
+                             GenReg destReg, newCache)
+                        end
+            in
+                (if killThis then newCache else (destReg, CacheStack container) :: newCache, newCode)
+            end
+
         in
             fun concreteBlock(ExtendedBasicBlock{ block, flow, ...}) =
             let
