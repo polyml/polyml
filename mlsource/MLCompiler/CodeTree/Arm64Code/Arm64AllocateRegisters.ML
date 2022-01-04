@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-21
+    Copyright David C. J. Matthews 2016-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -26,11 +26,10 @@ struct
     open Arm64ICode
     open Identify
     open IntSet
-    open Address
     
     exception InternalError = Misc.InternalError
 
-    val checkCache = true (* Check the cache rather than use it *)
+    val checkCache = false (* Use the cache *)
 
     datatype allocateResult =
         AllocateSuccess of basicBlockConcrete vector
@@ -474,6 +473,40 @@ struct
             (* Return the cache registers that contain valid addresses. *)
             fun cachedAddressRegs cache = List.map (asGenReg o #1) cache
 
+            (* Merge the cache states *)
+            fun mergeCacheStates ([]: (reg * cacheItem) list list) = []: (reg * cacheItem) list
+            |   mergeCacheStates [single] = single
+        
+            |   mergeCacheStates (many as first :: rest) =
+                let
+                    (* Generally we will either be unable to merge and have an empty cache or
+                       will have just one or two entries. *)
+                    (* Find the shortest.  If it's empty we're done. *)
+                    fun findShortest(_, [], _) = []
+                    |   findShortest(_, shortest, []) = shortest
+                
+                    |   findShortest(len, shortest, hd::tl) =
+                        let
+                            val hdLen = List.length hd
+                        in
+                            if hdLen < len then findShortest(hdLen, hd, tl) else findShortest(len, shortest, tl)
+                        end
+                    val shortest = findShortest(List.length first, first, rest)
+                
+                    (* Find the item we're caching for.  If it is in a different register we
+                       can't use it. *)
+                    fun findItem search (hd::tl) = search = hd orelse findItem search tl
+                    |   findItem _ [] = false
+                
+                    (* It's present if it's in all the sources. *)
+                    fun present search = List.all(findItem search) many
+                
+                    val filtered =
+                        List.foldl (fn (search, l) => if present search then search :: l else l) [] shortest
+                in
+                    filtered
+                end
+
             fun allocateNewDestination(PReg r, pref, regSet, cacheList) =
                 case Array.sub(allocatedRegs, r) of
                     SOME reg =>
@@ -804,10 +837,11 @@ struct
             |   absToConcrete({instr=RaiseExceptionPacket{packetReg}, ...} :: rest, context, code) =
                     absToConcrete(rest, context, code <::> RaiseExceptionPacket{packetReg=getAllocatedGenReg packetReg})
 
-            |   absToConcrete({instr=PushToStack{ source, container, copies }, ...} :: rest, cache, code) =
+            |   absToConcrete({instr=PushToStack{ source, container as StackLoc{size, ...}, copies }, ...} :: rest, cache, code) =
                 let
                     val srcReg = getAllocatedGenReg source
-                    val newCache = (GenReg srcReg, CacheStack container) :: cache
+                    val newCache =
+                        if size = 1 then (GenReg srcReg, CacheStack container) :: cache else cache
                 in
                     absToConcrete(rest, newCache, code <::> PushToStack{source=srcReg, container=container, copies=copies})
                 end
@@ -874,9 +908,17 @@ struct
                     absToConcrete(rest, newCache, code <::> LoadStack{ dest=destReg, container=container, field=field, wordOffset=wordOffset })
                 end
 
-            |   absToConcrete({instr=StoreToStack{source, container, field, stackOffset}, ...} :: rest, context, code) =
-                    absToConcrete(rest, context, code <::>
-                        StoreToStack{source=getAllocatedGenReg source, container=container, field=field, stackOffset=stackOffset})
+            |   absToConcrete({instr=StoreToStack{source, container, field, stackOffset}, ...} :: rest, cache, code) =
+                (* We may have cached the original push that cleared the container.  We could cache this since it now
+                   contains the entry but it's probably better to deal with multiple results at a higher level. *)
+                let
+                    val sReg = getAllocatedGenReg source
+                    val newCache =
+                        List.filter(fn (_, CacheStack c) => c <> container | (_, CacheAbsAddrOnStack c) => c <> container | _ => true) cache
+                in
+                    absToConcrete(rest, newCache, code <::>
+                        StoreToStack{source=sReg, container=container, field=field, stackOffset=stackOffset})
+                end
 
             |   absToConcrete({instr=ContainerAddress{ dest, container, stackOffset}, ...} :: rest, cache, code) =
                 let
@@ -974,9 +1016,10 @@ struct
 
             |   absToConcrete({instr=PopExceptionHandler, ...} :: rest, context, code) = absToConcrete(rest, context, code <::> PopExceptionHandler)
 
-            |   absToConcrete({instr=BeginHandler{packetReg}, ...} :: rest, cache, code) =
+            |   absToConcrete({instr=BeginHandler{packetReg}, ...} :: rest, _, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(packetReg, cache)
+                    (* The cache is undefined at the start of a handler. *)
+                    val (destReg, newCache) = allocateGenReg(packetReg, [])
                 in
                     absToConcrete(rest, newCache, code <::> BeginHandler{packetReg=destReg})
                 end
@@ -1105,45 +1148,98 @@ struct
             end
 
         in
-            fun concreteBlock(ExtendedBasicBlock{ block, flow, ...}) =
+            fun concreteBlock(ExtendedBasicBlock{ block, ...}, inputCache) =
             let
-                val (_, code) = absToConcrete(block, [], [])
+                val (cache, code) = absToConcrete(block, inputCache, [])
             in
-                BasicBlock{block=List.rev code, flow=flow}
+                {cache=cache, code=List.rev code}
             end
+            
+            val mergeCacheStates = mergeCacheStates
         end
 
         val numBlocks = Vector.length blocks
-        val resultArray = Array.array(numBlocks, NONE)
+        (* The results.  The cache state is initialised to empty so that if we
+           have a loop we will end up with an empty input cache. *)
+        val resultArray = Array.array(numBlocks, {code=[], cache=[]})
 
-        fun processBlocks blockNo =
-        case Array.sub(resultArray, blockNo) of
-            SOME _ => () (* Done . *)
-        |   NONE =>
-            let
-                val thisBlock as ExtendedBasicBlock { flow, ...} = Vector.sub(blocks, blockNo)
-            in
-                (* Process this block and add it to the results. *)
-                Array.update(resultArray, blockNo, SOME(concreteBlock thisBlock));
+        (* Process the blocks in execution order so that normally we will be able to
+           propagate the cache states.  If we have a loop the input cache state will
+           be empty because the output cache state for an unprocessed block is empty. *)
+        (* Get the blocks that are inputs for each one. *)
+        local
+            val blockRefs = Array.array(numBlocks, [])
+
+            (* The successors of this block but only including handlers in SetHandler. *)
+            fun directSuccessors ExitCode = []
+            |   directSuccessors(IndexedBr cases) = cases
+            |   directSuccessors(Unconditional dest) = [dest]
+            |   directSuccessors(Conditional {trueJump, falseJump, ...}) = [falseJump, trueJump]
+            |   directSuccessors(SetHandler { handler, continue }) = [handler, continue]
+            |   directSuccessors(UnconditionalHandle _) = []
+            |   directSuccessors(ConditionalHandle { continue, ...}) = [continue]
             
-                (* Now the blocks that depend on this. *)
-                case flow of
-                    ExitCode => ()
-                |   Unconditional m => processBlocks m
-                |   Conditional {trueJump, falseJump, ...} =>
-                        (processBlocks trueJump; processBlocks falseJump)
-                |   IndexedBr cases => List.app processBlocks cases
-                |   SetHandler{ handler, continue } =>
-                        (processBlocks handler; processBlocks continue)
-                |   UnconditionalHandle _ => ()
-                |   ConditionalHandle { continue, ...} => processBlocks continue
+            fun setReferences fromBlock =
+            let
+                val ExtendedBasicBlock{ flow, ...} = Vector.sub(blocks, fromBlock)
+                val refs = directSuccessors flow
+                fun setRefs toBlock =
+                let
+                    val oldRefs = Array.sub(blockRefs, toBlock)
+                in
+                    Array.update(blockRefs, toBlock, fromBlock :: oldRefs);
+                    if null oldRefs
+                    then setReferences toBlock
+                    else ()
+                end
+            in
+                List.app setRefs refs
             end
+
+            val () = setReferences 0
+        in
+            val directSuccessors = directSuccessors
+            val blockRefs = blockRefs
+        end
+
+        val processed = Array.array(numBlocks, false)
+        fun haveProcessed n = Array.sub(processed, n)
+           
+        fun processBlocks (toDo: int list) =
+            case List.filter (fn n => not(haveProcessed n)) toDo of
+                [] => ()
+            |   stillToDo as head :: _ =>
+                let
+                    (* Try to find a block all of whose predecessors have been processed.  That
+                       increases the chances that we will have cached items. *)
+                    fun available dest = List.all haveProcessed (Array.sub(blockRefs, dest))
+                    val blockNo =
+                        case List.find available stillToDo of
+                            SOME c => c
+                        |   NONE => head
+                    val thisBlock as ExtendedBasicBlock { flow, ...} = Vector.sub(blocks, blockNo)
+                    (* Get the input cache state.  Take the list of output caches of everything that
+                       jumps here and produce the intersection. *)
+                    val inputCacheList =
+                        List.map (fn n => #cache(Array.sub(resultArray, n))) (Array.sub(blockRefs, blockNo))
+                    val inputCache = mergeCacheStates inputCacheList
+                    (* Process this block and add it to the results. *)
+                    val () = Array.update(processed, blockNo, true)
+                    val () = Array.update(resultArray, blockNo, concreteBlock(thisBlock, inputCache))
+
+                    (* Add the successors but with handlers only included in SetHandler. *)
+                    val addSet = directSuccessors flow
+                in
+                    processBlocks(addSet @ stillToDo)
+                end
     in
-        processBlocks 0;
+        processBlocks [0];
         (* If the failures list is empty we succeeded. *)
         case !failures of
             [] =>  (* Return the allocation vector.  We may have unused registers, *)
-                AllocateSuccess(Vector.tabulate(numBlocks, fn i => valOf(Array.sub(resultArray, i))) )
+                AllocateSuccess(
+                    Vector.mapi(fn (i, ExtendedBasicBlock{ flow, ...}) =>
+                        BasicBlock{block= #code(Array.sub(resultArray, i)), flow=flow}) blocks )
             (* Else we'll have to spill something. *)
         |   l => AllocateFailure l
     end

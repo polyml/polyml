@@ -108,7 +108,9 @@ struct
             |   stillToDo as head :: _ =>
                 let
                     (* Try to find a block all of whose predecessors have been processed.  That
-                       increases the chances that we will have cached items. *)
+                       increases the chances that we will have cached items.
+                       TODO: This is no longer necessary since we don't do any caching here
+                       now so could may be simplified. *)
                     fun available(dest, _) = List.all haveProcessed (Array.sub(blockRefs, dest))
                     val (blockNo, lastOutputState) =
                         case List.find available stillToDo of
