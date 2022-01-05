@@ -647,9 +647,9 @@ struct
                                 if checkCache
                                 then (code <::> MoveRegister{source=sReg, dest=X17} <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=dReg}
                                         <::> CacheCheck{ arg1=dReg, arg2=X17 },
-                                     destReg, newCache, rest)
+                                     destReg, if killThis then pruneCache(srcReg, newCache) else newCache, rest)
                                 else if dReg = sReg
-                                then (code, destReg, newCache, rest) (* We will have pruned this since it's the destination. *)
+                                then (code <::> LoadNonAddressConstant{source=0w1, dest=X16}, destReg, newCache, rest) (* We will have pruned this since it's the destination. *)
                                 else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
                                         if killThis then pruneCache(srcReg, newCache) else newCache, rest)
                             end
@@ -899,9 +899,10 @@ struct
                             in
                                 if checkCache
                                 then (code <::> MoveRegister{source=sReg, dest=X17} <::> LoadStack{ dest=X16, container=container, field=0, wordOffset=wordOffset } <::>
-                                        ObjectIndexAddressToAbsolute { source=X16, dest=dReg} <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg, newCache)
+                                        ObjectIndexAddressToAbsolute { source=X16, dest=dReg} <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg,
+                                        if killThis then pruneCache(srcReg, newCache) else newCache)
                                 else if dReg = sReg
-                                then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
+                                then (code <::> LoadNonAddressConstant{source=0w1, dest=X16}, destReg, newCache) (* We will have pruned this since it's the destination. *)
                                 else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
                                         if killThis then pruneCache(srcReg, newCache) else newCache)
                             end
@@ -1161,9 +1162,9 @@ struct
                         in
                             if checkCache
                             then (code <::> MoveRegister{source=sReg, dest=X17} <::> LoadStack{ dest=dReg, container=container, field=0, wordOffset=wordOffset }
-                                <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg, newCache)
-                            else if dReg = sReg
-                            then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
+                                <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg, if killThis then pruneCache(srcReg, newCache) else newCache)
+                            else if dReg = sReg andalso false
+                            then (code <::> LoadNonAddressConstant{source=0w1, dest=X16}, destReg, newCache) (* We will have pruned this since it's the destination. *)
                             else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
                                     if killThis then pruneCache(srcReg, newCache) else newCache)
                         end
