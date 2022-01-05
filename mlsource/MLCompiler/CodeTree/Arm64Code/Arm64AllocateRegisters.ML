@@ -465,7 +465,11 @@ struct
                 CacheStack of stackLocn             (* A value loaded from the stack. *)
             |   CacheAbsAddress of preg             (* 32-in-64: An absolute address from an object ID *)
             |   CacheAbsAddrOnStack of stackLocn    (* 32-in-64: An absolute address from an object loaded from the stack. *)
-        
+
+            (* Cache hints: Try to use the same register for values that can be cached.  This increases
+               the chances that we will be able to retain the cache when we merge different branches. *)
+            val cacheHints = Array.array(maxPRegs, NONE: reg option)
+
             (* Remove any reference to newly allocated registers from the cache.  Also used after
                block move and comparison that modify registers *)
             fun pruneCache(reg: reg, cache) = List.filter(fn (r, _) => r <> reg) cache
@@ -522,21 +526,21 @@ struct
                         (reg, pruneCache(reg, cacheList))
                     end
 
-            fun allocateGenReg(r, cache) =
+            fun allocateGenReg(r, hint, cache) =
             let
-                val (reg, newCache) = allocateNewDestination(r, NONE, generalRegisters, cache)
+                val (reg, newCache) = allocateNewDestination(r, hint, generalRegisters, cache)
             in
                 (asGenReg reg, newCache)
             end
-            and allocateFPReg(r, cache) =
+            and allocateFPReg(r, hint, cache) =
             let
-                val (reg, newCache) = allocateNewDestination(r, NONE, floatingPtRegisters, cache)
+                val (reg, newCache) = allocateNewDestination(r, hint, floatingPtRegisters, cache)
             in
                 (asFPReg reg, newCache)
             end
 
-            and allocateGenRegOrZero(ZeroReg, cache) = (XZero, cache)
-            |   allocateGenRegOrZero(SomeReg reg, cache) = allocateGenReg(reg, cache)
+            and allocateGenRegOrZero(ZeroReg, _, cache) = (XZero, cache)
+            |   allocateGenRegOrZero(SomeReg reg, hint, cache) = allocateGenReg(reg, hint, cache)
 
             fun getAllocatedGenReg(PReg r) =
                 case Array.sub(allocatedRegs, r) of SOME(GenReg reg) => reg | _ => raise InternalError "getAllocatedGenReg"
@@ -563,31 +567,30 @@ struct
                     (* Try to use the register we've allocated for the source as the destination so
                        that we can eliminate this instruction altogether. *)
                     val sourceReg = getAllocatedGenReg source
-                    val (destReg, newCache) = allocateNewDestination(dest, SOME(GenReg sourceReg), generalRegisters, cache)
-                    val dReg = asGenReg destReg
+                    val (destReg, newCache) = allocateGenReg(dest, SOME(GenReg sourceReg), cache)
                 in
-                    if sourceReg = dReg
+                    if sourceReg = destReg
                     then absToConcrete(rest, newCache, code)
-                    else absToConcrete(rest, newCache, code <::> MoveRegister { source=sourceReg, dest=dReg})
+                    else absToConcrete(rest, newCache, code <::> MoveRegister { source=sourceReg, dest=destReg})
                 end
 
             |   absToConcrete({instr=LoadNonAddressConstant { dest, source}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> LoadNonAddressConstant { dest=destReg, source=source})
                 end
 
             |   absToConcrete({instr=LoadAddressConstant { dest, source}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> LoadAddressConstant { dest=destReg, source=source})
                 end
 
             |   absToConcrete({instr=LoadWithConstantOffset { base, dest, byteOffset, loadType}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         LoadWithConstantOffset { base=getAllocatedGenReg base, dest=destReg, byteOffset=byteOffset, loadType=loadType})
@@ -595,7 +598,7 @@ struct
 
             |   absToConcrete({instr=LoadFPWithConstantOffset { base, dest, byteOffset, floatSize}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateFPReg(dest, cache)
+                    val (destReg, newCache) = allocateFPReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         LoadFPWithConstantOffset { base=getAllocatedGenReg base, dest=destReg, byteOffset=byteOffset, floatSize=floatSize})
@@ -603,7 +606,7 @@ struct
 
             |   absToConcrete({instr=LoadWithIndexedOffset { base, dest, index, loadType, signExtendIndex}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         LoadWithIndexedOffset { base=getAllocatedGenReg base, dest=destReg, index=getAllocatedGenReg index,
@@ -612,7 +615,7 @@ struct
 
             |   absToConcrete({instr=LoadFPWithIndexedOffset { base, dest, index, floatSize, signExtendIndex}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateFPReg(dest, cache)
+                    val (destReg, newCache) = allocateFPReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         LoadFPWithIndexedOffset { base=getAllocatedGenReg base, dest=destReg, index=getAllocatedGenReg index,
@@ -621,7 +624,7 @@ struct
 
             |   absToConcrete({instr=GetThreadId { dest}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> GetThreadId { dest=destReg})
                 end
@@ -664,7 +667,7 @@ struct
                                     if base = destOiA (* of objectindex *) andalso member(doia, killLoad)
                                     then
                                     let
-                                        val (destReg, newCache) = allocateGenReg(destLoad, cache)
+                                        val (destReg, newCache) = allocateGenReg(destLoad, NONE, cache)
                                     in
                                         (code <::> LoadWithIndexedOffset{ base=X24(*X_Base32in64*), dest=destReg,
                                                         index=getAllocatedGenReg source, loadType=Load32, signExtendIndex=false },
@@ -672,7 +675,7 @@ struct
                                     end
                                     else
                                     let
-                                        val (destReg, newCache) = allocateGenReg(destOiA, cache)
+                                        val (destReg, newCache) = allocateGenReg(destOiA, Array.sub(cacheHints, srcNo), cache)
                                     in
                                         (code <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg},
                                          GenReg destReg, newCache, rest)
@@ -680,12 +683,13 @@ struct
                                     
                                 |   _ =>
                                     let
-                                        val (destReg, newCache) = allocateGenReg(destOiA, cache)
+                                        val (destReg, newCache) = allocateGenReg(destOiA, Array.sub(cacheHints, srcNo), cache)
                                     in
                                         (code <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg},
                                          GenReg destReg, newCache, rest)
                                     end
                             )
+                    val () = if killThis then () else Array.update(cacheHints, srcNo, SOME destReg)
                 in
                     absToConcrete(next, if killThis then newCache else (destReg, CacheAbsAddress source) :: newCache, newCode)
                 end
@@ -693,14 +697,14 @@ struct
             |   absToConcrete({instr=AbsoluteToObjectIndex { source, dest}, ...} :: rest, cache, code) =
                 let
                     (* Don't make an entry in the cache for this; it won't be used. *)
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> AbsoluteToObjectIndex { source=getAllocatedGenReg source, dest=destReg})
                 end
 
             |   absToConcrete({instr=AllocateMemoryFixed { bytesRequired, dest, saveRegs }, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                     val filteredCache = pruneCache(GenReg X30, newCache)
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
@@ -710,7 +714,7 @@ struct
 
             |   absToConcrete({instr=AllocateMemoryVariable{size, dest, saveRegs}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                     val filteredCache = pruneCache(GenReg X30, newCache)
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
@@ -753,7 +757,7 @@ struct
 
             |   absToConcrete({instr=AddSubImmediate{ source, dest, ccRef, immed, isAdd, length }, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenRegOrZero(dest, cache)
+                    val (destReg, newCache) = allocateGenRegOrZero(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         AddSubImmediate { source=getAllocatedGenReg source, dest=destReg, ccRef=ccRef,
@@ -762,7 +766,7 @@ struct
 
             |   absToConcrete({instr=AddSubRegister{ base, shifted, dest, ccRef, isAdd, length, shift}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenRegOrZero(dest, cache)
+                    val (destReg, newCache) = allocateGenRegOrZero(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         AddSubRegister { base=getAllocatedGenReg base, shifted=getAllocatedGenReg shifted,
@@ -772,7 +776,7 @@ struct
 
             |   absToConcrete({instr=LogicalImmediate{ source, dest, ccRef, immed, logOp, length }, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenRegOrZero(dest, cache)
+                    val (destReg, newCache) = allocateGenRegOrZero(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         LogicalImmediate { source=getAllocatedGenReg source, dest=destReg, ccRef=ccRef,
@@ -781,7 +785,7 @@ struct
 
             |   absToConcrete({instr=LogicalRegister{ base, shifted, dest, ccRef, logOp, length, shift}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenRegOrZero(dest, cache)
+                    val (destReg, newCache) = allocateGenRegOrZero(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         LogicalRegister { base=getAllocatedGenReg base, shifted=getAllocatedGenReg shifted,
@@ -791,7 +795,7 @@ struct
 
             |   absToConcrete({instr=ShiftRegister{ direction, dest, source, shift, opSize}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         ShiftRegister { source=getAllocatedGenReg source, shift=getAllocatedGenReg shift, dest=destReg,
@@ -800,7 +804,7 @@ struct
 
             |   absToConcrete({instr=Multiplication{ kind, dest, sourceA, sourceM, sourceN }, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         Multiplication { kind=kind, sourceA=getAllocatedGenRegOrZero sourceA, sourceM=getAllocatedGenReg sourceM,
@@ -809,7 +813,7 @@ struct
 
             |   absToConcrete({instr=Division{ isSigned, dest, dividend, divisor, opSize }, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         Division { isSigned=isSigned, dividend=getAllocatedGenReg dividend, divisor=getAllocatedGenReg divisor,
@@ -836,7 +840,7 @@ struct
             |   absToConcrete({instr=FunctionCall{callKind, regArgs, stackArgs, dest, containers, saveRegs, ...}, ...} :: rest, _, code) =
                 let
                     fun getRegArg(src, dst) = (getAllocatedArg src, dst)
-                    val (destReg, _) = allocateGenReg(dest, [])
+                    val (destReg, _) = allocateGenReg(dest, NONE, [])
                     (* Currently we empty the cache at this point.  Saving the resgisters across
                        the call would probably be more expensive than reloading them. *)
                 in
@@ -862,11 +866,12 @@ struct
             |   absToConcrete({instr=RaiseExceptionPacket{packetReg}, ...} :: rest, context, code) =
                     absToConcrete(rest, context, code <::> RaiseExceptionPacket{packetReg=getAllocatedGenReg packetReg})
 
-            |   absToConcrete({instr=PushToStack{ source, container as StackLoc{size, ...}, copies }, ...} :: rest, cache, code) =
+            |   absToConcrete({instr=PushToStack{ source, container as StackLoc{size, rno}, copies }, ...} :: rest, cache, code) =
                 let
                     val srcReg = getAllocatedGenReg source
                     val newCache =
                         if size = 1 then (GenReg srcReg, CacheStack container) :: cache else cache
+                    val () = Array.update(cacheHints, rno, SOME(GenReg srcReg))
                 in
                     absToConcrete(rest, newCache, code <::> PushToStack{source=srcReg, container=container, copies=copies})
                 end
@@ -905,11 +910,12 @@ struct
                             let
                                 val (cachePostLoad, loadCode) =
                                     processLoadStack(destLoad, container, wordOffset, kill, cache, code)
-                                val (destReg, cachePlusOia) = allocateGenReg(destOia, cachePostLoad)
+                                val (destReg, cachePlusOia) = allocateGenReg(destOia, Array.sub(cacheHints, rno), cachePostLoad)
                             in
                                 (loadCode <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg},
                                  GenReg destReg, cachePlusOia)
                             end
+                    val () = if killThis then () else Array.update(cacheHints, rno, SOME destReg)
                 in
                     absToConcrete(rest, if killThis then newCache else (destReg, CacheAbsAddrOnStack container) :: newCache, newCode)
                 end
@@ -929,7 +935,7 @@ struct
 
             |   absToConcrete({instr=LoadStack{ dest, container, field, wordOffset}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> LoadStack{ dest=destReg, container=container, field=field, wordOffset=wordOffset })
                 end
@@ -948,7 +954,7 @@ struct
 
             |   absToConcrete({instr=ContainerAddress{ dest, container, stackOffset}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         ContainerAddress{ dest=destReg, container=container, stackOffset=stackOffset })
@@ -959,7 +965,7 @@ struct
 
             |   absToConcrete({instr=TagValue{source, dest, isSigned, opSize}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         TagValue{source=getAllocatedGenReg source, dest=destReg, isSigned=isSigned, opSize=opSize})
@@ -967,7 +973,7 @@ struct
 
             |   absToConcrete({instr=UntagValue{source, dest, isSigned, opSize, ...}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         UntagValue{source=getAllocatedGenReg source, dest=destReg, isSigned=isSigned, opSize=opSize})
@@ -975,7 +981,7 @@ struct
 
             |   absToConcrete({instr=BoxLarge{source, dest, saveRegs, ...}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                     val filteredCache = pruneCache(GenReg X30, newCache)
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
@@ -985,14 +991,14 @@ struct
 
             |   absToConcrete({instr=UnboxLarge{source, dest}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> UnboxLarge{source=getAllocatedGenReg source, dest=destReg})
                 end
 
             |   absToConcrete({instr=BoxTagFloat{floatSize, source, dest, saveRegs}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                     val filteredCache = pruneCache(GenReg X30, newCache)
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
@@ -1002,14 +1008,14 @@ struct
 
             |   absToConcrete({instr=UnboxTagFloat{floatSize, source, dest}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateFPReg(dest, cache)
+                    val (destReg, newCache) = allocateFPReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> UnboxTagFloat{floatSize=floatSize, source=getAllocatedGenReg source, dest=destReg})
                 end
 
             |   absToConcrete({instr=LoadAcquire { base, dest, loadType}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> LoadAcquire { base=getAllocatedGenReg base, dest=destReg, loadType=loadType})
                 end
@@ -1019,7 +1025,7 @@ struct
 
             |   absToConcrete({instr=BitFieldShift{source, dest, isSigned, length, immr, imms}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> BitFieldShift { source=getAllocatedGenReg source, dest=destReg, isSigned=isSigned,
                                     immr=immr, imms=imms, length=length})
@@ -1045,7 +1051,7 @@ struct
             |   absToConcrete({instr=BeginHandler{packetReg}, ...} :: rest, _, code) =
                 let
                     (* The cache is undefined at the start of a handler. *)
-                    val (destReg, newCache) = allocateGenReg(packetReg, [])
+                    val (destReg, newCache) = allocateGenReg(packetReg, NONE, [])
                 in
                     absToConcrete(rest, newCache, code <::> BeginHandler{packetReg=destReg})
                 end
@@ -1074,7 +1080,7 @@ struct
 
             |   absToConcrete({instr=AddSubXSP{source, dest, isAdd}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenRegOrZero(dest, cache)
+                    val (destReg, newCache) = allocateGenRegOrZero(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> AddSubXSP { source=getAllocatedGenReg source, dest=destReg, isAdd=isAdd})
                 end
@@ -1084,14 +1090,14 @@ struct
 
             |   absToConcrete({instr=LoadAcquireExclusive{ base, dest }, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> LoadAcquireExclusive { base=getAllocatedGenReg base, dest=destReg})
                 end
 
             |   absToConcrete({instr=StoreReleaseExclusive{ base, source, result }, ...} :: rest, cache, code) =
                 let
-                    val (resultReg, newCache) = allocateGenReg(result, cache)
+                    val (resultReg, newCache) = allocateGenReg(result, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> StoreReleaseExclusive{ base=getAllocatedGenReg base, source=getAllocatedGenRegOrZero source,
                                            result=resultReg})
@@ -1101,7 +1107,7 @@ struct
 
             |   absToConcrete({instr=ConvertIntToFloat{ source, dest, srcSize, destSize}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateFPReg(dest, cache)
+                    val (destReg, newCache) = allocateFPReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         ConvertIntToFloat{ source=getAllocatedGenReg source, dest=destReg, srcSize=srcSize, destSize=destSize})
@@ -1109,7 +1115,7 @@ struct
 
             |   absToConcrete({instr=ConvertFloatToInt{ source, dest, srcSize, destSize, rounding}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, cache)
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::>
                         ConvertFloatToInt{ source=getAllocatedFPReg source, dest=destReg, srcSize=srcSize,
@@ -1118,14 +1124,14 @@ struct
 
             |   absToConcrete({instr=UnaryFloatingPt{ source, dest, fpOp}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateFPReg(dest, cache)
+                    val (destReg, newCache) = allocateFPReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> UnaryFloatingPt{ source=getAllocatedFPReg source, dest=destReg, fpOp=fpOp})
                 end
 
             |   absToConcrete({instr=BinaryFloatingPoint{ arg1, arg2, dest, fpOp, opSize}, ...} :: rest, cache, code) =
                 let
-                    val (destReg, newCache) = allocateFPReg(dest, cache)
+                    val (destReg, newCache) = allocateFPReg(dest, NONE, cache)
                 in
                     absToConcrete(rest, newCache, code <::> BinaryFloatingPoint{ arg1=getAllocatedFPReg arg1, arg2=getAllocatedFPReg arg2,
                                          dest=destReg, fpOp=fpOp, opSize=opSize})
@@ -1164,11 +1170,12 @@ struct
 
                     |   NONE =>
                         let
-                            val (destReg, newCache) = allocateGenReg(dest, cache)
+                            val (destReg, newCache) = allocateGenReg(dest, Array.sub(cacheHints, rno), cache)
                         in
                             (code <::> LoadStack{ dest=destReg, container=container, field=0, wordOffset=wordOffset },
                              GenReg destReg, newCache)
                         end
+                val () = if killThis then () else Array.update(cacheHints, rno, SOME destReg)
             in
                 (if killThis then newCache else (destReg, CacheStack container) :: newCache, newCode)
             end
