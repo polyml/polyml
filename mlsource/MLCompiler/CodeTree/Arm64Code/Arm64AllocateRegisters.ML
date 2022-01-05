@@ -875,16 +875,11 @@ struct
                               (restPlusOia as {instr=ObjectIndexAddressToAbsolute { source as PReg srcNo, dest=destOia}, kill=killOia, ...} :: rest), cache, code) =
                 (* If a preg has been pushed to the stack every subsequent reference will be via the stack.  If we want to
                    be able to cache object index to absolute addresses for them we have to recognise this combination. *)
-                if destLoad <> source andalso member(srcNo, killOia)
-                then (* They could be unrelated in which case process the LoadStack and then the ObjectIndex...
+                (* They could be unrelated in which case process the LoadStack and then the ObjectIndex...
                         It seems there are also rare circumstances(??) where the result of the load is not
                         killed and so would have to be preserved. *)
-                let
-                    val (newCache, newCode) = processLoadStack(destLoad, container, wordOffset, kill, cache, code)
-                in
-                    absToConcrete(restPlusOia, newCache, newCode)
-                end
-                else
+                if destLoad = source andalso member(srcNo, killOia)
+                then
                 let
                     val killThis = member(rno, kill) (* Is it the last reference to the stack entry? *)
 
@@ -917,6 +912,12 @@ struct
                             end
                 in
                     absToConcrete(rest, if killThis then newCache else (destReg, CacheAbsAddrOnStack container) :: newCache, newCode)
+                end
+                else (* Can't combine these. *)
+                let
+                    val (newCache, newCode) = processLoadStack(destLoad, container, wordOffset, kill, cache, code)
+                in
+                    absToConcrete(restPlusOia, newCache, newCode)
                 end
 
             |   absToConcrete({instr=LoadStack{ dest, container, wordOffset, field=0, ...}, kill, ...} :: rest, cache, code) =
