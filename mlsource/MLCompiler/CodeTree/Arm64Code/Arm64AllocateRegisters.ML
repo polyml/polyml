@@ -649,7 +649,7 @@ struct
                                         <::> CacheCheck{ arg1=dReg, arg2=X17 },
                                      destReg, if killThis then pruneCache(srcReg, newCache) else newCache, rest)
                                 else if dReg = sReg
-                                then (code <::> LoadNonAddressConstant{source=0w1, dest=X16}, destReg, newCache, rest) (* We will have pruned this since it's the destination. *)
+                                then (code, destReg, newCache, rest) (* We will have pruned this since it's the destination. *)
                                 else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
                                         if killThis then pruneCache(srcReg, newCache) else newCache, rest)
                             end
@@ -902,7 +902,7 @@ struct
                                         ObjectIndexAddressToAbsolute { source=X16, dest=dReg} <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg,
                                         if killThis then pruneCache(srcReg, newCache) else newCache)
                                 else if dReg = sReg
-                                then (code <::> LoadNonAddressConstant{source=0w1, dest=X16}, destReg, newCache) (* We will have pruned this since it's the destination. *)
+                                then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
                                 else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
                                         if killThis then pruneCache(srcReg, newCache) else newCache)
                             end
@@ -1164,7 +1164,7 @@ struct
                             then (code <::> MoveRegister{source=sReg, dest=X17} <::> LoadStack{ dest=dReg, container=container, field=0, wordOffset=wordOffset }
                                 <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg, if killThis then pruneCache(srcReg, newCache) else newCache)
                             else if dReg = sReg andalso false
-                            then (code <::> LoadNonAddressConstant{source=0w1, dest=X16}, destReg, newCache) (* We will have pruned this since it's the destination. *)
+                            then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
                             else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
                                     if killThis then pruneCache(srcReg, newCache) else newCache)
                         end
@@ -1257,6 +1257,7 @@ struct
                     val inputCacheList =
                         List.map (fn n => #cache(Array.sub(resultArray, n))) (Array.sub(blockRefs, blockNo))
                     val inputCache = mergeCacheStates inputCacheList
+                    val inputCache = [] (* Temporarily *)
                     (* Process this block and add it to the results. *)
                     val () = Array.update(processed, blockNo, true)
                     val () = Array.update(resultArray, blockNo, concreteBlock(thisBlock, inputCache))
