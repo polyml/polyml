@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021
+    Copyright David C. J. Matthews 2021-2
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -254,7 +254,7 @@ struct
         fun returnInstruction({stackPtr, ...}, resReg, tailCode) =
         let
         in
-            BlockExit(ReturnResultFromFunction{resultReg=resReg, returnReg = returnAddrReg, numStackArgs=currentStackArgs}) ::
+            BlockExit(ReturnResultFromFunction{results=[(resReg, X0)], returnReg = returnAddrReg, numStackArgs=currentStackArgs}) ::
                 (if stackPtr <> 0 then resetStackPtr{numWords=stackPtr} :: tailCode else tailCode)
         end
 
@@ -970,7 +970,7 @@ struct
                             val containers = List.mapPartial getContainers argList
                         end
                         val call =
-                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target,
+                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dests=[(target, X0)],
                                          callKind=callKind, saveRegs=[], containers=containers}
                         val callBlock =
                             case currHandler of

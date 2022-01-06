@@ -154,7 +154,7 @@ struct
     |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
             { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(FunctionCall{regArgs, stackArgs, dest, containers, ...}) =
+    |   getInstructionState(FunctionCall{regArgs, stackArgs, dests, containers, ...}) =
         let
             (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
             fun getSourceFromRegs((ArgInReg reg, _), (regArgs, stackArgs)) = (reg :: regArgs, stackArgs)
@@ -164,7 +164,7 @@ struct
             val (argSources, stackSources) =
                 List.foldl getSourceFromRegs (List.foldl getSourceFromStack ([], []) stackArgs) regArgs
         in
-            { sources=argSources, dests=[dest], sStacks=stackSources @ containers, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=argSources, dests=List.map #1 dests, sStacks=stackSources @ containers, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
     |   getInstructionState(TailRecursiveCall{regArgs, stackArgs, ...}) =
@@ -180,8 +180,8 @@ struct
             { sources=argSources, dests=[], sStacks=stackSources, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
-    |   getInstructionState(ReturnResultFromFunction{resultReg, returnReg, ...}) =
-            { sources=[resultReg, returnReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+    |   getInstructionState(ReturnResultFromFunction{results, returnReg, ...}) =
+            { sources=returnReg :: List.map #1 results, dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(RaiseExceptionPacket{packetReg}) =
             { sources=[packetReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
@@ -637,7 +637,7 @@ struct
                         (* If we are allocating memory we have to save the current registers if
                            they could contain an address.  We mustn't push untagged registers
                            and we mustn't push the destination. *)
-                        fun getSaveSet dReg =
+                        fun getSaveSet includeReg =
                         let
                             val activeAfter = union(activeAfterThis, passThrough)
                             (* Remove any registers marked - must-not-push.  These are
@@ -646,15 +646,15 @@ struct
                                modified by the GC.
                                Exclude the result register. *)
                             fun getSave i =
-                                if i = dReg
-                                then NONE
-                                else case Vector.sub(pregProps, i) of
+                                if includeReg i
+                                then case Vector.sub(pregProps, i) of
                                     RegPropGeneral => SOME(PReg i)
                                 |   RegPropCacheTagged => SOME(PReg i)
                                 |   RegPropUntagged => NONE
                                 |   RegPropStack _ => NONE
                                 |   RegPropCacheUntagged => NONE
                                 |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
+                                else NONE
                         in
                             List.mapPartial getSave (setToList activeAfter)
                         end
@@ -665,17 +665,17 @@ struct
                             case instr of
                                 AllocateMemoryFixed{bytesRequired, dest, saveRegs=_} =>
                                     AllocateMemoryFixed{bytesRequired=bytesRequired, dest=dest,
-                                        saveRegs=getSaveSet(regNo dest)}
+                                        saveRegs=getSaveSet(fn i => i <> regNo dest)}
 
                             |   AllocateMemoryVariable{size, dest, saveRegs=_} =>
-                                    AllocateMemoryVariable{size=size, dest=dest, saveRegs=getSaveSet(regNo dest)}
+                                    AllocateMemoryVariable{size=size, dest=dest, saveRegs=getSaveSet(fn i => i <> regNo dest)}
 
                             |   BoxLarge{source, dest, saveRegs=_} =>
-                                    BoxLarge{source=source, dest=dest, saveRegs=getSaveSet(regNo dest)}
+                                    BoxLarge{source=source, dest=dest, saveRegs=getSaveSet(fn i => i <> regNo dest)}
 
                             |   BoxTagFloat{source, dest, floatSize, saveRegs=_} =>
                                     BoxTagFloat{source=source, dest=dest, floatSize=floatSize,
-                                        saveRegs=getSaveSet(regNo dest)}
+                                        saveRegs=getSaveSet(fn i => i <> regNo dest)}
                        
                             |   JumpLoop{regArgs, stackArgs, checkInterrupt = SOME _, ...} =>
                                 let
@@ -697,13 +697,19 @@ struct
                                     JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=SOME check}
                                 end
 
-                            |   FunctionCall{regArgs, stackArgs=[], dest, callKind as ConstantCode m,
+                            |   FunctionCall{regArgs, stackArgs=[], dests, callKind as ConstantCode m,
                                              saveRegs=_, containers} =>
                                 (* If this is arbitrary precision push the registers rather than marking them as "save".
                                    stringOfWord returns 'CODE "PolyAddArbitrary"' etc. *)
                                 if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
-                                then FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dest=dest,
-                                        containers=containers, saveRegs=getSaveSet(regNo dest) }
+                                then
+                                let
+                                    val destRegs = List.map (regNo o #1) dests
+                                    fun includeInSave i = not(List.exists(fn r => r=i) destRegs)
+                                in
+                                    FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dests=dests,
+                                        containers=containers, saveRegs=getSaveSet includeInSave}
+                                end
                                 else instr
 
                             |   _ => instr

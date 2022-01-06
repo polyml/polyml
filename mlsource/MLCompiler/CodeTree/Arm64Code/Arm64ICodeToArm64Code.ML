@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021
+    Copyright David C. J. Matthews 2021-2
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -643,10 +643,8 @@ struct
                 jumpToFunctionCode @ setArgumentsCode
             end
 
-        |   codeExtended _ (FunctionCall{callKind, regArgs=regArgs, stackArgs=stackArgs, dest, saveRegs, ...}, code) =
+        |   codeExtended _ (FunctionCall{callKind, regArgs=regArgs, stackArgs=stackArgs, dests, saveRegs, ...}, code) =
             let
-                val destReg = dest
-
                 local
                     fun pushStackArgs ([], _, code) = code
 
@@ -709,18 +707,22 @@ struct
                             LoadRegUnscaled{regT=areg, regN=X_MLStackPtr, byteOffset= 8, loadType=Load64, unscaledType=PostIndex}
                     end
 
+                (* Results.  These go from the specific result register into the allocated register. *)
+                val resultPairs = List.map(fn (pr, rr) => {src=rr,dst=pr}) dests
             in
-                moveIfNecessary({dst=destReg, src=X0}, makeSavesAndCall(saveRegs, loadArgs))
+                moveMultipleRegisters(resultPairs, makeSavesAndCall(saveRegs, loadArgs))
             end
 
-        |   codeExtended _ (ReturnResultFromFunction { resultReg, returnReg, numStackArgs }, code) =
+        |   codeExtended _ (ReturnResultFromFunction { results, returnReg, numStackArgs }, code) =
             let
                 fun resetStack(0, code) = code
                 |   resetStack(nItems, code) =
                         addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
                                         value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt nItems}, code)
+                (* Return results.  This goes from the allocated register into the specific register rr. *)
+                val resultPairs = List.map(fn (pr, rr) => {src=pr,dst=rr}) results
             in
-                BranchReg{regD=returnReg, brRegType=BRRReturn} :: resetStack(numStackArgs, moveIfNecessary({src=resultReg, dst=X0}, code))
+                BranchReg{regD=returnReg, brRegType=BRRReturn} :: resetStack(numStackArgs, moveMultipleRegisters(resultPairs, code))
             end
 
         |   codeExtended _ (RaiseExceptionPacket{ packetReg }, code) =

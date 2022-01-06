@@ -595,7 +595,7 @@ struct
                             pushCode @ BeginFunction {regArgs=newRegArgs, stackArgs=newStackArgs} :: code
                         end
 
-                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest, containers, ...}, ...}, code) =
+                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dests, containers, ...}, ...}, code) =
                         let
                             (* It's possible that this could lead to having to spill registers in order
                                to load others.  Leave that problem for the moment. *)
@@ -614,11 +614,20 @@ struct
                                 (argVal, reg) :: otherArgs
                             end
                             val newRegArgs = List.foldr loadRegArg [] regArgs
-                            val (destVal, destCode) = mapDestReg dest
+
+                            (* Push any result registers that need to be pushed. *)
+                            fun pushResults((preg, rreg), (others, code)) =
+                            let
+                                val (newReg, newCode) = mapDestReg preg
+                            in
+                                ((newReg, rreg) :: others, newCode @ code)
+                            end
+                            val (destVals, destCode) = List.foldl pushResults ([], []) dests
+
                             val newContainers = List.map(fn c => #2(mapContainerAndStack(c, 0))) containers
                         in
                             destCode @ FunctionCall{ callKind=callKind, regArgs=newRegArgs, stackArgs=newStackArgs,
-                                                  dest=destVal, saveRegs=[], containers=newContainers} :: code
+                                                  dests=destVals, saveRegs=[], containers=newContainers} :: code
                         end
 
                     |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, ...}, ...}, code) =
@@ -666,15 +675,22 @@ struct
                                         stackArgLoads @ code
                         end
 
-                    |   pushRegisters({instr=ReturnResultFromFunction{resultReg, returnReg, numStackArgs}, ...}, code) =
+                    |   pushRegisters({instr=ReturnResultFromFunction{results, returnReg, numStackArgs}, ...}, code) =
                         let
-                            val (resultValue, loadResult) = mapSrcReg resultReg
+                            fun loadResults((preg, rreg), (others, code)) =
+                            let
+                                val (newReg, newCode) = mapSrcReg preg
+                            in
+                                ((newReg, rreg) :: others, newCode @ code)
+                            end
+                            val (resultValues, loadResults) = List.foldr loadResults ([], []) results
+
                             val (returnValue, loadReturn) = mapSrcReg returnReg
                             val resetCode =
                                 if !stackCount = 0 then [] else [ResetStackPtr{numWords= !stackCount}]
                         in
-                            ReturnResultFromFunction{resultReg=resultValue, returnReg=returnValue, numStackArgs=numStackArgs} ::
-                                resetCode @ loadReturn @ loadResult @ code
+                            ReturnResultFromFunction{results=resultValues, returnReg=returnValue, numStackArgs=numStackArgs} ::
+                                resetCode @ loadReturn @ loadResults @ code
                         end
 
                     |   pushRegisters({instr=RaiseExceptionPacket{packetReg}, ...}, code) =

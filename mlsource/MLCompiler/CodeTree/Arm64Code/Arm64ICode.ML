@@ -160,13 +160,15 @@ struct
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through X8 which has been loaded
-           as one of the argument registers.  The result is stored in the destination register.
+           as one of the argument registers.  The results are stored in the result registers,
+           usually just X0.
            The "containers" argument is used to ensure that any container whose address is passed
            as one of the other arguments continues to be referenced until the function is called
            since there's a possibility that it isn't actually used after the function. *)
     |   FunctionCall of
             { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
-              stackArgs: 'genReg fnarg list, dest: 'genReg, saveRegs: 'genReg list, containers: stackLocn list}
+              stackArgs: 'genReg fnarg list, dests: ('genReg * xReg) list,
+              saveRegs: 'genReg list, containers: stackLocn list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
@@ -179,9 +181,10 @@ struct
               stackArgs: {src: 'genReg fnarg, stack: int} list,
               stackAdjust: int, currStackSize: int }
 
-        (* Return from the function.  resultReg is the preg that contains the result,
+        (* Return from the function.  resultRegs are the registers containing
+           the result,
            returnReg is the preg that contains the return address. *)
-    |   ReturnResultFromFunction of { resultReg: 'genReg, returnReg: 'genReg, numStackArgs: int }
+    |   ReturnResultFromFunction of { results: ('genReg * xReg) list, returnReg: 'genReg, numStackArgs: int }
 
         (* Raise an exception.  The packet is always loaded into X0. *)
     |   RaiseExceptionPacket of { packetReg: 'genReg }
@@ -610,16 +613,18 @@ struct
                 List.app(fn s => printStackLoc(s, stream)) stackArgs
             )
 
-        |   printICode (stream, printGenReg, _, _) (FunctionCall{callKind, regArgs, stackArgs, dest, saveRegs, containers}) =
+        |   printICode (stream, printGenReg, _, _) (FunctionCall{callKind, regArgs, stackArgs, dests, saveRegs, containers}) =
             (
                 stream "\tFunctionCall\t";
                 case callKind of
                     Recursive => stream "recursive "
                 |   ConstantCode m => (stream(stringOfWord m); stream " ")
                 |   FullCall => ();
+                stream "(";
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printGenReg); stream " ")) regArgs;
                 List.app(fn arg => (stream "p="; printArg(arg, stream, printGenReg); stream " ")) stackArgs;
-                stream "=> "; printGenReg dest;
+                stream ") ";
+                List.app(fn (pr, r) => (stream(regRepr r); stream "=>"; printGenReg pr; stream " ")) dests;
                 stream " save="; printSaves(saveRegs, stream, printGenReg);
                 if null containers then ()
                 else (stream " containers="; List.app (fn c => (printStackLoc(c, stream); stream " ")) containers)
@@ -638,10 +643,10 @@ struct
                 stream " stackSize="; stream(Int.toString currStackSize)
             )
 
-        |   printICode (stream, printGenReg, _, _) (ReturnResultFromFunction{ resultReg, returnReg, numStackArgs }) =
+        |   printICode (stream, printGenReg, _, _) (ReturnResultFromFunction{ results, returnReg, numStackArgs }) =
             (
-                stream "\tReturnFromFunction\t";
-                printGenReg(returnReg); stream " with "; printGenReg(resultReg);
+                stream "\tReturnFromFunction\t"; printGenReg(returnReg); stream "with ";
+                List.app(fn (reg, r) => (stream(regRepr r); stream "=>"; printGenReg reg; stream " ")) results;
                 stream("," ^ Int.toString numStackArgs)
             )
 

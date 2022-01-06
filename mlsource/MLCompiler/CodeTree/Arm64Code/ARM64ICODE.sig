@@ -214,13 +214,15 @@ sig
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through X8 which has been loaded
-           as one of the argument registers.  The result is stored in the destination register.
+           as one of the argument registers.  The results are stored in the result registers,
+           usually just X0.
            The "containers" argument is used to ensure that any container whose address is passed
            as one of the other arguments continues to be referenced until the function is called
            since there's a possibility that it isn't actually used after the function. *)
     |   FunctionCall of
             { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
-              stackArgs: 'genReg fnarg list, dest: 'genReg, saveRegs: 'genReg list, containers: stackLocn list}
+              stackArgs: 'genReg fnarg list, dests: ('genReg * xReg) list,
+              saveRegs: 'genReg list, containers: stackLocn list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
@@ -233,9 +235,10 @@ sig
               stackArgs: {src: 'genReg fnarg, stack: int} list,
               stackAdjust: int, currStackSize: int }
 
-        (* Return from the function.  resultReg is the preg that contains the result,
+        (* Return from the function.  resultRegs are the registers containing
+           the result,
            returnReg is the preg that contains the return address. *)
-    |   ReturnResultFromFunction of { resultReg: 'genReg, returnReg: 'genReg, numStackArgs: int }
+    |   ReturnResultFromFunction of { results: ('genReg * xReg) list, returnReg: 'genReg, numStackArgs: int }
 
         (* Raise an exception.  The packet is always loaded into X0. *)
     |   RaiseExceptionPacket of { packetReg: 'genReg }

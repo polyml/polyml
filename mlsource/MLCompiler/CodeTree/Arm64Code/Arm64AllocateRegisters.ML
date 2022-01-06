@@ -75,18 +75,13 @@ struct
         in
             fun reserveRegister(reserveFor, reg) =
             let
-                fun reserveAReg r =
-                let
-                    val absConflicts = Array.sub(regConflicts, r)
-                    fun addConflict i =
-                        if isInset i reserveFor then () else addRealConflict (i, reg)
-                in
-                    List.app addConflict (setToList absConflicts)
-                end
+                val absConflicts = Array.sub(regConflicts, reserveFor)
+                fun addConflict i =
+                    if i = reserveFor then () else addRealConflict (i, reg)
             in
-                List.app reserveAReg reserveFor
+                List.app addConflict (setToList absConflicts)
             end
-        
+
             and addRealConflict (i, reg) =
             let
                 val currentConflicts = Array.sub(regRealConflicts, i)
@@ -164,23 +159,23 @@ struct
                 |   RaiseExceptionPacket{ packetReg } =>
                         (* This wasn't needed previously because we always pushed the registers
                            across an exception. *)
-                        reserveRegister([regNo packetReg], GenReg X0)
+                        reserveRegister(regNo packetReg, GenReg X0)
                 
                 |   BeginHandler { packetReg, ...} =>
-                        reserveRegister([regNo packetReg], GenReg X0)
+                        reserveRegister(regNo packetReg, GenReg X0)
                 
-                |   FunctionCall { dest, regArgs, ...} =>
+                |   FunctionCall { dests, regArgs, ...} =>
                         (* This is only needed if we are saving the registers rather
                            than marking them as "must push". *)
                     let
-                        val destReg = regNo dest
+                        val destReg = regNo(#1(hd dests))
                     in
-                        reserveRegister([destReg], GenReg X0);
+                        List.app(fn (PReg pr, r) => reserveRegister(pr, GenReg r)) dests;
                         (* The argument registers also conflict.  In order to execute this call we need to load
                            the arguments into specific registers so we can't use them for values that we want after
                            the call.   We use regNo dest here because that will conflict with everything
                            immediately afterwards. *)
-                        List.app(fn (_, r) => reserveRegister([destReg], GenReg r)) regArgs;
+                        List.app(fn (_, r) => reserveRegister(destReg, GenReg r)) regArgs;
                         (* Likewise X30 since that's the return address. *)
                         addRealConflict(destReg, GenReg X30)
                     end
@@ -298,8 +293,8 @@ struct
                     (* The "destAsSource" is the destination if some bits are retained. *)
                     addSourceAndDestinationHint {src=dsReg, dst=dReg}
 
-            |   addHints{instr=ReturnResultFromFunction { resultReg=PReg resReg, ... }, ...} =
-                    addRealHint(resReg, GenReg X0)
+            |   addHints{instr=ReturnResultFromFunction { results, ... }, ...} =
+                    List.app(fn(PReg pr, r) => addRealHint(pr, GenReg r)) results
 
             |   addHints{instr=JumpLoop{regArgs, ...}, ...} =
                 let
@@ -320,11 +315,11 @@ struct
                     List.app setHint regArgs
                 end
         
-            |   addHints{instr=FunctionCall{regArgs, dest=PReg dreg, ...}, ...} =
+            |   addHints{instr=FunctionCall{regArgs, dests, ...}, ...} =
                 let
                     fun setHint(ArgInReg(PReg pr), reg) = addRealHint(pr, GenReg reg) | setHint _ = ()
                 in
-                    addRealHint(dreg, GenReg X0);
+                    List.app(fn(PReg pr, r) => addRealHint(pr, GenReg r)) dests;
                     List.app setHint regArgs
                 end
 
@@ -837,16 +832,20 @@ struct
                         BeginFunction {regArgs=map allocReg regArgs, stackArgs=stackArgs})
                 end
 
-            |   absToConcrete({instr=FunctionCall{callKind, regArgs, stackArgs, dest, containers, saveRegs, ...}, ...} :: rest, _, code) =
+            |   absToConcrete({instr=FunctionCall{callKind, regArgs, stackArgs, dests, containers, saveRegs, ...}, ...} :: rest, _, code) =
                 let
                     fun getRegArg(src, dst) = (getAllocatedArg src, dst)
-                    val (destReg, _) = allocateGenReg(dest, NONE, [])
-                    (* Currently we empty the cache at this point.  Saving the resgisters across
-                       the call would probably be more expensive than reloading them. *)
+                    fun getResult(preg, reg) =
+                    let
+                        (* We empty the cache at this point. *)
+                        val (newReg, _) = allocateGenReg(preg, NONE, [])
+                    in
+                        (newReg, reg)
+                    end
                 in
                     absToConcrete(rest, [] (* Empty after a function call. *), code <::>
                         FunctionCall{ callKind=callKind, regArgs=map getRegArg regArgs, stackArgs=map getAllocatedArg stackArgs,
-                                  dest=destReg, saveRegs=getSaveRegs saveRegs, containers=containers})
+                                  dests=map getResult dests, saveRegs=getSaveRegs saveRegs, containers=containers})
                 end
 
             |   absToConcrete({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize}, ...} :: rest, context, code) =
@@ -859,9 +858,13 @@ struct
                             stackArgs=map getStackArg stackArgs, stackAdjust=stackAdjust, currStackSize=currStackSize})
                 end
 
-            |   absToConcrete({instr=ReturnResultFromFunction{resultReg, returnReg, numStackArgs}, ...} :: rest, context, code) =
+            |   absToConcrete({instr=ReturnResultFromFunction{results, returnReg, numStackArgs}, ...} :: rest, context, code) =
+                let
+                    fun getResult(preg, reg) = (getAllocatedGenReg preg, reg)
+                in
                     absToConcrete(rest, context, code <::>
-                        ReturnResultFromFunction{resultReg=getAllocatedGenReg resultReg, returnReg=getAllocatedGenReg returnReg, numStackArgs=numStackArgs})
+                        ReturnResultFromFunction{results=map getResult results, returnReg=getAllocatedGenReg returnReg, numStackArgs=numStackArgs})
+                end
 
             |   absToConcrete({instr=RaiseExceptionPacket{packetReg}, ...} :: rest, context, code) =
                     absToConcrete(rest, context, code <::> RaiseExceptionPacket{packetReg=getAllocatedGenReg packetReg})
