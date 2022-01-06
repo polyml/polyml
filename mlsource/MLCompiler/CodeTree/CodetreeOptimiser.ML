@@ -1,6 +1,6 @@
 (*
 
-    Copyright (c) 2012,13,15,17,19-21 David C.J. Matthews
+    Copyright (c) 2012,13,15,17,19-22 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -462,6 +462,8 @@ struct
                 val transBody = mapFunctionCode doMap body
             end
 
+            val containerSize = setInFilter filter
+
             local
                 val containerArg = Extract(LoadArgument(List.length argTypes))
                 val newBody =
@@ -469,7 +471,7 @@ struct
                 val mainLambda: lambdaForm =
                     {
                         body = newBody, name = name, resultType=GeneralType,
-                        argTypes=argTypes @ [(GeneralType, [])],
+                        argTypes=argTypes @ [(ContainerType containerSize, [])],
                         closure=closure @ [LoadLocal shimAddress],
                         localCount=localCount + 1, isInline=isInline,
                         recUse = [UseGeneral]
@@ -482,10 +484,10 @@ struct
                builds a tuple from the container. *)
             val shimBody =
                 mkEnv(
-                    [Container{addr = 0, use = [], size = setInFilter filter,
+                    [Container{addr = 0, use = [], size = containerSize,
                         setter= Eval {
                                 function = Extract(LoadClosure 0),
-                                argList = mapArgs LoadArgument argTypes @ [(Extract(LoadLocal 0), GeneralType)],
+                                argList = mapArgs LoadArgument argTypes @ [(Extract(LoadLocal 0), ContainerType containerSize)],
                                 resultType = GeneralType
                             }
                         }

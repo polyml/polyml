@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-21
+    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -209,7 +209,7 @@ struct
 
     fun pretty (pt : codetree) : pretty =
     let
-        
+
         fun printList(start, lst, sep) : pretty =
             PrettyBlock (1, true, [],
                 PrettyString (start ^ "(") ::
@@ -217,7 +217,13 @@ struct
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
 
-        fun prettyArg (c, _) = pretty c
+        fun genType GeneralType = []
+        |   genType DoubleFloatType = [ space, string ":double" ]
+        |   genType SingleFloatType = [ space, string ":float" ]
+        |   genType (ContainerType n) = [ space, string ":multiple ", space, string(Int.toString n) ]
+
+        fun prettyArg (c, t) =
+            PrettyBlock(1, false, [], pretty c :: genType t)
 
         fun prettyArgs(start, lst, sep) : pretty =
             PrettyBlock (1, true, [],
@@ -327,10 +333,6 @@ struct
                         DontInline   => ""
                     |   InlineAlways => "inline,"
                     |   SmallInline => "small,"
-                fun genType GeneralType = []
-                |   genType DoubleFloatType = [ space, string ":double" ]
-                |   genType SingleFloatType = [ space, string ":float" ]
-                |   genType (ContainerType n) = [ space, string ":multiple ", space, string(Int.toString n) ]
                 fun printArgs(n, (t, u) :: rest) =
                     PrettyBlock(4, false, [],
                         [
