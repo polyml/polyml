@@ -619,7 +619,7 @@ struct
                                         [
                                             Container{addr=0, size=setInFilter filter, use=[UseGeneral], setter=
                                                 Eval { function = Extract(hd fnclosure), resultType = GeneralType,
-                                                    argList = argList @ [(mkLoadLocal 0, GeneralType)] }
+                                                    argList = argList @ [(mkLoadLocal 0, ContainerType(setInFilter filter))] }
                                             }
                                         ],
                                         buildFullTuple(filter, fn n => mkIndContainer(n, mkLoadLocal 0))
@@ -679,15 +679,18 @@ struct
                     val totalArgCount =
                         List.foldl(fn (c, n) => n + List.foldl argCount 0 c) 0 argumentArgs +
                         (case filterOpt of SOME _ => 1 | _ => 0)
-                    val functionBody =
+                    val (functionBody, lastArgType) =
                         case filterOpt of
-                            NONE => thisBody
-                        |   SOME filter => mkSetContainer(mkLoadArgument(totalArgCount-1), thisBody, filter)
+                            NONE => (thisBody, GeneralType)
+                        |   SOME filter =>
+                            (mkSetContainer(mkLoadArgument(totalArgCount-1), thisBody, filter), ContainerType(setInFilter filter))
                 in
                     val thisArg =
                         Lambda {
                             closure = loadThisArg, isInline = InlineAlways, name = name ^ "-E",
-                            argTypes = List.tabulate(totalArgCount, fn _ => (GeneralType, [UseGeneral])),
+                            argTypes =
+                                List.tabulate(totalArgCount,
+                                    fn i => if i = totalArgCount-1 then (lastArgType, [UseGeneral]) else (GeneralType, [UseGeneral])),
                             resultType = GeneralType, localCount = 0, recUse = [UseGeneral], body = functionBody
                         }
                 end
