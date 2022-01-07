@@ -168,16 +168,14 @@ struct
                         (* This is only needed if we are saving the registers rather
                            than marking them as "must push". *)
                     let
-                        val destReg = regNo(#1(hd dests))
-                    in
-                        List.app(fn (PReg pr, r) => reserveRegister(pr, GenReg r)) dests;
+                        val () = List.app(fn (PReg pr, r) => reserveRegister(pr, GenReg r)) dests
                         (* The argument registers also conflict.  In order to execute this call we need to load
                            the arguments into specific registers so we can't use them for values that we want after
-                           the call.   We use regNo dest here because that will conflict with everything
-                           immediately afterwards. *)
-                        List.app(fn (_, r) => reserveRegister(destReg, GenReg r)) regArgs;
-                        (* Likewise X30 since that's the return address. *)
-                        addRealConflict(destReg, GenReg X30)
+                           the call. *)
+                        val toReserve = X30 :: List.map #2 regArgs
+                    in
+                        List.app(fn i => List.app(fn r => addRealConflict(i, GenReg r)) toReserve)
+                            (setToList passThrough @ setToList afterRemoveDests)
                     end
 
                     (* We can't use X30 as the result because it's needed for the return addr if we have to GC. *)
