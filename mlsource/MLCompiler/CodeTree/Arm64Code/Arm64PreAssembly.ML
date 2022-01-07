@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021 David C. J. Matthews
+    Copyright (c) 2021-2 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -51,6 +51,8 @@ struct
     and condSet = CondSet | CondSetIncr | CondSetInvert | CondSetNegate
     and bitfieldKind = BFUnsigned | BFSigned | BFInsert
     and brRegType = BRRBranch | BRRAndLink | BRRReturn
+
+    type precodeLabel = labels
 
     datatype precode =
         (* Basic instructions *)
@@ -114,19 +116,24 @@ struct
     |   FPComparison of { regM: vReg, regN: vReg, floatSize: floatSize}
     |   FPUnaryOp of {regN: vReg, regD: vReg, fpOp: fpUnary}
         (* Branches and Labels. *)
-    |   SetLabel of labels
-    |   ConditionalBranch of condition * labels
-    |   UnconditionalBranch of labels
-    |   BranchAndLink of labels
+    |   SetLabel of precodeLabel
+    |   ConditionalBranch of condition * precodeLabel
+    |   UnconditionalBranch of precodeLabel
+    |   BranchAndLink of precodeLabel
     |   BranchReg of {regD: xReg, brRegType: brRegType }
-    |   LoadLabelAddress of xReg * labels
-    |   TestBitBranch of { test: xReg, bit: Word8.word, label: labels, onZero: bool }
-    |   CompareBranch of { test: xReg, label: labels, onZero: bool, opSize: opSize }
+    |   LoadLabelAddress of xReg * precodeLabel
+    |   TestBitBranch of { test: xReg, bit: Word8.word, label: precodeLabel, onZero: bool }
+    |   CompareBranch of { test: xReg, label: precodeLabel, onZero: bool, opSize: opSize }
         (* Composite instructions *)
     |   MoveXRegToXReg of {sReg: xReg, dReg: xReg}
     |   LoadNonAddr of xReg * Word64.word
     |   LoadAddr of xReg * machineWord
     |   RTSTrap of { rtsEntry: int, work: xReg, save: xReg list }
+    |   AllocateMemoryFixedSize of { bytes: word, dest: xReg, save: xReg list, work: xReg }
+    |   AllocateMemoryVariableSize of { sizeReg: xReg, dest: xReg, save: xReg list, work: xReg }
+        (* Branch table for indexed case. startLabel is the address of the first label in
+           the list.  The branch table is a sequence of unconditional branches. *)
+    |   BranchTable of { startLabel: precodeLabel, brTable: precodeLabel list }
 
 
     fun toAssembler([], code) = code
@@ -720,6 +727,75 @@ struct
             )
         end
 
+    |   toAssembler(AllocateMemoryFixedSize{ bytes, dest, save, work } :: rest, code) =
+        let
+            val label = createLabel()
+            val saveX30 = List.exists (fn r => r = X30) save
+            val preserve = List.filter (fn r => r <> X30) save
+
+            val allocCode =
+                code <::>
+                (* Subtract the number of bytes required from the heap pointer. *)
+                subImmediate{regN=X_MLHeapAllocPtr, regD=dest, immed=bytes, shifted=false} <::>
+                (* Compare the result with the heap limit. *)
+                subSShiftedReg{regM=X_MLHeapLimit, regN=dest, regD=XZero, shift=ShiftNone} <::>
+                conditionalBranch(CondCarrySet, label) <@>
+                    (if saveX30 then [storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8}] else []) <::>
+                loadRegScaled{regT=work, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset} <::>
+                branchAndLinkReg work <::>
+                registerMask preserve <@>
+                (if saveX30 then [loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8}] else []) <::>
+                setLabel label <::>
+                (* Update the heap pointer. *)
+                orrShiftedReg{regN=XZero, regM=dest, regD=X_MLHeapAllocPtr, shift=ShiftNone}
+        in
+            toAssembler(rest, allocCode)
+        end
+
+    |   toAssembler(AllocateMemoryVariableSize{ sizeReg, dest, save, work } :: rest, code) =
+        let
+            val trapLabel = createLabel() and noTrapLabel = createLabel()
+            val saveX30 = List.exists (fn r => r = X30) save
+            val preserve = List.filter (fn r => r <> X30) save
+            
+            val allocCode =
+                (
+                    (* Subtract the size into the result register.  Subtract a further word for
+                       the length word and round down in 32-in-64. *)
+                    if is32in64
+                    then code <::>
+                        subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=dest, shift=ShiftLSL 0w2} <::>
+                        subImmediate{regN=dest, regD=dest, immed=0w4, shifted=false} <::>
+                        bitwiseAndImmediate{bits= ~ 0w8, regN=dest, regD=dest}
+                    else code <::>
+                        subShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=dest, shift=ShiftLSL 0w3} <::>
+                        subImmediate{regN=dest, regD=dest, immed=0w8, shifted=false}
+                ) <::>
+                (* Check against the limit. If the size is large enough it is possible that this could wrap round. 
+                   To check for that we trap if either the result is less than the limit or if it is
+                   now greater than the allocation pointer. *)
+                subSShiftedReg{regM=X_MLHeapLimit, regN=dest, regD=XZero, shift=ShiftNone} <::>
+                conditionalBranch(CondCarryClear, trapLabel) <::>
+                subSShiftedReg{regM=X_MLHeapAllocPtr, regN=dest, regD=XZero, shift=ShiftNone} <::>
+                conditionalBranch(CondCarryClear, noTrapLabel) <::>
+                setLabel trapLabel <@>
+                    (if saveX30 then [storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8}] else []) <::>
+                loadRegScaled{regT=work, regN=X_MLAssemblyInt, unitOffset=heapOverflowCallOffset} <::>
+                branchAndLinkReg work <::>
+                registerMask preserve <@>
+                (if saveX30 then [loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8}] else []) <::>
+                setLabel noTrapLabel <::>
+                (* Update the heap pointer. *)
+                orrShiftedReg{regN=XZero, regM=dest, regD=X_MLHeapAllocPtr, shift=ShiftNone}
+        in
+            toAssembler(rest, allocCode)
+        end
+
+    |   toAssembler(BranchTable{ startLabel, brTable } :: rest, code) =
+            toAssembler(rest,
+                List.foldl (fn (label, code) => (unconditionalBranch label) :: code)
+                    (code <::> setLabel startLabel) brTable)
+
     fun toInstr precode =
         case toAssembler([precode], []) of
             [single] => single
@@ -748,19 +824,10 @@ struct
     local
         fun allocateWords(fixedReg, workReg, words, bytes, regMask, code) =
         let
-            val label = createLabel()
             val (lengthWord, setLength, flagShift) = if is32in64 then (~4, Load32, 0w24) else (~8, Load64, 0w56)
         in
             code <::>
-            (* Subtract the number of bytes required from the heap pointer. *)
-            SubImmediate{regN=X_MLHeapAllocPtr, regD=fixedReg, immed=bytes, shifted=false, opSize=OpSize64, setFlags=false} <::>
-            (* Compare the result with the heap limit. *)
-            SubShiftedReg{regM=X_MLHeapLimit, regN=fixedReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
-            ConditionalBranch(CondCarrySet, label) <::>
-            RTSTrap{rtsEntry=heapOverflowCallOffset, work=X16, save=regMask} <::>
-            SetLabel label <::>
-            (* Update the heap pointer. *)
-            MoveXRegToXReg{sReg=fixedReg, dReg=X_MLHeapAllocPtr} <::>
+            AllocateMemoryFixedSize{ bytes=bytes, dest=fixedReg, save=regMask, work=X16 } <::>
             LoadNonAddr(workReg,
                     Word64.orb(words, Word64.<<(Word64.fromLarge(Word8.toLarge Address.F_bytes), flagShift))) <::>
             (* Store the length word.  Have to use the unaligned version because offset is -ve. *)
@@ -791,11 +858,14 @@ struct
                     StoreFPRegScaled{regT=source, regN=destination, unitOffset=0, floatSize=Float32})
     end
 
+    (* Optimise the pre-assembler code and then generate the final code. *)
+    fun generateFinalCode {instrs, name, parameters, resultClosure, profileObject, labelCount=_} =
+    let
 
-    fun generateFinalCode {instrs, name, parameters, resultClosure, profileObject} =
+    in
         generateCode{instrs=List.rev(toAssembler(instrs, [])), name=name, parameters=parameters,
                      resultClosure=resultClosure, profileObject=profileObject}
-
+    end
 
 
     structure Sharing =
@@ -816,7 +886,7 @@ struct
         type precode = precode
         type xReg = xReg
         type vReg = vReg
-        type labels = labels
+        type precodeLabel = precodeLabel
         type condition = condition
         type shiftType = shiftType
         type wordSize = wordSize

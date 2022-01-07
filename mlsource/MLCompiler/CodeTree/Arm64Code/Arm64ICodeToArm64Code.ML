@@ -40,7 +40,7 @@ struct
     (* Reversed cons and append to make the code easier to read. *)
     infix 5 <::> <@>
     fun tl <::> hd = hd :: tl
-    and snd <@> fst = fst @ snd
+    (*and snd <@> fst = fst @ snd*)
 
     (* These aren't currently used for anything. *)
     val workReg1 = X16 and workReg2 = X17
@@ -332,54 +332,11 @@ struct
                 (shiftConstant{shift=0w2, regN=destReg, regD=destReg, direction=ShiftRightLogical, opSize=OpSize64})
             end
 
-        |   codeExtended _ (AllocateMemoryFixed{ bytesRequired, dest, saveRegs, ... }, code) =
-            let
-                val label = createLabel()
-                val destReg = dest
-            in
-                code <@>
-                (* Subtract the number of bytes required from the heap pointer and put in result reg. *)
-                (if bytesRequired >= 0w4096
-                then [SubShiftedReg{regM=workReg1, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftNone, setFlags=false, opSize=OpSize64},
-                      LoadNonAddr(workReg1, bytesRequired)]
-                else [SubImmediate{regN=X_MLHeapAllocPtr, regD=destReg, immed=Word.fromLarge bytesRequired,
-                                shifted=false, setFlags=false, opSize=OpSize64}]
-                ) <::>
-                (* Compare with heap limit. *)
-                SubShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
-                ConditionalBranch(CondCarrySet, label) <::> (* Skip the trap if it's ok. *)
-                RTSTrap{rtsEntry=heapOverflowCallOffset, work=workReg1, save=saveRegs} <::>
-                SetLabel label <::>
-                MoveXRegToXReg{sReg=destReg, dReg=X_MLHeapAllocPtr}
-            end
+        |   codeExtended _ (AllocateMemoryFixed{ bytesRequired, dest, saveRegs }, code) =
+                code <::> AllocateMemoryFixedSize{ bytes=Word.fromLarge bytesRequired, dest=dest, save=saveRegs, work=workReg1 }
 
-        |   codeExtended _ (AllocateMemoryVariable{ size, dest, saveRegs, ... }, code) =
-            let
-                val trapLabel = createLabel() and noTrapLabel = createLabel()
-                val destReg = dest and sizeReg = size
-                (* Subtract the size into the result register.  Subtract a further word for
-                   the length word and round down in 32-in-64. *)
-                val subtractSize =
-                    if is32in64
-                    then BitwiseLogical{bits= ~ 0w8, regN=destReg, regD=destReg, logOp=LogAnd, opSize=OpSize64, setFlags=false} ::
-                            SubImmediate{regN=destReg, regD=destReg, immed=0w4, shifted=false, setFlags=false, opSize=OpSize64} ::
-                            SubShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftLSL 0w2, setFlags=false, opSize=OpSize64} :: code
-                    else SubImmediate{regN=destReg, regD=destReg, immed=0w8, shifted=false, setFlags=false, opSize=OpSize64} ::
-                            SubShiftedReg{regM=sizeReg, regN=X_MLHeapAllocPtr, regD=destReg, shift=ShiftLSL 0w3, setFlags=false, opSize=OpSize64} :: code
-                (* Check against the limit. If the size is large enough it is possible that this could wrap round. 
-                   To check for that we trap if either the result is less than the limit or if it is
-                   now greater than the allocation pointer. *)
-            in
-                subtractSize <::>
-                SubShiftedReg{regM=X_MLHeapLimit, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
-                ConditionalBranch(CondCarryClear, trapLabel) <::>
-                SubShiftedReg{regM=X_MLHeapAllocPtr, regN=destReg, regD=XZero, shift=ShiftNone, setFlags=true, opSize=OpSize64} <::>
-                ConditionalBranch(CondCarryClear, noTrapLabel) <::>
-                SetLabel trapLabel <::>
-                RTSTrap{rtsEntry=heapOverflowCallOffset, work=workReg1, save=saveRegs} <::>
-                SetLabel noTrapLabel <::>
-                MoveXRegToXReg{sReg=destReg, dReg=X_MLHeapAllocPtr}
-            end
+        |   codeExtended _ (AllocateMemoryVariable{ size, dest, saveRegs }, code) =
+                code <::> AllocateMemoryVariableSize{ sizeReg=size, dest=dest, save=saveRegs, work=workReg1 }
 
         |   codeExtended _ (InitialiseMem{ size, addr, init}, code) =
             let
@@ -867,18 +824,14 @@ struct
                     case flow of IndexedBr cases => cases | _ => raise InternalError "codeGenICode: IndexedCaseOperation"
                 val caseLabels = map getBlockLabel cases
                 val tableLabel = createLabel()
-                val startOfCase =
-                    code <::>
-                        LoadLabelAddress(workReg1, tableLabel) <::>
-                        (* Add the value shifted by one since it's already shifted. *)
-                        AddShiftedReg{regN=workReg1, regD=workReg1, regM=testReg,
-                                              shift=ShiftLSL 0w1, setFlags=false, opSize=OpSize64} <::>
-                        BranchReg{regD=workReg1, brRegType=BRRBranch} <::>
-                        SetLabel tableLabel
-                val addCases =
-                    List.foldl (fn (label, code) => (UnconditionalBranch label) :: code) startOfCase caseLabels
             in
-                addCases
+                code <::>
+                    LoadLabelAddress(workReg1, tableLabel) <::>
+                    (* Add the value shifted by one since it's already shifted. *)
+                    AddShiftedReg{regN=workReg1, regD=workReg1, regM=testReg,
+                                          shift=ShiftLSL 0w1, setFlags=false, opSize=OpSize64} <::>
+                    BranchReg{regD=workReg1, brRegType=BRRBranch} <::>
+                    BranchTable{ startLabel=tableLabel, brTable=caseLabels }
             end
 
         |   codeExtended {flow} (PushExceptionHandler, code) =
@@ -1250,7 +1203,7 @@ struct
         end
     in
         generateFinalCode{instrs=List.rev ops, name=functionName, resultClosure=resultClosure,
-                                   parameters=debugSwitches, profileObject=profileObject}
+                                   parameters=debugSwitches, profileObject=profileObject, labelCount=0}
     end
 
     structure Sharing =

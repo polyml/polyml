@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021 David C. J. Matthews
+    Copyright (c) 2021-2 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -38,6 +38,7 @@ local
     structure Arm64Foreign =
         Arm64ForeignCall (
             structure CodeArray   = CodeArray
+            and       Arm64PreAssembly = Arm64PreAssembly
             and       Arm64Assembly = Arm64Assembly
             and       Arm64Sequences = Arm64Sequences
             and       Debug = Debug

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021 David C. J. Matthews
+    Copyright (c) 2021-2 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -20,7 +20,6 @@ signature ARM64PREASSEMBLY =
 sig
     type closureRef
     type machineWord = Address.machineWord
-    type labels
 
     (* XZero and XSP are both encoded as 31 but the interpretation
        depends on the instruction 
@@ -109,6 +108,9 @@ sig
     and bitfieldKind = BFUnsigned | BFSigned | BFInsert
     and brRegType = BRRBranch | BRRAndLink | BRRReturn
 
+    type precodeLabel
+    val createLabel: unit -> precodeLabel
+
     datatype precode =
         (* Basic instructions *)
         AddImmediate of {regN: xReg, regD: xReg, immed: word, shifted: bool, opSize: opSize, setFlags: bool}
@@ -171,21 +173,26 @@ sig
     |   FPComparison of { regM: vReg, regN: vReg, floatSize: floatSize}
     |   FPUnaryOp of {regN: vReg, regD: vReg, fpOp: fpUnary}
         (* Branches and Labels. *)
-    |   SetLabel of labels
-    |   ConditionalBranch of condition * labels
-    |   UnconditionalBranch of labels
-    |   BranchAndLink of labels
+    |   SetLabel of precodeLabel
+    |   ConditionalBranch of condition * precodeLabel
+    |   UnconditionalBranch of precodeLabel
+    |   BranchAndLink of precodeLabel
     |   BranchReg of {regD: xReg, brRegType: brRegType }
-    |   LoadLabelAddress of xReg * labels
-    |   TestBitBranch of { test: xReg, bit: Word8.word, label: labels, onZero: bool }
-    |   CompareBranch of { test: xReg, label: labels, onZero: bool, opSize: opSize }
+    |   LoadLabelAddress of xReg * precodeLabel
+    |   TestBitBranch of { test: xReg, bit: Word8.word, label: precodeLabel, onZero: bool }
+    |   CompareBranch of { test: xReg, label: precodeLabel, onZero: bool, opSize: opSize }
         (* Composite instructions *)
     |   MoveXRegToXReg of {sReg: xReg, dReg: xReg}
     |   LoadNonAddr of xReg * Word64.word
     |   LoadAddr of xReg * machineWord
     |   RTSTrap of { rtsEntry: int, work: xReg, save: xReg list }
-
-    val createLabel: unit -> labels
+        (* Allocate memory - bytes includes the length word and rounding. *)
+    |   AllocateMemoryFixedSize of { bytes: word, dest: xReg, save: xReg list, work: xReg }
+        (* Allocate memory - sizeReg is number of ML words needed for cell. *)
+    |   AllocateMemoryVariableSize of { sizeReg: xReg, dest: xReg, save: xReg list, work: xReg }
+        (* Branch table for indexed case. startLabel is the address of the first label in
+           the list.  The branch table is a sequence of unconditional branches. *)
+    |   BranchTable of { startLabel: precodeLabel, brTable: precodeLabel list }
 
     (* Wrapper for BitField *)
     val shiftConstant: { direction: shiftDirection, regD: xReg, regN: xReg, shift: word, opSize: opSize } -> precode
@@ -202,7 +209,7 @@ sig
        closure reference to point to it. *)
     val generateFinalCode:
         {instrs: precode list, name: string, parameters: Universal.universal list, resultClosure: closureRef,
-         profileObject: machineWord} -> unit
+         profileObject: machineWord, labelCount: int} -> unit
 
     (* Temporarily for development. *)
     type instr
@@ -245,7 +252,7 @@ sig
         type precode = precode
         type xReg = xReg
         type vReg = vReg
-        type labels = labels
+        type precodeLabel = precodeLabel
         type condition = condition
         type shiftType = shiftType
         type wordSize = wordSize
