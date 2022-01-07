@@ -18,16 +18,14 @@
 functor Arm64ForeignCall(
     structure CodeArray: CODEARRAY
     and       Arm64PreAssembly: ARM64PREASSEMBLY
-    and       Arm64Assembly: ARM64ASSEMBLY
     and       Debug: DEBUG
-    and       Arm64Sequences: ARM64SEQUENCES
 
-    sharing CodeArray.Sharing = Arm64Assembly.Sharing = Arm64Sequences.Sharing
+    sharing CodeArray.Sharing = Arm64PreAssembly.Sharing
 ): FOREIGNCALL
 =
 struct
 
-    open CodeArray Arm64Assembly Arm64Sequences
+    open CodeArray Arm64PreAssembly
     
     exception InternalError = Misc.InternalError
     and Foreign = Foreign.Foreign
@@ -39,34 +37,34 @@ struct
     (* Turn an index into an absolute address. *)
     fun indexToAbsoluteAddress(iReg, absReg) =
     if is32in64
-    then [addShiftedReg{regM=iReg, regN=X_Base32in64, regD=absReg, shift=ShiftLSL 0w2}]
+    then [AddShiftedReg{regM=iReg, regN=X_Base32in64, regD=absReg, shift=ShiftLSL 0w2, opSize=OpSize64, setFlags=false}]
     else if iReg = absReg
     then []
-    else [moveRegToReg{sReg=iReg, dReg=absReg}]
+    else [MoveXRegToXReg{sReg=iReg, dReg=absReg}]
 
     fun unboxDouble(addrReg, workReg, valReg) =
     if is32in64
     then indexToAbsoluteAddress(addrReg, workReg) @
-        [loadRegScaledDouble{regT=valReg, regN=workReg, unitOffset=0}]
-    else [loadRegScaledDouble{regT=valReg, regN=addrReg, unitOffset=0}]
+        [LoadFPRegScaled{regT=valReg, regN=workReg, unitOffset=0, floatSize=Double64}]
+    else [LoadFPRegScaled{regT=valReg, regN=addrReg, unitOffset=0, floatSize=Double64}]
 
     fun unboxOrUntagSingle(addrReg, workReg, valReg) =
     if is32in64
-    then [loadRegIndexedFloat{regN=X_Base32in64, regM=addrReg, regT=valReg, option=ExtUXTX ScaleOrShift}]
+    then [LoadFPRegIndexed{regN=X_Base32in64, regM=addrReg, regT=valReg, option=ExtUXTX ScaleOrShift, floatSize=Float32}]
     else
     [
-        logicalShiftRight{shift=0w32, regN=addrReg, regD=workReg},
-        moveGeneralToFloat{regN=workReg, regD=valReg}
+        shiftConstant{direction=ShiftRightLogical, shift=0w32, regN=addrReg, regD=workReg, opSize=OpSize64},
+        MoveGeneralToFP{regN=workReg, regD=valReg, floatSize=Float32}
     ]
         
     fun boxOrTagFloat{floatReg, fixedReg, workReg, saveRegs} =
     if is32in64
-    then boxFloat{source=floatReg, destination=fixedReg, workReg=workReg, saveRegs=saveRegs}
+    then List.rev(boxFloat({source=floatReg, destination=fixedReg, workReg=workReg, saveRegs=saveRegs}, []))
     else
     [
-        moveFloatToGeneral{regN=floatReg, regD=fixedReg},
-        logicalShiftLeft{shift=0w32, regN=fixedReg, regD=fixedReg},
-        bitwiseOrImmediate{regN=fixedReg, regD=fixedReg, bits=0w1}
+        MoveFPToGeneral{regN=floatReg, regD=fixedReg, floatSize=Float32},
+        shiftConstant{direction=ShiftLeft, shift=0w32, regN=fixedReg, regD=fixedReg, opSize=OpSize64},
+        BitwiseLogical{regN=fixedReg, regD=fixedReg, bits=0w1, logOp=LogOr, setFlags=false, opSize=OpSize64}
     ]
 
 
@@ -88,7 +86,7 @@ struct
         |   loadArgs(FastArgFixed :: argTypes, srcReg :: srcRegs, fixed :: fixedRegs, fpRegs) =
                 if srcReg = fixed
                 then loadArgs(argTypes, srcRegs, fixedRegs, fpRegs) (* Already in the right reg *)
-                else moveRegToReg{sReg=srcReg, dReg=fixed} ::
+                else MoveXRegToXReg{sReg=srcReg, dReg=fixed} ::
                         loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
         |   loadArgs(FastArgDouble :: argTypes, srcReg :: srcRegs, fixedRegs, fp :: fpRegs) =
                 (* Unbox the value into a fp reg. *)
@@ -108,52 +106,52 @@ struct
                 (* C fixed pt args *) [X0, X1, X2, X3, X4, X5, X6, X7],
                 (* C floating pt args *) [V0, V1, V2, V3, V4, V5, V6, V7]) @
                 (* Clear the RTS exception state. *)
-                loadNonAddress(X16, 0w1) @
+                LoadNonAddr(X16, 0w1) ::
             [
-                storeRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset},
+                StoreRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset, loadType=Load64},
                 (* Move X30 to X23, a callee-save register. *)
                 (* Note: maybe we should push X24 just in case this is the only
                    reachable reference to the code. *)
-                orrShiftedReg{regN=XZero, regM=X_LinkReg, regD=X23, shift=ShiftNone},
-                loadAddressConstant(X16, entryPointAddr) (* Load entry point *)
+                LogicalShiftedReg{regN=XZero, regM=X_LinkReg, regD=X23, shift=ShiftNone, logOp=LogOr, opSize=OpSize64, setFlags=false},
+                LoadAddr(X16, entryPointAddr) (* Load entry point *)
             ] @ indexToAbsoluteAddress(X16, X16) @
             [
-                loadRegScaled{regT=X16, regN=X16, unitOffset=0}, (* Load the actual address. *)
+                LoadRegScaled{regT=X16, regN=X16, unitOffset=0, loadType=Load64}, (* Load the actual address. *)
                 (* Store the current heap allocation pointer. *)
-                storeRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
+                StoreRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset, loadType=Load64},
                 (* For the moment save and restore the ML stack pointer.  No RTS call should change
                    it and it's callee-save but just in case... *)
-                storeRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
-                branchAndLinkReg X16, (* Call the function. *)
+                StoreRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset, loadType=Load64},
+                BranchReg{regD=X16, brRegType=BRRAndLink}, (* Call the function. *)
                 (* Restore the ML stack pointer. *)
-                loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
+                LoadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset, loadType=Load64},
                 (* Load the heap allocation ptr and limit.  We could have GCed in the RTS call. *)
-                loadRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
-                loadRegScaled{regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset},
+                LoadRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset, loadType=Load64},
+                LoadRegScaled{regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset, loadType=Load64},
                 (* Check the RTS exception. *)
-                loadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset},
-                subSImmediate{regN=X16, regD=XZero, immed=0w1, shifted=false},
-                conditionalBranch(CondEqual, noRTSException),
+                LoadRegScaled{regT=X16, regN=X_MLAssemblyInt, unitOffset=exceptionPacketOffset, loadType=Load64},
+                SubImmediate{regN=X16, regD=XZero, immed=0w1, shifted=false, setFlags=true, opSize=OpSize64},
+                ConditionalBranch(CondEqual, noRTSException),
                     (* If it isn't then raise the exception. *)
-                moveRegToReg{sReg=X16, dReg=X0},
-                loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset},
-                loadRegScaled{regT=X16, regN=X_MLStackPtr, unitOffset=0},
-                branchRegister X16,
-                setLabel noRTSException
+                MoveXRegToXReg{sReg=X16, dReg=X0},
+                LoadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=exceptionHandlerOffset, loadType=Load64},
+                LoadRegScaled{regT=X16, regN=X_MLStackPtr, unitOffset=0, loadType=Load64},
+                BranchReg{regD=X16, brRegType=BRRBranch},
+                SetLabel noRTSException
 
             ] @
             (
                 case resultFormat of
                     FastArgFixed => []
-                |   FastArgDouble => (* This must be boxed. *) boxDouble{source=V0, destination=X0, workReg=X1, saveRegs=[]}
+                |   FastArgDouble => (* This must be boxed. *) List.rev(boxDouble({source=V0, destination=X0, workReg=X1, saveRegs=[]}, []))
                 |   FastArgFloat => (* This must be tagged or boxed *) boxOrTagFloat{floatReg=V0, fixedReg=X0, workReg=X1, saveRegs=[]}
             ) @
             [
-                returnRegister X23
+                BranchReg{regD=X23, brRegType=BRRReturn}
             ]
         val closure = makeConstantClosure()
-        val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure,
-                              profileObject=createProfileObject()}
+        val () = generateFinalCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure,
+                              profileObject=createProfileObject(), labelCount=1}
     in
         closureAsAddress closure
     end
@@ -220,13 +218,13 @@ struct
         val _ = offset mod size = 0w0 orelse raise InternalError "loadAlignedValue: not aligned"
         val loadOp =
             case size of
-                0w8 => loadRegScaled
-            |   0w4 => loadRegScaled32
-            |   0w2 => loadRegScaled16
-            |   0w1 => loadRegScaledByte
+                0w8 => Load64
+            |   0w4 => Load32
+            |   0w2 => Load16
+            |   0w1 => Load8
             |   _ => raise InternalError "loadAlignedValue: invalid length"
     in
-        loadOp{regT=reg, regN=base, unitOffset=Word.toInt(offset div size)}
+        LoadRegScaled{regT=reg, regN=base, unitOffset=Word.toInt(offset div size), loadType=loadOp}
     end
 
     (* Store a register into upto 8 bytes.  Most values will involve a single store but odd-sized
@@ -234,17 +232,17 @@ struct
     and storeUpTo8(reg, base, offset, size) =
     let
         val storeOp =
-            if size = 0w8 then storeRegUnscaled else if size >= 0w4 then storeRegUnscaled32
-            else if size >= 0w2 then storeRegUnscaled16 else storeRegUnscaledByte
+            if size = 0w8 then Load64 else if size >= 0w4 then Load32
+            else if size >= 0w2 then Load16 else Load8
     in
-        [storeOp{regT=reg, regN=base, byteOffset=offset}]
+        [StoreRegUnscaled{regT=reg, regN=base, byteOffset=offset, loadType=storeOp, unscaledType=NoUpdate}]
     end @
     (
         if size = 0w6 orelse size = 0w7
         then
         [
-            logicalShiftRight{regN=reg, regD=reg, shift=0w32 },
-            storeRegUnscaled16{regT=reg, regN=base, byteOffset=offset+4}
+            shiftConstant{direction=ShiftRightLogical, regN=reg, regD=reg, shift=0w32, opSize=OpSize64 },
+            StoreRegUnscaled{regT=reg, regN=base, byteOffset=offset+4, loadType=Load16, unscaledType=NoUpdate}
         ]
         else []
     ) @
@@ -252,8 +250,8 @@ struct
         if size = 0w3 orelse size = 0w5 orelse size = 0w7
         then
         [
-            logicalShiftRight{regN=reg, regD=reg, shift=(size-0w1)*0w8 },
-            storeRegUnscaledByte{regT=reg, regN=base, byteOffset=offset+Word.toInt(size-0w1)}
+            shiftConstant{direction=ShiftRightLogical, regN=reg, regD=reg, shift=(size-0w1)*0w8, opSize=OpSize64 },
+            StoreRegUnscaled{regT=reg, regN=base, byteOffset=offset+Word.toInt(size-0w1), loadType=Load8, unscaledType=NoUpdate}
         ]
         else []
     )
@@ -336,12 +334,11 @@ struct
                             (* Load the values to the floating point registers. *)
                             fun loadFPRegs(0w0, _, _) = []
                             |   loadFPRegs(0w1, fpRegNo, offset) =
-                                [(if isDouble then loadRegScaledDouble else loadRegScaledFloat)
-                                    {regT=VReg fpRegNo, regN=argPtrReg, unitOffset=offset}]
+                                [LoadFPRegScaled{regT=VReg fpRegNo, regN=argPtrReg, unitOffset=offset, floatSize=if isDouble then Double64 else Float32}]
                             |   loadFPRegs(n, fpRegNo, offset) =
-                                (if isDouble then loadPairOffsetDouble else loadPairOffsetFloat)
-                                    {regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=argPtrReg, unitOffset=offset} ::
-                                        loadFPRegs(n-0w2, fpRegNo+0w2, offset+2)
+                                (LoadFPRegPair{regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=argPtrReg, unitOffset=offset,
+                                                floatSize=if isDouble then Double64 else Float32, unscaledType=NoUpdate} ::
+                                        loadFPRegs(n-0w2, fpRegNo+0w2, offset+2))
                         in
                             loadArgs(args, stackOffset, newArgOffset+size, gRegNo, fpRegNo+numItems,
                                 loadFPRegs(numItems, fpRegNo, Word.toInt(newArgOffset div scale)) @ code,
@@ -358,11 +355,11 @@ struct
                             fun copyData(0w0, _, _) = []
                             |   copyData(n, srcOffset, stackOffset) =
                                 if isDouble
-                                then loadRegScaled{regT=argWorkReg2, regN=argPtrReg, unitOffset=srcOffset} ::
-                                     storeRegScaled{regT=argWorkReg2, regN=XSP, unitOffset=stackOffset} ::
+                                then LoadRegScaled{loadType=Load64, regT=argWorkReg2, regN=argPtrReg, unitOffset=srcOffset} ::
+                                     StoreRegScaled{loadType=Load64, regT=argWorkReg2, regN=XSP, unitOffset=stackOffset} ::
                                      copyData(n-0w1, srcOffset+1, stackOffset+1)
-                                else loadRegScaled32{regT=argWorkReg2, regN=argPtrReg, unitOffset=srcOffset} ::
-                                     storeRegScaled32{regT=argWorkReg2, regN=XSP, unitOffset=stackOffset} ::
+                                else LoadRegScaled{loadType=Load32, regT=argWorkReg2, regN=argPtrReg, unitOffset=srcOffset} ::
+                                     StoreRegScaled{loadType=Load32, regT=argWorkReg2, regN=XSP, unitOffset=stackOffset} ::
                                      copyData(n-0w1, srcOffset+1, stackOffset+1)
 
                             val copyToStack =
@@ -385,7 +382,7 @@ struct
                             let
                                 val (loadInstr, nextGReg) =
                                     if argSize = 0w16
-                                    then ([loadPairOffset{regT1=XReg gRegNo, regT2=XReg(gRegNo+0w1),
+                                    then ([LoadRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=XReg gRegNo, regT2=XReg(gRegNo+0w1),
                                                 regN=sourceBase, unitOffset=Word.toInt(sourceOffset div 0w8)}], gRegNo+0w2)
                                     else ([loadAlignedValue(XReg gRegNo, sourceBase, sourceOffset, size)], gRegNo+0w1)
                             in
@@ -395,11 +392,11 @@ struct
                             else if argSize = 0w16
                             then loadArgs(args, stackOffset+2, newArgOffset+size, 0w8, fpRegNo,
                                     preCode @
-                                    loadPairOffset{regT1=argWorkReg2, regT2=argWorkReg3, regN=sourceBase, unitOffset=Word.toInt(sourceOffset div 0w8)} ::
-                                    storePairOffset{regT1=argWorkReg2, regT2=argWorkReg3, regN=XSP, unitOffset=stackOffset} :: code, newStructSpace)
+                                    LoadRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=argWorkReg2, regT2=argWorkReg3, regN=sourceBase, unitOffset=Word.toInt(sourceOffset div 0w8)} ::
+                                    StoreRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=argWorkReg2, regT2=argWorkReg3, regN=XSP, unitOffset=stackOffset} :: code, newStructSpace)
                             else loadArgs(args, stackOffset+1, newArgOffset+size, 0w8, fpRegNo,
                                     preCode @ loadAlignedValue(argWorkReg2, sourceBase, sourceOffset, argSize) ::
-                                    storeRegScaled{regT=argWorkReg2, regN=XSP, unitOffset=stackOffset} :: code, newStructSpace)
+                                    StoreRegScaled{loadType=Load64, regT=argWorkReg2, regN=XSP, unitOffset=stackOffset} :: code, newStructSpace)
                     in
                         if alignedLoadStore(newArgOffset, size)
                         then loadArgumentValues(size, newArgOffset, argPtrReg, largeStructSpace, [])
@@ -415,14 +412,14 @@ struct
                             (* Copy from the end back to the start. *)
                             val copyToStructSpace =
                             [
-                                addImmediate{regN=structSpacePtr, regD=argRegNo, immed=largeStructSpace, shifted=false}, 
-                                addImmediate{regN=argRegNo, regD=argWorkReg2, immed=size, shifted=false}, (* End of dest area *)
-                                addImmediate{regN=argPtrReg, regD=argWorkReg3, immed=newArgOffset+size, shifted=false}, (* end of source *)
-                                setLabel loopLabel,
-                                loadRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg3, byteOffset= ~1},
-                                storeRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg2, byteOffset= ~1},
-                                subSShiftedReg{regM=argWorkReg2, regN=argRegNo, regD=XZero, shift=ShiftNone}, (* At start? *)
-                                conditionalBranch(CondNotEqual, loopLabel)
+                                AddImmediate{opSize=OpSize64, setFlags=false, regN=structSpacePtr, regD=argRegNo, immed=largeStructSpace, shifted=false}, 
+                                AddImmediate{opSize=OpSize64, setFlags=false, regN=argRegNo, regD=argWorkReg2, immed=size, shifted=false}, (* End of dest area *)
+                                AddImmediate{opSize=OpSize64, setFlags=false, regN=argPtrReg, regD=argWorkReg3, immed=newArgOffset+size, shifted=false}, (* end of source *)
+                                SetLabel loopLabel,
+                                LoadRegUnscaled{loadType=Load8, unscaledType=PreIndex, regT=argWorkReg4, regN=argWorkReg3, byteOffset= ~1},
+                                StoreRegUnscaled{loadType=Load8, unscaledType=PreIndex, regT=argWorkReg4, regN=argWorkReg2, byteOffset= ~1},
+                                SubShiftedReg{opSize=OpSize64, setFlags=true, regM=argWorkReg2, regN=argRegNo, regD=XZero, shift=ShiftNone}, (* At start? *)
+                                ConditionalBranch(CondNotEqual, loopLabel)
                             ]
                         in
                             if size > 0w16
@@ -431,7 +428,7 @@ struct
                                 if gRegNo < 0w8
                                 then loadArgs(args, stackOffset, newArgOffset+size, gRegNo+0w1, fpRegNo, copyToStructSpace @ code, newStructSpace)
                                 else loadArgs(args, stackOffset+1, newArgOffset+size, 0w8, fpRegNo,
-                                        copyToStructSpace @ storeRegScaled{regT=argWorkReg, regN=XSP, unitOffset=stackOffset} :: code,
+                                        copyToStructSpace @ StoreRegScaled{loadType=Load64, regT=argWorkReg, regN=XSP, unitOffset=stackOffset} :: code,
                                         newStructSpace)
                             )
                             else (* Small struct.  Since it's now in an area at least 16 bytes and properly aligned we can load it. *)
@@ -456,12 +453,11 @@ struct
                         let
                             fun storeFPRegs(0w0, _, _) = []
                             |   storeFPRegs(0w1, fpRegNo, offset) =
-                                [(if isDouble then storeRegScaledDouble else storeRegScaledFloat)
-                                    {regT=VReg fpRegNo, regN=resultAreaPtr, unitOffset=offset}]
+                                [StoreFPRegScaled{regT=VReg fpRegNo, regN=resultAreaPtr, unitOffset=offset, floatSize=if isDouble then Double64 else Float32}]
                             |   storeFPRegs(n, fpRegNo, offset) =
-                                (if isDouble then storePairOffsetDouble else storePairOffsetFloat)
-                                    {regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=resultAreaPtr, unitOffset=offset} ::
-                                        storeFPRegs(n-0w2, fpRegNo+0w2, offset+2)
+                                StoreFPRegPair{regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=resultAreaPtr, unitOffset=offset,
+                                        floatSize=if isDouble then Double64 else Float32, unscaledType=NoUpdate} ::
+                                    storeFPRegs(n-0w2, fpRegNo+0w2, offset+2)
                         in
                             (storeFPRegs(numItems, 0w0 (* V0-Vn*), 0), false)
                         end
@@ -470,16 +466,16 @@ struct
 
                 |   _ =>
                         if size = 0w16
-                        then ([storePairOffset{regT1=X0, regT2=X1, regN=resultAreaPtr, unitOffset=0}], false)
+                        then ([StoreRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X0, regT2=X1, regN=resultAreaPtr, unitOffset=0}], false)
                         else if size > 0w8
-                        then (storeRegScaled{regT=X0, regN=resultAreaPtr, unitOffset=0} :: storeResult(X1, 8, size-0w8), false)
+                        then (StoreRegScaled{loadType=Load64, regT=X0, regN=resultAreaPtr, unitOffset=0} :: storeResult(X1, 8, size-0w8), false)
                         else (storeResult(X0, 0, size), false)
         end
 
         val (argCode, argStack, largeStructSpace) =
             loadArgs(args, 0, 0w0, 0w0, 0w0,
                     if passArgAddress (* If we have to pass the address of the result struct it goes in X8. *)
-                    then [moveRegToReg{sReg=resultAreaPtr, dReg=X8}]
+                    then [MoveXRegToXReg{sReg=resultAreaPtr, dReg=X8}]
                     else [], 0w0)
 
         val stackSpaceRequired = alignUp(Word.fromInt argStack * 0w8, 0w16) + largeStructSpace
@@ -487,65 +483,65 @@ struct
         val instructions =
             [(* Push the return address to the stack.  We could put it in a callee-save register but
                 there's a very small chance that this could be the last reference to a piece of code. *)
-             storeRegPreIndex{regT=X30, regN=X_MLStackPtr, byteOffset= ~8},
+             StoreRegUnscaled{loadType=Load64, unscaledType=PreIndex, regT=X30, regN=X_MLStackPtr, byteOffset= ~8},
              (* Save heap ptr.  Needed in case we have a callback. *)
-             storeRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset}
+             StoreRegScaled{loadType=Load64, regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset}
             ] @ indexToAbsoluteAddress(X0, X0) @
              (* Load the entry point address. *)
-             loadRegScaled{regT=entryPtReg, regN=X0, unitOffset=0} ::
+             LoadRegScaled{loadType=Load64, regT=entryPtReg, regN=X0, unitOffset=0} ::
             (
                 (* Unbox the address of the result area into a callee save resgister.  This is where
                    the result will be stored on return if it is anything other than a struct.
                    We have to put the C address in there now because an ML address wouldn't be updated
                    by a possible GC in a callback. *)
                 if #typeForm(result) <> CTypeVoid
-                then indexToAbsoluteAddress(X2, X2) @ [loadRegScaled{regT=resultAreaPtr, regN=X2, unitOffset=0}]
+                then indexToAbsoluteAddress(X2, X2) @ [LoadRegScaled{loadType=Load64, regT=resultAreaPtr, regN=X2, unitOffset=0}]
                 else []
             ) @
-            [storeRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset}] @ (* Save the stack pointer. *)
+            [StoreRegScaled{loadType=Load64, regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset}] @ (* Save the stack pointer. *)
             (
                 if stackSpaceRequired = 0w0
                 then []
-                else [subImmediate{regN=XSP, regD=XSP, immed=stackSpaceRequired, shifted=false}]
+                else [SubImmediate{opSize=OpSize64, setFlags=false, regN=XSP, regD=XSP, immed=stackSpaceRequired, shifted=false}]
             ) @
             (
                 (* If we need to copy a struct load a register with a pointer to the area for it. *)
                 if largeStructSpace = 0w0
                 then []
-                else [addImmediate{regN=XSP, regD=structSpacePtr, immed=stackSpaceRequired-largeStructSpace, shifted=false}]
+                else [AddImmediate{opSize=OpSize64, setFlags=false, regN=XSP, regD=structSpacePtr, immed=stackSpaceRequired-largeStructSpace, shifted=false}]
             ) @
             (
                 (* The second argument is a SysWord containing the address of a malloced area of memory
                    with the actual arguments in it. *)
                 if null args
                 then []
-                else indexToAbsoluteAddress(X1, X1) @ [loadRegScaled{regT=argPtrReg, regN=X1, unitOffset=0}]
+                else indexToAbsoluteAddress(X1, X1) @ [LoadRegScaled{loadType=Load64, regT=argPtrReg, regN=X1, unitOffset=0}]
             ) @ argCode @
-            [branchAndLinkReg X16] @ (* Call the function. *)
+            [BranchReg{regD=X16, brRegType=BRRAndLink}] @ (* Call the function. *)
             (* Restore the C stack value in case it's been changed by a callback. *)
             (
                 if stackSpaceRequired = 0w0
                 then []
-                else [addImmediate{regN=XSP, regD=XSP, immed=stackSpaceRequired, shifted=false}]
+                else [AddImmediate{opSize=OpSize64, setFlags=false, regN=XSP, regD=XSP, immed=stackSpaceRequired, shifted=false}]
             ) @
             [
                 (* Reload the ML stack pointer even though it's callee save.  If we've made a callback
                    the ML stack could have grown and so moved to a different address. *)
-                loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
+                LoadRegScaled{loadType=Load64, regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
                 (* Load the heap allocation ptr and limit in case of a callback. *)
-                loadRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
-                loadRegScaled{regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset}
+                LoadRegScaled{loadType=Load64, regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
+                LoadRegScaled{loadType=Load64, regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset}
             ] @ (* Store the result in the destination. *) getResult @
             (* Pop the return address and return. *)
-            [ loadRegPostIndex{regT=X30, regN=X_MLStackPtr, byteOffset= 8}, returnRegister X30 ]
+            [ LoadRegUnscaled{regT=X30, regN=X_MLStackPtr, byteOffset= 8, loadType=Load64, unscaledType=PostIndex}, BranchReg{regD=X30,brRegType=BRRReturn} ]
 
         val functionName = "foreignCall"
         val debugSwitches =
             [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                Universal.tagInject Debug.assemblyCodeTag true*)]
         val closure = makeConstantClosure()
-        val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure,
-                              profileObject=createProfileObject()}
+        val () = generateFinalCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure,
+                              profileObject=createProfileObject(), labelCount=0}
     in
         closureAsAddress closure
     end
@@ -586,11 +582,10 @@ struct
                             (* Store the values from the FP registers. *)
                             fun storeFPRegs(0w0, _, _) = []
                             |   storeFPRegs(0w1, fpRegNo, offset) =
-                                [(if isDouble then storeRegScaledDouble else storeRegScaledFloat)
-                                    {regT=VReg fpRegNo, regN=XSP, unitOffset=offset}]
+                                [StoreFPRegScaled{regT=VReg fpRegNo, regN=XSP, unitOffset=offset, floatSize=if isDouble then Double64 else Float32}]
                             |   storeFPRegs(n, fpRegNo, offset) =
-                                (if isDouble then storePairOffsetDouble else storePairOffsetFloat)
-                                    {regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=XSP, unitOffset=offset} ::
+                                StoreFPRegPair{regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=XSP, unitOffset=offset,
+                                                floatSize=if isDouble then Double64 else Float32, unscaledType=NoUpdate} ::
                                         storeFPRegs(n-0w2, fpRegNo+0w2, offset+2)
                         in
                             moveArgs(args, stackSpace, newArgOffset+size, gRegNo, fpRegNo+numItems,
@@ -602,11 +597,11 @@ struct
                             fun copyData(0w0, _, _) = []
                             |   copyData(n, dstOffset, stackOffset) =
                                 if isDouble
-                                then loadRegScaled{regT=argWorkReg2, regN=X29, unitOffset=stackOffset} ::
-                                     storeRegScaled{regT=argWorkReg2, regN=XSP, unitOffset=dstOffset} ::
+                                then LoadRegScaled{loadType=Load64, regT=argWorkReg2, regN=X29, unitOffset=stackOffset} ::
+                                     StoreRegScaled{loadType=Load64, regT=argWorkReg2, regN=XSP, unitOffset=dstOffset} ::
                                      copyData(n-0w1, dstOffset+1, stackOffset+1)
-                                else loadRegScaled32{regT=argWorkReg2, regN=X29, unitOffset=stackOffset} ::
-                                     storeRegScaled32{regT=argWorkReg2, regN=XSP, unitOffset=dstOffset} ::
+                                else LoadRegScaled{loadType=Load32, regT=argWorkReg2, regN=X29, unitOffset=stackOffset} ::
+                                     StoreRegScaled{loadType=Load32, regT=argWorkReg2, regN=XSP, unitOffset=dstOffset} ::
                                      copyData(n-0w1, dstOffset+1, stackOffset+1)
 
                             val copyFromStack =
@@ -627,7 +622,7 @@ struct
                     (
                         if size > 0w8
                         then moveArgs(args, stackSpace, newArgOffset+size, gRegNo + 0w2, fpRegNo,
-                                storePairOffset{regT1=XReg gRegNo, regT2=XReg(gRegNo+0w1), regN=XSP,
+                                StoreRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=XReg gRegNo, regT2=XReg(gRegNo+0w1), regN=XSP,
                                     unitOffset=Word.toInt(newArgOffset div 0w8)} :: moveFromStack)
                         else moveArgs(args, stackSpace, newArgOffset+size, gRegNo + 0w1, fpRegNo,
                                 storeUpTo8(XReg gRegNo, XSP, Word.toInt newArgOffset, size) @ moveFromStack)
@@ -644,7 +639,7 @@ struct
                             (
                                 if gRegNo < 0w8
                                 then (XReg gRegNo, gRegNo + 0w1, stackSpace, [])
-                                else (argWorkReg, 0w8, stackSpace+1, [loadRegScaled{regT=argWorkReg, regN=X29, unitOffset=stackSpace}])
+                                else (argWorkReg, 0w8, stackSpace+1, [LoadRegScaled{loadType=Load64, regT=argWorkReg, regN=X29, unitOffset=stackSpace}])
                             )
                             else
                             let
@@ -653,25 +648,25 @@ struct
                                 if gRegNo + regsNeeded <= 0w8
                                 then (XReg gRegNo, gRegNo+regsNeeded, stackSpace,
                                         [if size > 0w8
-                                         then storePairOffset{regT1=XReg gRegNo, regT2=XReg(gRegNo+0w1), regN=XSP, unitOffset=2}
-                                         else storeRegScaled{regT=XReg gRegNo, regN=XSP, unitOffset=2},
-                                         addImmediate{regD=XReg gRegNo, regN=XSP, immed=0w16, shifted=false}])
+                                         then StoreRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=XReg gRegNo, regT2=XReg(gRegNo+0w1), regN=XSP, unitOffset=2}
+                                         else StoreRegScaled{loadType=Load64, regT=XReg gRegNo, regN=XSP, unitOffset=2},
+                                         AddImmediate{opSize=OpSize64, setFlags=false, regD=XReg gRegNo, regN=XSP, immed=0w16, shifted=false}])
                                 else (* Being passed on the stack *)
                                     (argWorkReg, 0w8, stackSpace+Word8.toInt regsNeeded,
-                                        [addImmediate{regD=argWorkReg, regN=X29, immed=Word.fromInt stackSpace*0w8, shifted=false}])
+                                        [AddImmediate{opSize=OpSize64, setFlags=false, regD=argWorkReg, regN=X29, immed=Word.fromInt stackSpace*0w8, shifted=false}])
                             end
 
                         val loopLabel = createLabel()
 
                         val copyCode =
                         [ 
-                            addImmediate{regN=argRegNo, regD=argWorkReg3, immed=size, shifted=false}, (* End of source area *)
-                            addImmediate{regN=XSP, regD=argWorkReg2, immed=newArgOffset+size, shifted=false}, (* end of dest *)
-                            setLabel loopLabel,
-                            loadRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg3, byteOffset= ~1},
-                            storeRegPreIndexByte{regT=argWorkReg4, regN=argWorkReg2, byteOffset= ~1},
-                            subSShiftedReg{regM=argWorkReg3, regN=argRegNo, regD=XZero, shift=ShiftNone}, (* At start? *)
-                            conditionalBranch(CondNotEqual, loopLabel)
+                            AddImmediate{opSize=OpSize64, setFlags=false, regN=argRegNo, regD=argWorkReg3, immed=size, shifted=false}, (* End of source area *)
+                            AddImmediate{opSize=OpSize64, setFlags=false, regN=XSP, regD=argWorkReg2, immed=newArgOffset+size, shifted=false}, (* end of dest *)
+                            SetLabel loopLabel,
+                            LoadRegUnscaled{loadType=Load8, unscaledType=PreIndex, regT=argWorkReg4, regN=argWorkReg3, byteOffset= ~1},
+                            StoreRegUnscaled{loadType=Load8, unscaledType=PreIndex, regT=argWorkReg4, regN=argWorkReg2, byteOffset= ~1},
+                            SubShiftedReg{opSize=OpSize64, setFlags=true, regM=argWorkReg3, regN=argRegNo, regD=XZero, shift=ShiftNone}, (* At start? *)
+                            ConditionalBranch(CondNotEqual, loopLabel)
                         ]
                     in
                         moveArgs(args, newStack, newArgOffset+size, nextGReg, fpRegNo, loadArg @ copyCode @ moveFromStack)
@@ -704,11 +699,10 @@ struct
                             (* Load the values to the floating point registers. *)
                             fun loadFPRegs(0w0, _, _) = []
                             |   loadFPRegs(0w1, fpRegNo, offset) =
-                                [(if isDouble then loadRegScaledDouble else loadRegScaledFloat)
-                                    {regT=VReg fpRegNo, regN=XSP, unitOffset=offset}]
+                                [LoadFPRegScaled{regT=VReg fpRegNo, regN=XSP, unitOffset=offset, floatSize=if isDouble then Double64 else Float32}]
                             |   loadFPRegs(n, fpRegNo, offset) =
-                                (if isDouble then loadPairOffsetDouble else loadPairOffsetFloat)
-                                    {regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=XSP, unitOffset=offset} ::
+                                LoadFPRegPair{regT1=VReg fpRegNo, regT2=VReg(fpRegNo+0w1), regN=XSP, unitOffset=offset, unscaledType=NoUpdate,
+                                                floatSize=if isDouble then Double64 else Float32} ::
                                         loadFPRegs(n-0w2, fpRegNo+0w2, offset+2)
                         in
                             (loadFPRegs(numItems, 0w0, 0 (* result area *)), false)
@@ -720,86 +714,86 @@ struct
                     (* We've allocated a 32-byte area aligned onto a 16-byte boundary so
                        we can simply load one or two registers. *)
                     if size > 0w8
-                    then ([loadPairOffset{regT1=X0, regT2=X1, regN=XSP, unitOffset=0}], false)
-                    else ([loadRegScaled{regT=X0, regN=XSP, unitOffset=0}], false)
+                    then ([LoadRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X0, regT2=X1, regN=XSP, unitOffset=0}], false)
+                    else ([LoadRegScaled{loadType=Load64, regT=X0, regN=XSP, unitOffset=0}], false)
         end
 
         val instructions =
             [ (* Push LR, FP and the callee-save registers. *)
-                storePairPreIndexed{regT1=X29, regT2=X30, regN=XSP, unitOffset= ~12},
-                moveRegToReg{sReg=XSP, dReg=X29},
-                storePairOffset{regT1=X19, regT2=X20, regN=X29, unitOffset=2},
-                storePairOffset{regT1=X21, regT2=X22, regN=X29, unitOffset=4},
-                storePairOffset{regT1=X23, regT2=X24, regN=X29, unitOffset=6},
-                storePairOffset{regT1=X25, regT2=X26, regN=X29, unitOffset=8},
-                storePairOffset{regT1=X27, regT2=X28, regN=X29, unitOffset=10},
+                StoreRegPair{loadType=Load64, unscaledType=PreIndex, regT1=X29, regT2=X30, regN=XSP, unitOffset= ~12},
+                MoveXRegToXReg{sReg=XSP, dReg=X29},
+                StoreRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X19, regT2=X20, regN=X29, unitOffset=2},
+                StoreRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X21, regT2=X22, regN=X29, unitOffset=4},
+                StoreRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X23, regT2=X24, regN=X29, unitOffset=6},
+                StoreRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X25, regT2=X26, regN=X29, unitOffset=8},
+                StoreRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X27, regT2=X28, regN=X29, unitOffset=10},
                 (* Reserve space for the arguments and results. *)
-                subImmediate{regN=XSP, regD=XSP, immed=argumentSpace+0w32, shifted=false},
+                SubImmediate{opSize=OpSize64, setFlags=false, regN=XSP, regD=XSP, immed=argumentSpace+0w32, shifted=false},
                 (* We passed the function we're calling in X9 but we need to move
                    it to a callee-save register before we call the RTS. *)
-                moveRegToReg{sReg=X9, dReg=X20}
+                MoveXRegToXReg{sReg=X9, dReg=X20}
             ] @
                 (* Save X8 if we're going to need it. *)
-            (if resultByReference then [storeRegScaled{regT=X8, regN=XSP, unitOffset=0}] else []) @
+            (if resultByReference then [StoreRegScaled{loadType=Load64, regT=X8, regN=XSP, unitOffset=0}] else []) @
             (* Now we've saved X24 we can move the global heap base into it. *)
-            (if is32in64 then [moveRegToReg{sReg=X10, dReg=X_Base32in64}] else []) @
+            (if is32in64 then [MoveXRegToXReg{sReg=X10, dReg=X_Base32in64}] else []) @
             copyArgsFromRegsAndStack @
-            [loadAddressConstant(X0, getThreadDataCall)] @
+            [LoadAddr(X0, getThreadDataCall)] @
             (
                 if is32in64
-                then [addShiftedReg{regM=X0, regN=X_Base32in64, regD=X0, shift=ShiftLSL 0w2}]
+                then [AddShiftedReg{setFlags=false, opSize=OpSize64, regM=X0, regN=X_Base32in64, regD=X0, shift=ShiftLSL 0w2}]
                 else []
             ) @
             [
                 (* Call into the RTS to get the thread data ptr. *)
-                loadRegScaled{regT=X0, regN=X0, unitOffset=0},
-                branchAndLinkReg X0,
-                moveRegToReg{sReg=X0, dReg=X_MLAssemblyInt},
+                LoadRegScaled{loadType=Load64, regT=X0, regN=X0, unitOffset=0},
+                BranchReg{regD=X0, brRegType=BRRAndLink},
+                MoveXRegToXReg{sReg=X0, dReg=X_MLAssemblyInt},
                 (* Load the ML regs. *)
-                loadRegScaled{regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset},
-                loadRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
-                loadRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
+                LoadRegScaled{loadType=Load64, regT=X_MLHeapLimit, regN=X_MLAssemblyInt, unitOffset=heapLimitPtrOffset},
+                LoadRegScaled{loadType=Load64, regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
+                LoadRegScaled{loadType=Load64, regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset},
                 (* Prepare the arguments.  They are both syswords so have to be boxed.
                    First load the address of the argument area which is after the
                    32-byte result area. *)
-                addImmediate{regN=XSP, regD=X2, immed=0w32, shifted=false}
-            ] @ boxSysWord{source=X2, destination=X0, workReg=X3, saveRegs=[]} @ (* Address of arguments. *)
+                AddImmediate{opSize=OpSize64, setFlags=false, regN=XSP, regD=X2, immed=0w32, shifted=false}
+            ] @ List.rev(boxSysWord({source=X2, destination=X0, workReg=X3, saveRegs=[]}, [])) @ (* Address of arguments. *)
             (
                 (* Result area pointer.  If we're returning by reference this is the original
                    value of X8 otherwise it's the address of the 32 bytes we've reserved. *)
                 if resultByReference
-                then [loadRegScaled{regT=X2, regN=XSP, unitOffset=0}]
-                else [moveRegToReg{sReg=XSP, dReg=X2}]
-            ) @ boxSysWord{source=X2, destination=X1, workReg=X3, saveRegs=[]} @
+                then [LoadRegScaled{loadType=Load64, regT=X2, regN=XSP, unitOffset=0}]
+                else [MoveXRegToXReg{sReg=XSP, dReg=X2}]
+            ) @ List.rev(boxSysWord({source=X2, destination=X1, workReg=X3, saveRegs=[]}, [])) @
                 (* Put the ML closure pointer, originally in X9 now in X20, into the
                    ML closure pointer register, X8.  Then call the ML code. *)
-            [moveRegToReg{sReg=X20, dReg=X8}] @
+            [MoveXRegToXReg{sReg=X20, dReg=X8}] @
             (
                 if is32in64
                 then
                 [
-                    addShiftedReg{regM=X8, regN=X_Base32in64, regD=X16, shift=ShiftLSL 0w2},
-                    loadRegScaled{regT=X16, regN=X16, unitOffset=0}
+                    AddShiftedReg{regM=X8, regN=X_Base32in64, regD=X16, shift=ShiftLSL 0w2, opSize=OpSize64, setFlags=false},
+                    LoadRegScaled{loadType=Load64, regT=X16, regN=X16, unitOffset=0}
                 ]
-                else [loadRegScaled{regT=X16, regN=X8, unitOffset=0}]
+                else [LoadRegScaled{loadType=Load64, regT=X16, regN=X8, unitOffset=0}]
             ) @
             [
-                branchAndLinkReg X16,
+                BranchReg{regD=X16, brRegType=BRRAndLink},
                 (* Save the ML stack and heap pointers.  We could have allocated or
                    grown the stack.  The limit pointer is maintained by the RTS. *)
-                storeRegScaled{regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
-                storeRegScaled{regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset}
+                StoreRegScaled{loadType=Load64, regT=X_MLHeapAllocPtr, regN=X_MLAssemblyInt, unitOffset=heapAllocPtrOffset},
+                StoreRegScaled{loadType=Load64, regT=X_MLStackPtr, regN=X_MLAssemblyInt, unitOffset=mlStackPtrOffset}
             ] @ loadResults @ (* Load the return values *)
             [
                 (* Restore the callee-save registers and return. *)
-                moveRegToReg{sReg=X29, dReg=XSP},
-                loadPairOffset{regT1=X19, regT2=X20, regN=X29, unitOffset=2},
-                loadPairOffset{regT1=X21, regT2=X22, regN=X29, unitOffset=4},
-                loadPairOffset{regT1=X23, regT2=X24, regN=X29, unitOffset=6},
-                loadPairOffset{regT1=X25, regT2=X26, regN=X29, unitOffset=8},
-                loadPairOffset{regT1=X27, regT2=X28, regN=X29, unitOffset=10},
-                loadPairPostIndexed{regT1=X29, regT2=X30, regN=XSP, unitOffset=12},
-                returnRegister X30
+                MoveXRegToXReg{sReg=X29, dReg=XSP},
+                LoadRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X19, regT2=X20, regN=X29, unitOffset=2},
+                LoadRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X21, regT2=X22, regN=X29, unitOffset=4},
+                LoadRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X23, regT2=X24, regN=X29, unitOffset=6},
+                LoadRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X25, regT2=X26, regN=X29, unitOffset=8},
+                LoadRegPair{loadType=Load64, unscaledType=NoUpdate, regT1=X27, regT2=X28, regN=X29, unitOffset=10},
+                LoadRegPair{loadType=Load64, unscaledType=PostIndex, regT1=X29, regT2=X30, regN=XSP, unitOffset=12},
+                BranchReg{regD=X30, brRegType=BRRReturn}
             ]
 
         val functionName = "foreignCallBack(2)"
@@ -808,8 +802,8 @@ struct
                Universal.tagInject Debug.assemblyCodeTag true*)]
 
         val closure = makeConstantClosure()
-        val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches,
-                              resultClosure=closure, profileObject=createProfileObject()}
+        val () = generateFinalCode{instrs=instructions, name=functionName, parameters=debugSwitches,
+                              resultClosure=closure, profileObject=createProfileObject(), labelCount=0}
         val stage2Code = closureAsAddress closure
         
         fun resultFunction f =
@@ -821,14 +815,14 @@ struct
                 if is32in64
                 then
                     (* Get the global heap base into X10. *)
-                    loadGlobalHeapBaseInCallback X10 @
                     [
-                        loadAddressConstant(X9, Address.toMachineWord f),
+                        LoadGlobalHeapBaseInCallback X10,
+                        LoadAddr(X9, Address.toMachineWord f),
                         (* Have to load the actual address at run-time. *)
-                        loadAddressConstant(X16, stage2Code),
-                        addShiftedReg{regM=X16, regN=X10, regD=X16, shift=ShiftLSL 0w2},
-                        loadRegScaled{regT=X16, regN=X16, unitOffset=0},
-                        branchRegister X16
+                        LoadAddr(X16, stage2Code),
+                        AddShiftedReg{setFlags=false, opSize=OpSize64, regM=X16, regN=X10, regD=X16, shift=ShiftLSL 0w2},
+                        LoadRegScaled{loadType=Load64, regT=X16, regN=X16, unitOffset=0},
+                        BranchReg{regD=X16, brRegType=BRRBranch}
                     ]
                 else
                 let
@@ -836,9 +830,9 @@ struct
                     val codeAddress = Address.loadWord(Address.toAddress stage2Code, 0w0)
                 in
                     [
-                        loadAddressConstant(X9, Address.toMachineWord f),
-                        loadAddressConstant(X16, codeAddress),
-                        branchRegister X16
+                        LoadAddr(X9, Address.toMachineWord f),
+                        LoadAddr(X16, codeAddress),
+                        BranchReg{regD=X16, brRegType=BRRBranch}
                     ]
                 end
             val functionName = "foreignCallBack(1)"
@@ -846,8 +840,8 @@ struct
                 [(*Universal.tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                    Universal.tagInject Debug.assemblyCodeTag true*)]
             val closure = makeConstantClosure()
-            val () = generateCode{instrs=instructions, name=functionName, parameters=debugSwitches,
-                                  resultClosure=closure, profileObject=createProfileObject()}
+            val () = generateFinalCode{instrs=instructions, name=functionName, parameters=debugSwitches,
+                                  resultClosure=closure, profileObject=createProfileObject(), labelCount=0}
             val res = closureAsAddress closure
             (*val _ = print("Address is " ^ (LargeWord.toString(RunCall.unsafeCast res)) ^ "\n")*)
         in

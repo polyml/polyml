@@ -134,6 +134,7 @@ struct
         (* Branch table for indexed case. startLabel is the address of the first label in
            the list.  The branch table is a sequence of unconditional branches. *)
     |   BranchTable of { startLabel: precodeLabel, brTable: precodeLabel list }
+    |   LoadGlobalHeapBaseInCallback of xReg
 
 
     fun toAssembler([], code) = code
@@ -795,6 +796,11 @@ struct
             toAssembler(rest,
                 List.foldl (fn (label, code) => (unconditionalBranch label) :: code)
                     (code <::> setLabel startLabel) brTable)
+
+    |   toAssembler(LoadGlobalHeapBaseInCallback dest :: rest, code) =
+            toAssembler(rest,
+                code <@> List.rev(loadGlobalHeapBaseInCallback dest))
+
 
     fun toInstr precode =
         case toAssembler([precode], []) of

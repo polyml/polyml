@@ -22,11 +22,6 @@ local
             and       Pretty = Pretty
             and       CodeArray = CodeArray
         )
-    
-    structure Arm64Sequences =
-        Arm64Sequences (
-            structure Arm64Assembly = Arm64Assembly
-        )
 
     structure Arm64PreAssembly =
         Arm64PreAssembly (
@@ -39,8 +34,6 @@ local
         Arm64ForeignCall (
             structure CodeArray   = CodeArray
             and       Arm64PreAssembly = Arm64PreAssembly
-            and       Arm64Assembly = Arm64Assembly
-            and       Arm64Sequences = Arm64Sequences
             and       Debug = Debug
         )
 
@@ -88,7 +81,6 @@ local
             structure IntSet        = IntSet
             structure Arm64PreAssembly = Arm64PreAssembly
             structure Arm64Assembly = Arm64Assembly
-            structure Arm64Sequences = Arm64Sequences
             structure Strongly      = StronglyConnected
         )
         
@@ -111,7 +103,7 @@ in
         Arm64CodetreeToICode (
             structure BackendTree   = BackendIntermediateCode
             structure Debug         = Debug
-            structure Arm64ICode         = Arm64ICode
+            structure Arm64ICode    = Arm64ICode
             structure Arm64Foreign  = Arm64Foreign
             structure ICodeTransform = Arm64ICodeTransform
             structure CodeArray    = CodeArray

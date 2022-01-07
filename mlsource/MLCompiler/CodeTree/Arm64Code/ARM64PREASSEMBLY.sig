@@ -193,6 +193,7 @@ sig
         (* Branch table for indexed case. startLabel is the address of the first label in
            the list.  The branch table is a sequence of unconditional branches. *)
     |   BranchTable of { startLabel: precodeLabel, brTable: precodeLabel list }
+    |   LoadGlobalHeapBaseInCallback of xReg
 
     (* Wrapper for BitField *)
     val shiftConstant: { direction: shiftDirection, regD: xReg, regN: xReg, shift: word, opSize: opSize } -> precode
@@ -229,6 +230,7 @@ sig
     and heapLimitPtrOffset: int
     and heapAllocPtrOffset: int
     and mlStackPtrOffset: int
+    and exceptionPacketOffset: int
 
     val is32in64: bool and isBigEndian: bool
 
