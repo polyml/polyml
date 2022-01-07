@@ -212,13 +212,6 @@ sig
         {instrs: precode list, name: string, parameters: Universal.universal list, resultClosure: closureRef,
          profileObject: machineWord, labelCount: int} -> unit
 
-    (* Temporarily for development. *)
-    type instr
-    val toInstr: precode -> instr
-
-    (* Take a forward order sequence of instructions and generate a forward order output sequence. *)
-    val toInstrs: precode list -> instr list
- 
     (* Offsets in the assembly code interface pointed at by X26
        These are in units of 64-bits NOT bytes. *)
     val heapOverflowCallOffset: int
@@ -260,7 +253,6 @@ sig
         type wordSize = wordSize
         type 'a extend = 'a extend
         type scale = scale
-        type instr = instr
     end
 
 end;

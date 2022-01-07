@@ -801,15 +801,6 @@ struct
             toAssembler(rest,
                 code <@> List.rev(loadGlobalHeapBaseInCallback dest))
 
-
-    fun toInstr precode =
-        case toAssembler([precode], []) of
-            [single] => single
-        |   _ => raise InternalError "toInstr"
-
-    (* Take a forward order sequence of instructions and generate a forward order output sequence. *)
-    fun toInstrs precode = List.rev(toAssembler(precode, []))
-
     (* Constant shifts are encoded in the immr and imms fields of the bit-field instruction. *)
     fun shiftConstant{ direction, regD, regN, shift, opSize } =
     let
