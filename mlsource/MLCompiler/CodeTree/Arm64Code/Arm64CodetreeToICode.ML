@@ -33,6 +33,11 @@ struct
     open CodeArray
     open BuiltIns
 
+    (* Reversed cons and append to make the code easier to read. *)
+    infix 5 <::> <@>
+    fun tl <::> hd = hd :: tl
+    and snd <@> fst = fst @ snd
+
     type iCodeAbstract = (preg, pregOrZero, preg) arm64ICode and basicBlockAbstract = (preg, pregOrZero, preg) basicBlock
     
     exception InternalError = Misc.InternalError
@@ -170,7 +175,8 @@ struct
         datatype locationValue =
             NoLocation
         |   PregLocation of preg
-        |   ContainerLocation of { container: stackLocn, stackOffset: int }
+        |   StackContainer of { container: stackLocn, stackOffset: int }
+        |   RegisterContainer of preg list
 
         val locToPregArray = Array.array(localCount, NoLocation)
         val labelCounter = ref 1 (* Start at 1.  Zero is used for the root. *)
@@ -199,6 +205,7 @@ struct
         datatype argLoc =
             ArgumentIsInReg of { realReg: xReg, argReg: preg }
         |   ArgumentIsOnStack of { stackOffset: int, stackReg: stackLocn }
+        |   ArgumentIsRegContainer of preg list
 
         (* An address as either suitable for Load/StoreWithConstantOffset or else Load/StoreWithIndexedOffset. *)
         datatype addressKind =
@@ -211,11 +218,35 @@ struct
         val returnAddrReg = newPReg()
         
         val generalArgRegs = [X0, X1, X2, X3, X4, X5, X6, X7]
+        
+        (* If a container is larger than this it is passed on the stack. *)
+        val smallContainerSize = 4
 
         (* Create a map for the arguments indicating their register or stack location. *)
         local
+            val containerRegs =
+                case List.filter(fn ContainerType _ => true | _ => false) argTypes of
+                    [] => NONE
+                |   [ContainerType s] =>
+                        if s <= smallContainerSize
+                        then SOME(List.tabulate(s, fn _ => newMergeReg()))
+                        else SOME [] (* Larger containers return their result on the stack. *)
+                |   _ => raise InternalError "more than one container arg"
+
             (* Select the appropriate argument register depending on the argument type. *)
             fun argTypesToArgEntries([], _, _) = ([], [], [], [])
+
+            |   argTypesToArgEntries(ContainerType s :: tl, gRegs, n) =
+                if s <= smallContainerSize
+                then
+                let
+                    val (argTypes, argCode, argRegs, stackArgs) = argTypesToArgEntries(tl, gRegs, n-1)
+                    val regs = valOf containerRegs
+                in
+                    (ArgumentIsRegContainer regs :: argTypes, argCode, argRegs, stackArgs)
+                end
+                (* The address of a larger container is passed as an argument *)
+                else argTypesToArgEntries(GeneralType :: tl, gRegs, n)
 
             |   argTypesToArgEntries(_ :: tl, gReg :: gRegs, n) =
                 (* This deals with general arguments but also with extra floating point arguments.
@@ -238,6 +269,7 @@ struct
 
             val (argEntries, argCode, argRegs, stackArguments) =
                 argTypesToArgEntries(argTypes, generalArgRegs, List.length argTypes)
+
             val clReg = case closure of [] => [] | _ => [(closureRegAddr, X8)]
             val retReg = [(returnAddrReg, X30)]
         in
@@ -249,12 +281,18 @@ struct
 
             (* The number of arguments on the stack.  Needed in return instrs and tail calls. *)
             val currentStackArgs = List.length stackArguments
+            
+            val containerResults = Option.map(fn regs => ListPair.zip(regs, generalArgRegs)) containerRegs
         end
+
+        (* TODO: Return the values of the container registers if we have multiple results. *)
+
 
         fun returnInstruction({stackPtr, ...}, resReg, tailCode) =
         let
+            val results = getOpt(containerResults, [(resReg, X0)]) (* Return the result in X0 unless there's a container. *)
         in
-            BlockExit(ReturnResultFromFunction{results=[(resReg, X0)], returnReg = returnAddrReg, numStackArgs=currentStackArgs}) ::
+            BlockExit(ReturnResultFromFunction{results=results, returnReg = returnAddrReg, numStackArgs=currentStackArgs}) ::
                 (if stackPtr <> 0 then resetStackPtr{numWords=stackPtr} :: tailCode else tailCode)
         end
 
@@ -379,9 +417,23 @@ struct
         end
 
         (* See if we have a container and return the entry if present. *)
+        datatype containerType =
+            NoContainer | ContainerOnStack of { container: stackLocn, stackOffset: int } | ContainerInRegs of preg list
         fun getContainerIfPresent(BICExtract(BICLoadLocal l)) =
-            ( case Array.sub(locToPregArray, l) of ContainerLocation container => SOME container | _ => NONE )
-        |   getContainerIfPresent _ = NONE
+            (
+                case Array.sub(locToPregArray, l) of
+                    StackContainer container => ContainerOnStack container
+                |   RegisterContainer rc => ContainerInRegs rc
+                |   _ => NoContainer
+            )
+        |   getContainerIfPresent(BICExtract(BICLoadArgument a)) =
+            (
+                case Vector.sub(argumentVector, a) of
+                    ArgumentIsRegContainer rc => ContainerInRegs rc
+                |   _ => NoContainer
+            )
+            
+        |   getContainerIfPresent _ = NoContainer
 
         (* General function for loads and stores. *)
         fun loadAndStoreWithAddress
@@ -621,17 +673,26 @@ struct
                         doBindings(decs, context, code)
                     end
        
-                |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr, currHandler, overflowBlock}, tailCode) =
+                |   doBindings(BICDecContainer{ addr, size } :: decs, context as {loopArgs, stackPtr, currHandler, overflowBlock}, tailCode) =
+                    if size <= smallContainerSize
+                    then
                     let
+                        val regs = List.tabulate(size, fn _ => newMergeReg())
+                        val () = Array.update(locToPregArray, addr, RegisterContainer regs)
+                    in
+                        doBindings(decs, context, tailCode)
+                    end
+                    else
+                    let (* Larger container - reserve a portion of stack and zero it. *)
                         val containerLoc = newStackLoc size
                         val () = Array.update(locToPregArray, addr,
-                                    ContainerLocation{container=containerLoc, stackOffset=stackPtr+size})
+                                    StackContainer{container=containerLoc, stackOffset=stackPtr+size})
                         val zeroReg = newPReg()
                     in
                         doBindings(decs,
                             {loopArgs=loopArgs, stackPtr=stackPtr+size, currHandler=currHandler, overflowBlock=overflowBlock},
-                            pushToStack{copies=size, container=containerLoc, source=zeroReg} ::
-                            loadNonAddressConstant{ source=taggedWord64 0w0, dest=zeroReg } :: tailCode)
+                            tailCode <::> loadNonAddressConstant{ source=taggedWord64 0w0, dest=zeroReg } <::>
+                            pushToStack{copies=size, container=containerLoc, source=zeroReg})
                     end
 
                 val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context, tailCode)
@@ -661,13 +722,14 @@ struct
                 case Array.sub(locToPregArray, l) of
                     NoLocation => raise InternalError "codeToICodeRev - local unset"
                 |   PregLocation preg => moveToResult(destination, tailCode, preg)
-                |   ContainerLocation{container, stackOffset} =>
+                |   StackContainer{container, stackOffset} =>
                     let
                         val target = asTarget destination
                     in
                         (containerAddress{dest=target, container=container, stackOffset=stackPtr-stackOffset}
                             :: tailCode, target, false)
                     end
+                |   RegisterContainer _ => raise InternalError "BICExtract local: reg container"
             )
 
         |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
@@ -682,6 +744,7 @@ struct
                         (loadStack{wordOffset=stackOffset+stackPtr, container=stackReg, field=0,
                                                dest=target} :: tailCode, target, false)
                     end
+                |   ArgumentIsRegContainer _ => raise InternalError "BICExtract argument: reg container"
             )
 
         |   codeToICodeRev(BICExtract(BICLoadClosure c), _, _, destination, tailCode) =
@@ -903,26 +966,31 @@ struct
                     |   function => (* General case. *)
                             (#1 (codeToICodeRev(function, context, false, SpecificPReg clPReg, tailCode)), [(ArgInReg clPReg, X8)], FullCall)
 
-                (* Load the first arguments into registers and the rest to the stack. *)
-                fun loadArgs ([], _, tailCode) = (tailCode, [], [])
+                local
+                    (* Load the first arguments into registers and the rest to the stack. *)
+                    fun loadArgs ([], _, tailCode) = (tailCode, [], [])
 
-                |   loadArgs ((arg, _) :: args, gReg::gRegs, tailCode) =
-                    let (* General register argument. *)
-                        val (c, r, _) = codeToICodeRev(arg, context, false, AnyReg, tailCode)
-                        val (code, regArgs, stackArgs) = loadArgs(args, gRegs, c)
-                    in
-                        (code, (ArgInReg r, gReg) :: regArgs, stackArgs)
-                    end
+                    |   loadArgs ((arg, _) :: args, gReg::gRegs, tailCode) =
+                        let (* General register argument. *)
+                            val (c, r, _) = codeToICodeRev(arg, context, false, AnyReg, tailCode)
+                            val (code, regArgs, stackArgs) = loadArgs(args, gRegs, c)
+                        in
+                            (code, (ArgInReg r, gReg) :: regArgs, stackArgs)
+                        end
 
-                |   loadArgs ((arg, _) :: args, [], tailCode) =
-                    let (* Stack argument. *)
-                        val (c, r, _) = codeToICodeRev(arg, context, false, AnyReg, tailCode)
-                        val (code, regArgs, stackArgs) = loadArgs(args, [], c)
-                    in
-                        (code, regArgs, ArgInReg r :: stackArgs)
-                    end
+                    |   loadArgs ((arg, _) :: args, [], tailCode) =
+                        let (* Stack argument. *)
+                            val (c, r, _) = codeToICodeRev(arg, context, false, AnyReg, tailCode)
+                            val (code, regArgs, stackArgs) = loadArgs(args, [], c)
+                        in
+                            (code, regArgs, ArgInReg r :: stackArgs)
+                        end
 
-                val (codeArgs, regArgs, stackArgs) = loadArgs(argList, generalArgRegs, functionCode)
+                    fun isSmallContainer(ContainerType s) = s <= smallContainerSize | isSmallContainer _ = false
+                in
+                    val (codeArgs, regArgs, stackArgs) =
+                        loadArgs(List.filter(not o isSmallContainer o #2) argList, generalArgRegs, functionCode)
+                end
                 
                 (* If this is at the end of the function and the result types are the
                    same we can use a tail-recursive call. *)
@@ -952,32 +1020,41 @@ struct
                     end
                     else
                     let
-                        local
-                            (* When a container is passed as an argument we put the address into a register.
-                               Normally the container will be referenced after the call in order to extract
-                               the values but if it's discarded we need to make sure it will continue to
-                               be referenced at least as far as the call.  This isn't a problem for the X86
-                               code-generator since container addresses are a form of the "argument"
-                               datatype. *)
-                            fun getContainers(BICExtract(BICLoadLocal l), _) =
-                                (
-                                    case Array.sub(locToPregArray, l) of
-                                        ContainerLocation{container, ...} => SOME container
-                                    |   _ => NONE
-                                )
-                            |   getContainers _ = NONE
-                        in
-                            val containers = List.mapPartial getContainers argList
-                        end
+                        (* See if there is a container argument. *)
+                        val containerArg = List.find(fn (_, ContainerType _) => true | _ => false) argList
+
+                        val containerValue =
+                            case containerArg of
+                                SOME(argVal, _) => getContainerIfPresent argVal
+                            |   NONE => NoContainer
+                        (* When a container is passed as an argument we put the address into a register.
+                           Normally the container will be referenced after the call in order to extract
+                           the values but if it's discarded we need to make sure it will continue to
+                           be referenced at least as far as the call.  This isn't a problem for the X86
+                           code-generator since container addresses are a form of the "argument"
+                           datatype. *)
+                        val stackContainers =
+                            case containerValue of ContainerOnStack{container, ...} => [container] | _ => []
+
+                        (* Get the results.  If we're returning the result through a container the target isn't used
+                           so we return unit. *)
+                        val (results, setTarget) =
+                            case containerValue of
+                                ContainerInRegs regs =>
+                                    (ListPair.zip(regs, generalArgRegs), [loadNonAddressConstant{source=taggedWord64 0w0, dest=target}])
+                            |   ContainerOnStack _ =>
+                                    ([], [loadNonAddressConstant{source=taggedWord64 0w0, dest=target}])
+                            |   NoContainer => ([(target, X0)], [])
+
                         val call =
-                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dests=[(target, X0)],
-                                         callKind=callKind, saveRegs=[], containers=containers}
+                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dests=results,
+                                         callKind=callKind, saveRegs=[], containers=stackContainers}
                         val callBlock =
                             case currHandler of
                                 NONE => BlockSimple call :: codeArgs
                             |   SOME h => BlockOptionalHandle{call=call, handler=h, label=newLabel()}  :: codeArgs
                     in
-                        callBlock
+                        callBlock <@> setTarget
                     end
             in
                 (callCode, target, tailCall (* We've exited if this was a tail jump *))
@@ -1277,27 +1354,26 @@ struct
                     fun createStore containerReg (source, destWord, tail) =
                         storeAtWordOffset(source, destWord, containerReg, Load64, tail)
                 in
-                    val findContainer =
-                        case container of
-                            BICExtract(BICLoadLocal l) =>
-                            (
-                                case Array.sub(locToPregArray, l) of
-                                    ContainerLocation{container, stackOffset} =>
-                                    let
-                                        fun store(source, destWord, tail) =
-                                            storeToStack{source=source, container=container, field=destWord,
-                                                stackOffset=stackPtr-stackOffset+destWord} :: tail
-                                    in
-                                        SOME store
-                                    end
-                               |    _ => NONE
-                           )
-                       |    _ => NONE
-
                     val (codeContainer, storeInstr) =
-                        case findContainer of
-                            SOME storeToStack => (tailCode, storeToStack)
-                        |   NONE => 
+                        case getContainerIfPresent container of
+                            ContainerOnStack{container, stackOffset} =>
+                            let
+                                fun store(source, destWord, tail) =
+                                    storeToStack{source=source, container=container, field=destWord,
+                                        stackOffset=stackPtr-stackOffset+destWord} :: tail
+                            in
+                                (tailCode, store)
+                            end
+
+                        |   ContainerInRegs regs =>
+                            let
+                                fun copy(source, destWord, tail) =
+                                    tail <::> moveRegister{source=source, dest=List.nth(regs, destWord)}
+                            in
+                                (tailCode, copy)
+                            end
+
+                        |   NoContainer =>
                             let
                                 val containerTarget = newPReg()
                                 val (codeContainer, _, _) =
@@ -1344,7 +1420,7 @@ struct
                                the container to be reused prematurely. ??? Is that an old comment ?? *)
                             val (codeTuple, loadField) =
                                 case getContainerIfPresent tuple of
-                                    SOME {container, stackOffset} =>
+                                    ContainerOnStack {container, stackOffset} =>
                                     let
                                         fun getAddr(destReg, sourceWord, tail) =
                                             loadStack{dest=destReg, wordOffset=stackPtr-stackOffset+sourceWord, container=container,
@@ -1352,7 +1428,16 @@ struct
                                     in
                                         (codeContainer, getAddr)
                                     end
-                                |   NONE =>
+
+                                |   ContainerInRegs regs =>
+                                    let
+                                        fun copyReg(destReg, sourceWord, tail) =
+                                            tail <::> moveRegister{dest=destReg, source=List.nth(regs, sourceWord)}
+                                    in
+                                        (codeContainer, copyReg)
+                                    end
+
+                                |   NoContainer =>
                                     let
                                         val (codeTuple, tupleTarget, _) = codeToICodeRev(tuple, context, false, AnyReg, codeContainer)
                                         fun loadField(destReg: preg, sourceWord: int, tail): blockStruct list =
@@ -1389,7 +1474,7 @@ struct
         |   codeToICodeRev(BICLoadContainer{base, offset}, context as {stackPtr, ...}, _, destination, tailCode) =
             (
                 case getContainerIfPresent base of
-                    SOME {container, stackOffset} =>
+                    ContainerOnStack {container, stackOffset} =>
                     let (* If this is a local container we extract the field. *)
                         val target = asTarget destination
                         val finalOffset = stackPtr-stackOffset+offset
@@ -1399,12 +1484,20 @@ struct
                             dest=target}) :: tailCode, target, false)
                     end
 
-                |   NONE =>
+                |   NoContainer =>
                     let
                         val (codeBase, baseEntry, _) = codeToICodeRev(base, context, false, AnyReg, tailCode)
                     in
                         wordAddressOffset(destination, baseEntry, offset, Load64, codeBase)
                     end
+
+                |   ContainerInRegs regs =>
+                    let
+                        (* Always copy this into a new register because the source will be a merge reg. *)
+                        val target = asTarget destination
+                    in
+                        (moveRegister{source=List.nth(regs, offset), dest=target} :: tailCode, target, false)
+                    end 
             )
 
         |   codeToICodeRev(BICLoadOperation{ kind, address}, context, _, destination, tailCode) =
