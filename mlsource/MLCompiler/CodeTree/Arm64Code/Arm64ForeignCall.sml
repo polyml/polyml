@@ -98,7 +98,9 @@ struct
                 loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
         |   loadArgs _ = raise InternalError "rtsCall: Too many arguments"
 
-        val noRTSException = createLabel()
+        val labelMaker = createLabelMaker()
+
+        val noRTSException = createLabel labelMaker
 
         val instructions =
             loadArgs(argFormats,
@@ -151,7 +153,7 @@ struct
             ]
         val closure = makeConstantClosure()
         val () = generateFinalCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure,
-                              profileObject=createProfileObject(), labelCount=1}
+                              profileObject=createProfileObject(), labelMaker=labelMaker}
     in
         closureAsAddress closure
     end
@@ -317,6 +319,8 @@ struct
         and argWorkReg3 = X13
         and argWorkReg4 = X14
 
+        val labelMaker = createLabelMaker()
+
         fun loadArgs([], stackOffset, _, _, _, code, largeStructSpace) =
                 (code, stackOffset, largeStructSpace)
 
@@ -406,7 +410,7 @@ struct
                                 the address or load it once it's aligned. *)
                         let
                             val newStructSpace = alignUp(largeStructSpace + size, 0w16)
-                            val loopLabel = createLabel()
+                            val loopLabel = createLabel labelMaker
                             (* The address of the area we're copying to is in argRegNo. *)
                             val argRegNo = if gRegNo < 0w8 then XReg gRegNo else argWorkReg
                             (* Copy from the end back to the start. *)
@@ -541,7 +545,7 @@ struct
                Universal.tagInject Debug.assemblyCodeTag true*)]
         val closure = makeConstantClosure()
         val () = generateFinalCode{instrs=instructions, name=functionName, parameters=debugSwitches, resultClosure=closure,
-                              profileObject=createProfileObject(), labelCount=0}
+                              profileObject=createProfileObject(), labelMaker=labelMaker}
     in
         closureAsAddress closure
     end
@@ -561,6 +565,8 @@ struct
         and argWorkReg3 = X13
         and argWorkReg4 = X14
         
+        val labelMaker = createLabelMaker()
+
         (* The stack contains a 32-byte result area then an aligned area for the arguments. *)
 
         (* Store the argument values to the structure that will be passed to the ML callback function. *)
@@ -656,7 +662,7 @@ struct
                                         [AddImmediate{opSize=OpSize64, setFlags=false, regD=argWorkReg, regN=X29, immed=Word.fromInt stackSpace*0w8, shifted=false}])
                             end
 
-                        val loopLabel = createLabel()
+                        val loopLabel = createLabel labelMaker
 
                         val copyCode =
                         [ 
@@ -803,7 +809,7 @@ struct
 
         val closure = makeConstantClosure()
         val () = generateFinalCode{instrs=instructions, name=functionName, parameters=debugSwitches,
-                              resultClosure=closure, profileObject=createProfileObject(), labelCount=0}
+                              resultClosure=closure, profileObject=createProfileObject(), labelMaker=labelMaker}
         val stage2Code = closureAsAddress closure
         
         fun resultFunction f =
@@ -841,7 +847,8 @@ struct
                    Universal.tagInject Debug.assemblyCodeTag true*)]
             val closure = makeConstantClosure()
             val () = generateFinalCode{instrs=instructions, name=functionName, parameters=debugSwitches,
-                                  resultClosure=closure, profileObject=createProfileObject(), labelCount=0}
+                                  resultClosure=closure, profileObject=createProfileObject(),
+                                  labelMaker=createLabelMaker()}
             val res = closureAsAddress closure
             (*val _ = print("Address is " ^ (LargeWord.toString(RunCall.unsafeCast res)) ^ "\n")*)
         in

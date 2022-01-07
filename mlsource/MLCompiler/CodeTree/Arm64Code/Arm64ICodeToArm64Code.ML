@@ -252,9 +252,11 @@ struct
                 end
             end
 
-        val startOfFunctionLabel = createLabel() (* Used for recursive calls/jumps *)
+        val labelMaker = createLabelMaker()
 
-        val blockToLabelMap = Vector.tabulate(numBlocks, fn _ => createLabel())
+        val startOfFunctionLabel = createLabel labelMaker (* Used for recursive calls/jumps *)
+
+        val blockToLabelMap = Vector.tabulate(numBlocks, fn _ => createLabel labelMaker)
 
         fun getBlockLabel blockNo = Vector.sub(blockToLabelMap, blockNo)
 
@@ -343,7 +345,7 @@ struct
                 val sizeReg = size
                 and addrReg = addr
                 and initReg = init
-                val exitLabel = createLabel() and loopLabel = createLabel()
+                val exitLabel = createLabel labelMaker and loopLabel = createLabel labelMaker
                 (* This uses a loop to initialise.  It's possible the size is
                    zero so we have to check at the top of the loop. *)
                 val (bShift, offset, loadType) = if is32in64 then (0w2, ~4, Load32) else (0w3, ~8, Load64)
@@ -377,7 +379,7 @@ struct
                     NONE => code2
                 |   SOME saveRegs =>
                     let
-                        val skipCheck = createLabel()
+                        val skipCheck = createLabel labelMaker
                     in
                         code2 <::>
                         (* Put in stack-check code to allow this to be interrupted. *)
@@ -492,7 +494,7 @@ struct
 
         |   codeExtended _ (BeginFunction{regArgs, ...}, code) =
             let
-                val skipCheck = createLabel()
+                val skipCheck = createLabel labelMaker
                 val defaultWords = 10 (* This is wired into the RTS. *)
                 val workRegister = workReg1
                 val debugTrapAlways = false (* Can be set to true for debugging *)
@@ -823,7 +825,7 @@ struct
                 val cases =
                     case flow of IndexedBr cases => cases | _ => raise InternalError "codeGenICode: IndexedCaseOperation"
                 val caseLabels = map getBlockLabel cases
-                val tableLabel = createLabel()
+                val tableLabel = createLabel labelMaker
             in
                 code <::>
                     LoadLabelAddress(workReg1, tableLabel) <::>
@@ -878,7 +880,7 @@ struct
                 val vec1Reg = vec1Addr
                 and vec2Reg = vec2Addr
                 and lenReg = length
-                val loopLabel = createLabel() and exitLabel = createLabel()
+                val loopLabel = createLabel labelMaker and exitLabel = createLabel labelMaker
             in
                 code <::>
                 (* Set the CC to Equal before we start in case length = 0 *)
@@ -901,7 +903,7 @@ struct
                 val srcReg = srcAddr
                 and destReg = destAddr
                 and lenReg = length
-                val loopLabel = createLabel() and exitLabel = createLabel()
+                val loopLabel = createLabel labelMaker and exitLabel = createLabel labelMaker
                 val (offset, loadType) = if isByteMove then (1, Load8) else if is32in64 then (4, Load32) else (8, Load64)
             in
                 code <::> SetLabel loopLabel (* Start of loop *) <::> 
@@ -956,7 +958,7 @@ struct
 
         |   codeExtended _ (CacheCheck{ arg1, arg2 }, code) =
             let
-                val okLabel = createLabel()
+                val okLabel = createLabel labelMaker
             in
                 (code <::> SubShiftedReg {regM=arg1, regN=arg2, regD=XZero, shift=ShiftNone, opSize=OpSize64, setFlags=true} <::>
                     ConditionalBranch(CondEqual, okLabel) <::>
@@ -1203,7 +1205,7 @@ struct
         end
     in
         generateFinalCode{instrs=List.rev ops, name=functionName, resultClosure=resultClosure,
-                                   parameters=debugSwitches, profileObject=profileObject, labelCount=0}
+                                   parameters=debugSwitches, profileObject=profileObject,  labelMaker= labelMaker}
     end
 
     structure Sharing =

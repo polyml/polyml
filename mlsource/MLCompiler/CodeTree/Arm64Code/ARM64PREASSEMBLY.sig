@@ -108,8 +108,9 @@ sig
     and bitfieldKind = BFUnsigned | BFSigned | BFInsert
     and brRegType = BRRBranch | BRRAndLink | BRRReturn
 
-    type precodeLabel
-    val createLabel: unit -> precodeLabel
+    type label and labelMaker
+    val createLabelMaker: unit -> labelMaker
+    and createLabel: labelMaker -> label
 
     datatype precode =
         (* Basic instructions *)
@@ -173,14 +174,14 @@ sig
     |   FPComparison of { regM: vReg, regN: vReg, floatSize: floatSize}
     |   FPUnaryOp of {regN: vReg, regD: vReg, fpOp: fpUnary}
         (* Branches and Labels. *)
-    |   SetLabel of precodeLabel
-    |   ConditionalBranch of condition * precodeLabel
-    |   UnconditionalBranch of precodeLabel
-    |   BranchAndLink of precodeLabel
+    |   SetLabel of label
+    |   ConditionalBranch of condition * label
+    |   UnconditionalBranch of label
+    |   BranchAndLink of label
     |   BranchReg of {regD: xReg, brRegType: brRegType }
-    |   LoadLabelAddress of xReg * precodeLabel
-    |   TestBitBranch of { test: xReg, bit: Word8.word, label: precodeLabel, onZero: bool }
-    |   CompareBranch of { test: xReg, label: precodeLabel, onZero: bool, opSize: opSize }
+    |   LoadLabelAddress of xReg * label
+    |   TestBitBranch of { test: xReg, bit: Word8.word, label: label, onZero: bool }
+    |   CompareBranch of { test: xReg, label: label, onZero: bool, opSize: opSize }
         (* Composite instructions *)
     |   MoveXRegToXReg of {sReg: xReg, dReg: xReg}
     |   LoadNonAddr of xReg * Word64.word
@@ -192,7 +193,7 @@ sig
     |   AllocateMemoryVariableSize of { sizeReg: xReg, dest: xReg, save: xReg list, work: xReg }
         (* Branch table for indexed case. startLabel is the address of the first label in
            the list.  The branch table is a sequence of unconditional branches. *)
-    |   BranchTable of { startLabel: precodeLabel, brTable: precodeLabel list }
+    |   BranchTable of { startLabel: label, brTable: label list }
     |   LoadGlobalHeapBaseInCallback of xReg
 
     (* Wrapper for BitField *)
@@ -210,7 +211,7 @@ sig
        closure reference to point to it. *)
     val generateFinalCode:
         {instrs: precode list, name: string, parameters: Universal.universal list, resultClosure: closureRef,
-         profileObject: machineWord, labelCount: int} -> unit
+         profileObject: machineWord, labelMaker: labelMaker} -> unit
 
     (* Offsets in the assembly code interface pointed at by X26
        These are in units of 64-bits NOT bytes. *)
@@ -247,7 +248,8 @@ sig
         type precode = precode
         type xReg = xReg
         type vReg = vReg
-        type precodeLabel = precodeLabel
+        type label = label
+        type labelMaker = labelMaker
         type condition = condition
         type shiftType = shiftType
         type wordSize = wordSize
