@@ -920,9 +920,45 @@ struct
                     StoreRegPair{ regT1=regT1, regT2=regT2, regN=regN1, unitOffset= ~1, loadType=Load32, unscaledType=NoUpdate} :: list, true)
             else forward(tl1, store :: list, rep)
 
+        |   forward((store as StoreRegUnscaled{regT=regT1, regN=regN1, byteOffset= ~8, loadType=Load64, unscaledType=PreIndex}) ::
+                     (tl1 as StoreRegUnscaled{regT=regT2, regN=regN2, byteOffset= ~8, loadType=Load64, unscaledType=PreIndex} ::tl2), list, rep) =
+            (* Adjacent pushes T2 is in the lower address so the order is T2, T1.  The stack is always 64-bit aligned so
+               this works on both native addressing and 32-in-64. *)
+            if regN1 = regN2
+            then forward(tl2,
+                    StoreRegPair{ regT1=regT2, regT2=regT1, regN=regN1, unitOffset= ~2, loadType=Load64, unscaledType=PreIndex} :: list, true)
+            else forward(tl1, store :: list, rep)
+
+        |   forward((add1 as AddImmediate{regN=regN1, regD=regD1, immed=immed1, shifted=false, opSize=OpSize64, setFlags=false}) ::
+                    (tl1 as AddImmediate{regN=regN2, regD=regD2, immed=immed2, shifted=false, opSize=OpSize64, setFlags=false}  ::tl2), list, rep) =
+            (* Adjacent stack resets.  This can apply more generally but only if the result registers are the same.  If they're
+               not we may need the intermediate result.  We put the result back into the input stream in case it can be combined
+               with another stack reset. *)
+            if regN2 = regD2 andalso regD1 = regD2 andalso immed2+immed1 < 0w4096
+            then forward(AddImmediate{regN=regN1, regD=regD2, immed=immed2+immed1, shifted=false, opSize=OpSize64, setFlags=false} :: tl2, list, true)
+            else forward(tl1, add1 :: list, rep)
+
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep) 
         
         and reverse([], list, rep) = (list, rep)
+
+        |   reverse((add as AddImmediate{regN=regN2, regD=regD2, immed, shifted=false, opSize=OpSize64, setFlags=false}) ::
+                     (tl1 as LoadRegScaled{regT=regT1, regN=regN1, unitOffset=0, loadType=Load64} ::tl2), list, rep) =
+            (* A stack reset occurring after a load.  This is usually the ML SP but can also occur with C memory ops.
+               It might be possible to consider other cases. *)
+            if regN1 = regD2 andalso regN2 = regD2 andalso regT1 <> regN1 andalso immed < 0w256
+            then reverse(tl2,
+                    LoadRegUnscaled{regT=regT1, regN=regN1, byteOffset=Word.toInt immed, loadType=Load64, unscaledType=PostIndex} :: list, true)
+            else reverse(tl1, add :: list, rep)
+
+        |   reverse((add as AddImmediate{regN=regN2, regD=regD2, immed, shifted=false, opSize=OpSize64, setFlags=false}) ::
+                     (tl1 as LoadRegPair{regT1=regT1, regT2=regT2, regN=regN1, unitOffset=0, loadType=Load64, unscaledType=NoUpdate} ::tl2), list, rep) =
+            (* A stack reset occurring after a load pair *)
+            if regN1 = regD2 andalso regN2 = regD2 andalso regT1 <> regN1 andalso regT2 <> regN1 andalso immed < 0w64 * 0w8
+            then reverse(tl2,
+                    LoadRegPair{regT1=regT1, regT2=regT2, regN=regN1, unitOffset=Word.toInt(immed div 0w8),
+                                loadType=Load64, unscaledType=PostIndex} :: list, true)
+            else reverse(tl1, add :: list, rep)
 
         |   reverse(hd :: tl, list, rep) = reverse(tl, hd :: list, rep)
 
