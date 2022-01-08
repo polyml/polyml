@@ -924,7 +924,7 @@ struct
             else forward(tl1, store :: list, rep)
 
         |   forward((store as StoreRegUnscaled{regT=regT1, regN=regN1, byteOffset= ~8, loadType=Load64, unscaledType=PreIndex}) ::
-                     (tl1 as StoreRegUnscaled{regT=regT2, regN=regN2, byteOffset= ~8, loadType=Load64, unscaledType=PreIndex} ::tl2), list, rep) =
+                     (tl1 as StoreRegUnscaled{regT=regT2, regN=regN2, byteOffset= ~8, loadType=Load64, unscaledType=PreIndex} :: tl2), list, rep) =
             (* Adjacent pushes T2 is in the lower address so the order is T2, T1.  The stack is always 64-bit aligned so
                this works on both native addressing and 32-in-64. *)
             if regN1 = regN2
@@ -940,6 +940,16 @@ struct
             if regN2 = regD2 andalso regD1 = regD2 andalso immed2+immed1 < 0w4096
             then forward(AddImmediate{regN=regN1, regD=regD2, immed=immed2+immed1, shifted=false, opSize=OpSize64, setFlags=false} :: tl2, list, true)
             else forward(tl1, add1 :: list, rep)
+
+        |   forward(BitwiseLogical{bits=0w1, regN, regD=XZero, logOp=LogAnd, opSize=_, setFlags=true} ::
+                    ConditionalBranch(CondEqual, label) :: tl2, list, _) =
+            (* Test the tag bit: bit 0.  This is very common to test for nil/not nil.  We could include other
+               values but they're far less likely. *)
+                forward(TestBitBranch{test=regN, bit=0w0, label=label, onZero=true} :: tl2, list, true)
+
+        |   forward(BitwiseLogical{bits=0w1, regN, regD=XZero, logOp=LogAnd, opSize=_, setFlags=true} ::
+                    ConditionalBranch(CondNotEqual, label) :: tl2, list, _) =
+                forward(TestBitBranch{test=regN, bit=0w0, label=label, onZero=false} :: tl2, list, true)
 
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep) 
         

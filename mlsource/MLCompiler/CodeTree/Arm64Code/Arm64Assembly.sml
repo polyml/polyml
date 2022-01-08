@@ -2013,8 +2013,8 @@ struct
             then (* Test bit and branch *)
             let
                 val byteOffset =
-                    (wordValue andb 0wx00ffffe0) << (Word.fromInt Word.wordSize - 0w19) ~>>
-                        (Word.fromInt Word.wordSize - 0w16)
+                    (wordValue andb 0wx000fffe0) << (Word.fromInt Word32.wordSize - 0w20) ~>>
+                        (Word.fromInt Word32.wordSize - 0w17)
                 val oper =
                     if (wordValue andb 0wx01000000) = 0w0
                     then "tbz" else "tbnz"
@@ -2025,7 +2025,7 @@ struct
                 printStream oper; printStream "\t";
                 printStream r; printStream(Word32.fmt StringCvt.DEC (wordValue andb 0wx1f));
                 printStream ",#"; printStream(Word32.fmt StringCvt.DEC bitNo); printStream ",0x";
-                printStream(Word.fmt StringCvt.HEX (byteNo+word32ToWord byteOffset))
+                printStream(Word32.fmt StringCvt.HEX (wordToWord32 byteNo+byteOffset))
             end
 
             else if (wordValue andb 0wx3fe00000) = 0wx1A800000
