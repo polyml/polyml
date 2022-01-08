@@ -470,6 +470,7 @@ struct
 
         |   toAssembler(LoadRegPair{ regT1, regT2, regN, unitOffset, loadType, unscaledType} :: rest, code) =
             let
+                val _ = regT1 <> regT2 orelse raise InternalError "LoadRegPair: same register"
                 val instr =
                     case (loadType, unscaledType) of
                         (Load64, NoUpdate) => loadPairOffset
@@ -500,6 +501,7 @@ struct
 
         |   toAssembler(LoadFPRegPair{ regT1, regT2, regN, unitOffset, floatSize, unscaledType} :: rest, code) =
             let
+                val _ = regT1 <> regT2 orelse raise InternalError "LoadRegPair: same register"
                 val instr =
                     case (floatSize, unscaledType) of
                         (Double64, NoUpdate) => loadPairOffsetDouble
@@ -828,6 +830,8 @@ struct
                     code <@> List.rev(loadGlobalHeapBaseInCallback dest))
 
         (* Optimisation passes. *)
+        fun isValidForPair(offset1, offset2) =
+            let val v = Int.min(offset1, offset2) in v >= ~64 andalso v < 64 end
 
         fun forward([], list, rep) = reverse(list, [], rep)
 
@@ -868,6 +872,53 @@ struct
                     ConditionalBranch(invertTest test, Label ubrLab) :: list, true)
 
             else forward(ubr :: tl, cbr :: list, rep)
+
+        |   forward((load as LoadRegScaled{regT=regT1, regN=regN1, unitOffset=offset1, loadType=lt1}) ::
+                     (tl1 as LoadRegScaled{regT=regT2, regN=regN2, unitOffset=offset2, loadType=lt2} ::tl2), list, rep) =
+            (* Two adjacent loads - can this be converted to load-pair?  N.B.  We have to be careful about the
+               sequence ldr x0,[x0]; ldr x1,[x0+8] which isn't the same at all. *)
+            if regN1 = regN2 andalso regN1 <> regT1 andalso lt1 = lt2 andalso (offset2 = offset1 + 1 orelse offset2 = offset1 - 1) andalso
+                (case lt1 of Load64 => true | Load32 => true | _ => false) andalso isValidForPair(offset1, offset2)
+            then
+            let
+                val (reg1, reg2, offset) =
+                    if offset1 < offset2 then (regT1, regT2, offset1) else (regT2, regT1, offset2)
+            in
+                forward(tl2,
+                    LoadRegPair{ regT1=reg1, regT2=reg2, regN=regN1, unitOffset=offset, loadType=lt1, unscaledType=NoUpdate} :: list, true)
+            end
+            else forward(tl1, load :: list, rep)
+
+        |   forward((store as StoreRegScaled{regT=regT1, regN=regN1, unitOffset=offset1, loadType=lt1}) ::
+                     (tl1 as StoreRegScaled{regT=regT2, regN=regN2, unitOffset=offset2, loadType=lt2} ::tl2), list, rep) =
+            (* Two adjacent stores - can this be converted to store-pair? *)
+            if regN1 = regN2 andalso lt1 = lt2 andalso (offset2 = offset1 + 1 orelse offset2 = offset1 - 1) andalso
+                (case lt1 of Load64 => true | Load32 => true | _ => false) andalso isValidForPair(offset1, offset2)
+            then
+            let
+                val (reg1, reg2, offset) =
+                    if offset1 < offset2 then (regT1, regT2, offset1) else (regT2, regT1, offset2)
+            in
+                forward(tl2,
+                    StoreRegPair{ regT1=reg1, regT2=reg2, regN=regN1, unitOffset=offset, loadType=lt1, unscaledType=NoUpdate} :: list, true)
+            end
+            else forward(tl1, store :: list, rep)
+
+        |   forward((store as StoreRegUnscaled{regT=regT1, regN=regN1, byteOffset= ~8, loadType=Load64, unscaledType=NoUpdate}) ::
+                     (tl1 as StoreRegScaled{regT=regT2, regN=regN2, unitOffset=0, loadType=Load64} ::tl2), list, rep) =
+            (* Common case - store length word and then the first word of the cell. *)
+            if regN1 = regN2
+            then forward(tl2,
+                    StoreRegPair{ regT1=regT1, regT2=regT2, regN=regN1, unitOffset= ~1, loadType=Load64, unscaledType=NoUpdate} :: list, true)
+            else forward(tl1, store :: list, rep)
+
+        |   forward((store as StoreRegUnscaled{regT=regT1, regN=regN1, byteOffset= ~4, loadType=Load32, unscaledType=NoUpdate}) ::
+                     (tl1 as StoreRegScaled{regT=regT2, regN=regN2, unitOffset=0, loadType=Load32} ::tl2), list, rep) =
+            (* Common case - store length word and then the first word of the cell. *)
+            if regN1 = regN2
+            then forward(tl2,
+                    StoreRegPair{ regT1=regT1, regT2=regT2, regN=regN1, unitOffset= ~1, loadType=Load32, unscaledType=NoUpdate} :: list, true)
+            else forward(tl1, store :: list, rep)
 
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep) 
         
