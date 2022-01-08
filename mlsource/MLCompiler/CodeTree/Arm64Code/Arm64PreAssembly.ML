@@ -763,9 +763,12 @@ struct
                 val preserve = List.filter (fn r => r <> X30) save
 
                 val allocCode =
-                    code <::>
+                    code <@>
                     (* Subtract the number of bytes required from the heap pointer. *)
-                    subImmediate{regN=X_MLHeapAllocPtr, regD=dest, immed=bytes, shifted=false} <::>
+                    (if bytes >= 0w4096
+                    then [subShiftedReg{regM=work, regN=X_MLHeapAllocPtr, regD=dest, shift=ShiftNone},
+                          loadNonAddressConstant(work, Word.toLarge bytes)]
+                    else [subImmediate{regN=X_MLHeapAllocPtr, regD=dest, immed=bytes, shifted=false}]) <::>
                     (* Compare the result with the heap limit. *)
                     subSShiftedReg{regM=X_MLHeapLimit, regN=dest, regD=XZero, shift=ShiftNone} <::>
                     conditionalBranch(CondCarrySet, label) <@>
