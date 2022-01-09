@@ -452,18 +452,13 @@ struct
                                 ListPair.zipEq(argVals, argTypes)
                             end
                 in
-                    val innerBody =
-                        mkEnv(
-                            [
-                            mkDec(0, mkCall (f, (getCurrentThreadId, GeneralType) :: args, resultType)),
-                            mkNullDec checkRTSException
-                            ], mkLoadLocal 0)
+                    val innerBody = mkCall (f, (getCurrentThreadId, GeneralType) :: args, resultType)
                 end
 
                 local
                     (* The closure contains the address of the RTS call. *)
                     val f = mkEval(mkConst callN, [mkLoadArgument 0]) (* This creates the actual call. *)
-                    val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)", [mkLoadLocal 0], 1)
+                    val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)", [mkLoadLocal 0], 0)
                 in
                     val outerBody = mkEnv([mkDec (0, f)], innerLambda)
                 end

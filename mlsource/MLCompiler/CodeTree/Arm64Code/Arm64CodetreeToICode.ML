@@ -106,6 +106,7 @@ struct
     and unaryFloatingPt = BlockSimple o UnaryFloatingPt
     and binaryFloatingPoint = BlockSimple o BinaryFloatingPoint
     and compareFloatingPoint = BlockSimple o CompareFloatingPoint
+    and cpuYield = BlockSimple CPUYield
 
     val shiftConstant = BlockSimple o shiftConstant
 
@@ -1068,9 +1069,9 @@ struct
                 (getThreadId{dest=target} :: tailCode, target, false)
             end
 
-        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, _, _, destination, tailCode) =
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CPUPause}, _, _, destination, tailCode) =
             (* This is now done in the RTS call code. *)
-                returnUnit(destination, tailCode, false)
+                returnUnit(destination, tailCode <::> cpuYield, false)
 
         |   codeToICodeRev(BICNullary {oper=CreateMutex}, _, _, destination, tailCode) =
             let

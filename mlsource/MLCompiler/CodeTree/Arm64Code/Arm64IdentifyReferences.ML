@@ -281,6 +281,9 @@ struct
     |   getInstructionState(CompareFloatingPoint{ arg1, arg2, ccRef, ...}) =
             { sources=[arg1, arg2], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
+    |   getInstructionState(CPUYield) =
+            { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(CacheCheck{ arg1, arg2}) =
             { sources=[arg1, arg2], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 

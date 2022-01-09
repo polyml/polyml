@@ -138,6 +138,7 @@ struct
            the list.  The branch table is a sequence of unconditional branches. *)
     |   BranchTable of { startLabel: label, brTable: label list }
     |   LoadGlobalHeapBaseInCallback of xReg
+    |   Yield
 
 
     (* Optimise the pre-assembler code and then generate the final code. *)
@@ -831,6 +832,9 @@ struct
         |   toAssembler(LoadGlobalHeapBaseInCallback dest :: rest, code) =
                 toAssembler(rest,
                     code <@> List.rev(loadGlobalHeapBaseInCallback dest))
+
+        |   toAssembler(Yield :: rest, code) =
+                toAssembler(rest, code <::> yield)
 
         (* Optimisation passes. *)
         fun isValidForPair(offset1, offset2) =

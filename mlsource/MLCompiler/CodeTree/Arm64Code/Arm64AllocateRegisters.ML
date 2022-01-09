@@ -1143,6 +1143,8 @@ struct
                     absToConcrete(rest, context, code <::>
                         CompareFloatingPoint{ arg1=getAllocatedFPReg arg1, arg2=getAllocatedFPReg arg2, opSize=opSize, ccRef=ccRef})
 
+            |   absToConcrete({instr=CPUYield, ...} :: rest, cache, code) = absToConcrete(rest, cache, code <::> CPUYield)
+
             |   absToConcrete({instr=CacheCheck _, ...} :: _, _, _) =  (* Concrete only. *)
                     raise InternalError "absToConcrete: CheckCache"
 

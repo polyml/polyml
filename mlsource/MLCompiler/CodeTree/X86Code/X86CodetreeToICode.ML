@@ -1113,8 +1113,9 @@ struct
                 (BlockSimple(LoadMemReg{offset=memRegThreadSelf, dest=target, kind=movePolyWord}) :: tailCode, RegisterArgument target, false)
             end
 
-        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, _, _, destination, tailCode) =
-                moveIfNotAllowedRev(destination, tailCode, (* Unit result *) IntegerConstant(tag 0))
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CPUPause}, _, _, destination, tailCode) =
+            (* Pause during spinlock phase of mutex locking. *)
+                moveIfNotAllowedRev(destination, BlockSimple PauseCPU :: tailCode, (* Unit result *) IntegerConstant(tag 0))
 
         |   codeToICodeRev(BICNullary{oper=BuiltIns.CreateMutex}, _, _, destination, tailCode) =
             let

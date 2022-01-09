@@ -956,6 +956,8 @@ struct
         |   codeExtended _ (CompareFloatingPoint{ arg1, arg2, opSize, ...}, code) =
                 (FPComparison{regN=arg1, regM=arg2, floatSize=opSize}) :: code
 
+        |   codeExtended _ (CPUYield, code) = code <::> Yield
+
         |   codeExtended _ (CacheCheck{ arg1, arg2 }, code) =
             let
                 val okLabel = createLabel labelMaker

@@ -195,6 +195,7 @@ sig
            the list.  The branch table is a sequence of unconditional branches. *)
     |   BranchTable of { startLabel: label, brTable: label list }
     |   LoadGlobalHeapBaseInCallback of xReg
+    |   Yield
 
     (* Wrapper for BitField *)
     val shiftConstant: { direction: shiftDirection, regD: xReg, regN: xReg, shift: word, opSize: opSize } -> precode

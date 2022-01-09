@@ -369,6 +369,9 @@ sig
         (* Floating point comparison. *)
     |   CompareFloatingPoint of { arg1: 'fpReg, arg2: 'fpReg, ccRef: ccRef, opSize: floatSize }
 
+        (* Yield control during a spin-lock. *)
+    |   CPUYield
+
         (* Debugging - fault if values don't match. *)
     |   CacheCheck of { arg1: 'genReg, arg2: 'genReg }
 

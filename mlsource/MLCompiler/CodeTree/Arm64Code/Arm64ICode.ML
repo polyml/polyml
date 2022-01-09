@@ -315,6 +315,9 @@ struct
         (* Floating point comparison. *)
     |   CompareFloatingPoint of { arg1: 'fpReg, arg2: 'fpReg, ccRef: ccRef, opSize: floatSize }
 
+        (* Yield control during a spin-lock. *)
+    |   CPUYield
+
         (* Debugging - fault if values don't match. *)
     |   CacheCheck of { arg1: 'genReg, arg2: 'genReg }
 
@@ -880,6 +883,8 @@ struct
                 printFPReg arg1; stream ", "; printFPReg arg2;
                 stream ", "; printCC(ccRef, stream)
             )
+
+        |   printICode (stream, _, _, _) CPUYield = stream "\tCpuYield"
 
         |   printICode (stream, printGenReg, _, _) (CacheCheck{ arg1, arg2}) =
             ( stream "\tCacheCheck\t"; printGenReg arg1; stream ", "; printGenReg arg2 )

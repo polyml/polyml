@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-21 David C.J. Matthews
+    Copyright (c) 2012, 2016-22 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -91,7 +91,7 @@ struct
 
         and nullaryOps =
             GetCurrentThreadId
-        |   CheckRTSException
+        |   CPUPause
         |   CreateMutex
 
         fun unaryRepr NotBoolean = "NotBoolean"
@@ -131,7 +131,7 @@ struct
         |   binaryRepr FreeCStack = "FreeCStack"
         
         and nullaryRepr GetCurrentThreadId = "GetCurrentThreadId"
-        |   nullaryRepr CheckRTSException = "CheckRTSException"
+        |   nullaryRepr CPUPause = "CPUPause"
         |   nullaryRepr CreateMutex = "CreateMutex"
         
         and testRepr TestEqual          = "Equal"

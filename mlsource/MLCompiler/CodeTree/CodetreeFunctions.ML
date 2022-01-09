@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,16,18-21 David C.J. Matthews
+    Copyright (c) 2012,13,16,18-22 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -154,7 +154,7 @@ struct
             end
 
         |   codeProps (Nullary{oper=BuiltIns.GetCurrentThreadId}) = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
-        |   codeProps (Nullary{oper=BuiltIns.CheckRTSException}) = PROPWORD_NOUPDATE
+        |   codeProps (Nullary{oper=BuiltIns.CPUPause}) = PROPWORD_NORAISE
         |   codeProps (Nullary{oper=BuiltIns.CreateMutex}) = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
 
         |   codeProps (Arbitrary{shortCond, arg1, arg2, longCall, ...}) =

@@ -976,6 +976,8 @@ struct
                                 arg2Code @ arg1Code @ code
                         end
 
+                    |   pushRegisters({instr=CPUYield, ...}, code) = CPUYield :: code
+
                     |   pushRegisters({instr=CacheCheck _, ...}, _) = raise InternalError "pushRegisters: CacheCheck"
 
                     local

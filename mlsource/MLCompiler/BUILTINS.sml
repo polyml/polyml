@@ -1,7 +1,7 @@
 (*
     Signature for built-in functions
 
-    Copyright David C. J. Matthews 2016, 2018-21
+    Copyright David C. J. Matthews 2016, 2018-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -105,8 +105,7 @@ sig
     and nullaryOps =
         (* Get the current thread id *)
         GetCurrentThreadId
-        (* Check whether the last RTS call set the exception status and raise it if it had. *)
-    |   CheckRTSException
+    |   CPUPause (* Pause a CPU while waiting for a spinlock. *)
         (* Allocate memory for a mutex *)
     |   CreateMutex
 
