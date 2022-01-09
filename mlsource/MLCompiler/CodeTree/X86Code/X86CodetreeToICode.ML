@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-21
+    Copyright David C. J. Matthews 2016-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1113,25 +1113,8 @@ struct
                 (BlockSimple(LoadMemReg{offset=memRegThreadSelf, dest=target, kind=movePolyWord}) :: tailCode, RegisterArgument target, false)
             end
 
-        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, { currHandler, ...}, _, destination, tailCode) =
-            let
-                (* Raise an exception in ML if the last RTS call set the exception packet. *)
-                val haveException = newLabel() and noException = newLabel()
-                val ccRef = newCCRef()
-                val testReg = newPReg()
-                val raiseCode = RaiseExceptionPacket{packetReg=testReg}
-                val code =
-                    BlockLabel noException ::
-                    (case currHandler of
-                        NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h)) ::
-                    BlockLabel haveException ::
-                    BlockFlow(Conditional{ ccRef=ccRef, condition=JNE, trueJump=haveException, falseJump=noException }) ::
-                    BlockSimple(CompareLiteral{arg1=RegisterArgument testReg, arg2=tag 0, opSize=polyWordOpSize, ccRef=ccRef}) ::
-                    BlockSimple(LoadMemReg{offset=memRegExceptionPacket, dest=testReg, kind=movePolyWord}) ::
-                    tailCode
-            in
-                moveIfNotAllowedRev(destination, code, (* Unit result *) IntegerConstant(tag 0))
-            end
+        |   codeToICodeRev(BICNullary{oper=BuiltIns.CheckRTSException}, _, _, destination, tailCode) =
+                moveIfNotAllowedRev(destination, tailCode, (* Unit result *) IntegerConstant(tag 0))
 
         |   codeToICodeRev(BICNullary{oper=BuiltIns.CreateMutex}, _, _, destination, tailCode) =
             let

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-21 David C.J. Matthews
+    Copyright (c) 2016-22 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -167,8 +167,15 @@ struct
         (* The number of ML arguments passed on the stack. *)
         val mlArgsOnStack = Int.max(case abi of X86_32 => nArgs - 2 | _ => nArgs - 5, 0)
 
+        val rtsExceptionLab = Label {labelNo=0}
+        val labelCount = 1
+
         val code =
             [
+                (* Clear the RTS exception - this may not be necessary but just to be safe. The RTS clears this for
+                   "full" calls but it could be left over from a previous call. *)
+                Move{source=NonAddressConstArg 1, destination=MemoryArg{base=ebp, offset=memRegExceptionPacket, index=NoIndex},
+                    moveSize=opSizeToMove polyWordOpSize},
                 Move{source=AddressConstArg entryPointAddr, destination=RegisterArg entryPtrReg, moveSize=opSizeToMove polyWordOpSize}, (* Load the entry point ref. *)
                 loadHeapMemory(entryPtrReg, entryPtrReg, 0, nativeWordOpSize)(* Load its value. *)
             ] @
@@ -321,14 +328,19 @@ struct
             else []
             ) @
             [
+                ArithMemConst{opc=CMP, address={base=ebp, offset=memRegExceptionPacket, index=NoIndex}, source=1, opSize=polyWordOpSize},
+                ConditionalBranch{test=JNE, label=rtsExceptionLab},
                 (* Since this is an ML function we need to remove any ML stack arguments. *)
-                ReturnFromFunction mlArgsOnStack
+                ReturnFromFunction mlArgsOnStack,
+                JumpLabel rtsExceptionLab,
+                loadMemory(eax, ebp, memRegExceptionPacket, polyWordOpSize),
+                RaiseException{workReg=ecx}
             ]
  
         val profileObject = createProfileObject ()
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
         val closure = makeConstantClosure()
-        val () = X86Optimise.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
+        val () = X86Optimise.generateCode{code=newCode, labelCount=labelCount, ops=code, resultClosure=closure}
     in
         closureAsAddress closure
     end
