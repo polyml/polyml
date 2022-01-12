@@ -185,6 +185,7 @@ sig
         (* Composite instructions *)
     |   MoveXRegToXReg of {sReg: xReg, dReg: xReg}
     |   LoadNonAddr of xReg * Word64.word
+    |   LoadFPConst of {dest: vReg, value: Word64.word, floatSize: floatSize, work: xReg}
     |   LoadAddr of xReg * machineWord
     |   RTSTrap of { rtsEntry: int, work: xReg, save: xReg list }
         (* Allocate memory - bytes includes the length word and rounding. *)

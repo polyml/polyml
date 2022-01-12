@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021 David C. J. Matthews
+    Copyright (c) 2021-2 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -374,6 +374,7 @@ struct
         SimpleInstr of Word32.word
     |   LoadAddressLiteral of {reg: xReg, value: machineWord, length: brLength ref}
     |   LoadNonAddressLiteral of {reg: xReg, value: Word64.word, length: brLength ref}
+    |   LoadFPLiteral of {reg: vReg, value: Word64.word, length: brLength ref, isDouble: bool, work: xReg}
     |   Label of labels
     |   UnconditionalBranch of {label: labels, andLink: bool}
     |   ConditionalBranch of { label: labels, jumpCondition: condition, length: brLength ref }
@@ -723,6 +724,13 @@ struct
     fun loadNonAddressConstant(xReg, valu) =
         LoadNonAddressLiteral{reg=xReg, value=valu, length=ref BrExtended}
 
+    (* Floating point constants.  TODO: We can use movi dn,#0 for zero and fmov dn,c
+       for various  constant values. *)
+    fun loadFloatConstant(vReg, valu, work) =
+        LoadFPLiteral{reg=vReg, value=valu, isDouble=false, length=ref BrExtended, work=work}
+    and loadDoubleConstant(vReg, valu, work) =
+        LoadFPLiteral{reg=vReg, value=valu, isDouble=true, length=ref BrExtended, work=work}
+
     local
         fun moveWideImmediate(sf, opc) {regD, immediate, shift} =
         let
@@ -1039,6 +1047,8 @@ struct
     |   codeSize (LoadAddressLiteral{ length=ref BrExtended, ...}) = 2
     |   codeSize (LoadNonAddressLiteral{ length=ref BrShort, ...}) = 1
     |   codeSize (LoadNonAddressLiteral{ length=ref BrExtended, ...}) = 2
+    |   codeSize (LoadFPLiteral{ length=ref BrShort, ...}) = 1
+    |   codeSize (LoadFPLiteral{ length=ref BrExtended, ...}) = 2
     |   codeSize (Label _) = 0
     |   codeSize (UnconditionalBranch _) = 1
     |   codeSize (LoadLabelAddress { length=ref BrShort, ...}) = 1
@@ -1133,6 +1143,14 @@ struct
                 end
 
             |   adjust(LoadNonAddressLiteral { length as ref BrExtended, ...} :: instrs, addr) =
+                let
+                    val offset = Word.toInt (lastSize + maxConstantSize) - Word.toInt addr
+                in
+                    if willFitInRange(offset, 0w19) then length := BrShort else ();
+                    adjust(instrs, addr + 0w2) (* N.B. Size BEFORE any adjustment *)
+                end
+
+            |   adjust(LoadFPLiteral { length as ref BrExtended, ...} :: instrs, addr) =
                 let
                     val offset = Word.toInt (lastSize + maxConstantSize) - Word.toInt addr
                 in
@@ -1246,6 +1264,27 @@ struct
                 val offsetOfConstant = (wordsOfCode+nonAConstNum)*0w2 - wordNo
                 val _ = willFitInRange(Word.toInt offsetOfConstant, 0w19) orelse raise InternalError "Offset to constant is too large"
                 val code = 0wx58000000 orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
+            in
+                writeInstr(code, wordNo, codeVec);
+                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum+0w1)
+            end
+
+        |   genCodeWords(LoadFPLiteral{reg, work, isDouble, length=ref BrExtended, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
+            let
+                val code1 = 0wx90000000 orb word8ToWord32(xRegOnly work)
+                val code2 = (if isDouble then loadRegScaledDouble else loadRegScaledFloat){regT=reg, regN=work, unitOffset=0}
+            in
+                writeInstr(code1, wordNo, codeVec);
+                genCodeWords(code2 :: tail, wordNo+0w1, aConstNum, nonAConstNum+0w1)
+            end
+
+        |   genCodeWords(LoadFPLiteral{reg, isDouble, length=ref BrShort, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
+            let
+                (* The offset is in 32-bit words.  These are always 64-bits. *)
+                val offsetOfConstant = (wordsOfCode+nonAConstNum)*0w2 - wordNo
+                val _ = willFitInRange(Word.toInt offsetOfConstant, 0w19) orelse raise InternalError "Offset to constant is too large"
+                val code = (if isDouble then 0wx5c000000 else 0wx1c000000) orb
+                                (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(vReg reg)
             in
                 writeInstr(code, wordNo, codeVec);
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum+0w1)
@@ -1911,13 +1950,14 @@ struct
                 else ()
             end
 
-            else if (wordValue andb 0wxbf000000) = 0wx18000000
+            else if (wordValue andb 0wx3b000000) = 0wx18000000
             then
             let
                 (* Load from a PC-relative address.  This may refer to the
                    address constant area or the non-address constant area. *)
                 val rT = wordValue andb 0wx1f
-                val s = (wordValue >> 0w30) andb 0w1
+                val opc = (wordValue >> 0w30) andb 0w3
+                val v = (wordValue >> 0w26) andb 0w1
                 (* The offset is in 32-bit words *)
                 val byteAddr = word32ToWord(((wordValue andb 0wx00ffffe0) >> (0w5-0w2))) + byteNo
                 (* We must NOT use codeVecGetWord if this is in the non-address
@@ -1934,8 +1974,15 @@ struct
                 in
                     val constantValue = "0x" ^ Word64.toString(getConstant(0w0, 0w8)) (* It's a non-address constant *)
                 end
+                val reg =
+                    case (opc, v) of
+                        (0w0, 0w0) => "w"
+                    |   (0w1, 0w0) => "x"
+                    |   (0w0, 0w1) => "s"
+                    |   (0w1, 0w1) => "d"
+                    |   _ => "?"
             in
-                printStream "ldr\t"; printStream (if s = 0w0 then "w" else "x");
+                printStream "ldr\t"; printStream reg;
                 printStream(Word32.fmt StringCvt.DEC rT);
                 printStream ",0x"; printStream(Word.fmt StringCvt.HEX byteAddr);
                 printStream "\t// "; printStream constantValue
@@ -2452,6 +2499,19 @@ struct
                 setADRPAddrs(tail, wordNo+0w2, aConstNum, nonAConstNum+0w1)
             end
 
+        |   setADRPAddrs(LoadFPLiteral{length=ref BrExtended, isDouble, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
+            let
+                (* The offset is in 32-bit words and the constants themselves are always 64-bits.  If
+                   we're loading a 32-bit float we have to use 32-bit offsets and if this is big-endian
+                   we need the low-order part. *)
+                val offsetOfConstant (* byte offset *) =
+                    firstNonAddrConst+nonAConstNum*0w8 + (if not isDouble andalso isBigEndian then 0w4 else 0w0)
+            in
+                codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord offsetOfConstant,
+                                            if isDouble then ConstArm64AdrpLdr64 else ConstArm64AdrpLdr32);
+                setADRPAddrs(tail, wordNo+0w2, aConstNum, nonAConstNum+0w1)
+            end
+
         |   setADRPAddrs(LoadLabelAddress{label=ref labs, length=ref BrExtended, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 val dest = !(hd labs) * 0w4
@@ -2476,6 +2536,7 @@ struct
             (* Extract the constants. *)
             fun getConsts(LoadAddressLiteral {value, ...}, (addrs, nonAddrs)) = (value::addrs, nonAddrs)
             |   getConsts(LoadNonAddressLiteral {value, ...}, (addrs, nonAddrs)) = (addrs, value::nonAddrs)
+            |   getConsts(LoadFPLiteral {value, ...}, (addrs, nonAddrs)) = (addrs, value::nonAddrs)
             |   getConsts(_, consts) = consts
 
             val (addrConsts, nonAddrConsts) = List.foldl getConsts ([], []) instrs

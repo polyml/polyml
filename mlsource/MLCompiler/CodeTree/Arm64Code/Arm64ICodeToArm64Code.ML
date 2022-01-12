@@ -263,8 +263,11 @@ struct
         fun codeExtended _ (MoveRegister{source, dest, ...}, code) =
             moveIfNecessary({src=source, dst=dest}, code)
 
-        |   codeExtended _ (LoadNonAddressConstant{source, dest, ...}, code) =
+        |   codeExtended _ (LoadNonAddressConstant{source, dest}, code) =
                 code <::> LoadNonAddr(dest, source)
+
+        |   codeExtended _ (LoadFPConstant{source, dest, floatSize}, code) =
+                code <::> LoadFPConst{dest=dest, value=source, floatSize=floatSize, work=workReg1}
 
         |   codeExtended _ (LoadAddressConstant{source, dest, ...}, code) =
                 code <::> LoadAddr(dest, source)

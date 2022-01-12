@@ -277,6 +277,53 @@ struct
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
+            |   optCode({instr as UnboxTagFloat{ source, dest, floatSize=Float32 }, kill, ...} :: rest, inCond, regMap, code, changed) =
+                let
+                    val (repSource, mapAfterReplace) = getRegisterValue(source, kill, regMap)
+                in
+                    case repSource of
+                        NonAddressConst cVal => (* Should only be Float32 in native 64-bits. *)
+                        let
+                            val _  = not is32in64 andalso LargeWord.andb(cVal, 0wxffffffff) = 0w1
+                                        orelse raise InternalError "incorrect FP constant form"
+                            val fpConstant = LargeWord.>>(cVal, 0w32)
+                        in
+                            optCode(rest, inCond, mapAfterReplace, LoadFPConstant{dest=dest, floatSize=Float32, source=fpConstant} :: code, true)
+                        end
+
+                    |   AddressConstant cVal =>
+                        let
+                            open Address
+                            val addr = toAddress cVal
+                            val _ = is32in64 andalso length addr = 0w1 andalso flags addr = F_bytes
+                                orelse raise InternalError "incorrect FP constant form"
+                            val fpConstant = RunCall.loadPolyWord(addr, 0w0)
+                        in
+                            optCode(rest, inCond, mapAfterReplace, LoadFPConstant{dest=dest, floatSize=Float32, source=fpConstant} :: code, true)
+                        end
+
+                    |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                end
+
+            |   optCode({instr as UnboxTagFloat{ source, dest, floatSize=Double64 }, kill, ...} :: rest, inCond, regMap, code, changed) =
+                let
+                    val (repSource, mapAfterReplace) = getRegisterValue(source, kill, regMap)
+                in
+                    case repSource of
+                        AddressConstant cVal =>
+                        let
+                            open Address
+                            val addr = toAddress cVal
+                            val _ = length addr = (0w8 div wordSize) andalso flags addr = F_bytes
+                                orelse raise InternalError "incorrect FP constant form"
+                            val fpConstant = RunCall.loadNativeWord(addr, 0w0)
+                        in
+                            optCode(rest, inCond, mapAfterReplace, LoadFPConstant{dest=dest, floatSize=Double64, source=fpConstant} :: code, true)
+                        end
+
+                    |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                end
+
                 (* Some of these are specifically to reduce "ref" to its simplest form since it's generated
                    as a variable-length item. *)
 

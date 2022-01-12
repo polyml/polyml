@@ -130,6 +130,7 @@ struct
         (* Composite instructions *)
     |   MoveXRegToXReg of {sReg: xReg, dReg: xReg}
     |   LoadNonAddr of xReg * Word64.word
+    |   LoadFPConst of {dest: vReg, value: Word64.word, floatSize: floatSize, work: xReg}
     |   LoadAddr of xReg * machineWord
     |   RTSTrap of { rtsEntry: int, work: xReg, save: xReg list }
     |   AllocateMemoryFixedSize of { bytes: word, dest: xReg, save: xReg list, work: xReg }
@@ -737,6 +738,12 @@ struct
             in
                 toAssembler(rest, nextCode)
             end
+
+        |   toAssembler(LoadFPConst{dest, value, floatSize=Float32, work} :: rest, code) =
+                toAssembler(rest, loadFloatConstant(dest, value, work)::code)
+
+        |   toAssembler(LoadFPConst{dest, value, floatSize=Double64, work} :: rest, code) =
+                toAssembler(rest, loadDoubleConstant(dest, value, work)::code)
 
         |   toAssembler(LoadAddr(dReg, source) :: rest, code) = toAssembler(rest, loadAddressConstant(dReg, source) :: code)
 

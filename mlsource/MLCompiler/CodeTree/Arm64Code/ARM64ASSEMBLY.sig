@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021 David C. J. Matthews
+    Copyright (c) 2021-2 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -108,6 +108,9 @@ sig
        For tagged integers that means that the value must have
        been shifted and the tag bit set. *)
     and loadNonAddressConstant: xReg * Word64.word -> instr
+    
+    and loadFloatConstant: vReg  * Word64.word * xReg -> instr
+    and loadDoubleConstant: vReg  * Word64.word * xReg -> instr
 
     (* Move a value into a register.  The immediate is 16-bits and the shift
        is 0, 16, 24, or 48.  moveKeep affect only the specific 16-bits and

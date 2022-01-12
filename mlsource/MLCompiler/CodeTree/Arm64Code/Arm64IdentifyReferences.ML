@@ -64,6 +64,9 @@ struct
     |   getInstructionState(LoadNonAddressConstant { dest, ...}) =
         { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(LoadFPConstant { dest, ...}) =
+        { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(LoadAddressConstant { dest, ...}) =
         { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 

@@ -574,6 +574,13 @@ struct
                     absToConcrete(rest, newCache, code <::> LoadNonAddressConstant { dest=destReg, source=source})
                 end
 
+            |   absToConcrete({instr=LoadFPConstant { dest, source, floatSize }, ...} :: rest, cache, code) =
+                let
+                    val (destReg, newCache) = allocateFPReg(dest, NONE, cache)
+                in
+                    absToConcrete(rest, newCache, code <::> LoadFPConstant { dest=destReg, source=source, floatSize=floatSize})
+                end
+
             |   absToConcrete({instr=LoadAddressConstant { dest, source}, ...} :: rest, cache, code) =
                 let
                     val (destReg, newCache) = allocateGenReg(dest, NONE, cache)

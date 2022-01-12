@@ -113,6 +113,9 @@ sig
         (* Numerical constant. *)
     |   LoadNonAddressConstant of { source: Word64.word, dest: 'genReg }
 
+        (* Floating point constant *)
+    |   LoadFPConstant of { source: Word64.word, dest: 'fpReg, floatSize: floatSize }
+
         (* Address constant. *)
     |   LoadAddressConstant of { source: machineWord, dest: 'genReg }
 

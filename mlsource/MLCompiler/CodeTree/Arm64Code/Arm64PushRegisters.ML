@@ -321,6 +321,13 @@ struct
                             destCode @ LoadNonAddressConstant { dest=destVal, source=source} :: code
                         end
 
+                    |   pushRegisters({instr=LoadFPConstant { dest, source, floatSize}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ LoadFPConstant { dest=destVal, source=source, floatSize=floatSize} :: code
+                        end
+
                     |   pushRegisters({instr=LoadAddressConstant { dest, source}, ...}, code) =
                         let
                             val (destVal, destCode) = mapDestReg dest
