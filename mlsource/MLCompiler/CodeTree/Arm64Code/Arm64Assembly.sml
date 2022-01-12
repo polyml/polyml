@@ -2502,10 +2502,8 @@ struct
         |   setADRPAddrs(LoadFPLiteral{length=ref BrExtended, isDouble, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 (* The offset is in 32-bit words and the constants themselves are always 64-bits.  If
-                   we're loading a 32-bit float we have to use 32-bit offsets and if this is big-endian
-                   we need the low-order part. *)
-                val offsetOfConstant (* byte offset *) =
-                    firstNonAddrConst+nonAConstNum*0w8 + (if not isDouble andalso isBigEndian then 0w4 else 0w0)
+                   we're loading a 32-bit float we have to use 32-bit offsets. *)
+                val offsetOfConstant (* byte offset *) = firstNonAddrConst+nonAConstNum*0w8
             in
                 codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord offsetOfConstant,
                                             if isDouble then ConstArm64AdrpLdr64 else ConstArm64AdrpLdr32);
@@ -2536,7 +2534,14 @@ struct
             (* Extract the constants. *)
             fun getConsts(LoadAddressLiteral {value, ...}, (addrs, nonAddrs)) = (value::addrs, nonAddrs)
             |   getConsts(LoadNonAddressLiteral {value, ...}, (addrs, nonAddrs)) = (addrs, value::nonAddrs)
-            |   getConsts(LoadFPLiteral {value, ...}, (addrs, nonAddrs)) = (addrs, value::nonAddrs)
+            |   getConsts(LoadFPLiteral {value, isDouble, ...}, (addrs, nonAddrs)) =
+                let
+                    (* When loading a float we will only access the first 32-bits so if this is
+                       big-endian we have to shift the value so it's there. *)
+                    val shifted = if not isDouble andalso isBigEndian then LargeWord.<<(value, 0w32) else value
+                in
+                    (addrs, shifted::nonAddrs)
+                end
             |   getConsts(_, consts) = consts
 
             val (addrConsts, nonAddrConsts) = List.foldl getConsts ([], []) instrs
