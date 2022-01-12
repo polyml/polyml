@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015-18, 2020-21 David C.J. Matthews
+    Copyright (c) 2015-18, 2020-22 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -218,6 +218,10 @@ struct
     and ext_opcode_resetR_w          = 0wx19
     and ext_opcode_callFastRTSRRtoR  = 0wx1c
     and ext_opcode_callFastRTSRGtoR  = 0wx1d
+    and ext_opcode_loadPolyWord      = 0wx20
+    and ext_opcode_loadNativeWord    = 0wx21
+    and ext_opcode_storePolyWord     = 0wx22
+    and ext_opcode_storeNativeWord   = 0wx23
     and ext_opcode_jump32True        = 0wx48
     and ext_opcode_floatAbs          = 0wx56
     and ext_opcode_floatNeg          = 0wx57
@@ -630,6 +634,10 @@ struct
                         |   0wx19 => printOp(2, "resetR_w\t")
                         |   0wx1c => printStream "callFastRTSRRtoR"
                         |   0wx1d => printStream "callFastRTSRGtoR"
+                        |   0wx20 => printStream "loadPolyWord"
+                        |   0wx21 => printStream "loadNativeWord"
+                        |   0wx22 => printStream "storePolyWord"
+                        |   0wx23 => printStream "storeNativeWord"
                         |   0wx48 => (printStream "jumpTrue"; printDisp (4, "\t"))
                         |   0wx56 => printStream "floatAbs"
                         |   0wx57 => printStream "floatNeg"
@@ -1767,6 +1775,8 @@ struct
     val opcode_loadCFloat       = SimpleCode [opcode_escape, ext_opcode_loadCFloat]
     val opcode_loadCDouble      = SimpleCode [opcode_escape, ext_opcode_loadCDouble]
     val opcode_loadUntagged     = SimpleCode [opcode_loadUntagged]
+    val opcode_loadPolyWord     = SimpleCode [opcode_escape, ext_opcode_loadPolyWord]
+    val opcode_loadNativeWord   = SimpleCode [opcode_escape, ext_opcode_loadNativeWord]
     val opcode_storeMLWord      = SimpleCode [opcode_storeMLWord]
     val opcode_storeMLByte      = SimpleCode [opcode_storeMLByte]
     val opcode_storeC8          = SimpleCode [opcode_escape, ext_opcode_storeC8]
@@ -1776,6 +1786,8 @@ struct
     val opcode_storeCFloat      = SimpleCode [opcode_escape, ext_opcode_storeCFloat]
     val opcode_storeCDouble     = SimpleCode [opcode_escape, ext_opcode_storeCDouble]
     val opcode_storeUntagged    = SimpleCode [opcode_storeUntagged]
+    val opcode_storePolyWord    = SimpleCode [opcode_escape, ext_opcode_storePolyWord]
+    val opcode_storeNativeWord  = SimpleCode [opcode_escape, ext_opcode_storeNativeWord]
     val opcode_blockMoveWord    = SimpleCode [opcode_blockMoveWord]
     val opcode_blockMoveByte    = SimpleCode [opcode_blockMoveByte]
     val opcode_blockEqualByte   = SimpleCode [opcode_blockEqualByte]

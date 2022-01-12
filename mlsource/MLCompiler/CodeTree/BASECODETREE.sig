@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2016-21
+    Modified David C. J. Matthews 2008-2010, 2013, 2016-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -45,6 +45,8 @@ sig
     |   LoadStoreCFloat
     |   LoadStoreCDouble
     |   LoadStoreUntaggedUnsigned
+    |   LoadStorePolyWord of {isImmutable: bool}        (* Load/Store a PolyWord value to/from a large word *)
+    |   LoadStoreNativeWord of {isImmutable: bool}      (* Load/Store a native word value to/from a large word *)
 
     datatype blockOpKind =
         BlockOpMove of {isByteMove: bool}

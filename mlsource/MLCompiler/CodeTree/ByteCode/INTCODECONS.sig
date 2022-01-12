@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-18, 2020-21 David C.J. Matthews
+    Copyright (c) 2016-18, 2020-22 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -120,6 +120,8 @@ sig
     val opcode_loadCFloat: opcode
     val opcode_loadCDouble: opcode
     val opcode_loadUntagged: opcode
+    val opcode_loadPolyWord: opcode
+    val opcode_loadNativeWord: opcode
     val opcode_storeMLWord: opcode
     val opcode_storeMLByte: opcode
     val opcode_storeC8: opcode
@@ -129,6 +131,8 @@ sig
     val opcode_storeCFloat: opcode
     val opcode_storeCDouble: opcode
     val opcode_storeUntagged: opcode
+    val opcode_storePolyWord: opcode
+    val opcode_storeNativeWord: opcode
     val opcode_blockMoveWord: opcode
     val opcode_blockMoveByte: opcode
     val opcode_blockEqualByte: opcode

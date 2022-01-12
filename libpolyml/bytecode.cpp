@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2015-18, 2020-21.
+    Further development Copyright David C.J. Matthews 2015-18, 2020-22.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1432,6 +1432,51 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                 PolyObject* t = boxDouble(taskData, result, pc, sp);
                 if (t == 0) goto RAISE_EXCEPTION;
                 *(--sp) = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_loadPolyWord:
+            {
+                POLYUNSIGNED index = UNTAGGED(*sp++);
+                PolyObject* p = (PolyObject*)((*sp).w().AsCodePtr());
+                POLYUNSIGNED r = ((POLYUNSIGNED*)p)[index];
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(POLYUNSIGNED*)t = r;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_loadNativeWord:
+            {
+                POLYUNSIGNED index = UNTAGGED(*sp++);
+                PolyObject* p = (PolyObject*)((*sp).w().AsCodePtr());
+                uintptr_t r = ((uintptr_t*)p)[index];
+                PolyObject* t = this->allocateMemory(taskData, LGWORDSIZE, pc, sp);
+                if (t == 0) goto RAISE_EXCEPTION;
+                t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+                *(uintptr_t*)t = r;
+                *sp = (PolyWord)t;
+                break;
+            }
+
+            case EXTINSTR_storePolyWord:
+            {
+                uintptr_t toStore = (*(uintptr_t*)((*sp++).w().AsObjPtr()));
+                POLYUNSIGNED index = UNTAGGED(*sp++);
+                PolyObject* p = (PolyObject*)((*sp).w().AsCodePtr());
+                ((POLYUNSIGNED*)p)[index] = toStore;
+                *sp = Zero;
+                break;
+            }
+
+            case EXTINSTR_storeNativeWord:
+            {
+                uintptr_t toStore = *(uintptr_t*)((*sp++).w().AsObjPtr());
+                POLYSIGNED index = UNTAGGED(*sp++);
+                PolyObject* p = (PolyObject*)((*sp).w().AsCodePtr());
+                ((uintptr_t*)p)[index] = toStore;
                 break;
             }
 

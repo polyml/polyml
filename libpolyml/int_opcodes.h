@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development Copyright David C.J. Matthews 2015-18, 2020-21.
+    Further development Copyright David C.J. Matthews 2015-18, 2020-22.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -193,6 +193,10 @@
 #define EXTINSTR_reset_r_w          0x19
 #define EXTINSTR_callFastRRtoR      0x1c
 #define EXTINSTR_callFastRGtoR      0x1d
+#define EXTINSTR_loadPolyWord       0x20
+#define EXTINSTR_loadNativeWord     0x21
+#define EXTINSTR_storePolyWord      0x22
+#define EXTINSTR_storeNativeWord    0x23
 #define EXTINSTR_jump32True         0x48
 #define EXTINSTR_floatAbs           0x56
 #define EXTINSTR_floatNeg           0x57

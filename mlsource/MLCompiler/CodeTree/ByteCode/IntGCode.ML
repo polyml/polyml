@@ -712,6 +712,20 @@ struct
                 decsp()
             )
 
+        |   BICLoadOperation { kind=LoadStorePolyWord _, address} =>
+            (
+                genMLAddress(address, Word.toInt wordSize);
+                genOpcode(opcode_loadPolyWord, cvec);
+                decsp()
+            )
+
+        |   BICLoadOperation { kind=LoadStoreNativeWord _, address} =>
+            (
+                genMLAddress(address, Word.toInt nativeWordSize);
+                genOpcode(opcode_loadNativeWord, cvec);
+                decsp()
+            )
+
         |   BICStoreOperation { kind=LoadStoreMLWord _, address, value } =>
             (
                 genMLAddress(address, Word.toInt wordSize);
@@ -781,6 +795,22 @@ struct
                 genMLAddress(address, Word.toInt wordSize);
                 gencde (value, ToStack, NotEnd, loopAddr);
                 genOpcode(opcode_storeUntagged, cvec);
+                decsp(); decsp()
+            )
+
+        |   BICStoreOperation { kind=LoadStorePolyWord _, address, value} =>
+            (
+                genMLAddress(address, Word.toInt wordSize);
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storePolyWord, cvec);
+                decsp(); decsp()
+            )
+
+        |   BICStoreOperation { kind=LoadStoreNativeWord _, address, value} =>
+            (
+                genMLAddress(address, Word.toInt nativeWordSize);
+                gencde (value, ToStack, NotEnd, loopAddr);
+                genOpcode(opcode_storeNativeWord, cvec);
                 decsp(); decsp()
             )
 

@@ -1739,9 +1739,9 @@ struct
                 val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val ccRef = newCCRef()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
-                    codeAddressRev(sourceLeft, true, context, tailCode)
+                    codeAddressRev(sourceLeft, 0w1, context, tailCode)
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
-                    codeAddressRev(destRight, true, context, leftCode)
+                    codeAddressRev(destRight, 0w1, context, leftCode)
                 val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToRegRev(length, false (* unsigned *), context, rightCode)
                 val target = asTarget destination
                 val code =
@@ -2167,7 +2167,7 @@ struct
                         case arg1 of
                             BICLoadOperation{kind=LoadStoreUntaggedUnsigned, address} =>
                             let
-                                val (codeBaseIndex, codeUntag, memLoc) = codeAddressRev(address, false, context, tailCode)
+                                val (codeBaseIndex, codeUntag, memLoc) = codeAddressRev(address, wordSize, context, tailCode)
                                 val literal = Word.toLargeIntX(toShort arg2Value)
                             in
                                 BlockSimple(CompareLiteral{arg1=MemoryLocation memLoc, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
@@ -2176,7 +2176,7 @@ struct
                         |   BICLoadOperation{kind=LoadStoreMLByte _, address} =>
                             let
                                 val (codeBaseIndex, codeUntag, {base, index, offset, ...}) =
-                                    codeAddressRev(address, true, context, tailCode)
+                                    codeAddressRev(address, 0w1, context, tailCode)
                                 val _ = toShort arg2Value >= 0w0 andalso toShort arg2Value < 0w256
                                             orelse raise InternalError "Compare byte not a byte"
                                 val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
@@ -3143,7 +3143,7 @@ struct
         and codeToICodeLoad({kind=LoadStoreMLWord _, address}, context, _, destination) =
             let
                 val target = asTarget destination
-                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, wordSize, context)
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument {source=MemoryLocation memLoc, dest=target, kind=movePolyWord})], RegisterArgument target, false)
@@ -3152,7 +3152,7 @@ struct
         |   codeToICodeLoad({kind=LoadStoreMLByte _, address}, context, _, destination) =
             let
                 val target = asTarget destination
-                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, true, context)
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, 0w1, context)
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
@@ -3247,7 +3247,7 @@ struct
         |   codeToICodeLoad({kind=LoadStoreUntaggedUnsigned, address}, context, _, destination) =
             let
                 val target = asTarget destination
-                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, wordSize, context)
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
@@ -3255,11 +3255,32 @@ struct
                      BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false, opSize=polyWordOpSize})], RegisterArgument target, false)
             end
 
+        |   codeToICodeLoad({kind=LoadStorePolyWord _, address}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, wordSize, context)
+                val untaggedResReg = newUReg()
+            in
+                (codeBaseIndex @ codeUntag @
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=movePolyWord}),
+                     BlockSimple(BoxValue {boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
+            end
+
+        |   codeToICodeLoad({kind=LoadStoreNativeWord _, address}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, nativeWordSize, context)
+                val untaggedResReg = newUReg()
+            in
+                (codeBaseIndex @ codeUntag @
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=moveNativeWord}),
+                     BlockSimple(BoxValue {boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
+            end
 
         and codeToICodeStore({kind=LoadStoreMLWord _, address, value}, context, _, destination) =
             let
                 val (sourceCode, source, _) = codeToICode(value, context, false, Allowed allowInMemMove)
-                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, false, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, wordSize, context)
                 val code =
                     codeBaseIndex @ sourceCode @ codeUntag @
                         [BlockSimple(StoreArgument {source=source, base=base, offset=offset, index=index, kind=movePolyWord, isMutable=true})]
@@ -3269,7 +3290,7 @@ struct
 
         |   codeToICodeStore({kind=LoadStoreMLByte _, address, value}, context, _, destination) =
             let
-                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, true, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, 0w1, context)
                 (* We have to untag the value to store. *)
                 val (valueCode, untagValue, valueArg) = codeAsUntaggedByte(value, false, context)
                 val code =
@@ -3382,7 +3403,7 @@ struct
         |   codeToICodeStore({kind=LoadStoreUntaggedUnsigned, address, value}, context, _, destination) =
             let
                 (* We have to untag the value to store. *)
-                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, false, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, wordSize, context)
                 (* See if it's a constant.  This is frequently used to set the last word of a string to zero. *)
                 (* We have to be a bit more careful on the X86.  We use moves to store constants that
                    can include addresses.  To avoid problems we only use a move if the value is
@@ -3419,6 +3440,33 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
+        |   codeToICodeStore({kind=LoadStorePolyWord _, address, value}, context, _, destination) =
+            let
+                (* Store a 32-bit value from a large-word. *)
+                val (valueCode, valueReg) = codeToPReg(value, context)
+                val valueReg1 = newUReg()
+                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, wordSize, context)
+                val code =
+                    codeBaseIndex @ valueCode @ codeUntag @
+                    [BlockSimple(LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=moveNativeWord}),
+                     BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=movePolyWord, isMutable=true})]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+
+        |   codeToICodeStore({kind=LoadStoreNativeWord _, address, value}, context, _, destination) =
+            let
+                (* Store a 32-bit value from a large-word. *)
+                val (valueCode, valueReg) = codeToPReg(value, context)
+                val valueReg1 = newUReg()
+                val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, nativeWordSize, context)
+                val code =
+                    codeBaseIndex @ valueCode @ codeUntag @
+                    [BlockSimple(LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=moveNativeWord}),
+                     BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=moveNativeWord, isMutable=true})]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
 
         and codeToICodeBlock({kind=BlockOpCompareByte, sourceLeft, destRight, length}, context, _, destination) =
             let
@@ -3428,9 +3476,9 @@ struct
                 val mergeResult = newMergeReg()
                 val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
-                    codeAddress(sourceLeft, true, context)
+                    codeAddress(sourceLeft, 0w1, context)
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
-                    codeAddress(destRight, true, context)
+                    codeAddress(destRight, 0w1, context)
                 val ccRef = newCCRef()
                 val labLess = newLabel() and labGreater = newLabel() and exitLab = newLabel()
                 val labNotLess = newLabel() and labNotGreater = newLabel()
@@ -3498,9 +3546,9 @@ struct
                     SOME moveKind =>
                     let
                         val (leftCode, leftUntag, leftMem) =
-                            codeAddress(sourceLeft, isByteMove, context)
+                            codeAddress(sourceLeft, if isByteMove then 0w1 else wordSize, context)
                         val (rightCode, rightUntag, {base, offset, index, ...}) =
-                            codeAddress(destRight, isByteMove, context)
+                            codeAddress(destRight, if isByteMove then 0w1 else wordSize, context)
                         val untaggedResReg = newUReg()
                         val code =
                             leftCode @ rightCode @ leftUntag @ rightUntag @
@@ -3514,9 +3562,9 @@ struct
                     let
                         val vec1Reg = newUReg() and vec2Reg = newUReg()
                         val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
-                            codeAddress(sourceLeft, isByteMove, context)
+                            codeAddress(sourceLeft, if isByteMove then 0w1 else wordSize, context)
                         val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
-                            codeAddress(destRight, isByteMove, context)
+                            codeAddress(destRight, if isByteMove then 0w1 else wordSize, context)
                         val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
                         val code =
                             leftCode @ rightCode @ lengthCode @
@@ -3782,7 +3830,7 @@ struct
         )
 
         (* Code an address.  The index is optional. *)
-        and codeAddressRev({base, index=SOME index, offset}, true (* byte move *), context, tailCode) =
+        and codeAddressRev({base, index=SOME index, offset}, 0w1 (* byte move *), context, tailCode) =
             let
                 (* Byte address with index.  The index needs to be untagged. *)
                 val indexReg1 = newUReg()
@@ -3803,7 +3851,7 @@ struct
                 (codeLoadAddr @ codeIndex, untagCode, memResult)
             end
 
-        |   codeAddressRev({base, index=SOME index, offset}, false (* word move *), context, tailCode) =
+        |   codeAddressRev({base, index=SOME index, offset}, scale (* word move *), context, tailCode) =
             let
                 (* Word address with index.  We can avoid untagging the index by adjusting the
                    multiplier and offset *) 
@@ -3819,9 +3867,10 @@ struct
                     end
                     else ([], baseReg)
                 val memResult =
-                    if wordSize = 0w8
-                    then {base=realBase, offset=offset-4, index=MemIndex4 indexReg, cache=NONE}
-                    else {base=realBase, offset=offset-2, index=MemIndex2 indexReg, cache=NONE}
+                    case scale of
+                        0w8 => {base=realBase, offset=offset-4, index=MemIndex4 indexReg, cache=NONE}
+                    |   0w4 => {base=realBase, offset=offset-2, index=MemIndex2 indexReg, cache=NONE}
+                    |   _ => raise InternalError "codeAddressRev: unknown scale"
             in
                 (codeLoadAddr @ codeIndex, [], memResult)
             end
@@ -3834,9 +3883,9 @@ struct
                 (codeBase, [], memResult)
             end
 
-        and codeAddress(addr, isByte, context) =
+        and codeAddress(addr, scale, context) =
         let
-            val (code, untag, res) = codeAddressRev(addr, isByte, context, [])
+            val (code, untag, res) = codeAddressRev(addr, scale, context, [])
         in
             (List.rev code, untag, res)
         end

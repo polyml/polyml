@@ -2894,6 +2894,32 @@ struct
                         loadAndStoreWithAddress(regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
                 end
 
+            |   LoadStorePolyWord _ =>
+                let
+                    (* LoadStoreMLWord {isImmutable=true} except it has to be boxed. For the moment don't use load-acquire. *)
+                    val ureg = newUReg()
+                    fun loadConstOffset(base, offset, code) =
+                        loadWithConstantOffset{base=base, dest=ureg, byteOffset=offset, loadType=polyWordLoadSize} :: code
+                    fun loadIndexed(base, index, code) =
+                        loadWithIndexedOffset{base=base, dest=ureg, index=index, loadType=polyWordLoadSize, signExtendIndex=false} :: code
+                in
+                    boxLarge{source=ureg, dest=target, saveRegs=[]} ::
+                        loadAndStoreWithAddress(regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
+                end
+                
+            |   LoadStoreNativeWord _ =>
+                let
+                    (* Similar to LoadStorePolyWord but a native word. *)
+                    val ureg = newUReg()
+                    fun loadConstOffset(base, offset, code) =
+                        loadWithConstantOffset{base=base, dest=ureg, byteOffset=offset, loadType=Load64} :: code
+                    fun loadIndexed(base, index, code) =
+                        loadWithIndexedOffset{base=base, dest=ureg, index=index, loadType=Load64, signExtendIndex=false} :: code
+                in
+                    boxLarge{source=ureg, dest=target, saveRegs=[]} ::
+                        loadAndStoreWithAddress(regAddr, opWordSize Load64, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
+                end
+
         in
             (code, target, false)
         end
@@ -3110,6 +3136,48 @@ struct
                     end
                 in
                     loadAndStoreWithAddress(regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, sourceCode)
+                end
+
+            |   LoadStorePolyWord _ =>
+                let
+                    (* For the moment assume we don't require store-release. *)
+                    fun loadConstOffset(base, offset, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=polyWordLoadSize} ::
+                        unboxLarge{source=sourceReg, dest=tReg} :: code
+                    end
+                    fun loadIndexed(base, index, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=polyWordLoadSize, signExtendIndex=false} ::
+                        unboxLarge{source=sourceReg, dest=tReg} :: code
+                    end
+                in
+                    loadAndStoreWithAddress(regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, sourceCode)
+                end
+
+            |   LoadStoreNativeWord _ =>
+                let
+                    (* For the moment assume we don't require store-release. *)
+                    fun loadConstOffset(base, offset, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithConstantOffset{base=base, source=tReg, byteOffset=offset, loadType=Load64} ::
+                        unboxLarge{source=sourceReg, dest=tReg} :: code
+                    end
+                    fun loadIndexed(base, index, code) =
+                    let
+                        val tReg = newUReg()
+                    in
+                        storeWithIndexedOffset{base=base, source=tReg, index=index, loadType=Load64, signExtendIndex=false} ::
+                        unboxLarge{source=sourceReg, dest=tReg} :: code
+                    end
+                in
+                    loadAndStoreWithAddress(regAddr, opWordSize Load64, loadShift Load64, false, loadConstOffset, loadIndexed, sourceCode)
                 end
         in
             returnUnit(destination, storeCode, false)

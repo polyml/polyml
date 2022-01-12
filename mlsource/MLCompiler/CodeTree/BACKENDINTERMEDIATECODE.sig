@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012, 2016-21 David C.J. Matthews
+    Copyright (c) 2012, 2016-22 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -124,6 +124,8 @@ sig
     |   LoadStoreCFloat
     |   LoadStoreCDouble
     |   LoadStoreUntaggedUnsigned
+    |   LoadStorePolyWord of {isImmutable: bool}        (* Load/Store a PolyWord value to/from a large word *)
+    |   LoadStoreNativeWord of {isImmutable: bool}      (* Load/Store a native word value to/from a large word *)
 
     and blockOpKind =
         BlockOpMove of {isByteMove: bool}

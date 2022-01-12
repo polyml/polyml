@@ -40,6 +40,8 @@ sig
     |   LoadStoreCFloat
     |   LoadStoreCDouble
     |   LoadStoreUntaggedUnsigned
+    |   LoadStorePolyWord of {isImmutable: bool}        (* Load/Store a PolyWord value to/from a large word *)
+    |   LoadStoreNativeWord of {isImmutable: bool}      (* Load/Store a native word value to/from a large word *)
 
     and blockOpKind =
         BlockOpMove of {isByteMove: bool}

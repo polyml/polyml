@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2016-17, 2020-1 David C.J. Matthews
+    Copyright (c) 2013, 2016-17, 2020-2 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -125,6 +125,7 @@ struct
     local
         val ffiSizeFloat: unit -> int = RunCall.rtsCallFast1 "PolySizeFloat"
         and ffiSizeDouble: unit -> int = RunCall.rtsCallFast1 "PolySizeDouble"
+        val sysWordSize: word = RunCall.memoryCellLength(Word.toLargeWord 0w0) * RunCall.bytesPerWord
     in
         (* If we have a constant index value we convert that into a byte offset. We need
            to know the size of the item on this platform.  We have to make this check
@@ -144,6 +145,8 @@ struct
         |   getMultiplier LoadStoreCFloat       = (ffiSizeFloat(), true (* signed *) )
         |   getMultiplier LoadStoreCDouble      = (ffiSizeDouble(), true (* signed *) )
         |   getMultiplier LoadStoreUntaggedUnsigned = (Word.toInt RunCall.bytesPerWord, false (* unsigned *))
+        |   getMultiplier (LoadStorePolyWord _)  = (Word.toInt RunCall.bytesPerWord, false)
+        |   getMultiplier (LoadStoreNativeWord _)  = (Word.toInt sysWordSize, false)
     end
 
     fun simplify(c, s) = mapCodetree (simpGeneral s) c

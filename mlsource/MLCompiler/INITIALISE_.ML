@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-21
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -340,6 +340,12 @@ struct
             (* Load a byte from an immutable.  *)
             val () = enterRunCall ("loadByteFromImmutable",
                     makePolymorphic([a, b], mkLoadOperationFn(LoadStoreMLByte{isImmutable=true})), a ** Word ->> b)
+            (* Load a 32-bit value into a large word *)
+            val () = enterRunCall ("loadPolyWord",
+                    makePolymorphic([a], mkLoadOperationFn(LoadStorePolyWord{isImmutable=false})), a ** Word ->> LargeWord)
+            (* Load a 64-bit value into a large word *)
+            val () = enterRunCall ("loadNativeWord",
+                    makePolymorphic([a], mkLoadOperationFn(LoadStoreNativeWord{isImmutable=false})), a ** Word ->> LargeWord)
             (* Get the length of a heap cell. *)
             val () = enterRunCall ("memoryCellLength", makePolymorphic([a], mkUnaryFn MemoryCellLength), a ->> Word)
             (* Return the flags.  Perhaps this could return a Word8.word value instead of a word. *)
@@ -360,6 +366,12 @@ struct
             (* Store a byte without release semantics *)
             val () = enterRunCall ("storeByteInitialise",
                     makePolymorphic([a, b], mkStoreOperationFn(LoadStoreMLByte{isImmutable=true})), mkProductType[a, Word, b] ->> Unit)
+            (* Store a PolyWord value from a large word *)
+            val () = enterRunCall ("storePolyWord",
+                    makePolymorphic([a], mkStoreOperationFn(LoadStorePolyWord{isImmutable=false})), mkProductType[a, Word, LargeWord] ->> Unit)
+            (* Store a native word value from a large word *)
+            val () = enterRunCall ("storeNativeWord",
+                    makePolymorphic([a], mkStoreOperationFn(LoadStoreNativeWord{isImmutable=false})), mkProductType[a, Word, LargeWord] ->> Unit)
             (* Lock a mutable cell. *)
             val () = enterRunCall ("clearMutableBit",
                     makePolymorphic([a], mkUnaryFn ClearMutableFlag), a ->> Unit)
