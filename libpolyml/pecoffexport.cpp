@@ -234,12 +234,12 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
         uint32_t* pt = (uint32_t*)addr;
         uint32_t instr1 = pt[1];
         int scale;
-        if ((instr1 & 0xffc00000) == 0xf9400000)
+        if ((instr1 & 0xfbc00000) == 0xf9400000)
         {
             reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12L;
             scale = 8; // LDR of 64-bit quantity
         }
-        else if ((instr1 & 0xffc00000) == 0xb9400000)
+        else if ((instr1 & 0xfbc00000) == 0xb9400000)
         {
             reloc.Type = IMAGE_REL_ARM64_PAGEOFFSET_12L;
             scale = 4; // LDR of 32-bit quantity

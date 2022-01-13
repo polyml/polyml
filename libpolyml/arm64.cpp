@@ -876,13 +876,17 @@ void Arm64Dependent::ScanConstantsWithinCode(PolyObject* addr, PolyObject* oldAd
         {
             // Look at the instruction at the original location, before it was copied, to
             // find out the address it referred to.
+            // ADRP/LDR sequences are generated for references to the address constant area to
+            // allow it to be split off to make the code position independent.  They can also
+            // be generated for the non-address constant area if the code is too large to use
+            // normal pc-relative offsets.
             byte* oldInstrAddress = (byte*)pt - (byte*)addr + (byte*)oldAddr;
             arm64Instr instr1 = fromARMInstr(pt[1]);
             ScanRelocationKind scanKind;
-            if ((instr1 & 0xffc00000) == 0xf9400000)
-                scanKind = PROCESS_RELOC_ARM64ADRPLDR64; // LDR of 64-bit quantity
-            else if ((instr1 & 0xffc00000) == 0xb9400000)
-                scanKind = PROCESS_RELOC_ARM64ADRPLDR32; // LDR of 32-bit quantity
+            if ((instr1 & 0xfbc00000) == 0xf9400000)
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR64; // LDR of 64-bit quantity (fixed or floating pt)
+            else if ((instr1 & 0xfbc00000) == 0xb9400000)
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR32; // LDR of 32-bit quantity (fixed or floating pt)
             else if ((instr1 & 0xff800000) == 0x91000000)
                 scanKind = PROCESS_RELOC_ARM64ADRPADD; // ADD
             else ASSERT(0); // Invalid instruction
@@ -921,10 +925,10 @@ void Arm64Dependent::RelocateConstantsWithinCode(PolyObject* addr, ScanAddress* 
         {
             arm64Instr instr1 = fromARMInstr(pt[1]);
             ScanRelocationKind scanKind;
-            if ((instr1 & 0xffc00000) == 0xf9400000)
-                scanKind = PROCESS_RELOC_ARM64ADRPLDR64; // LDR of 64-bit quantity
-            else if ((instr1 & 0xffc00000) == 0xb9400000)
-                scanKind = PROCESS_RELOC_ARM64ADRPLDR32; // LDR of 32-bit quantity
+            if ((instr1 & 0xfbc00000) == 0xf9400000)
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR64; // LDR of 64-bit quantity (fixed or floating pt)
+            else if ((instr1 & 0xfbc00000) == 0xb9400000)
+                scanKind = PROCESS_RELOC_ARM64ADRPLDR32; // LDR of 32-bit quantity (fixed or floating pt)
             else if ((instr1 & 0xff800000) == 0x91000000)
                 scanKind = PROCESS_RELOC_ARM64ADRPADD; // ADD
             else ASSERT(0); // Invalid instruction
