@@ -728,6 +728,8 @@ struct
                                 moveZero32{regD=xReg, immediate=lo, shift=0w0} <::>
                                 moveKeep{regD=xReg, immediate=hi, shift=0w16}
                     end
+                    else if isEncodableBitPattern(value, WordSize64)
+                    then code <::> bitwiseOrImmediate{bits=value, regN=XZero, regD=xReg}
                     else if hw0 = 0wxffff andalso hw1 = 0wxffff andalso hw2 = 0wxffff
                     then code <::> moveNot{regD=xReg, immediate=Word.xorb(0wxffff, hw3), shift=0w0}
                     else if hw1 = 0w0 andalso hw2 = 0w0

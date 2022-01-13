@@ -1181,7 +1181,7 @@ struct
         setLabAndSize(ops, setLabels(ops, 0w0))
     end
 
-    fun genCode(ops, addressConsts, nonAddressConsts) =
+    fun genCode(ops, addressConsts, nonAddressConsts, addrConstMap, nonAddrConstMap) =
     let
         val numNonAddrConsts = Word.fromInt(List.length nonAddressConsts)
         and numAddrConsts = Word.fromInt(List.length addressConsts) (* 32-bit words. *)
@@ -1225,7 +1225,7 @@ struct
                     (if is32in64 then loadRegScaled32 else loadRegScaled) {regT=reg, regN=reg, unitOffset=0}
             in
                 writeInstr(code1, wordNo, codeVec);
-                genCodeWords(code2 :: tail, wordNo+0w1, aConstNum+0w1, nonAConstNum)
+                genCodeWords(code2 :: tail, wordNo+0w1, aConstNum+1, nonAConstNum)
             end
 
         |   genCodeWords(LoadAddressLiteral{reg, length=ref BrShort, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
@@ -1237,14 +1237,15 @@ struct
                    at offset wordsOfCode+3.  Non-address constants are always 8 bytes but
                    address constants are 4 bytes in 32-in-64. *)
                 val s = if is32in64 then 0w0 else 0w1 (* Load 64-bit word in 64-bit mode and 32-bits in 32-in-64. *)
+                val constPos = Array.sub(addrConstMap, aConstNum)
                 val offsetOfConstant =
-                    (wordsOfCode+numNonAddrConsts)*0w2 + (0w3+aConstNum)*(Address.wordSize div 0w4) - wordNo
+                    (wordsOfCode+numNonAddrConsts)*0w2 + (0w3+constPos)*(Address.wordSize div 0w4) - wordNo
                 val _ = willFitInRange(Word.toInt offsetOfConstant, 0w19) orelse raise InternalError "Offset to constant is too large"
                 val code =
                     0wx18000000 orb (s << 0w30) orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
-                genCodeWords(tail, wordNo+0w1, aConstNum+0w1, nonAConstNum)
+                genCodeWords(tail, wordNo+0w1, aConstNum+1, nonAConstNum)
             end
 
         |   genCodeWords(LoadNonAddressLiteral{reg, length=ref BrExtended, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
@@ -1254,19 +1255,20 @@ struct
                 val code2 = loadRegScaled{regT=reg, regN=reg, unitOffset=0}
             in
                 writeInstr(code1, wordNo, codeVec);
-                genCodeWords(code2 :: tail, wordNo+0w1, aConstNum, nonAConstNum+0w1)
+                genCodeWords(code2 :: tail, wordNo+0w1, aConstNum, nonAConstNum+1)
             end
 
         |   genCodeWords(LoadNonAddressLiteral{reg, length=ref BrShort, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
             (* These can be shortened since they're always part of the code. *)
             let
                 (* The offset is in 32-bit words.  These are always 64-bits. *)
-                val offsetOfConstant = (wordsOfCode+nonAConstNum)*0w2 - wordNo
+                val constPos = Array.sub(nonAddrConstMap, nonAConstNum)
+                val offsetOfConstant = (wordsOfCode+constPos)*0w2 - wordNo
                 val _ = willFitInRange(Word.toInt offsetOfConstant, 0w19) orelse raise InternalError "Offset to constant is too large"
                 val code = 0wx58000000 orb (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(xRegOnly reg)
             in
                 writeInstr(code, wordNo, codeVec);
-                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum+0w1)
+                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum+1)
             end
 
         |   genCodeWords(LoadFPLiteral{reg, work, isDouble, length=ref BrExtended, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
@@ -1275,19 +1277,20 @@ struct
                 val code2 = (if isDouble then loadRegScaledDouble else loadRegScaledFloat){regT=reg, regN=work, unitOffset=0}
             in
                 writeInstr(code1, wordNo, codeVec);
-                genCodeWords(code2 :: tail, wordNo+0w1, aConstNum, nonAConstNum+0w1)
+                genCodeWords(code2 :: tail, wordNo+0w1, aConstNum, nonAConstNum+1)
             end
 
         |   genCodeWords(LoadFPLiteral{reg, isDouble, length=ref BrShort, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 (* The offset is in 32-bit words.  These are always 64-bits. *)
-                val offsetOfConstant = (wordsOfCode+nonAConstNum)*0w2 - wordNo
+                val constPos = Array.sub(nonAddrConstMap, nonAConstNum)
+                val offsetOfConstant = (wordsOfCode+constPos)*0w2 - wordNo
                 val _ = willFitInRange(Word.toInt offsetOfConstant, 0w19) orelse raise InternalError "Offset to constant is too large"
                 val code = (if isDouble then 0wx5c000000 else 0wx1c000000) orb
                                 (wordToWord32 offsetOfConstant << 0w5) orb word8ToWord32(vReg reg)
             in
                 writeInstr(code, wordNo, codeVec);
-                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum+0w1)
+                genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum+1)
             end
 
         |   genCodeWords(Label _ :: tail, wordNo, aConstNum, nonAConstNum) = 
@@ -1403,7 +1406,7 @@ struct
                 genCodeWords(tail, wordNo+0w1, aConstNum, nonAConstNum)
             end
     in
-        genCodeWords (ops @ endOfCodeWords, 0w0, 0w0, 0w0);
+        genCodeWords (ops @ endOfCodeWords, 0w0, 0, 0);
         (* Copy in the non-address constants. *)
         List.foldl(fn (cVal, addr) => (write64Bit(cVal, addr, codeVec); addr+0w1)) wordsOfCode nonAddressConsts;
         (codeVec (* Return the completed code. *), wordsOfCode+numNonAddrConsts (* And the size in 64-bit words. *))
@@ -2476,38 +2479,41 @@ struct
     (* Set the offsets of ADRP+LDR and ADRP+ADD instruction pairs.  The values in these instructions are,
        to some extent, absolute addresses so this needs to be done by the RTS. firstNonAddrConst and
        firstAddrConst are the offsets in bytes. *)
-    fun setADRPAddresses(ops, codeVec, firstNonAddrConst, firstAddrConst) =
+    fun setADRPAddresses(ops, codeVec, firstNonAddrConst, firstAddrConst, addrConstMap, nonAddrConstMap) =
     let
         fun setADRPAddrs([], _ , _, _) = ()
 
         |   setADRPAddrs(LoadAddressLiteral{length=ref BrExtended, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 (* Address constants are 32-bits in 32-in-64 and 64-bits in native 64-bits *)
-                val addrOfConstant (* byte offset *) = firstAddrConst + aConstNum * Address.wordSize
+                val constPos = Array.sub(addrConstMap, aConstNum)
+                val addrOfConstant (* byte offset *) = firstAddrConst + constPos * Address.wordSize
             in
                 codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord addrOfConstant,
                     if is32in64 then ConstArm64AdrpLdr32 else ConstArm64AdrpLdr64);
-                setADRPAddrs(tail, wordNo+0w2, aConstNum+0w1, nonAConstNum)
+                setADRPAddrs(tail, wordNo+0w2, aConstNum+1, nonAConstNum)
             end
 
         |   setADRPAddrs(LoadNonAddressLiteral{length=ref BrExtended, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 (* The offset is in 32-bit words.  These are always 64-bits. *)
-                val offsetOfConstant (* byte offset *) = firstNonAddrConst+nonAConstNum*0w8
+                val constPos = Array.sub(nonAddrConstMap, nonAConstNum)
+                val offsetOfConstant (* byte offset *) = firstNonAddrConst+constPos*0w8
             in
                 codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord offsetOfConstant, ConstArm64AdrpLdr64);
-                setADRPAddrs(tail, wordNo+0w2, aConstNum, nonAConstNum+0w1)
+                setADRPAddrs(tail, wordNo+0w2, aConstNum, nonAConstNum+1)
             end
 
         |   setADRPAddrs(LoadFPLiteral{length=ref BrExtended, isDouble, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
             let
                 (* The offset is in 32-bit words and the constants themselves are always 64-bits.  If
                    we're loading a 32-bit float we have to use 32-bit offsets. *)
-                val offsetOfConstant (* byte offset *) = firstNonAddrConst+nonAConstNum*0w8
+                val constPos = Array.sub(nonAddrConstMap, nonAConstNum)
+                val offsetOfConstant (* byte offset *) = firstNonAddrConst+constPos*0w8
             in
                 codeVecPutConstant (codeVec, wordNo * 0w4, toMachineWord offsetOfConstant,
                                             if isDouble then ConstArm64AdrpLdr64 else ConstArm64AdrpLdr32);
-                setADRPAddrs(tail, wordNo+0w2, aConstNum, nonAConstNum+0w1)
+                setADRPAddrs(tail, wordNo+0w2, aConstNum, nonAConstNum+1)
             end
 
         |   setADRPAddrs(LoadLabelAddress{label=ref labs, length=ref BrExtended, ...} :: tail, wordNo, aConstNum, nonAConstNum) =
@@ -2521,8 +2527,14 @@ struct
        |    setADRPAddrs(instr :: tail, wordNo, aConstNum, nonAConstNum) =
                 setADRPAddrs(tail, wordNo+Word.fromInt(codeSize instr), aConstNum, nonAConstNum)
     in
-        setADRPAddrs (ops, 0w0, 0w0, 0w0)
+        setADRPAddrs (ops, 0w0, 0, 0)
     end
+
+    (* Although this is used locally it must be defined at the top level
+       otherwise a new RTS function will be compiled every time the
+       containing function is called *)
+    val sortFunction: (machineWord * int) array -> bool =
+        RunCall.rtsCallFast1 "PolySortArrayOfAddresses"
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun generateCode {instrs, name=functionName, parameters, resultClosure, profileObject} =
@@ -2532,27 +2544,91 @@ struct
         
         local
             (* Extract the constants. *)
-            fun getConsts(LoadAddressLiteral {value, ...}, (addrs, nonAddrs)) = (value::addrs, nonAddrs)
-            |   getConsts(LoadNonAddressLiteral {value, ...}, (addrs, nonAddrs)) = (addrs, value::nonAddrs)
-            |   getConsts(LoadFPLiteral {value, isDouble, ...}, (addrs, nonAddrs)) =
+            fun getConsts(LoadAddressLiteral {value, ...}, (addrs, nonAddrs, addrCount, nonAddrCount)) =
+                    ((value, addrCount)::addrs, nonAddrs, addrCount+1, nonAddrCount)
+            |   getConsts(LoadNonAddressLiteral {value, ...}, (addrs, nonAddrs, addrCount, nonAddrCount)) =
+                    (addrs, (value, nonAddrCount)::nonAddrs, addrCount, nonAddrCount+1)
+            |   getConsts(LoadFPLiteral {value, isDouble, ...}, (addrs, nonAddrs, addrCount, nonAddrCount)) =
                 let
                     (* When loading a float we will only access the first 32-bits so if this is
                        big-endian we have to shift the value so it's there. *)
                     val shifted = if not isDouble andalso isBigEndian then LargeWord.<<(value, 0w32) else value
                 in
-                    (addrs, shifted::nonAddrs)
+                    (addrs, (shifted, nonAddrCount)::nonAddrs, addrCount, nonAddrCount+1)
                 end
             |   getConsts(_, consts) = consts
 
-            val (addrConsts, nonAddrConsts) = List.foldl getConsts ([], []) instrs
+            val (addressConstants, nonAddressConstants, addrConstCount, nonAddrConstCount) =
+                List.foldl getConsts ([], [], 0, 0) instrs
+
+            (* Sort the non-address constants to remove duplicates.  There don't seem to be
+               many in practice.
+               Since we're not actually interested in the order but only
+               sorting to remove duplicates we can use a stripped-down Quicksort. *)
+            fun sort([], out) = out
+            |   sort((median, addr) :: tl, out) = partition(median, tl, [addr], [], [], out)
+
+            and partition(median, [], addrs, less, greater, out) =
+                    sort(less, sort(greater, (median, addrs) :: out))
+            |   partition(median, (entry as (value, addr)) :: tl, addrs, less, greater, out) =
+                    if value = median
+                    then partition(median, tl, addr::addrs, less, greater, out)
+                    else if value < median
+                    then partition(median, tl, addrs, entry :: less, greater, out)
+                    else partition(median, tl, addrs, less, entry :: greater, out)
+            
+            (* Non-address constants.  We can't use any ordering on them because a GC could
+               change the values half way through the sort.  Instead we use a simple search
+               for a small number of constants and use an RTS call for larger numbers.  We
+               want to avoid quadratic cost when there are large numbers. *)
+
+            val sortedConstants =
+                if List.length addressConstants < 10
+                then
+                let
+                    fun findDups([], out) = out
+                    |   findDups((value, addr) :: tl, out) =
+                        let
+                            fun partition(e as (v, a), (eq, neq)) =
+                                if PolyML.pointerEq(value, v)
+                                then (a :: eq, neq)
+                                else (eq, e :: neq)
+                            val (eqAddr, neq) = List.foldl partition ([addr], []) tl
+                        in
+                            findDups(neq, (value, eqAddr) :: out)
+                        end
+                in
+                    findDups(addressConstants, [])
+                end
+                else
+                let
+                    val arrayToSort = Array.fromList addressConstants
+                    val _ = sortFunction arrayToSort
+                    
+                    fun makeList((v, a), []) = [(v, [a])]
+                    |   makeList((v, a), l as (vv, aa) :: tl) =
+                        if PolyML.pointerEq(v, vv)
+                        then (vv, a :: aa) :: tl
+                        else (v, [a]) :: l
+                in
+                    (Array.foldl makeList [] arrayToSort)
+                end
         in
-            val addressConsts = List.rev addrConsts
-            and nonAddressConsts = List.rev nonAddrConsts
+            val addressConsts = sortedConstants
+            and nonAddressConsts = sort(nonAddressConstants, []) : (Word64.word * int list) list
+            and addrConstCount = addrConstCount
+            and nonAddrConstCount = nonAddrConstCount
         end
+
+        (* Create maps that indicate for each constant where it is in the constant area. *)
+        val addrConstMap = Array.array(addrConstCount, 0w0) and nonAddrConstMap = Array.array(nonAddrConstCount, 0w0)
+        val _ = List.foldl(fn ((_, cnums), n) => (List.app(fn i => Array.update(addrConstMap, i, n)) cnums; n+0w1)) 0w0 addressConsts
+        val _ = List.foldl(fn ((_, cnums), n) => (List.app(fn i => Array.update(nonAddrConstMap, i, n)) cnums; n+0w1)) 0w0 nonAddressConsts
         
-        (* Generate the code and set the constant addresses at the same time.
-           TODO: The X86 code-generator sorts the constants to remove duplicates. *)
-        val (byteVec, nativeWordsOfCode) = genCode(instrs, addressConsts, nonAddressConsts)
+        (* Generate the code and set the constant addresses at the same time. *)
+        val (byteVec, nativeWordsOfCode) =
+            genCode(instrs, List.map #1 addressConsts, List.map #1 nonAddressConsts, addrConstMap, nonAddrConstMap)
+
         val wordsOfCode = nativeWordsOfCode * wordsPerNativeWord
 
         (* +3 for profile count, function name and constants count *)
@@ -2586,7 +2662,7 @@ struct
 
         (* and then copy the constants from the constant list. *)
         local
-            fun setConstant(value, num) =
+            fun setConstant((value, _), num) =
             (
                 codeVecPutWord (codeVec, firstConstant + num, value);
                 num+0w1
@@ -2597,7 +2673,7 @@ struct
         
         val () = setADRPAddresses(instrs, codeVec,
                     (nativeWordsOfCode-Word.fromInt(List.length nonAddressConsts)) * Address.nativeWordSize,
-                    firstConstant * Address.wordSize)
+                    firstConstant * Address.wordSize, addrConstMap, nonAddrConstMap)
     in
         if printAssemblyCode
         then (* print out the code *)
