@@ -724,12 +724,21 @@ struct
     fun loadNonAddressConstant(xReg, valu) =
         LoadNonAddressLiteral{reg=xReg, value=valu, length=ref BrExtended}
 
-    (* Floating point constants.  TODO: We can use movi dn,#0 for zero and fmov dn,c
-       for various  constant values. *)
-    fun loadFloatConstant(vReg, valu, work) =
-        LoadFPLiteral{reg=vReg, value=valu, isDouble=false, length=ref BrExtended, work=work}
-    and loadDoubleConstant(vReg, valu, work) =
-        LoadFPLiteral{reg=vReg, value=valu, isDouble=true, length=ref BrExtended, work=work}
+    (* Floating point constants.  TODO: We can use fmov dn,c for various  constant values. *)
+    local
+        (* Use the same instruction for both float and double. *)
+        fun moviZero regD = SimpleInstr(0wx2F00E400 orb word8ToWord32(vReg regD))
+    in
+        fun loadFloatConstant(vReg, 0w0, _) = moviZero vReg
+    
+        |   loadFloatConstant(vReg, valu, work) =
+                LoadFPLiteral{reg=vReg, value=valu, isDouble=false, length=ref BrExtended, work=work}
+
+        and loadDoubleConstant(vReg, 0w0, _) = moviZero vReg
+
+        |   loadDoubleConstant(vReg, valu, work) =
+                LoadFPLiteral{reg=vReg, value=valu, isDouble=true, length=ref BrExtended, work=work}
+    end
 
     local
         fun moveWideImmediate(sf, opc) {regD, immediate, shift} =
@@ -2442,6 +2451,15 @@ struct
                 printStream opcode; printStream "\t";
                 printStream r; printStream(Word32.fmt StringCvt.DEC rN); printStream ",";
                 printStream r; printStream(Word32.fmt StringCvt.DEC rM)
+            end
+
+            else if (wordValue andb 0wxffffffe0) = 0wx2F00E400
+            then (* movi dn,#0 *)
+            let
+                val rD = wordValue andb 0wx1f
+            in
+                printStream "movi\td"; printStream(Word32.fmt StringCvt.DEC rD);
+                printStream ",#0"
             end
 
             else if (wordValue andb 0wx1e000000) = 0wx02000000
