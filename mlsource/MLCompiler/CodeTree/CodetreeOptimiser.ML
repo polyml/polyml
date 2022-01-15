@@ -1017,11 +1017,24 @@ struct
                             (SmallInline,
                                 replaceTailRecursiveWithLoop(optBody, argTypes, bv, addressAllocator), ! addressAllocator)
                     |   NonTailRecursive bv =>
-                            if Vector.exists (fn n => n) bv
+                        let
+                            (* liftRecursiveFunction creates a closure for unmodified arguments.  The idea is
+                               that if this applies a function we may be able to inline the function if it is
+                               an unmodified argument.  Containers must not be put into the closure so must
+                               be considered as "modified".  We now consider everything as modified unless it
+                               is actually applied. *)
+                            fun newVector([], _) = []
+                            |   newVector((ContainerType _, _) :: argTypes, i) = false :: newVector(argTypes, i+1)
+                            |   newVector((_, uses) :: argTypes, i) =
+                                    (Vector.sub(bv, i) andalso List.exists(fn UseApply _ => true | _ => false) uses) :: newVector(argTypes, i+1)
+                            val modVec = Vector.fromList(newVector(argTypes, 0))
+                        in
+                            if Vector.exists (fn n => n) modVec
                             then (SmallInline, 
                                     liftRecursiveFunction(
-                                        optBody, argTypes, bv, List.length closure, name, resultType, !addressAllocator), 0)
+                                        optBody, argTypes, modVec, List.length closure, name, resultType, !addressAllocator), 0)
                             else (DontInline, optBody, ! addressAllocator) (* All arguments have been modified *)
+                        end
                     |   TooBig => (DontInline, optBody, ! addressAllocator)
 
                 val lambda: lambdaForm =
