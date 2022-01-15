@@ -33,7 +33,7 @@ struct
     open CodeArray
     open BuiltIns
     
-    val useLSEAtomics = true (* Use 8.1 atomics? *)
+    val useLSEAtomics = false (* Use 8.1 atomics?  Not for the moment: keep compatibility with older processors. *)
 
     (* Reversed cons and append to make the code easier to read. *)
     infix 5 <::> <@>
