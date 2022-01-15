@@ -985,6 +985,15 @@ struct
 
                     |   pushRegisters({instr=CPUYield, ...}, code) = CPUYield :: code
 
+                    |   pushRegisters({instr=AtomicOperation{ base, source, dest, atOp }, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapOptSrc source
+                            val (baseVal, baseCode) = mapSrcReg base
+                            val (destVal, destCode) = mapOptDest dest
+                        in
+                            destCode @ AtomicOperation{ base=baseVal, source=sourceVal, dest=destVal, atOp=atOp } :: baseCode @ sourceCode @ code
+                        end
+
                     |   pushRegisters({instr=CacheCheck _, ...}, _) = raise InternalError "pushRegisters: CacheCheck"
 
                     local

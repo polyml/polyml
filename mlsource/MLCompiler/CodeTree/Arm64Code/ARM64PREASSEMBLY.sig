@@ -107,6 +107,8 @@ sig
     and condSet = CondSet | CondSetIncr | CondSetInvert | CondSetNegate
     and bitfieldKind = BFUnsigned | BFSigned | BFInsert
     and brRegType = BRRBranch | BRRAndLink | BRRReturn
+        (* Some of the atomic operations added in 8.1 *)
+    and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL
 
     type label and labelMaker
     val createLabelMaker: unit -> labelMaker
@@ -152,6 +154,8 @@ sig
     |   LoadAcquireExclusiveRegister of {regN: xReg, regT: xReg}
     |   StoreReleaseExclusiveRegister of {regS: xReg, regT: xReg, regN: xReg}
     |   MemBarrier
+        (* Additional atomic operations. *)
+    |   AtomicExtension of { regT: xReg, regN: xReg, regS: xReg, atOp: atomicOp }
     |   LoadRegPair of
             { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, loadType: loadType, unscaledType: unscaledType}
     |   StoreRegPair of
@@ -257,6 +261,7 @@ sig
         type wordSize = wordSize
         type 'a extend = 'a extend
         type scale = scale
+        type atomicOp = atomicOp
     end
 
 end;

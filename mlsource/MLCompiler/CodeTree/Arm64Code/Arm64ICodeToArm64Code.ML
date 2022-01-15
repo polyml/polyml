@@ -961,6 +961,8 @@ struct
 
         |   codeExtended _ (CPUYield, code) = code <::> Yield
 
+        |   codeExtended _ (AtomicOperation{ base, source, dest, atOp }, code) = AtomicExtension{regN=base, regS=source, regT=dest, atOp=atOp} :: code
+
         |   codeExtended _ (CacheCheck{ arg1, arg2 }, code) =
             let
                 val okLabel = createLabel labelMaker

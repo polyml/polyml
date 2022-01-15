@@ -51,6 +51,8 @@ struct
     and condSet = CondSet | CondSetIncr | CondSetInvert | CondSetNegate
     and bitfieldKind = BFUnsigned | BFSigned | BFInsert
     and brRegType = BRRBranch | BRRAndLink | BRRReturn
+        (* Some of the atomic operations added in 8.1 *)
+    and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL
 
     datatype label = Label of int
     type labelMaker = int ref
@@ -97,6 +99,8 @@ struct
     |   LoadAcquireExclusiveRegister of {regN: xReg, regT: xReg}
     |   StoreReleaseExclusiveRegister of {regS: xReg, regT: xReg, regN: xReg}
     |   MemBarrier
+        (* Additional atomic operations. *)
+    |   AtomicExtension of { regT: xReg, regN: xReg, regS: xReg, atOp: atomicOp }
     |   LoadRegPair of
             { regT1: xReg, regT2: xReg, regN: xReg, unitOffset: int, loadType: loadType, unscaledType: unscaledType}
     |   StoreRegPair of
@@ -469,6 +473,13 @@ struct
 
         |   toAssembler(MemBarrier :: rest, code) =
                 toAssembler(rest, code <::> dmbIsh)
+
+        |   toAssembler(AtomicExtension{ regT, regN, regS, atOp} :: rest, code) =
+            let
+                val instr = case atOp of LoadAddAL => loadAddAL | LoadUmaxAL => loadUMaxAL | SwapAL => swapAL
+            in
+                toAssembler(rest, code <::> instr{regT=regT, regN=regN, regS=regS})
+            end
 
         |   toAssembler(LoadRegPair{ regT1, regT2, regN, unitOffset, loadType, unscaledType} :: rest, code) =
             let
@@ -1081,6 +1092,7 @@ struct
         type 'a extend = 'a extend
         type scale = scale
         type instr = instr
+        type atomicOp = atomicOp
     end
 
 end;

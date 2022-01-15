@@ -1014,6 +1014,17 @@ struct
         and convertDoubleToFloat = floatingPtSingle(0w1, 0wx4)
     end
 
+    local
+        fun atomicMemory (size, v, a, r, o3, opc) {regS, regN, regT} =
+            SimpleInstr(0wx38200000 orb (size << 0w30) orb (v << 0w26) orb (a << 0w23) orb (r << 0w22) orb (o3 << 0w15) orb (opc << 0w12)
+                orb (word8ToWord32(xRegOrXZ regS) << 0w16) orb (word8ToWord32(xRegOrXSP regN) << 0w5) orb word8ToWord32(xRegOrXZ regT))
+    in
+        val loadAddAL = atomicMemory(0w3, 0w0, 0w1, 0w1, 0w0, 0w0)
+        and loadUMaxAL = atomicMemory(0w3, 0w0, 0w1, 0w1, 0w0, 0w6)
+        and swapAL = atomicMemory(0w3, 0w0, 0w1, 0w1, 0w1, 0w0)
+    end
+
+
     (* This word is put in after a call to the RTS trap-handler.  All the registers
        are saved and restored across a call to the trap-handler; the register
        mask contains those that may contain an address and so need to be scanned and

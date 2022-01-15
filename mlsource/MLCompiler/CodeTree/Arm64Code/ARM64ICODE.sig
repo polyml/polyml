@@ -101,6 +101,8 @@ sig
         SignedMultHigh (* High order part of 64bit*64Bit *)
     and fpUnary = NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble | ConvDbleToFloat
     and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
+        (* Some of the atomic operations added in 8.1 *)
+    and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
@@ -375,6 +377,9 @@ sig
         (* Yield control during a spin-lock. *)
     |   CPUYield
 
+        (* Atomic operations added for ARM 8.1 *)
+    |   AtomicOperation of { base: 'genReg, source: 'optGenReg, dest: 'optGenReg, atOp: atomicOp }
+
         (* Debugging - fault if values don't match. *)
     |   CacheCheck of { arg1: 'genReg, arg2: 'genReg }
 
@@ -443,5 +448,6 @@ sig
         and  multKind       = multKind
         and  fpUnary        = fpUnary
         and  fpBinary       = fpBinary
+        and  atomicOp       = atomicOp
    end
 end;

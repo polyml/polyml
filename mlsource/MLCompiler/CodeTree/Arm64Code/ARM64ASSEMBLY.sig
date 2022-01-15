@@ -424,6 +424,11 @@ sig
     and absDouble: {regN: vReg, regD: vReg} -> instr
     and negDouble: {regN: vReg, regD: vReg} -> instr
     and convertDoubleToFloat: {regN: vReg, regD: vReg} -> instr
+
+    (* Some of the atomic operations added in 8.1 *)
+    val loadAddAL: { regN: xReg, regT: xReg, regS: xReg } -> instr
+    and loadUMaxAL: { regN: xReg, regT: xReg, regS: xReg } -> instr
+    and swapAL: { regN: xReg, regT: xReg, regS: xReg } -> instr
     
     (* Special hack for callbacks in 32-in-64.  Must appear as
        the first instructions in the callback. *)

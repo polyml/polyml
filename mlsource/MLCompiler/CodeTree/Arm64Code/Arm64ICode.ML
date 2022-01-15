@@ -321,6 +321,9 @@ struct
         (* Yield control during a spin-lock. *)
     |   CPUYield
 
+        (* Atomic operations added for ARM 8.1 *)
+    |   AtomicOperation of { base: 'genReg, source: 'optGenReg, dest: 'optGenReg, atOp: atomicOp }
+
         (* Debugging - fault if values don't match. *)
     |   CacheCheck of { arg1: 'genReg, arg2: 'genReg }
 
@@ -895,6 +898,15 @@ struct
 
         |   printICode {stream, ...} CPUYield = stream "\tCpuYield"
 
+        |   printICode {stream, printGenReg, printOptGenReg, ...} (AtomicOperation{ base, source, dest, atOp }) =
+            (
+                case atOp of
+                    LoadAddAL => stream "\tLoadAddAL\t"
+                |   LoadUmaxAL => stream "\tLoadUmaxAL\t"
+                |   SwapAL => stream "\tSwapAL\t";
+                printOptGenReg source; stream ",["; printGenReg base; stream "] => "; printOptGenReg dest
+            )
+
         |   printICode {stream, printGenReg, ...} (CacheCheck{ arg1, arg2}) =
             ( stream "\tCacheCheck\t"; printGenReg arg1; stream ", "; printGenReg arg2 )
 
@@ -993,6 +1005,7 @@ struct
         and  multKind       = multKind
         and  fpUnary        = fpUnary
         and  fpBinary       = fpBinary
+        and  atomicOp       = atomicOp
    end
 end;
 

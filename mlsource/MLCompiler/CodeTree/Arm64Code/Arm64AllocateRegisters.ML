@@ -1152,6 +1152,14 @@ struct
 
             |   absToConcrete({instr=CPUYield, ...} :: rest, cache, code) = absToConcrete(rest, cache, code <::> CPUYield)
 
+            |   absToConcrete({instr=AtomicOperation{ base, source, dest, atOp }, ...} :: rest, cache, code) =
+                let
+                    val (destReg, newCache) = allocateGenRegOrZero(dest, NONE, cache)
+                in
+                    absToConcrete(rest, newCache, code <::>
+                        AtomicOperation{ base=getAllocatedGenReg base, source=getAllocatedGenRegOrZero source, dest=destReg, atOp=atOp })
+                end
+
             |   absToConcrete({instr=CacheCheck _, ...} :: _, _, _) =  (* Concrete only. *)
                     raise InternalError "absToConcrete: CheckCache"
 

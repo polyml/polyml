@@ -287,6 +287,9 @@ struct
     |   getInstructionState(CPUYield) =
             { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(AtomicOperation{ base, source, dest, ... }) =
+            { sources=base :: getOptReg source, dests=getOptReg dest, sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(CacheCheck{ arg1, arg2}) =
             { sources=[arg1, arg2], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 

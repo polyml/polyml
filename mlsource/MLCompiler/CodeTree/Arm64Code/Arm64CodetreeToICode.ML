@@ -107,6 +107,7 @@ struct
     and binaryFloatingPoint = BlockSimple o BinaryFloatingPoint
     and compareFloatingPoint = BlockSimple o CompareFloatingPoint
     and cpuYield = BlockSimple CPUYield
+    val atomicOperation = BlockSimple o AtomicOperation
 
     val shiftConstant = BlockSimple o shiftConstant
 
@@ -2001,7 +2002,8 @@ struct
                 in
                     val (baseCode, baseReg) = getAbsoluteAddress(arg1Code, aReg1)
                 end
-                val loopLabel = newLabel() and noLoopLabel = newLabel()
+                val target = asTarget destination
+(*                val loopLabel = newLabel() and noLoopLabel = newLabel()
                 val target = asTarget destination
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val uRegNew = newUReg() and uRegTest = newUReg() and uRegOld = newUReg()
@@ -2018,7 +2020,14 @@ struct
                     storeReleaseExclusive{ base=baseReg, source=SomeReg uRegNew, result=uRegTest } ::
                     addSubImmediate{source=uRegOld, dest=SomeReg uRegNew, immed=0w1, isAdd=true, length=OpSize64, ccRef=NONE} ::
                     loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
-                    BlockLabel loopLabel :: baseCode
+                    BlockLabel loopLabel :: baseCode*)
+                val ccRef2 = newCCRef()
+                val uRegIncr = newUReg() and uRegOld = newUReg()
+                val code =
+                    baseCode <::> loadNonAddressConstant{ source=0w1, dest=uRegIncr } <::>
+                        atomicOperation{atOp=LoadAddAL, base=baseReg, source=SomeReg uRegIncr, dest=SomeReg uRegOld} <::>
+                        (* If the previous value was zero we've set it to one and we've got the lock. *)
+                        addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2}
             in
                 (makeBoolResultRev(CondEqual, ccRef2, target, code), target, false)
             end
@@ -2032,8 +2041,9 @@ struct
                 in
                     val (baseCode, baseReg) = getAbsoluteAddress(arg1Code, aReg1)
                 end
-                val loopLabel = newLabel() and noLoopLabel = newLabel() and okLabel = newLabel()
                 val target = asTarget destination
+                (*
+                val loopLabel = newLabel() and noLoopLabel = newLabel() and okLabel = newLabel()
                 val ccRef0 = newCCRef() and ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val uRegNew = newUReg() and uRegTest = newUReg() and uRegOld = newUReg()
                 val code =
@@ -2052,7 +2062,14 @@ struct
                     addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef0} ::
                     (* Get the old value and see if it's zero i.e. unlocked. *)
                     loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
-                    BlockLabel loopLabel :: baseCode
+                    BlockLabel loopLabel :: baseCode*)
+                val uRegNew = newUReg() and uRegOld = newUReg()
+                val ccRef2 = newCCRef()
+                val code =
+                    baseCode <::> loadNonAddressConstant{ source=0w1, dest=uRegNew } <::>
+                        atomicOperation{atOp=LoadUmaxAL, base=baseReg, source=SomeReg uRegNew, dest=SomeReg uRegOld} <::>
+                        (* If the previous value was zero we've set it to one and we've got the lock. *)
+                        addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2}
             in
                 (makeBoolResultRev(CondEqual, ccRef2, target, code), target, false)
             end
@@ -2066,8 +2083,9 @@ struct
                 in
                     val (baseCode, baseReg) = getAbsoluteAddress(arg1Code, aReg1)
                 end
-                val loopLabel = newLabel() and noLoopLabel = newLabel()
                 val target = asTarget destination
+                (*
+                val loopLabel = newLabel() and noLoopLabel = newLabel()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val uRegTest = newUReg() and uRegOld = newUReg()
                 val code =
@@ -2083,6 +2101,11 @@ struct
                     storeReleaseExclusive{ base=baseReg, source=ZeroReg, result=uRegTest } ::
                     loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
                     BlockLabel loopLabel :: baseCode
+                *)
+                val ccRef2 = newCCRef()
+                val uRegOld = newUReg()
+                val code = baseCode <::> atomicOperation{atOp=SwapAL, base=baseReg, source=ZeroReg, dest=SomeReg uRegOld} <::>
+                    memoryBarrier <::> addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w1, isAdd=false, length=OpSize64, ccRef=SOME ccRef2}
             in
                 (makeBoolResultRev(CondEqual, ccRef2, target, code), target, false)
             end
