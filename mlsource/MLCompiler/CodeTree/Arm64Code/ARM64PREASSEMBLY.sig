@@ -108,7 +108,7 @@ sig
     and bitfieldKind = BFUnsigned | BFSigned | BFInsert
     and brRegType = BRRBranch | BRRAndLink | BRRReturn
         (* Some of the atomic operations added in 8.1 *)
-    and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL
+    and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL | LoadAddAcquire | LoadUMaxAcquire | SwapRelease
 
     type label and labelMaker
     val createLabelMaker: unit -> labelMaker

@@ -1022,6 +1022,9 @@ struct
         val loadAddAL = atomicMemory(0w3, 0w0, 0w1, 0w1, 0w0, 0w0)
         and loadUMaxAL = atomicMemory(0w3, 0w0, 0w1, 0w1, 0w0, 0w6)
         and swapAL = atomicMemory(0w3, 0w0, 0w1, 0w1, 0w1, 0w0)
+        and loadAddA = atomicMemory(0w3, 0w0, 0w1, 0w0, 0w0, 0w0)
+        and loadUMaxA = atomicMemory(0w3, 0w0, 0w1, 0w0, 0w0, 0w6)
+        and swapL = atomicMemory(0w3, 0w0, 0w0, 0w1, 0w1, 0w0)
     end
 
 

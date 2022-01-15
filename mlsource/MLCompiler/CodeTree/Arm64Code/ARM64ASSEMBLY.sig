@@ -429,6 +429,9 @@ sig
     val loadAddAL: { regN: xReg, regT: xReg, regS: xReg } -> instr
     and loadUMaxAL: { regN: xReg, regT: xReg, regS: xReg } -> instr
     and swapAL: { regN: xReg, regT: xReg, regS: xReg } -> instr
+    and loadAddA: { regN: xReg, regT: xReg, regS: xReg } -> instr
+    and loadUMaxA: { regN: xReg, regT: xReg, regS: xReg } -> instr
+    and swapL: { regN: xReg, regT: xReg, regS: xReg } -> instr
     
     (* Special hack for callbacks in 32-in-64.  Must appear as
        the first instructions in the callback. *)

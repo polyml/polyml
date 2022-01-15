@@ -903,7 +903,10 @@ struct
                 case atOp of
                     LoadAddAL => stream "\tLoadAddAL\t"
                 |   LoadUmaxAL => stream "\tLoadUmaxAL\t"
-                |   SwapAL => stream "\tSwapAL\t";
+                |   SwapAL => stream "\tSwapAL\t"
+                |   LoadAddAcquire => stream "\tLoadAddAcquire\t"
+                |   LoadUMaxAcquire => stream "\tLoadUMaxAcquire\t"
+                |   SwapRelease => stream "\tSwapRelease\t";
                 printOptGenReg source; stream ",["; printGenReg base; stream "] => "; printOptGenReg dest
             )
 

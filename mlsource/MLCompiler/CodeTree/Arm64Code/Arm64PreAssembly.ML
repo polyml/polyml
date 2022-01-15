@@ -52,7 +52,7 @@ struct
     and bitfieldKind = BFUnsigned | BFSigned | BFInsert
     and brRegType = BRRBranch | BRRAndLink | BRRReturn
         (* Some of the atomic operations added in 8.1 *)
-    and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL
+    and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL | LoadAddAcquire | LoadUMaxAcquire | SwapRelease
 
     datatype label = Label of int
     type labelMaker = int ref
@@ -476,7 +476,10 @@ struct
 
         |   toAssembler(AtomicExtension{ regT, regN, regS, atOp} :: rest, code) =
             let
-                val instr = case atOp of LoadAddAL => loadAddAL | LoadUmaxAL => loadUMaxAL | SwapAL => swapAL
+                val instr =
+                    case atOp of
+                        LoadAddAL => loadAddAL | LoadUmaxAL => loadUMaxAL | SwapAL => swapAL
+                    |   LoadAddAcquire => loadAddA | LoadUMaxAcquire => loadUMaxA | SwapRelease => swapL
             in
                 toAssembler(rest, code <::> instr{regT=regT, regN=regN, regS=regS})
             end

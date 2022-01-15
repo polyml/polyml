@@ -32,6 +32,8 @@ struct
     open Arm64ICode
     open CodeArray
     open BuiltIns
+    
+    val useLSEAtomics = true (* Use 8.1 atomics? *)
 
     (* Reversed cons and append to make the code easier to read. *)
     infix 5 <::> <@>
@@ -2002,32 +2004,29 @@ struct
                 in
                     val (baseCode, baseReg) = getAbsoluteAddress(arg1Code, aReg1)
                 end
-                val target = asTarget destination
-(*                val loopLabel = newLabel() and noLoopLabel = newLabel()
+                val loopLabel = newLabel() and noLoopLabel = newLabel()
                 val target = asTarget destination
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
-                val uRegNew = newUReg() and uRegTest = newUReg() and uRegOld = newUReg()
-                (* N.B. in reverse order. *)
+                val uRegNew = newUReg() and uRegTest = newUReg() and uRegOld = newUReg() and uRegIncr = newUReg()
                 val code =
-                    (* The result is true if the old value was zero. *)
-                    addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
-                    memoryBarrier :: (* Put in the memory barrier. *)
-                    (* If the result is zero we've been successful otherwise we loop. *)
-                    BlockLabel noLoopLabel ::
-                    BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
-                    addSubImmediate{source=uRegTest, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
-                    (* Add and try to store the result *)
-                    storeReleaseExclusive{ base=baseReg, source=SomeReg uRegNew, result=uRegTest } ::
-                    addSubImmediate{source=uRegOld, dest=SomeReg uRegNew, immed=0w1, isAdd=true, length=OpSize64, ccRef=NONE} ::
-                    loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
-                    BlockLabel loopLabel :: baseCode*)
-                val ccRef2 = newCCRef()
-                val uRegIncr = newUReg() and uRegOld = newUReg()
-                val code =
-                    baseCode <::> loadNonAddressConstant{ source=0w1, dest=uRegIncr } <::>
-                        atomicOperation{atOp=LoadAddAL, base=baseReg, source=SomeReg uRegIncr, dest=SomeReg uRegOld} <::>
+                    if useLSEAtomics
+                    then baseCode <::> loadNonAddressConstant{ source=0w1, dest=uRegIncr } <::>
+                        atomicOperation{atOp=LoadAddAcquire, base=baseReg, source=SomeReg uRegIncr, dest=SomeReg uRegOld} <::>
                         (* If the previous value was zero we've set it to one and we've got the lock. *)
                         addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2}
+                    else
+                        (* The result is true if the old value was zero. *)
+                        addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
+                        memoryBarrier :: (* Put in the memory barrier. *)
+                        (* If the result is zero we've been successful otherwise we loop. *)
+                        BlockLabel noLoopLabel ::
+                        BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
+                        addSubImmediate{source=uRegTest, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
+                        (* Add and try to store the result *)
+                        storeReleaseExclusive{ base=baseReg, source=SomeReg uRegNew, result=uRegTest } ::
+                        addSubImmediate{source=uRegOld, dest=SomeReg uRegNew, immed=0w1, isAdd=true, length=OpSize64, ccRef=NONE} ::
+                        loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
+                        BlockLabel loopLabel :: baseCode
             in
                 (makeBoolResultRev(CondEqual, ccRef2, target, code), target, false)
             end
@@ -2035,41 +2034,38 @@ struct
         |   codeToICodeUnaryRev({oper=TryLockMutex, arg1}, context, _, destination, tailCode) =
             (* *)
             let
-            (* Could use LDUMAXAL to set it the greater of the current value or 1. *)
                 local
                     val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
                 in
                     val (baseCode, baseReg) = getAbsoluteAddress(arg1Code, aReg1)
                 end
                 val target = asTarget destination
-                (*
                 val loopLabel = newLabel() and noLoopLabel = newLabel() and okLabel = newLabel()
                 val ccRef0 = newCCRef() and ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val uRegNew = newUReg() and uRegTest = newUReg() and uRegOld = newUReg()
                 val code =
-                    (* The result is true if the old value was zero. *)
-                    addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
-                    memoryBarrier :: (* Put in the memory barrier. *)
-                    (* If the result is zero we've been successful otherwise we loop. *)
-                    BlockLabel noLoopLabel ::
-                    BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
-                    addSubImmediate{source=uRegTest, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
-                    (* If the lock wasn't taken set it to one to lock it. *)
-                    storeReleaseExclusive{ base=baseReg, source=SomeReg uRegNew, result=uRegTest } ::
-                    loadNonAddressConstant{source=0w1, dest=uRegNew } :: BlockLabel okLabel ::
-                    (* If it's not zero don't try to store anything back and exit the loop. *)
-                    BlockFlow(Conditional{ ccRef=ccRef0, condition=CondNotEqual, trueJump=noLoopLabel, falseJump=okLabel }) ::
-                    addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef0} ::
-                    (* Get the old value and see if it's zero i.e. unlocked. *)
-                    loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
-                    BlockLabel loopLabel :: baseCode*)
-                val uRegNew = newUReg() and uRegOld = newUReg()
-                val ccRef2 = newCCRef()
-                val code =
-                    baseCode <::> loadNonAddressConstant{ source=0w1, dest=uRegNew } <::>
-                        atomicOperation{atOp=LoadUmaxAL, base=baseReg, source=SomeReg uRegNew, dest=SomeReg uRegOld} <::>
+                    if useLSEAtomics
+                    then baseCode <::> loadNonAddressConstant{ source=0w1, dest=uRegNew } <::>
+                        atomicOperation{atOp=LoadUMaxAcquire, base=baseReg, source=SomeReg uRegNew, dest=SomeReg uRegOld} <::>
                         (* If the previous value was zero we've set it to one and we've got the lock. *)
                         addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2}
+                    else
+                        (* The result is true if the old value was zero. *)
+                        addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
+                        memoryBarrier :: (* Put in the memory barrier. *)
+                        (* If the result is zero we've been successful otherwise we loop. *)
+                        BlockLabel noLoopLabel ::
+                        BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
+                        addSubImmediate{source=uRegTest, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
+                        (* If the lock wasn't taken set it to one to lock it. *)
+                        storeReleaseExclusive{ base=baseReg, source=SomeReg uRegNew, result=uRegTest } ::
+                        loadNonAddressConstant{source=0w1, dest=uRegNew } :: BlockLabel okLabel ::
+                        (* If it's not zero don't try to store anything back and exit the loop. *)
+                        BlockFlow(Conditional{ ccRef=ccRef0, condition=CondNotEqual, trueJump=noLoopLabel, falseJump=okLabel }) ::
+                        addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize64, ccRef=SOME ccRef0} ::
+                        (* Get the old value and see if it's zero i.e. unlocked. *)
+                        loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
+                        BlockLabel loopLabel :: baseCode
             in
                 (makeBoolResultRev(CondEqual, ccRef2, target, code), target, false)
             end
@@ -2084,28 +2080,26 @@ struct
                     val (baseCode, baseReg) = getAbsoluteAddress(arg1Code, aReg1)
                 end
                 val target = asTarget destination
-                (*
                 val loopLabel = newLabel() and noLoopLabel = newLabel()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val uRegTest = newUReg() and uRegOld = newUReg()
                 val code =
-                    (* The result is true if the old value was one. i.e. we were the only thread
-                       that locked it. *)
-                    addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w1, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
-                    memoryBarrier :: (* Put in the memory barrier. *)
-                    (* If the result is zero we've been successful otherwise we loop. *)
-                    BlockLabel noLoopLabel ::
-                    BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
-                    addSubImmediate{source=uRegTest, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
-                    (* Try to set this to zero *)
-                    storeReleaseExclusive{ base=baseReg, source=ZeroReg, result=uRegTest } ::
-                    loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
-                    BlockLabel loopLabel :: baseCode
-                *)
-                val ccRef2 = newCCRef()
-                val uRegOld = newUReg()
-                val code = baseCode <::> atomicOperation{atOp=SwapAL, base=baseReg, source=ZeroReg, dest=SomeReg uRegOld} <::>
-                    memoryBarrier <::> addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w1, isAdd=false, length=OpSize64, ccRef=SOME ccRef2}
+                    if useLSEAtomics
+                    then baseCode <::> atomicOperation{atOp=SwapRelease, base=baseReg, source=ZeroReg, dest=SomeReg uRegOld} <::>
+                            addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w1, isAdd=false, length=OpSize64, ccRef=SOME ccRef2}
+                    else
+                        (* The result is true if the old value was one. i.e. we were the only thread
+                           that locked it. *)
+                        addSubImmediate{source=uRegOld, dest=ZeroReg, immed=0w1, isAdd=false, length=OpSize64, ccRef=SOME ccRef2} ::
+                        memoryBarrier :: (* Put in the memory barrier. *)
+                        (* If the result is zero we've been successful otherwise we loop. *)
+                        BlockLabel noLoopLabel ::
+                        BlockFlow(Conditional{ ccRef=ccRef1, condition=CondNotEqual, trueJump=loopLabel, falseJump=noLoopLabel }) ::
+                        addSubImmediate{source=uRegTest, dest=ZeroReg, immed=0w0, isAdd=false, length=OpSize32, ccRef=SOME ccRef1} ::
+                        (* Try to set this to zero *)
+                        storeReleaseExclusive{ base=baseReg, source=ZeroReg, result=uRegTest } ::
+                        loadAcquireExclusive{ base=baseReg, dest=uRegOld } ::
+                        BlockLabel loopLabel :: baseCode
             in
                 (makeBoolResultRev(CondEqual, ccRef2, target, code), target, false)
             end

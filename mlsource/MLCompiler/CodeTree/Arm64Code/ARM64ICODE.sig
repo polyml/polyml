@@ -102,7 +102,7 @@ sig
     and fpUnary = NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble | ConvDbleToFloat
     and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
         (* Some of the atomic operations added in 8.1 *)
-    and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL
+    and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL | LoadAddAcquire | LoadUMaxAcquire | SwapRelease
 
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
