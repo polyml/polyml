@@ -964,6 +964,7 @@ struct
             and lockMutexFunction = mkGvar("lockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.LockMutex, declInBasis)
             and tryLockMutexFunction = mkGvar("tryLockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.TryLockMutex, declInBasis)
             and unlockMutexFunction = mkGvar("unlockMutex", Ref Word ->> Bool, mkUnaryFn BuiltIns.UnlockMutex, declInBasis)
+            and cpuPauseFunction = mkGvar("cpuPause", Unit ->> Unit, cpuPauseFn, declInBasis)
         in
             val () = #enterType threadEnv ("thread", TypeConstrSet(threadConstr, []))
             val () = #enterVal threadEnv ("self", selfFunction)
@@ -971,6 +972,7 @@ struct
             val () = #enterVal threadEnv ("lockMutex", lockMutexFunction)
             val () = #enterVal threadEnv ("tryLockMutex", tryLockMutexFunction)
             val () = #enterVal threadEnv ("unlockMutex", unlockMutexFunction)
+            val () = #enterVal threadEnv ("cpuPause", cpuPauseFunction)
         end
 
         local

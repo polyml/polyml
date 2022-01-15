@@ -1,7 +1,7 @@
 (*
     Title:      Thread package for ML.
     Author:     David C. J. Matthews
-    Copyright (c) 2007-2014, 2018-22
+    Copyright (c) 2007-2014, 2018-21
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -531,25 +531,13 @@ struct
         val threadMutexUnlock: mutex -> unit = RunCall.rtsCallFull1 "PolyThreadMutexUnlock"
 
         fun lock (m: mutex): unit =
-        let
-            (* If the lock is taken we will have to call into the RTS to suspend ourselves.
-               In addition the thread that currently has the mutex will have to call into
-               the RTS to release waiting threads.  We want to avoid those costs so
-               we first attempt to treat is as a spin-lock. *)
-            fun keepTrying n =
-                if tryLockMutex m then () (* Success *)
-                else if n <> 0w0
-                then (cpuPause(); keepTrying(n-0w1))
-                else if lockMutex m
-                then ()
-                else (* It's locked.  We return some time after the lock is released. *)
-                (
-                    threadMutexBlock m;
-                    lock m (* Try again. *)
-                )
-        in
-            keepTrying 0w1000
-        end
+            if lockMutex m
+            then ()
+            else (* It's locked.  We return some time after the lock is released. *)
+            (
+                threadMutexBlock m;
+                lock m (* Try again. *)
+            )
 
         fun unlock (m: mutex): unit =
             if unlockMutex m
