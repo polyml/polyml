@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: OS Structures and Signatures
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2015-16, 2019-20
+    Copyright   David Matthews 2000, 2005, 2015-16, 2019-20, 2022
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -433,6 +433,10 @@ struct
                        special case is where we have reached the root when
                        we just return the root. *)
                     s ^ parentArc
+                else if Substring.string suffix = parentArc
+                (* If the last component is a parent arc we need to add
+                   a separator and another parent arc. *)
+                then s ^ separator ^ parentArc
                 else if Substring.size prefix = 0
                 then (* No separator at all *)
                     (
