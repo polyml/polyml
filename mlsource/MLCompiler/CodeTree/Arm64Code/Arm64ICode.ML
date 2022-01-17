@@ -159,7 +159,7 @@ struct
            stack arguments.  If the function has a real closure regArgs includes the
            closure register (X8).  The register arguments include the return register
            (X30). *)
-    |   BeginFunction of { regArgs: ('genReg * xReg) list, stackArgs: stackLocn list }
+    |   BeginFunction of { regArgs: ('genReg * xReg) list, fpRegArgs: ('fpReg * vReg) list, stackArgs: stackLocn list }
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through X8 which has been loaded
@@ -171,6 +171,7 @@ struct
     |   FunctionCall of
             { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
               stackArgs: 'genReg fnarg list, dests: ('genReg * xReg) list,
+              fpRegArgs: ('fpReg * vReg) list, fpDests: ('fpReg * vReg) list,
               saveRegs: 'genReg list, containers: stackLocn list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
@@ -182,6 +183,7 @@ struct
     |   TailRecursiveCall of
             { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
               stackArgs: {src: 'genReg fnarg, stack: int} list,
+              fpRegArgs: ('fpReg * vReg) list,
               stackAdjust: int, currStackSize: int }
 
         (* Return from the function.  resultRegs are the registers containing
@@ -621,14 +623,16 @@ struct
                 stream " => "; printGenReg dest
             )
 
-        |   printICode {stream, printGenReg, ...} (BeginFunction{ regArgs, stackArgs }) =
+        |   printICode {stream, printGenReg, printFPReg, ...} (BeginFunction{ regArgs, stackArgs, fpRegArgs }) =
             (
                 stream "\tBeginFunction\t";
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printGenReg(arg); stream " ")) regArgs;
+                List.app(fn (arg, VReg w) => (stream("V" ^ Int.toString(Word8.toInt w)); stream "="; printFPReg(arg); stream " ")) fpRegArgs;
                 List.app(fn s => printStackLoc(s, stream)) stackArgs
             )
 
-        |   printICode {stream, printGenReg, ...} (FunctionCall{callKind, regArgs, stackArgs, dests, saveRegs, containers}) =
+        |   printICode {stream, printGenReg, printFPReg, ...} (FunctionCall{callKind, regArgs, stackArgs, dests,
+                        fpRegArgs, fpDests, saveRegs, containers}) =
             (
                 stream "\tFunctionCall\t";
                 case callKind of
@@ -637,15 +641,17 @@ struct
                 |   FullCall => ();
                 stream "(";
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printGenReg); stream " ")) regArgs;
+                List.app(fn (arg, VReg w) => (stream("V" ^ Int.toString(Word8.toInt w)); stream "="; printFPReg(arg); stream " ")) fpRegArgs;
                 List.app(fn arg => (stream "p="; printArg(arg, stream, printGenReg); stream " ")) stackArgs;
                 stream ") ";
                 List.app(fn (pr, r) => (stream(regRepr r); stream "=>"; printGenReg pr; stream " ")) dests;
+                List.app(fn (pr, VReg w) => (stream("V" ^ Int.toString(Word8.toInt w)); stream "=>"; printFPReg pr; stream " ")) fpDests;
                 stream " save="; printSaves(saveRegs, stream, printGenReg);
                 if null containers then ()
                 else (stream " containers="; List.app (fn c => (printStackLoc(c, stream); stream " ")) containers)
             )
 
-        |   printICode {stream, printGenReg, ...} (TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize, ...}) =
+        |   printICode {stream, printGenReg, printFPReg, ...} (TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize, fpRegArgs, ...}) =
             (
                 stream "\tTailCall\t";
                 case callKind of
@@ -653,6 +659,7 @@ struct
                 |   ConstantCode m => (stream(stringOfWord m); stream " ")
                 |   FullCall => ();
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printGenReg); stream " ")) regArgs;
+                List.app(fn (arg, VReg w) => (stream("V" ^ Int.toString(Word8.toInt w)); stream "="; printFPReg(arg); stream " ")) fpRegArgs;
                 List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream, printGenReg); stream " ")) stackArgs;
                 stream "adjust="; stream(Int.toString stackAdjust);
                 stream " stackSize="; stream(Int.toString currStackSize)

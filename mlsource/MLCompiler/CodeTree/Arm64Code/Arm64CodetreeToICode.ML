@@ -52,7 +52,7 @@ struct
     |   BlockExit of iCodeAbstract
     |   BlockLabel of int
     |   BlockFlow of controlFlow
-    |   BlockBegin of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
+    |   BlockBegin of { regArgs: (preg * xReg) list, fpRegArgs: (preg * vReg) list, stackArgs: stackLocn list }
     |   BlockRaiseAndHandle of iCodeAbstract * int
     |   BlockOptionalHandle of {call: iCodeAbstract, handler: int, label: int }
 
@@ -281,7 +281,7 @@ struct
 
             (* Start code for the function. *)
             val beginInstructions = argCode @
-                [BlockBegin{regArgs=retReg @ clReg @ argRegs, stackArgs=stackArguments }]
+                [BlockBegin{regArgs=retReg @ clReg @ argRegs, fpRegArgs=[], stackArgs=stackArguments }]
 
             (* The number of arguments on the stack.  Needed in return instrs and tail calls. *)
             val currentStackArgs = List.length stackArguments
@@ -1019,7 +1019,7 @@ struct
                         (* Add an entry for the return address to the register arguments. *)
                     in
                         BlockExit(TailRecursiveCall{regArgs=(ArgInReg returnAddrReg, X30) :: closureEntry @ regArgs, stackArgs=stackArgs,
-                                  stackAdjust = stackAdjust, currStackSize=stackOffset, callKind=callKind}) ::
+                                  fpRegArgs=[], stackAdjust = stackAdjust, currStackSize=stackOffset, callKind=callKind}) ::
                                   codeArgs
                     end
                     else
@@ -1052,7 +1052,7 @@ struct
 
                         val call =
                             FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dests=results,
-                                         callKind=callKind, saveRegs=[], containers=stackContainers}
+                                         fpRegArgs=[], fpDests=[], callKind=callKind, saveRegs=[], containers=stackContainers}
                         val callBlock =
                             case currHandler of
                                 NONE => BlockSimple call :: codeArgs

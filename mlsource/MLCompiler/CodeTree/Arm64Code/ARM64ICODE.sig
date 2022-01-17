@@ -215,7 +215,7 @@ sig
            stack arguments.  If the function has a real closure regArgs includes the
            closure register (X8).  The register arguments include the return register
            (X30). *)
-    |   BeginFunction of { regArgs: ('genReg * xReg) list, stackArgs: stackLocn list }
+    |   BeginFunction of { regArgs: ('genReg * xReg) list, fpRegArgs: ('fpReg * vReg) list, stackArgs: stackLocn list }
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through X8 which has been loaded
@@ -227,6 +227,7 @@ sig
     |   FunctionCall of
             { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
               stackArgs: 'genReg fnarg list, dests: ('genReg * xReg) list,
+              fpRegArgs: ('fpReg * vReg) list, fpDests: ('fpReg * vReg) list,
               saveRegs: 'genReg list, containers: stackLocn list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
@@ -238,6 +239,7 @@ sig
     |   TailRecursiveCall of
             { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
               stackArgs: {src: 'genReg fnarg, stack: int} list,
+              fpRegArgs: ('fpReg * vReg) list,
               stackAdjust: int, currStackSize: int }
 
         (* Return from the function.  resultRegs are the registers containing

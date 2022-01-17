@@ -303,22 +303,28 @@ struct
                     List.app addRegArg regArgs
                 end
 
-            |   addHints{instr=BeginFunction{regArgs, ...}, ...} =
-                    List.app (fn (PReg pr, reg) => addRealHint(pr, GenReg reg)) regArgs
+            |   addHints{instr=BeginFunction{regArgs, fpRegArgs, ...}, ...} =
+                (
+                    List.app (fn (PReg pr, reg) => addRealHint(pr, GenReg reg)) regArgs;
+                    List.app (fn (PReg pr, reg) => addRealHint(pr, FPReg reg)) fpRegArgs
+                )
 
-            |   addHints{instr=TailRecursiveCall{regArgs, ...}, ...} =
+            |   addHints{instr=TailRecursiveCall{regArgs, fpRegArgs, ...}, ...} =
                 let
                     fun setHint(ArgInReg(PReg pr), reg) = addRealHint(pr, GenReg reg) | setHint _ = ()
                 in
-                    List.app setHint regArgs
+                    List.app setHint regArgs;
+                    List.app (fn(PReg pr, reg) => addRealHint(pr, FPReg reg)) fpRegArgs
                 end
         
-            |   addHints{instr=FunctionCall{regArgs, dests, ...}, ...} =
+            |   addHints{instr=FunctionCall{regArgs, dests, fpRegArgs, fpDests, ...}, ...} =
                 let
                     fun setHint(ArgInReg(PReg pr), reg) = addRealHint(pr, GenReg reg) | setHint _ = ()
                 in
                     List.app(fn(PReg pr, r) => addRealHint(pr, GenReg r)) dests;
-                    List.app setHint regArgs
+                    List.app(fn(PReg pr, r) => addRealHint(pr, FPReg r)) fpDests;
+                    List.app setHint regArgs;
+                    List.app (fn(PReg pr, reg) => addRealHint(pr, FPReg reg)) fpRegArgs
                 end
 
                 (* Exception packets are in X0 *)
@@ -820,7 +826,7 @@ struct
                                dest=destReg, opSize=opSize})
                 end
 
-            |   absToConcrete({instr=BeginFunction {regArgs, stackArgs}, ...} :: rest, _, code) =
+            |   absToConcrete({instr=BeginFunction {regArgs, fpRegArgs, stackArgs}, ...} :: rest, _, code) =
                 let
                     (* Allocate the register arguments.  At this point all the registers are free and the cache is empty.
                        However we may have a "real conflict" that means that the allocated register is different.  e.g.
@@ -832,34 +838,43 @@ struct
                     in
                         (asGenReg destReg, dst)
                     end
+                    fun allocFPReg(src, dst) =
+                    let
+                        val (destReg, _) = allocateNewDestination(src, SOME(FPReg dst), floatingPtRegisters, [])
+                    in
+                        (asFPReg destReg, dst)
+                    end
                 in
                     absToConcrete(rest, [], code <::>
-                        BeginFunction {regArgs=map allocReg regArgs, stackArgs=stackArgs})
+                        BeginFunction {regArgs=map allocReg regArgs, fpRegArgs=map allocFPReg fpRegArgs, stackArgs=stackArgs})
                 end
 
-            |   absToConcrete({instr=FunctionCall{callKind, regArgs, stackArgs, dests, containers, saveRegs, ...}, ...} :: rest, _, code) =
+            |   absToConcrete({instr=FunctionCall{callKind, regArgs, stackArgs, dests, fpRegArgs, fpDests, containers, saveRegs, ...}, ...} :: rest, _, code) =
                 let
                     fun getRegArg(src, dst) = (getAllocatedArg src, dst)
-                    fun getResult(preg, reg) =
+                    and getFPRegArg(src, dst) = (getAllocatedFPReg src, dst)
+                    fun getResult allocReg (preg, reg) =
                     let
                         (* We empty the cache at this point. *)
-                        val (newReg, _) = allocateGenReg(preg, NONE, [])
+                        val (newReg, _) = allocReg(preg, NONE, [])
                     in
                         (newReg, reg)
                     end
                 in
                     absToConcrete(rest, [] (* Empty after a function call. *), code <::>
                         FunctionCall{ callKind=callKind, regArgs=map getRegArg regArgs, stackArgs=map getAllocatedArg stackArgs,
-                                  dests=map getResult dests, saveRegs=getSaveRegs saveRegs, containers=containers})
+                                  dests=map (getResult allocateGenReg) dests, fpRegArgs=map getFPRegArg fpRegArgs,
+                                  fpDests=map (getResult allocateFPReg) fpDests, saveRegs=getSaveRegs saveRegs, containers=containers})
                 end
 
-            |   absToConcrete({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize}, ...} :: rest, context, code) =
+            |   absToConcrete({instr=TailRecursiveCall{callKind, regArgs, stackArgs, fpRegArgs, stackAdjust, currStackSize}, ...} :: rest, context, code) =
                 let
                     fun getRegArg(src, dst) = (getAllocatedArg src, dst)
                     and getStackArg{src, stack} = {src=getAllocatedArg src, stack=stack}
+                    and getFPRegArg(src, dst) = (getAllocatedFPReg src, dst)
                 in
                     absToConcrete(rest, context, code <::>
-                        TailRecursiveCall{ callKind=callKind, regArgs=map getRegArg regArgs,
+                        TailRecursiveCall{ callKind=callKind, regArgs=map getRegArg regArgs, fpRegArgs=map getFPRegArg fpRegArgs,
                             stackArgs=map getStackArg stackArgs, stackAdjust=stackAdjust, currStackSize=currStackSize})
                 end
 

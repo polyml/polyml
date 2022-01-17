@@ -201,6 +201,66 @@ struct
             moveMultipleValues(regPairsAsDests, code)
         end
 
+        (* Floating point registers can only be moved into other floating point registers but
+           it is possible to have a cycle. *)
+        fun moveMultipleFPRegisters(moves: {dst: vReg, src: vReg} list, code) =
+        let
+            local
+                fun regNo(VReg r) = Word8.toInt r
+                type node = {src: vReg, dst: vReg }
+                fun nodeAddress({dst=r, ...}: node) = regNo r
+                fun arcs{src=r, ...} = [regNo r]
+            in
+                val stronglyConnected = Strongly.stronglyConnectedComponents { nodeAddress=nodeAddress, arcs=arcs }
+            end
+
+            fun moveValues ([], code) = code (* We're done. *)
+
+            |   moveValues (arguments, code) =
+                let
+                    val ordered = stronglyConnected arguments
+
+                    fun moveEachValue ([], code) = code
+
+                    |   moveEachValue ([{dst, src}] :: rest, code) =
+                            moveEachValue(rest,
+                                if src = dst then code else (MoveFPToFP{regN=src, regD=dst, floatSize=Double64}) :: code)
+
+                    |   moveEachValue((cycle as first :: _ :: _) :: rest, code) =
+                        (* We have a cycle. *)
+                        let
+                            val {dst=selectDst: vReg, src=selectSrc: vReg} = first
+
+                            (* This includes this entry but after the swap we'll eliminate it. *)
+                            val flattened = List.foldl(fn (a, b) => a @ b) [] (cycle :: rest)
+                            val destAsSource = selectDst
+                            fun swapSources{src, dst} =
+                                if src=selectSrc then {src=destAsSource, dst=dst}
+                                else if src=destAsSource then {src=selectSrc, dst=dst}
+                                else {src=src, dst=dst}
+
+                            (* Exchange the values of two floating point registers.  There are
+                               various ways to do this.  For the moment just use the hardware stack. *)
+                            val exchangeCode =
+                                code <::>
+                                    StoreFPRegUnscaled{regT=selectDst, regN=XSP, byteOffset= ~16, floatSize=Double64, unscaledType=PreIndex} <::>
+                                    MoveFPToFP{regN=selectSrc, regD=selectDst, floatSize=Double64} <::>
+                                    LoadFPRegUnscaled{regT=selectSrc, regN=XSP, byteOffset=16, floatSize=Double64, unscaledType=PostIndex}
+                        in
+                            moveValues(List.map swapSources flattened, exchangeCode)
+                        end
+
+                    |   moveEachValue(([]) :: _, _) = (* This should not happen - avoid warning. *)
+                            raise InternalError "moveEachValue - empty set"
+                in
+                    moveEachValue(ordered, code)
+                end
+        in
+            moveValues(moves, code)
+        end
+
+
+
         fun moveIfNecessary({src, dst}, code) =
             if src = dst then code
             else MoveXRegToXReg{sReg=src, dReg=dst} :: code
@@ -495,7 +555,7 @@ struct
                 (DivideRegs{regN=dividend, regM=divisor,
                                    regD=dest, isSigned=isSigned, opSize=opSize}) :: code
 
-        |   codeExtended _ (BeginFunction{regArgs, ...}, code) =
+        |   codeExtended _ (BeginFunction{regArgs, fpRegArgs, ...}, code) =
             let
                 val skipCheck = createLabel labelMaker
                 val defaultWords = 10 (* This is wired into the RTS. *)
@@ -527,20 +587,21 @@ struct
                         RTSTrap{rtsEntry=entryPt, work=workReg1, save=List.map #2 regArgs} <::>
                         SetLabel skipCheck
 
-                val usedRegs = regArgs
                 fun mkPair(pr, rr) = {src=rr,dst=pr}
-                val regPairs = List.map mkPair usedRegs
+                val regPairs = List.map mkPair regArgs
+                val fpRegPairs = List.map mkPair fpRegArgs
             in
-                moveMultipleRegisters(regPairs, code3)
+                moveMultipleFPRegisters(fpRegPairs, moveMultipleRegisters(regPairs, code3))
             end
 
-        |   codeExtended _ (TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize}, code) =
+        |   codeExtended _ (TailRecursiveCall{callKind, regArgs, stackArgs, fpRegArgs, stackAdjust, currStackSize}, code) =
             let
                 fun convertArg(ArgOnStack{wordOffset, ...}) = IsOnStack wordOffset
                 |   convertArg(ArgInReg reg) = IsInReg(reg)
 
                 val extStackArgs = map (fn {stack, src} => {dst=IsOnStack(stack+currStackSize), src=convertArg src}) stackArgs
                 val extRegArgs = map (fn (a, r) => {src=convertArg a, dst=IsInReg r}) regArgs
+                val extFPArgs = map (fn (a, r) => {src=a, dst=r}) fpRegArgs
 
                 (* Tail recursive calls are complicated because we generally have to overwrite the existing stack.
                    That means storing the arguments in the right order to avoid overwriting a
@@ -578,7 +639,8 @@ struct
                     end
                     else
                     let
-                        val loadArgs = moveMultipleValues(arguments, code)
+                        val loadArgs =
+                            moveMultipleFPRegisters(extFPArgs, moveMultipleValues(arguments, code))
                     in
                         if stackAdjust = 0
                         then loadArgs
@@ -605,7 +667,7 @@ struct
                 jumpToFunctionCode @ setArgumentsCode
             end
 
-        |   codeExtended _ (FunctionCall{callKind, regArgs=regArgs, stackArgs=stackArgs, dests, saveRegs, ...}, code) =
+        |   codeExtended _ (FunctionCall{callKind, regArgs, stackArgs, dests, fpRegArgs, fpDests, saveRegs, ...}, code) =
             let
                 local
                     fun pushStackArgs ([], _, code) = code
@@ -636,7 +698,8 @@ struct
 
                 in
                     val extRegArgs = map (fn (a, r) => {src=convertArg a, dst=IsInReg r}) regArgs
-                    val loadArgs = moveMultipleValues(extRegArgs, pushedArgs)
+                    val extFPArgs = map (fn (a, r) => {src=a, dst=r}) fpRegArgs
+                    val loadArgs = moveMultipleFPRegisters(extFPArgs, moveMultipleValues(extRegArgs, pushedArgs))
                 end
 
                 (* Push the registers before the call and pop them afterwards. *)
@@ -671,8 +734,10 @@ struct
 
                 (* Results.  These go from the specific result register into the allocated register. *)
                 val resultPairs = List.map(fn (pr, rr) => {src=rr,dst=pr}) dests
+                val fpResultPairs = List.map(fn (pr, rr) => {src=rr,dst=pr}) fpDests
             in
-                moveMultipleRegisters(resultPairs, makeSavesAndCall(saveRegs, loadArgs))
+                moveMultipleFPRegisters(fpResultPairs,
+                    moveMultipleRegisters(resultPairs, makeSavesAndCall(saveRegs, loadArgs)))
             end
 
         |   codeExtended _ (ReturnResultFromFunction { results, returnReg, numStackArgs }, code) =

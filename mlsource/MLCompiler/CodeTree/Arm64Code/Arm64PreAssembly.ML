@@ -115,6 +115,7 @@ struct
     |   ShiftRegisterVariable of {regM: xReg, regN: xReg, regD: xReg, opSize: opSize, shiftDirection: shiftDirection}
     |   BitwiseLogical of { bits: Word64.word, regN: xReg, regD: xReg, opSize: opSize, setFlags: bool, logOp: logicalOp}
         (* Floating point *)
+    |   MoveFPToFP of { regN: vReg, regD: vReg, floatSize: floatSize}
     |   MoveGeneralToFP of { regN: xReg, regD: vReg, floatSize: floatSize}
     |   MoveFPToGeneral of {regN: vReg, regD: xReg, floatSize: floatSize}
     |   CvtIntToFP of { regN: xReg, regD: vReg, floatSize: floatSize, opSize: opSize}
@@ -606,6 +607,11 @@ struct
             in
                 toAssembler(rest, code <::> instr{regN=regN, regD=regD, bits=bits})
             end
+
+        |   toAssembler(MoveFPToFP{ regN, regD, floatSize=Float32} :: rest, code) =
+                toAssembler(rest, code <::> moveFloatToFloat{regN=regN, regD=regD})
+        |   toAssembler(MoveFPToFP{ regN, regD, floatSize=Double64} :: rest, code) =
+                toAssembler(rest, code <::> moveDoubleToDouble{regN=regN, regD=regD})
 
         |   toAssembler(MoveGeneralToFP{ regN, regD, floatSize=Float32} :: rest, code) =
                 toAssembler(rest, code <::> moveGeneralToFloat{regN=regN, regD=regD})

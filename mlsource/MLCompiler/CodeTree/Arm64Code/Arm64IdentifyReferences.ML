@@ -154,10 +154,10 @@ struct
     |   getInstructionState(Division{ dest, dividend, divisor, ... }) =
         { sources=[dividend, divisor], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
-            { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
+    |   getInstructionState(BeginFunction {regArgs, fpRegArgs, stackArgs, ...}) =
+            { sources=[], dests=map #1 regArgs @ map #1 fpRegArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(FunctionCall{regArgs, stackArgs, dests, containers, ...}) =
+    |   getInstructionState(FunctionCall{regArgs, stackArgs, dests, fpRegArgs, fpDests, containers, ...}) =
         let
             (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
             fun getSourceFromRegs((ArgInReg reg, _), (regArgs, stackArgs)) = (reg :: regArgs, stackArgs)
@@ -166,11 +166,12 @@ struct
             |   getSourceFromStack(ArgOnStack { container, ...}, (regArgs, stackArgs)) = (regArgs, container :: stackArgs)
             val (argSources, stackSources) =
                 List.foldl getSourceFromRegs (List.foldl getSourceFromStack ([], []) stackArgs) regArgs
+            val fpArgSources = List.map #1 fpRegArgs
         in
-            { sources=argSources, dests=List.map #1 dests, sStacks=stackSources @ containers, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=argSources @ fpArgSources, dests=List.map #1 dests @ List.map #1 fpDests, sStacks=stackSources @ containers, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
-    |   getInstructionState(TailRecursiveCall{regArgs, stackArgs, ...}) =
+    |   getInstructionState(TailRecursiveCall{regArgs, fpRegArgs, stackArgs, ...}) =
         let
             (* Tail recursive call.  References the argument sources but exits. *)
             fun getSourceFromRegs((ArgInReg reg, _), (regArgs, stackArgs)) = (reg :: regArgs, stackArgs)
@@ -179,8 +180,9 @@ struct
             |   getSourceFromStack({src=ArgOnStack { container, ...}, ...}, (regArgs, stackArgs)) = (regArgs, container :: stackArgs)
             val (argSources, stackSources) =
                 List.foldl getSourceFromRegs (List.foldl getSourceFromStack ([], []) stackArgs) regArgs
+            val fpArgSources = List.map #1 fpRegArgs
         in
-            { sources=argSources, dests=[], sStacks=stackSources, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=argSources@fpArgSources, dests=[], sStacks=stackSources, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
     |   getInstructionState(ReturnResultFromFunction{results, returnReg, ...}) =
@@ -706,7 +708,7 @@ struct
                                     JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=SOME check}
                                 end
 
-                            |   FunctionCall{regArgs, stackArgs=[], dests, callKind as ConstantCode m,
+                            |   FunctionCall{regArgs, stackArgs=[], dests, fpRegArgs=[], fpDests=[], callKind as ConstantCode m,
                                              saveRegs=_, containers} =>
                                 (* If this is arbitrary precision push the registers rather than marking them as "save".
                                    stringOfWord returns 'CODE "PolyAddArbitrary"' etc. *)
@@ -717,7 +719,7 @@ struct
                                     fun includeInSave i = not(List.exists(fn r => r=i) destRegs)
                                 in
                                     FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dests=dests,
-                                        containers=containers, saveRegs=getSaveSet includeInSave}
+                                        fpRegArgs=[], fpDests=[], containers=containers, saveRegs=getSaveSet includeInSave}
                                 end
                                 else instr
 
