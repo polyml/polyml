@@ -56,17 +56,6 @@ struct
         shiftConstant{direction=ShiftRightLogical, shift=0w32, regN=addrReg, regD=workReg, opSize=OpSize64},
         MoveGeneralToFP{regN=workReg, regD=valReg, floatSize=Float32}
     ]
-        
-    fun boxOrTagFloat{floatReg, fixedReg, workReg, saveRegs} =
-    if is32in64
-    then List.rev(boxFloat({source=floatReg, destination=fixedReg, workReg=workReg, saveRegs=saveRegs}, []))
-    else
-    [
-        MoveFPToGeneral{regN=floatReg, regD=fixedReg, floatSize=Float32},
-        shiftConstant{direction=ShiftLeft, shift=0w32, regN=fixedReg, regD=fixedReg, opSize=OpSize64},
-        BitwiseLogical{regN=fixedReg, regD=fixedReg, bits=0w1, logOp=LogOr, setFlags=false, opSize=OpSize64}
-    ]
-
 
     (* Call the RTS.  Previously this did not check for exceptions raised in the RTS and instead
        there was code added after each call.  Doing it after the call doesn't affect the time
@@ -77,7 +66,7 @@ struct
        may not raise an exception but the packet may not have been cleared from a
        previous call. *)
 
-    fun rtsCallFastGeneral (functionName, argFormats, resultFormat, debugSwitches) =
+    fun rtsCallFastGeneral (functionName, argFormats, _ (*resultFormat*), debugSwitches) =
     let
         val entryPointAddr = makeEntryPoint functionName
         (* The maximum we currently have is five so we don't need to worry about stack args. *)
@@ -140,14 +129,7 @@ struct
                 LoadRegScaled{regT=X16, regN=X_MLStackPtr, unitOffset=0, loadType=Load64},
                 BranchReg{regD=X16, brRegType=BRRBranch},
                 SetLabel noRTSException
-
             ] @
-            (
-                case resultFormat of
-                    FastArgFixed => []
-                |   FastArgDouble => (* This must be boxed. *) List.rev(boxDouble({source=V0, destination=X0, workReg=X1, saveRegs=[]}, []))
-                |   FastArgFloat => (* This must be tagged or boxed *) boxOrTagFloat{floatReg=V0, fixedReg=X0, workReg=X1, saveRegs=[]}
-            ) @
             [
                 BranchReg{regD=X23, brRegType=BRRReturn}
             ]

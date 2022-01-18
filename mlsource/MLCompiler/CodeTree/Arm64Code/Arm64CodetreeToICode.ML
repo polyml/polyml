@@ -139,7 +139,7 @@ struct
 
     fun precisionToFpSize PrecSingle = Float32 | precisionToFpSize PrecDouble = Double64
 
-    fun codeFunctionToArm64({body, localCount, name, argTypes, resultType, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
+    fun codeFunctionToArm64({body, localCount, name, argTypes, resultType=fnResultType, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
         (* Pseudo-registers are allocated sequentially and the properties added to the list. *)
         val pregCounter = ref 0
@@ -291,15 +291,28 @@ struct
             val containerResults = Option.map(fn regs => ListPair.zip(regs, generalArgRegs)) containerRegs
         end
 
-        (* TODO: Return the values of the container registers if we have multiple results. *)
-
-
         fun returnInstruction({stackPtr, ...}, resReg, tailCode) =
         let
-            val results = getOpt(containerResults, [(resReg, X0)]) (* Return the result in X0 unless there's a container. *)
+            val (results, fpResults, unBoxCode) =
+                case (containerResults, fnResultType) of
+                    (NONE, GeneralType) => ([(resReg, X0)], [], tailCode)
+                |   (NONE, DoubleFloatType) =>
+                    let
+                        val reg = newUReg()
+                    in
+                        ([], [(reg, V0)], tailCode <::> unboxTagFloat{ floatSize=Double64, source=resReg, dest=reg })
+                    end
+                |   (NONE, SingleFloatType) =>
+                    let
+                        val reg = newUReg()
+                    in
+                        ([], [(reg, V0)], tailCode <::> unboxTagFloat{ floatSize=Float32, source=resReg, dest=reg })
+                    end
+                |   (SOME cResult, GeneralType) => (cResult, [], tailCode)
+                |   _ => raise InternalError "returnInstruction: result type mismatch"
         in
-            BlockExit(ReturnResultFromFunction{results=results, fpResults=[], returnReg=returnAddrReg, numStackArgs=currentStackArgs}) ::
-                (if stackPtr <> 0 then resetStackPtr{numWords=stackPtr} :: tailCode else tailCode)
+            BlockExit(ReturnResultFromFunction{results=results, fpResults=fpResults, returnReg=returnAddrReg, numStackArgs=currentStackArgs}) ::
+                (if stackPtr <> 0 then resetStackPtr{numWords=stackPtr} :: unBoxCode else unBoxCode)
         end
 
         fun asTarget(SpecificPReg preg) = preg
@@ -916,7 +929,7 @@ struct
                 returnUnit(destination,  block :: code, true (* Always exits *))
             end
 
-        |   codeToICodeRev(BICEval{function, argList, ...}, context as { currHandler, ...}, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICEval{function, argList, resultType, ...}, context as { currHandler, ...}, isTail, destination, tailCode) =
             let
                 val target = asTarget destination
                 (* Create pregs for the closure and each argument. *)
@@ -1000,7 +1013,7 @@ struct
                 
                 (* If this is at the end of the function and the result types are the
                    same we can use a tail-recursive call. *)
-                val tailCall = isTail (*andalso resultType = fnResultType*)
+                val tailCall = isTail andalso resultType = fnResultType
                 
                 val callCode =
                     if tailCall
@@ -1044,17 +1057,30 @@ struct
 
                         (* Get the results.  If we're returning the result through a container the target isn't used
                            so we return unit. *)
-                        val (results, setTarget) =
-                            case containerValue of
-                                ContainerInRegs regs =>
-                                    (ListPair.zip(regs, generalArgRegs), [loadNonAddressConstant{source=taggedWord64 0w0, dest=target}])
-                            |   ContainerOnStack _ =>
-                                    ([], [loadNonAddressConstant{source=taggedWord64 0w0, dest=target}])
-                            |   NoContainer => ([(target, X0)], [])
+                        val (results, fpResults, setTarget) =
+                            case (containerValue, resultType) of
+                                (ContainerInRegs regs, GeneralType) =>
+                                    (ListPair.zip(regs, generalArgRegs), [], [loadNonAddressConstant{source=taggedWord64 0w0, dest=target}])
+                            |   (ContainerOnStack _, GeneralType) =>
+                                    ([], [], [loadNonAddressConstant{source=taggedWord64 0w0, dest=target}])
+                            |   (NoContainer, GeneralType) => ([(target, X0)], [], [])
+                            |   (NoContainer, DoubleFloatType) =>
+                                let
+                                    val dReg = newUReg()
+                                in
+                                    ([], [(dReg, V0)], [boxTagFloat{ floatSize=Double64, source=dReg, dest=target, saveRegs=[]}])
+                                end
+                            |   (NoContainer, SingleFloatType) =>
+                                let
+                                    val dReg = newUReg()
+                                in
+                                    ([], [(dReg, V0)], [boxTagFloat{ floatSize=Float32, source=dReg, dest=target, saveRegs=[]}])
+                                end
+                            |   _ => raise InternalError "codeToICodeRev: BICEval result type"
 
                         val call =
                             FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dests=results,
-                                         fpRegArgs=[], fpDests=[], callKind=callKind, saveRegs=[], containers=stackContainers}
+                                         fpRegArgs=[], fpDests=fpResults, callKind=callKind, saveRegs=[], containers=stackContainers}
                         val callBlock =
                             case currHandler of
                                 NONE => BlockSimple call :: codeArgs
