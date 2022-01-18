@@ -73,6 +73,7 @@ struct
         |   AddressConstant of machineWord
         |   LargeBox of preg
         |   RealBox of preg * floatSize
+        |   TaggedValue of preg * bool * opSize
 
         (* If this argument is a register and the register is mapped to a constant
            or another register replace the value.  Unlike the X86 version we
@@ -239,6 +240,9 @@ struct
             |   optCode({instr as BoxTagFloat{ source, dest, floatSize, ... }, ...} :: rest, inCond, regMap, code, changed) =
                     optCode(rest, inCond, {dest=dest, source=RealBox(source, floatSize)} :: regMap, instr :: code, changed)
 
+            |   optCode({instr as TagValue{ source, dest, isSigned, opSize}, ...} :: rest, inCond, regMap, code, changed) =
+                    optCode(rest, inCond, {dest=dest, source=TaggedValue(source, isSigned, opSize)} :: regMap, instr :: code, changed)
+
             |   optCode({instr as UnboxLarge{ source, dest, ... }, kill, ...} :: rest,
                         inCond, regMap, code, changed) =
                 let
@@ -285,6 +289,18 @@ struct
                         in
                             optCode(rest, inCond, newMap, LoadNonAddressConstant{dest=dest, source=wordConst} :: code, true)
                         end
+
+                        (* Or if it was recently tagged we can eliminate the tagging and untagging.  This occurs, for
+                           example, if we extract a character and then put it into a string.  Normally the lengths
+                           will match but may use a 32-bit tagged value as a 64-bit value in the special case of
+                           using a character to index into the array of single-character strings.  Mismatched
+                           signed/unsigned could occur with conversions between Word.word and FixedInt.int
+                           which are generally no-ops. *)
+                    |   TaggedValue(original, wasSigned, oldOpSize) =>
+                            if isSigned = wasSigned andalso (case (oldOpSize, opSize) of (OpSize64, OpSize32) => false | _ => true)
+                            then optCode(rest, inCond, mapAfterReplace, MoveRegister{dest=dest, source=original} :: code, true)
+                            else optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                    
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
