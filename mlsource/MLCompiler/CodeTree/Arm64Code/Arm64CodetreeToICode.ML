@@ -139,7 +139,7 @@ struct
 
     fun precisionToFpSize PrecSingle = Float32 | precisionToFpSize PrecDouble = Double64
 
-    fun codeFunctionToArm64({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
+    fun codeFunctionToArm64({body, localCount, name, argTypes, resultType, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
         (* Pseudo-registers are allocated sequentially and the properties added to the list. *)
         val pregCounter = ref 0
@@ -222,6 +222,8 @@ struct
         val returnAddrReg = newPReg()
         
         val generalArgRegs = [X0, X1, X2, X3, X4, X5, X6, X7]
+        (* we just use the first four.  The ARM API uses V0 to V8. *)
+        val fpArgRegs = [V0, V1, V2, V3]
         
         (* If a container is larger than this it is passed on the stack. *)
         val smallContainerSize = 4
@@ -296,7 +298,7 @@ struct
         let
             val results = getOpt(containerResults, [(resReg, X0)]) (* Return the result in X0 unless there's a container. *)
         in
-            BlockExit(ReturnResultFromFunction{results=results, returnReg = returnAddrReg, numStackArgs=currentStackArgs}) ::
+            BlockExit(ReturnResultFromFunction{results=results, fpResults=[], returnReg=returnAddrReg, numStackArgs=currentStackArgs}) ::
                 (if stackPtr <> 0 then resetStackPtr{numWords=stackPtr} :: tailCode else tailCode)
         end
 

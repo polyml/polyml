@@ -185,8 +185,8 @@ struct
             { sources=argSources@fpArgSources, dests=[], sStacks=stackSources, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
-    |   getInstructionState(ReturnResultFromFunction{results, returnReg, ...}) =
-            { sources=returnReg :: List.map #1 results, dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+    |   getInstructionState(ReturnResultFromFunction{results, fpResults, returnReg, ...}) =
+            { sources=returnReg :: List.map #1 results @ List.map #1 fpResults, dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(RaiseExceptionPacket{packetReg}) =
             { sources=[packetReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }

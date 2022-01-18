@@ -601,8 +601,9 @@ struct
                         val localMap = List.map (fn r => (PReg r, newReg(Vector.sub(pregProps, r)))) (setToList locals)
                         fun mapReg r = case List.find (fn (s, _) => r = s) localMap of SOME(_, s) => s | NONE => r
                         fun mapInstr(instr as ResetStackPtr _) = instr
-                        |   mapInstr(ReturnResultFromFunction{results, returnReg, numStackArgs}) =
+                        |   mapInstr(ReturnResultFromFunction{results, fpResults, returnReg, numStackArgs}) =
                                 ReturnResultFromFunction{results=List.map(fn(pr, r) => (mapReg pr, r))results,
+                                                         fpResults=List.map(fn(pr, r) => (mapReg pr, r))fpResults,
                                                          returnReg=mapReg returnReg, numStackArgs=numStackArgs}
                         |   mapInstr(RaiseExceptionPacket{packetReg}) =
                                 RaiseExceptionPacket{packetReg=mapReg packetReg}

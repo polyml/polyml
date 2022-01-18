@@ -710,22 +710,23 @@ struct
                                         stackArgLoads @ code
                         end
 
-                    |   pushRegisters({instr=ReturnResultFromFunction{results, returnReg, numStackArgs}, ...}, code) =
+                    |   pushRegisters({instr=ReturnResultFromFunction{results, fpResults, returnReg, numStackArgs}, ...}, code) =
                         let
-                            fun loadResults((preg, rreg), (others, code)) =
+                            fun getResults((preg, rreg), (others, code)) =
                             let
                                 val (newReg, newCode) = mapSrcReg preg
                             in
                                 ((newReg, rreg) :: others, newCode @ code)
                             end
-                            val (resultValues, loadResults) = List.foldr loadResults ([], []) results
+                            val (resultValues, loadResults) = List.foldr getResults ([], []) results
+                            val (fpResultValues, loadFPResults) = List.foldr getResults ([], []) fpResults
 
                             val (returnValue, loadReturn) = mapSrcReg returnReg
                             val resetCode =
                                 if !stackCount = 0 then [] else [ResetStackPtr{numWords= !stackCount}]
                         in
-                            ReturnResultFromFunction{results=resultValues, returnReg=returnValue, numStackArgs=numStackArgs} ::
-                                resetCode @ loadReturn @ loadResults @ code
+                            ReturnResultFromFunction{results=resultValues, fpResults=fpResultValues, returnReg=returnValue, numStackArgs=numStackArgs} ::
+                                resetCode @ loadReturn @ loadFPResults @ loadResults @ code
                         end
 
                     |   pushRegisters({instr=RaiseExceptionPacket{packetReg}, ...}, code) =

@@ -151,10 +151,10 @@ struct
             (* Certain instructions are specific as to the real registers. *)
             val () =
                 case instr of
-                    ReturnResultFromFunction{ returnReg=PReg retReg, ... } =>
-                        (* We're going to put the return value in X0 so we can't use that for
-                           the return address. *)
-                        addRealConflict(retReg, GenReg X0)
+                    ReturnResultFromFunction{ returnReg=PReg retReg, results, ... } =>
+                        (* We can't use any of the registers we're using to carry results, typically X0,
+                           to hold the return address. *)
+                        List.app(fn (_, xReg) => addRealConflict(retReg, GenReg xReg)) results
 
                 |   RaiseExceptionPacket{ packetReg } =>
                         (* This wasn't needed previously because we always pushed the registers
@@ -291,8 +291,11 @@ struct
                     (* The "destAsSource" is the destination if some bits are retained. *)
                     addSourceAndDestinationHint {src=dsReg, dst=dReg}
 
-            |   addHints{instr=ReturnResultFromFunction { results, ... }, ...} =
-                    List.app(fn(PReg pr, r) => addRealHint(pr, GenReg r)) results
+            |   addHints{instr=ReturnResultFromFunction { results, fpResults, ... }, ...} =
+                (
+                    List.app(fn(PReg pr, r) => addRealHint(pr, GenReg r)) results;
+                    List.app(fn(PReg pr, r) => addRealHint(pr, FPReg r)) fpResults
+                )
 
             |   addHints{instr=JumpLoop{regArgs, ...}, ...} =
                 let
@@ -884,12 +887,14 @@ struct
                             stackArgs=map getStackArg stackArgs, stackAdjust=stackAdjust, currStackSize=currStackSize})
                 end
 
-            |   absToConcrete({instr=ReturnResultFromFunction{results, returnReg, numStackArgs}, ...} :: rest, context, code) =
+            |   absToConcrete({instr=ReturnResultFromFunction{results, fpResults, returnReg, numStackArgs}, ...} :: rest, context, code) =
                 let
                     fun getResult(preg, reg) = (getAllocatedGenReg preg, reg)
+                    and getFPResult(preg, reg) = (getAllocatedFPReg preg, reg)
                 in
                     absToConcrete(rest, context, code <::>
-                        ReturnResultFromFunction{results=map getResult results, returnReg=getAllocatedGenReg returnReg, numStackArgs=numStackArgs})
+                        ReturnResultFromFunction{results=map getResult results, fpResults=map getFPResult fpResults,
+                                                 returnReg=getAllocatedGenReg returnReg, numStackArgs=numStackArgs})
                 end
 
             |   absToConcrete({instr=RaiseExceptionPacket{packetReg}, ...} :: rest, context, code) =

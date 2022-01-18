@@ -189,7 +189,8 @@ struct
         (* Return from the function.  resultRegs are the registers containing
            the result,
            returnReg is the preg that contains the return address. *)
-    |   ReturnResultFromFunction of { results: ('genReg * xReg) list, returnReg: 'genReg, numStackArgs: int }
+    |   ReturnResultFromFunction of
+            { results: ('genReg * xReg) list, fpResults:  ('fpReg * vReg) list, returnReg: 'genReg, numStackArgs: int }
 
         (* Raise an exception.  The packet is always loaded into X0. *)
     |   RaiseExceptionPacket of { packetReg: 'genReg }
@@ -374,6 +375,8 @@ struct
         fun regRepr(XReg w) = "X" ^ Int.toString(Word8.toInt w)
         |   regRepr XZero = "XZ"
         |   regRepr XSP = "SP"
+        
+        and vRegRepr(VReg v) = "V" ^ Int.toString(Word8.toInt v)
 
         fun arithRepr OpSize64 = "64"
         |   arithRepr OpSize32 = "32"
@@ -627,7 +630,7 @@ struct
             (
                 stream "\tBeginFunction\t";
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printGenReg(arg); stream " ")) regArgs;
-                List.app(fn (arg, VReg w) => (stream("V" ^ Int.toString(Word8.toInt w)); stream "="; printFPReg(arg); stream " ")) fpRegArgs;
+                List.app(fn (arg, r) => (stream(vRegRepr r); stream "="; printFPReg(arg); stream " ")) fpRegArgs;
                 List.app(fn s => printStackLoc(s, stream)) stackArgs
             )
 
@@ -641,11 +644,11 @@ struct
                 |   FullCall => ();
                 stream "(";
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printGenReg); stream " ")) regArgs;
-                List.app(fn (arg, VReg w) => (stream("V" ^ Int.toString(Word8.toInt w)); stream "="; printFPReg(arg); stream " ")) fpRegArgs;
+                List.app(fn (arg, r) => (stream(vRegRepr r); stream "="; printFPReg(arg); stream " ")) fpRegArgs;
                 List.app(fn arg => (stream "p="; printArg(arg, stream, printGenReg); stream " ")) stackArgs;
                 stream ") ";
                 List.app(fn (pr, r) => (stream(regRepr r); stream "=>"; printGenReg pr; stream " ")) dests;
-                List.app(fn (pr, VReg w) => (stream("V" ^ Int.toString(Word8.toInt w)); stream "=>"; printFPReg pr; stream " ")) fpDests;
+                List.app(fn (pr, r) => (stream(vRegRepr r); stream "=>"; printFPReg pr; stream " ")) fpDests;
                 stream " save="; printSaves(saveRegs, stream, printGenReg);
                 if null containers then ()
                 else (stream " containers="; List.app (fn c => (printStackLoc(c, stream); stream " ")) containers)
@@ -659,16 +662,18 @@ struct
                 |   ConstantCode m => (stream(stringOfWord m); stream " ")
                 |   FullCall => ();
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printGenReg); stream " ")) regArgs;
-                List.app(fn (arg, VReg w) => (stream("V" ^ Int.toString(Word8.toInt w)); stream "="; printFPReg(arg); stream " ")) fpRegArgs;
+                List.app(fn (arg, r) => (stream(vRegRepr r); stream "="; printFPReg(arg); stream " ")) fpRegArgs;
                 List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream, printGenReg); stream " ")) stackArgs;
                 stream "adjust="; stream(Int.toString stackAdjust);
                 stream " stackSize="; stream(Int.toString currStackSize)
             )
 
-        |   printICode {stream, printGenReg, ...} (ReturnResultFromFunction{ results, returnReg, numStackArgs }) =
+        |   printICode {stream, printGenReg, printFPReg, ...}
+                (ReturnResultFromFunction{ results, fpResults, returnReg, numStackArgs }) =
             (
                 stream "\tReturnFromFunction\t"; printGenReg(returnReg); stream "with ";
                 List.app(fn (reg, r) => (stream(regRepr r); stream "=>"; printGenReg reg; stream " ")) results;
+                List.app(fn (reg, r) => (stream(vRegRepr r); stream "=>"; printFPReg reg; stream " ")) fpResults;
                 stream("," ^ Int.toString numStackArgs)
             )
 

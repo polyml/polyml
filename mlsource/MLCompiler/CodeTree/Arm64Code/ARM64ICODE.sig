@@ -247,7 +247,8 @@ sig
         (* Return from the function.  resultRegs are the registers containing
            the result,
            returnReg is the preg that contains the return address. *)
-    |   ReturnResultFromFunction of { results: ('genReg * xReg) list, returnReg: 'genReg, numStackArgs: int }
+    |   ReturnResultFromFunction of
+            { results: ('genReg * xReg) list, fpResults:  ('fpReg * vReg) list, returnReg: 'genReg, numStackArgs: int }
 
         (* Raise an exception.  The packet is always loaded into X0. *)
     |   RaiseExceptionPacket of { packetReg: 'genReg }

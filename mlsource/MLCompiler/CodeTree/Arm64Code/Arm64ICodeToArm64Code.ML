@@ -740,7 +740,7 @@ struct
                     moveMultipleRegisters(resultPairs, makeSavesAndCall(saveRegs, loadArgs)))
             end
 
-        |   codeExtended _ (ReturnResultFromFunction { results, returnReg, numStackArgs }, code) =
+        |   codeExtended _ (ReturnResultFromFunction { results, fpResults, returnReg, numStackArgs }, code) =
             let
                 fun resetStack(0, code) = code
                 |   resetStack(nItems, code) =
@@ -748,8 +748,10 @@ struct
                                         value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt nItems}, code)
                 (* Return results.  This goes from the allocated register into the specific register rr. *)
                 val resultPairs = List.map(fn (pr, rr) => {src=pr,dst=rr}) results
+                and fpResultPairs = List.map(fn (pr, rr) => {src=pr,dst=rr}) fpResults
             in
-                BranchReg{regD=returnReg, brRegType=BRRReturn} :: resetStack(numStackArgs, moveMultipleRegisters(resultPairs, code))
+                BranchReg{regD=returnReg, brRegType=BRRReturn} :: resetStack(numStackArgs,
+                    moveMultipleFPRegisters(fpResultPairs, moveMultipleRegisters(resultPairs, code)))
             end
 
         |   codeExtended _ (RaiseExceptionPacket{ packetReg }, code) =
