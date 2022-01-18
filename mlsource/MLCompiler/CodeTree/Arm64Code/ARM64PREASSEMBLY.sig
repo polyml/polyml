@@ -101,7 +101,9 @@ sig
         MultAdd32 | MultSub32 | MultAdd64 | MultSub64 |
         SignedMultAddLong (* 32bit*32bit + 64bit => 64Bit *) |
         SignedMultHigh (* High order part of 64bit*64Bit *)
-    and fpUnary = NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble | ConvDbleToFloat
+    and fpUnary =
+        NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble |
+        ConvDbleToFloat | MoveDouble | MoveFloat
     and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
     and unscaledType = NoUpdate | PreIndex | PostIndex
     and condSet = CondSet | CondSetIncr | CondSetInvert | CondSetNegate
@@ -170,7 +172,6 @@ sig
     |   ShiftRegisterVariable of {regM: xReg, regN: xReg, regD: xReg, opSize: opSize, shiftDirection: shiftDirection}
     |   BitwiseLogical of { bits: Word64.word, regN: xReg, regD: xReg, opSize: opSize, setFlags: bool, logOp: logicalOp}
         (* Floating point *)
-    |   MoveFPToFP of { regN: vReg, regD: vReg, floatSize: floatSize}
     |   MoveGeneralToFP of { regN: xReg, regD: vReg, floatSize: floatSize}
     |   MoveFPToGeneral of {regN: vReg, regD: xReg, floatSize: floatSize}
     |   CvtIntToFP of { regN: xReg, regD: vReg, floatSize: floatSize, opSize: opSize}

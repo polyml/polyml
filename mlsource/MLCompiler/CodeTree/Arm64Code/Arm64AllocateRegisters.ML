@@ -331,6 +331,12 @@ struct
             |   addHints{instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...} = addRealHint(preg, GenReg X0)
             |   addHints{instr=BeginHandler{ packetReg=PReg preg }, ...} = addRealHint(preg, GenReg X0)
 
+            |   addHints{instr=UnaryFloatingPt{source=PReg sreg, dest=PReg dreg, fpOp=MoveFloat}, ...} =
+                    addSourceAndDestinationHint {src=sreg, dst=dreg}
+
+            |   addHints{instr=UnaryFloatingPt{source=PReg sreg, dest=PReg dreg, fpOp=MoveDouble}, ...} =
+                    addSourceAndDestinationHint {src=sreg, dst=dreg}
+
             |   addHints _ = ()
         in
             val () = Vector.app(fn ExtendedBasicBlock { block, ...} => List.app addHints block) blocks        
@@ -1144,6 +1150,25 @@ struct
                     absToConcrete(rest, newCache, code <::>
                         ConvertFloatToInt{ source=getAllocatedFPReg source, dest=destReg, srcSize=srcSize,
                                        destSize=destSize, rounding=rounding})
+                end
+
+            |   absToConcrete({instr=UnaryFloatingPt{ source, dest, fpOp=MoveFloat}, ...} :: rest, cache, code) =
+                (* Register-register moves can be eliminated if the same resgister is used. *)
+                let
+                    val srcReg = getAllocatedFPReg source
+                    val (destReg, newCache) = allocateFPReg(dest, SOME(FPReg srcReg), cache)
+                in
+                    absToConcrete(rest, newCache,
+                        if destReg = srcReg then code else code <::> UnaryFloatingPt{ source=srcReg, dest=destReg, fpOp=MoveFloat})
+                end
+
+            |   absToConcrete({instr=UnaryFloatingPt{ source, dest, fpOp=MoveDouble}, ...} :: rest, cache, code) =
+                let
+                    val srcReg = getAllocatedFPReg source
+                    val (destReg, newCache) = allocateFPReg(dest, SOME(FPReg srcReg), cache)
+                in
+                    absToConcrete(rest, newCache,
+                        if destReg = srcReg then code else code <::> UnaryFloatingPt{ source=srcReg, dest=destReg, fpOp=MoveDouble})
                 end
 
             |   absToConcrete({instr=UnaryFloatingPt{ source, dest, fpOp}, ...} :: rest, cache, code) =

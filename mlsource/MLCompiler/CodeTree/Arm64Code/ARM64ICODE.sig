@@ -99,7 +99,9 @@ sig
         MultAdd32 | MultSub32 | MultAdd64 | MultSub64 |
         SignedMultAddLong (* 32bit*32bit + 64bit => 64Bit *) |
         SignedMultHigh (* High order part of 64bit*64Bit *)
-    and fpUnary = NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble | ConvDbleToFloat
+    and fpUnary =
+        NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble |
+        ConvDbleToFloat | MoveDouble | MoveFloat
     and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
         (* Some of the atomic operations added in 8.1 *)
     and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL | LoadAddAcquire | LoadUMaxAcquire | SwapRelease
@@ -367,7 +369,7 @@ sig
            that will cause an overflow when we tag it, provided we tag it explicitly. *)
     |   ConvertFloatToInt of { source: 'fpReg, dest: 'genReg, srcSize: floatSize, destSize: opSize, rounding: IEEEReal.rounding_mode }
 
-        (* Unary floating point.  This includes conversions between float and double. *)
+        (* Unary floating point.  This includes moves and conversions between float and double. *)
     |   UnaryFloatingPt of { source: 'fpReg, dest: 'fpReg, fpOp: fpUnary }
 
         (* Binary floating point: addition, subtraction, multiplication and division. *)

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021
+    Copyright David C. J. Matthews 2021-2
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -37,12 +37,10 @@ struct
        This could incorporate optimisations done elsewhere.
        IdentifyReferences currently removes instructions that
        produce results in registers that are never used.
+       AllocateRegisters deals generally with caching.
 
-       PushRegisters deals with caching. Caching involves
-       speculative changes that can be reversed if there is a need
-       to spill registers.
-       
-       The optimiser currently deals with booleans and conditions.
+       The optimiser currently deals with booleans and conditions and with
+       constants.
     *)
     
     (* This is a rewrite of the last instruction to set a boolean.
@@ -73,6 +71,8 @@ struct
             SomeValue
         |   NonAddressConst of Word64.word
         |   AddressConstant of machineWord
+        |   LargeBox of preg
+        |   RealBox of preg * floatSize
 
         (* If this argument is a register and the register is mapped to a constant
            or another register replace the value.  Unlike the X86 version we
@@ -232,6 +232,13 @@ struct
                     (* Address constant.  This is used in conjunction with UnboxValue *)
                     optCode(rest, inCond, {dest=dest, source=AddressConstant source} :: regMap, instr :: code, changed)
 
+            |   optCode({instr as BoxLarge{ source, dest, ... }, ...} :: rest, inCond, regMap, code, changed) =
+                (* Try to eliminate adjacent sequences of boxing and unboxing.  *)
+                    optCode(rest, inCond, {dest=dest, source=LargeBox source} :: regMap, instr :: code, changed)
+
+            |   optCode({instr as BoxTagFloat{ source, dest, floatSize, ... }, ...} :: rest, inCond, regMap, code, changed) =
+                    optCode(rest, inCond, {dest=dest, source=RealBox(source, floatSize)} :: regMap, instr :: code, changed)
+
             |   optCode({instr as UnboxLarge{ source, dest, ... }, kill, ...} :: rest,
                         inCond, regMap, code, changed) =
                 let
@@ -251,6 +258,10 @@ struct
                         in
                             optCode(rest, inCond, newMap, LoadNonAddressConstant{dest=dest, source=wordConst} :: code, true)
                         end
+
+                        (* Or if it was recently boxed we can use the original and hopefully eliminate the box. *)
+                    |   LargeBox original => optCode(rest, inCond, mapAfterReplace, MoveRegister{dest=dest, source=original} :: code, true)
+
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
@@ -302,6 +313,12 @@ struct
                             optCode(rest, inCond, mapAfterReplace, LoadFPConstant{dest=dest, floatSize=Float32, source=fpConstant} :: code, true)
                         end
 
+                    |   RealBox(original, fSize) =>
+                        (
+                            fSize = Float32 orelse raise InternalError "Mismatch float size";
+                            optCode(rest, inCond, mapAfterReplace, UnaryFloatingPt{dest=dest, source=original, fpOp=MoveFloat} :: code, true)
+                        )
+
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
@@ -320,6 +337,12 @@ struct
                         in
                             optCode(rest, inCond, mapAfterReplace, LoadFPConstant{dest=dest, floatSize=Double64, source=fpConstant} :: code, true)
                         end
+
+                    |   RealBox(original, fSize) =>
+                        (
+                            fSize = Double64 orelse raise InternalError "Mismatch float size";
+                            optCode(rest, inCond, mapAfterReplace, UnaryFloatingPt{dest=dest, source=original, fpOp=MoveDouble} :: code, true)
+                        )
 
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
@@ -397,7 +420,6 @@ struct
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
-
             |   optCode({instr as BitFieldInsert{ source, dest, destAsSource, length=_, immr, imms }, kill, ...} :: rest,
                     inCond, regMap, code, changed) =
                 (* Bit field insertion.  This is used to insert the length field into the register containing the
@@ -446,7 +468,6 @@ struct
             |   optCode({instr as BlockMove _, ...} :: rest, _, _, code, changed) =
                     (* Likewise at the end of the loop.  Not sure if this is essential. *)
                     optCode(rest, BRNone, [], instr::code, changed)
-            
 
             |   optCode({instr, ...} :: rest, inCond, regMap, code, changed) =
                 let

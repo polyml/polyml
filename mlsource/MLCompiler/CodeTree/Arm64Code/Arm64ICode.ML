@@ -877,7 +877,9 @@ struct
                     |   AbsFloat => "\tAbsFloat\t"
                     |   AbsDouble => "\tAbsDouble\t"
                     |   ConvFloatToDble => "\tFloatToDble\t"
-                    |   ConvDbleToFloat => "\t\t"
+                    |   ConvDbleToFloat => "\tDbleToFloat\t"
+                    |   MoveDouble => "\tMoveDouble\t"
+                    |   MoveFloat => "\tMoveFloat\t"
                 );
                 printFPReg source; stream " => "; printFPReg dest
             )

@@ -45,7 +45,9 @@ struct
         MultAdd32 | MultSub32 | MultAdd64 | MultSub64 |
         SignedMultAddLong (* 32bit*32bit + 64bit => 64Bit *) |
         SignedMultHigh (* High order part of 64bit*64Bit *)
-    and fpUnary = NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble | ConvDbleToFloat
+    and fpUnary =
+        NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble |
+        ConvDbleToFloat | MoveDouble | MoveFloat
     and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
     and unscaledType = NoUpdate | PreIndex | PostIndex
     and condSet = CondSet | CondSetIncr | CondSetInvert | CondSetNegate
@@ -115,7 +117,6 @@ struct
     |   ShiftRegisterVariable of {regM: xReg, regN: xReg, regD: xReg, opSize: opSize, shiftDirection: shiftDirection}
     |   BitwiseLogical of { bits: Word64.word, regN: xReg, regD: xReg, opSize: opSize, setFlags: bool, logOp: logicalOp}
         (* Floating point *)
-    |   MoveFPToFP of { regN: vReg, regD: vReg, floatSize: floatSize}
     |   MoveGeneralToFP of { regN: xReg, regD: vReg, floatSize: floatSize}
     |   MoveFPToGeneral of {regN: vReg, regD: xReg, floatSize: floatSize}
     |   CvtIntToFP of { regN: xReg, regD: vReg, floatSize: floatSize, opSize: opSize}
@@ -608,11 +609,6 @@ struct
                 toAssembler(rest, code <::> instr{regN=regN, regD=regD, bits=bits})
             end
 
-        |   toAssembler(MoveFPToFP{ regN, regD, floatSize=Float32} :: rest, code) =
-                toAssembler(rest, code <::> moveFloatToFloat{regN=regN, regD=regD})
-        |   toAssembler(MoveFPToFP{ regN, regD, floatSize=Double64} :: rest, code) =
-                toAssembler(rest, code <::> moveDoubleToDouble{regN=regN, regD=regD})
-
         |   toAssembler(MoveGeneralToFP{ regN, regD, floatSize=Float32} :: rest, code) =
                 toAssembler(rest, code <::> moveGeneralToFloat{regN=regN, regD=regD})
         |   toAssembler(MoveGeneralToFP{ regN, regD, floatSize=Double64} :: rest, code) =
@@ -674,6 +670,8 @@ struct
                     |   AbsFloat => absFloat | AbsDouble => absDouble
                     |   ConvFloatToDble => convertFloatToDouble
                     |   ConvDbleToFloat => convertDoubleToFloat
+                    |   MoveDouble => moveDoubleToDouble
+                    |   MoveFloat => moveFloatToFloat
             in
                 toAssembler(rest, code <::> instr {regN=regN, regD=regD})
             end

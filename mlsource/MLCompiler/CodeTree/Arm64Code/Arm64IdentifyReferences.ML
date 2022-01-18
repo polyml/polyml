@@ -307,6 +307,8 @@ struct
     |   eliminateable(UntagValue _) = true
     |   eliminateable(BoxLarge _) = true
     |   eliminateable(UnboxLarge _) = true
+    |   eliminateable(BoxTagFloat _) = true
+    |   eliminateable(UnboxTagFloat _) = true
 
     |   eliminateable _ = false
    

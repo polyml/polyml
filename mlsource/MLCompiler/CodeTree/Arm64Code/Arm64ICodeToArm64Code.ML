@@ -224,7 +224,7 @@ struct
 
                     |   moveEachValue ([{dst, src}] :: rest, code) =
                             moveEachValue(rest,
-                                if src = dst then code else (MoveFPToFP{regN=src, regD=dst, floatSize=Double64}) :: code)
+                                if src = dst then code else (FPUnaryOp{regN=src, regD=dst, fpOp=MoveDouble}) :: code)
 
                     |   moveEachValue((cycle as first :: _ :: _) :: rest, code) =
                         (* We have a cycle. *)
@@ -244,7 +244,7 @@ struct
                             val exchangeCode =
                                 code <::>
                                     StoreFPRegUnscaled{regT=selectDst, regN=XSP, byteOffset= ~16, floatSize=Double64, unscaledType=PreIndex} <::>
-                                    MoveFPToFP{regN=selectSrc, regD=selectDst, floatSize=Double64} <::>
+                                    FPUnaryOp{regN=selectSrc, regD=selectDst, fpOp=MoveDouble} <::>
                                     LoadFPRegUnscaled{regT=selectSrc, regN=XSP, byteOffset=16, floatSize=Double64, unscaledType=PostIndex}
                         in
                             moveValues(List.map swapSources flattened, exchangeCode)
