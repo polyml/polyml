@@ -127,6 +127,9 @@ struct
                 (* Sources must be set up as conflicts with each other i.e. when we
                    come to allocate registers we must choose different real registers
                    for different abstract registers. *)
+                (* TODO: It may may well no longer be necessary to make sources
+                   conflict with each other.  It was probably a consequence of
+                   the old process of allocating registers from the end back. *)
                 val () = addConflictsTo(sourceRegNos, listToSet sourceRegNos)
                 val () = addConflictsTo(sourceRegNos, afterRemoveDests);
                 val () = addConflictsTo(sourceRegNos, passThrough)
@@ -473,6 +476,8 @@ struct
                 CacheStack of stackLocn             (* A value loaded from the stack. *)
             |   CacheAbsAddress of preg             (* 32-in-64: An absolute address from an object ID *)
             |   CacheAbsAddrOnStack of stackLocn    (* 32-in-64: An absolute address from an object loaded from the stack. *)
+            |   CacheLargeUnbox of preg             (* A LargeWord.word value has been unboxed *)
+            |   CacheRealUnbox of preg * floatSize  (* A double or float has been unboxed. *)
 
             (* Cache hints: Try to use the same register for values that can be cached.  This increases
                the chances that we will be able to retain the cache when we merge different branches. *)
@@ -1024,11 +1029,29 @@ struct
                         BoxLarge{source=getAllocatedGenReg source, dest=destReg, saveRegs=saved})
                 end
 
-            |   absToConcrete({instr=UnboxLarge{source, dest}, ...} :: rest, cache, code) =
+            |   absToConcrete({instr=UnboxLarge{source as PReg rno, dest}, kill, ...} :: rest, cache, code) =
+                (* Unboxing a large word.  We cache this in case we need to unbox it again. *)
                 let
-                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
+                    val killThis = member(rno, kill)
                 in
-                    absToConcrete(rest, newCache, code <::> UnboxLarge{source=getAllocatedGenReg source, dest=destReg})
+                    case List.find(fn (_, CacheLargeUnbox s) => s=source | _ => false) cache of
+                        SOME (srcReg, _) =>
+                        let
+                            val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
+                            val dReg = asGenReg destReg
+                            and sReg = asGenReg srcReg
+                        in
+                            absToConcrete(rest,
+                                if killThis then pruneCache(srcReg, newCache) else newCache,
+                                    code <::> MoveRegister { source=sReg, dest=dReg})
+                        end
+                   |    NONE =>
+                        let
+                            val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
+                        in
+                            absToConcrete(rest, if killThis then newCache else (GenReg destReg, CacheLargeUnbox source) :: newCache,
+                                code <::> UnboxLarge{source=getAllocatedGenReg source, dest=destReg})
+                        end
                 end
 
             |   absToConcrete({instr=BoxTagFloat{floatSize, source, dest, saveRegs}, ...} :: rest, cache, code) =
@@ -1041,11 +1064,29 @@ struct
                         BoxTagFloat{floatSize=floatSize, source=getAllocatedFPReg source, dest=destReg, saveRegs=saved})
                 end
 
-            |   absToConcrete({instr=UnboxTagFloat{floatSize, source, dest}, ...} :: rest, cache, code) =
+            |   absToConcrete({instr=UnboxTagFloat{floatSize, source as PReg rno, dest}, kill, ...} :: rest, cache, code) =
+                (* Unboxing a large word.  We cache this in case we need to unbox it again. *)
                 let
-                    val (destReg, newCache) = allocateFPReg(dest, NONE, cache)
+                    val killThis = member(rno, kill)
                 in
-                    absToConcrete(rest, newCache, code <::> UnboxTagFloat{floatSize=floatSize, source=getAllocatedGenReg source, dest=destReg})
+                    case List.find(fn (_, CacheRealUnbox(s, f)) => s=source andalso f=floatSize | _ => false) cache of
+                        SOME (srcReg, _) =>
+                        let
+                            val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, floatingPtRegisters, cache)
+                            val dReg = asFPReg destReg
+                            and sReg = asFPReg srcReg
+                        in
+                            absToConcrete(rest,
+                                if killThis then pruneCache(srcReg, newCache) else newCache,
+                                    code <::> UnaryFloatingPt { source=sReg, dest=dReg, fpOp=case floatSize of Float32=>MoveFloat | Double64=>MoveDouble})
+                        end
+                   |    NONE =>
+                        let
+                            val (destReg, newCache) = allocateFPReg(dest, NONE, cache)
+                        in
+                            absToConcrete(rest, if killThis then newCache else (FPReg destReg, CacheRealUnbox(source, floatSize)) :: newCache,
+                                code <::> UnboxTagFloat{floatSize=floatSize, source=getAllocatedGenReg source, dest=destReg})
+                        end
                 end
 
             |   absToConcrete({instr=LoadAcquire { base, dest, loadType}, ...} :: rest, cache, code) =
@@ -1226,7 +1267,7 @@ struct
                             if checkCache
                             then (code <::> MoveRegister{source=sReg, dest=X17} <::> LoadStack{ dest=dReg, container=container, field=0, wordOffset=wordOffset }
                                 <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg, if killThis then pruneCache(srcReg, newCache) else newCache)
-                            else if dReg = sReg andalso false
+                            else if dReg = sReg(* andalso false *)
                             then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
                             else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
                                     if killThis then pruneCache(srcReg, newCache) else newCache)
