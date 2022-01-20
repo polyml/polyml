@@ -1361,7 +1361,6 @@ struct
                     val inputCacheList =
                         List.map (fn n => #cache(Array.sub(resultArray, n))) (Array.sub(blockRefs, blockNo))
                     val inputCache = mergeCacheStates inputCacheList
-                    val inputCache = [] (* Temporarily *)
                     (* Process this block and add it to the results. *)
                     val () = Array.update(processed, blockNo, true)
                     val () = Array.update(resultArray, blockNo, concreteBlock(thisBlock, inputCache))
