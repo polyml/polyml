@@ -42,21 +42,6 @@ struct
     then []
     else [MoveXRegToXReg{sReg=iReg, dReg=absReg}]
 
-    fun unboxDouble(addrReg, workReg, valReg) =
-    if is32in64
-    then indexToAbsoluteAddress(addrReg, workReg) @
-        [LoadFPRegScaled{regT=valReg, regN=workReg, unitOffset=0, floatSize=Double64}]
-    else [LoadFPRegScaled{regT=valReg, regN=addrReg, unitOffset=0, floatSize=Double64}]
-
-    fun unboxOrUntagSingle(addrReg, workReg, valReg) =
-    if is32in64
-    then [LoadFPRegIndexed{regN=X_Base32in64, regM=addrReg, regT=valReg, option=ExtUXTX ScaleOrShift, floatSize=Float32}]
-    else
-    [
-        shiftConstant{direction=ShiftRightLogical, shift=0w32, regN=addrReg, regD=workReg, opSize=OpSize64},
-        MoveGeneralToFP{regN=workReg, regD=valReg, floatSize=Float32}
-    ]
-
     (* Call the RTS.  Previously this did not check for exceptions raised in the RTS and instead
        there was code added after each call.  Doing it after the call doesn't affect the time
        taken but makes the code larger especially as this is needed in every arbitrary precision
@@ -66,36 +51,16 @@ struct
        may not raise an exception but the packet may not have been cleared from a
        previous call. *)
 
-    fun rtsCallFastGeneral (functionName, argFormats, _ (*resultFormat*), debugSwitches) =
+    fun rtsCallFastGeneral (functionName, debugSwitches) =
     let
         val entryPointAddr = makeEntryPoint functionName
         (* The maximum we currently have is five so we don't need to worry about stack args. *)
-
-        fun loadArgs([], _, _, _) = []
-        |   loadArgs(FastArgFixed :: argTypes, srcReg :: srcRegs, fixed :: fixedRegs, fpRegs) =
-                if srcReg = fixed
-                then loadArgs(argTypes, srcRegs, fixedRegs, fpRegs) (* Already in the right reg *)
-                else MoveXRegToXReg{sReg=srcReg, dReg=fixed} ::
-                        loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
-        |   loadArgs(FastArgDouble :: argTypes, srcReg :: srcRegs, fixedRegs, fp :: fpRegs) =
-                (* Unbox the value into a fp reg. *)
-                unboxDouble(srcReg, srcReg, fp) @
-                loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
-        |   loadArgs(FastArgFloat :: argTypes, srcReg :: srcRegs, fixedRegs, fp :: fpRegs) =
-                (* Untag and move into the fp reg *)
-                unboxOrUntagSingle(srcReg, srcReg, fp) @
-                loadArgs(argTypes, srcRegs, fixedRegs, fpRegs)
-        |   loadArgs _ = raise InternalError "rtsCall: Too many arguments"
 
         val labelMaker = createLabelMaker()
 
         val noRTSException = createLabel labelMaker
 
         val instructions =
-            loadArgs(argFormats,
-                (* ML Arguments *) [X0, X1, X2, X3, X4, X5, X6, X7],
-                (* C fixed pt args *) [X0, X1, X2, X3, X4, X5, X6, X7],
-                (* C floating pt args *) [V0, V1, V2, V3, V4, V5, V6, V7]) @
                 (* Clear the RTS exception state. *)
                 LoadNonAddr(X16, 0w1) ::
             [
@@ -140,45 +105,21 @@ struct
         closureAsAddress closure
     end
 
-
+    (* Provided there are no more than eight fixed pt args and four floating pt args
+       everything will be in the correct place.  These are only used in Initialise
+       so the number of arguments is limited, currently six. *)
     fun rtsCallFast (functionName, nArgs, debugSwitches) =
-        rtsCallFastGeneral (functionName, List.tabulate(nArgs, fn _ => FastArgFixed), FastArgFixed, debugSwitches)
-
-    (* RTS call with one double-precision floating point argument and a floating point result. *)
-    fun rtsCallFastRealtoReal (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgDouble], FastArgDouble, debugSwitches)
+        if nArgs > 8 then raise InternalError "rtsCallFast: more than 8 arguments"
+        else rtsCallFastGeneral (functionName, debugSwitches)
     
-    (* RTS call with two double-precision floating point arguments and a floating point result. *)
-    fun rtsCallFastRealRealtoReal (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgDouble, FastArgDouble], FastArgDouble, debugSwitches)
-
-    (* RTS call with one double-precision floating point argument, one fixed point argument and a
-       floating point result. *)
-    fun rtsCallFastRealGeneraltoReal (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgDouble, FastArgFixed], FastArgDouble, debugSwitches)
-
-    (* RTS call with one general (i.e. ML word) argument and a floating point result.
-       This is used only to convert arbitrary precision values to floats. *)
-    fun rtsCallFastGeneraltoReal (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgFixed], FastArgDouble, debugSwitches)
-
-    (* Operations on Real32.real values. *)
-
-    fun rtsCallFastFloattoFloat (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgFloat], FastArgFloat, debugSwitches)
-    
-    fun rtsCallFastFloatFloattoFloat (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFloat], FastArgFloat, debugSwitches)
-
-    (* RTS call with one double-precision floating point argument, one fixed point argument and a
-       floating point result. *)
-    fun rtsCallFastFloatGeneraltoFloat (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgFloat, FastArgFixed], FastArgFloat, debugSwitches)
-
-    (* RTS call with one general (i.e. ML word) argument and a floating point result.
-       This is used only to convert arbitrary precision values to floats. *)
-    fun rtsCallFastGeneraltoFloat (functionName, debugSwitches) =
-        rtsCallFastGeneral (functionName, [FastArgFixed], FastArgFloat, debugSwitches)
+    val rtsCallFastRealtoReal = rtsCallFastGeneral
+    and rtsCallFastRealRealtoReal = rtsCallFastGeneral
+    and rtsCallFastRealGeneraltoReal = rtsCallFastGeneral
+    and rtsCallFastGeneraltoReal = rtsCallFastGeneral
+    and rtsCallFastFloattoFloat = rtsCallFastGeneral
+    and rtsCallFastFloatFloattoFloat = rtsCallFastGeneral
+    and rtsCallFastFloatGeneraltoFloat = rtsCallFastGeneral
+    and rtsCallFastGeneraltoFloat = rtsCallFastGeneral
 
     (* There is only one ABI value. *)
     datatype abi = ARM64Abi
