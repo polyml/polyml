@@ -1023,8 +1023,6 @@ struct
                             destCode @ AtomicOperation{ base=baseVal, source=sourceVal, dest=destVal, atOp=atOp } :: baseCode @ sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=CacheCheck _, ...}, _) = raise InternalError "pushRegisters: CacheCheck"
-
                     local
                         fun doPush(instr as {kill, ...}, code) =
                         let

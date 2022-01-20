@@ -29,8 +29,6 @@ struct
     
     exception InternalError = Misc.InternalError
 
-    val checkCache = false (* Use the cache *)
-
     datatype allocateResult =
         AllocateSuccess of basicBlockConcrete vector
     |   AllocateFailure of intSet list
@@ -683,11 +681,7 @@ struct
                                 val (destReg, newCache) = allocateNewDestination(destOiA, SOME(GenReg cachedIn), generalRegisters, cache)
                                 val dReg = asGenReg destReg
                             in
-                                if checkCache
-                                then (code <::> MoveRegister{source=cachedIn, dest=X17} <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=dReg}
-                                        <::> CacheCheck{ arg1=dReg, arg2=X17 },
-                                     dReg, if killThis then pruneCache(GenReg cachedIn, newCache) else newCache, rest)
-                                else if dReg = cachedIn
+                                if dReg = cachedIn
                                 then (code, dReg, newCache, rest) (* We will have pruned this since it's the destination. *)
                                 else (code <::> MoveRegister { source=cachedIn, dest=dReg}, dReg,
                                         if killThis then pruneCache(GenReg cachedIn, newCache) else newCache, rest)
@@ -954,11 +948,7 @@ struct
                                 val (destReg, newCache) = allocateNewDestination(destOia, SOME(GenReg cachedIn), generalRegisters, cache)
                                 val dReg = asGenReg destReg
                             in
-                                if checkCache
-                                then (code <::> MoveRegister{source=cachedIn, dest=X17} <::> LoadStack{ dest=X16, container=container, field=0, wordOffset=wordOffset } <::>
-                                        ObjectIndexAddressToAbsolute { source=X16, dest=dReg} <::> CacheCheck{ arg1=dReg, arg2=X17 }, dReg,
-                                        if killThis then pruneCache(GenReg cachedIn, newCache) else newCache)
-                                else if dReg = cachedIn
+                                if dReg = cachedIn
                                 then (code, dReg, newCache) (* We will have pruned this since it's the destination. *)
                                 else (code <::> MoveRegister { source=cachedIn, dest=dReg}, dReg,
                                         if killThis then pruneCache(GenReg cachedIn, newCache) else newCache)
@@ -1264,9 +1254,6 @@ struct
                         AtomicOperation{ base=getAllocatedGenReg base, source=getAllocatedGenRegOrZero source, dest=destReg, atOp=atOp })
                 end
 
-            |   absToConcrete({instr=CacheCheck _, ...} :: _, _, _) =  (* Concrete only. *)
-                    raise InternalError "absToConcrete: CheckCache"
-
             (* LoadStack. *)
             and processLoadStack(dest, container as StackLoc{rno, ...}, wordOffset, kill, cache, code) =
             let
@@ -1281,10 +1268,7 @@ struct
                             val (destReg, newCache) = allocateNewDestination(dest, SOME(GenReg cachedIn), generalRegisters, cache)
                             val dReg = asGenReg destReg
                         in
-                            if checkCache
-                            then (code <::> MoveRegister{source=cachedIn, dest=X17} <::> LoadStack{ dest=dReg, container=container, field=0, wordOffset=wordOffset }
-                                <::> CacheCheck{ arg1=dReg, arg2=X17 }, dReg, if killThis then pruneCache(GenReg cachedIn, newCache) else newCache)
-                            else if dReg = cachedIn
+                            if dReg = cachedIn
                             then (code, dReg, newCache) (* We will have pruned this since it's the destination. *)
                             else (code <::> MoveRegister { source=cachedIn, dest=dReg}, dReg,
                                     if killThis then pruneCache(GenReg cachedIn, newCache) else newCache)

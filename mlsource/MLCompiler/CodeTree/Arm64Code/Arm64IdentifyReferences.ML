@@ -292,9 +292,6 @@ struct
     |   getInstructionState(AtomicOperation{ base, source, dest, ... }) =
             { sources=base :: getOptReg source, dests=getOptReg dest, sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionState(CacheCheck{ arg1, arg2}) =
-            { sources=[arg1, arg2], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
-
     (* These instructions can be eliminated if their register sources are not used.
        There may be other cases. *)
     fun eliminateable(MoveRegister _) = true

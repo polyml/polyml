@@ -1030,17 +1030,6 @@ struct
 
         |   codeExtended _ (AtomicOperation{ base, source, dest, atOp }, code) = AtomicExtension{regN=base, regS=source, regT=dest, atOp=atOp} :: code
 
-        |   codeExtended _ (CacheCheck{ arg1, arg2 }, code) =
-            let
-                val okLabel = createLabel labelMaker
-            in
-                (code <::> SubShiftedReg {regM=arg1, regN=arg2, regD=XZero, shift=ShiftNone, opSize=OpSize64, setFlags=true} <::>
-                    ConditionalBranch(CondEqual, okLabel) <::>
-                    MoveXRegToXReg{sReg=XZero, dReg=X16} <::>
-                    LoadRegScaled{regT=X16, regN=X16, unitOffset=0, loadType=Load16} <::>
-                    SetLabel okLabel)
-            end
-
         local
             (* processed - set to true when a block has been processed. *)
             val processed = Array.array(numBlocks, false)

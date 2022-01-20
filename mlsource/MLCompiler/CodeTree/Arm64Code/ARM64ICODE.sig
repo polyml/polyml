@@ -385,9 +385,6 @@ sig
         (* Atomic operations added for ARM 8.1 *)
     |   AtomicOperation of { base: 'genReg, source: 'optGenReg, dest: 'optGenReg, atOp: atomicOp }
 
-        (* Debugging - fault if values don't match. *)
-    |   CacheCheck of { arg1: 'genReg, arg2: 'genReg }
-
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)

@@ -327,9 +327,6 @@ struct
         (* Atomic operations added for ARM 8.1 *)
     |   AtomicOperation of { base: 'genReg, source: 'optGenReg, dest: 'optGenReg, atOp: atomicOp }
 
-        (* Debugging - fault if values don't match. *)
-    |   CacheCheck of { arg1: 'genReg, arg2: 'genReg }
-
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -923,9 +920,6 @@ struct
                 |   SwapRelease => stream "\tSwapRelease\t";
                 printOptGenReg source; stream ",["; printGenReg base; stream "] => "; printOptGenReg dest
             )
-
-        |   printICode {stream, printGenReg, ...} (CacheCheck{ arg1, arg2}) =
-            ( stream "\tCacheCheck\t"; printGenReg arg1; stream ", "; printGenReg arg2 )
 
         and printCondition(cond,  stream)  = stream(condToString cond)
 
