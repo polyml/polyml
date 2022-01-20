@@ -488,7 +488,8 @@ struct
             fun pruneCache(reg: reg, cache) = List.filter(fn (r, _) => r <> reg) cache
 
             (* Return the cache registers that contain valid addresses. *)
-            fun cachedAddressRegs cache = List.map (asGenReg o #1) cache
+            fun cachedAddressRegs cache =
+                List.mapPartial (fn (GenReg r, _) => SOME r | _ => NONE) cache
 
             (* Merge the cache states *)
             fun mergeCacheStates ([]: (reg * cacheItem) list list) = []: (reg * cacheItem) list
