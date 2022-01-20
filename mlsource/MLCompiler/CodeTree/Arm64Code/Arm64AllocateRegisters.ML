@@ -348,136 +348,145 @@ struct
             val () = Vector.app(fn ExtendedBasicBlock { block, ...} => List.app addHints block) blocks        
         end
 
-
-        val allocatedRegs = Array.array(maxPRegs, NONE: reg option)
         val failures = ref []: intSet list ref
-
-        (* Find a real register for a preg.
-           1.  If a register is already allocated use that.
-           2.  Try the "preferred" register if one has been given.
-           3.  Try the realHints value if there is one.
-           4.  See if there is a "friend" that has an appropriate register
-           5.  Look at all the registers and find one. *)
-        fun findRegister(r, pref, regSet, cache) =
-        case Array.sub(allocatedRegs, r) of
-            SOME reg => reg
-
-        |   NONE =>
-            let
-                val conflicts = Array.sub(regConflicts, r)
-                and realConflicts = Array.sub(regRealConflicts, r)
-                (* Find the registers we've already allocated that may conflict. *)
-                val conflictingRegs =
-                    List.mapPartial(fn i => Array.sub(allocatedRegs, i)) (setToList conflicts) @
-                        realConflicts
-
-                fun isFree aReg = not (List.exists(fn i => i=aReg) conflictingRegs)
-
-                fun tryAReg NONE = NONE
-                |   tryAReg (somePref as SOME prefReg) =
-                        if isFree prefReg
-                        then (Array.update(allocatedRegs, r, somePref); somePref)
-                        else NONE
-
-                (* Search the sources and destinations to see if a register has
-                   already been allocated or there is a hint. *)
-                fun findAFriend([], [], _) = NONE
-
-                |   findAFriend(aDest :: otherDests, sources, alreadySeen) =
-                    let
-                        val possReg =
-                            case Array.sub(allocatedRegs, aDest) of
-                                v as SOME _ => tryAReg v
-                            |   NONE => tryAReg(Array.sub(realHints, aDest))
-                    in
-                        case possReg of
-                            reg as SOME _ => reg
-                        |   NONE =>
-                            let
-                                (* Add the destinations of the destinations to the list
-                                   if they don't conflict and haven't been seen. *)
-                                fun newFriend f =
-                                    not(List.exists (fn n => n=f) alreadySeen) andalso not(member(f, conflicts))
-                                val fOfF = List.filter newFriend (Array.sub(destinationRegs, aDest))
-                            in
-                                findAFriend(otherDests @ fOfF, sources, aDest :: alreadySeen)
-                            end
-                    end
-
-                |   findAFriend([], aSrc :: otherSrcs, alreadySeen) =
-                    let
-                        val possReg =
-                            case Array.sub(allocatedRegs, aSrc) of
-                                v as SOME _ => tryAReg v
-                            |   NONE => tryAReg(Array.sub(realHints, aSrc))
-                    in
-                        case possReg of
-                            reg as SOME _ => reg
-                        |   NONE =>
-                            let
-                                (* Add the sources of the sources to the list
-                                   if they don't conflict and haven't been seen. *)
-                                fun newFriend f =
-                                    not(List.exists (fn n => n=f) alreadySeen) andalso not(member(f, conflicts))
-                                val fOfF = List.filter newFriend (Array.sub(sourceRegs, aSrc))
-                            in
-                                findAFriend([], otherSrcs @ fOfF, aSrc :: alreadySeen)
-                            end
-                    end
-            in
-                case tryAReg pref of
-                    SOME r => r
-                |   NONE =>
-                    (
-                        case tryAReg (Array.sub(realHints, r)) of
-                            SOME r => r
-                        |   NONE =>
-                            (
-                                case findAFriend(Array.sub(destinationRegs, r), Array.sub(sourceRegs, r), []) of
-                                    SOME r => r
-                                    (* Look through the registers to find one that's free.  First try excluding
-                                       the cache registers. *)
-                                |   NONE =>
-                                    let
-                                        (* First try filtering all the cache registers to see if we can find a
-                                           register.  If not see if it works by *)
-                                        fun filterCache(filteredRegset, []) = List.find isFree filteredRegset
-
-                                        |   filterCache(filteredRegset, (cReg, _) :: cache) =
-                                            (
-                                                case filterCache(List.filter(fn r => r <> cReg) filteredRegset, cache) of
-                                                    NONE => if isFree cReg then SOME cReg else NONE
-                                                |   result => result
-                                            )
-
-                                       val pick =
-                                            case filterCache(regSet, cache) of
-                                                SOME reg => reg
-                                            |   NONE =>
-                                                (
-                                                    (* This failed.  We're going to have to spill something. *)
-                                                    failures := conflicts :: ! failures;
-                                                    hd regSet (* Return something to allow this pass to complete *)
-                                                )
-                                        val () = Array.update(allocatedRegs, r, SOME pick)
-                                    in
-                                        pick
-                                    end
-                            )
-                    )
-            end
 
         (* Turn the abstract icode into a concrete version by allocating the registers. *)
         local
+
             fun asGenReg(GenReg reg) = reg | asGenReg _ = raise InternalError "asGenReg"
             and asFPReg(FPReg reg) = reg | asFPReg _ = raise InternalError "asFPReg"
 
             datatype cacheItem =
-                CacheStack of stackLocn             (* A value loaded from the stack. *)
-            |   CacheAbsAddress of preg             (* 32-in-64: An absolute address from an object ID *)
-            |   CacheAbsAddrOnStack of stackLocn    (* 32-in-64: An absolute address from an object loaded from the stack. *)
-            |   CacheLargeUnbox of preg             (* A LargeWord.word value has been unboxed *)
-            |   CacheRealUnbox of preg * floatSize  (* A double or float has been unboxed. *)
+                CacheStack of {cached: stackLocn, cachedIn: xReg }             (* A value loaded from the stack. *)
+            |   CacheAbsAddress of {cached: preg, cachedIn: xReg }             (* 32-in-64: An absolute address from an object ID *)
+            |   CacheAbsAddrOnStack of {cached: stackLocn, cachedIn: xReg }    (* 32-in-64: An absolute address from an object loaded from the stack. *)
+            |   CacheLargeUnbox of {cached: preg, cachedIn: xReg }             (* A LargeWord.word value has been unboxed *)
+            |   CacheRealUnbox of {cached: preg, cachedIn: vReg, floatSize: floatSize } (* A double or float has been unboxed. *)
+
+            fun regCachedIn(CacheStack{cachedIn, ...}) = GenReg cachedIn
+            |   regCachedIn(CacheAbsAddress{cachedIn, ...}) = GenReg cachedIn
+            |   regCachedIn(CacheAbsAddrOnStack{cachedIn, ...}) = GenReg cachedIn
+            |   regCachedIn(CacheLargeUnbox{cachedIn, ...}) = GenReg cachedIn
+            |   regCachedIn(CacheRealUnbox{cachedIn, ...}) = FPReg cachedIn
+
+            val allocatedRegs = Array.array(maxPRegs, NONE: reg option)
+
+            (* Find a real register for a preg.
+               1.  If a register is already allocated use that.
+               2.  Try the "preferred" register if one has been given.
+               3.  Try the realHints value if there is one.
+               4.  See if there is a "friend" that has an appropriate register
+               5.  Look at all the registers and find one. *)
+            fun findRegister(r, pref, regSet, cache: cacheItem list) =
+            case Array.sub(allocatedRegs, r) of
+                SOME reg => reg
+
+            |   NONE =>
+                let
+                    val conflicts = Array.sub(regConflicts, r)
+                    and realConflicts = Array.sub(regRealConflicts, r)
+                    (* Find the registers we've already allocated that may conflict. *)
+                    val conflictingRegs =
+                        List.mapPartial(fn i => Array.sub(allocatedRegs, i)) (setToList conflicts) @
+                            realConflicts
+
+                    fun isFree aReg = not (List.exists(fn i => i=aReg) conflictingRegs)
+
+                    fun tryAReg NONE = NONE
+                    |   tryAReg (somePref as SOME prefReg) =
+                            if isFree prefReg
+                            then (Array.update(allocatedRegs, r, somePref); somePref)
+                            else NONE
+
+                    (* Search the sources and destinations to see if a register has
+                       already been allocated or there is a hint. *)
+                    fun findAFriend([], [], _) = NONE
+
+                    |   findAFriend(aDest :: otherDests, sources, alreadySeen) =
+                        let
+                            val possReg =
+                                case Array.sub(allocatedRegs, aDest) of
+                                    v as SOME _ => tryAReg v
+                                |   NONE => tryAReg(Array.sub(realHints, aDest))
+                        in
+                            case possReg of
+                                reg as SOME _ => reg
+                            |   NONE =>
+                                let
+                                    (* Add the destinations of the destinations to the list
+                                       if they don't conflict and haven't been seen. *)
+                                    fun newFriend f =
+                                        not(List.exists (fn n => n=f) alreadySeen) andalso not(member(f, conflicts))
+                                    val fOfF = List.filter newFriend (Array.sub(destinationRegs, aDest))
+                                in
+                                    findAFriend(otherDests @ fOfF, sources, aDest :: alreadySeen)
+                                end
+                        end
+
+                    |   findAFriend([], aSrc :: otherSrcs, alreadySeen) =
+                        let
+                            val possReg =
+                                case Array.sub(allocatedRegs, aSrc) of
+                                    v as SOME _ => tryAReg v
+                                |   NONE => tryAReg(Array.sub(realHints, aSrc))
+                        in
+                            case possReg of
+                                reg as SOME _ => reg
+                            |   NONE =>
+                                let
+                                    (* Add the sources of the sources to the list
+                                       if they don't conflict and haven't been seen. *)
+                                    fun newFriend f =
+                                        not(List.exists (fn n => n=f) alreadySeen) andalso not(member(f, conflicts))
+                                    val fOfF = List.filter newFriend (Array.sub(sourceRegs, aSrc))
+                                in
+                                    findAFriend([], otherSrcs @ fOfF, aSrc :: alreadySeen)
+                                end
+                        end
+                in
+                    case tryAReg pref of
+                        SOME r => r
+                    |   NONE =>
+                        (
+                            case tryAReg (Array.sub(realHints, r)) of
+                                SOME r => r
+                            |   NONE =>
+                                (
+                                    case findAFriend(Array.sub(destinationRegs, r), Array.sub(sourceRegs, r), []) of
+                                        SOME r => r
+                                        (* Look through the registers to find one that's free.  First try excluding
+                                           the cache registers. *)
+                                    |   NONE =>
+                                        let
+                                            (* First try filtering all the cache registers to see if we can find a
+                                               register.  If not see if it works by freeing one. *)
+                                            fun filterCache(filteredRegset, []) = List.find isFree filteredRegset
+
+                                            |   filterCache(filteredRegset, cacheItem :: cache) =
+                                                let
+                                                    val cReg = regCachedIn cacheItem
+                                                in
+                                                    case filterCache(List.filter(fn r => r <> cReg) filteredRegset, cache) of
+                                                        NONE => if isFree cReg then SOME cReg else NONE
+                                                    |   result => result
+                                                end
+
+                                           val pick =
+                                                case filterCache(regSet, cache) of
+                                                    SOME reg => reg
+                                                |   NONE =>
+                                                    (
+                                                        (* This failed.  We're going to have to spill something. *)
+                                                        failures := conflicts :: ! failures;
+                                                        hd regSet (* Return something to allow this pass to complete *)
+                                                    )
+                                            val () = Array.update(allocatedRegs, r, SOME pick)
+                                        in
+                                            pick
+                                        end
+                                )
+                        )
+                end
 
             (* Cache hints: Try to use the same register for values that can be cached.  This increases
                the chances that we will be able to retain the cache when we merge different branches. *)
@@ -485,14 +494,24 @@ struct
 
             (* Remove any reference to newly allocated registers from the cache.  Also used after
                block move and comparison that modify registers *)
-            fun pruneCache(reg: reg, cache) = List.filter(fn (r, _) => r <> reg) cache
+            fun pruneCache(reg: reg, cache) = List.filter(fn c => regCachedIn c <> reg) cache
 
-            (* Return the cache registers that contain valid addresses. *)
-            fun cachedAddressRegs cache =
-                List.mapPartial (fn (GenReg r, _) => SOME r | _ => NONE) cache
+            (* Return the cache registers that contain valid addresses.  N.B. We must only
+               save registers that contain properly tagged values together, on compact 32-bit,
+               with absolute addresses.  All registers are saved across a GC but only these
+               registers are updated. *)
+            local
+                fun hasAddress(CacheStack{cachedIn, ...}) = SOME cachedIn
+                |   hasAddress(CacheAbsAddress{cachedIn, ...}) = SOME cachedIn
+                |   hasAddress(CacheAbsAddrOnStack{cachedIn, ...}) = SOME cachedIn
+                |   hasAddress(CacheLargeUnbox _) = NONE (* The value was untagged. *)
+                |   hasAddress(CacheRealUnbox _) = NONE (* Untagged value in a FP register. *)
+            in
+                val cachedAddressRegs = List.mapPartial hasAddress
+            end
 
             (* Merge the cache states *)
-            fun mergeCacheStates ([]: (reg * cacheItem) list list) = []: (reg * cacheItem) list
+            fun mergeCacheStates ([]: cacheItem list list) = []: cacheItem list
             |   mergeCacheStates [single] = single
         
             |   mergeCacheStates (many as first :: rest) =
@@ -656,26 +675,25 @@ struct
                     (* See if this is in the cache and use it if it is.  If this is the last reference to this
                        source entry we don't want it in the cache any longer. *)
                     val killThis = member(srcNo, kill)
-                    val (newCode, destReg, newCache, next) =
-                        case List.find(fn (_, CacheAbsAddress c) => c=source | _ => false) cache of
-                            SOME (srcReg, _) =>
+                    val (newCode, dReg, newCache, next) =
+                        case List.find(fn (CacheAbsAddress{cached, ...}) => cached=source | _ => false) cache of
+                            SOME (CacheAbsAddress{cachedIn, ...}) =>
                             let
                                 (* Try to use the cache register as the destination if we can. *)
-                                val (destReg, newCache) = allocateNewDestination(destOiA, SOME srcReg, generalRegisters, cache)
+                                val (destReg, newCache) = allocateNewDestination(destOiA, SOME(GenReg cachedIn), generalRegisters, cache)
                                 val dReg = asGenReg destReg
-                                and sReg = asGenReg srcReg
                             in
                                 if checkCache
-                                then (code <::> MoveRegister{source=sReg, dest=X17} <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=dReg}
+                                then (code <::> MoveRegister{source=cachedIn, dest=X17} <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=dReg}
                                         <::> CacheCheck{ arg1=dReg, arg2=X17 },
-                                     destReg, if killThis then pruneCache(srcReg, newCache) else newCache, rest)
-                                else if dReg = sReg
-                                then (code, destReg, newCache, rest) (* We will have pruned this since it's the destination. *)
-                                else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
-                                        if killThis then pruneCache(srcReg, newCache) else newCache, rest)
+                                     dReg, if killThis then pruneCache(GenReg cachedIn, newCache) else newCache, rest)
+                                else if dReg = cachedIn
+                                then (code, dReg, newCache, rest) (* We will have pruned this since it's the destination. *)
+                                else (code <::> MoveRegister { source=cachedIn, dest=dReg}, dReg,
+                                        if killThis then pruneCache(GenReg cachedIn, newCache) else newCache, rest)
                             end
 
-                        |   NONE =>
+                        |   _ =>
                                 (* If this is the last reference and the next instruction is loading with a zero
                                    offset we can use an indexed load and avoid converting to an absolute address.
                                    If this is not the last reference it's likely that we're loading another field
@@ -692,14 +710,14 @@ struct
                                     in
                                         (code <::> LoadWithIndexedOffset{ base=X24(*X_Base32in64*), dest=destReg,
                                                         index=getAllocatedGenReg source, loadType=Load32, signExtendIndex=false },
-                                                        GenReg destReg, newCache, next)
+                                                        destReg, newCache, next)
                                     end
                                     else
                                     let
                                         val (destReg, newCache) = allocateGenReg(destOiA, Array.sub(cacheHints, srcNo), cache)
                                     in
                                         (code <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg},
-                                         GenReg destReg, newCache, rest)
+                                         destReg, newCache, rest)
                                     end
                                     
                                 |   _ =>
@@ -707,12 +725,12 @@ struct
                                         val (destReg, newCache) = allocateGenReg(destOiA, Array.sub(cacheHints, srcNo), cache)
                                     in
                                         (code <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg},
-                                         GenReg destReg, newCache, rest)
+                                         destReg, newCache, rest)
                                     end
                             )
-                    val () = if killThis then () else Array.update(cacheHints, srcNo, SOME destReg)
+                    val () = if killThis then () else Array.update(cacheHints, srcNo, SOME(GenReg dReg))
                 in
-                    absToConcrete(next, if killThis then newCache else (destReg, CacheAbsAddress source) :: newCache, newCode)
+                    absToConcrete(next, if killThis then newCache else CacheAbsAddress{cached=source, cachedIn=dReg} :: newCache, newCode)
                 end
 
             |   absToConcrete({instr=AbsoluteToObjectIndex { source, dest}, ...} :: rest, cache, code) =
@@ -910,7 +928,7 @@ struct
                 let
                     val srcReg = getAllocatedGenReg source
                     val newCache =
-                        if size = 1 then (GenReg srcReg, CacheStack container) :: cache else cache
+                        if size = 1 then CacheStack{cached=container, cachedIn=srcReg} :: cache else cache
                     val () = Array.update(cacheHints, rno, SOME(GenReg srcReg))
                 in
                     absToConcrete(rest, newCache, code <::> PushToStack{source=srcReg, container=container, copies=copies})
@@ -929,36 +947,35 @@ struct
                     val killThis = member(rno, kill) (* Is it the last reference to the stack entry? *)
 
                     val (newCode, destReg, newCache) =
-                        case List.find(fn (_, CacheAbsAddrOnStack c) => c=container | _ => false) cache of
-                            SOME (srcReg, _) =>
+                        case List.find(fn CacheAbsAddrOnStack{cached, ...} => cached=container | _ => false) cache of
+                            SOME (CacheAbsAddrOnStack{cachedIn, ...}) =>
                             let
                                 (* Try to use the cache register as the destination if we can. *)
-                                val (destReg, newCache) = allocateNewDestination(destOia, SOME srcReg, generalRegisters, cache)
+                                val (destReg, newCache) = allocateNewDestination(destOia, SOME(GenReg cachedIn), generalRegisters, cache)
                                 val dReg = asGenReg destReg
-                                and sReg = asGenReg srcReg
                             in
                                 if checkCache
-                                then (code <::> MoveRegister{source=sReg, dest=X17} <::> LoadStack{ dest=X16, container=container, field=0, wordOffset=wordOffset } <::>
-                                        ObjectIndexAddressToAbsolute { source=X16, dest=dReg} <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg,
-                                        if killThis then pruneCache(srcReg, newCache) else newCache)
-                                else if dReg = sReg
-                                then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
-                                else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
-                                        if killThis then pruneCache(srcReg, newCache) else newCache)
+                                then (code <::> MoveRegister{source=cachedIn, dest=X17} <::> LoadStack{ dest=X16, container=container, field=0, wordOffset=wordOffset } <::>
+                                        ObjectIndexAddressToAbsolute { source=X16, dest=dReg} <::> CacheCheck{ arg1=dReg, arg2=X17 }, dReg,
+                                        if killThis then pruneCache(GenReg cachedIn, newCache) else newCache)
+                                else if dReg = cachedIn
+                                then (code, dReg, newCache) (* We will have pruned this since it's the destination. *)
+                                else (code <::> MoveRegister { source=cachedIn, dest=dReg}, dReg,
+                                        if killThis then pruneCache(GenReg cachedIn, newCache) else newCache)
                             end
 
-                        |   NONE => (* It's not in the cache - load it which could be cached. *)
+                        |   _ => (* It's not in the cache - load it which could be cached. *)
                             let
                                 val (cachePostLoad, loadCode) =
                                     processLoadStack(destLoad, container, wordOffset, kill, cache, code)
                                 val (destReg, cachePlusOia) = allocateGenReg(destOia, Array.sub(cacheHints, rno), cachePostLoad)
                             in
                                 (loadCode <::> ObjectIndexAddressToAbsolute { source=getAllocatedGenReg source, dest=destReg},
-                                 GenReg destReg, cachePlusOia)
+                                 destReg, cachePlusOia)
                             end
-                    val () = if killThis then () else Array.update(cacheHints, rno, SOME destReg)
+                    val () = if killThis then () else Array.update(cacheHints, rno, SOME(GenReg destReg))
                 in
-                    absToConcrete(rest, if killThis then newCache else (destReg, CacheAbsAddrOnStack container) :: newCache, newCode)
+                    absToConcrete(rest, if killThis then newCache else CacheAbsAddrOnStack{cached=container, cachedIn=destReg} :: newCache, newCode)
                 end
                 else (* Can't combine these. *)
                 let
@@ -987,7 +1004,9 @@ struct
                 let
                     val sReg = getAllocatedGenReg source
                     val newCache =
-                        List.filter(fn (_, CacheStack c) => c <> container | (_, CacheAbsAddrOnStack c) => c <> container | _ => true) cache
+                        List.filter(
+                            fn  CacheStack{cached, ...} => cached <> container
+                            |   CacheAbsAddrOnStack{cached, ...} => cached <> container | _ => true) cache
                 in
                     absToConcrete(rest, newCache, code <::>
                         StoreToStack{source=sReg, container=container, field=field, stackOffset=stackOffset})
@@ -1035,22 +1054,21 @@ struct
                 let
                     val killThis = member(rno, kill)
                 in
-                    case List.find(fn (_, CacheLargeUnbox s) => s=source | _ => false) cache of
-                        SOME (srcReg, _) =>
+                    case List.find(fn CacheLargeUnbox{cached, ...} => cached=source | _ => false) cache of
+                        SOME(CacheLargeUnbox{cachedIn, ...}) =>
                         let
-                            val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
+                            val (destReg, newCache) = allocateNewDestination(dest, SOME(GenReg cachedIn), generalRegisters, cache)
                             val dReg = asGenReg destReg
-                            and sReg = asGenReg srcReg
                         in
                             absToConcrete(rest,
-                                if killThis then pruneCache(srcReg, newCache) else newCache,
-                                    code <::> MoveRegister { source=sReg, dest=dReg})
+                                if killThis then pruneCache(GenReg cachedIn, newCache) else newCache,
+                                    code <::> MoveRegister { source=cachedIn, dest=dReg})
                         end
-                   |    NONE =>
+                   |    _ =>
                         let
                             val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
                         in
-                            absToConcrete(rest, if killThis then newCache else (GenReg destReg, CacheLargeUnbox source) :: newCache,
+                            absToConcrete(rest, if killThis then newCache else CacheLargeUnbox{cached=source, cachedIn=destReg} :: newCache,
                                 code <::> UnboxLarge{source=getAllocatedGenReg source, dest=destReg})
                         end
                 end
@@ -1070,22 +1088,21 @@ struct
                 let
                     val killThis = member(rno, kill)
                 in
-                    case List.find(fn (_, CacheRealUnbox(s, f)) => s=source andalso f=floatSize | _ => false) cache of
-                        SOME (srcReg, _) =>
+                    case List.find(fn CacheRealUnbox{cached=s,floatSize=f, ...}=> s=source andalso f=floatSize | _ => false) cache of
+                        SOME (CacheRealUnbox{cachedIn, ...}) =>
                         let
-                            val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, floatingPtRegisters, cache)
+                            val (destReg, newCache) = allocateNewDestination(dest, SOME (FPReg cachedIn), floatingPtRegisters, cache)
                             val dReg = asFPReg destReg
-                            and sReg = asFPReg srcReg
                         in
                             absToConcrete(rest,
-                                if killThis then pruneCache(srcReg, newCache) else newCache,
-                                    code <::> UnaryFloatingPt { source=sReg, dest=dReg, fpOp=case floatSize of Float32=>MoveFloat | Double64=>MoveDouble})
+                                if killThis then pruneCache(FPReg cachedIn, newCache) else newCache,
+                                    code <::> UnaryFloatingPt { source=cachedIn, dest=dReg, fpOp=case floatSize of Float32=>MoveFloat | Double64=>MoveDouble})
                         end
-                   |    NONE =>
+                   |    _ =>
                         let
                             val (destReg, newCache) = allocateFPReg(dest, NONE, cache)
                         in
-                            absToConcrete(rest, if killThis then newCache else (FPReg destReg, CacheRealUnbox(source, floatSize)) :: newCache,
+                            absToConcrete(rest, if killThis then newCache else CacheRealUnbox{cached=source, floatSize=floatSize, cachedIn=destReg} :: newCache,
                                 code <::> UnboxTagFloat{floatSize=floatSize, source=getAllocatedGenReg source, dest=destReg})
                         end
                 end
@@ -1257,33 +1274,32 @@ struct
                    stack entry we don't want it in the cache any longer. *)
                 val killThis = member(rno, kill)
 
-                val (newCode, destReg, newCache) =
-                    case List.find(fn (_, CacheStack c) => c=container | _ => false) cache of
-                        SOME (srcReg, _) =>
+                val (newCode, destReg: xReg, newCache) =
+                    case List.find(fn CacheStack{cached=c, ...} => c=container | _ => false) cache of
+                        SOME (CacheStack{cachedIn, ...}) =>
                         let
-                            val (destReg, newCache) = allocateNewDestination(dest, SOME srcReg, generalRegisters, cache)
+                            val (destReg, newCache) = allocateNewDestination(dest, SOME(GenReg cachedIn), generalRegisters, cache)
                             val dReg = asGenReg destReg
-                            and sReg = asGenReg srcReg
                         in
                             if checkCache
-                            then (code <::> MoveRegister{source=sReg, dest=X17} <::> LoadStack{ dest=dReg, container=container, field=0, wordOffset=wordOffset }
-                                <::> CacheCheck{ arg1=dReg, arg2=X17 }, destReg, if killThis then pruneCache(srcReg, newCache) else newCache)
-                            else if dReg = sReg(* andalso false *)
-                            then (code, destReg, newCache) (* We will have pruned this since it's the destination. *)
-                            else (code <::> MoveRegister { source=sReg, dest=dReg}, destReg,
-                                    if killThis then pruneCache(srcReg, newCache) else newCache)
+                            then (code <::> MoveRegister{source=cachedIn, dest=X17} <::> LoadStack{ dest=dReg, container=container, field=0, wordOffset=wordOffset }
+                                <::> CacheCheck{ arg1=dReg, arg2=X17 }, dReg, if killThis then pruneCache(GenReg cachedIn, newCache) else newCache)
+                            else if dReg = cachedIn
+                            then (code, dReg, newCache) (* We will have pruned this since it's the destination. *)
+                            else (code <::> MoveRegister { source=cachedIn, dest=dReg}, dReg,
+                                    if killThis then pruneCache(GenReg cachedIn, newCache) else newCache)
                         end
 
-                    |   NONE =>
+                    |   _ =>
                         let
                             val (destReg, newCache) = allocateGenReg(dest, Array.sub(cacheHints, rno), cache)
                         in
                             (code <::> LoadStack{ dest=destReg, container=container, field=0, wordOffset=wordOffset },
-                             GenReg destReg, newCache)
+                             destReg, newCache)
                         end
-                val () = if killThis then () else Array.update(cacheHints, rno, SOME destReg)
+                val () = if killThis then () else Array.update(cacheHints, rno, SOME(GenReg destReg))
             in
-                (if killThis then newCache else (destReg, CacheStack container) :: newCache, newCode)
+                (if killThis then newCache else CacheStack{cached=container, cachedIn=destReg} :: newCache, newCode)
             end
 
         in
