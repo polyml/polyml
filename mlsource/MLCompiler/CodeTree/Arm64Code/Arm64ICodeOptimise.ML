@@ -51,8 +51,7 @@ struct
         (* BRSetConditionToConstant - we have a comparison of two constant value.
            This will usually happen because we've duplicated a branch and
            set a register to a constant which we then compare. *)
-    |   BRSetConditionToConstant of
-            { srcCC: ccRef, signedCompare: order, unsignedCompare: order }
+    |   BRSetConditionToConstant of { srcCC: ccRef, test: condition -> bool }
 
     fun optimiseICode{ code, pregProps, ccCount=_, debugSwitches=_ } =
     let
@@ -98,41 +97,6 @@ struct
         let
             fun optCode([], brCond, regMap, code, changed) = (code, brCond, regMap, changed)
 
-            |   optCode({instr as AddSubImmediate{source, dest=ZeroReg, ccRef=SOME ccRefOut, immed, isAdd=false, length}, kill, ...} :: rest,
-                        _, regMap, code, changed) =
-                let
-                    val (repArg1, memRefsOut) = getRegisterValue(source, kill, regMap)
-                in
-                    case repArg1 of
-                        NonAddressConst test =>
-                        (* AddSubImmediate is put in by CodetreeToIcode to test a boolean value.  It can also
-                           arise as the result of pattern matching on booleans or even by tests such as = true.
-                           If the source register is now a constant we want to propagate the constant
-                           condition. *)
-                        let
-                            (* This comparison reduces to a constant.  *)
-                            val _ = hasChanged := true
-                            (* Signed comparison.  If this is a 32-bit operation the top word
-                               could be zero so we need to convert this as Word32.
-                               immediate values are always unsigned. *)
-                            val testValue =
-                                case length of
-                                    OpSize64 => Word64.toLargeIntX test
-                                |   OpSize32 => Word32.toLargeIntX(Word32.fromLarge test)
-                            (* Put in a replacement so that if we were previously testing ccRefOut
-                               we should instead test ccRef. *)
-                            val repl =
-                                BRSetConditionToConstant{srcCC=ccRefOut,
-                                    signedCompare=LargeInt.compare(testValue, Word.toLargeInt immed),
-                                    unsignedCompare=Word64.compare(test, Word64.fromLarge(Word.toLargeWord immed))}
-                            val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
-                        in
-                            optCode(rest, repl, memRefsOut, code, true)
-                        end
-                
-                    |   _ => optCode(rest, BRNone, memRefsOut, instr :: code, changed)
-                end
-
             |   optCode({instr as AddSubImmediate{source, dest=SomeReg dest, ccRef=NONE, immed, isAdd, length}, kill, ...} :: rest, _, regMap, code, changed) =
                 (* This is frequently used to remove a tag from a value before an addition or subtraction.
                    If it's a constant we want to do that now. *)
@@ -176,6 +140,34 @@ struct
                                     immed=Word.fromLargeWord(Word64.toLargeWord immediate), isAdd=isAdd, length=length} :: code, true)
                     |   NONE =>
                             optCode(rest, BRNone, mapOp2, instr :: code, changed)
+                end
+
+            |   optCode({instr as LogicalImmediate{source, dest=ZeroReg, ccRef=SOME ccRefOut, immed, logOp=LogAnd, ...}, kill, ...} :: rest,
+                        _, regMap, code, changed) =
+                let
+                    val (repArg1, memRefsOut) = getRegisterValue(source, kill, regMap)
+                in
+                    case repArg1 of
+                        NonAddressConst test =>
+                        (* This was previously used to test a boolean but that has now changed.  It may also
+                           occur as a result of pattern matching. *)
+                        let
+                            (* This comparison reduces to a constant.  *)
+                            val _ = hasChanged := true
+                            val result = LargeWord.andb(test, immed)
+                            (* Put in a replacement so that if we were previously testing ccRefOut
+                               we should instead test ccRef. *)
+                            fun testResult CondEqual = result = 0w0
+                            |   testResult CondNotEqual = result <> 0w0
+                            |   testResult _ = raise InternalError "testResult: invalid condition"
+                            val repl =
+                                BRSetConditionToConstant{srcCC=ccRefOut, test=testResult}
+                            val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
+                        in
+                            optCode(rest, repl, memRefsOut, code, true)
+                        end
+                
+                    |   _ => optCode(rest, BRNone, memRefsOut, instr :: code, changed)
                 end
 
             |   optCode({instr as LogicalRegister{base, shifted, dest, ccRef, logOp, length, shift}, kill, ...} :: rest,
@@ -502,37 +494,12 @@ struct
             case (flow, finalRepl) of
                 (* We have a Condition and a change to the condition. *)
                 (flow as Conditional{ccRef, condition, trueJump, falseJump},
-                 BRSetConditionToConstant({srcCC, signedCompare, unsignedCompare, ...})) =>
+                 BRSetConditionToConstant({srcCC, test, ...})) =>
                     if srcCC = ccRef
                     then
                     let
-                        val testResult =
-                            case (condition, signedCompare, unsignedCompare) of
-                                (CondEqual,             EQUAL,  _)   => true
-                            |   (CondEqual,             _,      _)   => false
-                            |   (CondNotEqual,          EQUAL,  _)   => false
-                            |   (CondNotEqual,          _,      _)   => true
-                            |   (CondSignedLess,        LESS,   _)   => true
-                            |   (CondSignedLess,        _,      _)   => false
-                            |   (CondSignedGreater,     GREATER,_)   => true
-                            |   (CondSignedGreater,     _,      _)   => false
-                            |   (CondSignedLessEq,      GREATER,_)   => false
-                            |   (CondSignedLessEq,      _,      _)   => true
-                            |   (CondSignedGreaterEq,   LESS,   _)   => false
-                            |   (CondSignedGreaterEq,   _,      _)   => true
-                            |   (CondCarryClear,        _, LESS  )   => true
-                            |   (CondCarryClear,        _,      _)   => false
-                            |   (CondUnsignedHigher,    _,GREATER)   => true
-                            |   (CondUnsignedHigher,    _,      _)   => false
-                            |   (CondUnsignedLowOrEq,    _,GREATER)   => false
-                            |   (CondUnsignedLowOrEq,    _,      _)   => true
-                            |   (CondCarrySet,          _, LESS  )   => false
-                            |   (CondCarrySet,          _,      _)   => true
-                                (* The overflow and parity checks should never occur. *)
-                            |   _   => raise InternalError "getCondResult: comparison"
-
                         val newFlow =
-                            if testResult
+                            if test condition
                             then Unconditional trueJump
                             else Unconditional falseJump
 
@@ -570,7 +537,7 @@ struct
                             moves = 0 andalso isSimple(instrs, moves+1, regMap)
                     |   isSimple ({instr=LoadAddressConstant _, ...} :: instrs, moves, regMap) =
                             moves = 0 andalso isSimple(instrs, moves+1, regMap)
-                    |   isSimple ({instr=AddSubImmediate{source, dest=ZeroReg, ...}, ...} :: instrs, moves, regMap) =
+                    |   isSimple ({instr=LogicalImmediate{source, dest=ZeroReg, logOp=LogAnd, ...}, ...} :: instrs, moves, regMap) =
                         let
                             val isReplace = List.find(fn {dest, ... } => dest = source) regMap
                         in
@@ -613,8 +580,8 @@ struct
                                 LoadNonAddressConstant{source=source, dest=mapReg dest}
                         |   mapInstr(LoadAddressConstant{source, dest}) =
                                 LoadAddressConstant{source=source, dest=mapReg dest}
-                        |   mapInstr(AddSubImmediate{source, dest=ZeroReg, immed, ccRef, isAdd, length}) =
-                                AddSubImmediate{source=mapReg source, dest=ZeroReg, immed=immed, ccRef=ccRef, isAdd=isAdd, length=length}
+                        |   mapInstr(LogicalImmediate{source, dest=ZeroReg, immed, ccRef, logOp, length}) =
+                                LogicalImmediate{source=mapReg source, dest=ZeroReg, immed=immed, ccRef=ccRef, logOp=logOp, length=length}
                         |   mapInstr _ = raise InternalError "mapInstr: other instruction"
                         fun mapRegNo i = case(mapReg(PReg i)) of PReg r => r
                         (* Map the instructions and the sets although we only use the kill set. *)
