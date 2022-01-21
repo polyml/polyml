@@ -45,7 +45,6 @@ struct
     exception InternalError = Misc.InternalError
     
     fun taggedWord64 w: Word64.word = w * 0w2 + 0w1
-    and taggedWord w: word = w * 0w2 + 0w1
     
     datatype blockStruct =
         BlockSimple of iCodeAbstract
@@ -1820,9 +1819,11 @@ struct
                 val (argCode, testDest, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
             in
                 (* Test the argument and return a boolean result.  If either the argument is a condition
-                   or the result is used in a test this will be better than using XOR. *)
-                (makeBoolResultRev(CondNotEqual, ccRef, target,
-                        addSubImmediate{source=testDest, immed=taggedWord 0w1, isAdd=false,
+                   or the result is used in a test this will be better than using XOR.
+                   We use a bit test here because it is possible to optimise it to a test-and-branch.
+                   See codeConditionRev. *)
+                (makeBoolResultRev(CondEqual, ccRef, target,
+                        logicalImmediate{source=testDest, immed=0w2, logOp=LogAnd,
                                 dest=ZeroReg, length=OpSize32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef} ::
                             argCode), target, false)
             end
