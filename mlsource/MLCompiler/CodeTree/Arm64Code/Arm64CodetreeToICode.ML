@@ -1804,12 +1804,13 @@ struct
             val (testCode, testReg, _) = codeToICodeRev(condition, context, false, AnyReg, tailCode)
             val noJumpLabel = newLabel()
         in
-            BlockLabel noJumpLabel ::
+            testCode <::>
+            (* Test bit 1.  This can be optimised into a test and branch. *)
+            logicalImmediate{source=testReg, immed=0w2, logOp=LogAnd,
+                             dest=ZeroReg, length=OpSize32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef} <::>
             BlockFlow(Conditional{ccRef=ccRef,
-                       condition=if jumpOn then CondEqual else CondNotEqual, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-            (* Compare: SUBS XZ,reg,3.  Can use 32-bit comparison because it's either tagged 0 or tagged 1. *)
-            addSubImmediate{source=testReg, immed=taggedWord 0w1, isAdd=false, dest=ZeroReg, length=OpSize32, ccRef=SOME ccRef} ::
-            testCode
+                       condition=if jumpOn then CondNotEqual else CondEqual, trueJump=jumpLabel, falseJump=noJumpLabel}) <::>
+            BlockLabel noJumpLabel
         end
 
         and codeToICodeUnaryRev({oper=NotBoolean, arg1}, context, _, destination, tailCode) =

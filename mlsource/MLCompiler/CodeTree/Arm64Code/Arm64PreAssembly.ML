@@ -147,6 +147,19 @@ struct
     |   LoadGlobalHeapBaseInCallback of xReg
     |   Yield
 
+    (* Test whether a value is a power of two and return the shift if it is. *)
+    fun powerTwo v =
+        if LargeWord.andb(v, ~ v) = v
+        then
+        let
+            fun shift(n: Word8.word, 0w1) = n
+            |   shift(n, v) = shift(n+0w1, LargeWord.>>(v, 0w1))
+        in
+            SOME(shift(0w0, v))
+        end
+        else NONE
+
+
 
     (* Optimise the pre-assembler code and then generate the final code. *)
     fun generateFinalCode {instrs, name, parameters, resultClosure, profileObject, labelMaker=ref labelCount} =
@@ -972,15 +985,19 @@ struct
             then forward(AddImmediate{regN=regN1, regD=regD2, immed=immed2+immed1, shifted=false, opSize=OpSize64, setFlags=false} :: tl2, list, true)
             else forward(tl1, add1 :: list, rep)
 
-        |   forward(BitwiseLogical{bits=0w1, regN, regD=XZero, logOp=LogAnd, opSize=_, setFlags=true} ::
-                    ConditionalBranch(CondEqual, label) :: tl2, list, _) =
-            (* Test the tag bit: bit 0.  This is very common to test for nil/not nil.  We could include other
-               values but they're far less likely. *)
-                forward(TestBitBranch{test=regN, bit=0w0, label=label, onZero=true} :: tl2, list, true)
-
-        |   forward(BitwiseLogical{bits=0w1, regN, regD=XZero, logOp=LogAnd, opSize=_, setFlags=true} ::
-                    ConditionalBranch(CondNotEqual, label) :: tl2, list, _) =
-                forward(TestBitBranch{test=regN, bit=0w0, label=label, onZero=false} :: tl2, list, true)
+        |   forward((bwl as BitwiseLogical{bits, regN, regD=XZero, logOp=LogAnd, opSize=_, setFlags=true}) ::
+                    (tl1 as ConditionalBranch(cond, label) :: tl2), list, rep) =
+            (* This occurs frequently as a either a test of the tag bit (bit 0) or a test of a
+               boolean (bit 1).  Other cases don't currently occur because we don't recognise
+               logical and followed by a comparison as a special case. *)
+            (
+                case (cond, powerTwo bits) of
+                    (CondEqual, SOME shift) =>
+                        forward(TestBitBranch{test=regN, bit=shift, label=label, onZero=true} :: tl2, list, true)
+                |   (CondNotEqual, SOME shift) =>
+                        forward(TestBitBranch{test=regN, bit=shift, label=label, onZero=false} :: tl2, list, true)
+                |   _ => forward(tl1, bwl :: list, rep)
+            )
 
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep) 
         
