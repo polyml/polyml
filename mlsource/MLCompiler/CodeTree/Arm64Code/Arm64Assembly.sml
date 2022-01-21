@@ -2118,12 +2118,10 @@ struct
                     |   (0w1, 0w0) => "csinv"
                     |   (0w1, 0w1) => "csneg"
                     |   _ => "??"
-                val r = if sf = 0w0 then "w" else "x"
+                val pReg = if sf = 0w0 then prWReg else prXReg
             in
                 printStream opcode; printStream "\t";
-                printStream r; printStream(Word32.fmt StringCvt.DEC rT);
-                printStream ","; printStream r; printStream(Word32.fmt StringCvt.DEC rN);
-                printStream ","; printStream r; printStream(Word32.fmt StringCvt.DEC rM);
+                pReg rT; printStream ","; pReg rN; printStream ","; pReg rM;
                 printStream ","; printCondition cond
             end
 

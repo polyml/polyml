@@ -1117,28 +1117,102 @@ struct
                                     then SOME(FlowCodeSimple dest)
                                     else NONE
                             |   Conditional {trueJump, falseJump, condition, ...} =>
-                                (* We can usually choose either destination and in nearly all cases
-                                   it won't matter.  The default branch is not to take forward jumps
-                                   so if there is reason to believe that one branch is more likely
-                                   we should follow that branch now and leave the other.  If we
-                                   have Cond(No)Overflow we assume that overflow is unusual.
-                                   If one branch raises an exception we assume that that is unusual. *)
                                 let
-                                    val (first, second) =
-                                        case (condition, Vector.sub(blocks, falseJump)) of
-                                            (CondNoOverflow, _) => (trueJump, falseJump)
-                                        |   (_, BasicBlock{ flow=ExitCode, block, ...}) =>
-                                                if List.exists(fn RaiseExceptionPacket _ => true | _ => false) block
-                                                then (trueJump, falseJump)
-                                                else (falseJump, trueJump)
-                                        |   _ => (falseJump, trueJump)
+                                    (* Can we replace this with a conditional set?  If both arms simply set
+                                       a register to a value and either return or jump to the same location
+                                       we can.  *)
+                                    (* The most common case is producing a boolean result, 1 (tagged 0) for false and
+                                       3 (tagged 1) for true.  We look for blocks that generate this and also
+                                       functions that return this. *)
+                                    val BasicBlock { flow=tFlow, block=tBlock, ...} = Vector.sub(blocks, trueJump)
+                                    and BasicBlock { flow=fFlow, block=fBlock, ...} = Vector.sub(blocks, falseJump)
+
+                                    val isPossSetCCOrCmov =
+                                        if not (haveProcessed trueJump) andalso available trueJump
+                                            andalso not (haveProcessed falseJump) andalso available falseJump
+                                        then case (tFlow, fFlow, tBlock, fBlock) of
+                                            (Unconditional tDest, Unconditional fDest,
+                                            [LoadNonAddressConstant{ source=sourceTrue, dest=destTrue }],
+                                            [LoadNonAddressConstant{ source=sourceFalse, dest=destFalse }]) =>
+                                                if tDest = fDest andalso destTrue = destFalse
+                                                then if sourceFalse = 0w1
+                                                then SOME{code=
+                                                        (* We can generate 1 by using CSINC and XZero. *)
+                                                            code <::> LoadNonAddr(destTrue, sourceTrue) <::>
+                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=condition, condSet=CondSetIncr, opSize=OpSize64},
+                                                          trueJump=trueJump, falseJump=falseJump}
+                                                else if sourceTrue = 0w1
+                                                then SOME{code=
+                                                        (* We can generate 1 by using CSINC and XZero. *)
+                                                            code <::> LoadNonAddr(destTrue, sourceFalse) <::>
+                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=invertTest condition, condSet=CondSetIncr, opSize=OpSize64},
+                                                          trueJump=trueJump, falseJump=falseJump}
+                                                else NONE
+                                                else NONE
+
+                                        |   (ExitCode, ExitCode,
+                                            [LoadNonAddressConstant{ source=sourceTrue, dest=destTrue },
+                                             ReturnResultFromFunction { results=[(retRT, retRTR)], fpResults=[], returnReg=retaT, numStackArgs=numST }],
+                                            [LoadNonAddressConstant{ source=sourceFalse, dest=destFalse },
+                                             ReturnResultFromFunction { results=[(retRF, retRFR)], fpResults=[], returnReg=retaF, numStackArgs=numSF }]) =>
+                                             if destTrue = retRT andalso destFalse = retRF (* These ought to X0. *)
+                                             then
+                                             let
+                                                val _ = retRTR = X0 andalso retRFR = X0 orelse raise InternalError "Test for condmove: mismatch regs"
+                                                val _ = retaT = retaF orelse raise InternalError "Test for condmove: mismatched return regs"
+                                                val _ = numST = numSF orelse raise InternalError "Test for condmove: mismatched stack"
+                                                fun resetAndReturn code =
+                                                    (if numST = 0
+                                                    then code
+                                                    else addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
+                                                            value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt numSF}, code)
+                                                    )  <::> BranchReg{regD=retaT, brRegType=BRRReturn}
+                                             in
+                                                if sourceFalse = 0w1
+                                                then SOME{code=
+                                                            resetAndReturn(
+                                                            code <::> LoadNonAddr(destTrue, sourceTrue) <::>
+                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=condition, condSet=CondSetIncr, opSize=OpSize64}),
+                                                          trueJump=trueJump, falseJump=falseJump}
+                                                else if sourceTrue = 0w1
+                                                then SOME{code=
+                                                            resetAndReturn(
+                                                            code <::> LoadNonAddr(destTrue, sourceFalse) <::>
+                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=invertTest condition, condSet=CondSetIncr, opSize=OpSize64}),
+                                                          trueJump=trueJump, falseJump=falseJump}
+                                                else NONE
+                                             end
+                                             else NONE
+
+                                        |   _ => NONE
+                                        else NONE
                                 in
-                                    if not (haveProcessed first) andalso available first
-                                    then SOME(FlowCodeSimple first)
-                                    else if not (haveProcessed second) andalso available second
-                                    then SOME(FlowCodeSimple second)
-                                    else NONE
-                                end
+                                    case isPossSetCCOrCmov of
+                                        NONE =>
+                                        (* We can usually choose either destination and in nearly all cases
+                                           it won't matter.  The ARM doesn't seem to define what happens if
+                                           a conditional branch hasn't been seen before.  Assume it's the
+                                           same as the X86 and that conditional forward branches aren't
+                                           taken.  Arrange this so that something that raises an exception
+                                           is assumed to be "unusual". *)
+                                        let
+                                            val (first, second) =
+                                                case (condition, Vector.sub(blocks, falseJump)) of
+                                                    (CondNoOverflow, _) => (trueJump, falseJump)
+                                                |   (_, BasicBlock{ flow=ExitCode, block, ...}) =>
+                                                        if List.exists(fn RaiseExceptionPacket _ => true | _ => false) block
+                                                        then (trueJump, falseJump)
+                                                        else (falseJump, trueJump)
+                                                |   _ => (falseJump, trueJump)
+                                        in
+                                            if not (haveProcessed first) andalso available first
+                                            then SOME(FlowCodeSimple first)
+                                            else if not (haveProcessed second) andalso available second
+                                            then SOME(FlowCodeSimple second)
+                                            else NONE
+                                        end
+                                    |   SOME args => SOME(FlowCodeCMove args)
+                                    end
                            |    SetHandler { continue, ... } =>
                                     (* We want the continuation if possible.  We'll need a
                                        branch round the handler so that won't help. *)
