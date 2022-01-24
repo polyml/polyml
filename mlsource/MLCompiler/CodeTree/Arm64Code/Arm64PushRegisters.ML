@@ -647,6 +647,8 @@ struct
                             val (destFPVals, destFPCode) = List.foldl pushResults ([], []) fpDests
 
                             val newContainers = List.map(fn c => #2(mapContainerAndStack(c, 0))) containers
+                            (* Stack arguments are pushed in addition to anything on the stack. *)
+                            val () = maxStack := Int.max(!maxStack, !stackCount + List.length newStackArgs)
                         in
                             destFPCode @ destCode @ FunctionCall{ callKind=callKind, regArgs=newRegArgs, stackArgs=newStackArgs,
                                                   dests=destVals, fpRegArgs=newFPRegArgs, fpDests=destFPVals, saveRegs=[], containers=newContainers} :: code
@@ -703,7 +705,8 @@ struct
                                 (argVal, reg) :: otherArgs
                             end
                             val newFPRegArgs = List.foldr loadFPRegArg [] fpRegArgs
-
+                            (* Stack arguments replace existing arguments but could grow the stack. *)
+                            val () = maxStack := Int.max(!maxStack, List.length newStackArgs)
                         in
                             TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs, fpRegArgs=newFPRegArgs,
                                     stackArgs=newStackArgs, stackAdjust=stackAdjust, currStackSize=newStackOffset} ::
