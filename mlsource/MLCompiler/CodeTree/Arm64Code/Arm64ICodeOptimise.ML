@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021
+    Copyright David C. J. Matthews 2021-2
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -37,12 +37,10 @@ struct
        This could incorporate optimisations done elsewhere.
        IdentifyReferences currently removes instructions that
        produce results in registers that are never used.
+       AllocateRegisters deals generally with caching.
 
-       PushRegisters deals with caching. Caching involves
-       speculative changes that can be reversed if there is a need
-       to spill registers.
-       
-       The optimiser currently deals with booleans and conditions.
+       The optimiser currently deals with booleans and conditions and with
+       constants.
     *)
     
     (* This is a rewrite of the last instruction to set a boolean.
@@ -53,8 +51,7 @@ struct
         (* BRSetConditionToConstant - we have a comparison of two constant value.
            This will usually happen because we've duplicated a branch and
            set a register to a constant which we then compare. *)
-    |   BRSetConditionToConstant of
-            { srcCC: ccRef, signedCompare: order, unsignedCompare: order }
+    |   BRSetConditionToConstant of { srcCC: ccRef, test: condition -> bool }
 
     fun optimiseICode{ code, pregProps, ccCount=_, debugSwitches=_ } =
     let
@@ -73,6 +70,9 @@ struct
             SomeValue
         |   NonAddressConst of Word64.word
         |   AddressConstant of machineWord
+        |   LargeBox of preg
+        |   RealBox of preg * floatSize
+        |   TaggedValue of preg * bool * opSize
 
         (* If this argument is a register and the register is mapped to a constant
            or another register replace the value.  Unlike the X86 version we
@@ -96,41 +96,6 @@ struct
         fun optimiseBlock processed (block, flow, outCCState) =
         let
             fun optCode([], brCond, regMap, code, changed) = (code, brCond, regMap, changed)
-
-            |   optCode({instr as AddSubImmediate{source, dest=ZeroReg, ccRef=SOME ccRefOut, immed, isAdd=false, length}, kill, ...} :: rest,
-                        _, regMap, code, changed) =
-                let
-                    val (repArg1, memRefsOut) = getRegisterValue(source, kill, regMap)
-                in
-                    case repArg1 of
-                        NonAddressConst test =>
-                        (* AddSubImmediate is put in by CodetreeToIcode to test a boolean value.  It can also
-                           arise as the result of pattern matching on booleans or even by tests such as = true.
-                           If the source register is now a constant we want to propagate the constant
-                           condition. *)
-                        let
-                            (* This comparison reduces to a constant.  *)
-                            val _ = hasChanged := true
-                            (* Signed comparison.  If this is a 32-bit operation the top word
-                               could be zero so we need to convert this as Word32.
-                               immediate values are always unsigned. *)
-                            val testValue =
-                                case length of
-                                    OpSize64 => Word64.toLargeIntX test
-                                |   OpSize32 => Word32.toLargeIntX(Word32.fromLarge test)
-                            (* Put in a replacement so that if we were previously testing ccRefOut
-                               we should instead test ccRef. *)
-                            val repl =
-                                BRSetConditionToConstant{srcCC=ccRefOut,
-                                    signedCompare=LargeInt.compare(testValue, Word.toLargeInt immed),
-                                    unsignedCompare=Word64.compare(test, Word64.fromLarge(Word.toLargeWord immed))}
-                            val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
-                        in
-                            optCode(rest, repl, memRefsOut, code, true)
-                        end
-                
-                    |   _ => optCode(rest, BRNone, memRefsOut, instr :: code, changed)
-                end
 
             |   optCode({instr as AddSubImmediate{source, dest=SomeReg dest, ccRef=NONE, immed, isAdd, length}, kill, ...} :: rest, _, regMap, code, changed) =
                 (* This is frequently used to remove a tag from a value before an addition or subtraction.
@@ -175,6 +140,34 @@ struct
                                     immed=Word.fromLargeWord(Word64.toLargeWord immediate), isAdd=isAdd, length=length} :: code, true)
                     |   NONE =>
                             optCode(rest, BRNone, mapOp2, instr :: code, changed)
+                end
+
+            |   optCode({instr as LogicalImmediate{source, dest=ZeroReg, ccRef=SOME ccRefOut, immed, logOp=LogAnd, ...}, kill, ...} :: rest,
+                        _, regMap, code, changed) =
+                let
+                    val (repArg1, memRefsOut) = getRegisterValue(source, kill, regMap)
+                in
+                    case repArg1 of
+                        NonAddressConst test =>
+                        (* This was previously used to test a boolean but that has now changed.  It may also
+                           occur as a result of pattern matching. *)
+                        let
+                            (* This comparison reduces to a constant.  *)
+                            val _ = hasChanged := true
+                            val result = LargeWord.andb(test, immed)
+                            (* Put in a replacement so that if we were previously testing ccRefOut
+                               we should instead test ccRef. *)
+                            fun testResult CondEqual = result = 0w0
+                            |   testResult CondNotEqual = result <> 0w0
+                            |   testResult _ = raise InternalError "testResult: invalid condition"
+                            val repl =
+                                BRSetConditionToConstant{srcCC=ccRefOut, test=testResult}
+                            val _ = isSome outCCState andalso raise InternalError "optCode: CC exported"
+                        in
+                            optCode(rest, repl, memRefsOut, code, true)
+                        end
+                
+                    |   _ => optCode(rest, BRNone, memRefsOut, instr :: code, changed)
                 end
 
             |   optCode({instr as LogicalRegister{base, shifted, dest, ccRef, logOp, length, shift}, kill, ...} :: rest,
@@ -232,6 +225,16 @@ struct
                     (* Address constant.  This is used in conjunction with UnboxValue *)
                     optCode(rest, inCond, {dest=dest, source=AddressConstant source} :: regMap, instr :: code, changed)
 
+            |   optCode({instr as BoxLarge{ source, dest, ... }, ...} :: rest, inCond, regMap, code, changed) =
+                (* Try to eliminate adjacent sequences of boxing and unboxing.  *)
+                    optCode(rest, inCond, {dest=dest, source=LargeBox source} :: regMap, instr :: code, changed)
+
+            |   optCode({instr as BoxTagFloat{ source, dest, floatSize, ... }, ...} :: rest, inCond, regMap, code, changed) =
+                    optCode(rest, inCond, {dest=dest, source=RealBox(source, floatSize)} :: regMap, instr :: code, changed)
+
+            |   optCode({instr as TagValue{ source, dest, isSigned, opSize}, ...} :: rest, inCond, regMap, code, changed) =
+                    optCode(rest, inCond, {dest=dest, source=TaggedValue(source, isSigned, opSize)} :: regMap, instr :: code, changed)
+
             |   optCode({instr as UnboxLarge{ source, dest, ... }, kill, ...} :: rest,
                         inCond, regMap, code, changed) =
                 let
@@ -251,6 +254,10 @@ struct
                         in
                             optCode(rest, inCond, newMap, LoadNonAddressConstant{dest=dest, source=wordConst} :: code, true)
                         end
+
+                        (* Or if it was recently boxed we can use the original and hopefully eliminate the box. *)
+                    |   LargeBox original => optCode(rest, inCond, mapAfterReplace, MoveRegister{dest=dest, source=original} :: code, true)
+
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
@@ -274,6 +281,18 @@ struct
                         in
                             optCode(rest, inCond, newMap, LoadNonAddressConstant{dest=dest, source=wordConst} :: code, true)
                         end
+
+                        (* Or if it was recently tagged we can eliminate the tagging and untagging.  This occurs, for
+                           example, if we extract a character and then put it into a string.  Normally the lengths
+                           will match but may use a 32-bit tagged value as a 64-bit value in the special case of
+                           using a character to index into the array of single-character strings.  Mismatched
+                           signed/unsigned could occur with conversions between Word.word and FixedInt.int
+                           which are generally no-ops. *)
+                    |   TaggedValue(original, wasSigned, oldOpSize) =>
+                            if isSigned = wasSigned andalso (case (oldOpSize, opSize) of (OpSize64, OpSize32) => false | _ => true)
+                            then optCode(rest, inCond, mapAfterReplace, MoveRegister{dest=dest, source=original} :: code, true)
+                            else optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
+                    
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
@@ -302,6 +321,12 @@ struct
                             optCode(rest, inCond, mapAfterReplace, LoadFPConstant{dest=dest, floatSize=Float32, source=fpConstant} :: code, true)
                         end
 
+                    |   RealBox(original, fSize) =>
+                        (
+                            fSize = Float32 orelse raise InternalError "Mismatch float size";
+                            optCode(rest, inCond, mapAfterReplace, UnaryFloatingPt{dest=dest, source=original, fpOp=MoveFloat} :: code, true)
+                        )
+
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
@@ -320,6 +345,12 @@ struct
                         in
                             optCode(rest, inCond, mapAfterReplace, LoadFPConstant{dest=dest, floatSize=Double64, source=fpConstant} :: code, true)
                         end
+
+                    |   RealBox(original, fSize) =>
+                        (
+                            fSize = Double64 orelse raise InternalError "Mismatch float size";
+                            optCode(rest, inCond, mapAfterReplace, UnaryFloatingPt{dest=dest, source=original, fpOp=MoveDouble} :: code, true)
+                        )
 
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
@@ -397,7 +428,6 @@ struct
                     |   _ => optCode(rest, inCond, mapAfterReplace, instr :: code, changed)
                 end
 
-
             |   optCode({instr as BitFieldInsert{ source, dest, destAsSource, length=_, immr, imms }, kill, ...} :: rest,
                     inCond, regMap, code, changed) =
                 (* Bit field insertion.  This is used to insert the length field into the register containing the
@@ -446,7 +476,6 @@ struct
             |   optCode({instr as BlockMove _, ...} :: rest, _, _, code, changed) =
                     (* Likewise at the end of the loop.  Not sure if this is essential. *)
                     optCode(rest, BRNone, [], instr::code, changed)
-            
 
             |   optCode({instr, ...} :: rest, inCond, regMap, code, changed) =
                 let
@@ -465,37 +494,12 @@ struct
             case (flow, finalRepl) of
                 (* We have a Condition and a change to the condition. *)
                 (flow as Conditional{ccRef, condition, trueJump, falseJump},
-                 BRSetConditionToConstant({srcCC, signedCompare, unsignedCompare, ...})) =>
+                 BRSetConditionToConstant({srcCC, test, ...})) =>
                     if srcCC = ccRef
                     then
                     let
-                        val testResult =
-                            case (condition, signedCompare, unsignedCompare) of
-                                (CondEqual,             EQUAL,  _)   => true
-                            |   (CondEqual,             _,      _)   => false
-                            |   (CondNotEqual,          EQUAL,  _)   => false
-                            |   (CondNotEqual,          _,      _)   => true
-                            |   (CondSignedLess,        LESS,   _)   => true
-                            |   (CondSignedLess,        _,      _)   => false
-                            |   (CondSignedGreater,     GREATER,_)   => true
-                            |   (CondSignedGreater,     _,      _)   => false
-                            |   (CondSignedLessEq,      GREATER,_)   => false
-                            |   (CondSignedLessEq,      _,      _)   => true
-                            |   (CondSignedGreaterEq,   LESS,   _)   => false
-                            |   (CondSignedGreaterEq,   _,      _)   => true
-                            |   (CondCarryClear,        _, LESS  )   => true
-                            |   (CondCarryClear,        _,      _)   => false
-                            |   (CondUnsignedHigher,    _,GREATER)   => true
-                            |   (CondUnsignedHigher,    _,      _)   => false
-                            |   (CondUnsignedLowOrEq,    _,GREATER)   => false
-                            |   (CondUnsignedLowOrEq,    _,      _)   => true
-                            |   (CondCarrySet,          _, LESS  )   => false
-                            |   (CondCarrySet,          _,      _)   => true
-                                (* The overflow and parity checks should never occur. *)
-                            |   _   => raise InternalError "getCondResult: comparison"
-
                         val newFlow =
-                            if testResult
+                            if test condition
                             then Unconditional trueJump
                             else Unconditional falseJump
 
@@ -533,7 +537,7 @@ struct
                             moves = 0 andalso isSimple(instrs, moves+1, regMap)
                     |   isSimple ({instr=LoadAddressConstant _, ...} :: instrs, moves, regMap) =
                             moves = 0 andalso isSimple(instrs, moves+1, regMap)
-                    |   isSimple ({instr=AddSubImmediate{source, dest=ZeroReg, ...}, ...} :: instrs, moves, regMap) =
+                    |   isSimple ({instr=LogicalImmediate{source, dest=ZeroReg, logOp=LogAnd, ...}, ...} :: instrs, moves, regMap) =
                         let
                             val isReplace = List.find(fn {dest, ... } => dest = source) regMap
                         in
@@ -564,8 +568,9 @@ struct
                         val localMap = List.map (fn r => (PReg r, newReg(Vector.sub(pregProps, r)))) (setToList locals)
                         fun mapReg r = case List.find (fn (s, _) => r = s) localMap of SOME(_, s) => s | NONE => r
                         fun mapInstr(instr as ResetStackPtr _) = instr
-                        |   mapInstr(ReturnResultFromFunction{results, returnReg, numStackArgs}) =
+                        |   mapInstr(ReturnResultFromFunction{results, fpResults, returnReg, numStackArgs}) =
                                 ReturnResultFromFunction{results=List.map(fn(pr, r) => (mapReg pr, r))results,
+                                                         fpResults=List.map(fn(pr, r) => (mapReg pr, r))fpResults,
                                                          returnReg=mapReg returnReg, numStackArgs=numStackArgs}
                         |   mapInstr(RaiseExceptionPacket{packetReg}) =
                                 RaiseExceptionPacket{packetReg=mapReg packetReg}
@@ -575,8 +580,8 @@ struct
                                 LoadNonAddressConstant{source=source, dest=mapReg dest}
                         |   mapInstr(LoadAddressConstant{source, dest}) =
                                 LoadAddressConstant{source=source, dest=mapReg dest}
-                        |   mapInstr(AddSubImmediate{source, dest=ZeroReg, immed, ccRef, isAdd, length}) =
-                                AddSubImmediate{source=mapReg source, dest=ZeroReg, immed=immed, ccRef=ccRef, isAdd=isAdd, length=length}
+                        |   mapInstr(LogicalImmediate{source, dest=ZeroReg, immed, ccRef, logOp, length}) =
+                                LogicalImmediate{source=mapReg source, dest=ZeroReg, immed=immed, ccRef=ccRef, logOp=logOp, length=length}
                         |   mapInstr _ = raise InternalError "mapInstr: other instruction"
                         fun mapRegNo i = case(mapReg(PReg i)) of PReg r => r
                         (* Map the instructions and the sets although we only use the kill set. *)

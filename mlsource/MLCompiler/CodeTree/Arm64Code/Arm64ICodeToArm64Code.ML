@@ -201,6 +201,66 @@ struct
             moveMultipleValues(regPairsAsDests, code)
         end
 
+        (* Floating point registers can only be moved into other floating point registers but
+           it is possible to have a cycle. *)
+        fun moveMultipleFPRegisters(moves: {dst: vReg, src: vReg} list, code) =
+        let
+            local
+                fun regNo(VReg r) = Word8.toInt r
+                type node = {src: vReg, dst: vReg }
+                fun nodeAddress({dst=r, ...}: node) = regNo r
+                fun arcs{src=r, ...} = [regNo r]
+            in
+                val stronglyConnected = Strongly.stronglyConnectedComponents { nodeAddress=nodeAddress, arcs=arcs }
+            end
+
+            fun moveValues ([], code) = code (* We're done. *)
+
+            |   moveValues (arguments, code) =
+                let
+                    val ordered = stronglyConnected arguments
+
+                    fun moveEachValue ([], code) = code
+
+                    |   moveEachValue ([{dst, src}] :: rest, code) =
+                            moveEachValue(rest,
+                                if src = dst then code else (FPUnaryOp{regN=src, regD=dst, fpOp=MoveDouble}) :: code)
+
+                    |   moveEachValue((cycle as first :: _ :: _) :: rest, code) =
+                        (* We have a cycle. *)
+                        let
+                            val {dst=selectDst: vReg, src=selectSrc: vReg} = first
+
+                            (* This includes this entry but after the swap we'll eliminate it. *)
+                            val flattened = List.foldl(fn (a, b) => a @ b) [] (cycle :: rest)
+                            val destAsSource = selectDst
+                            fun swapSources{src, dst} =
+                                if src=selectSrc then {src=destAsSource, dst=dst}
+                                else if src=destAsSource then {src=selectSrc, dst=dst}
+                                else {src=src, dst=dst}
+
+                            (* Exchange the values of two floating point registers.  There are
+                               various ways to do this.  For the moment just use the hardware stack. *)
+                            val exchangeCode =
+                                code <::>
+                                    StoreFPRegUnscaled{regT=selectDst, regN=XSP, byteOffset= ~16, floatSize=Double64, unscaledType=PreIndex} <::>
+                                    FPUnaryOp{regN=selectSrc, regD=selectDst, fpOp=MoveDouble} <::>
+                                    LoadFPRegUnscaled{regT=selectSrc, regN=XSP, byteOffset=16, floatSize=Double64, unscaledType=PostIndex}
+                        in
+                            moveValues(List.map swapSources flattened, exchangeCode)
+                        end
+
+                    |   moveEachValue(([]) :: _, _) = (* This should not happen - avoid warning. *)
+                            raise InternalError "moveEachValue - empty set"
+                in
+                    moveEachValue(ordered, code)
+                end
+        in
+            moveValues(moves, code)
+        end
+
+
+
         fun moveIfNecessary({src, dst}, code) =
             if src = dst then code
             else MoveXRegToXReg{sReg=src, dReg=dst} :: code
@@ -495,7 +555,7 @@ struct
                 (DivideRegs{regN=dividend, regM=divisor,
                                    regD=dest, isSigned=isSigned, opSize=opSize}) :: code
 
-        |   codeExtended _ (BeginFunction{regArgs, ...}, code) =
+        |   codeExtended _ (BeginFunction{regArgs, fpRegArgs, ...}, code) =
             let
                 val skipCheck = createLabel labelMaker
                 val defaultWords = 10 (* This is wired into the RTS. *)
@@ -527,20 +587,21 @@ struct
                         RTSTrap{rtsEntry=entryPt, work=workReg1, save=List.map #2 regArgs} <::>
                         SetLabel skipCheck
 
-                val usedRegs = regArgs
                 fun mkPair(pr, rr) = {src=rr,dst=pr}
-                val regPairs = List.map mkPair usedRegs
+                val regPairs = List.map mkPair regArgs
+                val fpRegPairs = List.map mkPair fpRegArgs
             in
-                moveMultipleRegisters(regPairs, code3)
+                moveMultipleFPRegisters(fpRegPairs, moveMultipleRegisters(regPairs, code3))
             end
 
-        |   codeExtended _ (TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize}, code) =
+        |   codeExtended _ (TailRecursiveCall{callKind, regArgs, stackArgs, fpRegArgs, stackAdjust, currStackSize}, code) =
             let
                 fun convertArg(ArgOnStack{wordOffset, ...}) = IsOnStack wordOffset
                 |   convertArg(ArgInReg reg) = IsInReg(reg)
 
                 val extStackArgs = map (fn {stack, src} => {dst=IsOnStack(stack+currStackSize), src=convertArg src}) stackArgs
                 val extRegArgs = map (fn (a, r) => {src=convertArg a, dst=IsInReg r}) regArgs
+                val extFPArgs = map (fn (a, r) => {src=a, dst=r}) fpRegArgs
 
                 (* Tail recursive calls are complicated because we generally have to overwrite the existing stack.
                    That means storing the arguments in the right order to avoid overwriting a
@@ -578,7 +639,8 @@ struct
                     end
                     else
                     let
-                        val loadArgs = moveMultipleValues(arguments, code)
+                        val loadArgs =
+                            moveMultipleFPRegisters(extFPArgs, moveMultipleValues(arguments, code))
                     in
                         if stackAdjust = 0
                         then loadArgs
@@ -605,7 +667,7 @@ struct
                 jumpToFunctionCode @ setArgumentsCode
             end
 
-        |   codeExtended _ (FunctionCall{callKind, regArgs=regArgs, stackArgs=stackArgs, dests, saveRegs, ...}, code) =
+        |   codeExtended _ (FunctionCall{callKind, regArgs, stackArgs, dests, fpRegArgs, fpDests, saveRegs, ...}, code) =
             let
                 local
                     fun pushStackArgs ([], _, code) = code
@@ -636,7 +698,8 @@ struct
 
                 in
                     val extRegArgs = map (fn (a, r) => {src=convertArg a, dst=IsInReg r}) regArgs
-                    val loadArgs = moveMultipleValues(extRegArgs, pushedArgs)
+                    val extFPArgs = map (fn (a, r) => {src=a, dst=r}) fpRegArgs
+                    val loadArgs = moveMultipleFPRegisters(extFPArgs, moveMultipleValues(extRegArgs, pushedArgs))
                 end
 
                 (* Push the registers before the call and pop them afterwards. *)
@@ -671,11 +734,13 @@ struct
 
                 (* Results.  These go from the specific result register into the allocated register. *)
                 val resultPairs = List.map(fn (pr, rr) => {src=rr,dst=pr}) dests
+                val fpResultPairs = List.map(fn (pr, rr) => {src=rr,dst=pr}) fpDests
             in
-                moveMultipleRegisters(resultPairs, makeSavesAndCall(saveRegs, loadArgs))
+                moveMultipleFPRegisters(fpResultPairs,
+                    moveMultipleRegisters(resultPairs, makeSavesAndCall(saveRegs, loadArgs)))
             end
 
-        |   codeExtended _ (ReturnResultFromFunction { results, returnReg, numStackArgs }, code) =
+        |   codeExtended _ (ReturnResultFromFunction { results, fpResults, returnReg, numStackArgs }, code) =
             let
                 fun resetStack(0, code) = code
                 |   resetStack(nItems, code) =
@@ -683,8 +748,10 @@ struct
                                         value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt nItems}, code)
                 (* Return results.  This goes from the allocated register into the specific register rr. *)
                 val resultPairs = List.map(fn (pr, rr) => {src=pr,dst=rr}) results
+                and fpResultPairs = List.map(fn (pr, rr) => {src=pr,dst=rr}) fpResults
             in
-                BranchReg{regD=returnReg, brRegType=BRRReturn} :: resetStack(numStackArgs, moveMultipleRegisters(resultPairs, code))
+                BranchReg{regD=returnReg, brRegType=BRRReturn} :: resetStack(numStackArgs,
+                    moveMultipleFPRegisters(fpResultPairs, moveMultipleRegisters(resultPairs, code)))
             end
 
         |   codeExtended _ (RaiseExceptionPacket{ packetReg }, code) =
@@ -963,17 +1030,6 @@ struct
 
         |   codeExtended _ (AtomicOperation{ base, source, dest, atOp }, code) = AtomicExtension{regN=base, regS=source, regT=dest, atOp=atOp} :: code
 
-        |   codeExtended _ (CacheCheck{ arg1, arg2 }, code) =
-            let
-                val okLabel = createLabel labelMaker
-            in
-                (code <::> SubShiftedReg {regM=arg1, regN=arg2, regD=XZero, shift=ShiftNone, opSize=OpSize64, setFlags=true} <::>
-                    ConditionalBranch(CondEqual, okLabel) <::>
-                    MoveXRegToXReg{sReg=XZero, dReg=X16} <::>
-                    LoadRegScaled{regT=X16, regN=X16, unitOffset=0, loadType=Load16} <::>
-                    SetLabel okLabel)
-            end
-
         local
             (* processed - set to true when a block has been processed. *)
             val processed = Array.array(numBlocks, false)
@@ -1061,28 +1117,102 @@ struct
                                     then SOME(FlowCodeSimple dest)
                                     else NONE
                             |   Conditional {trueJump, falseJump, condition, ...} =>
-                                (* We can usually choose either destination and in nearly all cases
-                                   it won't matter.  The default branch is not to take forward jumps
-                                   so if there is reason to believe that one branch is more likely
-                                   we should follow that branch now and leave the other.  If we
-                                   have Cond(No)Overflow we assume that overflow is unusual.
-                                   If one branch raises an exception we assume that that is unusual. *)
                                 let
-                                    val (first, second) =
-                                        case (condition, Vector.sub(blocks, falseJump)) of
-                                            (CondNoOverflow, _) => (trueJump, falseJump)
-                                        |   (_, BasicBlock{ flow=ExitCode, block, ...}) =>
-                                                if List.exists(fn RaiseExceptionPacket _ => true | _ => false) block
-                                                then (trueJump, falseJump)
-                                                else (falseJump, trueJump)
-                                        |   _ => (falseJump, trueJump)
+                                    (* Can we replace this with a conditional set?  If both arms simply set
+                                       a register to a value and either return or jump to the same location
+                                       we can.  *)
+                                    (* The most common case is producing a boolean result, 1 (tagged 0) for false and
+                                       3 (tagged 1) for true.  We look for blocks that generate this and also
+                                       functions that return this. *)
+                                    val BasicBlock { flow=tFlow, block=tBlock, ...} = Vector.sub(blocks, trueJump)
+                                    and BasicBlock { flow=fFlow, block=fBlock, ...} = Vector.sub(blocks, falseJump)
+
+                                    val isPossSetCCOrCmov =
+                                        if not (haveProcessed trueJump) andalso available trueJump
+                                            andalso not (haveProcessed falseJump) andalso available falseJump
+                                        then case (tFlow, fFlow, tBlock, fBlock) of
+                                            (Unconditional tDest, Unconditional fDest,
+                                            [LoadNonAddressConstant{ source=sourceTrue, dest=destTrue }],
+                                            [LoadNonAddressConstant{ source=sourceFalse, dest=destFalse }]) =>
+                                                if tDest = fDest andalso destTrue = destFalse
+                                                then if sourceFalse = 0w1
+                                                then SOME{code=
+                                                        (* We can generate 1 by using CSINC and XZero. *)
+                                                            code <::> LoadNonAddr(destTrue, sourceTrue) <::>
+                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=condition, condSet=CondSetIncr, opSize=OpSize64},
+                                                          trueJump=trueJump, falseJump=falseJump}
+                                                else if sourceTrue = 0w1
+                                                then SOME{code=
+                                                        (* We can generate 1 by using CSINC and XZero. *)
+                                                            code <::> LoadNonAddr(destTrue, sourceFalse) <::>
+                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=invertTest condition, condSet=CondSetIncr, opSize=OpSize64},
+                                                          trueJump=trueJump, falseJump=falseJump}
+                                                else NONE
+                                                else NONE
+
+                                        |   (ExitCode, ExitCode,
+                                            [LoadNonAddressConstant{ source=sourceTrue, dest=destTrue },
+                                             ReturnResultFromFunction { results=[(retRT, retRTR)], fpResults=[], returnReg=retaT, numStackArgs=numST }],
+                                            [LoadNonAddressConstant{ source=sourceFalse, dest=destFalse },
+                                             ReturnResultFromFunction { results=[(retRF, retRFR)], fpResults=[], returnReg=retaF, numStackArgs=numSF }]) =>
+                                             if destTrue = retRT andalso destFalse = retRF (* These ought to X0. *)
+                                             then
+                                             let
+                                                val _ = retRTR = X0 andalso retRFR = X0 orelse raise InternalError "Test for condmove: mismatch regs"
+                                                val _ = retaT = retaF orelse raise InternalError "Test for condmove: mismatched return regs"
+                                                val _ = numST = numSF orelse raise InternalError "Test for condmove: mismatched stack"
+                                                fun resetAndReturn code =
+                                                    (if numST = 0
+                                                    then code
+                                                    else addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
+                                                            value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt numSF}, code)
+                                                    )  <::> BranchReg{regD=retaT, brRegType=BRRReturn}
+                                             in
+                                                if sourceFalse = 0w1
+                                                then SOME{code=
+                                                            resetAndReturn(
+                                                            code <::> LoadNonAddr(destTrue, sourceTrue) <::>
+                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=condition, condSet=CondSetIncr, opSize=OpSize64}),
+                                                          trueJump=trueJump, falseJump=falseJump}
+                                                else if sourceTrue = 0w1
+                                                then SOME{code=
+                                                            resetAndReturn(
+                                                            code <::> LoadNonAddr(destTrue, sourceFalse) <::>
+                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=invertTest condition, condSet=CondSetIncr, opSize=OpSize64}),
+                                                          trueJump=trueJump, falseJump=falseJump}
+                                                else NONE
+                                             end
+                                             else NONE
+
+                                        |   _ => NONE
+                                        else NONE
                                 in
-                                    if not (haveProcessed first) andalso available first
-                                    then SOME(FlowCodeSimple first)
-                                    else if not (haveProcessed second) andalso available second
-                                    then SOME(FlowCodeSimple second)
-                                    else NONE
-                                end
+                                    case isPossSetCCOrCmov of
+                                        NONE =>
+                                        (* We can usually choose either destination and in nearly all cases
+                                           it won't matter.  The ARM doesn't seem to define what happens if
+                                           a conditional branch hasn't been seen before.  Assume it's the
+                                           same as the X86 and that conditional forward branches aren't
+                                           taken.  Arrange this so that something that raises an exception
+                                           is assumed to be "unusual". *)
+                                        let
+                                            val (first, second) =
+                                                case (condition, Vector.sub(blocks, falseJump)) of
+                                                    (CondNoOverflow, _) => (trueJump, falseJump)
+                                                |   (_, BasicBlock{ flow=ExitCode, block, ...}) =>
+                                                        if List.exists(fn RaiseExceptionPacket _ => true | _ => false) block
+                                                        then (trueJump, falseJump)
+                                                        else (falseJump, trueJump)
+                                                |   _ => (falseJump, trueJump)
+                                        in
+                                            if not (haveProcessed first) andalso available first
+                                            then SOME(FlowCodeSimple first)
+                                            else if not (haveProcessed second) andalso available second
+                                            then SOME(FlowCodeSimple second)
+                                            else NONE
+                                        end
+                                    |   SOME args => SOME(FlowCodeCMove args)
+                                    end
                            |    SetHandler { continue, ... } =>
                                     (* We want the continuation if possible.  We'll need a
                                        branch round the handler so that won't help. *)

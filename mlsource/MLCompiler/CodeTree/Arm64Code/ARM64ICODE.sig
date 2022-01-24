@@ -99,7 +99,9 @@ sig
         MultAdd32 | MultSub32 | MultAdd64 | MultSub64 |
         SignedMultAddLong (* 32bit*32bit + 64bit => 64Bit *) |
         SignedMultHigh (* High order part of 64bit*64Bit *)
-    and fpUnary = NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble | ConvDbleToFloat
+    and fpUnary =
+        NegFloat | NegDouble | AbsFloat | AbsDouble | ConvFloatToDble |
+        ConvDbleToFloat | MoveDouble | MoveFloat
     and fpBinary = MultiplyFP | DivideFP | AddFP | SubtractFP
         (* Some of the atomic operations added in 8.1 *)
     and atomicOp = LoadAddAL | LoadUmaxAL | SwapAL | LoadAddAcquire | LoadUMaxAcquire | SwapRelease
@@ -215,7 +217,7 @@ sig
            stack arguments.  If the function has a real closure regArgs includes the
            closure register (X8).  The register arguments include the return register
            (X30). *)
-    |   BeginFunction of { regArgs: ('genReg * xReg) list, stackArgs: stackLocn list }
+    |   BeginFunction of { regArgs: ('genReg * xReg) list, fpRegArgs: ('fpReg * vReg) list, stackArgs: stackLocn list }
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through X8 which has been loaded
@@ -227,6 +229,7 @@ sig
     |   FunctionCall of
             { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
               stackArgs: 'genReg fnarg list, dests: ('genReg * xReg) list,
+              fpRegArgs: ('fpReg * vReg) list, fpDests: ('fpReg * vReg) list,
               saveRegs: 'genReg list, containers: stackLocn list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
@@ -238,12 +241,14 @@ sig
     |   TailRecursiveCall of
             { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
               stackArgs: {src: 'genReg fnarg, stack: int} list,
+              fpRegArgs: ('fpReg * vReg) list,
               stackAdjust: int, currStackSize: int }
 
         (* Return from the function.  resultRegs are the registers containing
            the result,
            returnReg is the preg that contains the return address. *)
-    |   ReturnResultFromFunction of { results: ('genReg * xReg) list, returnReg: 'genReg, numStackArgs: int }
+    |   ReturnResultFromFunction of
+            { results: ('genReg * xReg) list, fpResults:  ('fpReg * vReg) list, returnReg: 'genReg, numStackArgs: int }
 
         (* Raise an exception.  The packet is always loaded into X0. *)
     |   RaiseExceptionPacket of { packetReg: 'genReg }
@@ -365,7 +370,7 @@ sig
            that will cause an overflow when we tag it, provided we tag it explicitly. *)
     |   ConvertFloatToInt of { source: 'fpReg, dest: 'genReg, srcSize: floatSize, destSize: opSize, rounding: IEEEReal.rounding_mode }
 
-        (* Unary floating point.  This includes conversions between float and double. *)
+        (* Unary floating point.  This includes moves and conversions between float and double. *)
     |   UnaryFloatingPt of { source: 'fpReg, dest: 'fpReg, fpOp: fpUnary }
 
         (* Binary floating point: addition, subtraction, multiplication and division. *)
@@ -379,9 +384,6 @@ sig
 
         (* Atomic operations added for ARM 8.1 *)
     |   AtomicOperation of { base: 'genReg, source: 'optGenReg, dest: 'optGenReg, atOp: atomicOp }
-
-        (* Debugging - fault if values don't match. *)
-    |   CacheCheck of { arg1: 'genReg, arg2: 'genReg }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =

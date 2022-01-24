@@ -45,14 +45,13 @@ struct
     exception InternalError = Misc.InternalError
     
     fun taggedWord64 w: Word64.word = w * 0w2 + 0w1
-    and taggedWord w: word = w * 0w2 + 0w1
     
     datatype blockStruct =
         BlockSimple of iCodeAbstract
     |   BlockExit of iCodeAbstract
     |   BlockLabel of int
     |   BlockFlow of controlFlow
-    |   BlockBegin of { regArgs: (preg * xReg) list, stackArgs: stackLocn list }
+    |   BlockBegin of { regArgs: (preg * xReg) list, fpRegArgs: (preg * vReg) list, stackArgs: stackLocn list }
     |   BlockRaiseAndHandle of iCodeAbstract * int
     |   BlockOptionalHandle of {call: iCodeAbstract, handler: int, label: int }
 
@@ -139,7 +138,7 @@ struct
 
     fun precisionToFpSize PrecSingle = Float32 | precisionToFpSize PrecDouble = Double64
 
-    fun codeFunctionToArm64({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
+    fun codeFunctionToArm64({body, localCount, name, argTypes, resultType=fnResultType, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
         (* Pseudo-registers are allocated sequentially and the properties added to the list. *)
         val pregCounter = ref 0
@@ -207,7 +206,7 @@ struct
               overflowBlock: int option ref }
 
         datatype argLoc =
-            ArgumentIsInReg of { realReg: xReg, argReg: preg }
+            ArgumentIsInReg of preg
         |   ArgumentIsOnStack of { stackOffset: int, stackReg: stackLocn }
         |   ArgumentIsRegContainer of preg list
 
@@ -222,6 +221,8 @@ struct
         val returnAddrReg = newPReg()
         
         val generalArgRegs = [X0, X1, X2, X3, X4, X5, X6, X7]
+        (* we just use the first four.  The ARM API uses V0 to V8. *)
+        val floatingPtArgRegs = [V0, V1, V2, V3]
         
         (* If a container is larger than this it is passed on the stack. *)
         val smallContainerSize = 4
@@ -238,41 +239,61 @@ struct
                 |   _ => raise InternalError "more than one container arg"
 
             (* Select the appropriate argument register depending on the argument type. *)
-            fun argTypesToArgEntries([], _, _) = ([], [], [], [])
+            fun argTypesToArgEntries([], _, _, _) = ([], [], [], [], [])
 
-            |   argTypesToArgEntries(ContainerType s :: tl, gRegs, n) =
+            |   argTypesToArgEntries(DoubleFloatType :: tl, gRegs, fpReg :: fpRegs, n) =
+                let
+                    val (argTypes, argCode, argRegs, fpArgRegs, stackArgs) = argTypesToArgEntries(tl, gRegs, fpRegs, n-1)
+                    val pRegArg = newPReg() and uRegArg = newUReg()
+                in
+                    (ArgumentIsInReg pRegArg :: argTypes,
+                         boxTagFloat{source=uRegArg, dest=pRegArg, floatSize=Double64, saveRegs=[]} :: argCode,
+                         argRegs, (uRegArg, fpReg) :: fpArgRegs, stackArgs)
+                end
+
+            |   argTypesToArgEntries(SingleFloatType :: tl, gRegs, fpReg :: fpRegs, n) =
+                let
+                    val (argTypes, argCode, argRegs, fpArgRegs, stackArgs) = argTypesToArgEntries(tl, gRegs, fpRegs, n-1)
+                    val pRegArg = newPReg() and uRegArg = newUReg()
+                in
+                    (ArgumentIsInReg pRegArg :: argTypes,
+                         boxTagFloat{source=uRegArg, dest=pRegArg, floatSize=Float32, saveRegs=[]} :: argCode,
+                         argRegs, (uRegArg, fpReg) :: fpArgRegs, stackArgs)
+                end
+
+            |   argTypesToArgEntries(ContainerType s :: tl, gRegs, fpRegs, n) =
                 if s <= smallContainerSize
                 then
                 let
-                    val (argTypes, argCode, argRegs, stackArgs) = argTypesToArgEntries(tl, gRegs, n-1)
+                    val (argTypes, argCode, argRegs, fpArgRegs, stackArgs) = argTypesToArgEntries(tl, gRegs, fpRegs, n-1)
                     val regs = valOf containerRegs
                 in
-                    (ArgumentIsRegContainer regs :: argTypes, argCode, argRegs, stackArgs)
+                    (ArgumentIsRegContainer regs :: argTypes, argCode, argRegs, fpArgRegs, stackArgs)
                 end
                 (* The address of a larger container is passed as an argument *)
-                else argTypesToArgEntries(GeneralType :: tl, gRegs, n)
+                else argTypesToArgEntries(GeneralType :: tl, gRegs, fpRegs, n)
 
-            |   argTypesToArgEntries(_ :: tl, gReg :: gRegs, n) =
+            |   argTypesToArgEntries(_ :: tl, gReg :: gRegs, fpRegs, n) =
                 (* This deals with general arguments but also with extra floating point arguments.
                    They are boxed as usual. *)
                 let
-                    val (argTypes, argCode, argRegs, stackArgs) =
-                        argTypesToArgEntries(tl, gRegs, n-1)
+                    val (argTypes, argCode, argRegs, fpArgRegs, stackArgs) =
+                        argTypesToArgEntries(tl, gRegs, fpRegs, n-1)
                     val argReg=newPReg()
                 in
-                    (ArgumentIsInReg{realReg=gReg, argReg=argReg} :: argTypes, argCode, (argReg, gReg) :: argRegs, stackArgs)
+                    (ArgumentIsInReg argReg :: argTypes, argCode, (argReg, gReg) :: argRegs, fpArgRegs, stackArgs)
                 end
 
-            |   argTypesToArgEntries(_ :: tl, [], n) =
+            |   argTypesToArgEntries(_ :: tl, [], fpRegs, n) =
                 let
-                    val (argTypes, argCode, argRegs, stackArgs) = argTypesToArgEntries(tl, [], n-1)
+                    val (argTypes, argCode, argRegs, fpArgRegs, stackArgs) = argTypesToArgEntries(tl, [], fpRegs, n-1)
                     val stackLoc = newStackLoc 1
                 in
-                    (ArgumentIsOnStack {stackOffset=n, stackReg = stackLoc } :: argTypes, argCode, argRegs, stackLoc :: stackArgs)
+                    (ArgumentIsOnStack {stackOffset=n, stackReg = stackLoc } :: argTypes, argCode, argRegs, fpArgRegs, stackLoc :: stackArgs)
                 end
 
-            val (argEntries, argCode, argRegs, stackArguments) =
-                argTypesToArgEntries(argTypes, generalArgRegs, List.length argTypes)
+            val (argEntries, argCode, argRegs, fpArgRegs, stackArguments) =
+                argTypesToArgEntries(argTypes, generalArgRegs, floatingPtArgRegs, List.length argTypes)
 
             val clReg = case closure of [] => [] | _ => [(closureRegAddr, X8)]
             val retReg = [(returnAddrReg, X30)]
@@ -281,7 +302,7 @@ struct
 
             (* Start code for the function. *)
             val beginInstructions = argCode @
-                [BlockBegin{regArgs=retReg @ clReg @ argRegs, stackArgs=stackArguments }]
+                [BlockBegin{regArgs=retReg @ clReg @ argRegs, fpRegArgs=fpArgRegs, stackArgs=stackArguments }]
 
             (* The number of arguments on the stack.  Needed in return instrs and tail calls. *)
             val currentStackArgs = List.length stackArguments
@@ -289,15 +310,28 @@ struct
             val containerResults = Option.map(fn regs => ListPair.zip(regs, generalArgRegs)) containerRegs
         end
 
-        (* TODO: Return the values of the container registers if we have multiple results. *)
-
-
         fun returnInstruction({stackPtr, ...}, resReg, tailCode) =
         let
-            val results = getOpt(containerResults, [(resReg, X0)]) (* Return the result in X0 unless there's a container. *)
+            val (results, fpResults, unBoxCode) =
+                case (containerResults, fnResultType) of
+                    (NONE, GeneralType) => ([(resReg, X0)], [], tailCode)
+                |   (NONE, DoubleFloatType) =>
+                    let
+                        val reg = newUReg()
+                    in
+                        ([], [(reg, V0)], tailCode <::> unboxTagFloat{ floatSize=Double64, source=resReg, dest=reg })
+                    end
+                |   (NONE, SingleFloatType) =>
+                    let
+                        val reg = newUReg()
+                    in
+                        ([], [(reg, V0)], tailCode <::> unboxTagFloat{ floatSize=Float32, source=resReg, dest=reg })
+                    end
+                |   (SOME cResult, GeneralType) => (cResult, [], tailCode)
+                |   _ => raise InternalError "returnInstruction: result type mismatch"
         in
-            BlockExit(ReturnResultFromFunction{results=results, returnReg = returnAddrReg, numStackArgs=currentStackArgs}) ::
-                (if stackPtr <> 0 then resetStackPtr{numWords=stackPtr} :: tailCode else tailCode)
+            BlockExit(ReturnResultFromFunction{results=results, fpResults=fpResults, returnReg=returnAddrReg, numStackArgs=currentStackArgs}) ::
+                (if stackPtr <> 0 then resetStackPtr{numWords=stackPtr} :: unBoxCode else unBoxCode)
         end
 
         fun asTarget(SpecificPReg preg) = preg
@@ -739,7 +773,7 @@ struct
         |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
             (
                 case Vector.sub(argumentVector, a) of
-                    ArgumentIsInReg{argReg, ...} => (* It was originally in a register.  It's now in a preg. *)
+                    ArgumentIsInReg argReg => (* It was originally in a register.  It's now in a preg. *)
                         moveToResult(destination, tailCode, argReg)
                 |   ArgumentIsOnStack{stackOffset, stackReg} => (* Pushed before call. *)
                     let
@@ -914,7 +948,7 @@ struct
                 returnUnit(destination,  block :: code, true (* Always exits *))
             end
 
-        |   codeToICodeRev(BICEval{function, argList, ...}, context as { currHandler, ...}, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICEval{function, argList, resultType, ...}, context as { currHandler, ...}, isTail, destination, tailCode) =
             let
                 val target = asTarget destination
                 (* Create pregs for the closure and each argument. *)
@@ -972,33 +1006,53 @@ struct
 
                 local
                     (* Load the first arguments into registers and the rest to the stack. *)
-                    fun loadArgs ([], _, tailCode) = (tailCode, [], [])
+                    fun loadArgs ([], _, _, tailCode) = (tailCode, [], [], [])
 
-                    |   loadArgs ((arg, _) :: args, gReg::gRegs, tailCode) =
-                        let (* General register argument. *)
+                    |   loadArgs ((arg, DoubleFloatType) :: args, gRegs, fpReg :: fpRegs, tailCode) =
+                        let (* Floating point register argument. *)
                             val (c, r, _) = codeToICodeRev(arg, context, false, AnyReg, tailCode)
-                            val (code, regArgs, stackArgs) = loadArgs(args, gRegs, c)
+                            val r1 = newUReg()
+                            val (code, regArgs, fpRegArgs, stackArgs) =
+                                loadArgs(args, gRegs, fpRegs, c <::> unboxTagFloat{floatSize=Double64, source=r, dest=r1})
                         in
-                            (code, (ArgInReg r, gReg) :: regArgs, stackArgs)
+                            (code, regArgs, (r1, fpReg: vReg) :: fpRegArgs, stackArgs)
                         end
 
-                    |   loadArgs ((arg, _) :: args, [], tailCode) =
+                    |   loadArgs ((arg, SingleFloatType) :: args, gRegs, fpReg :: fpRegs, tailCode) =
+                        let (* Floating point register argument. *)
+                            val (c, r, _) = codeToICodeRev(arg, context, false, AnyReg, tailCode)
+                            val r1 = newUReg()
+                            val (code, regArgs, fpRegArgs, stackArgs) =
+                                loadArgs(args, gRegs, fpRegs, c <::> unboxTagFloat{floatSize=Float32, source=r, dest=r1})
+                        in
+                            (code, regArgs, (r1, fpReg: vReg) :: fpRegArgs, stackArgs)
+                        end
+
+                    |   loadArgs ((arg, _) :: args, gReg::gRegs, fpRegs, tailCode) =
+                        let (* General register argument. *)
+                            val (c, r, _) = codeToICodeRev(arg, context, false, AnyReg, tailCode)
+                            val (code, regArgs, fpRegArgs, stackArgs) = loadArgs(args, gRegs, fpRegs, c)
+                        in
+                            (code, (ArgInReg r, gReg) :: regArgs, fpRegArgs, stackArgs)
+                        end
+
+                    |   loadArgs ((arg, _) :: args, [], fpRegs, tailCode) =
                         let (* Stack argument. *)
                             val (c, r, _) = codeToICodeRev(arg, context, false, AnyReg, tailCode)
-                            val (code, regArgs, stackArgs) = loadArgs(args, [], c)
+                            val (code, regArgs, fpRegArgs, stackArgs) = loadArgs(args, [], fpRegs, c)
                         in
-                            (code, regArgs, ArgInReg r :: stackArgs)
+                            (code, regArgs, fpRegArgs, ArgInReg r :: stackArgs)
                         end
 
                     fun isSmallContainer(ContainerType s) = s <= smallContainerSize | isSmallContainer _ = false
                 in
-                    val (codeArgs, regArgs, stackArgs) =
-                        loadArgs(List.filter(not o isSmallContainer o #2) argList, generalArgRegs, functionCode)
+                    val (codeArgs, regArgs, fpRegArgs, stackArgs) =
+                        loadArgs(List.filter(not o isSmallContainer o #2) argList, generalArgRegs, floatingPtArgRegs, functionCode)
                 end
                 
                 (* If this is at the end of the function and the result types are the
                    same we can use a tail-recursive call. *)
-                val tailCall = isTail (*andalso resultType = fnResultType*)
+                val tailCall = isTail andalso resultType = fnResultType
                 
                 val callCode =
                     if tailCall
@@ -1019,7 +1073,7 @@ struct
                         (* Add an entry for the return address to the register arguments. *)
                     in
                         BlockExit(TailRecursiveCall{regArgs=(ArgInReg returnAddrReg, X30) :: closureEntry @ regArgs, stackArgs=stackArgs,
-                                  stackAdjust = stackAdjust, currStackSize=stackOffset, callKind=callKind}) ::
+                                  fpRegArgs=fpRegArgs, stackAdjust = stackAdjust, currStackSize=stackOffset, callKind=callKind}) ::
                                   codeArgs
                     end
                     else
@@ -1042,17 +1096,30 @@ struct
 
                         (* Get the results.  If we're returning the result through a container the target isn't used
                            so we return unit. *)
-                        val (results, setTarget) =
-                            case containerValue of
-                                ContainerInRegs regs =>
-                                    (ListPair.zip(regs, generalArgRegs), [loadNonAddressConstant{source=taggedWord64 0w0, dest=target}])
-                            |   ContainerOnStack _ =>
-                                    ([], [loadNonAddressConstant{source=taggedWord64 0w0, dest=target}])
-                            |   NoContainer => ([(target, X0)], [])
+                        val (results, fpResults, setTarget) =
+                            case (containerValue, resultType) of
+                                (ContainerInRegs regs, GeneralType) =>
+                                    (ListPair.zip(regs, generalArgRegs), [], [loadNonAddressConstant{source=taggedWord64 0w0, dest=target}])
+                            |   (ContainerOnStack _, GeneralType) =>
+                                    ([], [], [loadNonAddressConstant{source=taggedWord64 0w0, dest=target}])
+                            |   (NoContainer, GeneralType) => ([(target, X0)], [], [])
+                            |   (NoContainer, DoubleFloatType) =>
+                                let
+                                    val dReg = newUReg()
+                                in
+                                    ([], [(dReg, V0)], [boxTagFloat{ floatSize=Double64, source=dReg, dest=target, saveRegs=[]}])
+                                end
+                            |   (NoContainer, SingleFloatType) =>
+                                let
+                                    val dReg = newUReg()
+                                in
+                                    ([], [(dReg, V0)], [boxTagFloat{ floatSize=Float32, source=dReg, dest=target, saveRegs=[]}])
+                                end
+                            |   _ => raise InternalError "codeToICodeRev: BICEval result type"
 
                         val call =
                             FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dests=results,
-                                         callKind=callKind, saveRegs=[], containers=stackContainers}
+                                         fpRegArgs=fpRegArgs, fpDests=fpResults, callKind=callKind, saveRegs=[], containers=stackContainers}
                         val callBlock =
                             case currHandler of
                                 NONE => BlockSimple call :: codeArgs
@@ -1736,12 +1803,13 @@ struct
             val (testCode, testReg, _) = codeToICodeRev(condition, context, false, AnyReg, tailCode)
             val noJumpLabel = newLabel()
         in
-            BlockLabel noJumpLabel ::
+            testCode <::>
+            (* Test bit 1.  This can be optimised into a test and branch. *)
+            logicalImmediate{source=testReg, immed=0w2, logOp=LogAnd,
+                             dest=ZeroReg, length=OpSize32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef} <::>
             BlockFlow(Conditional{ccRef=ccRef,
-                       condition=if jumpOn then CondEqual else CondNotEqual, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-            (* Compare: SUBS XZ,reg,3.  Can use 32-bit comparison because it's either tagged 0 or tagged 1. *)
-            addSubImmediate{source=testReg, immed=taggedWord 0w1, isAdd=false, dest=ZeroReg, length=OpSize32, ccRef=SOME ccRef} ::
-            testCode
+                       condition=if jumpOn then CondNotEqual else CondEqual, trueJump=jumpLabel, falseJump=noJumpLabel}) <::>
+            BlockLabel noJumpLabel
         end
 
         and codeToICodeUnaryRev({oper=NotBoolean, arg1}, context, _, destination, tailCode) =
@@ -1751,9 +1819,11 @@ struct
                 val (argCode, testDest, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
             in
                 (* Test the argument and return a boolean result.  If either the argument is a condition
-                   or the result is used in a test this will be better than using XOR. *)
-                (makeBoolResultRev(CondNotEqual, ccRef, target,
-                        addSubImmediate{source=testDest, immed=taggedWord 0w1, isAdd=false,
+                   or the result is used in a test this will be better than using XOR.
+                   We use a bit test here because it is possible to optimise it to a test-and-branch.
+                   See codeConditionRev. *)
+                (makeBoolResultRev(CondEqual, ccRef, target,
+                        logicalImmediate{source=testDest, immed=0w2, logOp=LogAnd,
                                 dest=ZeroReg, length=OpSize32 (* Always either tagged 0 or tagged 1 *), ccRef=SOME ccRef} ::
                             argCode), target, false)
             end

@@ -735,6 +735,8 @@ struct
                             val (destVal, destCode) = mapDestReg dest
                             (* Now clear the cache table. *)
                             val () = clearCache()
+                            (* Stack arguments are pushed in addition to anything on the stack. *)
+                            val () = maxStack := Int.max(!maxStack, !stackCount + List.length newStackArgs)
                         in
                             destCode @
                                     FunctionCall{ callKind=callKind, regArgs=newRegArgs, stackArgs=newStackArgs,
@@ -781,6 +783,8 @@ struct
                                 (loadCode @ otherLoads, (argVal, reg) :: otherArgs)
                             end
                             val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
+                            (* Stack arguments replace existing arguments but could grow the stack. *)
+                            val () = maxStack := Int.max(!maxStack, List.length newStackArgs)
 
                         in
                             TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
