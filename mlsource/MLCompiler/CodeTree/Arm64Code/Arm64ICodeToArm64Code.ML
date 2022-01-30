@@ -1127,64 +1127,133 @@ struct
                                     val BasicBlock { flow=tFlow, block=tBlock, ...} = Vector.sub(blocks, trueJump)
                                     and BasicBlock { flow=fFlow, block=fBlock, ...} = Vector.sub(blocks, falseJump)
 
+                                    datatype moveType = MoveReg of xReg | MoveAddr of machineWord | MoveNonAddr of Word64.word
+
+                                    fun findMoveAndTail [] = (SOME NONE, [])
+                                    |   findMoveAndTail (MoveRegister{source, dest} :: tl) = (SOME(SOME(dest, MoveReg source)), tl)
+                                    |   findMoveAndTail (LoadAddressConstant{source, dest} :: tl) = (SOME(SOME(dest, MoveAddr source)), tl)
+                                    |   findMoveAndTail (LoadNonAddressConstant{source, dest} :: tl) = (SOME(SOME(dest, MoveNonAddr source)), tl)
+                                            (* The result could be in a different register which will need to be moved to X0. *)
+                                    |   findMoveAndTail (tl as [ReturnResultFromFunction{results=[(resRegT, realRegT)], ...}]) = (SOME(SOME(realRegT, MoveReg resRegT)), tl)
+                                    |   findMoveAndTail tl = (NONE, tl)
+
                                     val isPossSetCCOrCmov =
                                         if not (haveProcessed trueJump) andalso available trueJump
                                             andalso not (haveProcessed falseJump) andalso available falseJump
-                                        then case (tFlow, fFlow, tBlock, fBlock) of
-                                            (Unconditional tDest, Unconditional fDest,
-                                            [LoadNonAddressConstant{ source=sourceTrue, dest=destTrue }],
-                                            [LoadNonAddressConstant{ source=sourceFalse, dest=destFalse }]) =>
-                                                if tDest = fDest andalso destTrue = destFalse
-                                                then if sourceFalse = 0w1
-                                                then SOME{code=
-                                                        (* We can generate 1 by using CSINC and XZero. *)
-                                                            code <::> LoadNonAddr(destTrue, sourceTrue) <::>
-                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=condition, condSet=CondSetIncr, opSize=OpSize64},
-                                                          trueJump=trueJump, falseJump=falseJump}
-                                                else if sourceTrue = 0w1
-                                                then SOME{code=
-                                                        (* We can generate 1 by using CSINC and XZero. *)
-                                                            code <::> LoadNonAddr(destTrue, sourceFalse) <::>
-                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=invertTest condition, condSet=CondSetIncr, opSize=OpSize64},
-                                                          trueJump=trueJump, falseJump=falseJump}
-                                                else NONE
-                                                else NONE
+                                        then
+                                        let
+                                            (* If we have a conditional branch and each arm simply sets the
+                                               result register to a constant or another register we can
+                                               replace this with a conditional move.  Apart from reducing the size of
+                                               the code this should reduce the chance of a processor pre-fetch stall.
+                                               We may have this either with an internal branch or a return. *)
+                                            fun makeCond(reg, sourceT, MoveNonAddr 0w1) =
+                                                let
+                                                    (* We can generate 0w1 using CSINC XZ. Because constants
+                                                       are almost always tagged we don't bother with zero itself. *)
+                                                    val (codeT, regT) =
+                                                        case sourceT of
+                                                            MoveReg regT => (code, regT)
+                                                        |   MoveAddr addr => (code <::> LoadAddr(workReg1, addr), workReg1)
+                                                        |   MoveNonAddr value => (code <::> LoadNonAddr(workReg1, value), workReg1)
+                                               in
+                                                    codeT <::>
+                                                        ConditionalSet{regD=reg, regTrue=regT, regFalse=XZero, cond=condition,
+                                                                       condSet=CondSetIncr, opSize=OpSize64}
+                                                end
+                                                
+                                            |   makeCond(reg, MoveNonAddr 0w1, sourceF) =
+                                                let
+                                                    val (codeF, regF) =
+                                                        case sourceF of
+                                                            MoveReg regF => (code, regF)
+                                                        |   MoveAddr addr => (code <::> LoadAddr(workReg2, addr), workReg2)
+                                                        |   MoveNonAddr value => (code <::> LoadNonAddr(workReg2, value), workReg2)
+                                                in
+                                                    codeF <::>
+                                                        ConditionalSet{regD=reg, regTrue=regF, regFalse=XZero, cond=invertTest condition,
+                                                                               condSet=CondSetIncr, opSize=OpSize64}
+                                                end
 
-                                        |   (ExitCode, ExitCode,
-                                            [LoadNonAddressConstant{ source=sourceTrue, dest=destTrue },
-                                             ReturnResultFromFunction { results=[(retRT, retRTR)], fpResults=[], returnReg=retaT, numStackArgs=numST }],
-                                            [LoadNonAddressConstant{ source=sourceFalse, dest=destFalse },
-                                             ReturnResultFromFunction { results=[(retRF, retRFR)], fpResults=[], returnReg=retaF, numStackArgs=numSF }]) =>
-                                             if destTrue = retRT andalso destFalse = retRF (* These ought to X0. *)
-                                             then
-                                             let
-                                                val _ = retRTR = X0 andalso retRFR = X0 orelse raise InternalError "Test for condmove: mismatch regs"
-                                                val _ = retaT = retaF orelse raise InternalError "Test for condmove: mismatched return regs"
-                                                val _ = numST = numSF orelse raise InternalError "Test for condmove: mismatched stack"
-                                                fun resetAndReturn code =
-                                                    (if numST = 0
-                                                    then code
-                                                    else addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
-                                                            value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt numSF}, code)
-                                                    )  <::> BranchReg{regD=retaT, brRegType=BRRReturn}
-                                             in
-                                                if sourceFalse = 0w1
-                                                then SOME{code=
-                                                            resetAndReturn(
-                                                            code <::> LoadNonAddr(destTrue, sourceTrue) <::>
-                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=condition, condSet=CondSetIncr, opSize=OpSize64}),
-                                                          trueJump=trueJump, falseJump=falseJump}
-                                                else if sourceTrue = 0w1
-                                                then SOME{code=
-                                                            resetAndReturn(
-                                                            code <::> LoadNonAddr(destTrue, sourceFalse) <::>
-                                                                ConditionalSet{regD=destTrue, regTrue=destTrue, regFalse=XZero, cond=invertTest condition, condSet=CondSetIncr, opSize=OpSize64}),
-                                                          trueJump=trueJump, falseJump=falseJump}
-                                                else NONE
-                                             end
-                                             else NONE
+                                            |   makeCond(reg, sourceT, sourceF) =
+                                                let
+                                                    val (codeT, regT) =
+                                                        case sourceT of
+                                                            MoveReg regT => (code, regT)
+                                                        |   MoveAddr addr => (code <::> LoadAddr(workReg1, addr), workReg1)
+                                                        |   MoveNonAddr value => (code <::> LoadNonAddr(workReg1, value), workReg1)
+                                                    val (codeF, regF) =
+                                                        case sourceF of
+                                                            MoveReg regF => (codeT, regF)
+                                                        |   MoveAddr addr => (codeT <::> LoadAddr(workReg2, addr), workReg2)
+                                                        |   MoveNonAddr value => (codeT <::> LoadNonAddr(workReg2, value), workReg2)
+                                                in
+                                                    codeF <::>
+                                                        ConditionalSet{regD=reg, regTrue=regT, regFalse=regF, cond=condition,
+                                                                               condSet=CondSet, opSize=OpSize64}
+                                                end
+                                        in
+                                            case (tFlow, fFlow) of
+                                                (Unconditional tDest, Unconditional fDest) =>
+                                                if tDest <> fDest then NONE
+                                                else
+                                                let
+                                                    val (tInstr, tTl) = findMoveAndTail tBlock
+                                                    and (fInstr, fTl) = findMoveAndTail fBlock
+                                                in
+                                                    case (fTl, tTl, tInstr, fInstr) of
+                                                        ([], [], SOME tIns, SOME fIns) => (* We should have at most one move. *)
+                                                        let
+                                                        in
+                                                            case (tIns, fIns) of
+                                                                (NONE, NONE) => NONE (* Both empty??*)
+                                                            |   (SOME (regT, sourceT), NONE) =>
+                                                                    SOME({code=makeCond(regT, sourceT, MoveReg regT), trueJump=trueJump, falseJump=falseJump})
+                                                            |   (NONE, SOME (regF, sourceF)) =>
+                                                                    SOME({code=makeCond(regF, MoveReg regF, sourceF), trueJump=trueJump, falseJump=falseJump})
+                                                            |   (SOME (regT, sourceT), SOME (regF, sourceF)) =>
+                                                                    if regT <> regF then NONE
+                                                                    else SOME({code=makeCond(regF, sourceT, sourceF), trueJump=trueJump, falseJump=falseJump})
+                                                        end
+                                                                
+                                                    |   _ => NONE
+                                                end
 
-                                        |   _ => NONE
+                                            |   (ExitCode, ExitCode) =>
+                                                let
+                                                    val (tInstr, tTl) = findMoveAndTail tBlock
+                                                    and (fInstr, fTl) = findMoveAndTail fBlock
+                                                    (* We can use a conditional set if we have the same return after any move.
+                                                       This is slightly simpler than the branch case because the result will
+                                                       always end up in X0. *)
+                                                in
+                                                    case (tTl, fTl, tInstr, fInstr) of
+                                                        ([ReturnResultFromFunction{results=[(_, realRegT)], fpResults=[], returnReg=retRegT, numStackArgs=nsT}],
+                                                            [ReturnResultFromFunction{results=[(_, realRegF)], fpResults=[], returnReg=retRegF, numStackArgs=nsF}],
+                                                            SOME(SOME (regT, sourceT)), SOME (SOME (regF, sourceF))) =>
+                                                            if regT <> regF then NONE
+                                                            else
+                                                            let
+                                                                val _ = realRegT = X0 andalso realRegF = X0 andalso retRegT = retRegF andalso nsT = nsF
+                                                                            orelse raise InternalError "isPossSetCCOrCmov: return mismatch"
+                                                                val condCode = makeCond(regF, sourceT, sourceF)
+                                                                val withReset =
+                                                                    if nsT = 0
+                                                                    then condCode
+                                                                    else addConstantWord({regS=X_MLStackPtr, regD=X_MLStackPtr, regW=X3,
+                                                                            value=Word64.fromLarge(Word.toLarge nativeWordSize) * Word64.fromInt nsT}, condCode)
+                                                                val withReturn =
+                                                                    withReset <::> BranchReg{regD=retRegT, brRegType=BRRReturn}
+                                                            in
+                                                                SOME({code=withReturn, trueJump=trueJump, falseJump=falseJump})
+                                                            end
+                                                    |   _ => NONE
+ 
+                                                end
+                                        
+                                            |   _ => NONE
+                                        end
+
                                         else NONE
                                 in
                                     case isPossSetCCOrCmov of
