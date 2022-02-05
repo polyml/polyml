@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-21
+    Copyright David C. J. Matthews 2016-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -136,9 +136,9 @@ struct
             |   addHints{instr=TailRecursiveCall{regArgs, ...}, ...} =
                     List.app (fn (arg, reg) => case decache arg of RegisterArgument(PReg pr) => addRealHint(pr, reg) | _ => ()) regArgs
         
-            |   addHints{instr=FunctionCall{regArgs, dest=PReg dreg, realDest, ...}, ...} =
+            |   addHints{instr=FunctionCall{regArgs, results, ...}, ...} =
                 (
-                    addRealHint(dreg, realDest);
+                    List.app (fn (PReg pr, reg) => addRealHint(pr, reg)) results;
                     List.app (fn (arg, reg) => case decache arg of RegisterArgument(PReg pr) => addRealHint(pr, reg) | _ => ()) regArgs
                 )
         
@@ -471,7 +471,7 @@ struct
                 List.app allocateRegArg regArgs
             end
 
-        |   registerAllocate({instr=FunctionCall{regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, realDest, saveRegs, ...}, ...}) =
+        |   registerAllocate({instr=FunctionCall{regArgs=oRegArgs, stackArgs=oStackArgs, results, saveRegs, ...}, ...}) =
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map decache oStackArgs
@@ -480,8 +480,8 @@ struct
                 |   allocateRegArg(_, FPReg _) = raise InternalError "allocateRegArg" (* Never used. *)
             in
                 List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
-                (* Result will be in rax/fp0/xmm0. *)
-                allocateRegister(dReg, SOME realDest, [realDest]);
+                (* Results will be in rax/fp0/xmm0. *)
+                List.app(fn (PReg dReg, realDest) => allocateRegister(dReg, SOME realDest, [realDest])) results;
                 List.app allocateArgGeneral stackArgs;
                 (* We've already hinted the arguments. *)
                 List.app allocateRegArg regArgs

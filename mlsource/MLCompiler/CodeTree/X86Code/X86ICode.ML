@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-21
+    Copyright David C. J. Matthews 2016-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -127,10 +127,12 @@ struct
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
-           as one of the argument registers.  The result is stored in the destination register. *)
+           as one of the argument registers.  The results are stored in the destination
+           registers.  Usually there is a single result but there could be zero or more
+           than one if results are returned as containers. *)
     |   FunctionCall of
             { callKind: callKinds, regArgs: (argument * reg) list,
-              stackArgs: argument list, dest: preg, realDest: reg, saveRegs: preg list}
+              stackArgs: argument list, results: (preg * reg) list, saveRegs: preg list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
@@ -473,7 +475,7 @@ struct
                 List.app(fn s => printStackLoc(s, stream)) stackArgs
             )
 
-        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, realDest, saveRegs}, stream) =
+        |   printICode(FunctionCall{callKind, regArgs, stackArgs, results, saveRegs}, stream) =
             (
                 stream "\tFunctionCall\t";
                 case callKind of
@@ -482,7 +484,7 @@ struct
                 |   FullCall => ();
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs;
                 List.app(fn arg => (stream "p="; printArg(arg, stream); stream " ")) stackArgs;
-                stream "=> "; printReg(dest, stream); stream "="; stream(regRepr realDest);
+                List.app(fn (pr, r) => (stream(regRepr r); stream "=>"; printReg(pr, stream); stream " ")) results;
                 stream " save="; printSaves(saveRegs, stream)
             )
 

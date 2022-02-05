@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-21
+    Copyright David C. J. Matthews 2016-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -833,13 +833,10 @@ struct
                     codeTailCall(extStackArgs @ extRegArgs, stackAdjust+currStackSize, code)
             end
 
-        |   codeExtended _ ({instr=FunctionCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, realDest, saveRegs}, ...}, code) =
+        |   codeExtended _ ({instr=FunctionCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, results, saveRegs}, ...}, code) =
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map decache oStackArgs
-                
-                val destReg = getAllocatedReg dReg
-                
                 
                 fun pushStackArgs ([], _, code) = code
                 
@@ -916,9 +913,10 @@ struct
                         PopR areg :: makeSaves(regs, PushToStack(RegisterArg areg) :: code)
                     end
 
+                (* Move the results from the real registers into the allocated registers. *)
+                val resultRegs = map(fn (PReg reg, realReg) => {src=realReg, dst=getAllocatedReg reg}) results
             in
-                moveIfNecessary({dst=destReg, src=realDest, kind=case realDest of GenReg _ => moveNativeWord | _ => MoveDouble},
-                    makeSaves(saveRegs, loadConstArgs)) 
+                moveMultipleRegisters(resultRegs, makeSaves(saveRegs, loadConstArgs)) 
             end
 
         |   codeExtended _ ({instr=AllocateMemoryOperation{ size, flags, dest=PReg dReg, saveRegs}, ...}, code) =

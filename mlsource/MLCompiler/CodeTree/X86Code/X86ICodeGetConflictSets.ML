@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-18, 2021 David C.J. Matthews
+    Copyright (c) 2016-18, 2021-2 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -226,16 +226,17 @@ struct
                 |   BeginHandler { packetReg, ...} =>
                         reserveRegister([regNo packetReg], GenReg eax)
                 
-                |   FunctionCall { dest, realDest, regArgs, ...} =>
+                |   FunctionCall { results, regArgs, ...} =>
                         (* This is only needed if we are saving the registers rather
                            than marking them as "must push". *)
                     (
-                        reserveRegister([regNo dest], realDest);
+                        List.app (fn (dest, realDest) => reserveRegister([regNo dest], realDest)) results;
                         (* The argument registers also conflict.  In order to execute this call we need to load
                            the arguments into specific registers so we can't use them for values that we want after
                            the call.   We use regNo dest here because that will conflict with everything
                            immediately afterwards. *)
-                        List.app(fn (_, r) => reserveRegister([regNo dest], r)) regArgs
+                        List.app(fn (_, r) =>
+                            List.app(fn (dest, _) => reserveRegister([regNo dest], r)) results) regArgs
                     )
 
                 |   TailRecursiveCall {workReg=PReg wReg, regArgs, ...} =>

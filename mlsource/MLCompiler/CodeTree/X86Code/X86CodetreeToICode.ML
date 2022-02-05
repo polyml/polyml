@@ -52,6 +52,8 @@ struct
 
     (* If a container is larger than this it is passed on the stack. *)
     val smallContainerSize = case targetArch of Native32Bit => 2 | _ => 4
+    
+    val smallContainerSize = 0 (* Temporarily. *)
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
@@ -1138,8 +1140,8 @@ struct
                                     (boxOrTagReal(fpRegDest, target, BuiltIns.PrecSingle), fpRegDest)
                                 end
                         val call =
-                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=resReg,
-                                         realDest=resultReg resultType, callKind=callKind, saveRegs=[]}
+                            FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs,
+                                    results=[(resReg, resultReg resultType)], callKind=callKind, saveRegs=[]}
                         val callBlock =
                             case currHandler of
                                 NONE => BlockSimple call :: codeArgs
