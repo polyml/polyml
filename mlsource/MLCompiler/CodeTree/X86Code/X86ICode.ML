@@ -209,7 +209,7 @@ struct
     |   BeginHandler of { packetReg: preg, workReg: preg }
 
         (* Return from the function. *)
-    |   ReturnResultFromFunction of { resultReg: preg, realReg: reg, numStackArgs: int }
+    |   ReturnResultFromFunction of { results: (preg * reg) list, numStackArgs: int }
     
         (* Arithmetic or logical operation.  These can set the condition codes. *)
     |   ArithmeticFunction of
@@ -606,10 +606,11 @@ struct
                 printReg(workReg, stream)
             )
 
-        |   printICode(ReturnResultFromFunction{resultReg, realReg, numStackArgs}, stream) =
+        |   printICode(ReturnResultFromFunction{results, numStackArgs}, stream) =
             (
                 stream "\tReturnFromFunction\t";
-                printReg(resultReg, stream); stream "="; stream(regRepr realReg);
+                List.app(fn (resultReg, realReg) =>
+                    (printReg(resultReg, stream); stream "="; stream(regRepr realReg))) results;
                 stream("," ^ Int.toString numStackArgs)
             )
 

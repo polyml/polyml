@@ -983,14 +983,20 @@ struct
                             pktCode @ BeginHandler{packetReg=pktReg, workReg=newWorkReg} :: code
                         end
 
-                    |   pushRegisters({instr=ReturnResultFromFunction{resultReg, realReg, numStackArgs}, ...}, code) =
+                    |   pushRegisters({instr=ReturnResultFromFunction{results, numStackArgs}, ...}, code) =
                         let
-                            val (resultValue, loadResult) = mapSrcReg resultReg
+                            fun getResults((preg, rreg), (others, code)) =
+                            let
+                                val (newReg, newCode) = mapSrcReg preg
+                            in
+                                ((newReg, rreg) :: others, newCode @ code)
+                            end
+                            val (resultValues, loadResults) = List.foldr getResults ([], []) results
                             val resetCode =
                                 if !stackCount = 0 then [] else [ResetStackPtr{numWords= !stackCount, preserveCC=false}]
                         in
-                            ReturnResultFromFunction{resultReg=resultValue, realReg=realReg, numStackArgs=numStackArgs} ::
-                                resetCode @ loadResult @ code
+                            ReturnResultFromFunction{results=resultValues, numStackArgs=numStackArgs} ::
+                                resetCode @ loadResults @ code
                         end
 
                     |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef, opSize}, ...}, code) =

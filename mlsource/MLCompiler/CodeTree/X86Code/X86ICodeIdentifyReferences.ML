@@ -183,8 +183,8 @@ struct
     |   getInstructionState(BeginHandler{ workReg, packetReg, ...}) =
             { sources=[], dests=[packetReg, workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(ReturnResultFromFunction{resultReg, ...}) =
-            { sources=[resultReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+    |   getInstructionState(ReturnResultFromFunction{results, ...}) =
+            { sources=List.map #1 results, dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(ArithmeticFunction{resultReg, operand1, operand2, ccRef, ...}) =
             { sources=operand1 :: argRegs operand2, dests=[resultReg],

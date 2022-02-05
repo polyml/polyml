@@ -468,7 +468,7 @@ struct
                         ([unpack], resReg)
                     end
         in
-            BlockExit(ReturnResultFromFunction{resultReg=resReg, realReg=resultReg fnResultType, numStackArgs=currentStackArgs}) ::
+            BlockExit(ReturnResultFromFunction{results=[(resReg, resultReg fnResultType)], numStackArgs=currentStackArgs}) ::
                 returnCode @
                 (if stackPtr <> 0
                 then BlockSimple(ResetStackPtr{numWords=stackPtr, preserveCC=false}) :: tailCode

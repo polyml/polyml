@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2018-21
+    Copyright David C. J. Matthews 2018-22
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -362,8 +362,8 @@ struct
                                 MemoryLocation{base=mapReg base, offset=offset, index=mapIndex index, cache=NONE}
                         |   mapArg arg = arg
                         fun mapInstr(instr as ResetStackPtr _) = instr
-                        |   mapInstr(ReturnResultFromFunction{resultReg, realReg, numStackArgs}) =
-                                ReturnResultFromFunction{resultReg=mapReg resultReg, realReg=realReg, numStackArgs=numStackArgs}
+                        |   mapInstr(ReturnResultFromFunction{results, numStackArgs}) =
+                                ReturnResultFromFunction{results=List.map(fn(pr, r) => (mapReg pr, r)) results, numStackArgs=numStackArgs}
                         |   mapInstr(RaiseExceptionPacket{packetReg}) =
                                 RaiseExceptionPacket{packetReg=mapReg packetReg}
                         |   mapInstr(LoadArgument{source, dest, kind}) =

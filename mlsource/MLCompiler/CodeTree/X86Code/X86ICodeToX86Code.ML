@@ -587,7 +587,7 @@ struct
             |   instructionUses(PushExceptionHandler _) = ()
             |   instructionUses(PopExceptionHandler _) = ()
             |   instructionUses(BeginHandler _) = ()
-            |   instructionUses(ReturnResultFromFunction{resultReg, ...}) = used resultReg
+            |   instructionUses(ReturnResultFromFunction{results, ...}) = List.app(used o #1) results
             |   instructionUses(ArithmeticFunction{operand1, operand2, ...}) = (used operand1; argUses operand2)
             |   instructionUses(TestTagBit{arg, ...}) = argUses arg
             |   instructionUses(PushValue {arg, ...}) = argUses arg
@@ -1117,12 +1117,11 @@ struct
                 moveIfNecessary({src=GenReg eax, dst=realPktReg, kind=moveNativeWord }, beginHandleCode)
             end
 
-        |   codeExtended _ ({instr=ReturnResultFromFunction { resultReg=PReg resReg, realReg, numStackArgs }, ...}, code) =
+        |   codeExtended _ ({instr=ReturnResultFromFunction { results, numStackArgs }, ...}, code) =
             let
-                val resultReg = getAllocatedReg resReg
-                (* If for some reason it's not in the right register we have to move it there. *)
+                val resultRegs = List.map(fn (PReg resReg, realReg) => {src=getAllocatedReg resReg, dst=realReg}) results
             in
-                ReturnFromFunction numStackArgs :: moveIfNecessary({src=resultReg, dst=realReg, kind=moveNativeWord}, code)
+                ReturnFromFunction numStackArgs :: moveMultipleRegisters(resultRegs, code)
             end
 
         |   codeExtended _ ({instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
@@ -1913,7 +1912,7 @@ struct
                                             (ExitCode,
                                              ExitCode,
                                              [{instr=LoadArgument{dest=PReg tReg, source=tSource, kind=kindT}, ...},
-                                                {instr=ReturnResultFromFunction{resultReg=PReg resReg, realReg, numStackArgs, ...}, ...}],
+                                                {instr=ReturnResultFromFunction{results=[(PReg resReg, realReg)], numStackArgs, ...}, ...}],
                                              [{instr=LoadArgument{dest=PReg fReg, source=fSource, kind=kindF}, ...},
                                                 {instr=ReturnResultFromFunction _, ...}]) =>
                                              (* The real register for the two sides should both be rax. *)
