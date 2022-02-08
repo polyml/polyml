@@ -481,8 +481,11 @@ struct
                 |   allocateRegArg(_, FPReg _) = raise InternalError "allocateRegArg" (* Never used. *)
             in
                 List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
-                (* Results will be in rax/fp0/xmm0. *)
-                List.app(fn (PReg dReg, realDest) => allocateRegister(dReg, SOME realDest, [realDest])) results;
+                (* Try to use the destination register but don't force it.  We may have already
+                   allocated a different register in which case we'll have to move the result there. *)
+                List.app(fn (PReg dReg, realDest) =>
+                    allocateRegister(dReg, SOME realDest,
+                            case realDest of GenReg _ => generalRegisters | _ => floatingPtRegisters)) results;
                 List.app allocateArgGeneral stackArgs;
                 (* We've already hinted the arguments. *)
                 List.app allocateRegArg regArgs

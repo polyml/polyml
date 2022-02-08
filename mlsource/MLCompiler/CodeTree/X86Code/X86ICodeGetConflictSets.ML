@@ -226,18 +226,17 @@ struct
                 |   BeginHandler { packetReg, ...} =>
                         reserveRegister([regNo packetReg], GenReg eax)
                 
-                |   FunctionCall { results, regArgs, ...} =>
+                |   FunctionCall { results=[(dest, realDest)], regArgs, ...} =>
                         (* This is only needed if we are saving the registers rather
-                           than marking them as "must push". *)
+                           than marking them as "must push".  It breaks if we have multiple
+                           results. *)
                     (
-                        List.app (fn (dest, realDest) => reserveRegister([regNo dest], realDest)) results;
+                        reserveRegister([regNo dest], realDest);
                         (* The argument registers also conflict.  In order to execute this call we need to load
                            the arguments into specific registers so we can't use them for values that we want after
                            the call.   We use regNo dest here because that will conflict with everything
                            immediately afterwards. *)
-                        List.app(fn (_, r) =>
-                            List.app(fn (dest, _) => reserveRegister([regNo dest], r)) results) regArgs
-                    )
+                        List.app(fn (_, r) => reserveRegister([regNo dest], r)) regArgs                    )
 
                 |   TailRecursiveCall {workReg=PReg wReg, regArgs, ...} =>
                         (* Prevent the work reg from using any of the real register args. *)

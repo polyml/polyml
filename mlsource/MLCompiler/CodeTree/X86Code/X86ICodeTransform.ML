@@ -192,6 +192,7 @@ struct
         (* Limit the number of passes. *)
         val maxOptimisePasses = 30
         val maxTotalPasses = maxOptimisePasses + 40
+        val maxTotalPasses = 10
 
         fun processCode(basicBlocks: basicBlock vector, pregProps: regProperty vector, maxStack, passes, optPasses) =
         let
@@ -265,6 +266,8 @@ struct
                                                 RegPropStack _ => chooseReg(regs, bestReg, bestCost)
                                             |   RegPropCacheUntagged => reg (* Pick the first cache reg. *)
                                             |   RegPropCacheTagged => reg (* Pick the first cache reg. *)
+                                            |   RegPropMultiple => (* Must not pick a merge reg *)
+                                                    chooseReg(regs, bestReg, bestCost)
                                             |   _ =>
                                                 if cost >= bestCost
                                                 then chooseReg(regs, reg, active)

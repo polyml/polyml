@@ -52,8 +52,6 @@ struct
 
     (* If a container is larger than this it is passed on the stack. *)
     val smallContainerSize = case targetArch of Native32Bit => 2 | _ => 4
-    
-    val smallContainerSize = 0 (* Temporarily. *)
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
@@ -388,6 +386,15 @@ struct
 
         (* Create a map for the arguments indicating their register or stack location. *)
         local
+            val containerRegs =
+                case List.filter(fn ContainerType _ => true | _ => false) argTypes of
+                    [] => NONE
+                |   [ContainerType s] =>
+                        if s <= smallContainerSize
+                        then SOME(List.tabulate(s, fn _ => newMergeReg()))
+                        else SOME [] (* Larger containers return their result on the stack. *)
+                |   _ => raise InternalError "more than one container arg"
+
             (* Select the appropriate argument register depending on the argument type. *)
             fun argTypesToArgEntries([], _, _, _) = ([], [], [], [])
 
@@ -408,6 +415,18 @@ struct
                     (ArgInReg{realReg=fpReg, argReg=pRegArg} :: argTypes,
                      boxOrTagReal(uRegArg, pRegArg, BuiltIns.PrecSingle) @ argCode, (uRegArg, fpReg) :: argRegs, stackArgs)
                 end
+
+            |   argTypesToArgEntries(ContainerType s :: tl, gRegs, fpRegs, n) =
+                if s <= smallContainerSize
+                then
+                let
+                    val (argTypes, argCode, argRegs, stackArgs) = argTypesToArgEntries(tl, gRegs, fpRegs, n-1)
+                    val regs = valOf containerRegs
+                in
+                    (ArgIsRegContainer regs :: argTypes, argCode, argRegs, stackArgs)
+                end
+                (* The address of a larger container is passed as an argument *)
+                else argTypesToArgEntries(GeneralType :: tl, gRegs, fpRegs, n)
 
             |   argTypesToArgEntries(_ :: tl, gReg :: gRegs, fpRegs, n) =
                 (* This deals with general arguments but also with extra floating point arguments.
@@ -440,23 +459,25 @@ struct
 
             (* The number of arguments on the stack.  Needed in return instrs and tail calls. *)
             val currentStackArgs = List.length stackArguments
+            
+            val containerResults = Option.map(fn regs => ListPair.zip(regs, generalArgRegs)) containerRegs
         end
         
         (* The return instruction.  This can be added on to various tails but there is always
            one at the end anyway. *)
         fun returnInstruction({stackPtr, ...}, target, tailCode) =
         let
-            val (returnCode, resReg) =
-                case fnResultType of
-                    GeneralType => ([], target)
-                |   ContainerType _ => ([], target)
-                |   DoubleFloatType =>
+            val (results, returnCode) =
+                case (containerResults, fnResultType) of
+                    (NONE, GeneralType) => ([(target, resultReg GeneralType)], [])
+                |   (NONE, DoubleFloatType) =>
                     let
                         val resReg = newUReg()
                     in
-                        ([BlockSimple(LoadArgument{source=wordAt target, dest=resReg, kind=MoveDouble})], resReg)
+                        ([(resReg, resultReg DoubleFloatType)],
+                                [BlockSimple(LoadArgument{source=wordAt target, dest=resReg, kind=MoveDouble})])
                     end
-                |   SingleFloatType =>
+                |   (NONE, SingleFloatType) =>
                     let
                         val resReg = newUReg()
                         val unpack =
@@ -464,11 +485,12 @@ struct
                             then BlockSimple(UntagFloat{source=RegisterArgument target, dest=resReg, cache=NONE})
                             else BlockSimple(LoadArgument{source=wordAt target, dest=resReg, kind=MoveFloat})
                     in
-                        
-                        ([unpack], resReg)
+                        ([(resReg, resultReg SingleFloatType)], [unpack])
                     end
+                |   (SOME cResult, GeneralType) => (cResult, [])
+                |   _ => raise InternalError "returnInstruction: result type mismatch"
         in
-            BlockExit(ReturnResultFromFunction{results=[(resReg, resultReg fnResultType)], numStackArgs=currentStackArgs}) ::
+            BlockExit(ReturnResultFromFunction{results=results(*[(resReg, resultReg fnResultType)]*), numStackArgs=currentStackArgs}) ::
                 returnCode @
                 (if stackPtr <> 0
                 then BlockSimple(ResetStackPtr{numWords=stackPtr, preserveCC=false}) :: tailCode
@@ -1057,7 +1079,10 @@ struct
                         (code, regArgs, r :: stackArgs)
                     end
 
-                val (codeArgs, regArgs, stackArgs) = loadArgs(argList, generalArgRegs, floatingPtArgRegs, functionCode)
+                fun isSmallContainer(ContainerType s) = s <= smallContainerSize | isSmallContainer _ = false
+
+                val (codeArgs, regArgs, stackArgs) =
+                    loadArgs(List.filter(not o isSmallContainer o #2) argList, generalArgRegs, floatingPtArgRegs, functionCode)
                 
                 (* If this is at the end of the function and the result types are the
                    same we can use a tail-recursive call. *)
@@ -1123,25 +1148,44 @@ struct
                     end
                     else
                     let
-                        val (moveResult, resReg) =
-                            case resultType of
-                                GeneralType => ([], target)
-                            |   ContainerType _ =>  ([], target)
-                            |   DoubleFloatType =>
+                        (* See if there is a container argument. *)
+                        val containerArg = List.find(fn (_, ContainerType _) => true | _ => false) argList
+
+                        val containerValue =
+                            case containerArg of
+                                SOME(argVal, _) => getContainerIfPresent argVal
+                            |   NONE => NoContainer
+                        (* When a container is passed as an argument we put the address into a register.
+                           Normally the container will be referenced after the call in order to extract
+                           the values but if it's discarded we need to make sure it will continue to
+                           be referenced at least as far as the call.  This isn't a problem for the X86
+                           code-generator since container addresses are a form of the "argument"
+                           datatype. *)
+                        val (results, moveResult) =
+                            case (containerValue, resultType) of
+                                (ContainerInRegs regs, GeneralType) =>
+                                    (ListPair.zip(regs, generalArgRegs),
+                                        [BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=Move32Bit })])
+                            |   (ContainerOnStack _, GeneralType) =>
+                                    ([], [BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=Move32Bit })])
+                            |   (NoContainer, GeneralType) => ([(target, resultReg GeneralType)], [])
+                            |   (NoContainer, DoubleFloatType) =>
                                 let
                                     val fpRegDest = newUReg()
                                 in
-                                    (boxOrTagReal(fpRegDest, target, BuiltIns.PrecDouble), fpRegDest)
+                                    ([(fpRegDest, resultReg DoubleFloatType)], boxOrTagReal(fpRegDest, target, BuiltIns.PrecDouble))
                                 end
-                            |   SingleFloatType =>
+                            |   (NoContainer, SingleFloatType) =>
                                 let
                                     val fpRegDest = newUReg()
                                 in
-                                    (boxOrTagReal(fpRegDest, target, BuiltIns.PrecSingle), fpRegDest)
+                                    ([(fpRegDest, resultReg SingleFloatType)], boxOrTagReal(fpRegDest, target, BuiltIns.PrecSingle))
                                 end
+                            |   _ => raise InternalError "codeToICodeRev: BICEval result type"
+
                         val call =
                             FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs,
-                                    results=[(resReg, resultReg resultType)], callKind=callKind, saveRegs=[]}
+                                         results=results, callKind=callKind, saveRegs=[]}
                         val callBlock =
                             case currHandler of
                                 NONE => BlockSimple call :: codeArgs

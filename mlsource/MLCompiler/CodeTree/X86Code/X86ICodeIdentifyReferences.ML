@@ -744,6 +744,7 @@ struct
                                 else case Vector.sub(pregProps, i) of
                                     RegPropCacheTagged => raise InternalError "pushRegisters: cache reg"
                                 |   RegPropCacheUntagged => raise InternalError "pushRegisters: cache reg"
+                                |   RegPropMultiple => raise InternalError "pushRegisters: merge reg"
                                 |  _ => Array.update(requirePushOrDiscard, i, true)
                         in
                             (* We need to push everything active after this
