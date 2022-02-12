@@ -1161,11 +1161,23 @@ struct
                            be referenced at least as far as the call.  This isn't a problem for the X86
                            code-generator since container addresses are a form of the "argument"
                            datatype. *)
+                        (* There's a further problem with register containers that seems to occur only with
+                           the X86, perhaps because of the way registers are allocated from the end back.
+                           We need to copy the container arguments to temporary normal registers and
+                           later copy the results into the merge registers.  It seems to be something to
+                           do with having a handler. *)
                         val (results, moveResult) =
                             case (containerValue, resultType) of
                                 (ContainerInRegs regs, GeneralType) =>
-                                    (ListPair.zip(regs, generalArgRegs),
-                                        [BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=Move32Bit })])
+                                let
+                                    val newRegs = List.map (fn _ => newPReg()) regs
+                                    val copyRegs =
+                                        ListPair.mapEq(fn (sreg, dreg) =>
+                                                BlockSimple(LoadArgument{ source=RegisterArgument sreg, dest=dreg, kind=movePolyWord })) (newRegs, regs)
+                                in
+                                    (ListPair.zip(newRegs, generalArgRegs),
+                                        BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=Move32Bit }) :: copyRegs)
+                                end
                             |   (ContainerOnStack _, GeneralType) =>
                                     ([], [BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=Move32Bit })])
                             |   (NoContainer, GeneralType) => ([(target, resultReg GeneralType)], [])
