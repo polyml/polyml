@@ -652,8 +652,10 @@ Handle fullPath(TaskData *taskData, Handle filename)
     if (PolyStringLength(filename->Word()) == 0) cFileName = strdup(".");
     else cFileName = Poly_string_to_C_alloc(filename->Word());
     if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-    TempCString resBuf(realpath(cFileName, NULL));
-    if (resBuf == NULL)
+
+    /* old UNIX systems require the 2nd argument of realpath() be non-NULL */
+    TempCString resBuf((char *)malloc(FILENAME_MAX * sizeof(char)));
+    if (NULL == realpath(cFileName, resBuf))
         raise_syscall(taskData, "realpath failed", ERRORNUMBER);
     /* Some versions of Unix don't check the final component
         of a file.  To be consistent try doing a "stat" of
