@@ -52,6 +52,14 @@
 #define ASSERT(x) 0
 #endif
 
+#ifdef HAVE_ERRNO_H
+#include <errno.h>
+#endif
+
+#ifdef HAVE_SYS_RESOURCE_H
+#include <sys/resource.h>
+#endif
+
 #if (defined(_WIN32))
 #include <tchar.h>
 #else
@@ -354,6 +362,22 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
         else
             userOptions.user_arg_strings[userOptions.user_arg_count++] = argv[i];
     }
+
+#ifdef __HAIKU__
+    // On Haiku, select() checks whether the first argument is higher
+    // than the current process' fd table, and errors out if not; so
+    // we make sure it is at least FD_SETSIZE
+    struct rlimit lim;
+
+    if (getrlimit(RLIMIT_NOFILE, &lim) < 0)
+        Usage("Unable to get file limit: %s\n", strerror(errno));
+
+    if (lim.rlim_cur < FD_SETSIZE)
+        lim.rlim_cur = FD_SETSIZE;
+
+    if (setrlimit(RLIMIT_NOFILE, &lim) < 0)
+        Usage("Unable to set file limit: %s\n", strerror(errno));
+#endif
 
     if (!gMem.Initialise())
         Usage("Unable to initialise memory allocator\n");

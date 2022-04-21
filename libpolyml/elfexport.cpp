@@ -111,6 +111,12 @@
 #define R_AARCH64_LDST32_ABS_LO12_NC R_AARCH_LDST32_ABS_LO12_NC
 #endif
 
+// Haiku x86_64 relocation symbols
+// The x86 ones are already defined on elf.h
+#ifdef HAVE_PRIVATE_SYSTEM_ARCH_X86_64_ARCH_ELF_H
+#include <private/system/arch/x86_64/arch_elf.h>
+#endif
+
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
