@@ -72,7 +72,6 @@ To build:
 ```bash
 $ ./configure
 $ make
-$ make compiler
 $ make install
 ```
 
