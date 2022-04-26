@@ -1,7 +1,7 @@
 /*
     Title:      Network functions.
 
-    Copyright (c) 2000-7, 2016, 2018, 2019 David C. J. Matthews
+    Copyright (c) 2000-7, 2016, 2018, 2019, 2022 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -2178,7 +2178,7 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkReturnIP4AddressAny",         (polyRTSFunction)&PolyNetworkReturnIP4AddressAny },
     { "PolyNetworkGetAddressAndPortFromIP6",    (polyRTSFunction)&PolyNetworkGetAddressAndPortFromIP6 },
     { "PolyNetworkCreateIP6Address",            (polyRTSFunction)&PolyNetworkCreateIP6Address },
-    { "PolyNetworkReturnIP6AddressAny",         (polyRTSFunction)&PolyNetworkReturnIP4AddressAny },
+    { "PolyNetworkReturnIP6AddressAny",         (polyRTSFunction)&PolyNetworkReturnIP6AddressAny },
     { "PolyNetworkIP6AddressToString",          (polyRTSFunction)&PolyNetworkIP6AddressToString },
     { "PolyNetworkStringToIP6Address",          (polyRTSFunction)&PolyNetworkStringToIP6Address },
 
