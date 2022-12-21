@@ -671,12 +671,15 @@ struct
                             val wordsRequired = List.length closure + (if is32in64 then 2 else 1)
                             val absAddr = if is32in64 then newUReg() else dest
                             val zeroReg = newPReg()
-                            val allocAndSetZero =
-                                loadNonAddressConstant{ source=taggedWord64 0w0, dest=zeroReg} ::
+
+                            fun clear n =
+                                if n = wordsRequired (* At the end - allocate and set the zeroing reg to zero. *)
+                                then loadNonAddressConstant{ source=taggedWord64 0w0, dest=zeroReg} ::
                                     allocateWithProfileRev(wordsRequired, Word8.orb(F_mutable, flagsValue), absAddr, tailCode)
-                            val (_, clearCode) =
-                                List.foldl(fn (_, (n, l)) =>
-                                    (n+1, storeAtWordOffset(zeroReg, n, absAddr, polyWordLoadSize, l))) (0, allocAndSetZero) closure
+                                else
+                                    storeAtWordOffset(zeroReg, n, absAddr, polyWordLoadSize, clear (n+1))
+
+                            val clearCode = clear 0
                         in
                             if is32in64
                             then absoluteToObjectIndex{ source=absAddr, dest=dest } :: clearCode
