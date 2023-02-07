@@ -934,17 +934,22 @@ Handle fileSize(TaskData *taskData, Handle filename)
     TempString cFileName(filename->Word());
     if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
     /* Similar to modTime*/
-    WIN32_FIND_DATA wFind;
-    HANDLE hFind;
-    const TCHAR *p;
-    for(p = cFileName; *p; p++)
-        if (*p == '*' || *p == '?')
-            raise_syscall(taskData, "Invalid filename", STREAMCLOSED);
-    hFind = FindFirstFile(cFileName, &wFind);
-    if (hFind == INVALID_HANDLE_VALUE)
-        raise_syscall(taskData, "FindFirstFile failed", GetLastError());
-    FindClose(hFind);
-    return Make_arb_from_32bit_pair(taskData, wFind.nFileSizeHigh, wFind.nFileSizeLow);
+    DWORD dwRes = GetFileAttributes(cFileName);
+    if (dwRes == 0xFFFFFFFF)
+        raise_syscall(taskData, "GetFileAttributes failed", GetLastError());
+    HANDLE hFile = CreateFile(cFileName, GENERIC_READ, FILE_SHARE_READ,
+        NULL, OPEN_EXISTING, dwRes & FILE_ATTRIBUTE_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS : 0, NULL);
+    if (hFile == INVALID_HANDLE_VALUE)
+        raise_syscall(taskData, "CreateFile failed", GetLastError());
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hFile, &fileSize))
+    {
+        DWORD dwErr = GetLastError();
+        CloseHandle(hFile);
+        raise_syscall(taskData, "GetFileSizeEx failed", dwErr);
+    }
+    CloseHandle(hFile);
+    return Make_arb_from_32bit_pair(taskData, fileSize.HighPart, fileSize.LowPart);
 }
 
 /* Set file modification and access times. */
