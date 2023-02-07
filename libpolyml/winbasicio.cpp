@@ -902,24 +902,30 @@ Handle modTime(TaskData *taskData, Handle filename)
 {
     TempString cFileName(filename->Word());
     if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-    /* There are two ways to get this information.
-        We can either use GetFileTime if we are able
-        to open the file for reading but if it is locked
-        we won't be able to.  FindFirstFile is the other
-        alternative.  We have to check that the file name
-        does not contain '*' or '?' otherwise it will try
-        to "glob" this, which isn't what we want here. */
-    WIN32_FIND_DATA wFind;
-    HANDLE hFind;
-    const TCHAR *p;
-    for(p = cFileName; *p; p++)
-        if (*p == '*' || *p == '?')
-            raise_syscall(taskData, "Invalid filename", STREAMCLOSED);
-    hFind = FindFirstFile(cFileName, &wFind);
-    if (hFind == INVALID_HANDLE_VALUE)
-        raise_syscall(taskData, "FindFirstFile failed", GetLastError());
-    FindClose(hFind);
-    return Make_arb_from_Filetime(taskData, wFind.ftLastWriteTime);
+    /* There are several ways to get this information.  The best is to
+    *  open the file and use GetFileTime.  Other possibilities are
+    *  GetFileAttributeEx and FindFirstFile.  If the path is a
+    *  symlink GetFileAttributeEx returns the times for the
+    *  symlink itself.  The definition of OS.FileSys.modTime
+    *  doesn't actually say which we should return but the Unix
+    *  version uses stat rather than lstat.
+    */
+    DWORD dwRes = GetFileAttributes(cFileName);
+    if (dwRes == 0xFFFFFFFF)
+        raise_syscall(taskData, "GetFileAttributes failed", GetLastError());
+    HANDLE hFile = CreateFile(cFileName, GENERIC_READ, FILE_SHARE_READ,
+        NULL, OPEN_EXISTING, dwRes & FILE_ATTRIBUTE_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS : 0, NULL);
+    if (hFile == INVALID_HANDLE_VALUE)
+        raise_syscall(taskData, "CreateFile failed", GetLastError());
+    FILETIME lastWrite;
+    if (! GetFileTime(hFile, NULL, NULL, &lastWrite))
+    {
+        DWORD dwErr = GetLastError();
+        CloseHandle(hFile);
+        raise_syscall(taskData, "CreateFile failed", dwErr);
+    }
+    CloseHandle(hFile);
+    return Make_arb_from_Filetime(taskData, lastWrite);
 }
 
 /* Get file size. */
