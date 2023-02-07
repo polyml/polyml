@@ -922,7 +922,7 @@ Handle modTime(TaskData *taskData, Handle filename)
     {
         DWORD dwErr = GetLastError();
         CloseHandle(hFile);
-        raise_syscall(taskData, "CreateFile failed", dwErr);
+        raise_syscall(taskData, "GetFileTime failed", dwErr);
     }
     CloseHandle(hFile);
     return Make_arb_from_Filetime(taskData, lastWrite);
@@ -957,16 +957,19 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
     FILETIME ft;
     /* Get the file time. */
     getFileTimeFromArb(taskData, fileTime, &ft);
-    /* Open an existing file with write access. We need that
-        for SetFileTime. */
+    DWORD dwRes = GetFileAttributes(cFileName);
+    if (dwRes == 0xFFFFFFFF)
+        raise_syscall(taskData, "GetFileAttributes failed", GetLastError());
+    // Open an existing file with write access. We need that for SetFileTime.
+    // Directories require FILE_FLAG_BACKUP_SEMANTICS.
     HANDLE hFile = CreateFile(cFileName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
-                FILE_ATTRIBUTE_NORMAL, NULL);
+        dwRes & FILE_ATTRIBUTE_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE)
         raise_syscall(taskData, "CreateFile failed", GetLastError());
     /* Set the file time. */
     if (!SetFileTime(hFile, NULL, &ft, &ft))
     {
-        int nErr = GetLastError();
+        DWORD nErr = GetLastError();
         CloseHandle(hFile);
         raise_syscall(taskData, "SetFileTime failed", nErr);
     }
