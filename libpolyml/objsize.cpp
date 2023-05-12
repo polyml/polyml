@@ -383,11 +383,13 @@ POLYUNSIGNED PolyObjSize(POLYUNSIGNED threadId, POLYUNSIGNED obj)
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
 
     ProcessVisitAddresses process(false);
     if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
     Handle result = Make_arbitrary_precision(taskData, process.total_length);
 
+    taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
     return result->Word().AsUnsigned();
 }
@@ -397,12 +399,14 @@ POLYUNSIGNED PolyShowSize(POLYUNSIGNED threadId, POLYUNSIGNED obj)
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
 
     ProcessVisitAddresses process(true);
     if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
     fflush(polyStdout); /* We need this for Windows at least. */
     Handle result = Make_arbitrary_precision(taskData, process.total_length);
 
+    taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
     return result->Word().AsUnsigned();
 }
@@ -412,6 +416,7 @@ POLYUNSIGNED PolyObjProfile(POLYUNSIGNED threadId, POLYUNSIGNED obj)
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
 
     ProcessVisitAddresses process(false);
     if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
@@ -422,6 +427,7 @@ POLYUNSIGNED PolyObjProfile(POLYUNSIGNED threadId, POLYUNSIGNED obj)
     fflush(polyStdout); /* We need this for Windows at least. */
     Handle result = Make_arbitrary_precision(taskData, process.total_length);
 
+    taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
     return result->Word().AsUnsigned();
 }
