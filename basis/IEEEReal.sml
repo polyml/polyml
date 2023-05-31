@@ -169,16 +169,20 @@ struct
                     val trimTrailingZeros = List.rev o trimLeadingZeros o List.rev
                     val leading = trimLeadingZeros intPart
                     val trailing = trimTrailingZeros decimals
+		    val digits =
+			case (intPart, decimals, leading, trailing) of
+			    ([], [], _, _) => []
+			  | (_, _, [], []) => []
+			  | _ => trimTrailingZeros (List.@(leading, trailing))
                 in
                     (* If both the leading and trailing parts are empty the number is zero,
                        except that if there were no digits at all we have a malformed number. *)
-                    case (intPart, decimals, leading, trailing) of
-                        ([], [], _, _) => NONE
-                      | (_, _, [], []) =>
-                            SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
+                    case (intPart, decimals, digits) of
+                        ([], [], _) => NONE
+                      | (_, _, []) =>
+                        SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
                       | _ =>
-                            SOME ({class=NORMAL, sign=sign,
-                              digits=List.@(leading, trailing),
+                            SOME ({class=NORMAL, sign=sign, digits=digits,
                               exp=exponent + List.length leading}, src4)
                 end
                 else ( (* Could be INFINITY, INF or NAN.  Check INFINITY before INF. *)
