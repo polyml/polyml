@@ -161,7 +161,7 @@ struct
 			case (intPart, decimals, leading, trailing) of
 			    ([], [], _, _) => []
 			  | (_, _, [], []) => []
-			  | _ => trimTrailingZeros (List.@(leading, trailing))
+			  | _ => (trimLeadingZeros o trimTrailingZeros) (List.@(leading, trailing))
 		    (* Get the exponent, returning zero if it doesn't match. *)
                     val (exponent, src4) =
                         case getc src3 of
