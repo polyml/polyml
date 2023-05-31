@@ -157,6 +157,8 @@ struct
                     val trimTrailingZeros = List.rev o trimLeadingZeros o List.rev
                     val leading = trimLeadingZeros intPart
                     val trailing = trimTrailingZeros decimals
+		    (* Concatenate leading and trailing into the final digits list and calculate the
+		     increment to the scanned exponent *)
 		    val (digits, exponentInc) =
 			case (leading, trailing) of
 			    ([], []) => ([], 0)
