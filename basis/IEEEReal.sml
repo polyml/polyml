@@ -158,10 +158,13 @@ struct
                     val leading = trimLeadingZeros intPart
                     val trailing = trimTrailingZeros decimals
 		    val digits =
-			case (intPart, decimals, leading, trailing) of
-			    ([], [], _, _) => []
-			  | (_, _, [], []) => []
-			  | _ => (trimLeadingZeros o trimTrailingZeros) (List.@(leading, trailing))
+			case (leading, trailing) of
+			    ([], []) => []
+			  | ([], 0::_) => trimLeadingZeros trailing
+			  | (x::xs, []) => if (List.last leading) = 0
+					   then trimTrailingZeros leading
+					   else leading
+			  | _ => List.@(leading, trailing)
 		    (* Get the exponent, returning zero if it doesn't match. *)
                     val (exponent, src4) =
                         case getc src3 of
