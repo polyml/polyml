@@ -149,18 +149,6 @@ struct
                                     |   (digs, s) => (digs, s)
                                 )
                          |  _=> ([], src2)
-                    (* Get the exponent, returning zero if it doesn't match. *)
-                    val (exponent, src4) =
-                        case getc src3 of
-                            NONE => (0, src3)
-                         |  SOME (ch, src4a) =>
-                            if ch = #"e" orelse ch = #"E"
-                            then (
-                                case getExponent src4a of
-                                    NONE => (0, src3)
-                                |   SOME x => x
-                            )
-                            else (0, src3)
                     (* Trim leading zeros from the part before the decimal and
                        trailing zeros from the part after. *)
                     fun trimLeadingZeros [] = []
@@ -174,6 +162,18 @@ struct
 			    ([], [], _, _) => []
 			  | (_, _, [], []) => []
 			  | _ => trimTrailingZeros (List.@(leading, trailing))
+		    (* Get the exponent, returning zero if it doesn't match. *)
+                    val (exponent, src4) =
+                        case getc src3 of
+                            NONE => (0, src3)
+                         |  SOME (ch, src4a) =>
+                            if (ch = #"e" orelse ch = #"E") andalso digits <> []
+                            then (
+                                case getExponent src4a of
+                                    NONE => (0, src3)
+                                |   SOME x => x
+                            )
+                            else (0, src3)
                 in
                     (* If both the leading and trailing parts are empty the number is zero,
                        except that if there were no digits at all we have a malformed number. *)
