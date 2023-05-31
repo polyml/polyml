@@ -172,7 +172,7 @@ struct
 			  | ([], _) => (trailing, 0) 
 			  | _ => (
 			      case List.@(leading, trailing) of
-				  joined => (joined, List.length joined)
+				  joined => (joined, List.length leading)
 			  )
 		    (* Get the exponent, returning zero if it doesn't match. *)
                     val (exponent, src4) =
