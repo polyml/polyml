@@ -157,14 +157,21 @@ struct
                     val trimTrailingZeros = List.rev o trimLeadingZeros o List.rev
                     val leading = trimLeadingZeros intPart
                     val trailing = trimTrailingZeros decimals
-		    val digits =
+		    val (digits, exponentInc) =
 			case (leading, trailing) of
-			    ([], []) => []
-			  | ([], 0::_) => trimLeadingZeros trailing
+			    ([], []) => ([], 0)
+			  | ([], 0::_) => (
+			    case trimLeadingZeros trailing of
+				trimmed => (trimmed, List.length trimmed - List.length trailing)
+			  )
 			  | (x::xs, []) => if (List.last leading) = 0
-					   then trimTrailingZeros leading
-					   else leading
-			  | _ => List.@(leading, trailing)
+					   then (trimTrailingZeros leading, List.length leading)
+					   else (leading, List.length leading)
+			  | ([], _) => (trailing, 0) 
+			  | _ => (
+			      case List.@(leading, trailing) of
+				  joined => (joined, List.length joined)
+			  )
 		    (* Get the exponent, returning zero if it doesn't match. *)
                     val (exponent, src4) =
                         case getc src3 of
@@ -186,7 +193,7 @@ struct
                         SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
                       | _ =>
                             SOME ({class=NORMAL, sign=sign, digits=digits,
-                              exp=exponent + List.length leading}, src4)
+                              exp=exponent+exponentInc}, src4)
                 end
                 else ( (* Could be INFINITY, INF or NAN.  Check INFINITY before INF. *)
                     case checkString (src, Substring.full "INFINITY") of
