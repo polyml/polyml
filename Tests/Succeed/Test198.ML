@@ -1,5 +1,5 @@
 (* Checks for Real.scan, Real.fromString, IEEEReal.scan and IEEEReal.fromString. *)
-fun check true = () | check false = raise Fail "incorrect";
+fun verify true = () | verify false = raise Fail "incorrect";
 
 
 fun ieeeVerify(SOME(iee, subs), ieeMatch, str) =
@@ -35,8 +35,8 @@ ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "  10.X"),
 
 
 
-check(not(Real.isFinite(valOf(Real.fromString "infinity"))));
-check(not(Real32.isFinite(valOf(Real32.fromString "infinity"))));
+verify(not(Real.isFinite(valOf(Real.fromString "infinity"))));
+verify(not(Real32.isFinite(valOf(Real32.fromString "infinity"))));
 
-check(Real.isNan(valOf(Real.fromString "nan")));
-check(Real32.isNan(valOf(Real32.fromString "nan")));
+verify(Real.isNan(valOf(Real.fromString "nan")));
+verify(Real32.isNan(valOf(Real32.fromString "nan")));
