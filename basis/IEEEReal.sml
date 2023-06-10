@@ -149,18 +149,6 @@ struct
                                     |   (digs, s) => (digs, s)
                                 )
                          |  _=> ([], src2)
-                    (* Get the exponent, returning zero if it doesn't match. *)
-                    val (exponent, src4) =
-                        case getc src3 of
-                            NONE => (0, src3)
-                         |  SOME (ch, src4a) =>
-                            if ch = #"e" orelse ch = #"E"
-                            then (
-                                case getExponent src4a of
-                                    NONE => (0, src3)
-                                |   SOME x => x
-                            )
-                            else (0, src3)
                     (* Trim leading zeros from the part before the decimal and
                        trailing zeros from the part after. *)
                     fun trimLeadingZeros [] = []
@@ -169,17 +157,45 @@ struct
                     val trimTrailingZeros = List.rev o trimLeadingZeros o List.rev
                     val leading = trimLeadingZeros intPart
                     val trailing = trimTrailingZeros decimals
+		    (* Concatenate leading and trailing into the final digits list and calculate the
+		     increment to the scanned exponent *)
+		    val (digits, exponentInc) =
+			case (leading, trailing) of
+			    ([], []) => ([], 0)
+			  | ([], 0::_) => (
+			    case trimLeadingZeros trailing of
+				trimmed => (trimmed, List.length trimmed - List.length trailing)
+			  )
+			  | (x::xs, []) => if (List.last leading) = 0
+					   then (trimTrailingZeros leading, List.length leading)
+					   else (leading, List.length leading)
+			  | ([], _) => (trailing, 0) 
+			  | _ => (
+			      case List.@(leading, trailing) of
+				  joined => (joined, List.length leading)
+			  )
+		    (* Get the exponent, returning zero if it doesn't match. *)
+                    val (exponent, src4) =
+                        case getc src3 of
+                            NONE => (0, src3)
+                         |  SOME (ch, src4a) =>
+                            if (ch = #"e" orelse ch = #"E") andalso digits <> []
+                            then (
+                                case getExponent src4a of
+                                    NONE => (0, src3)
+                                |   SOME x => x
+                            )
+                            else (0, src3)
                 in
                     (* If both the leading and trailing parts are empty the number is zero,
                        except that if there were no digits at all we have a malformed number. *)
-                    case (intPart, decimals, leading, trailing) of
-                        ([], [], _, _) => NONE
-                      | (_, _, [], []) =>
-                            SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
+                    case (intPart, decimals, digits) of
+                        ([], [], _) => NONE
+                      | (_, _, []) =>
+                        SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
                       | _ =>
-                            SOME ({class=NORMAL, sign=sign,
-                              digits=List.@(leading, trailing),
-                              exp=exponent + List.length leading}, src4)
+                            SOME ({class=NORMAL, sign=sign, digits=digits,
+                              exp=exponent+exponentInc}, src4)
                 end
                 else ( (* Could be INFINITY, INF or NAN.  Check INFINITY before INF. *)
                     case checkString (src, Substring.full "INFINITY") of
