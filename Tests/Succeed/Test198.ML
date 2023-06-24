@@ -40,11 +40,15 @@ ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "+infinity"),
     {exp = 0, sign = false, class = IEEEReal.INF, digits = []}, "");
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "-infinity"),
     {exp = 0, sign = true, class = IEEEReal.INF, digits = []}, "");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "~infinity"),
+    {exp = 0, sign = true, class = IEEEReal.INF, digits = []}, "");
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "inf"),
     {exp = 0, sign = false, class = IEEEReal.INF, digits = []}, "");
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "+inf"),
     {exp = 0, sign = false, class = IEEEReal.INF, digits = []}, "");
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "-inf"),
+    {exp = 0, sign = true, class = IEEEReal.INF, digits = []}, "");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "~inf"),
     {exp = 0, sign = true, class = IEEEReal.INF, digits = []}, "");
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "nan"),
     {exp = 0, sign = false, class = IEEEReal.NAN, digits = []}, "");
@@ -52,7 +56,8 @@ ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "+nan"),
     {exp = 0, sign = false, class = IEEEReal.NAN, digits = []}, "");
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "-nan"),
     {exp = 0, sign = true, class = IEEEReal.NAN, digits = []}, "");
-
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "~nan"),
+    {exp = 0, sign = true, class = IEEEReal.NAN, digits = []}, "");
 
 
 verify(not(Real.isFinite(valOf(Real.fromString "infinity"))));
