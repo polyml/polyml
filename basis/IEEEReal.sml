@@ -168,15 +168,17 @@ struct
 			  )
 			  | ([], _) => (trailing, 0) 
 			  | (lead, []) =>
-			    if (List.last lead) = 0
+			    if (List.last lead) = 0 (* the trailing zeros must be trimmed, return
+						     as exponentInc the original length of the
+						     leading part *)
 			    then (case trimTrailingZeros lead of
 				    trimmed => (trimmed, List.length lead))
 			    else (lead, List.length lead)
-			  | _ => (
-			      case List.@(leading, trailing) of
-				  joined => (joined, List.length leading)
+			  | lead, trail => (
+			      case List.@(lead, trail) of
+				  joined => (joined, List.length lead)
 			  )
-		    (* Get the exponent, returning zero if it doesn't match. *)
+		    (* Get the exponent literal, returning zero if it doesn't match. *)
                     val (exponent, src4) =
                         case getc src3 of
                             NONE => (0, src3)
@@ -195,7 +197,7 @@ struct
                         ([], [], _) => NONE
                       | (_, _, []) =>
                         SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
-                      | _ =>
+                      | (_, _, digits) =>
                             SOME ({class=NORMAL, sign=sign, digits=digits,
                               exp=exponent+exponentInc}, src4)
                 end
