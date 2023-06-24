@@ -166,10 +166,12 @@ struct
 			    case trimLeadingZeros trailing of
 				trimmed => (trimmed, List.length trimmed - List.length trailing)
 			  )
-			  | (x::xs, []) => if (List.last leading) = 0
-					   then (trimTrailingZeros leading, List.length leading)
-					   else (leading, List.length leading)
 			  | ([], _) => (trailing, 0) 
+			  | (lead, []) =>
+			    if (List.last lead) = 0
+			    then (case trimTrailingZeros lead of
+				    trimmed => (trimmed, List.length lead))
+			    else (lead, List.length lead)
 			  | _ => (
 			      case List.@(leading, trailing) of
 				  joined => (joined, List.length leading)
