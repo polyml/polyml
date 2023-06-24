@@ -30,8 +30,28 @@ ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "  12X"),
     {exp = 2, sign = false, class = IEEEReal.NORMAL, digits = [1, 2]}, "X");
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "  0.00X"),
     {exp = 0, sign = false, class = IEEEReal.ZERO, digits = []}, "X");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "  10"),
+    {exp = 2, sign = false, class = IEEEReal.NORMAL, digits = [1]}, "");
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "  10.X"),
     {exp = 2, sign = false, class = IEEEReal.NORMAL, digits = [1]}, ".X"); (* Valid. The decimal point is not part of the number. *)
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "infinity"),
+    {exp = 0, sign = false, class = IEEEReal.INF, digits = []}, "");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "+infinity"),
+    {exp = 0, sign = false, class = IEEEReal.INF, digits = []}, "");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "-infinity"),
+    {exp = 0, sign = true, class = IEEEReal.INF, digits = []}, "");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "inf"),
+    {exp = 0, sign = false, class = IEEEReal.INF, digits = []}, "");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "+inf"),
+    {exp = 0, sign = false, class = IEEEReal.INF, digits = []}, "");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "-inf"),
+    {exp = 0, sign = true, class = IEEEReal.INF, digits = []}, "");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "nan"),
+    {exp = 0, sign = false, class = IEEEReal.NAN, digits = []}, "");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "+nan"),
+    {exp = 0, sign = false, class = IEEEReal.NAN, digits = []}, "");
+ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "-nan"),
+    {exp = 0, sign = true, class = IEEEReal.NAN, digits = []}, "");
 
 
 
