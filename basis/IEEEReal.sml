@@ -120,7 +120,7 @@ struct
 	(* Datatype representing respectively a normal numeric exponent,
 	   an overflowing exponent that rounds the number to zero, and
 	   an overflowing exponent that rounds the number to infinity. *)
-	datatype exponent = NumExp of int | ToZero | ToInf
+	datatype exponent = Numeric of int | ToZero | ToInf
 
 	(* Read the exponent, handling cases in which the exponent literal would overflow as
 	   an integer but, once expOfMtsa is added, the final exponent is representable. *)
@@ -165,7 +165,7 @@ struct
 			then readExponent src' false expOfMtsa (* skip ch *)
 			else readExponent src' true expOfMtsa (* skip ch, negative exponent *)
 		    )
-		     of (e, src'') => SOME(NumExp e, src'')
+		     of (e, src'') => SOME(Numeric e, src'')
 		)
 		     (* If the exponent overflows, the number must be rounded. *) 
 		     handle Overflow => 
@@ -178,7 +178,8 @@ struct
 					then consumeExponent src'
 					else src
 			    in
-				let val src'' = consumeExponent src' (* consume the exponent literal *)
+				let
+				    val src'' = consumeExponent src' (* consume the exponent literal *)
 				in
 				    (* The number is rounded to zero if the mantissa is zero or the
 				      expo nent is negative. Else, to infinity. *)
@@ -187,6 +188,7 @@ struct
 				    else SOME (ToInf, src'')
 				end
 			    end
+			  | exn => raise exn
 		else NONE
 
         fun readNumber sign (src: 'a): (decimal_approx *'a) option =
@@ -241,30 +243,31 @@ struct
 		       exponent of the mantissa. *)
                     val (exponent, src4) =
                         case getc src3 of
-                            NONE => (NumExp expOfMtsa, src3)
+                            NONE => (Numeric expOfMtsa, src3)
                          |  SOME (ch, src4a) =>
                             if (ch = #"e" orelse ch = #"E") 
                             then (
                                 case getExponent digits expOfMtsa src4a of
-                                    NONE => (NumExp expOfMtsa, src3) (* no valid exponent found *)
+                                    NONE => (Numeric expOfMtsa, src3) (* no valid exponent found *)
                                   | SOME (expt, src4b) => (expt, src4b) (* exponent literal found, final exponent
 									 calculated *)
 			    )
-                            else (NumExp expOfMtsa, src3)
+                            else (Numeric expOfMtsa, src3)
                 in
-                    case (intPart, decimPart, digits, exponent) of
-			(* if there are no digits in both the non-trimmed integer or decimal parts,
-			   we have a malformed number *)
-                        ([], [], _, _) => NONE
-		      | (_, _, [], _) => (* if the final digits list is empty, the number is zero*)
-                        SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
-		      | (_, _, _, ToZero) => (* overflowed exponent, rounded to zero *)
-			SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
-		      | (_, _, _, ToInf) => (* overflowed exponent, rounded to infinity *)
-			SOME ({class=INF, sign=sign, digits=[], exp=0}, src4)
-                      | (_, _, digits, NumExp expt) =>
-                            SOME ({class=NORMAL, sign=sign, digits=digits,
-                              exp=expt}, src4)
+		    if intPart <> [] orelse decimPart <> []
+                    then (
+			case (digits, exponent) of
+			    ([], _) => (* if the final digits list is empty, the number is zero*)
+                            SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
+			  | (_, ToZero) => (* overflowed exponent, rounded to zero *)
+			    SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
+			  | (_, ToInf) => (* overflowed exponent, rounded to infinity *)
+			    SOME ({class=INF, sign=sign, digits=[], exp=0}, src4)
+			  | (digits, Numeric expt) =>
+			    SOME ({class=NORMAL, sign=sign, digits=digits, exp=expt}, src4)
+		    )
+		    else NONE (* if both the non-trimmed integer and decimal parts are empty,
+				 we have a malformed number *) 
                 end
                 else ( (* Could be INFINITY, INF or NAN.  Check INFINITY before INF. *)
                     case checkString (src, Substring.full "INFINITY") of
