@@ -117,17 +117,77 @@ struct
                     then getdigits ((Char.ord ch - Char.ord #"0") :: inp) src'
                     else (List.rev inp, src)
 
+	(* Datatype representing respectively a normal numeric exponent,
+	   an overflowing exponent that rounds the number to zero, and
+	   an overflowing exponent that rounds the number to infinity. *)
+	datatype exponent = NumExp of int | ToZero | ToInf
+
+	(* Read the exponent, handling cases in which the exponent literal would overflow as
+	   an integer but, once expOfMtsa is added, the final exponent is representable. *)
+	fun readExponent src negative expOfMtsa =
+	    let
+		val (digits, src') = getdigits [] src
+		(* We build the exponent number from the list of digits in reverse instead of
+		   reading the number from the most significant digits first to be able to hand
+		   those cases in which the exponent literal would overflow if it were an integer
+		   literal, but after expOfMtsa is added the final representation will fit in an
+		   Int. If it still overflows, getExponent will handle it. *)
+		val revDigits = List.rev digits
+		fun readexp [] acc _ = (acc, src')
+		  | readexp (d::ds) acc factor =
+		    let val acc = if negative
+				  then acc - factor*d
+				  else acc + factor*d 
+		    in
+			if ds = [] (* necessary to prevent overflow when acc is Int.minInt orInt.maxInt *)
+			then (acc, src')
+			else readexp ds acc (factor*10)
+		    end
+	    in
+		readexp revDigits expOfMtsa 1 
+	    end
+		
         (* Return the signed exponent.  If this doesn't represent a
            valid integer return NONE since we shouldn't take off the E. 
-           Int.scan accepts and removes leading space but we don't allow
-           space here so return NONE if we find any. *)
-        fun getExponent src =
+           We don't allow space here so return NONE if we find any.
+	   If the exponent overflows, round to zero or to infinity. *)
+        fun getExponent digits expOfMtsa src =
             case getc src of
                 NONE => NONE
-              | SOME(ch, _) =>
-                if Char.isSpace ch
-                then NONE
-                else Int.scan StringCvt.DEC getc src
+              | SOME(ch, src') =>
+                if Char.isDigit ch orelse ch = #"-" orelse ch = #"~"
+		   orelse ch = #"+"
+		then (
+		    case (
+			if Char.isDigit ch 
+			then readExponent src false expOfMtsa (* don't skip ch *)
+			else if ch = #"+" 
+			then readExponent src' false expOfMtsa (* skip ch *)
+			else readExponent src' true expOfMtsa (* skip ch, negative exponent *)
+		    )
+		     of (e, src'') => SOME(NumExp e, src'')
+		)
+		     (* If the exponent overflows, the number must be rounded. *) 
+		     handle Overflow => 
+			    let (* Helper function to consume the exponent literal *)
+				fun consumeExponent src =
+				    case getc src of
+					NONE => src
+				      | SOME(ch, src') =>
+					if Char.isDigit ch
+					then consumeExponent src'
+					else src
+			    in
+				let val src'' = consumeExponent src' (* consume the exponent literal *)
+				in
+				    (* The number is rounded to zero if the mantissa is zero or the
+				      expo nent is negative. Else, to infinity. *)
+				    if digits = [] orelse ch = #"~" orelse ch = #"-"
+				    then SOME (ToZero, src'')
+				    else SOME (ToInf, src'')
+				end
+			    end
+		else NONE
 
         fun readNumber sign (src: 'a): (decimal_approx *'a) option =
             case getc src of
@@ -140,7 +200,7 @@ struct
                     val (intPart, src2) = getdigits [] src
                     (* Get the digits after the decimal point.  If there is a decimal
                        point with no digits after it we don't swallow the dp. *)
-                    val (decimals, src3) =
+                    val (decimPart, src3) =
                         case getc src2 of
                           SOME (#".", src3a) =>
                                 (
@@ -148,7 +208,7 @@ struct
                                         ([], _) => ([], src2)
                                     |   (digs, s) => (digs, s)
                                 )
-                         |  _=> ([], src2)
+                         | _ => ([], src2)
                     (* Trim leading zeros from the part before the decimal and
                        trailing zeros from the part after. *)
                     fun trimLeadingZeros [] = []
@@ -156,50 +216,55 @@ struct
                      |  trimLeadingZeros l = l
                     val trimTrailingZeros = List.rev o trimLeadingZeros o List.rev
                     val leading = trimLeadingZeros intPart
-                    val trailing = trimTrailingZeros decimals
+                    val trailing = trimTrailingZeros decimPart
 		    (* Concatenate leading and trailing into the final digits list and calculate the
-		     increment to the scanned exponent *)
-		    val (digits, exponentInc) =
+		       contribution of the mantissa to the scanned exponent. *)
+		    val (digits, expOfMtsa) =
 			case (leading, trailing) of
 			    ([], []) => ([], 0)
 			  | ([], 0::_) => (
+			      (* expOfMtsa will be equal to the number of leading zeros removed *)
 			    case trimLeadingZeros trailing of
 				trimmed => (trimmed, List.length trimmed - List.length trailing)
 			  )
-			  | ([], _) => (trailing, 0) 
-			  | (lead, []) =>
-			    if (List.last lead) = 0 (* the trailing zeros must be trimmed, return
-						     as exponentInc the original length of the
-						     leading part *)
-			    then (case trimTrailingZeros lead of
-				    trimmed => (trimmed, List.length lead))
-			    else (lead, List.length lead)
-			  | lead, trail => (
+			  | ([], trail) => (trail, 0) (* no leading zeros removed from trailing *)
+			  | (lead, []) => if (List.last lead) = 0
+					  (* expOfMtsa will be equal to the original length of the leading part *)
+					  then (case trimTrailingZeros lead of
+						    trimmed => (trimmed, List.length lead))
+					  else (lead, List.length lead)
+			  | (lead, trail) => ( (* no zeros to remove, combine lists *)
 			      case List.@(lead, trail) of
 				  joined => (joined, List.length lead)
 			  )
-		    (* Get the exponent literal, returning zero if it doesn't match. *)
+		    (* Get the exponent. If there is no match for an exponent literal, return just the
+		       exponent of the mantissa. *)
                     val (exponent, src4) =
                         case getc src3 of
-                            NONE => (0, src3)
+                            NONE => (NumExp expOfMtsa, src3)
                          |  SOME (ch, src4a) =>
-                            if (ch = #"e" orelse ch = #"E") andalso digits <> []
+                            if (ch = #"e" orelse ch = #"E") 
                             then (
-                                case getExponent src4a of
-                                    NONE => (0, src3)
-                                |   SOME x => x
-                            )
-                            else (0, src3)
+                                case getExponent digits expOfMtsa src4a of
+                                    NONE => (NumExp expOfMtsa, src3) (* no valid exponent found *)
+                                  | SOME (expt, src4b) => (expt, src4b) (* exponent literal found, final exponent
+									 calculated *)
+			    )
+                            else (NumExp expOfMtsa, src3)
                 in
-                    (* If both the leading and trailing parts are empty the number is zero,
-                       except that if there were no digits at all we have a malformed number. *)
-                    case (intPart, decimals, digits) of
-                        ([], [], _) => NONE
-                      | (_, _, []) =>
+                    case (intPart, decimPart, digits, exponent) of
+			(* if there are no digits in both the non-trimmed integer or decimal parts,
+			   we have a malformed number *)
+                        ([], [], _, _) => NONE
+		      | (_, _, [], _) => (* if the final digits list is empty, the number is zero*)
                         SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
-                      | (_, _, digits) =>
+		      | (_, _, _, ToZero) => (* overflowed exponent, rounded to zero *)
+			SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
+		      | (_, _, _, ToInf) => (* overflowed exponent, rounded to infinity *)
+			SOME ({class=INF, sign=sign, digits=[], exp=0}, src4)
+                      | (_, _, digits, NumExp expt) =>
                             SOME ({class=NORMAL, sign=sign, digits=digits,
-                              exp=exponent+exponentInc}, src4)
+                              exp=expt}, src4)
                 end
                 else ( (* Could be INFINITY, INF or NAN.  Check INFINITY before INF. *)
                     case checkString (src, Substring.full "INFINITY") of
