@@ -586,7 +586,11 @@ struct
 
             fun getSaveRegs{gcUpdate, noUpdate} =
             let
-                val _ = List.app (fn r => if getAllocatedGenReg r = X30 then raise InternalError "X30 in noupdate set" else ()) noUpdate
+                fun checkX30(PReg r) =
+                    case Array.sub(allocatedRegs, r) of
+                        SOME(GenReg reg) => if reg = X30 then raise InternalError "X30 in noupdate set" else ()
+                    |   _ => () (* May be a floating point reg or unallocated. *)
+                val _ = List.app checkX30 noUpdate
             in
                 List.map getAllocatedGenReg gcUpdate
             end
