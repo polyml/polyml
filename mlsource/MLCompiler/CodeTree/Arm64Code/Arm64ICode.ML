@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021-2
+    Copyright David C. J. Matthews 2021-3
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -51,6 +51,11 @@ struct
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
     datatype 'genReg fnarg = ArgInReg of 'genReg | ArgOnStack of { wordOffset: int, container: stackLocn, field: int }
+    
+    (* When allocating memory we may garbage collect. Any registers containing addresses must be updated to contain
+       their new location.  All other registers are saved and restored without any update.  The exception is X30
+       and we must not use X30 for any value that contains an untagged value that is needed after the call. *)
+    type 'genReg saveSet = { gcUpdate: 'genReg list, noUpdate: 'genReg list }
 
     datatype ('genReg, 'optGenReg, 'fpReg) arm64ICode =
         (* Move the contents of one preg to another.  These are always 64-bits. *)
@@ -91,12 +96,12 @@ struct
            bytesRequired is the total number of bytes including the length word and any alignment
            necessary for 32-in-64. saveRegs is the list of registers that need to be saved if we
            need to do a garbage collection. *)
-    |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: 'genReg, saveRegs: 'genReg list }
+    |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: 'genReg, saveRegs: 'genReg saveSet }
 
         (* Allocate a piece of memory.  The size argument is an untagged value containing
            the number of words i.e. the same value used for InitialiseMemory and to store
            in the length word. *)
-    |   AllocateMemoryVariable of { size: 'genReg, dest: 'genReg, saveRegs: 'genReg list }
+    |   AllocateMemoryVariable of { size: 'genReg, dest: 'genReg, saveRegs: 'genReg saveSet }
 
         (* Initialise a piece of memory by writing "size" copies of the value
            in "init".  N.B. The size is an untagged value containing the
@@ -111,7 +116,7 @@ struct
     |   JumpLoop of
             { regArgs: {src: 'genReg fnarg, dst: 'genReg} list,
               stackArgs: {src: 'genReg fnarg, wordOffset: int, stackloc: stackLocn} list,
-              checkInterrupt: 'genReg list option }
+              checkInterrupt: 'genReg saveSet option }
 
         (* Store a register using a constant, signed, byte offset.  The offset
            is in the range of -256 to (+4095*unit size). *)
@@ -172,7 +177,7 @@ struct
             { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
               stackArgs: 'genReg fnarg list, dests: ('genReg * xReg) list,
               fpRegArgs: ('fpReg * vReg) list, fpDests: ('fpReg * vReg) list,
-              saveRegs: 'genReg list, containers: stackLocn list}
+              saveRegs: 'genReg saveSet, containers: stackLocn list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
@@ -225,7 +230,7 @@ struct
            but keeping it separate makes optimisation easier.
            The result is always an address and needs to be converted to an
            object index on 32-in-64. *)
-    |   BoxLarge of { source: 'genReg, dest: 'genReg, saveRegs: 'genReg list }
+    |   BoxLarge of { source: 'genReg, dest: 'genReg, saveRegs: 'genReg saveSet }
 
         (* Load a value from a box.  This can be implemented using a load but
            is kept separate to simplify optimisation.  The source is always
@@ -235,7 +240,7 @@ struct
         (* Convert a floating point value into a value suitable for storing
            in the heap.  This normally involves boxing except that 32-bit
            floats can be tagged in native 64-bits. *)
-    |   BoxTagFloat of { floatSize: floatSize, source: 'fpReg, dest: 'genReg, saveRegs: 'genReg list }
+    |   BoxTagFloat of { floatSize: floatSize, source: 'fpReg, dest: 'genReg, saveRegs: 'genReg saveSet }
 
         (* The reverse of BoxTagFloat. *)
     |   UnboxTagFloat of { floatSize: floatSize, source: 'genReg, dest: 'fpReg }
@@ -383,10 +388,16 @@ struct
         |   printLoadType(Load16, stream) = stream "16"
         |   printLoadType(Load8, stream) = stream "8"
 
-        fun printSaves([], _, _) = ()
-        |   printSaves([areg], _, printReg) = printReg areg
-        |   printSaves(areg::more, stream, printReg) =
-                (printReg areg; stream ","; printSaves(more, stream, printReg))
+        
+        fun printSaves({ gcUpdate, noUpdate }, stream, printReg) =
+        let
+            fun printRegs [] = ()
+            |   printRegs [areg] = printReg areg
+            |   printRegs(areg::more) =
+                    (printReg areg; stream ","; printRegs more)
+        in
+            stream"{ gcUpdate= "; printRegs gcUpdate; stream ", noUpdate= "; printRegs noUpdate; stream " }"
+        end
 
         fun printArg(ArgInReg reg, _, printReg) = printReg reg
         |   printArg(ArgOnStack{wordOffset, container, field, ...}, stream, _) =

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-22
+    Copyright David C. J. Matthews 2016-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -584,7 +584,12 @@ struct
             fun getAllocatedArg(ArgInReg reg) = ArgInReg(getAllocatedGenReg reg)
             |   getAllocatedArg(ArgOnStack stackLoc) = ArgOnStack stackLoc
 
-            val getSaveRegs = List.map getAllocatedGenReg
+            fun getSaveRegs{gcUpdate, noUpdate} =
+            let
+                val _ = List.app (fn r => if getAllocatedGenReg r = X30 then raise InternalError "X30 in noupdate set" else ()) noUpdate
+            in
+                List.map getAllocatedGenReg gcUpdate
+            end
 
             (* Reversed cons and append to make the code easier to read. *)
             infix 5 <::> <@>
@@ -742,7 +747,7 @@ struct
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        AllocateMemoryFixed { dest=destReg, bytesRequired=bytesRequired, saveRegs=saved})
+                        AllocateMemoryFixed { dest=destReg, bytesRequired=bytesRequired, saveRegs={gcUpdate=saved, noUpdate=[]}})
                 end
 
             |   absToConcrete({instr=AllocateMemoryVariable{size, dest, saveRegs}, ...} :: rest, cache, code) =
@@ -752,7 +757,7 @@ struct
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        AllocateMemoryVariable{size=getAllocatedGenReg size, dest=destReg, saveRegs=saved})
+                        AllocateMemoryVariable{size=getAllocatedGenReg size, dest=destReg, saveRegs={gcUpdate=saved, noUpdate=[]}})
                 end
 
             |   absToConcrete({instr=InitialiseMem{size, addr, init}, ...} :: rest, context, code) =
@@ -765,9 +770,11 @@ struct
                     fun getStackArg{src, wordOffset, stackloc} =
                             {src=getAllocatedArg src, wordOffset=wordOffset, stackloc=stackloc}
                     and getRegArg{src, dst} = {src=getAllocatedArg src, dst=getAllocatedGenReg dst}
+                    val saves =
+                        case checkInterrupt of NONE => NONE | SOME regs => SOME{gcUpdate=getSaveRegs regs, noUpdate=[]}
                 in
                     absToConcrete(rest, context, code <::> JumpLoop{ regArgs=map getRegArg regArgs, stackArgs=map getStackArg stackArgs,
-                              checkInterrupt=Option.map getSaveRegs checkInterrupt})
+                              checkInterrupt=saves})
                 end
 
             |   absToConcrete({instr=StoreWithConstantOffset { base, source, byteOffset, loadType}, ...} :: rest, context, code) =
@@ -891,7 +898,7 @@ struct
                     absToConcrete(rest, [] (* Empty after a function call. *), code <::>
                         FunctionCall{ callKind=callKind, regArgs=map getRegArg regArgs, stackArgs=map getAllocatedArg stackArgs,
                                   dests=map (getResult allocateGenReg) dests, fpRegArgs=map getFPRegArg fpRegArgs,
-                                  fpDests=map (getResult allocateFPReg) fpDests, saveRegs=getSaveRegs saveRegs, containers=containers})
+                                  fpDests=map (getResult allocateFPReg) fpDests, saveRegs={gcUpdate=getSaveRegs saveRegs, noUpdate=[]}, containers=containers})
                 end
 
             |   absToConcrete({instr=TailRecursiveCall{callKind, regArgs, stackArgs, fpRegArgs, stackAdjust, currStackSize}, ...} :: rest, context, code) =
@@ -1036,7 +1043,7 @@ struct
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        BoxLarge{source=getAllocatedGenReg source, dest=destReg, saveRegs=saved})
+                        BoxLarge{source=getAllocatedGenReg source, dest=destReg, saveRegs={gcUpdate=saved, noUpdate=[]}})
                 end
 
             |   absToConcrete({instr=UnboxLarge{source as PReg rno, dest}, kill, ...} :: rest, cache, code) =
@@ -1070,7 +1077,7 @@ struct
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        BoxTagFloat{floatSize=floatSize, source=getAllocatedFPReg source, dest=destReg, saveRegs=saved})
+                        BoxTagFloat{floatSize=floatSize, source=getAllocatedFPReg source, dest=destReg, saveRegs={gcUpdate=saved, noUpdate=[]}})
                 end
 
             |   absToConcrete({instr=UnboxTagFloat{floatSize, source as PReg rno, dest}, kill, ...} :: rest, cache, code) =

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021-2
+    Copyright David C. J. Matthews 2021-3
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -406,7 +406,7 @@ struct
                         let
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ AllocateMemoryFixed { dest=destVal, bytesRequired=bytesRequired, saveRegs=[]} :: code
+                            destCode @ AllocateMemoryFixed { dest=destVal, bytesRequired=bytesRequired, saveRegs={gcUpdate=[], noUpdate=[]}} :: code
                         end
 
                     |   pushRegisters({instr=AllocateMemoryVariable{size, dest, ...}, ...}, code) =
@@ -414,7 +414,7 @@ struct
                             val (sizeVal, sizeCode) = mapSrcReg size
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ AllocateMemoryVariable{size=sizeVal, dest=destVal, saveRegs=[]} :: sizeCode @ code
+                            destCode @ AllocateMemoryVariable{size=sizeVal, dest=destVal, saveRegs={gcUpdate=[], noUpdate=[]}} :: sizeCode @ code
                         end
 
                     |   pushRegisters({instr=InitialiseMem{size, addr, init}, ...}, code) =
@@ -464,7 +464,7 @@ struct
                             end
                 
                             val oldStackArgs = List.foldr loadStackArg [] stackArgs
-                            val check = case checkInterrupt of NONE => NONE | SOME _ => SOME []
+                            val check = case checkInterrupt of NONE => NONE | SOME _ => SOME {gcUpdate=[], noUpdate=[]}
                         in
                             JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check} :: code
                         end
@@ -651,7 +651,7 @@ struct
                             val () = maxStack := Int.max(!maxStack, !stackCount + List.length newStackArgs)
                         in
                             destFPCode @ destCode @ FunctionCall{ callKind=callKind, regArgs=newRegArgs, stackArgs=newStackArgs,
-                                                  dests=destVals, fpRegArgs=newFPRegArgs, fpDests=destFPVals, saveRegs=[], containers=newContainers} :: code
+                                                  dests=destVals, fpRegArgs=newFPRegArgs, fpDests=destFPVals, saveRegs={gcUpdate=[], noUpdate=[]}, containers=newContainers} :: code
                         end
 
                     |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, fpRegArgs, ...}, ...}, code) =
@@ -799,7 +799,7 @@ struct
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ BoxLarge{source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code
+                            destCode @ BoxLarge{source=sourceVal, dest=destVal, saveRegs={gcUpdate=[], noUpdate=[]}} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=UnboxLarge{source, dest, ...}, ...}, code) =
@@ -815,7 +815,7 @@ struct
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ BoxTagFloat{floatSize=floatSize, source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code
+                            destCode @ BoxTagFloat{floatSize=floatSize, source=sourceVal, dest=destVal, saveRegs={gcUpdate=[], noUpdate=[]}} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=UnboxTagFloat{floatSize, source, dest, ...}, ...}, code) =

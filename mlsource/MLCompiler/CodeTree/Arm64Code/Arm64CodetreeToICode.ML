@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021-2
+    Copyright David C. J. Matthews 2021-3
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -247,7 +247,7 @@ struct
                     val pRegArg = newPReg() and uRegArg = newUReg()
                 in
                     (ArgumentIsInReg pRegArg :: argTypes,
-                         boxTagFloat{source=uRegArg, dest=pRegArg, floatSize=Double64, saveRegs=[]} :: argCode,
+                         boxTagFloat{source=uRegArg, dest=pRegArg, floatSize=Double64, saveRegs={gcUpdate=[], noUpdate=[]}} :: argCode,
                          argRegs, (uRegArg, fpReg) :: fpArgRegs, stackArgs)
                 end
 
@@ -257,7 +257,7 @@ struct
                     val pRegArg = newPReg() and uRegArg = newUReg()
                 in
                     (ArgumentIsInReg pRegArg :: argTypes,
-                         boxTagFloat{source=uRegArg, dest=pRegArg, floatSize=Float32, saveRegs=[]} :: argCode,
+                         boxTagFloat{source=uRegArg, dest=pRegArg, floatSize=Float32, saveRegs={gcUpdate=[], noUpdate=[]}} :: argCode,
                          argRegs, (uRegArg, fpReg) :: fpArgRegs, stackArgs)
                 end
 
@@ -385,7 +385,7 @@ struct
             in
                 storeWithConstantOffset{ source=lengthReg, base=memAddr, byteOffset= ~(Word.toInt wordSize), loadType=polyWordLoadSize } ::
                 loadNonAddressConstant{ source=lengthWord, dest=lengthReg } ::
-                allocateMemoryFixed{bytesRequired=bytesRequired, dest=memAddr, saveRegs=[]} :: tlCode
+                allocateMemoryFixed{bytesRequired=bytesRequired, dest=memAddr, saveRegs={gcUpdate=[], noUpdate=[]}} :: tlCode
             end
         in
             if addAllocatingFunction
@@ -1110,19 +1110,19 @@ struct
                                 let
                                     val dReg = newUReg()
                                 in
-                                    ([], [(dReg, V0)], [boxTagFloat{ floatSize=Double64, source=dReg, dest=target, saveRegs=[]}])
+                                    ([], [(dReg, V0)], [boxTagFloat{ floatSize=Double64, source=dReg, dest=target, saveRegs={gcUpdate=[], noUpdate=[]}}])
                                 end
                             |   (NoContainer, SingleFloatType) =>
                                 let
                                     val dReg = newUReg()
                                 in
-                                    ([], [(dReg, V0)], [boxTagFloat{ floatSize=Float32, source=dReg, dest=target, saveRegs=[]}])
+                                    ([], [(dReg, V0)], [boxTagFloat{ floatSize=Float32, source=dReg, dest=target, saveRegs={gcUpdate=[], noUpdate=[]}}])
                                 end
                             |   _ => raise InternalError "codeToICodeRev: BICEval result type"
 
                         val call =
                             FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dests=results,
-                                         fpRegArgs=fpRegArgs, fpDests=fpResults, callKind=callKind, saveRegs=[], containers=stackContainers}
+                                         fpRegArgs=fpRegArgs, fpDests=fpResults, callKind=callKind, saveRegs={gcUpdate=[], noUpdate=[]}, containers=stackContainers}
                         val callBlock =
                             case currHandler of
                                 NONE => BlockSimple call :: codeArgs
@@ -1405,7 +1405,7 @@ struct
                 val stackReset =
                     if loopSp = stackPtr then codeArgs
                     else resetStackPtr{numWords=stackPtr-loopSp} :: codeArgs
-                val jumpLoop = JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME[]}
+                val jumpLoop = JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME{gcUpdate=[], noUpdate=[]}}
                 (* "checkInterrupt" could result in a Interrupt exception so we treat this like
                    a function call. *)
                 val code =
@@ -1713,7 +1713,7 @@ struct
                 val uSizeReg = newUReg() and shiftFReg = newUReg() and lengthWord = newUReg()
                 val absAddr = if is32in64 then newUReg() else target
                 val untagSize = untagValue{source=sizeReg, dest=uSizeReg, opSize=polyWordOpSize, isSigned=false} :: codeInit
-                val allocateMem = allocateMemoryVariable{ size=uSizeReg, dest=absAddr, saveRegs=[]} :: untagSize
+                val allocateMem = allocateMemoryVariable{ size=uSizeReg, dest=absAddr, saveRegs={gcUpdate=[], noUpdate=[]}} :: untagSize
                 (* Make the length word by first shifting the flags into the length word reg by
                    55 or 23 bits.  This puts the tag bit in the top bit of the size.  Then insert the size
                    into this which will overwrite the flag's tag bit. *)
@@ -1916,7 +1916,7 @@ struct
                    On 64-bits this is equivalent to an arithmetic shift; on 32-bits
                    it propagates the sign bit into the high-order part. *)
                 val code =
-                    boxLarge{ source=uReg, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     bitFieldShift{ source=aReg1, dest=uReg, isSigned=true, length=OpSize64,
                                    immr=0w1, imms=if is32in64 then 0wx1f else 0wx3f } ::
                     arg1Code
@@ -1933,7 +1933,7 @@ struct
                    register is zero in 32-in-64 we don't have to select just the
                    low word but there's no advantage in not. *)
                 val code =
-                    boxLarge{ source=uReg, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     bitFieldShift{ source=aReg1, dest=uReg, isSigned=false, length=OpSize64,
                                    immr=0w1, imms=if is32in64 then 0wx1f else 0wx3f } ::
                     arg1Code
@@ -1949,7 +1949,7 @@ struct
                 val fpSize = precisionToFpSize precision
                 val fpOp = case precision of PrecSingle => AbsFloat | PrecDouble => AbsDouble
                 val code =
-                    boxTagFloat{ floatSize=fpSize, source=uReg2, dest=target, saveRegs=[] } ::
+                    boxTagFloat{ floatSize=fpSize, source=uReg2, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     unaryFloatingPt{ source=uReg1, dest=uReg2, fpOp=fpOp } ::
                     unboxTagFloat{ floatSize=fpSize, source=aReg1, dest=uReg1 } ::
                     arg1Code
@@ -1965,7 +1965,7 @@ struct
                 val fpSize = precisionToFpSize precision
                 val fpOp = case precision of PrecSingle => NegFloat | PrecDouble => NegDouble
                 val code =
-                    boxTagFloat{ floatSize=fpSize, source=uReg2, dest=target, saveRegs=[] } ::
+                    boxTagFloat{ floatSize=fpSize, source=uReg2, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     unaryFloatingPt{ source=uReg1, dest=uReg2, fpOp=fpOp } ::
                     unboxTagFloat{ floatSize=fpSize, source=aReg1, dest=uReg1 } ::
                     arg1Code
@@ -1981,7 +1981,7 @@ struct
                 val target = asTarget destination
                 val fpSize = precisionToFpSize precision
                 val code =
-                    boxTagFloat{ floatSize=fpSize, source=uReg2, dest=target, saveRegs=[] } ::
+                    boxTagFloat{ floatSize=fpSize, source=uReg2, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     convertIntToFloat{ source=uReg1, dest=uReg2, srcSize=polyWordOpSize, destSize=fpSize } ::
                     untagValue{ source=aReg1, dest=uReg1, opSize=polyWordOpSize, isSigned=true } ::
                     arg1Code
@@ -1995,7 +1995,7 @@ struct
                 val uReg1 = newUReg() and uReg2 = newUReg()
                 val target = asTarget destination
                 val code =
-                    boxTagFloat{ floatSize=Double64, source=uReg2, dest=target, saveRegs=[] } ::
+                    boxTagFloat{ floatSize=Double64, source=uReg2, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     unaryFloatingPt{ source=uReg1, dest=uReg2, fpOp=ConvFloatToDble } ::
                     unboxTagFloat{ floatSize=Float32, source=aReg1, dest=uReg1 } ::
                     arg1Code
@@ -2009,7 +2009,7 @@ struct
                 val uReg1 = newUReg() and uReg2 = newUReg()
                 val target = asTarget destination
                 val code =
-                    boxTagFloat{ floatSize=Float32, source=uReg2, dest=target, saveRegs=[] } ::
+                    boxTagFloat{ floatSize=Float32, source=uReg2, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     unaryFloatingPt{ source=uReg1, dest=uReg2, fpOp=ConvDbleToFloat } ::
                     unboxTagFloat{ floatSize=Double64, source=aReg1, dest=uReg1 } ::
                     arg1Code
@@ -2059,7 +2059,7 @@ struct
                 val uReg1 = newUReg() and uReg2 = newUReg()
                 val target = asTarget destination
                 val code =
-                    boxLarge{ source=uReg2, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg2, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     addSubXSP{ source=uReg1, dest=SomeReg uReg2, isAdd=false  } ::
                     untagValue{ source=aReg1, dest=uReg1, isSigned=false, opSize=polyWordOpSize } ::
                     arg1Code
@@ -2536,7 +2536,7 @@ struct
                 val uSizeReg = newUReg() and shiftFReg = newUReg() and lengthWord = newUReg()
                 val absAddr = if is32in64 then newUReg() else target
                 val untagSize = untagValue{source=sizeReg, dest=uSizeReg, opSize=polyWordOpSize, isSigned=false} :: codeFlags
-                val allocateMem = allocateMemoryVariable{ size=uSizeReg, dest=absAddr, saveRegs=[]} :: untagSize
+                val allocateMem = allocateMemoryVariable{ size=uSizeReg, dest=absAddr, saveRegs={gcUpdate=[], noUpdate=[]}} :: untagSize
                 (* Make the length word by first shifting the flags into the length word reg by
                    55 or 23 bits.  This puts the tag bit in the top bit of the size.  Then insert the size
                    into this which will overwrite the flag's tag bit. *)
@@ -2587,7 +2587,7 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 val code =
-                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg3, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     addSubRegister{base=uReg1, shifted=uReg2, dest=SomeReg uReg3, length=OpSize64,
                                    ccRef=NONE, isAdd=true, shift=ShiftNone} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
@@ -2603,7 +2603,7 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 val code =
-                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg3, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     addSubRegister{base=uReg1, shifted=uReg2, dest=SomeReg uReg3, length=OpSize64,
                                    ccRef=NONE, isAdd=false, shift=ShiftNone} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
@@ -2619,7 +2619,7 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 val code =
-                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg3, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     multiplication{kind=MultAdd64, sourceA=ZeroReg, sourceM=uReg1, sourceN=uReg2, dest=uReg3} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
                     unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
@@ -2634,7 +2634,7 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 val code =
-                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg3, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     division{isSigned=false, opSize=OpSize64, dividend=uReg1, divisor=uReg2, dest=uReg3} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
                     unboxLarge{ source=aReg1, dest=uReg1 } :: arg2Code
@@ -2649,7 +2649,7 @@ struct
                 val (arg2Code, aReg2, _) = codeToICodeRev(arg2, context, false, AnyReg, arg1Code)
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg() and uReg4 = newUReg()
                 val code =
-                    boxLarge{ source=uReg4, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg4, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     multiplication{kind=MultSub64, dest=uReg4, sourceM=uReg3, sourceN=uReg2, sourceA=SomeReg uReg1} ::
                     division{isSigned=false, opSize=OpSize64, dividend=uReg1, divisor=uReg2, dest=uReg3} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
@@ -2669,7 +2669,7 @@ struct
                 val uReg1 = newUReg() and uReg2 = newUReg() and uReg3 = newUReg()
                 val logicalOp = case logop of LogicalAnd => LogAnd | LogicalOr => LogOr | LogicalXor => LogXor
                 val code =
-                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg3, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     logicalRegister{base=uReg1, shifted=uReg2, dest=SomeReg uReg3, length=OpSize64,
                                    ccRef=NONE, logOp=logicalOp, shift=ShiftNone} ::
                     unboxLarge{ source=aReg2, dest=uReg2 } ::
@@ -2690,7 +2690,7 @@ struct
                     |   ShiftRightLogical => Arm64ICode.ShiftRightLogical
                     |   ShiftRightArithmetic => Arm64ICode.ShiftRightArithmetic
                 val code =
-                    boxLarge{ source=uReg3, dest=target, saveRegs=[] } ::
+                    boxLarge{ source=uReg3, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     shiftRegister{direction=shiftType, source=uReg1, shift=uReg2, dest=uReg3, opSize=OpSize64 } ::
                     (* The shift amount is a word, not a large word. *)
                     untagValue{ source=aReg2, dest=uReg2, opSize=OpSize32, isSigned=false } ::
@@ -2746,7 +2746,7 @@ struct
                     |   ArithDiv => DivideFP
                     |   _ => raise InternalError "RealArith - unimplemented instruction"
                 val code =
-                    boxTagFloat{ floatSize=fpSize, source=uReg3, dest=target, saveRegs=[] } ::
+                    boxTagFloat{ floatSize=fpSize, source=uReg3, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} } ::
                     binaryFloatingPoint{arg1=uReg1, arg2=uReg2, dest=uReg3, fpOp=fpOp, opSize=fpSize } ::
                     unboxTagFloat{ floatSize=fpSize, source=aReg2, dest=uReg2 } ::
                     unboxTagFloat{ floatSize=fpSize, source=aReg1, dest=uReg1 } ::
@@ -2926,7 +2926,7 @@ struct
                         loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load32, signExtendIndex=true} :: code
                 in
                     (if is32in64
-                     then boxLarge{ source=destReg, dest=target, saveRegs=[] }
+                     then boxLarge{ source=destReg, dest=target, saveRegs={gcUpdate=[], noUpdate=[]} }
                      else tagValue{source=destReg, dest=target, isSigned=false, opSize=OpSize64 (* It becomes 33 bits *)}) ::
                         loadAndStoreWithAddress(regAddr, opWordSize Load32, loadShift Load32, true, loadConstOffset, loadIndexed, codeAddr)
                 end
@@ -2940,7 +2940,7 @@ struct
                     fun loadIndexed(base, index, code) =
                         loadWithIndexedOffset{base=base, dest=destReg, index=index, loadType=Load64, signExtendIndex=true} :: code
                 in
-                    boxLarge{ source=destReg, dest=target, saveRegs=[]} ::
+                    boxLarge{ source=destReg, dest=target, saveRegs={gcUpdate=[], noUpdate=[]}} ::
                         loadAndStoreWithAddress(regAddr, opWordSize Load64, loadShift Load64, true, loadConstOffset, loadIndexed, codeAddr)
                 end
 
@@ -2953,7 +2953,7 @@ struct
                     fun loadIndexed(base, index, code) =
                         loadFPWithIndexedOffset{base=base, dest=destReg, index=index, floatSize=Float32, signExtendIndex=true} :: code
                 in
-                    boxTagFloat{floatSize=Double64, source=convertReg, dest=target, saveRegs=[]} ::
+                    boxTagFloat{floatSize=Double64, source=convertReg, dest=target, saveRegs={gcUpdate=[], noUpdate=[]}} ::
                         unaryFloatingPt{source=destReg, dest=convertReg, fpOp=ConvFloatToDble} ::
                         loadAndStoreWithAddress(regAddr, 4, 0w2, true, loadConstOffset, loadIndexed, codeAddr)
                 end
@@ -2967,7 +2967,7 @@ struct
                     fun loadIndexed(base, index, code) =
                         loadFPWithIndexedOffset{base=base, dest=destReg, index=index, floatSize=Double64, signExtendIndex=true} :: code
                 in
-                    boxTagFloat{floatSize=Double64, source=destReg, dest=target, saveRegs=[]} ::
+                    boxTagFloat{floatSize=Double64, source=destReg, dest=target, saveRegs={gcUpdate=[], noUpdate=[]}} ::
                         loadAndStoreWithAddress(regAddr, 8, 0w3, true, loadConstOffset, loadIndexed, codeAddr)
                 end
 
@@ -2993,7 +2993,7 @@ struct
                     fun loadIndexed(base, index, code) =
                         loadWithIndexedOffset{base=base, dest=ureg, index=index, loadType=polyWordLoadSize, signExtendIndex=false} :: code
                 in
-                    boxLarge{source=ureg, dest=target, saveRegs=[]} ::
+                    boxLarge{source=ureg, dest=target, saveRegs={gcUpdate=[], noUpdate=[]}} ::
                         loadAndStoreWithAddress(regAddr, opWordSize polyWordLoadSize, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
                 end
                 
@@ -3006,7 +3006,7 @@ struct
                     fun loadIndexed(base, index, code) =
                         loadWithIndexedOffset{base=base, dest=ureg, index=index, loadType=Load64, signExtendIndex=false} :: code
                 in
-                    boxLarge{source=ureg, dest=target, saveRegs=[]} ::
+                    boxLarge{source=ureg, dest=target, saveRegs={gcUpdate=[], noUpdate=[]}} ::
                         loadAndStoreWithAddress(regAddr, opWordSize Load64, loadShift polyWordLoadSize, false, loadConstOffset, loadIndexed, codeAddr)
                 end
 
