@@ -150,6 +150,8 @@ struct
                 |   _ => ()
 
             (* Certain instructions are specific as to the real registers. *)
+            (* We cannot use X30 in any of the unpushed registers in a save set. *)
+            fun checkUnsaved{gcUpdate=_, noUpdate} = List.app(fn (PReg r) => addRealConflict(r, GenReg X30)) noUpdate
             val () =
                 case instr of
                     ReturnResultFromFunction{ returnReg=PReg retReg, results, ... } =>
@@ -165,10 +167,11 @@ struct
                 |   BeginHandler { packetReg, ...} =>
                         reserveRegister(regNo packetReg, GenReg X0)
                 
-                |   FunctionCall { dests, regArgs, ...} =>
+                |   FunctionCall { dests, regArgs, saveRegs, ...} =>
                         (* This is only needed if we are saving the registers rather
                            than marking them as "must push". *)
                     let
+                        val () = checkUnsaved saveRegs
                         val () = List.app(fn (PReg pr, r) => reserveRegister(pr, GenReg r)) dests
                         (* The argument registers also conflict.  In order to execute this call we need to load
                            the arguments into specific registers so we can't use them for values that we want after
@@ -180,10 +183,11 @@ struct
                     end
 
                     (* We can't use X30 as the result because it's needed for the return addr if we have to GC. *)
-                |   AllocateMemoryFixed{dest=PReg destReg, ...} => addRealConflict(destReg, GenReg X30)
-                |   AllocateMemoryVariable{dest=PReg destReg, ...} => addRealConflict(destReg, GenReg X30)
-                |   BoxLarge{dest=PReg destReg, ...} => addRealConflict(destReg, GenReg X30)
-                |   BoxTagFloat{dest=PReg destReg, ...} => addRealConflict(destReg, GenReg X30) (* Could exclude floats on native addr. *)
+                |   AllocateMemoryFixed{dest=PReg destReg, saveRegs, ...} => (addRealConflict(destReg, GenReg X30); checkUnsaved saveRegs)
+                |   AllocateMemoryVariable{dest=PReg destReg, saveRegs, ...} => (addRealConflict(destReg, GenReg X30); checkUnsaved saveRegs)
+                |   BoxLarge{dest=PReg destReg, saveRegs, ...} => (addRealConflict(destReg, GenReg X30); checkUnsaved saveRegs)
+                |   BoxTagFloat{dest=PReg destReg, saveRegs, ...} => (addRealConflict(destReg, GenReg X30) (* Could exclude floats on native addr. *); checkUnsaved saveRegs)
+                |   JumpLoop{checkInterrupt=SOME saveRegs, ...} => checkUnsaved saveRegs
 
                 |   _ => ()
         in
