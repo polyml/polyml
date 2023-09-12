@@ -454,6 +454,10 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_RISCV64], [1], [Define if the host is a RISC-V (64-bit)])
             polyarch=interpret
             ;;
+      loongarch64)
+            AC_DEFINE([HOSTARCHITECTURE_LOONGARCH64], [1], [Define if the host is a LoongArch (64-bit)])
+            polyarch=interpret
+            ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 
