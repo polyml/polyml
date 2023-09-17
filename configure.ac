@@ -3,7 +3,7 @@
 
 AC_INIT([Poly/ML],[5.9.1],[polyml AT polyml DOT org],[polyml])
 AM_INIT_AUTOMAKE
-AC_PREREQ(2.69)
+AC_PREREQ([2.71])
 # libtoolize recommends this line.
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -60,7 +60,7 @@ AM_MAINTAINER_MODE
 
 # Check we're in the right directory
 AC_CONFIG_SRCDIR([polyexports.h])
-AC_CONFIG_HEADER([config.h])
+AC_CONFIG_HEADERS([config.h])
 
 
 # Checks for programs.
@@ -100,7 +100,6 @@ fi
 
 AC_FUNC_ALLOCA
 AC_HEADER_DIRENT
-AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
 AC_CHECK_HEADERS([stdio.h time.h fcntl.h float.h limits.h locale.h malloc.h netdb.h netinet/in.h stddef.h])
 AC_CHECK_HEADERS([stdlib.h string.h sys/file.h sys/ioctl.h sys/param.h sys/socket.h sys/systeminfo.h])
@@ -285,7 +284,6 @@ AC_TYPE_OFF_T
 AC_TYPE_PID_T
 AC_TYPE_SIZE_T
 AC_TYPE_SSIZE_T
-AC_HEADER_TIME
 AC_STRUCT_TM
 
 # Check for the various sub-second fields of the stat structure.
