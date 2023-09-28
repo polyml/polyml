@@ -45,6 +45,16 @@ case "${host_os}" in
     sunos* | solaris*)
         AC_SUBST([OSFLAG], [-DSOLARIS])
         ;;
+    haiku*)
+        # Haiku error codes are negative by default; defining
+        # B_USE_POSITIVE_POSIX_ERRORS translates the constants on header
+        # files, and posix_error_mapper takes care of ensuring error
+        # codes are positive at runtime.
+        AC_CHECK_LIB([posix_error_mapper], [_errnop],
+            [AC_SUBST([OSFLAG], [-DB_USE_POSITIVE_POSIX_ERRORS])
+             LIBS="-lposix_error_mapper $LIBS"],
+            [AC_MSG_FAILURE([Cannot link against posix_error_mapper])])
+        ;;
     *mingw* | *cygwin*)
         poly_no_undefined=yes
         poly_use_windowscc=yes
@@ -110,7 +120,7 @@ AC_CHECK_HEADERS([stdarg.h sys/errno.h sys/filio.h sys/mman.h sys/resource.h])
 AC_CHECK_HEADERS([sys/sockio.h sys/stat.h termios.h sys/times.h])
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
 AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h sys/elf_amd64.h asm/elf.h machine/reloc.h i386/elf_machdep.h])
-AC_CHECK_HEADERS([mach-o/x86_64/reloc.h mach-o/arm64/reloc.h])
+AC_CHECK_HEADERS([mach-o/x86_64/reloc.h mach-o/arm64/reloc.h private/system/arch/x86_64/arch_elf.h])
 AC_CHECK_HEADERS([windows.h tchar.h semaphore.h])
 AC_CHECK_HEADERS([stdint.h inttypes.h])
 
@@ -192,9 +202,9 @@ else
             AC_MSG_FAILURE([pthread library is not installed])
         ])
 
-    # Solaris needs -lsocket, -lnsl and -lrt
+    # Solaris needs -lsocket, -lnsl and -lrt, Haiku needs -lnetwork
     AC_SEARCH_LIBS([gethostbyname], [nsl])
-    AC_SEARCH_LIBS([getsockopt], [socket])
+    AC_SEARCH_LIBS([getsockopt], [socket network])
     AC_SEARCH_LIBS([sem_wait], [rt])
 
     # Check for X and Motif headers and libraries
