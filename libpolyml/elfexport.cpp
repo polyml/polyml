@@ -292,6 +292,21 @@
 # endif
 # define HOST_E_FLAGS (HOST_E_FLAGS_FLOAT_ABI | HOST_E_FLAGS_RVE)
 # define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_LOONGARCH64) 
+#  define HOST_E_MACHINE EM_LOONGARCH
+#  define HOST_DIRECT_DATA_RELOC R_LARCH_64
+#  define HOST_DIRECT_FPTR_RELOC R_LARCH_64
+# if defined(__loongarch_soft_float)
+#  define HOST_E_FLAGS_FLOAT_ABI EF_LARCH_ABI_SOFT_FLOAT
+# elif defined(__loongarch_single_float)
+#  define HOST_E_FLAGS_FLOAT_ABI EF_LARCH_ABI_SINGLE_FLOAT
+# elif defined(__loongarch_double_float)
+#  define HOST_E_FLAGS_FLOAT_ABI EF_LARCH_ABI_DOUBLE_FLOAT
+# else
+#  error "Unknown LoongArch float ABI"
+# endif
+# define HOST_E_FLAGS (HOST_E_FLAGS_FLOAT_ABI | EF_LARCH_OBJABI_V1)
+# define USE_RELA 1
 #else
 # error "No support for exporting on this architecture"
 #endif
