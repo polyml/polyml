@@ -1,7 +1,7 @@
 /*
     Title:  heapsizing.cpp - parameters to adjust heap size
 
-    Copyright (c) Copyright David C.J. Matthews 2012, 2015, 2017
+    Copyright (c) Copyright David C.J. Matthews 2012, 2015, 2017, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -317,7 +317,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
 
     if (debugOptions & DEBUG_HEAPSIZE)
     {
-        uintptr_t currentFreeSpace = currentSpaceUsed < heapSpace ? 0: heapSpace - currentSpaceUsed;
+        uintptr_t currentFreeSpace = currentSpaceUsed > heapSpace ? 0: heapSpace - currentSpaceUsed;
         Log("Heap: GC cpu time %2.3f non-gc time %2.3f ratio %0.3f for free space ",
             gc.toSeconds(), nonGc.toSeconds(), lastMajorGCRatio);
         LogSize((lastFreeSpace + currentFreeSpace)/2);
@@ -367,7 +367,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
     // Calculate the new heap size and the predicted cost.
     uintptr_t newHeapSize;
     double cost;
-    bool atTarget = getCostAndSize(newHeapSize, cost, false);
+    bool atTarget = getCostAndSize(newHeapSize, wordsRequired, cost, false);
     // If we have been unable to allocate any more memory we may already
     // be at the limit.
     if (allocationFailedBeforeLastMajorGC && newHeapSize > heapSizeAtStart)
@@ -389,7 +389,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
         // Get the cost and heap size if sharing was enabled.  If we are at the
         // limit, though, we need to work using the size we can achieve.
         if (! allocationFailedBeforeLastMajorGC)
-            (void)getCostAndSize(newHeapSizeWithSharing, costWithSharing, true);
+            (void)getCostAndSize(newHeapSizeWithSharing, wordsRequired, costWithSharing, true);
         else
         {
             newHeapSizeWithSharing = heapSizeAtStart;
@@ -443,12 +443,16 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
     // the available memory and causes paging.  We need to raise the limit carefully.
     // Also, if we use the whole of the heap we may not then be able to allocate
     // new areas in the major heap without going over the limit.  Restrict it to
-    // half of the available heap.
-    uintptr_t nextLimit = highWaterMark + highWaterMark / 32;
+    // half of the available heap.  Add the wordsRequired in case we're trying to
+    // allocate something very big.
+    uintptr_t nextLimit = highWaterMark + highWaterMark / 32 + wordsRequired;
     if (nextLimit > newHeapSize) nextLimit = newHeapSize;
     // gMem.CurrentHeapSize() is the live space size.
     if (gMem.CurrentHeapSize() > nextLimit)
-        gMem.SetSpaceBeforeMinorGC(0); // Run out of space
+    // This previously set the space to zero which resulted in a Run out of space
+    // error.  Instead allow at least this allocation in the hope that everything
+    // will sort itself out.
+        gMem.SetSpaceBeforeMinorGC(wordsRequired);
     else gMem.SetSpaceBeforeMinorGC((nextLimit-gMem.CurrentHeapSize())/2);
 
     lastFreeSpace = newHeapSize - currentSpaceUsed;
@@ -574,15 +578,17 @@ double HeapSizeParameters::costFunction(uintptr_t heapSize, bool withSharing, bo
 // the user GC ratio and false if we minimised the cost
 // TODO: This could definitely be improved although it's not likely to contribute much to
 // the overall cost of a GC.
-bool HeapSizeParameters::getCostAndSize(uintptr_t &heapSize, double &cost, bool withSharing)
+bool HeapSizeParameters::getCostAndSize(uintptr_t &heapSize, uintptr_t wordsRequired, double &cost, bool withSharing)
 {
     bool isBounded = false;
     uintptr_t heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
     // Calculate a new heap size.  We allow a maximum doubling or halving of size.
     // It's probably more important to limit the increase in case we hit paging.
-    uintptr_t sizeMax = heapSpace * 2;
+    // We add the words required to this.  That matters if we have a small heap but need
+    // to allocate a very large array.
+    uintptr_t sizeMax = heapSpace * 2 + wordsRequired;
     if (sizeMax > maxHeapSize) sizeMax = maxHeapSize;
-    uintptr_t sizeMin = heapSpace / 2;
+    uintptr_t sizeMin = heapSpace / 2 + wordsRequired;
     if (sizeMin < minHeapSize) sizeMin = minHeapSize;
     // We mustn't reduce the heap size too far.  If the application does a lot
     // of work with few allocations and particularly if it calls PolyML.fullGC
