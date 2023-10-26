@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: IntInf structure and signature.
-    Copyright   David Matthews 2000, 2016-17
+    Copyright   David Matthews 2000, 2016-17, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -50,8 +50,24 @@ struct
 
     (* Return the position of the highest bit set in the value. *)
     local
-        val isShort: int -> bool = RunCall.isShort
-        fun loadByte(l: LargeInt.int, i: Int.int):word = RunCall.loadByteFromImmutable(l, Word.fromInt i)
+        open LibrarySupport
+        (* Generally the long format arbitrary precision values are little-endian
+           bytes filled to full words with zeros.  The exception is when GMP is
+           used on a big-endian machine in which case we have to treat the bytes
+           as a little-endian sequence of big-endian words. *)
+        (*val chunkSizeCall: unit->word = RunCall.rtsCallFast0 "PolyChunkSizeArbitrary"*) 
+        val chunkSize = if bigEndian then 0w8 else 0w1
+        val chunkMask = chunkSize - 0w1
+
+        fun loadByte(l: LargeInt.int, i: Int.int):word =
+        let
+            val byte = Word.fromInt i
+        in
+            if chunkSize <> 0w1
+            then RunCall.loadByteFromImmutable(l, Word.andb(byte, Word.notb chunkMask) + chunkSize - Word.andb(byte, chunkMask) - 0w1)
+            else RunCall.loadByteFromImmutable(l, byte)
+        end
+
         val segLength: LargeInt.int -> Int.int = Word.toInt o RunCall.memoryCellLength
 
         (* Compute log2 for a short value.  The top bit of i will always be
@@ -76,7 +92,7 @@ struct
     in
         fun log2 (i: int) : Int.int =
             if i <= 0 then raise Domain
-            else if isShort i
+            else if largeIntIsSmall i
             then log2Word(Word.fromLargeInt i, 0w2, 1)
             else (* i is actually a pointer to a byte segment. *)
             let
@@ -86,11 +102,33 @@ struct
             end
     end
 
+    local
     (* These are implemented in the RTS. *)
-    val orb  : int * int -> int = RunCall.rtsCallFull2 "PolyOrArbitrary"
-    and xorb : int * int -> int = RunCall.rtsCallFull2 "PolyXorArbitrary"
-    and andb : int * int -> int = RunCall.rtsCallFull2 "PolyAndArbitrary"
-
+        val orbFn  : int * int -> int = RunCall.rtsCallFull2 "PolyOrArbitrary"
+        and xorbFn : int * int -> int = RunCall.rtsCallFull2 "PolyXorArbitrary"
+        and andbFn : int * int -> int = RunCall.rtsCallFull2 "PolyAndArbitrary"
+        
+        open LibrarySupport
+    in
+        fun orb(i, j) =
+            if (largeIntIsSmall i andalso (largeIntIsSmall i orelse i < 0)) orelse (largeIntIsSmall j andalso j < 0)
+            then (* Both are small or one is small and negative.  If it's negative all the bits in the sign bit and
+                    up will be one. *)
+                Word.toLargeIntX(Word.orb(Word.fromLargeInt i, Word.fromLargeInt j))
+            else orbFn(i, j)
+        
+        fun andb(i, j) =
+            if (largeIntIsSmall i andalso (largeIntIsSmall i orelse i >= 0)) orelse (largeIntIsSmall j andalso j >= 0)
+            then (* All the bits in the sign bit and above will be zero. *)
+                Word.toLargeIntX(Word.andb(Word.fromLargeInt i, Word.fromLargeInt j))
+            else andbFn(i, j)
+        
+        fun xorb(i, j) =
+            if largeIntIsSmall i andalso largeIntIsSmall j
+            then Word.toLargeIntX(Word.xorb(Word.fromLargeInt i, Word.fromLargeInt j))
+            else xorbFn(i, j)
+    end
+    
     (* notb is defined as ~ (i+1) and there doesn't seem to be much advantage
        in implementing it any other way. *)
     fun notb i = ~(i + 1)
@@ -138,7 +176,10 @@ struct
            else <<(i * fullShift, j-maxShift)
     end
     
-    fun ~>> (i: int, j: Word.word) = LargeInt.div(i, pow(2, Word.toInt j))
+    fun ~>> (i: int, j: Word.word) =
+        if LibrarySupport.largeIntIsSmall i
+        then Word.toLargeIntX(Word.~>>(Word.fromLargeInt i, j))
+        else LargeInt.div(i, pow(2, Word.toInt j))
 
     open LargeInt (* Inherit everything from LargeInt.  Do this last because it overrides the overloaded functions. *)
 end;

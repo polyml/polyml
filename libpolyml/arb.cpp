@@ -109,6 +109,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyOrArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyAndArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChunkSizeArbitrary();
 }
 
 static Handle or_longc(TaskData *taskData, Handle,Handle);
@@ -2011,6 +2012,18 @@ POLYUNSIGNED PolyXorArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSI
     else return result->Word().AsUnsigned();
 }
 
+// Return the size of a chunk used forarbitrary precision values.
+// This is needed in big-endian mode when working directly with
+// the large representation.
+POLYUNSIGNED PolyChunkSizeArbitrary()
+{
+#ifdef USE_GMP
+    return(TAGGED(sizeof(mp_limb_t)).AsUnsigned());
+#else
+    return(TAGGED(1).AsUnsigned());
+#endif
+}
+
 struct _entrypts arbitraryPrecisionEPT[] =
 {
     { "PolyAddArbitrary",               (polyRTSFunction)&PolyAddArbitrary},
@@ -2027,6 +2040,7 @@ struct _entrypts arbitraryPrecisionEPT[] =
     { "PolyOrArbitrary",                (polyRTSFunction)&PolyOrArbitrary},
     { "PolyAndArbitrary",               (polyRTSFunction)&PolyAndArbitrary},
     { "PolyXorArbitrary",               (polyRTSFunction)&PolyXorArbitrary},
-
+    { "PolyChunkSizeArbitrary",         (polyRTSFunction)&PolyChunkSizeArbitrary},
+    
     { NULL, NULL} // End of list.
 };
