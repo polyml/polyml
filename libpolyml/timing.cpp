@@ -406,7 +406,7 @@ POLYUNSIGNED PolyTimingConvertDateStuct(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     Handle result = 0;
 
     try {
-        struct  tm time;
+        struct  tm time = {0};
         char* format, buff[2048];
         Handle  resString;
         /* Get the format string. */
