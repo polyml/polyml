@@ -66,23 +66,26 @@ struct
         and andbFn : int * int -> int = RunCall.rtsCallFull2 "PolyAndArbitrary"
         
         open LibrarySupport
+        val largeIntToWord: int -> word = RunCall.unsafeCast
     in
+        (* Handle the short cases using the word operations.
+           The special cases of or-ing with a short negative value
+           and and-ing with a short positive also always produce short
+           results but extracting the low-order word from the long-format
+           argument involves an RTS call so it's not worthwhile. *)
         fun orb(i, j) =
-            if (largeIntIsSmall i andalso (largeIntIsSmall i orelse i < 0)) orelse (largeIntIsSmall j andalso j < 0)
-            then (* Both are small or one is small and negative.  If it's negative all the bits in the sign bit and
-                    up will be one. *)
-                Word.toLargeIntX(Word.orb(Word.fromLargeInt i, Word.fromLargeInt j))
+            if largeIntIsSmall i andalso largeIntIsSmall j
+            then Word.toLargeIntX(Word.orb(largeIntToWord i, largeIntToWord j))
             else orbFn(i, j)
         
         fun andb(i, j) =
-            if (largeIntIsSmall i andalso (largeIntIsSmall i orelse i >= 0)) orelse (largeIntIsSmall j andalso j >= 0)
-            then (* All the bits in the sign bit and above will be zero. *)
-                Word.toLargeIntX(Word.andb(Word.fromLargeInt i, Word.fromLargeInt j))
+            if largeIntIsSmall i andalso largeIntIsSmall j
+            then Word.toLargeIntX(Word.andb(largeIntToWord i, largeIntToWord j))
             else andbFn(i, j)
         
         fun xorb(i, j) =
             if largeIntIsSmall i andalso largeIntIsSmall j
-            then Word.toLargeIntX(Word.xorb(Word.fromLargeInt i, Word.fromLargeInt j))
+            then Word.toLargeIntX(Word.xorb(largeIntToWord i, largeIntToWord j))
             else xorbFn(i, j)
     end
     
