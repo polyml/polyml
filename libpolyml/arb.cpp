@@ -109,7 +109,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyOrArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyAndArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChunkSizeArbitrary();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLog2Arbitrary(POLYUNSIGNED arg);
 }
 
 static Handle or_longc(TaskData *taskData, Handle,Handle);
@@ -2012,17 +2012,51 @@ POLYUNSIGNED PolyXorArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSI
     else return result->Word().AsUnsigned();
 }
 
-// Return the size of a chunk used forarbitrary precision values.
-// This is needed in big-endian mode when working directly with
-// the large representation.
-POLYUNSIGNED PolyChunkSizeArbitrary()
-{
 #ifdef USE_GMP
-    return(TAGGED(sizeof(mp_limb_t)).AsUnsigned());
-#else
-    return(TAGGED(1).AsUnsigned());
-#endif
+static int log2Word(mp_limb_t arg)
+{
+    int result = 0;
+    ASSERT(arg != 0);
+    while (arg >>= 1) result++;
+    return result;
 }
+
+POLYUNSIGNED PolyLog2Arbitrary(POLYUNSIGNED arg)
+{
+    PolyWord w = PolyWord::FromUnsigned(arg);
+    if (w.IsTagged())
+    {
+        POLYUNSIGNED v = w.UnTaggedUnsigned();
+        if (v == 0) return TAGGED(-1).AsUnsigned();
+        return TAGGED(log2Word(v)).AsUnsigned();
+    }
+    mp_size_t n = numLimbs(w) - 1;
+    mp_limb_t last = ((mp_limb_t*)number.AsCodePtr())[n];
+    return TAGGED(n * GMP_LIMB_BITS + log2Word(last).AsUnsigned();
+}
+
+#else
+static int log2Word(POLYUNSIGNED arg)
+{
+    int result = 0;
+    ASSERT(arg != 0);
+    while (arg >>= 1) result++;
+    return result;
+}
+
+POLYUNSIGNED PolyLog2Arbitrary(POLYUNSIGNED arg)
+{
+    PolyWord w = PolyWord::FromUnsigned(arg);
+    if (w.IsTagged())
+    {
+        POLYUNSIGNED v = w.UnTaggedUnsigned();
+        if (v == 0) return TAGGED(-1).AsUnsigned();
+        return TAGGED(log2Word(v)).AsUnsigned();
+    }
+    POLYUNSIGNED n = get_length(w) - 1; // Position of last non-zero byte
+    return TAGGED(n * 8 + log2Word(w.AsCodePtr()[n])).AsUnsigned();
+}
+#endif
 
 struct _entrypts arbitraryPrecisionEPT[] =
 {
@@ -2040,7 +2074,7 @@ struct _entrypts arbitraryPrecisionEPT[] =
     { "PolyOrArbitrary",                (polyRTSFunction)&PolyOrArbitrary},
     { "PolyAndArbitrary",               (polyRTSFunction)&PolyAndArbitrary},
     { "PolyXorArbitrary",               (polyRTSFunction)&PolyXorArbitrary},
-    { "PolyChunkSizeArbitrary",         (polyRTSFunction)&PolyChunkSizeArbitrary},
-    
+    { "PolyLog2Arbitrary",              (polyRTSFunction)&PolyLog2Arbitrary},
+
     { NULL, NULL} // End of list.
 };

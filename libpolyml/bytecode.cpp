@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2015-18, 2020-22.
+    Further development Copyright David C.J. Matthews 2015-18, 2020-23.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -2353,6 +2353,16 @@ enum ByteCodeInterpreter::_returnValue ByteCodeInterpreter::RunInterpreter(TaskD
                 offset += cNum * sizeof(PolyWord);
                 *(--sp) = *(PolyWord*)(pc + offset + 6);
                 pc += 6;
+                break;
+            }
+
+            case EXTINSTR_log2Word:
+            {
+                PolyWord u = sp[0];
+                POLYUNSIGNED p = u.UnTaggedUnsigned();
+                POLYUNSIGNED v = 0;
+                while (p >>= 1) v++;
+                sp[0] = TAGGED(v);
                 break;
             }
 

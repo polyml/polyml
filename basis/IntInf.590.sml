@@ -50,13 +50,56 @@ struct
 
     (* Return the position of the highest bit set in the value. *)
     local
-        val log2Long: int -> Int.int = RunCall.rtsCallFast1 "PolyLog2Arbitrary";
+        open LibrarySupport
+        (* Generally the long format arbitrary precision values are little-endian
+           bytes filled to full words with zeros.  The exception is when GMP is
+           used on a big-endian machine in which case we have to treat the bytes
+           as a little-endian sequence of big-endian words. *)
+        (*val chunkSizeCall: unit->word = RunCall.rtsCallFast0 "PolyChunkSizeArbitrary"*) 
+        val chunkSize = if bigEndian then 0w8 else 0w1
+        val chunkMask = chunkSize - 0w1
+
+        fun loadByte(l: LargeInt.int, i: Int.int):word =
+        let
+            val byte = Word.fromInt i
+        in
+            if chunkSize <> 0w1
+            then RunCall.loadByteFromImmutable(l, Word.andb(byte, Word.notb chunkMask) + chunkSize - Word.andb(byte, chunkMask) - 0w1)
+            else RunCall.loadByteFromImmutable(l, byte)
+        end
+
+        val segLength: LargeInt.int -> Int.int = Word.toInt o RunCall.memoryCellLength
+
+        (* Compute log2 for a short value.  The top bit of i will always be
+           zero since we've checked that it's positive so it will always
+           terminate. *)
+        fun log2Word(i: word, j: word, n: Int.int) =
+            if Word.>(j, i) then n-1
+            else log2Word(i, Word.<<(j, 0w1), n+1)
+
+        (* The value is represented as little-endian byte segment.
+           High-order bytes may be zero so we work back until we
+           find a non-zero byte and then find the bit-position
+           within it. *)
+        fun log2Long(i, byte) =
+        let
+            val b = loadByte(i, byte)
+        in
+            if b = 0w0 then log2Long(i, byte-1)
+            else log2Word(b, 0w2, 1) + byte*8
+        end
+            
     in
         fun log2 (i: int) : Int.int =
             if i <= 0 then raise Domain
-            else if LibrarySupport.largeIntIsSmall i
-            then Word.toInt(LibrarySupport.log2Word(Word.fromLargeInt i))
-            else log2Long i
+            else if largeIntIsSmall i
+            then log2Word(Word.fromLargeInt i, 0w2, 1)
+            else (* i is actually a pointer to a byte segment. *)
+            let
+                val bytes = segLength i * Word.toInt RunCall.bytesPerWord
+            in
+               log2Long(i, bytes-1)
+            end
     end
 
     local

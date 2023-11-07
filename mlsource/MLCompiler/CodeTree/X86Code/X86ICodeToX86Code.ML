@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-21
+    Copyright David C. J. Matthews 2016-21, 23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -628,6 +628,8 @@ struct
             |   instructionUses(SignExtend32To64{source, dest}) = if isUsed dest then argUses source else ()
             |   instructionUses(TouchArgument{source}) = used source
             |   instructionUses PauseCPU = ()
+            |   instructionUses(BitScanReverse{source, ...}) = argUses source
+
 
             (* Depth-first scan. *)
             val visited = Array.array(numBlocks, false)
@@ -1673,6 +1675,15 @@ struct
         |   codeExtended _ ({instr=TouchArgument _, ...}, code) = code (* Don't need to do anything. *)
         
         |   codeExtended _ ({instr=PauseCPU, ...}, code) = PauseForSpinLock :: code
+
+        |   codeExtended _ ({instr=BitScanReverse{source, dest=PReg dReg}, ...}, code) =
+            let
+                val regResult = getAllocatedGenReg dReg
+                val opArg = codeExtArgumentAsGenReg source
+            in
+                BitScanR{opSize=polyWordOpSize, source=opArg, output=regResult } :: code
+            end
+            
 
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 
         

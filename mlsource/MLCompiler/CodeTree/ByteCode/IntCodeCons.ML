@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015-18, 2020-22 David C.J. Matthews
+    Copyright (c) 2015-18, 2020-23 David C.J. Matthews
     
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -301,6 +301,7 @@ struct
     and ext_opcode_storeC64          = 0wxe8
     and ext_opcode_storeCFloat       = 0wxe9
     and ext_opcode_storeCDouble      = 0wxea
+    and ext_opcode_log2Word          = 0wxef
     and ext_opcode_constAddr32_16    = 0wxf0 (* Followed by a 32-bit offset and a 16-bit constant number. *)
     and ext_opcode_jump32            = 0wxf2 (* 32-bit signed jump, forwards or backwards. *)
     and ext_opcode_jump32False       = 0wxf3 (* Test top item. Take 32-bit signed jump if false. *)
@@ -716,6 +717,7 @@ struct
                         |   0wxe8 => printStream "storeC64"
                         |   0wxe9 => printStream "storeCFloat"
                         |   0wxea => printStream "storeCDouble"
+                        |   0wxef => printStream "log2Word"
                         |   0wxf0 => (printDisp(4, "constAddr32_16\t"); printOp (2, ","))
                         |   0wxf2 => printDisp (4, "jump32\t")
                         |   0wxf3 => printDisp (4, "jump32False\t")
@@ -1785,6 +1787,7 @@ struct
     val opcode_storeC64         = SimpleCode [opcode_escape, ext_opcode_storeC64]
     val opcode_storeCFloat      = SimpleCode [opcode_escape, ext_opcode_storeCFloat]
     val opcode_storeCDouble     = SimpleCode [opcode_escape, ext_opcode_storeCDouble]
+    val opcode_log2Word         = SimpleCode [opcode_escape, ext_opcode_log2Word]
     val opcode_storeUntagged    = SimpleCode [opcode_storeUntagged]
     val opcode_storePolyWord    = SimpleCode [opcode_escape, ext_opcode_storePolyWord]
     val opcode_storeNativeWord  = SimpleCode [opcode_escape, ext_opcode_storeNativeWord]

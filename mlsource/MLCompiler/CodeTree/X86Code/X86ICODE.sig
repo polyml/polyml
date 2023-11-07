@@ -1,7 +1,7 @@
 (*
     Signature for the high-level X86 code
 
-    Copyright David C. J. Matthews 2016-21
+    Copyright David C. J. Matthews 2016-21, 23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -374,6 +374,11 @@ sig
 
         (* Pause instruction - used only in mutex spinlock *)
     |   PauseCPU
+
+        (* Find the bit position of the highest bit set. This is always applied
+           to a tagged value so it will return 63/31 if the argument is
+           (tagged) zero. *)
+    |   BitScanReverse of { source: argument, dest: preg }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =

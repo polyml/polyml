@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-22
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -627,6 +627,7 @@ struct
             val () = enterArbitrary("add", ArbArith BuiltIns.ArithAdd, arithType)
             val () = enterArbitrary("subtract", ArbArith BuiltIns.ArithSub, arithType)
             val () = enterArbitrary("multiply", ArbArith BuiltIns.ArithMult, arithType)
+            val () = #enterVal largeIntEnv ("log2Word", mkGvar ("log2Word", Word ->> Word, mkUnaryFn BuiltIns.Log2Word, declInBasis))
         end
 
         local

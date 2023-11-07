@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-22
+    Copyright David C. J. Matthews 2016-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -2144,6 +2144,21 @@ struct
                     argCode
             in
                 (makeBoolResultRev(JE, ccRef, target, code), RegisterArgument target, false)
+            end
+
+        |   codeToICodeUnaryRev({oper=BuiltIns.Log2Word, arg1}, context, _, destination, tailCode) =
+            let
+                val target = asTarget destination
+                val argReg2 = newUReg()
+                val (argCode, argReg1) = codeToPRegRev(arg1, context, tailCode)
+                (* We compute the bit position using a tagged word so we have to subtract one from the result.
+                   This can be combined with the tagging. *)
+                val code =
+                    BlockSimple(LoadEffectiveAddress{base=SOME argReg2, offset= ~1, index=MemIndex1 argReg2, dest=target, opSize=polyWordOpSize}) ::
+                    BlockSimple(BitScanReverse{ source=RegisterArgument argReg1, dest=argReg2}) ::
+                    argCode
+            in
+                (code, RegisterArgument target, false)
             end
 
         and codeToICodeBinaryRev({oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)}, context, _, destination, tailCode) =

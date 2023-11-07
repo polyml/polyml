@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-21
+    Copyright David C. J. Matthews 2016-21, 23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1371,6 +1371,14 @@ struct
                         end
 
                     |   pushRegisters({instr=PauseCPU, ...}, code) = PauseCPU :: code
+
+                    |   pushRegisters({instr=BitScanReverse{source, dest}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSource(source, movePolyWord)
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ BitScanReverse{source=sourceVal, dest=destVal} :: sourceCode @ code
+                        end
 
                     (* Find the common cache state. *)
                     val () = setCommonCacheState(List.map (#cache o asub blockOutput) (asub blockRefs blockNo))

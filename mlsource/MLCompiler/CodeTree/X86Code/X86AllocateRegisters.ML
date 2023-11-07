@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-21
+    Copyright David C. J. Matthews 2016-21, 23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -817,6 +817,12 @@ struct
                 allocateRegister(srcReg, NONE, generalRegisters)
         
         |   registerAllocate({instr=PauseCPU, ...}) = ()
+
+        |   registerAllocate({instr=BitScanReverse{source, dest=PReg destReg, ...}, ...}) =
+            (
+                allocateRegister(destReg, NONE, generalRegisters);
+                allocateArgGeneral source
+            )
 
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

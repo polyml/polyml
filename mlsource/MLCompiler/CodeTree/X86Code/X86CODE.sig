@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016-21
+    Copyright David C. J. Matthews 2010, 2012, 2016-21, 23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -165,6 +165,7 @@ sig
     |   CondMove of { test: branchOps, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
     |   LoadAbsolute of { destination: genReg, value: machineWord }
     |   PauseForSpinLock
+    |   BitScanR of { output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
 
     and jumpSize = JumpSize2 | JumpSize8
 

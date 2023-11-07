@@ -1,7 +1,7 @@
 (*
     Signature for built-in functions
 
-    Copyright David C. J. Matthews 2016, 2018-22
+    Copyright David C. J. Matthews 2016, 2018-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -67,6 +67,7 @@ sig
     |   LockMutex (* Try to lock a mutex, returning true if it succeeded. If it failed the thread must block. *)
     |   TryLockMutex (* Try to lock a mutex but if it failed the thread will not block. *)
     |   UnlockMutex (* Unlock a mutex. Returns false if there are blocked threads that must be woken. *)
+    |   Log2Word (* Return the highest bit set in a word. *)
 
     and precision = PrecSingle | PrecDouble (* Single or double precision floating pt. *)
 

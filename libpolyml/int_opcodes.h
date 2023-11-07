@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development Copyright David C.J. Matthews 2015-18, 2020-22.
+    Further development Copyright David C.J. Matthews 2015-18, 2020-23.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -276,6 +276,7 @@
 #define EXTINSTR_storeC64           0xe8
 #define EXTINSTR_storeCFloat        0xe9
 #define EXTINSTR_storeCDouble       0xea
+#define EXTINSTR_log2Word           0xef
 #define EXTINSTR_constAddr32_16     0xf0
 #define EXTINSTR_jump32            0xf2
 #define EXTINSTR_jump32False       0xf3

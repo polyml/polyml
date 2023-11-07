@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Further development copyright David C.J. Matthews 2016-18,2020-22
+    Further development copyright David C.J. Matthews 2016-18,2020-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -498,6 +498,7 @@ struct
                 |   LockMutex => genOpcode(opcode_lockMutex, cvec)
                 |   TryLockMutex => genOpcode(opcode_tryLockMutex, cvec)
                 |   UnlockMutex => genOpcode(opcode_atomicReset, cvec)
+                |   Log2Word => genOpcode(opcode_log2Word, cvec)
             end
 
         |   BICBinary { oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1, arg2=BICConstnt(w, _) } =>
