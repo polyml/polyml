@@ -210,6 +210,10 @@
 /* Define to 1 if you have the <poll.h> header file. */
 #undef HAVE_POLL_H
 
+/* Define to 1 if you have the <private/system/arch/x86_64/arch_elf.h> header
+   file. */
+#undef HAVE_PRIVATE_SYSTEM_ARCH_X86_64_ARCH_ELF_H
+
 /* Define to 1 if you have the <pthread.h> header file. */
 #undef HAVE_PTHREAD_H
 
@@ -465,6 +469,9 @@
 
 /* Define if the host is an Itanium */
 #undef HOSTARCHITECTURE_IA64
+
+/* Define if the host is a LoongArch (64-bit) */
+#undef HOSTARCHITECTURE_LOONGARCH64
 
 /* Define if the host is a Motorola 68000 */
 #undef HOSTARCHITECTURE_M68K
