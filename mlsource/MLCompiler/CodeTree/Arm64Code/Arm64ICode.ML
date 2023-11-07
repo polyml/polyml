@@ -153,6 +153,10 @@ struct
         (* Shift a word by an amount specified in a register. *)
     |   ShiftRegister of { direction: shiftDirection, dest: 'genReg, source: 'genReg, shift: 'genReg, opSize: opSize }
 
+        (* Count leading zeros.  This could be expand to other single-source instruction but currently that is the
+           only one used. *)
+    |   CountLeadingZeroBits of { dest: 'genReg, source: 'genReg, opSize: opSize }
+
         (* The various forms of multiply all take three arguments and the general form is
            dest = M * N +/- A..   *)
     |   Multiplication of { kind: multKind, dest: 'genReg, sourceA: 'optGenReg, sourceM: 'genReg, sourceN: 'genReg }
@@ -606,6 +610,14 @@ struct
                 stream(arithRepr opSize);
                 stream "\t"; printGenReg source; stream " by ";
                 printGenReg(shift);
+                stream " => "; printGenReg dest
+            )
+
+        |   printICode {stream, printGenReg, ...} (CountLeadingZeroBits{ dest, source, opSize }) =
+            (
+                stream "\tCountLeadingZeroBits";
+                stream(arithRepr opSize);
+                stream "\t"; printGenReg source;
                 stream " => "; printGenReg dest
             )
 

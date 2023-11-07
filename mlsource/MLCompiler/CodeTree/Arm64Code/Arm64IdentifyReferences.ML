@@ -147,6 +147,9 @@ struct
     |   getInstructionState(ShiftRegister{ source, shift, dest, ... }) =
         { sources=[source, shift], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
+    |   getInstructionState(CountLeadingZeroBits{ source, dest, ... }) =
+        { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
     |   getInstructionState(Multiplication{ dest, sourceA, sourceM, sourceN, ... }) =
         { sources=getOptReg sourceA @ [sourceM, sourceN],
           dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }

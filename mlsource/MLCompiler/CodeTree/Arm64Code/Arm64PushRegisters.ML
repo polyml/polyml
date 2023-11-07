@@ -557,6 +557,14 @@ struct
                                                        direction=direction, opSize=opSize} :: op2Code @ op1Code @ code
                         end
 
+                    |   pushRegisters({instr=CountLeadingZeroBits{ dest, source, opSize}, ...}, code) =
+                        let
+                            val (srcVal, op1Code) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ CountLeadingZeroBits { source=srcVal, dest=destVal, opSize=opSize} :: op1Code @ code
+                        end
+
                     |   pushRegisters({instr=Multiplication{ kind, dest, sourceA, sourceM, sourceN }, ...}, code) =
                         let
                             val (srcAVal, srcACode) = mapOptSrc sourceA

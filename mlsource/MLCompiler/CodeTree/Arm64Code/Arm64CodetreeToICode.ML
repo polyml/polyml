@@ -108,6 +108,7 @@ struct
     and binaryFloatingPoint = BlockSimple o BinaryFloatingPoint
     and compareFloatingPoint = BlockSimple o CompareFloatingPoint
     and cpuYield = BlockSimple CPUYield
+    and countLeadingZeroBits = BlockSimple o CountLeadingZeroBits
     val atomicOperation = BlockSimple o AtomicOperation
 
     val shiftConstant = BlockSimple o shiftConstant
@@ -2175,6 +2176,26 @@ struct
                         BlockLabel loopLabel :: baseCode
             in
                 (makeBoolResultRev(CondEqual, ccRef2, target, code), target, false)
+            end
+
+        |   codeToICodeUnaryRev({oper=Log2Word, arg1}, context, _, destination, tailCode) =
+            let
+                val (arg1Code, aReg1, _) = codeToICodeRev(arg1, context, false, AnyReg, tailCode)
+                val uReg1 = newUReg() and pReg1 = newPReg()
+                val target = asTarget destination
+                (* The code counts the number of leading zeros before the first one.
+                   The argument is a tagged, and therefore shifted, word so to get the
+                   logarithm we must subtract that from 62 or 30.  By using a tagged value
+                   and subtracting a shifted but not tagged count we automatically get
+                   a tagged number as the result. *)
+                val bitCount = taggedWord64(Word.toLargeWord(Address.wordSize*0w8-0w2))
+                val code =
+                    arg1Code <::> countLeadingZeroBits { dest=uReg1, source=aReg1, opSize=polyWordOpSize } <::>
+                    loadNonAddressConstant{ source=bitCount, dest=pReg1 } <::>
+                    addSubRegister{ base=pReg1, shifted=uReg1, dest=SomeReg target, ccRef=NONE, isAdd=false,
+                                    length=polyWordOpSize, shift=ShiftLSL 0w1}
+            in
+                (code, target, false)
             end
 
         and codeToICodeBinaryRev({oper=WordComparison{test, isSigned}, arg1, arg2},

@@ -168,6 +168,10 @@ sig
     and unsignedDivide32: {regM: xReg, regN: xReg, regD: xReg} -> instr
     and signedDivide32: {regM: xReg, regN: xReg, regD: xReg} -> instr
 
+    (* Single source operations. *)
+    val countLeadingZeros: {regN: xReg, regD: xReg} -> instr
+    and countLeadingZeros32: {regN: xReg, regD: xReg} -> instr
+
     (* Logical operations on a shifted register, optionally setting the flags. *)
     val andShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr
     and orrShiftedReg: {regM: xReg, regN: xReg, regD: xReg, shift: shiftType} -> instr

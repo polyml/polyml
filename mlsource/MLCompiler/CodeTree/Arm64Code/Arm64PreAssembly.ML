@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021-2 David C. J. Matthews
+    Copyright (c) 2021-3 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -116,6 +116,7 @@ struct
     |   BitField of {immr: word, imms: word, regN: xReg, regD: xReg, opSize: opSize, bitfieldKind: bitfieldKind}
     |   ShiftRegisterVariable of {regM: xReg, regN: xReg, regD: xReg, opSize: opSize, shiftDirection: shiftDirection}
     |   BitwiseLogical of { bits: Word64.word, regN: xReg, regD: xReg, opSize: opSize, setFlags: bool, logOp: logicalOp}
+    |   CountLeadingZeros of {regN: xReg, regD: xReg, opSize: opSize}
         (* Floating point *)
     |   MoveGeneralToFP of { regN: xReg, regD: vReg, floatSize: floatSize}
     |   MoveFPToGeneral of {regN: vReg, regD: xReg, floatSize: floatSize}
@@ -621,6 +622,12 @@ struct
             in
                 toAssembler(rest, code <::> instr{regN=regN, regD=regD, bits=bits})
             end
+
+        |   toAssembler(CountLeadingZeros{ regN, regD, opSize=OpSize32} :: rest, code) =
+                toAssembler(rest, code <::> countLeadingZeros32{regN=regN, regD=regD})
+
+        |   toAssembler(CountLeadingZeros{ regN, regD, opSize=OpSize64} :: rest, code) =
+                toAssembler(rest, code <::> countLeadingZeros{regN=regN, regD=regD})
 
         |   toAssembler(MoveGeneralToFP{ regN, regD, floatSize=Float32} :: rest, code) =
                 toAssembler(rest, code <::> moveGeneralToFloat{regN=regN, regD=regD})

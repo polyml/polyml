@@ -541,6 +541,9 @@ struct
                 (ShiftRegisterVariable{regN=source, regM=shift, regD=dest,
                                               shiftDirection=direction, opSize=opSize}) :: code
 
+        |   codeExtended _ (CountLeadingZeroBits{ dest, source, opSize }, code) =
+                CountLeadingZeros{regN=source, regD=dest, opSize=opSize} :: code
+
         |   codeExtended _ (Multiplication{ kind, dest, sourceA, sourceM, sourceN }, code) =
             let
                 val destReg = dest

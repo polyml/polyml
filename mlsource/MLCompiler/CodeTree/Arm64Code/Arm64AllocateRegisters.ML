@@ -850,6 +850,14 @@ struct
                                                direction=direction, opSize=opSize})
                 end
 
+            |   absToConcrete({instr=CountLeadingZeroBits{ dest, source, opSize}, ...} :: rest, cache, code) =
+                let
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
+                in
+                    absToConcrete(rest, newCache, code <::>
+                        CountLeadingZeroBits { source=getAllocatedGenReg source, dest=destReg, opSize=opSize})
+                end
+
             |   absToConcrete({instr=Multiplication{ kind, dest, sourceA, sourceM, sourceN }, ...} :: rest, cache, code) =
                 let
                     val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
