@@ -2,7 +2,7 @@
     Title:      Arbitrary Precision Package.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Further modification Copyright 2010, 2012, 2015, 2017 David C. J. Matthews
+    Further modification Copyright 2010, 2012, 2015, 2017, 2023 David C. J. Matthews
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -2031,8 +2031,8 @@ POLYUNSIGNED PolyLog2Arbitrary(POLYUNSIGNED arg)
         return TAGGED(log2Word(v)).AsUnsigned();
     }
     mp_size_t n = numLimbs(w) - 1;
-    mp_limb_t last = ((mp_limb_t*)number.AsCodePtr())[n];
-    return TAGGED(n * GMP_LIMB_BITS + log2Word(last).AsUnsigned();
+    mp_limb_t last = ((mp_limb_t*)w.AsCodePtr())[n];
+    return TAGGED(n * GMP_LIMB_BITS + log2Word(last)).AsUnsigned();
 }
 
 #else
