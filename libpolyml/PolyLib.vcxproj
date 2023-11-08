@@ -958,7 +958,6 @@
     <ClCompile Include="process_env.cpp" />
     <ClCompile Include="profiling.cpp" />
     <ClCompile Include="quick_gc.cpp" />
-    <ClCompile Include="realconv.cpp" />
     <ClCompile Include="reals.cpp" />
     <ClCompile Include="rtsentry.cpp" />
     <ClCompile Include="rts_module.cpp" />
@@ -1028,6 +1027,8 @@
     <ClInclude Include="bytecode.h" />
     <ClInclude Include="check_objects.h" />
     <ClInclude Include="gc_progress.h" />
+    <ClInclude Include="ryu\common.h" />
+    <ClInclude Include="ryu\digit_table.h" />
     <ClInclude Include="winguiconsole.h" />
     <ClInclude Include="diagnostics.h" />
     <ClInclude Include="errors.h" />
@@ -1056,7 +1057,6 @@
     <ClInclude Include="processes.h" />
     <ClInclude Include="process_env.h" />
     <ClInclude Include="profiling.h" />
-    <ClInclude Include="realconv.h" />
     <ClInclude Include="reals.h" />
     <ClInclude Include="rtsentry.h" />
     <ClInclude Include="rts_module.h" />

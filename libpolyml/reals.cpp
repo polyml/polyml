@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C.J. Matthews 2011, 2016-19
+    Further work copyright David C.J. Matthews 2011, 2016-19, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -85,7 +85,6 @@
 #include "reals.h"
 #include "arb.h"
 #include "sys.h"
-#include "realconv.h"
 #include "polystring.h"
 #include "save_vec.h"
 #include "rts_module.h"
@@ -104,8 +103,6 @@
 */
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToString(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED mode, POLYUNSIGNED digits);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedFromString(POLYUNSIGNED threadId, POLYUNSIGNED str);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToLongInt(POLYUNSIGNED threadId, POLYUNSIGNED arg);
     POLYEXTERNALSYMBOL double PolyRealSqrt(double arg);
@@ -129,7 +126,6 @@ extern "C" {
     POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(POLYUNSIGNED arg);
     POLYEXTERNALSYMBOL POLYSIGNED PolyGetRoundingMode(POLYUNSIGNED);
     POLYEXTERNALSYMBOL POLYSIGNED PolySetRoundingMode(POLYUNSIGNED);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealSize(POLYUNSIGNED);
     POLYEXTERNALSYMBOL double PolyRealAtan2(double arg1, double arg2);
     POLYEXTERNALSYMBOL double PolyRealPow(double arg1, double arg2);
     POLYEXTERNALSYMBOL double PolyRealCopySign(double arg1, double arg2);
@@ -160,7 +156,6 @@ extern "C" {
     POLYEXTERNALSYMBOL float PolyRealFNextAfter(float arg1, float arg2);
 }
 
-static Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg);
 static Handle Real_convc(TaskData *mdTaskData, Handle str);
 
 
@@ -643,11 +638,7 @@ Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
     }
         
     /* Now convert it */
-#ifdef HAVE_STRTOD
     result = strtod(string_buffer, &finish);
-#else
-    result = poly_strtod(string_buffer, &finish);
-#endif
     // We no longer detect overflow and underflow and instead return
     // (signed) zeros for underflow and (signed) infinities for overflow.
     if (*finish != '\0') raise_exception_string(mdTaskData, EXC_conversion, "");
@@ -835,128 +826,8 @@ POLYSIGNED PolySetRoundingMode(POLYUNSIGNED arg)
     return TAGGED(setrounding((int)PolyWord::FromUnsigned(arg).UnTagged())).AsSigned();
 }
 
-Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
-{
-    double  dx = real_arg(arg);
-    int     decpt, sign;
-    int     mode = get_C_int(mdTaskData, hMode->Word());
-    int     digits = get_C_int(mdTaskData, hDigits->Word());
-    /* Compute the shortest string which gives the required value. */
-    /*  */
-    char *chars = poly_dtoa(dx, mode, digits, &decpt, &sign, NULL);
-    /* We have to be careful in case an allocation causes a
-       garbage collection. */
-    PolyWord pStr = C_string_to_Poly(mdTaskData, chars);
-    poly_freedtoa(chars);
-    Handle ppStr = mdTaskData->saveVec.push(pStr);
-    /* Allocate a triple for the results. */
-    PolyObject *result = alloc(mdTaskData, 3);
-    result->Set(0, ppStr->Word());
-    result->Set(1, TAGGED(decpt));
-    result->Set(2, TAGGED(sign));
-    return mdTaskData->saveVec.push(result);
-}
-
-// Convert boxed real to string.  This should be changed to use an unboxed real argument.
-POLYUNSIGNED PolyRealBoxedToString(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED mode, POLYUNSIGNED digits)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedArg = taskData->saveVec.push(arg);
-    Handle pushedMode = taskData->saveVec.push(mode);
-    Handle pushedDigits = taskData->saveVec.push(digits);
-    Handle result = 0;
-
-    try {
-        result = Real_strc(taskData, pushedDigits, pushedMode, pushedArg);
-    } catch (...) { } // Can this raise an exception?
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
-}
-
-// This used to be used for all the functions.  It now only contains calls
-// used when the Real structure is defined to get the values of constants.
-static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
-{
-    unsigned c = get_C_unsigned(mdTaskData, code->Word());
-    switch (c)
-    {
-        /* Floating point representation queries. */
-#ifdef _DBL_RADIX
-    case 11: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(_DBL_RADIX));
-#else
-    case 11: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(FLT_RADIX));
-#endif
-    case 12: /* Value of precision */ return mdTaskData->saveVec.push(TAGGED(DBL_MANT_DIG));
-    case 13: /* Maximum number */ return real_result(mdTaskData, DBL_MAX);
-    case 14: /* Minimum normalised number. */
-        return real_result(mdTaskData, DBL_MIN);
-
-    case 15: // Minimum number.
-#ifdef DBL_TRUE_MIN
-        return real_result(mdTaskData, DBL_TRUE_MIN);
-#else
-        return real_result(mdTaskData, DBL_MIN*DBL_EPSILON);
-#endif
-
-        // Constants for float (Real32.real)
-    case 30: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(FLT_RADIX));
-    case 31: /* Value of precision */ return mdTaskData->saveVec.push(TAGGED(FLT_MANT_DIG));
-    case 32: /* Maximum number */ return float_result(mdTaskData, FLT_MAX);
-    case 33: /* Minimum normalised number. */
-        return float_result(mdTaskData, FLT_MIN);
-    case 34: // Minimum number.
-#ifdef FLT_TRUE_MIN
-        return float_result(mdTaskData, FLT_TRUE_MIN);
-#else
-        return float_result(mdTaskData, FLT_MIN*FLT_EPSILON);
-#endif
-
-    default:
-        {
-            char msg[100];
-            sprintf(msg, "Unknown real arithmetic function: %d", c);
-            raise_exception_string(mdTaskData, EXC_Fail, msg);
-            return 0;
-        }
-    }
-}
-
-POLYUNSIGNED PolyRealSize(POLYUNSIGNED)
-{
-    // Return the number of bytes for a real.  This is used in PackRealBig/Little.
-    return TAGGED(sizeof(double)).AsUnsigned();
-}
-
-POLYUNSIGNED PolyRealGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POLYUNSIGNED arg)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedCode = taskData->saveVec.push(code);
-    Handle pushedArg = taskData->saveVec.push(arg);
-    Handle result = 0;
-
-    try {
-        result = Real_dispatchc(taskData, pushedArg, pushedCode);
-    } catch (...) { } // If an ML exception is raised
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
-}
-
 struct _entrypts realsEPT[] =
 {
-    { "PolyRealBoxedToString",          (polyRTSFunction)&PolyRealBoxedToString},
-    { "PolyRealGeneral",                (polyRTSFunction)&PolyRealGeneral},
     { "PolyRealBoxedFromString",        (polyRTSFunction)&PolyRealBoxedFromString},
     { "PolyRealBoxedToLongInt",         (polyRTSFunction)&PolyRealBoxedToLongInt},
     { "PolyRealSqrt",                   (polyRTSFunction)&PolyRealSqrt},
@@ -980,7 +851,6 @@ struct _entrypts realsEPT[] =
     { "PolyFloatArbitraryPrecision",    (polyRTSFunction)&PolyFloatArbitraryPrecision},
     { "PolyGetRoundingMode",            (polyRTSFunction)&PolyGetRoundingMode},
     { "PolySetRoundingMode",            (polyRTSFunction)&PolySetRoundingMode},
-    { "PolyRealSize",                   (polyRTSFunction)&PolyRealSize},
     { "PolyRealAtan2",                  (polyRTSFunction)&PolyRealAtan2 },
     { "PolyRealPow",                    (polyRTSFunction)&PolyRealPow },
     { "PolyRealCopySign",               (polyRTSFunction)&PolyRealCopySign },

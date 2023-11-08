@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Commands to build the library
-    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018-21
+    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018-21, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -78,13 +78,12 @@ val () = Bootstrap.use "basis/IntArray.sml";
 val () = Bootstrap.use "basis/RealArray.sml";
 val () = Bootstrap.use "basis/IEEE_REAL.sml";
 val () = Bootstrap.use "basis/IEEEReal.sml";
-val () = Bootstrap.use "basis/RealNumbersAsBits.ML"; (* Support library. *)
-val () = Bootstrap.use "basis/RealToDecimalConversion.ML"; (* Support library. *)
 val () = Bootstrap.use "basis/MATH.sig";
 structure LargeReal = struct type real = real end;
+val () = Bootstrap.use "basis/RealNumbersAsBits.ML";
+val () = Bootstrap.use "basis/RealToDecimalConversion.ML";
 val () = Bootstrap.use "basis/REAL.sig";
-val () = Bootstrap.use "basis/Real.sml";
-val () = Bootstrap.use "basis/Real32.sml";
+val () = Bootstrap.use "basis/Real.sml"; (* Includes Real32. *)
 val () = Bootstrap.use "basis/Time.sml";
 val () = Bootstrap.use "basis/DATE.sig";
 val () = Bootstrap.use "basis/Date.sml";

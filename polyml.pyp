@@ -64,7 +64,6 @@
 	<source name="basis\PrimIO.sml" />
 	<source name="basis\REAL.sig" />
 	<source name="basis\Real.sml" />
-	<source name="basis\Real32.sml" />
 	<source name="basis\RealArray.sml" />
 	<source name="basis\RealNumbersAsBits.ML" />
 	<source name="basis\RealToDecimalConversion.ML" />

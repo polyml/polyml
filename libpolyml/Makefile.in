@@ -146,14 +146,14 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp bitmap.cpp bytecode.cpp \
 	gc_update_phase.cpp gctaskfarm.cpp heapsizing.cpp locking.cpp \
 	memmgr.cpp mpoly.cpp network.cpp objsize.cpp pexport.cpp \
 	poly_specific.cpp polyffi.cpp polystring.cpp process_env.cpp \
-	processes.cpp profiling.cpp quick_gc.cpp realconv.cpp \
-	reals.cpp rts_module.cpp rtsentry.cpp run_time.cpp \
-	save_vec.cpp savestate.cpp scanaddrs.cpp sharedata.cpp \
-	sighandler.cpp statistics.cpp timing.cpp xwindows.cpp \
-	interpreter.cpp arm64.cpp arm64assembly.S x86_dep.cpp \
-	x86assembly_gas64.S x86assembly_gas32.S machoexport.cpp \
-	elfexport.cpp pecoffexport.cpp basicio.cpp unix_specific.cpp \
-	osmemunix.cpp winstartup.cpp winbasicio.cpp winguiconsole.cpp \
+	processes.cpp profiling.cpp quick_gc.cpp reals.cpp \
+	rts_module.cpp rtsentry.cpp run_time.cpp save_vec.cpp \
+	savestate.cpp scanaddrs.cpp sharedata.cpp sighandler.cpp \
+	statistics.cpp timing.cpp xwindows.cpp interpreter.cpp \
+	arm64.cpp arm64assembly.S x86_dep.cpp x86assembly_gas64.S \
+	x86assembly_gas32.S machoexport.cpp elfexport.cpp \
+	pecoffexport.cpp basicio.cpp unix_specific.cpp osmemunix.cpp \
+	winstartup.cpp winbasicio.cpp winguiconsole.cpp \
 	windows_specific.cpp osmemwin.cpp
 @ARCHARM_64_FALSE@@ARCHI386_FALSE@@ARCHX86_64_FALSE@am__objects_1 = interpreter.lo
 @ARCHARM_64_TRUE@@ARCHI386_FALSE@@ARCHX86_64_FALSE@am__objects_1 =  \
@@ -178,8 +178,8 @@ am_libpolyml_la_OBJECTS = arb.lo bitmap.lo bytecode.lo \
 	gctaskfarm.lo heapsizing.lo locking.lo memmgr.lo mpoly.lo \
 	network.lo objsize.lo pexport.lo poly_specific.lo polyffi.lo \
 	polystring.lo process_env.lo processes.lo profiling.lo \
-	quick_gc.lo realconv.lo reals.lo rts_module.lo rtsentry.lo \
-	run_time.lo save_vec.lo savestate.lo scanaddrs.lo sharedata.lo \
+	quick_gc.lo reals.lo rts_module.lo rtsentry.lo run_time.lo \
+	save_vec.lo savestate.lo scanaddrs.lo sharedata.lo \
 	sighandler.lo statistics.lo timing.lo xwindows.lo \
 	$(am__objects_1) $(am__objects_2) $(am__objects_3)
 libpolyml_la_OBJECTS = $(am_libpolyml_la_OBJECTS)
@@ -224,16 +224,16 @@ am__depfiles_remade = ./$(DEPDIR)/arb.Plo ./$(DEPDIR)/arm64.Plo \
 	./$(DEPDIR)/poly_specific.Plo ./$(DEPDIR)/polyffi.Plo \
 	./$(DEPDIR)/polystring.Plo ./$(DEPDIR)/process_env.Plo \
 	./$(DEPDIR)/processes.Plo ./$(DEPDIR)/profiling.Plo \
-	./$(DEPDIR)/quick_gc.Plo ./$(DEPDIR)/realconv.Plo \
-	./$(DEPDIR)/reals.Plo ./$(DEPDIR)/rts_module.Plo \
-	./$(DEPDIR)/rtsentry.Plo ./$(DEPDIR)/run_time.Plo \
-	./$(DEPDIR)/save_vec.Plo ./$(DEPDIR)/savestate.Plo \
-	./$(DEPDIR)/scanaddrs.Plo ./$(DEPDIR)/sharedata.Plo \
-	./$(DEPDIR)/sighandler.Plo ./$(DEPDIR)/statistics.Plo \
-	./$(DEPDIR)/timing.Plo ./$(DEPDIR)/unix_specific.Plo \
-	./$(DEPDIR)/winbasicio.Plo ./$(DEPDIR)/windows_specific.Plo \
-	./$(DEPDIR)/winguiconsole.Plo ./$(DEPDIR)/winstartup.Plo \
-	./$(DEPDIR)/x86_dep.Plo ./$(DEPDIR)/x86assembly_gas32.Plo \
+	./$(DEPDIR)/quick_gc.Plo ./$(DEPDIR)/reals.Plo \
+	./$(DEPDIR)/rts_module.Plo ./$(DEPDIR)/rtsentry.Plo \
+	./$(DEPDIR)/run_time.Plo ./$(DEPDIR)/save_vec.Plo \
+	./$(DEPDIR)/savestate.Plo ./$(DEPDIR)/scanaddrs.Plo \
+	./$(DEPDIR)/sharedata.Plo ./$(DEPDIR)/sighandler.Plo \
+	./$(DEPDIR)/statistics.Plo ./$(DEPDIR)/timing.Plo \
+	./$(DEPDIR)/unix_specific.Plo ./$(DEPDIR)/winbasicio.Plo \
+	./$(DEPDIR)/windows_specific.Plo ./$(DEPDIR)/winguiconsole.Plo \
+	./$(DEPDIR)/winstartup.Plo ./$(DEPDIR)/x86_dep.Plo \
+	./$(DEPDIR)/x86assembly_gas32.Plo \
 	./$(DEPDIR)/x86assembly_gas64.Plo ./$(DEPDIR)/xwindows.Plo
 am__mv = mv -f
 CPPASCOMPILE = $(CCAS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
@@ -462,7 +462,7 @@ AM_CFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall -fno-strict-aliasing
 AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 lib_LTLIBRARIES = libpolyml.la
-libpolyml_la_LDFLAGS = -version-info 14:0:0 $(am__append_1)
+libpolyml_la_LDFLAGS = -version-info 15:0:0 $(am__append_1)
 @ARCHARM_64_FALSE@@ARCHI386_FALSE@@ARCHX86_64_FALSE@ARCHSOURCE = interpreter.cpp
 @ARCHARM_64_TRUE@@ARCHI386_FALSE@@ARCHX86_64_FALSE@ARCHSOURCE = arm64.cpp arm64assembly.S
 @ARCHI386_FALSE@@ARCHX86_64_TRUE@ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
@@ -488,9 +488,9 @@ noinst_HEADERS = \
 	exporter.h \
 	gc.h \
 	gctaskfarm.h \
-    gc_progress.h \
+	gc_progress.h \
 	globals.h \
-    heapsizing.h \
+	heapsizing.h \
 	int_opcodes.h \
 	io_internal.h \
 	locking.h \
@@ -512,7 +512,6 @@ noinst_HEADERS = \
 	process_env.h \
 	processes.h \
 	profiling.h \
-	realconv.h \
 	reals.h \
 	rts_module.h \
 	rtsentry.h \
@@ -527,7 +526,7 @@ noinst_HEADERS = \
 	timing.h \
 	version.h \
 	winguiconsole.h \
-    winstartup.h \
+	winstartup.h \
 	xcall_numbers.h \
 	xwindows.h
 
@@ -561,7 +560,6 @@ libpolyml_la_SOURCES = \
     processes.cpp \
     profiling.cpp \
     quick_gc.cpp \
-    realconv.cpp \
     reals.cpp \
     rts_module.cpp \
     rtsentry.cpp \
@@ -696,7 +694,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/processes.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/profiling.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/quick_gc.Plo@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/realconv.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reals.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/rts_module.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/rtsentry.Plo@am__quote@ # am--include-marker
@@ -958,7 +955,6 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/processes.Plo
 	-rm -f ./$(DEPDIR)/profiling.Plo
 	-rm -f ./$(DEPDIR)/quick_gc.Plo
-	-rm -f ./$(DEPDIR)/realconv.Plo
 	-rm -f ./$(DEPDIR)/reals.Plo
 	-rm -f ./$(DEPDIR)/rts_module.Plo
 	-rm -f ./$(DEPDIR)/rtsentry.Plo
@@ -1062,7 +1058,6 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/processes.Plo
 	-rm -f ./$(DEPDIR)/profiling.Plo
 	-rm -f ./$(DEPDIR)/quick_gc.Plo
-	-rm -f ./$(DEPDIR)/realconv.Plo
 	-rm -f ./$(DEPDIR)/reals.Plo
 	-rm -f ./$(DEPDIR)/rts_module.Plo
 	-rm -f ./$(DEPDIR)/rtsentry.Plo
