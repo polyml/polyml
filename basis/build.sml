@@ -78,10 +78,11 @@ val () = Bootstrap.use "basis/IntArray.sml";
 val () = Bootstrap.use "basis/RealArray.sml";
 val () = Bootstrap.use "basis/IEEE_REAL.sml";
 val () = Bootstrap.use "basis/IEEEReal.sml";
-val () = Bootstrap.use "basis/MATH.sml";
-val () = Bootstrap.use "basis/MATH.sml";
+val () = Bootstrap.use "basis/RealNumbersAsBits.ML"; (* Support library. *)
+val () = Bootstrap.use "basis/RealToDecimalConversion.ML"; (* Support library. *)
+val () = Bootstrap.use "basis/MATH.sig";
 structure LargeReal = struct type real = real end;
-val () = Bootstrap.use "basis/RealSignature.sml";
+val () = Bootstrap.use "basis/REAL.sig";
 val () = Bootstrap.use "basis/Real.sml";
 val () = Bootstrap.use "basis/Real32.sml";
 val () = Bootstrap.use "basis/Time.sml";
