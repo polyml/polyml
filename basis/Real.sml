@@ -528,104 +528,19 @@ struct
         val toString = fmt (StringCvt.GEN NONE)
     end
 
-
+    (* Define these in terms of IEEEReal.scan since that deals with all the
+       special cases. *)
     fun scan getc src =
-    let
-        (* Return a list of digits. *)
-        fun getdigits inp src =
-            case getc src of
-                NONE => (List.rev inp, src)
-              | SOME(ch, src') =>
-                    if ch >= #"0" andalso ch <= #"9"
-                    then getdigits ((Char.ord ch - Char.ord #"0") :: inp) src'
-                    else (List.rev inp, src)
-
-        (* Read an unsigned integer.  Returns NONE if no digits have been read. *)
-        fun getNumber sign digits acc src =
-            case getc src of
-                NONE => if digits = 0 then NONE else SOME(if sign then ~acc else acc, src)
-              | SOME(ch, src') =>
-                    if ch >= #"0" andalso ch <= #"9"
-                    then getNumber sign (digits+1) (acc*10 + Char.ord ch - Char.ord #"0") src'
-                    else if digits = 0 then NONE else SOME(if sign then ~acc else acc, src')
-
-        (* Return the signed exponent. *)
-        fun getExponent src =
-            case getc src of
-                NONE => NONE
-              | SOME(ch, src') =>
-                if ch = #"+"
-                then getNumber false 0 0 src'
-                else if ch = #"-" orelse ch = #"~"
-                then getNumber true 0 0 src'
-                else getNumber false 0 0 src
-
-        fun read_number sign src =
-            case getc src of
-                NONE => NONE
-              | SOME(ch, _) =>
-                    if not (ch >= #"0" andalso ch <= #"9" orelse ch = #".")
-                    then NONE (* Bad *)
-                    else (* Digits or decimal. *)
-                    let
-                        (* Get the digits before the decimal point (if any) *)
-                        val (intPart, srcAfterDigs) = getdigits [] src
-                        (* Get the digits after the decimal point (if any).
-                           If there is a decimal point we only accept it if
-                           there is at least one digit after it. *)
-                        val (decimals, srcAfterMant) =
-                            case getc srcAfterDigs of
-                                NONE => ([], srcAfterDigs)
-                             |  SOME (#".", srcAfterDP) =>
-                                    ( (* Check that the next character is a digit. *)
-                                    case getc srcAfterDP of
-                                        NONE => ([], srcAfterDigs)
-                                      | SOME(ch, _) =>
-                                            if ch >= #"0" andalso ch <= #"9"
-                                            then getdigits [] srcAfterDP
-                                            else ([], srcAfterDigs)
-                                    )
-                             |  SOME (_, _) => ([], srcAfterDigs)
-                        (* The exponent is optional.  If it doesn't form a valid
-                           exponent we return zero as the value and the
-                           continuation is the beginning of the "exponent". *)
-                        val (exponent, srcAfterExp) =
-                            case getc srcAfterMant of
-                                NONE => (0, srcAfterMant)
-                             |  SOME (ch, src'''') =>
-                                if ch = #"e" orelse ch = #"E"
-                                then 
-                                    (
-                                    case getExponent src'''' of
-                                        NONE => (0, srcAfterMant)
-                                      | SOME x => x 
-                                    )
-                                else (0, srcAfterMant)
-                        (* Generate a decimal representation ready for conversion.
-                           We don't bother to strip off leading or trailing zeros. *)
-                        val decimalRep = {class=NORMAL, sign=sign,
-                                digits=List.@(intPart, decimals),
-                                exp=exponent + List.length intPart}
-                    in
-                        case fromDecimal decimalRep of
-                           SOME r => SOME(r, srcAfterExp)
-                         | NONE => NONE
-                    end
-    in
-        case getc src of
+        case IEEEReal.scan getc src of
             NONE => NONE
-         |  SOME(ch, src') =>
-            if Char.isSpace ch (* Skip white space. *)
-            then scan getc src' (* Recurse *)
-            else if ch = #"+" (* Remove the + sign *)
-            then read_number false src'
-            else if ch = #"-" orelse ch = #"~"
-            then read_number true src'
-            else (* See if it's a valid digit. *)
-                read_number false src
-    end
-    
-    val fromString = StringCvt.scanString scan
+        |   SOME (ieer, rest) =>
+            (
+                case fromDecimal ieer of
+                    NONE => NONE
+                |   SOME r => SOME(r, rest)
+            )
+
+    val fromString = Option.composePartial (fromDecimal, IEEEReal.fromString)
 
     (* Converter to real values. This replaces the basic conversion
        function for reals installed in the bootstrap process.
