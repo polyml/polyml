@@ -29,7 +29,6 @@ struct
 
         fun checkAFloat r =
         let
-            val _ = print(RealStr.toString r ^ "\n")
             val exact = RealStr.fmt StringCvt.EXACT r
             val fromExact = valOf (RealStr.fromString exact)
             (* The values must be equal or both nans. *)
