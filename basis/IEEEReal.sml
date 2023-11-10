@@ -166,7 +166,7 @@ struct
 			    case trimLeadingZeros trailing of
 				trimmed => (trimmed, List.length trimmed - List.length trailing)
 			  )
-			  | (x::xs, []) => if (List.last leading) = 0
+			  | (_::_, []) => if (List.last leading) = 0
 					   then (trimTrailingZeros leading, List.length leading)
 					   else (leading, List.length leading)
 			  | ([], _) => (trailing, 0) 
