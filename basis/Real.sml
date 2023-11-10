@@ -844,9 +844,8 @@ struct
         fun floatToDecimal r =
         let
             val {sign, exponent, mantissa} = RealToDecimalConversion.f2decimal r
-            val mantAsLarge = LargeInt.fromInt mantissa
         in
-            (sign, exponent + ndigits mantAsLarge, mantAsLarge)
+            (sign, exponent + ndigits mantissa, mantissa)
         end
 
         fun floatToRealConvert r =

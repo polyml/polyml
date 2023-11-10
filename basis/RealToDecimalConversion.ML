@@ -44,7 +44,7 @@
 *)
 structure RealToDecimalConversion:
 sig
-    val f2decimal: Real32.real -> {sign:bool, exponent: int, LargeInt.mantissa: int}
+    val f2decimal: Real32.real -> {sign:bool, exponent: int, mantissa: LargeInt.int}
     val d2decimal: real -> {sign:bool, exponent: int, mantissa: LargeInt.int}
 end
 =
@@ -277,7 +277,7 @@ struct
         end
     end
     
-    and f2decimal(f: Real32.real): {sign:bool, exponent: int, mantissa: int} =
+    and f2decimal(f: Real32.real): {sign:bool, exponent: int, mantissa: LargeInt.int} =
     let
         open RealNumbersAsBits
         val ieeeSign = floatSignBit f
