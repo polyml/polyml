@@ -64,7 +64,7 @@ struct
         then FixedInt.fromInt(Word.toInt(Word.andb(Word.>>(floatAsWord r, 0w23+0w31), 0wxff)))
         else FixedInt.fromInt(
                 Word8.toInt(Word8.andb(byte(r, 0w0), 0wx7f)) * 2 +
-                    Word8.toInt(Word8.andb(byte(r, 0w1), 0wx80)))
+                    Word8.toInt(Word8.>>(byte(r, 0w1), 0w7)))
 
         fun floatMantissa (r: Real32.real): FixedInt.int =
         if floatIsTagged

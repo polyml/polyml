@@ -5,6 +5,7 @@
     The underlying conversion code was translated from the C version of Ryu.
     That code is Copyright 2018 Ulf Adams and is licensed under the terms of
     the Apache License version 2.0 or Boost Software License, Version 1.0
+
     Boost Software License - Version 1.0 - August 17th, 2003
 
     Boost Licence
@@ -32,24 +33,18 @@
 
     
     The ML translation and related code is copyright David Matthews 2023
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Lesser General Public
-    Licence version 2.1 as published by the Free Software Foundation.
-    
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Lesser General Public Licence for more details.
-    
-    You should have received a copy of the GNU Lesser General Public
-    License along with this library; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    and is released under the Boost Licence.  The remainder of the Poly/ML
+    system is licensed under LGPL.
 *)
-
+(*
+    This uses arbitrary precision arithmetic even for Real32.real (float)
+    values.  It would be possible to do some of the arithmetic using fixed
+    precision integers but that's difficult on 32-bit platforms even for
+    float.
+*)
 structure RealToDecimalConversion:
 sig
-    val f2decimal: Real32.real -> {sign:bool, exponent: int, mantissa: int}
+    val f2decimal: Real32.real -> {sign:bool, exponent: int, LargeInt.mantissa: int}
     val d2decimal: real -> {sign:bool, exponent: int, mantissa: LargeInt.int}
 end
 =
@@ -69,287 +64,201 @@ struct
         if e < 0 orelse e > 3528 then raise General.Domain
         else Int.quot(e * 1217359, 0x80000) (* >> 19 *) + 1
 
-    (* Float conversion. This generally uses int rather than LargeInt.int. *)
     local
-        val floatBias = 127 (* This is the exponent value for 1.0 *)
-        val floatMantissaBits = 24 - 1 (* One bit is implicit *)
-        val floatImplicitBit = Word.toInt(Word.<<(0w1, Word.fromInt floatMantissaBits))
-
-        local
-            (* Keep dividing by 5 while the remainder is zero *)
-            fun p5 count value =
-                if Int.rem(value, 5) <> 0
-                then count
-                else p5 (count+1) (Int.quot(value, 5))
-        in
-            (* Returns whether value is divisible by 5 to the power p. *)
-            fun multipleOfPow5(value, e5) =
-                p5 0 value >= e5
-        end
-
-        fun multipleOfPowerOf2(value, p) =
-            Word.andb(Word.fromInt value, Word.<<(0w1, Word.fromInt p) - 0w1) = 0w0
-
-        local
-            val posTableSize = 47 and invTableSize = 55
-            val pow5BitCount = 61 and pow5InvBitCount = 59
-
-            fun createInvSplit i =
-            let
-                val pow = IntInf.pow(5, i)
-                val pow5len = IntInf.log2 pow + 1 (* Bit length *)
-                val j = pow5len - 1 + pow5InvBitCount
-                val pow5inv = IntInf.<<(1, Word.fromInt j) div pow + 1
-            in
-                pow5inv
-            end
-    
-            and createSplit i =
-            let
-                val pow = IntInf.pow(5, i)
-                val pow5len = IntInf.log2 pow + 1 (* Bit length *)
-                val shift = pow5len-pow5BitCount
-                val pow5 =
-                    if shift < 0
-                    then IntInf.<<(pow, Word.fromInt(~shift))
-                    else IntInf.~>>(pow, Word.fromInt shift)
-            in
-                pow5
-            end
-
-            val floatPow5InvSplit = Vector.tabulate(invTableSize, createInvSplit)
-            and floatPow5Split = Vector.tabulate(posTableSize, createSplit)
-
-            (* We don't have 64-bit arithmetic on 32-bit platforms so this uses arbitrary precision
-               arithmetic.  It might be possible to select different versions depending on the
-               word length.
-               The Java version uses two tables of 31 bit values which would be an
-               alternative. *)
-            fun mulShift32(m: int, factor, shift: int): int =
-                if shift <= 32 then raise Fail "mulShift32"
-                else LargeInt.toInt(IntInf.~>>(factor*LargeInt.fromInt m, Word.fromInt shift))
-        in
-            fun mulPow5InvDivPow2(m, q, j) = mulShift32(m, Vector.sub(floatPow5InvSplit, q), j)
-            and mulPow5DivPow2(m, i, j) = mulShift32(m, Vector.sub(floatPow5Split, i), j)
-
-            val floatPow5InvBitCount = pow5InvBitCount
-            and floatPow5BitCount = pow5BitCount
-        end
-
-        fun f2d(ieeeMantissa, ieeeExponent) =
-        let
-            (* Step 1: Normalise the value.  Normalised values, with exponent non-zero,
-               have an implicit one in the top bit position. *)
-            val (e2, m2) =
-                if ieeeExponent = 0
-                then (1-floatBias-floatMantissaBits-2, ieeeMantissa)
-                else (ieeeExponent-floatBias-floatMantissaBits-2, ieeeMantissa + floatImplicitBit)
-    
-            val isEven = Int.rem(m2, 2) = 0
-            val acceptBounds = isEven
-    
-            (* Step 2: Determine the interval of valid decimal representations (??) *)
-            val mmShift = if ieeeMantissa <> 0 orelse ieeeExponent <= 1 then 1 else 0
-            (* Presumably this is 4* because we've subtracted 2 from e2. *)
-            val mm = 4 * m2 - 1 - mmShift
-            val mv = 4 * m2
-            val mp = 4 * m2 + 2
-
-            (* Step 3: Convert to a decimal power base *)
-            val (e10, vr, vp, vm, lastRemovedDigit, vrIsTrailingZeros, vmIsTrailingZeros) =
-                if e2 >= 0
-                then
-                let
-                    val q = log10Pow2 e2
-                    val e10 = q
-                    val k = floatPow5InvBitCount + pow5bits q - 1
-                    val i = ~e2 + q + k
-                    val vr = mulPow5InvDivPow2(mv, q, i)
-                    and vp = mulPow5InvDivPow2(mp, q, i)
-                    and vm = mulPow5InvDivPow2(mm, q, i)
-                in
-                    if q > 9
-                    then (e10, vr, vp, vm, 0, false, false) (* Too large to be power of 5. *)
-                    else if Int.rem(mv, 5) = 0
-                    then (e10, vr, vp, vm, 0, multipleOfPow5(mv, q), false)
-                    else if acceptBounds
-                    then (e10, vr, vp, vm, 0, false, multipleOfPow5(mm, q))
-                    else (e10, vr, vp - (if multipleOfPow5(mp, q) then 1 else 0), vm, 0, false, false)
-                end
-                else
-                let
-                    val q = log10Pow5(~ e2)
-                    val e10 = q + e2
-                    val i = ~e2 - q
-                    val k = pow5bits i - floatPow5BitCount
-                    val j = q - k
-                    val vr = mulPow5DivPow2(mv, i, j)
-                    and vp = mulPow5DivPow2(mp, i, j)
-                    and vm = mulPow5DivPow2(mm, i, j)
-                    val lastRemovedDigit =
-                        if q <> 0 andalso Int.quot(vp-1, 10) <= Int.quot(vm, 10)
-                        then
-                        let
-                            val j' = q-1-(pow5bits(i+1)-floatPow5BitCount)
-                            val lrm = Int.rem(mulPow5DivPow2(mv, i+1, j'), 10)
-                        in
-                            lrm
-                        end
-                        else 0
-                in
-                    if q <= 1
-                    then if acceptBounds
-                    then (e10, vr, vp, vm, lastRemovedDigit, true, mmShift = 1)
-                    else (e10, vr, vp-1, vm, lastRemovedDigit, true, false)
-                    else if q < 31
-                    then (e10, vr, vp, vm, lastRemovedDigit, multipleOfPowerOf2(mv, q-1), false)
-                    else (e10, vr, vp, vm, lastRemovedDigit, false, false)
-                end
-
-            (* Step 4: Find the shortest decimal representation in the interval *)
-            val (output, removed) =
-                if vmIsTrailingZeros orelse vrIsTrailingZeros
-                then
-                let
-                    fun removeVrDigits(vr, vp, vm, removed, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros) =
-                    let
-                        val vpDiv10 = Int.quot(vp, 10)
-                        and vmDiv10 = Int.quot(vm, 10)
-                    in
-                        if vpDiv10 > vmDiv10
-                        then removeVrDigits(Int.quot(vr, 10), vpDiv10, vmDiv10, removed+1, Int.rem(vr, 10),
-                                          vmIsTrailingZeros andalso Int.rem(vm, 10) = 0,
-                                          vrIsTrailingZeros andalso lastRemovedDigit = 0)
-                        else removeVmDigits(vr, vp, vm, removed, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros)
-                    end
-
-                    and removeVmDigits(vr, vp, vm, removed, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros) =
-                    let
-                    in
-                        if vmIsTrailingZeros andalso Int.rem(vm, 10) = 0
-                        then removeVmDigits(Int.quot(vr, 10), Int.quot(vp, 10), Int.quot(vm, 10), removed+1, Int.rem(vr, 10),
-                                           vmIsTrailingZeros, vrIsTrailingZeros andalso lastRemovedDigit = 0)
-                        else
-                        let
-                            val lastRemovedDigit2 =
-                                if vrIsTrailingZeros andalso lastRemovedDigit = 5 andalso Int.rem(vr, 2) = 0
-                                then 4 (* Don't round up  *)
-                                else lastRemovedDigit
-                            val vrCorrect =
-                                (vr = vm andalso (not acceptBounds orelse not vmIsTrailingZeros)) orelse lastRemovedDigit2 >= 5
-                        in
-                            (vr + (if vrCorrect then 1 else 0), removed)
-                        end
-                    end
-                in
-                    removeVrDigits(vr, vp, vm, 0, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros)
-                end
-                else
-                let
-                    fun removeDigits(vr, vp, vm, removed, lastRemovedDigit) =
-                    let
-                        val vpDiv10 = Int.quot(vp, 10)
-                        and vmDiv10 = Int.quot(vm, 10)
-                    in
-                        if vpDiv10 > vmDiv10
-                        then removeDigits(Int.quot(vr, 10), vpDiv10, vmDiv10, removed+1, Int.rem(vr, 10))
-                        else (vr + (if vr = vm orelse lastRemovedDigit >= 5 then 1 else 0), removed)
-                    end
-                in
-                    removeDigits(vr, vp, vm, 0, lastRemovedDigit)
-                end
-    
-        in
-            {mantissa=output, exponent=e10+removed}
-        end
-
+        (* Keep dividing by 5 while the remainder is zero *)
+        fun p5 count value =
+            if LargeInt.rem(value, 5) <> 0
+            then count
+            else p5 (count+1) (LargeInt.quot(value, 5))
     in
-        fun f2decimal(f: Real32.real): {sign:bool, exponent: int, mantissa: int} =
+        (* Returns whether value is divisible by 5 to the power p. *)
+        fun multipleOfPow5(value, e5) =
+            p5 0 value >= e5
+    end
+
+    fun multipleOfPowerOf2(value, p) =
+        IntInf.andb(value, IntInf.<<(1, Word.fromInt p) - 1) = 0
+
+    local
+        val posTableSize = 326 and invTableSize = 342
+        val pow5BitCount = 125 and pow5InvBitCount = 125
+
+        fun createInvSplit i =
         let
-            open RealNumbersAsBits
-            val ieeeSign = floatSignBit f
-            and ieeeExponent = floatExponent f
-            and ieeeMantissa = floatMantissa f
+            val pow = IntInf.pow(5, i)
+            val pow5len = IntInf.log2 pow + 1 (* Bit length *)
+            val j = pow5len - 1 + pow5InvBitCount
+            val pow5inv = IntInf.<<(1, Word.fromInt j) div pow + 1
         in
-            if ieeeExponent = 255
-            then raise General.Domain (* Infinities and NaN *)
-            else if ieeeExponent = 0 andalso ieeeMantissa = 0
-            then {sign=ieeeSign, exponent=0, mantissa=0}
+            pow5inv
+        end
+
+        and createSplit i =
+        let
+            val pow = IntInf.pow(5, i)
+            val pow5len = IntInf.log2 pow + 1 (* Bit length *)
+            val shift = pow5len-pow5BitCount
+            val pow5 =
+                if shift < 0
+                then IntInf.<<(pow, Word.fromInt(~shift))
+                else IntInf.~>>(pow, Word.fromInt shift)
+        in
+            pow5
+        end
+
+        val doublePow5InvSplit = Vector.tabulate(invTableSize, createInvSplit)
+        and doublePow5Split = Vector.tabulate(posTableSize, createSplit)
+
+        (* We don't have 64-bit arithmetic on 32-bit platforms so this uses arbitrary precision
+           arithmetic.  It might be possible to select different versions depending on the
+           word length.  *)
+        fun mulShift(m: LargeInt.int, factor, shift: int): LargeInt.int =
+            if shift <= 32 then raise Fail "mulShift32"
+            else IntInf.~>>(factor*m, Word.fromInt shift)
+    in
+        fun mulPow5InvDivPow2(m, i, j) = mulShift(m, Vector.sub(doublePow5InvSplit, i), j)
+        and mulPow5DivPow2(m, i, j) = mulShift(m, Vector.sub(doublePow5Split, i), j)
+
+        val doublePow5InvBitCount = pow5InvBitCount
+        and doublePow5BitCount = pow5BitCount
+    end
+
+    (* Apart from the first step the remainder is common. *)
+    fun computeDecimal(e2: int, m2: LargeInt.int, mmShift, acceptBounds) =
+    let
+        (* Step 2: Determine the interval of valid decimal representations *)
+        val mm = 4 * m2 - 1 - mmShift
+        val mv = 4 * m2
+        val mp = 4 * m2 + 2
+
+        (* Step 3: Convert to a decimal power base *)
+        val (e10, vr, vp, vm, lastRemovedDigit, vrIsTrailingZeros, vmIsTrailingZeros) =
+            if e2 >= 0
+            then
+            let
+                val q = log10Pow2 e2
+                val e10 = q
+                val k = doublePow5InvBitCount + pow5bits q - 1
+                val i = ~e2 + q + k
+                val vr = mulPow5InvDivPow2(mv, q, i)
+                and vp = mulPow5InvDivPow2(mp, q, i)
+                and vm = mulPow5InvDivPow2(mm, q, i)
+            in
+                if q > 21
+                then (e10, vr, vp, vm, 0, false, false) (* Too large to be power of 5. *)
+                else if LargeInt.rem(mv, 5) = 0
+                then (e10, vr, vp, vm, 0, multipleOfPow5(mv, q), false)
+                else if acceptBounds
+                then (e10, vr, vp, vm, 0, false, multipleOfPow5(mm, q))
+                else (e10, vr, vp - (if multipleOfPow5(mp, q) then 1 else 0), vm, 0, false, false)
+            end
             else
             let
-                val {mantissa, exponent} = f2d(FixedInt.toInt ieeeMantissa, FixedInt.toInt ieeeExponent)
+                val q = log10Pow5(~ e2)
+                val e10 = q + e2
+                val i = ~e2 - q
+                val k = pow5bits i - doublePow5BitCount
+                val j = q - k
+                val vr = mulPow5DivPow2(mv, i, j)
+                and vp = mulPow5DivPow2(mp, i, j)
+                and vm = mulPow5DivPow2(mm, i, j)
+                val lastRemovedDigit =
+                    if q <> 0 andalso LargeInt.quot(vp-1, 10) <= LargeInt.quot(vm, 10)
+                    then
+                    let
+                        val j' = q-1-(pow5bits(i+1)-doublePow5BitCount)
+                        val lrm = LargeInt.rem(mulPow5DivPow2(mv, i+1, j'), 10)
+                    in
+                        lrm
+                    end
+                    else 0
             in
-                {sign=ieeeSign, exponent=exponent, mantissa=mantissa}
+                if q <= 1
+                then if acceptBounds
+                then (e10, vr, vp, vm, lastRemovedDigit, true, mmShift = 1)
+                else (e10, vr, vp-1, vm, lastRemovedDigit, true, false)
+                else if q < 31
+                then (e10, vr, vp, vm, lastRemovedDigit, multipleOfPowerOf2(mv, q-1), false)
+                else (e10, vr, vp, vm, lastRemovedDigit, false, false)
             end
-        end
+
+        (* Step 4: Find the shortest decimal representation in the interval *)
+        val (output, removed) =
+            if vmIsTrailingZeros orelse vrIsTrailingZeros
+            then
+            let
+                fun removeVrDigits(vr, vp, vm, removed, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros) =
+                let
+                    val vpDiv10 = LargeInt.quot(vp, 10)
+                    and vmDiv10 = LargeInt.quot(vm, 10)
+                in
+                    if vpDiv10 > vmDiv10
+                    then removeVrDigits(LargeInt.quot(vr, 10), vpDiv10, vmDiv10, removed+1, LargeInt.rem(vr, 10),
+                                      vmIsTrailingZeros andalso LargeInt.rem(vm, 10) = 0,
+                                      vrIsTrailingZeros andalso lastRemovedDigit = 0)
+                    else removeVmDigits(vr, vp, vm, removed, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros)
+                end
+
+                and removeVmDigits(vr, vp, vm, removed, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros) =
+                let
+                in
+                    if vmIsTrailingZeros andalso LargeInt.rem(vm, 10) = 0
+                    then removeVmDigits(LargeInt.quot(vr, 10), LargeInt.quot(vp, 10), LargeInt.quot(vm, 10), removed+1, LargeInt.rem(vr, 10),
+                                       vmIsTrailingZeros, vrIsTrailingZeros andalso lastRemovedDigit = 0)
+                    else
+                    let
+                        val lastRemovedDigit2 =
+                            if vrIsTrailingZeros andalso lastRemovedDigit = 5 andalso LargeInt.rem(vr, 2) = 0
+                            then 4 (* Don't round up  *)
+                            else lastRemovedDigit
+                        val vrCorrect =
+                            (vr = vm andalso (not acceptBounds orelse not vmIsTrailingZeros)) orelse lastRemovedDigit2 >= 5
+                    in
+                        (vr + (if vrCorrect then 1 else 0), removed)
+                    end
+                end
+            in
+                removeVrDigits(vr, vp, vm, 0, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros)
+            end
+            else
+            let
+                fun removeDigits(vr, vp, vm, removed, lastRemovedDigit) =
+                let
+                    val vpDiv10 = LargeInt.quot(vp, 10)
+                    and vmDiv10 = LargeInt.quot(vm, 10)
+                in
+                    if vpDiv10 > vmDiv10
+                    then removeDigits(LargeInt.quot(vr, 10), vpDiv10, vmDiv10, removed+1, LargeInt.rem(vr, 10))
+                    else (vr + (if vr = vm orelse lastRemovedDigit >= 5 then 1 else 0), removed)
+                end
+            in
+                removeDigits(vr, vp, vm, 0, lastRemovedDigit)
+            end
+
+    in
+        {mantissa=output, exponent=e10+removed}
     end
-    
-    (* Double conversion *)
-    local
-        val doubleBias = 1023 (* This is the exponent value for 1.0 *)
-        val doubleMantissaBits = 53 - 1 (* One bit is implicit *)
-        val doubleImplicitBit = IntInf.<<(1, Word.fromInt doubleMantissaBits)
 
-        local
-            (* Keep dividing by 5 while the remainder is zero *)
-            fun p5 count value =
-                if LargeInt.rem(value, 5) <> 0
-                then count
-                else p5 (count+1) (LargeInt.quot(value, 5))
-        in
-            (* Returns whether value is divisible by 5 to the power p. *)
-            fun multipleOfPow5(value, e5) =
-                p5 0 value >= e5
-        end
+    val doubleBias = 1023 (* This is the exponent value for 1.0 *)
+    val doubleMantissaBits = 53 - 1 (* One bit is implicit *)
+    val doubleImplicitBit = IntInf.<<(1, Word.fromInt doubleMantissaBits)
 
-        fun multipleOfPowerOf2(value, p) =
-            IntInf.andb(value, IntInf.<<(1, Word.fromInt p) - 1) = 0
+    val floatBias = 127 (* This is the exponent value for 1.0 *)
+    val floatMantissaBits = 24 - 1 (* One bit is implicit *)
+    val floatImplicitBit = Word.toInt(Word.<<(0w1, Word.fromInt floatMantissaBits))
 
-        local
-            val posTableSize = 326 and invTableSize = 342
-            val pow5BitCount = 125 and pow5InvBitCount = 125
-
-            fun createInvSplit i =
-            let
-                val pow = IntInf.pow(5, i)
-                val pow5len = IntInf.log2 pow + 1 (* Bit length *)
-                val j = pow5len - 1 + pow5InvBitCount
-                val pow5inv = IntInf.<<(1, Word.fromInt j) div pow + 1
-            in
-                pow5inv
-            end
-    
-            and createSplit i =
-            let
-                val pow = IntInf.pow(5, i)
-                val pow5len = IntInf.log2 pow + 1 (* Bit length *)
-                val shift = pow5len-pow5BitCount
-                val pow5 =
-                    if shift < 0
-                    then IntInf.<<(pow, Word.fromInt(~shift))
-                    else IntInf.~>>(pow, Word.fromInt shift)
-            in
-                pow5
-            end
-
-            val doublePow5InvSplit = Vector.tabulate(invTableSize, createInvSplit)
-            and doublePow5Split = Vector.tabulate(posTableSize, createSplit)
-
-            (* We don't have 64-bit arithmetic on 32-bit platforms so this uses arbitrary precision
-               arithmetic.  It might be possible to select different versions depending on the
-               word length.  *)
-            fun mulShift(m: LargeInt.int, factor, shift: int): LargeInt.int =
-                if shift <= 32 then raise Fail "mulShift32"
-                else IntInf.~>>(factor*m, Word.fromInt shift)
-        in
-            fun mulPow5InvDivPow2(m, i, j) = mulShift(m, Vector.sub(doublePow5InvSplit, i), j)
-            and mulPow5DivPow2(m, i, j) = mulShift(m, Vector.sub(doublePow5Split, i), j)
-
-            val doublePow5InvBitCount = pow5InvBitCount
-            and doublePow5BitCount = pow5BitCount
-        end
-
-        fun d2d(ieeeMantissa: LargeInt.int, ieeeExponent: int) =
+    fun d2decimal(r: real): {sign:bool, exponent: int, mantissa: LargeInt.int} =
+    let
+        open RealNumbersAsBits
+        val ieeeSign = doubleSignBit r
+        and ieeeExponent = doubleExponent r
+        and ieeeMantissa = doubleMantissa r
+    in
+        if ieeeExponent = 2047
+        then raise General.Domain (* Infinities and NaN *)
+        else if ieeeExponent = 0 andalso ieeeMantissa = 0
+        then {sign=ieeeSign, exponent=0, mantissa=0}
+        else
         let
             (* Step 1: Normalise the value.  Normalised values, with exponent non-zero,
                have an implicit one in the top bit position. *)
@@ -358,143 +267,47 @@ struct
                 then (1-doubleBias-doubleMantissaBits-2, ieeeMantissa)
                 else (ieeeExponent-doubleBias-doubleMantissaBits-2, ieeeMantissa + doubleImplicitBit)
 
-            val isEven = LargeInt.rem(m2, 2) = 0
-            val acceptBounds = isEven
+            val acceptBounds = LargeInt.rem(m2, 2) = 0
 
-            (* Step 2: Determine the interval of valid decimal representations *)
             val mmShift =
                 if ieeeMantissa <> 0 orelse ieeeExponent <= 1 then 1 else 0
-
-            val mm = 4 * m2 - 1 - mmShift
-            val mv = 4 * m2
-            val mp = 4 * m2 + 2
-
-            (* Step 3: Convert to a decimal power base *)
-            val (e10, vr, vp, vm, lastRemovedDigit, vrIsTrailingZeros, vmIsTrailingZeros) =
-                if e2 >= 0
-                then
-                let
-                    val q = log10Pow2 e2
-                    val e10 = q
-                    val k = doublePow5InvBitCount + pow5bits q - 1
-                    val i = ~e2 + q + k
-                    val vr = mulPow5InvDivPow2(mv, q, i)
-                    and vp = mulPow5InvDivPow2(mp, q, i)
-                    and vm = mulPow5InvDivPow2(mm, q, i)
-                in
-                    if q > 21
-                    then (e10, vr, vp, vm, 0, false, false) (* Too large to be power of 5. *)
-                    else if LargeInt.rem(mv, 5) = 0
-                    then (e10, vr, vp, vm, 0, multipleOfPow5(mv, q), false)
-                    else if acceptBounds
-                    then (e10, vr, vp, vm, 0, false, multipleOfPow5(mm, q))
-                    else (e10, vr, vp - (if multipleOfPow5(mp, q) then 1 else 0), vm, 0, false, false)
-                end
-                else
-                let
-                    val q = log10Pow5(~ e2)
-                    val e10 = q + e2
-                    val i = ~e2 - q
-                    val k = pow5bits i - doublePow5BitCount
-                    val j = q - k
-                    val vr = mulPow5DivPow2(mv, i, j)
-                    and vp = mulPow5DivPow2(mp, i, j)
-                    and vm = mulPow5DivPow2(mm, i, j)
-                    val lastRemovedDigit =
-                        if q <> 0 andalso LargeInt.quot(vp-1, 10) <= LargeInt.quot(vm, 10)
-                        then
-                        let
-                            val j' = q-1-(pow5bits(i+1)-doublePow5BitCount)
-                            val lrm = LargeInt.rem(mulPow5DivPow2(mv, i+1, j'), 10)
-                        in
-                            lrm
-                        end
-                        else 0
-                in
-                    if q <= 1
-                    then if acceptBounds
-                    then (e10, vr, vp, vm, lastRemovedDigit, true, mmShift = 1)
-                    else (e10, vr, vp-1, vm, lastRemovedDigit, true, false)
-                    else if q < 31
-                    then (e10, vr, vp, vm, lastRemovedDigit, multipleOfPowerOf2(mv, q-1), false)
-                    else (e10, vr, vp, vm, lastRemovedDigit, false, false)
-                end
-
-            (* Step 4: Find the shortest decimal representation in the interval *)
-            val (output, removed) =
-                if vmIsTrailingZeros orelse vrIsTrailingZeros
-                then
-                let
-                    fun removeVrDigits(vr, vp, vm, removed, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros) =
-                    let
-                        val vpDiv10 = LargeInt.quot(vp, 10)
-                        and vmDiv10 = LargeInt.quot(vm, 10)
-                    in
-                        if vpDiv10 > vmDiv10
-                        then removeVrDigits(LargeInt.quot(vr, 10), vpDiv10, vmDiv10, removed+1, LargeInt.rem(vr, 10),
-                                          vmIsTrailingZeros andalso LargeInt.rem(vm, 10) = 0,
-                                          vrIsTrailingZeros andalso lastRemovedDigit = 0)
-                        else removeVmDigits(vr, vp, vm, removed, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros)
-                    end
-
-                    and removeVmDigits(vr, vp, vm, removed, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros) =
-                    let
-                    in
-                        if vmIsTrailingZeros andalso LargeInt.rem(vm, 10) = 0
-                        then removeVmDigits(LargeInt.quot(vr, 10), LargeInt.quot(vp, 10), LargeInt.quot(vm, 10), removed+1, LargeInt.rem(vr, 10),
-                                           vmIsTrailingZeros, vrIsTrailingZeros andalso lastRemovedDigit = 0)
-                        else
-                        let
-                            val lastRemovedDigit2 =
-                                if vrIsTrailingZeros andalso lastRemovedDigit = 5 andalso LargeInt.rem(vr, 2) = 0
-                                then 4 (* Don't round up  *)
-                                else lastRemovedDigit
-                            val vrCorrect =
-                                (vr = vm andalso (not acceptBounds orelse not vmIsTrailingZeros)) orelse lastRemovedDigit2 >= 5
-                        in
-                            (vr + (if vrCorrect then 1 else 0), removed)
-                        end
-                    end
-                in
-                    removeVrDigits(vr, vp, vm, 0, lastRemovedDigit, vmIsTrailingZeros, vrIsTrailingZeros)
-                end
-                else
-                let
-                    fun removeDigits(vr, vp, vm, removed, lastRemovedDigit) =
-                    let
-                        val vpDiv10 = LargeInt.quot(vp, 10)
-                        and vmDiv10 = LargeInt.quot(vm, 10)
-                    in
-                        if vpDiv10 > vmDiv10
-                        then removeDigits(LargeInt.quot(vr, 10), vpDiv10, vmDiv10, removed+1, LargeInt.rem(vr, 10))
-                        else (vr + (if vr = vm orelse lastRemovedDigit >= 5 then 1 else 0), removed)
-                    end
-                in
-                    removeDigits(vr, vp, vm, 0, lastRemovedDigit)
-                end
-
+            val {mantissa, exponent} = computeDecimal(FixedInt.toInt e2, m2, mmShift, acceptBounds)
         in
-            {mantissa=output, exponent=e10+removed}
+            {sign=ieeeSign, exponent=exponent, mantissa=mantissa}
         end
+    end
+    
+    and f2decimal(f: Real32.real): {sign:bool, exponent: int, mantissa: int} =
+    let
+        open RealNumbersAsBits
+        val ieeeSign = floatSignBit f
+        and ieeeExponent = floatExponent f
+        and ieeeMantissa = floatMantissa f
     in
-        fun d2decimal(r: real): {sign:bool, exponent: int, mantissa: LargeInt.int} =
+        if ieeeExponent = 255
+        then raise General.Domain (* Infinities and NaN *)
+        else if ieeeExponent = 0 andalso ieeeMantissa = 0
+        then {sign=ieeeSign, exponent=0, mantissa=0}
+        else
         let
-            open RealNumbersAsBits
-            val ieeeSign = doubleSignBit r
-            and ieeeExponent = doubleExponent r
-            and ieeeMantissa = doubleMantissa r
+            (* Step 1: Normalise the value.  Normalised values, with exponent non-zero,
+               have an implicit one in the top bit position. *)
+            val (e2, m2) =
+                if ieeeExponent = 0
+                then (1-floatBias-floatMantissaBits-2, ieeeMantissa)
+                else (ieeeExponent-floatBias-floatMantissaBits-2, ieeeMantissa + floatImplicitBit)
+
+            val isEven = Int.rem(m2, 2) = 0
+            val acceptBounds = isEven
+
+            (* Step 2: Determine the interval of valid decimal representations (??) *)
+            val mmShift = if ieeeMantissa <> 0 orelse ieeeExponent <= 1 then 1 else 0
+            
+            val {mantissa, exponent} = computeDecimal(FixedInt.toInt e2, FixedInt.toLarge m2, mmShift, acceptBounds)
         in
-            if ieeeExponent = 2047
-            then raise General.Domain (* Infinities and NaN *)
-            else if ieeeExponent = 0 andalso ieeeMantissa = 0
-            then {sign=ieeeSign, exponent=0, mantissa=0}
-            else
-            let
-                val {mantissa, exponent} = d2d(ieeeMantissa, FixedInt.toInt ieeeExponent)
-            in
-                {sign=ieeeSign, exponent=exponent, mantissa=mantissa}
-            end
+            {sign=ieeeSign, exponent=exponent, mantissa=mantissa}
         end
+
     end
     
 end;
