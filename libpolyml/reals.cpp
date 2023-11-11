@@ -105,6 +105,7 @@
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedFromString(POLYUNSIGNED threadId, POLYUNSIGNED str);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToLongInt(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealDoubleToString(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED kind, POLYUNSIGNED prec);
     POLYEXTERNALSYMBOL double PolyRealSqrt(double arg);
     POLYEXTERNALSYMBOL double PolyRealSin(double arg);
     POLYEXTERNALSYMBOL double PolyRealCos(double arg);
@@ -666,6 +667,69 @@ POLYUNSIGNED PolyRealBoxedFromString(POLYUNSIGNED threadId, POLYUNSIGNED str)
     else return result->Word().AsUnsigned();
 }
 
+// Format a double-precision number using the format specifier.
+POLYUNSIGNED PolyRealDoubleToString(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED kind, POLYUNSIGNED prec)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle pushedPrec = taskData->saveVec.push(prec);
+    Handle result = 0;
+    char* format;
+    switch (UNTAGGED(PolyWord::FromUnsigned(kind)))
+    {
+    case 'e': case 'E': format = "%1.*E"; break;
+    case 'f': case 'F': format = "%1.*F"; break;
+    default: format = "%1.*G"; break;
+    }
+
+    try {
+        int sSize = 100;
+        do {
+            TempCString buffer((char*)malloc(sSize));
+            if ((char*)buffer == NULL)
+                raise_fail(taskData, "Insufficient memory for string");
+            int precision = get_C_int(taskData, pushedPrec->Word());
+            int retSize = snprintf((char* const)buffer, sSize, format, precision, real_arg(pushedArg));
+            if (retSize < 0)
+                raise_fail(taskData, "Conversion error");
+            if (retSize <= sSize)
+            {
+                char* p = buffer;
+                char* q = buffer;
+                // Replace - by ~ and remove any + signs. Suppress leading zeros after E.
+                bool suppressZero = false;
+                while (*p)
+                {
+                    char c = *p++;
+                    switch (c)
+                    {
+                    case '-': *q++ = '~'; break;
+                    case '+': break;
+                    case 'e': case 'E': *q++ = 'E'; suppressZero = true; break;
+                    case '0': if (!suppressZero) *q++ = '0'; break;
+                    default: *q++ = c; suppressZero = false; break;
+                    }
+                }
+                if (suppressZero) *q++ = '0'; // We need at least one digit
+                *q = 0;
+                result = taskData->saveVec.push(C_string_to_Poly(taskData, buffer));
+                break;
+            }
+            sSize *= 2;
+        } while (true);
+        
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 #if defined(__SOFTFP__)
 // soft-float lacks proper rounding mode support
 // While some systems will support fegetround/fesetround, it will have no
@@ -830,6 +894,7 @@ struct _entrypts realsEPT[] =
 {
     { "PolyRealBoxedFromString",        (polyRTSFunction)&PolyRealBoxedFromString},
     { "PolyRealBoxedToLongInt",         (polyRTSFunction)&PolyRealBoxedToLongInt},
+    { "PolyRealDoubleToString",         (polyRTSFunction)&PolyRealDoubleToString},
     { "PolyRealSqrt",                   (polyRTSFunction)&PolyRealSqrt},
     { "PolyRealSin",                    (polyRTSFunction)&PolyRealSin},
     { "PolyRealCos",                    (polyRTSFunction)&PolyRealCos},

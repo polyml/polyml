@@ -22,18 +22,6 @@ local
     local
         open StringCvt
     in
-        (* Zero padding.  Handle some of the shorter case to avoid too much concatentation. *)
-        fun padZero 0 = ""
-        |   padZero 1 = "0"
-        |   padZero 2 = "00"
-        |   padZero 3 = "000"
-        |   padZero 4 = "0000"
-        |   padZero 5 = "00000"
-        |   padZero 6 = "000000"
-        |   padZero 7 = "0000000"
-        |   padZero 8 = "00000000"
-        |   padZero n = if n < 0 then raise Size else "00000000" ^ padZero(n-8)
-
         (* How many digits will the mantissa take?  It's possible
            to unroll this loop since the maximum for float is 9 and for
            double is 17.  We want to avoid long-format arbitrary precision
@@ -50,16 +38,6 @@ local
             else if i >= 100 then 3
             else if i >= 10 then 2
             else 1
-
-        (* Power of ten - unroll a few values. *)
-        fun powerTen 0 = 1
-        |   powerTen 1 = 10
-        |   powerTen 2 = 100
-        |   powerTen 3 = 1000
-        |   powerTen 4 = 10000
-        |   powerTen 5 = 100000
-        |   powerTen 6 = 1000000
-        |   powerTen n = if n < 0 then raise Size else 1000000 * powerTen(n-6)
 
         local
             (* PolyRealDoubleToDecimal returns an arbitrary precision number for
@@ -80,8 +58,6 @@ local
                 end
         end
 
-        datatype realConv = RCSpecial of string | RCNormal of bool * int * LargeInt.int
-
         (* Common functions to convert real/Real32.real to strings *)
         (* "ndigs" is the number of digits after the decimal point.
            For sciFmt that means that "ndigs+1" digits are produced.
@@ -89,145 +65,24 @@ local
            "ndigs" is 0 the value is printed as an integer without
            any ".0".
            In both cases ndigs > 0. *)
-        (* These functions start with the exact representation and round if necessary by
-           adding 0.5 to the last digit.  Since the exact representation is itself a
-           rounded value it's possible that this could result in double rounding. *)
         fun exactFmt convert r =
-            case convert r of
-                RCSpecial s => s
-            |   RCNormal (sign, exponent, mantissa) =>
+        let
+            val {sign, exponent, mantissa, class} = convert r
+            open IEEEReal
+        in
+            case class of
+                NAN => "nan"
+            |   INF => if sign then "~inf" else "inf"
+            |   _ (* NORMAL, ZERO, SUBNORMAL *) =>
                 let
                     val s = if sign then "~" else ""
+                    val exponent = exponent + ndigits mantissa
                     val (e, exp) =
                         if exponent = 0 then ("", "") else ("E", Int.toString exponent)
                 in
                     String.concat[s, "0.", LargeInt.toString mantissa, e, exp]
                 end
-
-        and fixFmt convert ndigs r =
-            case convert r of
-                RCSpecial s => s
-            |   RCNormal (sign, expo, mant) =>
-                let
-                    val signString = if sign then "~" else ""
-                    val digits = ndigits mant
-
-                    val (roundedMantissa, exp) =
-                        if digits-expo <= ndigs
-                        then (* No rounding necessary *) (mant, expo)
-                        else
-                        let
-                            val tens = powerTen(digits-expo-ndigs)
-                            val rounded = (mant + tens div 2) div tens
-                        in
-                            (* If we have rounded to zero the exponent is zero.
-                               We may also have rounded up a value of 9.999
-                               to add an extra digit. *)
-                            if rounded = 0
-                            then (0, 0)
-                            else (rounded, ndigits rounded - ndigs)
-                        end
-
-                    val mantissa = LargeInt.toString roundedMantissa
-                    val mantLength = String.size mantissa
-                in
-                    if ndigs = 0
-                    then (* No decimal point or anything after. *)
-                    (
-                        if exp >= mantLength
-                        then String.concat[signString, mantissa, padZero(exp-mantLength)]
-                        else if exp <= 0
-                        then String.concat[signString, "0"]
-                        else String.concat[signString, String.substring(mantissa, 0, exp)]
-                    )
-                    else if exp >= mantLength
-                    then String.concat[signString, mantissa, padZero(exp-mantLength), ".", padZero ndigs]
-                    else if exp <= 0
-                    then String.concat[signString, "0.", padZero(~exp), mantissa,
-                                        padZero(ndigs-mantLength+exp)]
-                    else String.concat[signString, String.substring(mantissa, 0, exp), ".",
-                            String.substring(mantissa, exp, mantLength-exp), padZero(ndigs-mantLength+exp)]
-                end            
-
-        (* sciFmt - always produces ndigs+1 significant digits *)
-        and sciFmt convert ndigs r =
-            case convert r of
-                RCSpecial s => s
-            |   RCNormal (sign, expo, mant) =>
-                let
-                    val signString = if sign then "~" else ""
-                    val digits = ndigits mant
-                    val (roundedMantissa, exp) =
-                        if digits <= ndigs+1
-                        then (* No rounding necessary *) (mant, expo-1)
-                        else
-                        let
-                            val tens = powerTen(digits-ndigs-1)
-                            val rounded = mant + tens div 2
-                            (* It's possible that this could increase the number of
-                               digits and hence the exponent.  e.g. 9.9999 -> 10.0 *)
-                        in
-                            (rounded, expo + ndigits rounded - digits - 1)
-                        end
-                    val mantissa = LargeInt.toString roundedMantissa
-                    val mantLength = String.size mantissa
-                in
-                    if ndigs = 0
-                    then (* No decimal point or anything after. *)
-                        String.concat[signString, String.substring(mantissa, 0, 1), "E", Int.toString exp]
-                    else String.concat[signString, String.substring(mantissa, 0, 1), ".",
-                        String.substring(mantissa, 1, Int.min(mantLength-1, ndigs)),
-                        padZero(Int.max(0, ndigs-mantLength+1)), "E", Int.toString exp]
-                end
-
-        (* General format - produces up to ndigs of output.  No trailing zeros are
-           produced except for any zeros before the DP.  We also produce one ".0" if
-           necessary so that the result looks like a real number rather than an int. *)
-        and genFmt convert ndigs r =
-            case convert r of
-                RCSpecial s => s
-            |   RCNormal (sign, expo, mant) =>
-                let
-                    val signString = if sign then "~" else ""
-                    val digits = ndigits mant
-                    
-                    val (mantissa, exp) =
-                        if digits <= ndigs
-                        then (* No rounding necessary *) (LargeInt.toString mant, expo-1)
-                        else
-                        let
-                            val tens = powerTen(digits-ndigs)
-                            val rounded = mant + tens div 2
-                            (* It's possible that this could increase the number of
-                               digits and hence the exponent.  e.g. 9.9999 -> 10.0 
-                               We need to remove any trailing zeros produced. *)
-                            val asString = LargeInt.toString rounded
-                            fun stripZeros 0 = 1
-                            |   stripZeros n =
-                                    if String.sub(asString, n-1) = #"0"
-                                    then stripZeros(n-1) else n
-                            val sLength = stripZeros ndigs
-                        in
-                            (String.substring(asString, 0, sLength), expo + ndigits rounded - digits - 1)
-                        end
-                    val mantLength = String.size mantissa (* <= ndigs *)
-                in
-                    if exp > ndigs orelse exp < ~5 (* Use E format.  No zero padding. *)
-                    then
-                    (
-                        if mantLength = 1
-                        then String.concat[signString, String.substring(mantissa, 0, 1), "E", Int.toString exp]
-                        else String.concat[signString, String.substring(mantissa, 0, 1), ".",
-                                String.substring(mantissa, 1, mantLength-1), "E", Int.toString exp]
-                    )
-                    else (* Fixed format *)
-                        if exp >= mantLength
-                    then String.concat[signString, mantissa, padZero(exp+1-mantLength), ".0"]
-                    else if exp+1 <= 0
-                    then String.concat[signString, "0.", padZero(~exp-1), mantissa]
-                    else String.concat[signString, String.substring(mantissa, 0, exp+1), ".",
-                            if mantLength = exp+1 then "0" else String.substring(mantissa, exp+1, mantLength-exp-1)]
-                end
+        end
 
         (* Note: The definition says, reasonably, that negative values
            for the number of digits raises Size.  The tests also check
@@ -489,33 +344,25 @@ struct
             )
     end
         
-    local
-        (* We need to treat "nan" specially because IEEEReal.toString
-           is defined to return ~nan for negative nans whereas Real.fmt is defined always
-           to return "nan".  This looks like an inconsistency in the definition but we follow
-           it. *)
-        fun realToRealConvert r =
-        let
-            val {sign, exponent, mantissa, class} = RealToDecimalConversion.doubleToMinimal r
-        in
-            case class of
-                NAN => RCSpecial "nan"
-            |   INF => if sign then RCSpecial "~inf" else RCSpecial "inf"
-            |   _ (* NORMAL, ZERO, SUBNORMAL *) =>
-                     RCNormal(sign, exponent + ndigits mantissa, mantissa)
-        end
+    fun toDecimal r =
+    let
+        val {sign, exponent, mantissa, class} = RealToDecimalConversion.doubleToMinimal r
     in
-        fun toDecimal r =
-        let
-            val {sign, exponent, mantissa, class} = RealToDecimalConversion.doubleToMinimal r
-        in
-            { class = class, sign = sign, exp = exponent + ndigits mantissa, digits = digitList(mantissa, []) }
-        end
-
-        val fmt = fmtFunction { sciFmt=sciFmt realToRealConvert, fixFmt=fixFmt realToRealConvert,
-                                genFmt=genFmt realToRealConvert, exactFmt=exactFmt realToRealConvert }
-        val toString = fmt (StringCvt.GEN NONE)
+        { class = class, sign = sign, exp = exponent + ndigits mantissa, digits = digitList(mantissa, []) }
     end
+
+    local
+        val dble2str = RunCall.rtsCallFull3 "PolyRealDoubleToString" : real * char * int -> string
+
+        fun fixFmt ndigs r = dble2str(r, #"F", ndigs)
+        and sciFmt ndigs r = dble2str(r, #"E", ndigs)
+        and genFmt ndigs r = dble2str(r, #"G", ndigs)
+    in
+        val fmt = fmtFunction { sciFmt=sciFmt, fixFmt=fixFmt,
+                                genFmt=genFmt, exactFmt=exactFmt RealToDecimalConversion.doubleToMinimal }
+    end
+
+    val toString = fmt (StringCvt.GEN NONE)
 
     (* Define these in terms of IEEEReal.scan since that deals with all the
        special cases. *)
@@ -826,27 +673,24 @@ struct
 
     val fromString = StringCvt.scanString scan
 
-    local
-        fun floatToRealConvert r =
-        let
-            val {sign, exponent, mantissa, class} = RealToDecimalConversion.floatToMinimal r
-        in
-            case class of
-                NAN => RCSpecial "nan"
-            |   INF => if sign then RCSpecial "~inf" else RCSpecial "inf"
-            |   _ (* NORMAL, ZERO, SUBNORMAL *) =>
-                     RCNormal(sign, exponent + ndigits mantissa, mantissa)
-        end
+    fun toDecimal r =
+    let
+        val {sign, exponent, mantissa, class} = RealToDecimalConversion.floatToMinimal r
     in
-        fun toDecimal r =
-        let
-            val {sign, exponent, mantissa, class} = RealToDecimalConversion.floatToMinimal r
-        in
-            { class = class, sign = sign, exp = exponent + ndigits mantissa, digits = digitList(mantissa, []) }
-        end
+        { class = class, sign = sign, exp = exponent + ndigits mantissa, digits = digitList(mantissa, []) }
+    end
 
-        val fmt = fmtFunction { sciFmt=sciFmt floatToRealConvert, fixFmt=fixFmt floatToRealConvert,
-                                genFmt=genFmt floatToRealConvert, exactFmt=exactFmt floatToRealConvert }
+    local
+        (* Exact format must be defined specially for Real32.real but we can use the double conversion
+           for the other functions. *)
+        val dble2str = RunCall.rtsCallFull3 "PolyRealDoubleToString" : real * char * int -> string
+
+        fun fixFmt ndigs r = dble2str(Real32.toLarge r, #"F", ndigs)
+        and sciFmt ndigs r = dble2str(Real32.toLarge r, #"E", ndigs)
+        and genFmt ndigs r = dble2str(Real32.toLarge r, #"G", ndigs)
+    in
+        val fmt = fmtFunction { sciFmt=sciFmt, fixFmt=fixFmt,
+                                genFmt=genFmt, exactFmt=exactFmt RealToDecimalConversion.floatToMinimal }
     end
 
     val toString = fmt (StringCvt.GEN NONE)
