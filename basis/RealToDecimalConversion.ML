@@ -44,8 +44,10 @@
 *)
 structure RealToDecimalConversion:
 sig
-    val f2decimal: Real32.real -> {sign:bool, exponent: int, mantissa: LargeInt.int}
-    val d2decimal: real -> {sign:bool, exponent: int, mantissa: LargeInt.int}
+    val floatToMinimal:
+        Real32.real -> {sign:bool, exponent: int, mantissa: LargeInt.int, class: IEEEReal.float_class}
+    val doubleToMinimal:
+        real -> {sign:bool, exponent: int, mantissa: LargeInt.int, class: IEEEReal.float_class}
 end
 =
 struct
@@ -247,17 +249,18 @@ struct
     val floatMantissaBits = 24 - 1 (* One bit is implicit *)
     val floatImplicitBit = Word.toInt(Word.<<(0w1, Word.fromInt floatMantissaBits))
 
-    fun d2decimal(r: real): {sign:bool, exponent: int, mantissa: LargeInt.int} =
+    fun doubleToMinimal(r: real) =
     let
-        open RealNumbersAsBits
+        open RealNumbersAsBits IEEEReal
         val ieeeSign = doubleSignBit r
         and ieeeExponent = doubleExponent r
         and ieeeMantissa = doubleMantissa r
     in
         if ieeeExponent = 2047
-        then raise General.Domain (* Infinities and NaN *)
+        then  (* Non-finite *)
+            {sign=ieeeSign, exponent=0, mantissa=0, class=if ieeeMantissa = 0 then INF else NAN}
         else if ieeeExponent = 0 andalso ieeeMantissa = 0
-        then {sign=ieeeSign, exponent=0, mantissa=0}
+        then {sign=ieeeSign, exponent=0, mantissa=0, class=ZERO}
         else
         let
             (* Step 1: Normalise the value.  Normalised values, with exponent non-zero,
@@ -273,21 +276,22 @@ struct
                 if ieeeMantissa <> 0 orelse ieeeExponent <= 1 then 1 else 0
             val {mantissa, exponent} = computeDecimal(FixedInt.toInt e2, m2, mmShift, acceptBounds)
         in
-            {sign=ieeeSign, exponent=exponent, mantissa=mantissa}
+            {sign=ieeeSign, exponent=exponent, mantissa=mantissa, class=if ieeeExponent = 0 then SUBNORMAL else NORMAL}
         end
     end
     
-    and f2decimal(f: Real32.real): {sign:bool, exponent: int, mantissa: LargeInt.int} =
+    and floatToMinimal(f: Real32.real) =
     let
-        open RealNumbersAsBits
+        open RealNumbersAsBits IEEEReal
         val ieeeSign = floatSignBit f
         and ieeeExponent = floatExponent f
         and ieeeMantissa = floatMantissa f
     in
         if ieeeExponent = 255
-        then raise General.Domain (* Infinities and NaN *)
+        then (* Non-finite *)
+            {sign=ieeeSign, exponent=0, mantissa=0, class=if ieeeMantissa = 0 then INF else NAN}
         else if ieeeExponent = 0 andalso ieeeMantissa = 0
-        then {sign=ieeeSign, exponent=0, mantissa=0}
+        then {sign=ieeeSign, exponent=0, mantissa=0, class=ZERO}
         else
         let
             (* Step 1: Normalise the value.  Normalised values, with exponent non-zero,
@@ -305,7 +309,7 @@ struct
             
             val {mantissa, exponent} = computeDecimal(FixedInt.toInt e2, FixedInt.toLarge m2, mmShift, acceptBounds)
         in
-            {sign=ieeeSign, exponent=exponent, mantissa=mantissa}
+            {sign=ieeeSign, exponent=exponent, mantissa=mantissa, class=if ieeeExponent = 0 then SUBNORMAL else NORMAL}
         end
 
     end

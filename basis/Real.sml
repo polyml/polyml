@@ -490,37 +490,26 @@ struct
     end
         
     local
-        fun realToDecimal r =
-        let
-            val {sign, exponent, mantissa} = RealToDecimalConversion.d2decimal r
-        in
-            (sign, exponent + ndigits mantissa, mantissa)
-        end
-
         (* We need to treat "nan" specially because IEEEReal.toString
            is defined to return ~nan for negative nans whereas Real.fmt is defined always
            to return "nan".  This looks like an inconsistency in the definition but we follow
            it. *)
         fun realToRealConvert r =
-            if isNan r then RCSpecial "nan"
-            else if not (isFinite r) then if signBit r then RCSpecial "~inf" else RCSpecial "inf"
-            else RCNormal(realToDecimal r)
+        let
+            val {sign, exponent, mantissa, class} = RealToDecimalConversion.doubleToMinimal r
+        in
+            case class of
+                NAN => RCSpecial "nan"
+            |   INF => if sign then RCSpecial "~inf" else RCSpecial "inf"
+            |   _ (* NORMAL, ZERO, SUBNORMAL *) =>
+                     RCNormal(sign, exponent + ndigits mantissa, mantissa)
+        end
     in
         fun toDecimal r =
         let
-            val sign = signBit r
-            val kind = class r
+            val {sign, exponent, mantissa, class} = RealToDecimalConversion.doubleToMinimal r
         in
-            case kind of
-                ZERO => { class = ZERO, sign = sign, digits=[], exp = 0 }
-              | INF  => { class = INF, sign = sign, digits=[], exp = 0 }
-              | NAN => { class = NAN, sign = sign, digits=[], exp = 0 }
-              | _ => (* NORMAL/SUBNORMAL *)
-            let
-                val (sign, exponent, mantissa) = realToDecimal r
-            in
-                { class = kind, sign = sign, exp = exponent, digits = digitList(mantissa, []) }
-            end
+            { class = class, sign = sign, exp = exponent + ndigits mantissa, digits = digitList(mantissa, []) }
         end
 
         val fmt = fmtFunction { sciFmt=sciFmt realToRealConvert, fixFmt=fixFmt realToRealConvert,
@@ -837,33 +826,24 @@ struct
 
     val fromString = StringCvt.scanString scan
 
-    (* toDecimal: This is defined to return the shortest sequence so converting
-       it to double and then using Real.toDecimal gives the wrong result.
-       This now uses Ryu code specifically for 32-bit floats. *)
     local
-        fun floatToDecimal r =
-        let
-            val {sign, exponent, mantissa} = RealToDecimalConversion.f2decimal r
-        in
-            (sign, exponent + ndigits mantissa, mantissa)
-        end
-
         fun floatToRealConvert r =
-            if isNan r then RCSpecial "nan"
-            else if not (isFinite r) then if signBit r then RCSpecial "~inf" else RCSpecial "inf"
-            else RCNormal(floatToDecimal r)
+        let
+            val {sign, exponent, mantissa, class} = RealToDecimalConversion.floatToMinimal r
+        in
+            case class of
+                NAN => RCSpecial "nan"
+            |   INF => if sign then RCSpecial "~inf" else RCSpecial "inf"
+            |   _ (* NORMAL, ZERO, SUBNORMAL *) =>
+                     RCNormal(sign, exponent + ndigits mantissa, mantissa)
+        end
     in
         fun toDecimal r =
-        case class r of
-            ZERO => { class = ZERO, sign = signBit r, digits=[], exp = 0 }
-        |   INF  => { class = INF, sign = signBit r, digits=[], exp = 0 }
-        |   NAN => { class = NAN, sign = signBit r, digits=[], exp = 0 }
-        |   kind =>
-            let
-                val (sign, exponent, mantissa) = floatToDecimal r
-            in
-                { class = kind, sign = sign, exp = exponent, digits = digitList(mantissa, []) }
-            end
+        let
+            val {sign, exponent, mantissa, class} = RealToDecimalConversion.floatToMinimal r
+        in
+            { class = class, sign = sign, exp = exponent + ndigits mantissa, digits = digitList(mantissa, []) }
+        end
 
         val fmt = fmtFunction { sciFmt=sciFmt floatToRealConvert, fixFmt=fixFmt floatToRealConvert,
                                 genFmt=genFmt floatToRealConvert, exactFmt=exactFmt floatToRealConvert }
