@@ -677,7 +677,7 @@ POLYUNSIGNED PolyRealDoubleToString(POLYUNSIGNED threadId, POLYUNSIGNED arg, POL
     Handle pushedArg = taskData->saveVec.push(arg);
     Handle pushedPrec = taskData->saveVec.push(prec);
     Handle result = 0;
-    char* format;
+    const char* format;
     switch (UNTAGGED(PolyWord::FromUnsigned(kind)))
     {
     case 'e': case 'E': format = "%1.*E"; break;
