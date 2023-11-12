@@ -42,6 +42,73 @@
     precision integers but that's difficult on 32-bit platforms even for
     float.
 *)
+(* RealNumbersAsBits is defined in Poly/ML using a faster version.  This
+   is provided as an example. *)
+(*
+structure RealNumbersAsBits:
+sig
+    (* Floats.  The mantissa will fit in a short int in both 32- and 64-bits . *)
+    val floatSignBit: Real32.real -> bool
+    and floatExponent: Real32.real -> FixedInt.int
+    and floatMantissa: Real32.real -> FixedInt.int
+    
+    (* Doubles.  The mantissa is too large for a fixed int in 32-bit mode. *)
+    val doubleSignBit: real -> bool
+    and doubleExponent: real -> FixedInt.int
+    and doubleMantissa: real -> LargeInt.int
+end =
+struct
+    local
+        open PackReal32Big Word8Vector
+        val word8ToFix = FixedInt.fromInt o Word8.toInt
+    in
+        fun floatSignBit r = sub(toBytes r, 0) >= 0w128
+
+        fun floatExponent r =
+        let
+            val v = toBytes r
+        in
+            word8ToFix(Word8.andb(sub(v, 0), 0wx7f)) * 2 +
+                word8ToFix(Word8.>>(sub(v, 1), 0w7))
+        end
+
+        fun floatMantissa r =
+        let
+            val v = toBytes r
+        in
+            (word8ToFix(Word8.andb(sub(v, 1), 0wx7f)) * 256 +
+                word8ToFix(sub(v, 2))) * 256 +
+                    word8ToFix(sub(v, 3))
+        end
+    end
+
+    local
+        open PackRealBig Word8Vector
+        val word8ToFix = FixedInt.fromInt o Word8.toInt
+    in
+        fun doubleSignBit r = sub(toBytes r, 0) >= 0w128
+
+        fun doubleExponent r =
+        let
+            val v = toBytes r
+        in
+            word8ToFix(Word8.andb(sub(v, 0), 0wx7f)) * 16 +
+                word8ToFix(Word8.>>(sub(v, 1), 0w4))
+        end
+        
+        fun doubleMantissa r =
+        let
+            fun fromBytes (i, byte, acc) =
+                if i = 0 then 0
+                else if i = 1 then Word8.toLargeInt(Word8.andb(byte, 0wx0f))
+                else acc*256 + Word8.toLargeInt byte
+        in
+            foldli fromBytes 0 (toBytes r)
+        end
+    end
+    
+end;
+*)
 structure RealToDecimalConversion:
 sig
     val floatToMinimal:
