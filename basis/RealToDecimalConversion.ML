@@ -243,12 +243,12 @@ struct
 
     val doubleBias = 1023 (* This is the exponent value for 1.0 *)
     val doubleMantissaBits = 53 - 1 (* One bit is implicit *)
-    val doubleImplicitBit = IntInf.<<(1, Word.fromInt doubleMantissaBits)
+    val doubleImplicitBit = IntInf.<<(1, Word.fromInt(FixedInt.toInt doubleMantissaBits))
 
     val floatBias = 127 (* This is the exponent value for 1.0 *)
     val floatMantissaBits = 24 - 1 (* One bit is implicit *)
-    val floatImplicitBit = Word.toInt(Word.<<(0w1, Word.fromInt floatMantissaBits))
-
+    val floatImplicitBit = FixedInt.fromLarge(IntInf.<<(1, Word.fromInt(FixedInt.toInt floatMantissaBits)))
+    
     fun doubleToMinimal(r: real) =
     let
         open RealNumbersAsBits IEEEReal
@@ -301,7 +301,7 @@ struct
                 then (1-floatBias-floatMantissaBits-2, ieeeMantissa)
                 else (ieeeExponent-floatBias-floatMantissaBits-2, ieeeMantissa + floatImplicitBit)
 
-            val isEven = Int.rem(m2, 2) = 0
+            val isEven = FixedInt.rem(m2, 2) = 0
             val acceptBounds = isEven
 
             (* Step 2: Determine the interval of valid decimal representations (??) *)
