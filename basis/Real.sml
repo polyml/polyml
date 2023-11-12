@@ -18,6 +18,11 @@
 *)
 
 local
+    open RealNumbersAsBits
+
+    val floatMaxFiniteExp: FixedInt.int = 254
+    and doubleMaxFiniteExp: FixedInt.int = 2046
+
     (* Functions common to Real and Real32 *)
     local
         open StringCvt
@@ -84,32 +89,61 @@ local
                 end
         end
 
+        local
+            val dble2str = RunCall.rtsCallFull3 "PolyRealDoubleToString" : real * char * int -> string
+        in
+            fun nonExactFmt (toDble, fmt, ndigs) r =
+            let
+                val dr = toDble r
+                val exp = doubleExponent dr
+            in
+                if exp > doubleMaxFiniteExp
+                then (* Non-finite *)
+                (
+                    if doubleMantissa dr <> 0
+                    then "nan"
+                    else if doubleSignBit dr then "~inf" else "inf"
+                )
+                else
+                let
+                    (* Use snprintf to do the conversion. *)
+                    val str = dble2str(dr, fmt, ndigs)
+                    (* G-format does not always put in a decimal point so
+                       we may need to add .0 to the end to make it look like
+                       an ML real. *)
+                    fun hasDecOrE(_, true) = true
+                    |   hasDecOrE(#".", _) = true
+                    |   hasDecOrE(#"E", _) = true
+                    |   hasDecOrE _ = false
+                in
+                    if fmt = #"G" andalso ndigs > 1 andalso not(CharVector.foldl hasDecOrE false str)
+                    then str ^ ".0"
+                    else str
+                end
+            end
+        end
+
         (* Note: The definition says, reasonably, that negative values
            for the number of digits raises Size.  The tests also check
            for a very large value for the number of digits and seem to
            expect Size to be raised in that case.  Note that the exception
            is raised when fmt spec is evaluated and before it is applied
            to an actual real argument. *)
-        fun fmtFunction {sciFmt, ...} (SCI NONE) = sciFmt 6
-        |   fmtFunction {sciFmt, ...} (SCI (SOME d) ) =
+        fun fmtFunction (_, toDble) (SCI NONE) = nonExactFmt(toDble, #"E", 6)
+        |   fmtFunction (_, toDble) (SCI (SOME d) ) =
                 if d < 0 orelse d > 200 then raise General.Size
-                else sciFmt d
-        |   fmtFunction {fixFmt, ...} (FIX NONE) = fixFmt 6
-        |   fmtFunction {fixFmt, ...} (FIX (SOME d) ) =
+                else nonExactFmt(toDble, #"E", d)
+        |   fmtFunction (_, toDble) (FIX NONE) = nonExactFmt(toDble, #"F", 6)
+        |   fmtFunction (_, toDble) (FIX (SOME d) ) =
                 if d < 0 orelse d > 200 then raise General.Size
-                else fixFmt d
-        |   fmtFunction {genFmt, ...}(GEN NONE) = genFmt 12
-        |   fmtFunction {genFmt, ...} (GEN (SOME d) ) =
+                else nonExactFmt(toDble, #"F", d)
+        |   fmtFunction (_, toDble) (GEN NONE) = nonExactFmt(toDble, #"G", 12)
+        |   fmtFunction (_, toDble) (GEN (SOME d) ) =
                 if d < 1 orelse d > 200 then raise General.Size
-                else genFmt d
-        |   fmtFunction {exactFmt, ...} EXACT = exactFmt
+                else nonExactFmt(toDble, #"G", d)
+        |   fmtFunction (toExact, _) EXACT = exactFmt toExact
 
     end
-
-    open RealNumbersAsBits
-
-    val floatMaxFiniteExp: FixedInt.int = 254
-    and doubleMaxFiniteExp: FixedInt.int = 2046
 in
 
 structure Real: REAL =
@@ -351,16 +385,7 @@ struct
         { class = class, sign = sign, exp = exponent + ndigits mantissa, digits = digitList(mantissa, []) }
     end
 
-    local
-        val dble2str = RunCall.rtsCallFull3 "PolyRealDoubleToString" : real * char * int -> string
-
-        fun fixFmt ndigs r = dble2str(r, #"F", ndigs)
-        and sciFmt ndigs r = dble2str(r, #"E", ndigs)
-        and genFmt ndigs r = dble2str(r, #"G", ndigs)
-    in
-        val fmt = fmtFunction { sciFmt=sciFmt, fixFmt=fixFmt,
-                                genFmt=genFmt, exactFmt=exactFmt RealToDecimalConversion.doubleToMinimal }
-    end
+    val fmt = fmtFunction (RealToDecimalConversion.doubleToMinimal, toLarge)
 
     val toString = fmt (StringCvt.GEN NONE)
 
@@ -680,18 +705,7 @@ struct
         { class = class, sign = sign, exp = exponent + ndigits mantissa, digits = digitList(mantissa, []) }
     end
 
-    local
-        (* Exact format must be defined specially for Real32.real but we can use the double conversion
-           for the other functions. *)
-        val dble2str = RunCall.rtsCallFull3 "PolyRealDoubleToString" : real * char * int -> string
-
-        fun fixFmt ndigs r = dble2str(Real32.toLarge r, #"F", ndigs)
-        and sciFmt ndigs r = dble2str(Real32.toLarge r, #"E", ndigs)
-        and genFmt ndigs r = dble2str(Real32.toLarge r, #"G", ndigs)
-    in
-        val fmt = fmtFunction { sciFmt=sciFmt, fixFmt=fixFmt,
-                                genFmt=genFmt, exactFmt=exactFmt RealToDecimalConversion.floatToMinimal }
-    end
+    val fmt = fmtFunction (RealToDecimalConversion.floatToMinimal, Real32.toLarge)
 
     val toString = fmt (StringCvt.GEN NONE)
     
