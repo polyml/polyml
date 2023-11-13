@@ -178,12 +178,10 @@ struct
         val doublePow5InvSplit = Vector.tabulate(invTableSize, createInvSplit)
         and doublePow5Split = Vector.tabulate(posTableSize, createSplit)
 
-        (* We don't have 64-bit arithmetic on 32-bit platforms so this uses arbitrary precision
-           arithmetic.  It might be possible to select different versions depending on the
-           word length.  *)
-        fun mulShift(m: LargeInt.int, factor, shift: int): LargeInt.int =
-            if shift <= 32 then raise Fail "mulShift32"
-            else IntInf.~>>(factor*m, Word.fromInt shift)
+        (* The original C code uses 128-bit arithmetic here.  We don't have
+           that so this uses arbitrary precision arithmetic.  The result will
+           usually (always?) be short on 64-bit platforms.  *)
+        fun mulShift(m, factor, shift: int) = IntInf.~>>(factor*m, Word.fromInt shift)
     in
         fun mulPow5InvDivPow2(m, i, j) = mulShift(m, Vector.sub(doublePow5InvSplit, i), j)
         and mulPow5DivPow2(m, i, j) = mulShift(m, Vector.sub(doublePow5Split, i), j)
