@@ -109,6 +109,8 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyOrArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyAndArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSIGNED arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShiftLeftArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED shift);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShiftRightArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED shift);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLog2Arbitrary(POLYUNSIGNED arg);
 }
 
@@ -2012,6 +2014,168 @@ POLYUNSIGNED PolyXorArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg1, POLYUNSI
     else return result->Word().AsUnsigned();
 }
 
+POLYUNSIGNED PolyShiftLeftArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED shift)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    PolyWord shiftVal = PolyWord::FromUnsigned(shift);
+    Handle result = 0;
+
+    try {
+        // The shift is a word value which should always be a tagged unsigned integer
+        if (!shiftVal.IsTagged())
+            raise_exception0(taskData, EXC_overflow);
+        POLYUNSIGNED shiftBy = shiftVal.UnTaggedUnsigned();
+        if (shiftBy == 0)
+            result = pushedArg; // Shift of zero returns the argument
+        else
+        {
+            int sign;
+#ifdef USE_GMP
+            POLYUNSIGNED shiftLimbs = shiftBy / (sizeof(mp_limb_t) * 8), shiftBits = shiftBy & (sizeof(mp_limb_t) * 8 - 1);
+            mp_limb_t  extend;
+            mp_size_t  srcLimbs;
+            mp_limb_t* xb = convertToLong(pushedArg, &extend, &srcLimbs, &sign);
+            POLYUNSIGNED destLimbs = srcLimbs + shiftLimbs + (shiftBits == 0 ? 0 : 1);
+            POLYUNSIGNED destWords = WORDS(destLimbs * sizeof(mp_limb_t));
+            Handle z = alloc_and_save(taskData, destWords, F_MUTABLE_BIT | F_BYTE_OBJ);
+            memset(DEREFBYTEHANDLE(z), 0, shiftLimbs * sizeof(mp_limb_t)); // Zero low-order limbs
+            // Can now dereference the handle
+            mp_limb_t* src = pushedArg->Word().IsTagged() ? xb : DEREFLIMBHANDLE(pushedArg);
+            if (shiftBits == 0) // Copy the bytes.
+                memcpy(DEREFLIMBHANDLE(z) + shiftLimbs, src, srcLimbs);
+            else
+            {
+                mp_limb_t last = mpn_lshift(DEREFLIMBHANDLE(z) + shiftLimbs, src, srcLimbs, shiftBits);
+                DEREFLIMBHANDLE(z)[destLimbs - 1] = last;
+            }
+            result = make_canonical(taskData, z, sign);
+#else
+            POLYUNSIGNED shiftBytes = shiftBy >> 3, shiftBits = shiftBy & 0x7;
+            byte    extend[sizeof(PolyWord)];
+            POLYUNSIGNED    srcBytes;
+            byte* xb = convertToLong(pushedArg, extend, &srcBytes, &sign);
+            POLYUNSIGNED destBytes = srcBytes + shiftBytes + (shiftBits == 0 ? 0:1);
+            POLYUNSIGNED destWords = WORDS(destBytes);
+            // Allocate the space and set the last word to zero in case there are unset bytes.
+            Handle z = alloc_and_save(taskData, destWords, F_MUTABLE_BIT | F_BYTE_OBJ);
+            z->WordP()->Set(destWords - 1, PolyWord::FromUnsigned(0));
+            memset(DEREFBYTEHANDLE(z), 0, shiftBytes); // Zero low-order bytes
+            // Can now dereference the handle.
+            byte* src = pushedArg->Word().IsTagged() ? xb : DEREFBYTEHANDLE(pushedArg);
+            if (shiftBits == 0) // Copy the bytes.
+                memcpy(DEREFBYTEHANDLE(z) + shiftBytes, src, srcBytes);
+            else
+            {
+                byte b = 0;
+                byte* dest = DEREFBYTEHANDLE(z) + shiftBytes;
+                while (srcBytes-- > 0)
+                {
+                    byte c = *(src++);
+                    *(dest++) = b | (c << shiftBits);
+                    b = c >> (8 - shiftBits);
+                }
+                *dest = b;
+            }
+            result = make_canonical(taskData, z, sign);
+#endif
+        }
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyShiftRightArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED shift)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    PolyWord shiftVal = PolyWord::FromUnsigned(shift);
+    Handle result = 0;
+
+    try {
+        // The shift is a word value which should always be a tagged unsigned integer
+        if (!shiftVal.IsTagged())
+            raise_exception0(taskData, EXC_overflow);
+        POLYUNSIGNED shiftBy = shiftVal.UnTaggedUnsigned();
+        if (shiftBy == 0)
+            result = pushedArg; // Shift of zero returns the argument
+        else if (pushedArg->Word().IsTagged())
+        {
+            // If the argument is short the result will be short.
+            POLYSIGNED v = pushedArg->Word().UnTagged();
+            result = taskData->saveVec.push(PolyWord::TaggedInt(v >> shiftBy));
+        }
+        else
+        {
+#if USE_GMP
+            POLYUNSIGNED srcLimbs = numLimbs(pushedArg->Word());
+            POLYUNSIGNED shiftLimbs = shiftBy / (sizeof(mp_limb_t)*8), shiftBits = shiftBy & (sizeof(mp_limb_t)*8 - 1);
+            if (shiftLimbs >= srcLimbs)
+                result = taskData->saveVec.push(TAGGED(0));
+            else
+            {
+                POLYUNSIGNED destLimbs = srcLimbs - shiftLimbs;
+                int sign = OBJ_IS_NEGATIVE(GetLengthWord(pushedArg->Word())) ? -1 : 1;
+                POLYUNSIGNED destWords = WORDS(destLimbs * sizeof(mp_limb_t));
+                Handle z = alloc_and_save(taskData, destWords, F_MUTABLE_BIT | F_BYTE_OBJ);
+                if (shiftBits == 0)
+                    memcpy(DEREFLIMBHANDLE(z), DEREFLIMBHANDLE(pushedArg) + shiftLimbs, destLimbs * sizeof(mp_limb_t));
+                else mpn_rshift(DEREFLIMBHANDLE(z), DEREFLIMBHANDLE(pushedArg) + shiftLimbs,
+                        destLimbs, shiftBits);
+                result = make_canonical(taskData, z, sign);
+            }
+#else
+            POLYUNSIGNED srcBytes = get_length(pushedArg->Word());
+            POLYUNSIGNED shiftBytes = shiftBy >> 3, shiftBits = shiftBy & 0x7;
+            if (shiftBytes >= srcBytes)
+                result = taskData->saveVec.push(TAGGED(0));
+            else
+            {
+                POLYUNSIGNED destBytes = srcBytes - shiftBytes;
+                int sign = OBJ_IS_NEGATIVE(GetLengthWord(pushedArg->Word())) ? -1 : 1;
+                POLYUNSIGNED destWords = WORDS(destBytes);
+                Handle z = alloc_and_save(taskData, destWords, F_MUTABLE_BIT | F_BYTE_OBJ);
+                // Set the last word to zero so that any uncopied bytes are zeroed
+                z->WordP()->Set(destWords - 1, PolyWord::FromUnsigned(0));
+                if (shiftBits == 0) // Copy the bytes.
+                    memcpy(DEREFBYTEHANDLE(z), DEREFBYTEHANDLE(pushedArg) + shiftBytes, destBytes);
+                else
+                {
+                    // Shift each of the bytes.
+                    byte b = 0;
+                    byte* src = DEREFBYTEHANDLE(pushedArg) + srcBytes;
+                    byte* dest = DEREFBYTEHANDLE(z) + destBytes;
+                    while (destBytes-- > 0)
+                    {
+                        byte c = *(--src);
+                        *(--dest) = b | (c >> shiftBits);
+                        b = c << (8 - shiftBits);
+                    }
+                }
+                result = make_canonical(taskData, z, sign);
+            }
+#endif
+        }
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+
 #ifdef USE_GMP
 static int log2Word(mp_limb_t arg)
 {
@@ -2074,6 +2238,8 @@ struct _entrypts arbitraryPrecisionEPT[] =
     { "PolyOrArbitrary",                (polyRTSFunction)&PolyOrArbitrary},
     { "PolyAndArbitrary",               (polyRTSFunction)&PolyAndArbitrary},
     { "PolyXorArbitrary",               (polyRTSFunction)&PolyXorArbitrary},
+    { "PolyShiftLeftArbitrary",         (polyRTSFunction)&PolyShiftLeftArbitrary},
+    { "PolyShiftRightArbitrary",        (polyRTSFunction)&PolyShiftRightArbitrary},
     { "PolyLog2Arbitrary",              (polyRTSFunction)&PolyLog2Arbitrary},
 
     { NULL, NULL} // End of list.

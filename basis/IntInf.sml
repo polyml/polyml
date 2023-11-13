@@ -123,23 +123,18 @@ struct
             else if i = 1 then 1
             else raise Size
     end
-
-    (* These could be implemented in the RTS although I doubt if it's
-       really worth it. *)
-    local
-        val maxShift = Word.fromInt Word.wordSize
-        val fullShift = pow(2, Word.wordSize)
-    in
-        fun << (i: int, j: Word.word) =
-           if j < maxShift
-           then i * Word.toLargeInt(Word.<<(0w1, j))
-           else <<(i * fullShift, j-maxShift)
-    end
     
-    fun ~>> (i: int, j: Word.word) =
-        if LibrarySupport.largeIntIsSmall i
-        then Word.toLargeIntX(Word.~>>(Word.fromLargeInt i, j))
-        else LargeInt.div(i, pow(2, Word.toInt j))
+    local
+        val shiftR: LargeInt.int * word -> LargeInt.int = RunCall.rtsCallFull2 "PolyShiftRightArbitrary"
+        and shiftL: LargeInt.int * word -> LargeInt.int = RunCall.rtsCallFull2 "PolyShiftLeftArbitrary"
+    in
+        val << = shiftL
+
+        fun ~>> (i: int, j: Word.word) =
+            if LibrarySupport.largeIntIsSmall i
+            then Word.toLargeIntX(Word.~>>(Word.fromLargeInt i, j))
+            else shiftR(i, j)
+    end
 
     open LargeInt (* Inherit everything from LargeInt.  Do this last because it overrides the overloaded functions. *)
 end;
