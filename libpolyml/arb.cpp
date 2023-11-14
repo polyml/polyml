@@ -2029,7 +2029,8 @@ POLYUNSIGNED PolyShiftLeftArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, POL
         if (!shiftVal.IsTagged())
             raise_exception0(taskData, EXC_overflow);
         POLYUNSIGNED shiftBy = shiftVal.UnTaggedUnsigned();
-        if (shiftBy == 0)
+        // Shift of zero returns the argument and shifting zero returns zero.
+        if (shiftBy == 0 || (pushedArg->Word().IsTagged() && pushedArg->Word().UnTagged() == 0))
             result = pushedArg; // Shift of zero returns the argument
         else
         {
@@ -2046,7 +2047,7 @@ POLYUNSIGNED PolyShiftLeftArbitrary(POLYUNSIGNED threadId, POLYUNSIGNED arg, POL
             // Can now dereference the handle
             mp_limb_t* src = pushedArg->Word().IsTagged() ? xb : DEREFLIMBHANDLE(pushedArg);
             if (shiftBits == 0) // Copy the bytes.
-                memcpy(DEREFLIMBHANDLE(z) + shiftLimbs, src, srcLimbs);
+                memcpy(DEREFLIMBHANDLE(z) + shiftLimbs, src, srcLimbs * sizeof(mp_limb_t));
             else
             {
                 mp_limb_t last = mpn_lshift(DEREFLIMBHANDLE(z) + shiftLimbs, src, srcLimbs, shiftBits);
