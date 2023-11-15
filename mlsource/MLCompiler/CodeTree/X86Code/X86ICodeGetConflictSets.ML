@@ -144,11 +144,16 @@ struct
             (* I'm not sure if this is needed.  There was a check in the old code to ensure that
                different registers were used for loop variables even if they were actually unused.
                This may happen anyway. *)
+            (* However, we need to ensure that if there is a work register it is distinct from any
+               of the registers being used for arguments.  So at the least we need to add a
+               conflict between these. *)
             val () =
                 case instr of
-                    JumpLoop{regArgs, ...} =>
+                    JumpLoop{regArgs, workReg, ...} =>
                     let
                         val destRegs = List.foldl(fn ((_, PReg loopReg), dests) => loopReg :: dests) [] regArgs
+                        val workDest = case workReg of SOME(PReg reg) => [reg] | NONE => []
+                        val destRegs = destRegs @ workDest
                     in
                         addConflictsTo(destRegs, listToSet destRegs);
                         addConflictsTo(destRegs, current);
