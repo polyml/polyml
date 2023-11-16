@@ -291,11 +291,6 @@ struct
 
     (* Convert to integer. *)
     local
-        (* The RTS function converts to at most a 64-bit value (even on 
-           32-bits).  That will convert all the bits of the mantissa
-           but if the exponent is large we may have to multiply by
-           some power of two. *)
-        val realToInt: real -> LargeInt.int  = RunCall.rtsCallFull1 "PolyRealBoxedToLongInt"
         (* These are defined to raise Domain rather than Overflow on Nans. *)
         fun checkNan x = if isNan x then raise Domain else x
     in
@@ -304,17 +299,38 @@ struct
         and realTrunc  = Real.rtsCallFastR_R "PolyRealTrunc"
         and realRound  = Real.rtsCallFastR_R "PolyRealRound"
 
-        fun toArbitrary x = 
-            if isNan x then raise General.Domain
-            else if not (isFinite x) then raise General.Overflow
-            else
+        local
+            val doubleBias = 1023 (* This is the exponent value for 1.0 *)
+            val doubleMantissaBits = precision - 1 (* One bit is implicit *)
+            val doubleImplicitBit = IntInf.<<(1, Word.fromInt(FixedInt.toInt doubleMantissaBits))
+        in
+            (* Convert a real number to arbitrary precision.  It might be possible to
+               include the rounding/truncation here. *)
+            fun toArbitrary x =
             let
-                val { man, exp } = toManExp x
+                open RealNumbersAsBits
+                val ieeeExp = doubleExponent x
+                and ieeeMant = doubleMantissa x
+                and ieeeSign = doubleSignBit x
             in
-                if exp <= precision
-                then realToInt x
-                else IntInf.<< (realToInt(fromManExp{man=man, exp=precision}), Word.fromInt(exp - precision))
-            end
+                if ieeeExp = 2047
+                then (* Non-finite *)
+                    if ieeeMant <> 0 then raise General.Domain else raise General.Overflow
+                else if ieeeExp < doubleBias
+                then 0 (* less than 1 *)
+                else
+                let
+                    (* Add the implicit bit to the mantissa and set the sign. *)
+                    val m2a = ieeeMant + doubleImplicitBit
+                    val m2s = if ieeeSign then ~m2a else m2a
+                    val shift = ieeeExp - doubleBias - doubleMantissaBits
+                in
+                    if shift < 0
+                    then IntInf.~>>(m2s, Word.fromInt(~shift))
+                    else IntInf.<<(m2s, Word.fromInt shift)
+               end
+           end
+        end
 
         fun toLargeInt IEEEReal.TO_NEGINF = toArbitrary o realFloor
          |  toLargeInt IEEEReal.TO_POSINF = toArbitrary o realCeil
@@ -579,6 +595,40 @@ struct
     fun sameSign (x, y) = signBit x = signBit y
 
     local
+ 
+        local
+            val floatBias = 127 (* This is the exponent value for 1.0 *)
+            val floatMantissaBits = precision - 1 (* One bit is implicit *)
+            val floatImplicitBit = IntInf.<<(1, Word.fromInt(FixedInt.toInt floatMantissaBits))
+        in
+            (* Convert a real number to arbitrary precision.  It might be possible to
+               include the rounding/truncation here. *)
+            fun toArbitrary x =
+            let
+                open RealNumbersAsBits
+                val ieeeExp = floatExponent x
+                and ieeeMant = floatMantissa x
+                and ieeeSign = floatSignBit x
+            in
+                if ieeeExp = 255
+                then (* Non-finite *)
+                    if ieeeMant <> 0 then raise General.Domain else raise General.Overflow
+                else if ieeeExp < floatBias
+                then 0 (* less than 1 *)
+                else
+                let
+                    (* Add the implicit bit to the mantissa and set the sign. *)
+                    val m2a = FixedInt.toLarge ieeeMant + floatImplicitBit
+                    val m2s = if ieeeSign then ~m2a else m2a
+                    val shift = ieeeExp - floatBias - floatMantissaBits
+                in
+                    if shift < 0
+                    then IntInf.~>>(m2s, Word.fromInt(~shift))
+                    else IntInf.<<(m2s, Word.fromInt shift)
+               end
+           end
+        end
+
         open Real32
     in
         (* Returns the minimum.  In the case where one is a NaN it returns the
@@ -659,29 +709,27 @@ struct
         fun realMod r = #frac(split r)
     
         val nextAfter = rtsCallFastFF_F "PolyRealFNextAfter"
-    
-        fun toLargeInt mode r = Real.toLargeInt mode (toLarge r)
-    end
 
-    local
-        open Real32
+        fun toLargeInt IEEEReal.TO_NEGINF = toArbitrary o realFloor
+         |  toLargeInt IEEEReal.TO_POSINF = toArbitrary o realCeil
+         |  toLargeInt IEEEReal.TO_ZERO = toArbitrary o realTrunc
+         |  toLargeInt IEEEReal.TO_NEAREST = toArbitrary o realRound
+
         (* These are defined to raise Domain rather than Overflow on Nans. *)
         fun checkNan x = if isNan x then raise Domain else x
-        (* If int is fixed we use the hardware conversions otherwise we convert
-           it to real and use the real to arbitrary conversions. *)
-    in
+        (* If int is fixed we use the hardware conversions otherwise we use the real to arbitrary conversions. *)
         val floor   =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toLargeInt IEEEReal.TO_NEGINF else FixedInt.toInt o floorFix o checkNan
+            then LargeInt.toInt o toArbitrary o realFloor else FixedInt.toInt o floorFix o checkNan
         and ceil    =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toLargeInt IEEEReal.TO_POSINF else FixedInt.toInt o ceilFix o checkNan
+            then LargeInt.toInt o toArbitrary o realCeil else FixedInt.toInt o ceilFix o checkNan
         and trunc   =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toLargeInt IEEEReal.TO_ZERO else FixedInt.toInt o truncFix o checkNan
+            then LargeInt.toInt o toArbitrary o realTrunc else FixedInt.toInt o truncFix o checkNan
         and round   =
             if Bootstrap.intIsArbitraryPrecision
-            then LargeInt.toInt o toLargeInt IEEEReal.TO_NEAREST else FixedInt.toInt o roundFix o checkNan
+            then LargeInt.toInt o toArbitrary o realRound else FixedInt.toInt o roundFix o checkNan
     
         fun toInt IEEEReal.TO_NEGINF = floor
          |  toInt IEEEReal.TO_POSINF = ceil
