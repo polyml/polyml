@@ -104,7 +104,6 @@
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedFromString(POLYUNSIGNED threadId, POLYUNSIGNED str);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToLongInt(POLYUNSIGNED threadId, POLYUNSIGNED arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealDoubleToString(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED kind, POLYUNSIGNED prec);
     POLYEXTERNALSYMBOL double PolyRealSqrt(double arg);
     POLYEXTERNALSYMBOL double PolyRealSin(double arg);
@@ -245,25 +244,6 @@ Handle float_result(TaskData *mdTaskData, float x)
 POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(POLYUNSIGNED arg)
 {
     return get_arbitrary_precision_as_real(PolyWord::FromUnsigned(arg));
-}
-
-// Convert a boxed real to a long precision int.
-POLYUNSIGNED PolyRealBoxedToLongInt(POLYUNSIGNED threadId, POLYUNSIGNED arg)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedArg = taskData->saveVec.push(arg);
-
-    double dx = real_arg(pushedArg);
-    int64_t i = (int64_t)dx;
-    Handle result = Make_arbitrary_precision(taskData, i);
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
 }
 
 // RTS call for square-root.
@@ -893,7 +873,6 @@ POLYSIGNED PolySetRoundingMode(POLYUNSIGNED arg)
 struct _entrypts realsEPT[] =
 {
     { "PolyRealBoxedFromString",        (polyRTSFunction)&PolyRealBoxedFromString},
-    { "PolyRealBoxedToLongInt",         (polyRTSFunction)&PolyRealBoxedToLongInt},
     { "PolyRealDoubleToString",         (polyRTSFunction)&PolyRealDoubleToString},
     { "PolyRealSqrt",                   (polyRTSFunction)&PolyRealSqrt},
     { "PolyRealSin",                    (polyRTSFunction)&PolyRealSin},
