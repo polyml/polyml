@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2016-17, 2020-2 David C.J. Matthews
+    Copyright (c) 2013, 2016-17, 2020-3 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1013,6 +1013,24 @@ struct
                 (* Add the operation as the special entry.  It can then be recognised by LongWordToTagged. *)
                 (Unary{oper=oper, arg1=genArg1}, decArg1, EnvSpecUnary(UnsignedToLongWord, genArg1))
 
+        |   (Log2Word, Constnt(v, _)) =>
+            let
+                val () = reprocess := true
+                (* IntInf.log2 raises an exception if the argument is zero or negative.
+                   Log2Word is currently only used for IntInf.log2 but just in case it is
+                   ever used for anything else this covers it.  The implementations of
+                   LogWord on X86 and ARM both return ~1 for zero argument since the
+                   tag bit will be set even for zero. *)
+                fun getLog2(0w0, n) = n
+                |   getLog2(v, n) = getLog2(Word.>>(v, 0w1), n+1)
+                val result =
+                    if isShort v
+                    then getLog2(toShort v, ~1)
+                    else 0 (* Ensure this case is covered. *)
+            in
+                (Constnt(toMachineWord result, []), decArg1, EnvSpecNone)
+            end
+
         |   _ => (Unary{oper=oper, arg1=genArg1}, decArg1, EnvSpecNone)
     end
 
@@ -1157,8 +1175,24 @@ struct
             if isShort v1 andalso toShort v1 = 0w0
             then (case logop of LogicalAnd => CodeZero | _ => arg2, decArgs, EnvSpecNone)
             else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
-        
-            (* TODO: Constant folding of shifts. *)
+
+        |   (WordShift shiftOp, Constnt(v1, _), Constnt(v2, _)) =>
+            if not(isShort v1) orelse not(isShort v2)
+            then (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            else
+            let
+                val () = reprocess := true
+                val v1S = toShort v1
+                and v2S = toShort v2
+                fun asConstnt v = Constnt(toMachineWord v, [])
+                val resultCode =
+                    case shiftOp of
+                        ShiftLeft => asConstnt(Word.<<(v1S,v2S))
+                    |   ShiftRightLogical => asConstnt(Word.>>(v1S,v2S))
+                    |   ShiftRightArithmetic => asConstnt(Word.~>>(v1S,v2S))
+            in
+               (resultCode, decArgs, EnvSpecNone)
+            end
 
         |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
     end
