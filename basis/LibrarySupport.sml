@@ -232,7 +232,7 @@ struct
     val atExitList = volatileListRef()
     fun addAtExit f = atExitList := f :: !atExitList
     
-    (* This is needed in IntInf so nees to be captured before LargeInt is redefined. *)
+    (* This is needed in IntInf so needs to be captured before LargeInt is redefined. *)
     val log2Word = LargeInt.log2Word
 end;
 

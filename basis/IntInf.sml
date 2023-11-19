@@ -34,6 +34,8 @@ structure IntInf : INT_INF =
 struct
     type int = LargeInt.int
     
+    val largeIntToWord: int -> word = RunCall.unsafeCast (* Masked out by signature *)
+
     val quotRem = LibrarySupport.quotRem
 
     fun divMod (x, y) =
@@ -55,7 +57,7 @@ struct
         fun log2 (i: int) : Int.int =
             if i <= 0 then raise Domain
             else if LibrarySupport.largeIntIsSmall i
-            then Word.toInt(LibrarySupport.log2Word(Word.fromLargeInt i))
+            then Word.toInt(LibrarySupport.log2Word(largeIntToWord i))
             else log2Long i
     end
 
@@ -66,7 +68,6 @@ struct
         and andbFn : int * int -> int = RunCall.rtsCallFull2 "PolyAndArbitrary"
         
         open LibrarySupport
-        val largeIntToWord: int -> word = RunCall.unsafeCast
     in
         (* Handle the short cases using the word operations.
            The special cases of or-ing with a short negative value
@@ -127,12 +128,20 @@ struct
     local
         val shiftR: LargeInt.int * word -> LargeInt.int = RunCall.rtsCallFull2 "PolyShiftRightArbitrary"
         and shiftL: LargeInt.int * word -> LargeInt.int = RunCall.rtsCallFull2 "PolyShiftLeftArbitrary"
+        val maxShortShift = LibrarySupport.wordSize * 0w8 - 0w2
     in
-        val << = shiftL
+        fun << (i: int, j: Word.word) =
+            (* We can use a word shift provided the value is short and will not shift any bits out or
+               into the sign bit.  This will only work for positive integers.  It would be possible
+               to use this for negative integers by negating the argument and the result. *)
+            if i = 0 orelse j = 0w0 then i
+            else if LibrarySupport.largeIntIsSmall i andalso LibrarySupport.log2Word(largeIntToWord i) + j < maxShortShift
+            then Word.toLargeIntX(Word.<<(largeIntToWord i, j))
+            else shiftL(i, j)
 
         fun ~>> (i: int, j: Word.word) =
             if LibrarySupport.largeIntIsSmall i
-            then Word.toLargeIntX(Word.~>>(Word.fromLargeInt i, j))
+            then Word.toLargeIntX(Word.~>>(largeIntToWord i, j))
             else shiftR(i, j)
     end
 
