@@ -20,8 +20,8 @@
 local
     open RealNumbersAsBits
 
-    val floatMaxFiniteExp: FixedInt.int = 254
-    and doubleMaxFiniteExp: FixedInt.int = 2046
+    val floatMaxFiniteExp = 254
+    and doubleMaxFiniteExp = 2046
 
     (* Functions common to Real and Real32 *)
     local
@@ -51,10 +51,10 @@ local
                arithmetic if we can. *)
             fun fixedDigitList (0, r) = r
             |   fixedDigitList (n, r) =
-                    fixedDigitList (FixedInt.quot(n, 10), FixedInt.toInt(FixedInt.rem(n, 10)) :: r)
+                    fixedDigitList (Int.quot(n, 10), Int.rem(n, 10) :: r)
         in
             fun digitList(n, r) =
-                if LibrarySupport.largeIntIsSmall n then fixedDigitList (FixedInt.fromLarge n, r)
+                if LibrarySupport.largeIntIsSmall n then fixedDigitList (Int.fromLarge n, r)
                 else
                 let
                     val (qu, rm) = IntInf.quotRem(n, 10)
@@ -302,7 +302,7 @@ struct
         local
             val doubleBias = 1023 (* This is the exponent value for 1.0 *)
             val doubleMantissaBits = precision - 1 (* One bit is implicit *)
-            val doubleImplicitBit = IntInf.<<(1, Word.fromInt(FixedInt.toInt doubleMantissaBits))
+            val doubleImplicitBit = IntInf.<<(1, Word.fromInt doubleMantissaBits)
         in
             (* Convert a real number to arbitrary precision.  It might be possible to
                include the rounding/truncation here. *)
@@ -361,8 +361,6 @@ struct
     end;
 
     local
-        val realConv: string->real = RunCall.rtsCallFull1 "PolyRealBoxedFromString"
-
         val posNan = abs(zero / zero)
         val negNan = ~posNan
     in
@@ -377,21 +375,7 @@ struct
           | fromDecimal { class = NAN, sign=false, ... } = SOME posNan
 
           | fromDecimal { class = _ (* NORMAL or SUBNORMAL *), sign, digits, exp} =
-            (let
-                fun toChar x =
-                    if x < 0 orelse x > 9 then raise General.Domain
-                    else Char.chr (x + Char.ord #"0")
-                (* Turn the number into a string. *)
-                val str = "0." ^ String.implode(List.map toChar digits) ^"E" ^
-                    Int.toString exp
-                (* Convert it to a real using the RTS conversion function.
-                   Change any Conversion exceptions into Domain. *)
-                val result = realConv str handle RunCall.Conversion _ => raise General.Domain
-            in
-                if sign then SOME (~result) else SOME result
-            end 
-                handle General.Domain => NONE
-            )
+            (SOME(RealToDecimalConversion.decimalToDouble(sign, exp, digits)) handle General.Domain => NONE)
     end
         
     fun toDecimal r =
@@ -425,6 +409,8 @@ struct
     local
         fun convReal (s: string) : real =
         let
+            (* Conversion doesn't involve any real rounding so this should
+               no longer be relevant. *)
             (* Set the rounding mode to TO_NEAREST whatever the current
                rounding mode.  Otherwise the result of compiling a piece of
                code with a literal constant could depend on what the rounding
@@ -599,7 +585,7 @@ struct
         local
             val floatBias = 127 (* This is the exponent value for 1.0 *)
             val floatMantissaBits = precision - 1 (* One bit is implicit *)
-            val floatImplicitBit = IntInf.<<(1, Word.fromInt(FixedInt.toInt floatMantissaBits))
+            val floatImplicitBit = IntInf.<<(1, Word.fromInt floatMantissaBits)
         in
             (* Convert a real number to arbitrary precision.  It might be possible to
                include the rounding/truncation here. *)
@@ -618,7 +604,7 @@ struct
                 else
                 let
                     (* Add the implicit bit to the mantissa and set the sign. *)
-                    val m2a = FixedInt.toLarge ieeeMant + floatImplicitBit
+                    val m2a = Int.toLarge ieeeMant + floatImplicitBit
                     val m2s = if ieeeSign then ~m2a else m2a
                     val shift = ieeeExp - floatBias - floatMantissaBits
                 in
@@ -736,16 +722,7 @@ struct
          |  toInt IEEEReal.TO_ZERO = trunc
          |  toInt IEEEReal.TO_NEAREST = round
     end
-    
-    (* Scan input source for a valid number.  The format is the same as
-       for double precision.  Convert it using the current rounding mode. *)
-    fun scan getc src =
-        case Real.scan getc src of
-            NONE => NONE
-        |   SOME (r, a) => SOME(Real32.fromReal r, a)
-
-    val fromString = StringCvt.scanString scan
-
+   
     fun toDecimal r =
     let
         val {sign, exponent, mantissa, class} = RealToDecimalConversion.floatToMinimal r
@@ -770,8 +747,23 @@ struct
         |   fromDecimal { class = INF, sign=false, ...} = SOME posInf
         |   fromDecimal { class = NAN, sign=true, ... } = SOME negNan
         |   fromDecimal { class = NAN, sign=false, ... } = SOME posNan
-        |   fromDecimal arg = Option.map fromRealRound (Real.fromDecimal arg)
+        |   fromDecimal { sign, exp, digits, ... } =
+            (SOME(RealToDecimalConversion.decimalToFloat(sign, exp, digits)) handle General.Domain => NONE)
     end
+
+    (* Define these in terms of IEEEReal.scan since that deals with all the special cases. *)
+    fun scan getc src =
+        case IEEEReal.scan getc src of
+            NONE => NONE
+        |   SOME (ieer, rest) =>
+            (
+                case fromDecimal ieer of
+                    NONE => NONE
+                |   SOME r => SOME(r, rest)
+            )
+
+    val fromString = Option.composePartial (fromDecimal, IEEEReal.fromString)
+
 
     structure Math =
     struct
@@ -804,6 +796,8 @@ struct
     local
         fun convReal (s: string) : real =
         let
+            (* Conversion doesn't involve any real rounding so this should
+               no longer be relevant. *)
             (* Set the rounding mode to TO_NEAREST whatever the current
                rounding mode.  Otherwise the result of compiling a piece of
                code with a literal constant could depend on what the rounding

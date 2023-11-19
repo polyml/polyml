@@ -61,6 +61,12 @@ struct
                         raise Fail ("Decimal is not minimal:" ^ RealStr.toString r);
                     ()
                 end
+            (* Test a long string.  Double values have at most 16 digits of precision. *)
+            val long = RealStr.fmt(StringCvt.SCI(SOME 22)) r
+            val fromLong = valOf (RealStr.fromString long)
+            val _ =
+                RealStr.==(r, fromLong) orelse RealStr.isNan r andalso RealStr.isNan fromLong
+                    orelse raise Fail ("Long string does not match:" ^ long)
         in
             ()
         end

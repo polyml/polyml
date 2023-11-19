@@ -25,15 +25,15 @@ structure RealNumbersAsBits:
 sig
     (* Floats.  The mantissa will fit in a short int in both 32- and 64-bits . *)
     val floatSignBit: Real32.real -> bool
-    and floatExponent: Real32.real -> FixedInt.int
-    and floatMantissa: Real32.real -> FixedInt.int
-    and floatFromBinary: {sign: bool, exp: FixedInt.int, mantissa: FixedInt.int} -> Real32.real
+    and floatExponent: Real32.real -> int
+    and floatMantissa: Real32.real -> int
+    and floatFromBinary: {sign: bool, exp: int, mantissa: int} -> Real32.real
     
     (* Doubles.  The mantissa is too large for a fixed int in 32-bit mode. *)
     val doubleSignBit: real -> bool
-    and doubleExponent: real -> FixedInt.int
+    and doubleExponent: real -> int
     and doubleMantissa: real -> LargeInt.int
-    and doubleFromBinary: {sign: bool, exp: FixedInt.int, mantissa: LargeInt.int} -> real
+    and doubleFromBinary: {sign: bool, exp: int, mantissa: LargeInt.int} -> real
 end
 =
 struct
@@ -49,7 +49,7 @@ struct
         open LibrarySupport
         val floatIsTagged = wordSize = 0w8
         val floatAsWord: Real32.real->word = RunCall.unsafeCast
-        val floatAsInt: Real32.real->FixedInt.int = RunCall.unsafeCast
+        val floatAsInt: Real32.real->int = RunCall.unsafeCast
         val wordAsFloat: word->Real32.real = RunCall.unsafeCast
         fun byte(r: Real32.real, b: word): Word8.word =
             RunCall.loadByteFromImmutable(r, if bigEndian then b else 0w3-b)
@@ -59,40 +59,37 @@ struct
         fun floatSignBit (r: Real32.real): bool =
             if floatIsTagged then floatAsInt r < 0 else byte(r, 0w0) >= 0w128
 
-        fun floatExponent (r: Real32.real): FixedInt.int =
+        fun floatExponent (r: Real32.real): int =
         if floatIsTagged
-        then FixedInt.fromInt(Word.toInt(Word.andb(Word.>>(floatAsWord r, 0w23+0w31), 0wxff)))
-        else FixedInt.fromInt(
-                Word8.toInt(Word8.andb(byte(r, 0w0), 0wx7f)) * 2 +
-                    Word8.toInt(Word8.>>(byte(r, 0w1), 0w7)))
+        then Word.toInt(Word.andb(Word.>>(floatAsWord r, 0w23+0w31), 0wxff))
+        else Word8.toInt(Word8.andb(byte(r, 0w0), 0wx7f)) * 2 +
+                    Word8.toInt(Word8.>>(byte(r, 0w1), 0w7))
 
-        fun floatMantissa (r: Real32.real): FixedInt.int =
+        fun floatMantissa (r: Real32.real): int =
         if floatIsTagged
-        then FixedInt.fromInt(Word.toInt(Word.andb(Word.>>(floatAsWord r, 0w31), 0wx7fffff)))
-        else
-            (FixedInt.fromInt(Word8.toInt(Word8.andb(byte(r, 0w1), 0wx7f))) * 256 +
-                FixedInt.fromInt(Word8.toInt(byte(r, 0w2)))) * 256 +
-                    FixedInt.fromInt(Word8.toInt(byte(r, 0w3)))
+        then Word.toInt(Word.andb(Word.>>(floatAsWord r, 0w31), 0wx7fffff))
+        else (Word8.toInt(Word8.andb(byte(r, 0w1), 0wx7f)) * 256 +
+                Word8.toInt(byte(r, 0w2))) * 256 +
+                    Word8.toInt(byte(r, 0w3))
 
-        fun floatFromBinary{sign: bool, exp: FixedInt.int, mantissa: FixedInt.int}: Real32.real =
+        fun floatFromBinary{sign: bool, exp: int, mantissa: int}: Real32.real =
         if floatIsTagged
         then
         let
             val signBit = if sign then Word.<<(0w1, 0w31+0w31) else 0w0
-            val expo = Word.<<(Word.fromInt(FixedInt.toInt exp), 0w23+0w31)
+            val expo = Word.<<(Word.fromInt exp, 0w23+0w31)
             (* This assumes that the mantissa value is not too large. *)
-            val mant = Word.<<(Word.fromInt(FixedInt.toInt mantissa), 0w31)
+            val mant = Word.<<(Word.fromInt mantissa, 0w31)
         in
             wordAsFloat(Word.orb(signBit, Word.orb(expo, mant)))
         end
         else
         let
             val r: Real32.real = RunCall.allocateByteMemory(0w1, 0wx41)
-            val b0 = Word8.orb(if sign then 0wx80 else 0w0, Word8.fromInt(FixedInt.toInt(FixedInt.quot(exp, 2))))
+            val b0 = Word8.orb(if sign then 0wx80 else 0w0, Word8.fromInt(Int.toInt(Int.quot(exp, 2))))
             val () = setByte(r, 0w0, b0)
             (* The low order 24 bits will always fit in a word. *)
-            val b = Word.orb(Word.<<(Word.fromInt(FixedInt.toInt exp), 0w23),
-                        Word.fromInt(FixedInt.toInt mantissa))
+            val b = Word.orb(Word.<<(Word.fromInt exp, 0w23), Word.fromInt mantissa)
             fun w8fromW x = Word8.fromLarge(Word.toLarge x)
             val () = setByte(r, 0w1, w8fromW(Word.>>(b, 0w16)))
             val () = setByte(r, 0w2, w8fromW(Word.>>(b, 0w8)))
@@ -123,8 +120,8 @@ struct
     in
         fun doubleSignBit (r: real) : bool = byte(r, 0w0) >= 0w128
 
-        fun doubleExponent (r: real): FixedInt.int =
-            FixedInt.fromInt(
+        fun doubleExponent (r: real): int =
+            Int.fromInt(
                 Word8.toInt(Word8.andb(byte(r, 0w0), 0wx7f)) * 16 +
                     Word8.toInt(Word8.>>(byte(r, 0w1), 0w4)))
 
@@ -140,12 +137,12 @@ struct
                                 Word8.toLargeInt(byte(r, 0w6))) * 256 +
                                     Word8.toLargeInt(byte(r, 0w7))
 
-        fun doubleFromBinary{sign: bool, exp: FixedInt.int, mantissa: LargeInt.int}: real =
+        fun doubleFromBinary{sign: bool, exp: int, mantissa: LargeInt.int}: real =
         if realIsWord64
         then (* We can construct the value as a LargeWord.word and then cast it as a real. *)
         let
             val signBit = if sign then LargeWord.<<(0w1, 0w63) else 0w0
-            val expo = LargeWord.<<(LargeWord.fromInt(FixedInt.toInt exp), 0w52)
+            val expo = LargeWord.<<(LargeWord.fromInt exp, 0w52)
             (* This assumes that the mantissa value is not too large. *)
             val mant = LargeWord.fromLargeInt mantissa
         in
@@ -154,11 +151,11 @@ struct
         else
         let
             val r: real = RunCall.allocateByteMemory(0w8 div wordSize, 0wx41)
-            val b0 = Word8.orb(if sign then 0wx80 else 0w0, Word8.fromInt(FixedInt.toInt(FixedInt.quot(exp, 16))))
+            val b0 = Word8.orb(if sign then 0wx80 else 0w0, Word8.fromInt(Int.toInt(Int.quot(exp, 16))))
             val () = setByte(r, 0w0, b0)
             val b1 =
                 Word8.orb(
-                    Word8.<<(Word8.fromInt(FixedInt.toInt(FixedInt.rem(exp, 16))), 0w4),
+                    Word8.<<(Word8.fromInt(Int.rem(exp, 16)), 0w4),
                         Word8.andb(Word8.fromLargeInt(IntInf.~>>(mantissa, 0w48)), 0wxf))
             val () = setByte(r, 0w1, b1)
             val () = setByte(r, 0w2, Word8.fromLargeInt(IntInf.~>>(mantissa, 0w40)))
