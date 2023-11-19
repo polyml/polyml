@@ -103,7 +103,6 @@
 */
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedFromString(POLYUNSIGNED threadId, POLYUNSIGNED str);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealDoubleToString(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED kind, POLYUNSIGNED prec);
     POLYEXTERNALSYMBOL double PolyRealSqrt(double arg);
     POLYEXTERNALSYMBOL double PolyRealSin(double arg);
@@ -604,49 +603,6 @@ float PolyRealFNextAfter(float arg1, float arg2)
     return nextafterf(arg1, arg2);
 }
 
-/* CALL_IO1(Real_conv, REF, NOIND) */
-Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
-{
-    double result;
-    int i;
-    char *finish;
-    TempCString string_buffer(Poly_string_to_C_alloc(str->Word()));
-    
-    /* Scan the string turning '~' into '-' */
-    for(i = 0; string_buffer[i] != '\0'; i ++)
-    {
-        if (string_buffer[i] == '~') string_buffer[i] = '-';
-    }
-        
-    /* Now convert it */
-    result = strtod(string_buffer, &finish);
-    // We no longer detect overflow and underflow and instead return
-    // (signed) zeros for underflow and (signed) infinities for overflow.
-    if (*finish != '\0') raise_exception_string(mdTaskData, EXC_conversion, "");
-
-    return real_result(mdTaskData, result);
-}/* Real_conv */
-
-// Convert a string to a boxed real.  This should really return an unboxed real.
-POLYUNSIGNED PolyRealBoxedFromString(POLYUNSIGNED threadId, POLYUNSIGNED str)
-{
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedString = taskData->saveVec.push(str);
-    Handle result = 0;
-
-    try {
-        result = Real_convc(taskData, pushedString);
-    } catch (...) { } // If an ML exception is raised
-
-    taskData->saveVec.reset(reset);
-    taskData->PostRTSCall();
-    if (result == 0) return TAGGED(0).AsUnsigned();
-    else return result->Word().AsUnsigned();
-}
-
 // Format a double-precision number using the format specifier.
 POLYUNSIGNED PolyRealDoubleToString(POLYUNSIGNED threadId, POLYUNSIGNED arg, POLYUNSIGNED kind, POLYUNSIGNED prec)
 {
@@ -872,7 +828,6 @@ POLYSIGNED PolySetRoundingMode(POLYUNSIGNED arg)
 
 struct _entrypts realsEPT[] =
 {
-    { "PolyRealBoxedFromString",        (polyRTSFunction)&PolyRealBoxedFromString},
     { "PolyRealDoubleToString",         (polyRTSFunction)&PolyRealDoubleToString},
     { "PolyRealSqrt",                   (polyRTSFunction)&PolyRealSqrt},
     { "PolyRealSin",                    (polyRTSFunction)&PolyRealSin},
