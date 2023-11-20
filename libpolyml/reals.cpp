@@ -155,9 +155,6 @@ extern "C" {
     POLYEXTERNALSYMBOL float PolyRealFNextAfter(float arg1, float arg2);
 }
 
-static Handle Real_convc(TaskData *mdTaskData, Handle str);
-
-
 // Positive and negative infinities and (positive) NaN.
 double posInf, negInf, notANumber;
 float posInfF, negInfF, notANumberF;
