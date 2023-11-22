@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: IEEEReal Structure.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2018
+    Copyright   David Matthews 2000, 2005, 2018, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,8 +16,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: updated. *)
 
 structure IEEEReal: IEEE_REAL =
 struct
@@ -120,14 +118,16 @@ struct
         (* Return the signed exponent.  If this doesn't represent a
            valid integer return NONE since we shouldn't take off the E. 
            Int.scan accepts and removes leading space but we don't allow
-           space here so return NONE if we find any. *)
+           space here so return NONE if we find any.
+           This returns the exponent as a large int so we don't need
+           to consider overflow until we finally convert it to int. *)
         fun getExponent src =
             case getc src of
                 NONE => NONE
               | SOME(ch, _) =>
                 if Char.isSpace ch
                 then NONE
-                else Int.scan StringCvt.DEC getc src
+                else LargeInt.scan StringCvt.DEC getc src
 
         fun readNumber sign (src: 'a): (decimal_approx *'a) option =
             case getc src of
@@ -157,24 +157,25 @@ struct
                     val trimTrailingZeros = List.rev o trimLeadingZeros o List.rev
                     val leading = trimLeadingZeros intPart
                     val trailing = trimTrailingZeros decimals
-		    (* Concatenate leading and trailing into the final digits list and calculate the
-		     increment to the scanned exponent *)
-		    val (digits, exponentInc) =
-			case (leading, trailing) of
-			    ([], []) => ([], 0)
-			  | ([], 0::_) => (
-			    case trimLeadingZeros trailing of
-				trimmed => (trimmed, List.length trimmed - List.length trailing)
-			  )
-			  | (_::_, []) => if (List.last leading) = 0
-					   then (trimTrailingZeros leading, List.length leading)
-					   else (leading, List.length leading)
-			  | ([], _) => (trailing, 0) 
-			  | _ => (
-			      case List.@(leading, trailing) of
-				  joined => (joined, List.length leading)
-			  )
-		    (* Get the exponent, returning zero if it doesn't match. *)
+                    (* Concatenate leading and trailing into the final digits list and calculate the
+                       increment to the scanned exponent *)
+                    val (digits, exponentInc) =
+                    	case (leading, trailing) of
+                    	    ([], []) => ([], 0)
+                    	  | ([], 0::_) => (
+                    	    case trimLeadingZeros trailing of
+                    		trimmed => (trimmed, List.length trimmed - List.length trailing)
+                    	  )
+                    	  | (_::_, []) => if (List.last leading) = 0
+                    			   then (trimTrailingZeros leading, List.length leading)
+                    			   else (leading, List.length leading)
+                    	  | ([], _) => (trailing, 0) 
+                    	  | _ => (
+                    	      case List.@(leading, trailing) of
+                    		  joined => (joined, List.length leading)
+                    	  )
+
+        		    (* Get the exponent, returning zero if it doesn't match. *)
                     val (exponent, src4) =
                         case getc src3 of
                             NONE => (0, src3)
@@ -191,11 +192,24 @@ struct
                        except that if there were no digits at all we have a malformed number. *)
                     case (intPart, decimals, digits) of
                         ([], [], _) => NONE
-                      | (_, _, []) =>
-                        SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
-                      | _ =>
-                            SOME ({class=NORMAL, sign=sign, digits=digits,
-                              exp=exponent+exponentInc}, src4)
+                    |   (_, _, []) => SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
+                    |   _ =>
+                        (
+                            let
+                                (* Convert the result to Int which could result in overflow. *)
+                                val finalExponent = Int.fromLarge(exponent + Int.toLarge exponentInc)
+                            in
+                                SOME ({class=NORMAL, sign=sign, digits=digits, exp=finalExponent}, src4)
+                            end
+                            handle Overflow =>
+                            (
+                                (* Overflow in exponent.  If the mantissa is zero or the exponent
+                                   is negative the result is zero otherwise it is (signed) infinity. *)
+                                if List.null digits orelse exponent < 0
+                                then SOME ({class=ZERO, sign=sign, digits=[], exp=0}, src4)
+                                else SOME ({class=INF, sign=sign, digits=[], exp=0}, src4)
+                            )
+                        )
                 end
                 else ( (* Could be INFINITY, INF or NAN.  Check INFINITY before INF. *)
                     case checkString (src, Substring.full "INFINITY") of
