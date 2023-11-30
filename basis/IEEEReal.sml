@@ -180,8 +180,9 @@ struct
                         case getc src3 of
                             NONE => (0, src3)
                          |  SOME (ch, src4a) =>
-                            if (ch = #"e" orelse ch = #"E") andalso digits <> []
-                            then (
+                            if ch = #"e" orelse ch = #"E"
+                            then
+                            (
                                 case getExponent src4a of
                                     NONE => (0, src3)
                                 |   SOME x => x
