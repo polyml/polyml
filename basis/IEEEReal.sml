@@ -155,27 +155,26 @@ struct
                      |  trimLeadingZeros (0 :: l) = trimLeadingZeros l
                      |  trimLeadingZeros l = l
                     val trimTrailingZeros = List.rev o trimLeadingZeros o List.rev
-                    val leading = trimLeadingZeros intPart
-                    val trailing = trimTrailingZeros decimals
+
                     (* Concatenate leading and trailing into the final digits list and calculate the
                        increment to the scanned exponent *)
                     val (digits, exponentInc) =
-                    	case (leading, trailing) of
-                    	    ([], []) => ([], 0)
-                    	  | ([], 0::_) => (
-                    	    case trimLeadingZeros trailing of
-                    		trimmed => (trimmed, List.length trimmed - List.length trailing)
-                    	  )
-                    	  | (_::_, []) => if (List.last leading) = 0
-                    			   then (trimTrailingZeros leading, List.length leading)
-                    			   else (leading, List.length leading)
-                    	  | ([], _) => (trailing, 0) 
-                    	  | _ => (
-                    	      case List.@(leading, trailing) of
-                    		  joined => (joined, List.length leading)
-                    	  )
+                        case trimLeadingZeros intPart of
+                            [] =>
+                            let
+                                (* Anything before the decimal point is just zeros.
+                                   Remove zeros after the decimal point but subtract the number
+                                   of zeros removed from the exponent. *)
+                                val trimmed = trimLeadingZeros decimals
+                            in
+                                (trimTrailingZeros trimmed, List.length trimmed - List.length decimals)
+                            end
+                        |   leading =>
+                            (* We have non-zeros before the decimal point.  Add the length of
+                               this part to the exponent. *)
+                            (trimTrailingZeros (leading @ decimals), List.length leading)
 
-        		    (* Get the exponent, returning zero if it doesn't match. *)
+                    (* Get the exponent, returning zero if it doesn't match. *)
                     val (exponent, src4) =
                         case getc src3 of
                             NONE => (0, src3)
