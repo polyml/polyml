@@ -1,7 +1,7 @@
 /*
     Title:  osomem.cpp - Interface to OS memory management - Unix version
 
-    Copyright (c) 2006, 2017-18, 2020-21 David C.J. Matthews
+    Copyright (c) 2006, 2017-18, 2020-21, 2023 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -229,7 +229,16 @@ bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, voi
     }
     else
     {
-        if (ftruncate(shadowFd, space) == -1) return false;
+        while (ftruncate(shadowFd, space) == -1)
+        {
+            // On NetBSD this may fail if the temporary file space is not
+            // large enough.  Try with a smaller size.
+            if (errno != ENOSPC) // NetBSD returns ENOSPC here.
+                return false;
+            if (space < pageSize)
+                return false;
+            space = space / 2;
+        }
         void *readWrite = mmap(0, space, PROT_NONE, MAP_SHARED, shadowFd, 0);
         if (readWrite == MAP_FAILED) return 0;
         memBase = (char*)mmap(0, space, PROT_NONE, MAP_SHARED, shadowFd, 0);

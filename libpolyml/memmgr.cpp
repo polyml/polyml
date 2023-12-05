@@ -170,7 +170,7 @@ bool MemMgr::Initialise()
         return false;
 #endif
 #if (defined(POLYML32IN64) || defined(HOSTARCHITECTURE_X86_64) || defined(HOSTARCHITECTURE_AARCH64))
-    // Reserve a 2G area for the code.
+    // Reserve a 2G area for the code.  N.B. If we need to use a shadow area this size may be reduced.
     void* codeBase;
     if (!osCodeAlloc.Initialise(executableCodeWhereNecessary,
         (size_t)2 * 1024 * 1024 * 1024, &codeBase))
