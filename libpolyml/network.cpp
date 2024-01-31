@@ -844,6 +844,9 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(POLYUNSIGNED threadId, POLYUNS
         DEREFHANDLE(result)->Set(1, wrResult->Word());
         DEREFHANDLE(result)->Set(2, exResult->Word());
     }
+    catch (KillException&) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
+    }
     catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
