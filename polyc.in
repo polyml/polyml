@@ -20,6 +20,9 @@ COMPILER="${DEFAULT_COMPILER}"
 @NATIVE_WINDOWS_TRUE@@WINDOWSGUI_TRUE@EXTRALDFLAGS+=" -mwindows"
 @NATIVE_WINDOWS_TRUE@@WINDOWSGUI_FALSE@EXTRALDFLAGS+=" -mconsole"
 
+# Extra options for macOS
+@CLASSIC_LINKER_TRUE@EXTRALDFLAGS="-ld_classic"
+
 @NATIVE_WINDOWS_TRUE@SUFFIX="obj"
 @NATIVE_WINDOWS_FALSE@SUFFIX="o"
 
@@ -40,9 +43,9 @@ link()
 {
     if [ X"$2" = "X" ]
     then
-        "${LINK}" ${EXTRALDFLAGS} ${CFLAGS} "$1" "-L${LIBDIR}" "-Wl,-rpath,${LIBDIR}" -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" "-L${LIBDIR}" "-Wl,-rpath,${LIBDIR}" -lpolymain -lpolyml ${LIBS}
     else
-        "${LINK}" ${EXTRALDFLAGS} ${CFLAGS} "$1" -o "$2" "-L${LIBDIR}" "-Wl,-rpath,${LIBDIR}" -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" -o "$2" "-L${LIBDIR}" "-Wl,-rpath,${LIBDIR}" -lpolymain -lpolyml ${LIBS}
     fi
 }
 

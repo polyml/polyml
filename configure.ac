@@ -33,6 +33,19 @@ AC_CANONICAL_HOST
 # building for something else.
 AC_CHECK_DECL([_WIN32], [poly_native_windows=yes], [poly_native_windows=no])
 
+# In recent macOS (with Xcode/clang 15+), the linker option -ld_classic must be
+# used to build Poly/ML. Here we just check if this linker option is available,
+# without further checking if we are actually in macOS.
+#
+# The variable "use_classic_linker" defined here is later used to define the
+# AM_CONDITIONAL called CLASSIC_LINKER, which is further used when generating
+# the "polyc" script. -- Chun Tian (binghe), Jul 23, 2024
+#
+AX_CHECK_LINK_FLAG([-ld_classic],
+    [LDFLAGS="$LDFLAGS -ld_classic"
+     use_classic_linker=yes],
+    [use_classic_linker=no])
+
 # If we are building on cygwin or mingw we need to give the -no-defined flag to
 # build a DLL.  We also have to use Windows calling conventions rather than
 # SysV on 64-bit.
@@ -544,6 +557,9 @@ AM_CONDITIONAL([WINDOWSCALLCONV], [test "$poly_use_windowscc" = yes])
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
 AM_CONDITIONAL([WINDOWSGUI], [test x$poly_windows_enablegui = xtrue])
+
+# This conditional will be later use when generating "polyc"
+AM_CONDITIONAL([CLASSIC_LINKER], [test "$use_classic_linker" = yes])
 
 # If we're building only the static version of libpolyml
 # then polyc and polyml.pc have to include the dependent libraries.
