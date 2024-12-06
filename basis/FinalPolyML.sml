@@ -772,13 +772,18 @@ local
             open OS.FileSys
             val {dir, file} = OS.Path.splitDirFile fileName
             val dirName = if dir = "" then OS.Path.currentArc else dir
-            val direc = openDir dirName
             fun readAll () =
-                case readDir direc of
-                    NONE => false
-                |   SOME f => f = file orelse readAll() 
+                let
+                    val direc = openDir dirName
+                    fun read () =
+                        case readDir direc of
+                            NONE => false
+                        |   SOME f => f = file orelse read ()
+                in
+                    read () before closeDir direc
+                end
         in
-            ((dir = "" orelse reallyexists dir) andalso readAll()) before closeDir direc
+            (OS.Path.isRoot dir orelse dir = "" orelse reallyexists dir) andalso readAll()
         end
 
         fun findFileTuple _                   [] = NONE
