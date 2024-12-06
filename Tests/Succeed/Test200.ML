@@ -40,18 +40,108 @@ ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "  10"),
     {exp = 2, sign = false, class = IEEEReal.NORMAL, digits = [1]}, "");
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "  10.X"),
     {exp = 2, sign = false, class = IEEEReal.NORMAL, digits = [1]}, ".X"); (* Valid. The decimal point is not part of the number. *)
-ieeeVerify(IEEEReal.scan Substring.getc (Substring.full " ~0E4611686018427387905"), 
-   {exp = 0, sign=true, class = IEEEReal.ZERO, digits = []}, "");
-ieeeVerify(IEEEReal.scan Substring.getc (Substring.full " 0E4611686018427387905"), 
-    {exp = 0, sign=false, class = IEEEReal.ZERO, digits = []}, "");
-ieeeVerify(IEEEReal.scan Substring.getc (Substring.full " 0.01E4611686018427387904"), 
-    {exp = 4611686018427387903, sign=false, class = IEEEReal.NORMAL, digits = [1]}, "");  (* mustn't be rounded to infinity or overflow, the representation of the exponent fits in an Int *)
-ieeeVerify(IEEEReal.scan Substring.getc (Substring.full " 0.0000000000001E4611686018427387915"), 
-    {exp = 4611686018427387903, sign=false, class = IEEEReal.NORMAL, digits = [1]}, ""); (* mustn't be rounded to infinity or overflow, the twelve zeros substract 11 from the stated exponent *)
-ieeeVerify(IEEEReal.scan Substring.getc (Substring.full " 1E~4611686018427387905"), 
-    {exp = ~4611686018427387904, sign=false, class = IEEEReal.NORMAL, digits = [1]}, "");  (* mustn't be rounded to zero or overflow, the representation of the exponent fits in an Int *)
-ieeeVerify(IEEEReal.scan Substring.getc (Substring.full " 1234567890E~4611686018427387914"), 
-    {exp = ~4611686018427387904, sign=false, class = IEEEReal.NORMAL, digits = [1,2,3,4,5,6,7,8,9]}, "");  (* mustn't be rounded to zero or overflow, the representation of the exponent fits in an Int *)
+
+
+fun expStr (n : Int.int, offset : IntInf.int) = IntInf.toString (IntInf.fromInt n + offset);
+
+case Int.minInt of
+  SOME minIntVal => (
+    (* zero mantissa with literal exponent not in range of `Int.int`: result is zero
+     *)
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~0E" ^ expStr (minIntVal, ~1))),
+       {exp = 0, sign=true, class = IEEEReal.ZERO, digits = []}, "");
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 0E" ^ expStr (minIntVal, ~1))),
+        {exp = 0, sign=false, class = IEEEReal.ZERO, digits = []}, "");
+
+    (* non-zero mantissa with literal exponent below range of `Int.int` and
+     * normalized exponent below range of `Int.int`: result is rounded to zero
+     *)
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 1E" ^ expStr (minIntVal, ~2))),
+       {exp = 0, sign=false, class = IEEEReal.ZERO, digits = []}, "");
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~1E" ^ expStr (minIntVal, ~2))),
+        {exp = 0, sign=true, class = IEEEReal.ZERO, digits = []}, "");
+
+    (* non-zero mantissa with literal exponent below range of `Int.int` and
+     * normalized exponent in range of `Int.int`: result is not rounded
+     *)
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 1E" ^ expStr (minIntVal, ~1))),
+        {exp = minIntVal, sign=false, class = IEEEReal.NORMAL, digits = [1]}, "");
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~1E" ^ expStr (minIntVal, ~1))),
+        {exp = minIntVal, sign=true, class = IEEEReal.NORMAL, digits = [1]}, "");
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 100000000000E" ^ expStr (minIntVal, ~12))),
+        {exp = minIntVal, sign=false, class = IEEEReal.NORMAL, digits = [1]}, "");
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~100000000000E" ^ expStr (minIntVal, ~12))),
+        {exp = minIntVal, sign=true, class = IEEEReal.NORMAL, digits = [1]}, "")
+    )
+| NONE =>
+    let
+      val hugeNegVal = ~ (List.foldl (op *) 1 (List.tabulate (100, fn i => (i + 1437) * 89)))
+    in
+      (* zero mantissa with huge negative literal exponent: result is zero
+       *)
+      ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~0E" ^ expStr (hugeNegVal, 0))),
+         {exp = 0, sign=true, class = IEEEReal.ZERO, digits = []}, "");
+      ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 0E" ^ expStr (hugeNegVal, 0))),
+          {exp = 0, sign=false, class = IEEEReal.ZERO, digits = []}, "");
+
+      (* non-zero mantissa with huge negative literal exponent: result is not rounded
+       *)
+      ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 1E" ^ expStr (hugeNegVal, ~1))),
+         {exp = hugeNegVal, sign=false, class = IEEEReal.NORMAL, digits = [1]}, "");
+      ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~1E" ^ expStr (hugeNegVal, ~1))),
+          {exp = hugeNegVal, sign=true, class = IEEEReal.NORMAL, digits = [1]}, "")
+    end;
+
+case Int.maxInt of
+  SOME maxIntVal => (
+
+    (* zero mantissa with literal exponent not in range of `Int.int`: result is zero
+     *)
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~0E" ^ expStr (maxIntVal, 1))),
+       {exp = 0, sign=true, class = IEEEReal.ZERO, digits = []}, "");
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 0E" ^ expStr (maxIntVal, 1))),
+        {exp = 0, sign=false, class = IEEEReal.ZERO, digits = []}, "");
+
+    (* non-zero mantissa with literal exponent above range of `Int.int` and
+     * normalized exponent above range of `Int.int`: result is rounded to infinity
+     *)
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 0.1E" ^ expStr (maxIntVal, 1))),
+        {exp = 0, sign=false, class = IEEEReal.INF, digits = []}, "");
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~0.1E" ^ expStr (maxIntVal, 1))),
+        {exp = 0, sign=true, class = IEEEReal.INF, digits = []}, "");
+
+    (* non-zero mantissa with literal exponent above range of `Int.int` and
+     * normalized exponent in range of `Int.int`: result is not rounded
+     *)
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 0.01E" ^ expStr (maxIntVal, 1))),
+        {exp = maxIntVal, sign=false, class = IEEEReal.NORMAL, digits = [1]}, "");
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~0.01E" ^ expStr (maxIntVal, 1))),
+        {exp = maxIntVal, sign=true, class = IEEEReal.NORMAL, digits = [1]}, "");
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 0.0000000000001E" ^ expStr (maxIntVal, 12))),
+        {exp = maxIntVal, sign=false, class = IEEEReal.NORMAL, digits = [1]}, "");
+    ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~0.0000000000001E" ^ expStr (maxIntVal, 12))),
+        {exp = maxIntVal, sign=true, class = IEEEReal.NORMAL, digits = [1]}, "")
+  )
+| NONE =>
+    let
+      val hugePosVal = List.foldl (op *) 1 (List.tabulate (100, fn i => (i + 1437) * 89))
+    in
+      (* zero mantissa with huge positive literal exponent: result is zero
+       *)
+      ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~0E" ^ expStr (hugePosVal, 0))),
+         {exp = 0, sign=true, class = IEEEReal.ZERO, digits = []}, "");
+      ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 0E" ^ expStr (hugePosVal, 0))),
+          {exp = 0, sign=false, class = IEEEReal.ZERO, digits = []}, "");
+
+      (* non-zero mantissa with huge positive literal exponent: result is not rounded
+       *)
+      ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" 1E" ^ expStr (hugePosVal, ~1))),
+         {exp = hugePosVal, sign=false, class = IEEEReal.NORMAL, digits = [1]}, "");
+      ieeeVerify(IEEEReal.scan Substring.getc (Substring.full (" ~1E" ^ expStr (hugePosVal, ~1))),
+          {exp = hugePosVal, sign=true, class = IEEEReal.NORMAL, digits = [1]}, "")
+    end;
+
+
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "infinity"),
     {exp = 0, sign = false, class = IEEEReal.INF, digits = []}, "");
 ieeeVerify(IEEEReal.scan Substring.getc (Substring.full "+infinity"),
