@@ -256,13 +256,14 @@ sig
             as argument.*)
         val wait: conditionVar * Mutex.mutex -> unit
         (*!As wait except that it blocks until either the condition
-           variable is signalled or the time (absolute) is reached.  Either way
-           the mutex is reacquired so there may be a further delay if it is held
-           by another thread.  *)
+           variable is signalled or the time (absolute) is reached.
+           Returns true if condition variable was signalled and false if
+           the time-out was reached.  Either way the mutex is reacquired so
+           there may be a further delay if it is held by another thread. *)
         val waitUntil: conditionVar * Mutex.mutex * Time.time -> bool
         (*!Wake up one thread if any are waiting on the condition variable. 
           If there are several threads waiting for the condition variable one will be 
-          selected to run and will run as soon as it has re-acquired the lock.*)
+          selected to run and will run as soon as it has re-acquired the lock. *)
         val signal: conditionVar -> unit
         (*!Wake up all threads waiting on the condition variable. *)
         val broadcast: conditionVar -> unit
