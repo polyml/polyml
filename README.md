@@ -29,7 +29,7 @@ features make it an exceptional implementation.
   for an example of static linking.
 * [Symbolic debugger](http://www.polyml.org/documentation/Tutorials/Debugging.html)
 * [Windows programming interface](http://www.polyml.org/documentation/Tutorials/WindowsProgramming.html)
-* [Thread library](http://www.polyml.org/documentation/Reference/Threads.html) - provides a
+* [Thread library](http://www.polyml.org/documentation/Reference/Thread.xml) - provides a
   simplified version of Posix threads modified for Standard ML and
   allows Poly/ML programs to make use of multiple cores.  The garbage collector is also
   parallelised.
