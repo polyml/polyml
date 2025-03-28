@@ -208,8 +208,10 @@ bool OSMemInRegion::Initialise(enum _MemUsage usage, size_t space /* = 0 */, voi
         // Don't require shadow area.  Can use mmap
         int flags = MAP_PRIVATE | MAP_ANON;
 #ifdef MAP_JIT
-        // If we have to use MAP_JIT on Mac OS we need to allocate the area at the start.
-        // Anything else causes problems when we actually try to allocate the pages.
+        // On macOS it is not allowed to map memory with PROT_WRITE | PROT_EXEC, unless it is mapped with MAP_JIT.
+        // Further, the memory needs to be allocated as soon as possible and all subsequent mprotect() calls to 
+        // the memory are denied. See also:
+        // https://developer.apple.com/documentation/apple-silicon/porting-just-in-time-compilers-to-apple-silicon
         if (usage == UsageExecutableCode && wxFix == WXFixMapJit)
             memBase = (char*)mmap(0, space, PROT_READ|PROT_WRITE|PROT_EXEC, flags | MAP_JIT, -1, 0);
         else
@@ -341,9 +343,7 @@ void* OSMemInRegion::AllocateCodeArea(size_t& space, void*& shadowArea)
         if (memUsage == UsageExecutableCode) prot |= PROT_EXEC;
         if (wxFix == WXFixMapJit && memUsage == UsageExecutableCode)
         {
-            // We can't use MAP_FIXED here because MAP_JIT|MAP_FIXED is not allowed.
-            // mprotect also seems to fail in strange ways so the only alternative
-            // is to allocate the whole area at the start.
+           // mprotect is not allowed on memory mapped with MAP_JIT.
         }
         else
         {
@@ -380,9 +380,11 @@ bool OSMemInRegion::FreeCodeArea(void* codeAddr, void* dataAddr, size_t space)
     uintptr_t offset = ((char*)codeAddr - memBase) / pageSize;
     if (wxFix != WXFixDualArea)
     {
-        if (wxFix == WXFixMapJit && memUsage == UsageExecutableCode)
-            mprotect(codeAddr, space, PROT_NONE);
-        else mmap(codeAddr, space, PROT_NONE, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
+        if (wxFix == WXFixMapJit && memUsage == UsageExecutableCode) {
+            // mprotect is not allowed on memory mapped with MAP_JIT.
+        } else {
+            mmap(codeAddr, space, PROT_NONE, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
+        }
         msync(codeAddr, space, MS_SYNC | MS_INVALIDATE);
     }
     else
