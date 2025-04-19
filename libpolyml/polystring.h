@@ -111,8 +111,4 @@ extern char **stringListToVector(Handle list);
 extern void freeStringVector(char **vec);
 extern void print_string(PolyWord s);
 
-// These should no longer be used in the RTS except internally.
-extern Handle strconcatc(TaskData *mdTaskData, Handle x, Handle y);
-
-
 #endif /* POLYSTRING_H */

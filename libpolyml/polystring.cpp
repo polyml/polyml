@@ -287,41 +287,11 @@ void freeStringVector(char **vec)
     free(vec);
 }
 
-// Concatenate two strings.  Now used only internally in the RTS in process_env.cpp
-Handle strconcatc(TaskData *mdTaskData, Handle y, Handle x)
-/* Note: arguments are in the reverse order from Poly */
-{
-    POLYUNSIGNED xlen = DEREFSTRINGHANDLE(x)->length;
-    /* Don't concatenate with null strings */
-    if (xlen == 0) return y;
-    
-    POLYUNSIGNED ylen = DEREFSTRINGHANDLE(y)->length;
-    if (ylen == 0) return x;
-    
-    POLYUNSIGNED len = xlen + ylen;
-    
-    /* Get store for combined string. Include rounding up to next word and
-    room for the length word and add in the flag. */
-    Handle result = alloc_and_save(mdTaskData, (len + sizeof(PolyWord)-1)/sizeof(PolyWord) + 1, F_BYTE_OBJ);
-    
-    DEREFSTRINGHANDLE(result)->length = len;
-    
-    /* Copy first string */
-    char *to_ptr = DEREFSTRINGHANDLE(result)->chars;
-    char *from_ptr = DEREFSTRINGHANDLE(x)->chars;
-    while (xlen-- > 0) (*to_ptr++ = *from_ptr++);
-
-    /* Add on second */
-    from_ptr = DEREFSTRINGHANDLE(y)->chars;
-    while (ylen-- > 0) (*to_ptr++ = *from_ptr++);
-
-    return(result);
-} /* strconcat */
 
 // Only used in Xwindows and then only for debugging.
 void print_string(PolyWord s)
 {
     extern FILE *polyStdout;
-        PolyStringObject * str = (PolyStringObject *)s.AsObjPtr();
-        fwrite(str->chars, 1, str->length, polyStdout);
+    PolyStringObject * str = (PolyStringObject *)s.AsObjPtr();
+    fwrite(str->chars, 1, str->length, polyStdout);
 }
