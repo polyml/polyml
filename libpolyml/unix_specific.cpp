@@ -394,7 +394,7 @@ static void restoreSignals(void)
     sigprocmask(SIG_SETMASK, &sigset, NULL);
 }
 
-Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
+static Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     int c = get_C_long(taskData, code->Word());
     switch (c)
