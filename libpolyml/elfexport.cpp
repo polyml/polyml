@@ -2,7 +2,7 @@
     Title:     Write out a database as an ELF object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011, 2016-18, 2020-21 David C. J. Matthews
+    Copyright (c) 2006-7, 2011, 2016-18, 2020-21, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -91,11 +91,6 @@
 #endif
 #ifdef HAVE_SYS_ELF_AMD64_H
 #include <sys/elf_amd64.h>
-#endif
-
-// Android has the ARM relocation symbol here
-#ifdef HAVE_ASM_ELF_H
-#include <asm/elf.h>
 #endif
 
 // NetBSD relocation symbols
