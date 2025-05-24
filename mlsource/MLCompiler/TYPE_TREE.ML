@@ -2361,8 +2361,6 @@ struct
                     else if tcIsAbbreviation tACons
                     (* Candidate is an alias - expand it. *)
                     then match (makeEquivalent (tACons, tAargs), tB)
-                    else if tcIsAbbreviation tBCons
-                    then match (tA, makeEquivalent (tBCons, tBargs))
                     else if tcIsAbbreviation tBCons (* If the typeB is an alias it must be expanded. *)
                     then match (tA, makeEquivalent (tBCons, tBargs))
                     else if sameTypeId (tcIdentifier tACons, tcIdentifier tBCons)
