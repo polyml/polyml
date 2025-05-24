@@ -243,7 +243,8 @@ void WinInOutStream::openFile(TaskData * taskData, TCHAR *name, openMode mode, b
     {
     case OPENREAD:
         if(!beginReading())
-            raise_syscall(taskData, "Read failure", GetLastError()); break;
+            raise_syscall(taskData, "Read failure", GetLastError());
+        break;
     case OPENWRITE: break;
     case OPENAPPEND:
     {
