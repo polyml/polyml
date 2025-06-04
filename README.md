@@ -12,8 +12,8 @@ Poly/ML takes a conservative approach to the Standard ML language and avoids inc
 
 * [Features](#features)
 * [Basis](#basis)
-* [Platforms and Installation](#platforms-and-installation)
-* [Support](#support)
+* [Installation](#installation)
+* [Mailing List](#mailing-list)
 
 ## Features
 
