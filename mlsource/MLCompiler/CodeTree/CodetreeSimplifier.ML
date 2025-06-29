@@ -821,7 +821,7 @@ struct
            we are trying to expand.  This could result in an infinitely recursive expansion.  It is only
            going to happen in very special circumstances such as a definition of the Y combinator.
            If we see that we don't attempt to expand inline.  It could be embedded in a tuple
-           or the closure of a function as well as passed directly. *)
+           or the closure of a function as well as passed directly. See Tests/Succeed/Test132.ML *)
         val isRecursiveArg =
             case function of
                 Extract extOrig =>
@@ -834,6 +834,17 @@ struct
                         |   containsFunction(_, v) = (v, FOLD_DESCEND)
                     in
                         List.exists(fn (c, _) => foldtree containsFunction false c) argList
+                    end
+            |   Constnt (cOrig, _) =>
+                    let
+                        fun containsFunction(Constnt(thisC, _), v) = (v orelse wordEq(cOrig, thisC), FOLD_DESCEND)
+                        |   containsFunction(Lambda{closure, ...}, v) =
+                                (* Only the closure, not the body *)
+                                (foldl (fn (c, w) => foldtree containsFunction w (Extract c)) v closure, FOLD_DONT_DESCEND)
+                        |   containsFunction(Eval _, v) = (v, FOLD_DONT_DESCEND) (* OK if it's called *)
+                        |   containsFunction(_, v) = (v, FOLD_DESCEND)
+                    in
+                       List.exists(fn (c, _) => foldtree containsFunction false c) argList 
                     end
             |   _ => false
     in
