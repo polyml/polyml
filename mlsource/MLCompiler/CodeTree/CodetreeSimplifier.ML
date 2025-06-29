@@ -836,6 +836,8 @@ struct
                         List.exists(fn (c, _) => foldtree containsFunction false c) argList
                     end
             |   Constnt (cOrig, _) =>
+                    if Address.isShort cOrig then false (* Functors are short constants and "always inline" *)
+                    else
                     let
                         fun containsFunction(Constnt(thisC, _), v) = (v orelse wordEq(cOrig, thisC), FOLD_DESCEND)
                         |   containsFunction(Lambda{closure, ...}, v) =
