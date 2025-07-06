@@ -125,20 +125,7 @@ sharing type
 sharing type
   LEX.lexan
 = PARSETYPE.lexan
-) : 
-
-(*****************************************************************************)
-(*                  PARSEDEC export signature                                *)
-(*****************************************************************************)
-sig
-  type lexan;
-  type symset;
-  type fixStatus;
-  type program
-  
-  val parseDec: symset * lexan * { enterFix:  string * fixStatus -> unit,
-                                   lookupFix: string -> fixStatus option } -> program;
-end =
+) : PARSEDECSIG =
 
 (*****************************************************************************)
 (*                  PARSEDEC functor body                                    *)
@@ -226,6 +213,11 @@ struct
      size name > 1 andalso String.str(String.sub(name, 1)) = "'";
 
  (* Global declarations *)
+
+ type fixes =
+     { enterFix:  string * fixStatus -> unit,
+       lookupFix: string -> fixStatus option }
+
    
  fun parseDec (fsys, lex, {enterFix, lookupFix}) : program =
  let

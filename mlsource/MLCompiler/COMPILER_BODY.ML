@@ -40,24 +40,12 @@ sig
 end;
 
 structure LEX : LEXSIG
-
 structure CODETREE : CODETREE
 structure STRUCTVALS : STRUCTVALSIG; 
 structure VALUEOPS : VALUEOPSSIG;
 structure EXPORTTREE: EXPORTTREESIG
 structure STRUCTURES : STRUCTURESSIG
-
-structure PARSEDEC :
-sig
-  type lexan
-  type symset
-  type fixStatus
-  type program
-  
-  val parseDec: symset * lexan *
-    { enterFix:  string * fixStatus -> unit, lookupFix: string -> fixStatus option } -> program
-end;
-
+structure PARSEDEC : PARSEDECSIG
 structure DEBUG: DEBUG
 
 structure UTILITIES :

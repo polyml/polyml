@@ -136,6 +136,7 @@ use "mlsource/MLCompiler/ParseTree/ml_bind.ML";
 use "mlsource/MLCompiler/SIGNATURES.sml";
 use "mlsource/MLCompiler/SignaturesStruct.sml";
 use "mlsource/MLCompiler/Structures.ML";
+use "mlsource/MLCompiler/PARSEDECSIG.sml";
 use "mlsource/MLCompiler/PARSE_DEC.ML";
 use "mlsource/MLCompiler/SKIPS_.ML";
 use "mlsource/MLCompiler/Skips.ML";
