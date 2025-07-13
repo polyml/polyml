@@ -1,5 +1,10 @@
 (*
-    Copyright (c) 2025, Martin Desharnais
+    Copyright (c) 2000-7
+        Cambridge University Technical Services Limited
+
+    Further Development
+        Copyright 2009, 2016 David C.J. Matthews.
+        Copyright 2025, Martin Desharnais
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
