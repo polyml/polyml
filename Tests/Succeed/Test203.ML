@@ -5,6 +5,7 @@ PolyML.Compiler.recordPunning := true;
 let
     val x = 3
     val z = 7
+    val r = {w = 2, x, y = 5, z}
 in
-    {w = 2, x, y = 5, z}
+    #w r = 2 andalso #x r = x andalso #y r = 5 andalso #z r = z
 end;
