@@ -168,7 +168,8 @@ struct
             val parseTree : STRUCTURES.program = 
                 let
                     val fixes : PARSEDEC.fixes = {enterFix  = enterFix, lookupFix = lookupFix}
-                    val params : PARSEDEC.params = {recordPunning = false}
+                    val params : PARSEDEC.params =
+                        {recordPunning = DEBUG.getParameter DEBUG.recordPunningTag debugSwitches}
                 in
                     PARSEDEC.parseDec (stopSyms, lex, fixes, params)
                 end
