@@ -20,13 +20,13 @@ signature PARSEDECSIG =
 (*                  PARSEDEC export signature                                *)
 (*****************************************************************************)
 sig
-    type lexan;
     type symset;
+    type lexan;
     type fixStatus;
-    type program;
     type fixes =
         { enterFix:  string * fixStatus -> unit,
           lookupFix: string -> fixStatus option };
+    type program;
 
     val parseDec: symset * lexan * fixes -> program;
 end
