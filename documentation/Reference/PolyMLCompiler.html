@@ -86,6 +86,7 @@
     <strong>val</strong> <a href="#createPrintFunctions">createPrintFunctions</a>: bool ref
     <strong>val</strong> <a href="#maxInlineSize">maxInlineSize</a>: int ref
     <strong>val</strong> <a href="#narrowOverloadFlexRecord">narrowOverloadFlexRecord</a>: bool ref
+    <strong>val</strong> <a href="#recordPunning">recordPunning</a>: bool ref
     <strong>val</strong> <a href="#traceCompiler">traceCompiler</a>: bool ref
 
     <strong>val</strong> <a href="#parsetree">parsetree</a>: bool ref
@@ -465,6 +466,15 @@
       message unless appropriate type constraints have been included. However, 
       that may ensure that the code is portable to compilers which take a more 
       restrictive view than Poly/ML.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="recordPunning" id="recordPunning"></a>val recordPunning: bool ref
+</pre>
+  <div class="entrytext">
+    <p>This reference controls whether the Poly/ML compiler should supports record punning,
+      i.e. record expressions where each label without an affected value is treated as if it
+      was affected a value of a variable with the same name as the label.
   </div>
 </div>
 <div class="entryblock"> 
