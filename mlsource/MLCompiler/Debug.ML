@@ -72,6 +72,8 @@ struct
         val reportExhaustiveHandlersTag: bool tag    = tag()
         (* Use a narrow context to resolve overloading and flexible records. *)
         val narrowOverloadFlexRecordTag: bool tag    = tag()
+        (* Use record punning. *)
+        val recordPunningTag: bool tag               = tag()
         (* Create print functions for datatypes based on the constructors. *)
         val createPrintFunctionsTag: bool tag        = tag()
         (* Warning level for discarding values *)
@@ -113,6 +115,7 @@ struct
             tagInject reportUnreferencedIdsTag false,
             tagInject reportExhaustiveHandlersTag false,
             tagInject narrowOverloadFlexRecordTag false,
+            tagInject recordPunningTag false,
             tagInject createPrintFunctionsTag true,
             tagInject reportDiscardedValuesTag reportDiscardFunction
         ]
