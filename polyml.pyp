@@ -177,6 +177,7 @@
 	<source name="mlsource\MLCompiler\MAKESIG.sml" />
 	<source name="mlsource\MLCompiler\Misc.ML" />
 	<source name="mlsource\MLCompiler\ml_bind.ML" />
+	<source name="mlsource\MLCompiler\PARSEDECSIG.sml" />
 	<source name="mlsource\MLCompiler\PARSE_DEC.ML" />
 	<source name="mlsource\MLCompiler\PARSE_TYPE.ML" />
 	<source name="mlsource\MLCompiler\ParseDec.ML" />
