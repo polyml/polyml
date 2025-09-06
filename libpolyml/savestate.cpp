@@ -1,7 +1,7 @@
 /*
     Title:  savestate.cpp - Save and Load state
 
-    Copyright (c) 2007, 2015, 2017-19, 2021 David C.J. Matthews
+    Copyright (c) 2007, 2015, 2017-19, 2021, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1834,6 +1834,14 @@ void ModuleExport::exportStore(void)
     delete[](descrs);
 
     fclose(exportFile); exportFile = NULL;
+
+    // Currently we now delete the export spaces so anything that has been
+    // written to the module will still just exist in the local heap.
+    // That means that if we write a second module anything shared between the
+    // two modules will be duplicated into the second one.  We could easily turn
+    // the exported spaces into permanent ones but we would then need to make sure
+    // that any local addresses are redirected to the permanent area.  Currently
+    // CopyScan uses FixForwarding to remove any references to the exported area.
 }
 
 // Store a module
@@ -1956,47 +1964,35 @@ void ModuleLoader::Perform()
                 return;
             }
             // Allocate memory for the new segment.
-            size_t actualSize = descr->segmentSize;
-            MemSpace *space;
-            if (descr->segmentFlags & SSF_CODE)
+            unsigned mFlags =
+                (descr->segmentFlags & SSF_WRITABLE ? MTF_WRITEABLE : 0) |
+                (descr->segmentFlags & SSF_NOOVERWRITE ? MTF_NO_OVERWRITE : 0) |
+                (descr->segmentFlags & SSF_BYTES ? MTF_BYTES : 0) |
+                (descr->segmentFlags & SSF_CODE ? MTF_EXECUTABLE : 0);
+            // TODO: This creates the new space as though it existed in the original executable.
+            // We need to distinguish it somehow so we know which module it came from.
+            PermanentMemSpace* newSpace =
+                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, 0 /* Hierarchy 0 */);
+            if (newSpace == 0)
             {
-                CodeSpace *cSpace = gMem.NewCodeSpace(actualSize);
-                if (cSpace == 0)
-                {
-                    errorResult = "Unable to allocate memory";
-                    return;
-                }
-                space = cSpace;
-                cSpace->firstFree = (PolyWord*)((byte*)space->bottom + descr->segmentSize);
-                if (cSpace->firstFree != cSpace->top)
-                    gMem.FillUnusedSpace(cSpace->firstFree, cSpace->top - cSpace->firstFree);
-            }
-            else
-            {
-                LocalMemSpace *lSpace = gMem.NewLocalSpace(actualSize, descr->segmentFlags & SSF_WRITABLE);
-                if (lSpace == 0)
-                {
-                    errorResult = "Unable to allocate memory";
-                    return;
-                }
-                space = lSpace;
-                lSpace->lowerAllocPtr = (PolyWord*)((byte*)lSpace->bottom + descr->segmentSize);
+                errorResult = "Unable to allocate memory";
+                return;
             }
             if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0)
             {
                 errorResult = "Unable to seek to segment";
                 return;
             }
-            if (readData(space->bottom, descr->segmentSize, loadFile) != 1)
+            if (readData(newSpace->bottom, descr->segmentSize, loadFile) != 1)
             {
                 errorResult = "Unable to read segment";
                 return;
             }
-            relocate.targetAddresses[descr->segmentIndex] = space->bottom;
-            if (space->isMutable && (descr->segmentFlags & SSF_BYTES) != 0)
+            relocate.targetAddresses[descr->segmentIndex] = newSpace->bottom;
+            if (newSpace->isMutable && (descr->segmentFlags & SSF_BYTES) != 0)
             {
                 ClearVolatile cwbr;
-                cwbr.ScanAddressesInRegion(space->bottom, (PolyWord*)((byte*)space->bottom + descr->segmentSize));
+                cwbr.ScanAddressesInRegion(newSpace->bottom, (PolyWord*)((byte*)newSpace->bottom + descr->segmentSize));
             }
         }
     }
