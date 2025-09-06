@@ -679,7 +679,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
     Exporter *exports = this;
 
     PolyObject *copiedRoot = 0;
-    CopyScan copyScan(hierarchy);
+    CopyScan copyScan(isModule ? 1 : 0); // Exclude the parent state if this is a module
 
     try {
         copyScan.initialise();
@@ -723,17 +723,18 @@ void Exporter::RunExport(PolyObject *rootFunction)
     // Copy the areas into the export object.
     size_t tableEntries = gMem.eSpaces.size();
     unsigned memEntry = 0;
-    if (hierarchy != 0) tableEntries += gMem.pSpaces.size();
+    if (isModule) tableEntries += gMem.pSpaces.size();
     exports->memTable = new memoryTableEntry[tableEntries];
 
     // If we're constructing a module we need to include the global spaces.
-    if (hierarchy != 0)
+    if (isModule)
     {
         // Permanent spaces from the executable.
+        // TODO: This will include all other modules but we need to include some sort of module ID.
         for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
         {
             PermanentMemSpace *space = *i;
-            if (space->hierarchy < hierarchy)
+            if (space->hierarchy == 0)
             {
                 memoryTableEntry *entry = &exports->memTable[memEntry++];
                 entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
@@ -753,7 +754,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
         PermanentMemSpace *space = *i;
         entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
-        entry->mtIndex = hierarchy == 0 ? memEntry-1 : space->index;
+        entry->mtIndex = ! isModule ? memEntry-1 : space->index;
         entry->mtFlags = 0;
         if (space->isMutable)
         {
@@ -876,7 +877,7 @@ POLYUNSIGNED PolyExportPortable(POLYUNSIGNED threadId, POLYUNSIGNED fileName, PO
 
 // Helper functions for exporting.  We need to produce relocation information
 // and this code is common to every method.
-Exporter::Exporter(unsigned int h): exportFile(NULL), errorMessage(0), hierarchy(h), memTable(0), newAreas(0)
+Exporter::Exporter(bool isMod): exportFile(NULL), errorMessage(0), isModule(isMod), memTable(0), newAreas(0)
 {
 }
 

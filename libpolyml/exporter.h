@@ -39,7 +39,7 @@ extern Handle exportPortable(TaskData *mdTaskData, Handle args);
 class Exporter
 {
 public:
-    Exporter(unsigned int h=0);
+    Exporter(bool isMod=false);
     virtual ~Exporter();
     virtual void exportStore(void) = 0;
 
@@ -60,7 +60,7 @@ public:
     const char *errorMessage;
 
 protected:
-    unsigned int hierarchy;
+    bool isModule; // True if exporting a module
     struct _memTableEntry *memTable;
     unsigned memTableEntries;
     PolyObject *rootFunction; // Address of the root function.
