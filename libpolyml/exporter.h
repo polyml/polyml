@@ -27,6 +27,10 @@
 #include <stdio.h> // For FILE
 #endif
 
+#ifdef HAVE_TIME_H
+#include <time.h> // For time_t
+#endif
+
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
 class TaskData;
