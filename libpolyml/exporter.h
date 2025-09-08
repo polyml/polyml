@@ -22,7 +22,6 @@
 #define EXPORTER_H_INCLUDED
 
 #include "globals.h" // For PolyWord
-#include "../polyexports.h" // For struct _memTableEntry
 
 #ifdef HAVE_STDIO_H
 #include <stdio.h> // For FILE
@@ -35,17 +34,31 @@ class TaskData;
 extern Handle exportNative(TaskData *mdTaskData, Handle args);
 extern Handle exportPortable(TaskData *mdTaskData, Handle args);
 
+class ExportMemTable
+{
+public:
+    ExportMemTable() : mtCurrentAddr(0), mtOriginalAddr(0), mtLength(0), 
+        mtFlags(0), mtIndex(0), mtModId(0) {}
+
+    // This previously used the memTable in polyexports.h
+    void* mtCurrentAddr;             // The address of the area of memory
+    void* mtOriginalAddr;            // The original address, for saved states and 32-in-64.
+    uintptr_t mtLength;              // The length in bytes of the area
+    unsigned mtFlags;               // Flags describing the area.
+    unsigned mtIndex;               // An index to identify permanent spaces.
+    time_t   mtModId;               // The source module
+};
+
 // This is the base class for the exporters for the various object-code formats.
 class Exporter
 {
 public:
-    Exporter(bool isMod=false);
+    Exporter(time_t modId = 0);
     virtual ~Exporter();
     virtual void exportStore(void) = 0;
 
     // Called by the root thread to do the work.
     void RunExport(PolyObject *rootFunction);
-
 
 protected:
     virtual PolyWord createRelocation(PolyWord p, void *relocAddr) = 0;
@@ -60,8 +73,8 @@ public:
     const char *errorMessage;
 
 protected:
-    bool isModule; // True if exporting a module
-    struct _memTableEntry *memTable;
+    time_t expModuleId; // Zero except when exporting a module
+    ExportMemTable *memTable;
     unsigned memTableEntries;
     PolyObject *rootFunction; // Address of the root function.
     unsigned newAreas;

@@ -863,7 +863,17 @@ void ELFExport::exportStore(void)
     sections[sect_table_data].sh_size = sizeof(exportDescription) + memTableEntries*sizeof(memoryTableEntry);
 
     fwrite(&exports, sizeof(exports), 1, exportFile);
-    fwrite(memTable, sizeof(memoryTableEntry), memTableEntries, exportFile);
+
+    for (unsigned i = 0; i < memTableEntries; i++)
+    {
+        memoryTableEntry memt;
+        memset(&memt, 0, sizeof(memt));
+        memt.mtCurrentAddr = memTable[i].mtCurrentAddr;
+        memt.mtOriginalAddr = memTable[i].mtOriginalAddr;
+        memt.mtLength = memTable[i].mtLength;
+        memt.mtFlags = memTable[i].mtFlags;
+        fwrite(&memt, sizeof(memoryTableEntry), 1, exportFile);
+    }
 
     // The section name table
     sections[sect_sectionnametable].sh_offset = ftell(exportFile);

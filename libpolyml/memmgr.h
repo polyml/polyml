@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006-8, 2010-12, 2016-18, 2020, 2021 David C. J. Matthews
+    Copyright (c) 2006-8, 2010-12, 2016-18, 2020, 2021, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,6 +25,10 @@
 #include "locking.h"
 #include "osmem.h"
 #include <vector>
+
+#ifdef HAVE_TIME_H
+#include <time.h>
+#endif
 
 // utility conversion macros
 #define Words_to_K(w) (w*sizeof(PolyWord))/1024
@@ -118,7 +122,7 @@ class PermanentMemSpace: public MemSpace
 {
 protected:
     PermanentMemSpace(OSMem *alloc): MemSpace(alloc), index(0), hierarchy(0), noOverwrite(false),
-        byteOnly(false), constArea(false), topPointer(0) {}
+        byteOnly(false), constArea(false), topPointer(0), moduleTimeStamp(0) {}
 
 public:
     unsigned    index;      // An identifier for the space.  Used when saving and loading.
@@ -133,6 +137,8 @@ public:
 
     Bitmap      shareBitmap; // Used in sharedata
     Bitmap      profileCode; // Used when profiling
+
+    time_t      moduleTimeStamp; // The identifier of the source module, usually the executable itself.
 
     friend class MemMgr;
 };
@@ -242,12 +248,12 @@ public:
     LocalMemSpace *NewLocalSpace(uintptr_t size, bool mut);
     // Create an entry for a permanent space.
     PermanentMemSpace *NewPermanentSpace(PolyWord *base, uintptr_t words,
-        unsigned flags, unsigned index, unsigned hierarchy = 0);
+        unsigned flags, unsigned index, time_t sourceModule, unsigned hierarchy);
 
     // Create a permanent space but allocate memory for it.
     // Sets bottom and top to the actual memory size.
     PermanentMemSpace *AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags,
-                            unsigned index, unsigned hierarchy = 0);
+                            unsigned index, time_t sourceModule, unsigned hierarchy);
     // Called after an allocated permanent area has been filled in.
     bool CompletePermanentSpaceAllocation(PermanentMemSpace *space);
 
@@ -292,7 +298,7 @@ public:
     bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
     bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
 
-    PermanentMemSpace *SpaceForIndex(unsigned index); // Return the space for a given index
+    PermanentMemSpace *SpaceForIndex(unsigned index, time_t modId); // Return the space for a given index
 
     // As a debugging check, write protect the immutable areas apart from during the GC.
     void ProtectImmutable(bool on);

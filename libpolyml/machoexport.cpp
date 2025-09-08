@@ -2,7 +2,7 @@
     Title:     Write out a database as a Mach object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011-2, 2016-18, 2020-21 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-2, 2016-18, 2020-21, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -520,13 +520,17 @@ void MachoExport::exportStore(void)
     sections[memTableEntries].offset = ftell(exportFile);
     fwrite(&exports, sizeof(exports), 1, exportFile);
     size_t addrOffset = sizeof(exports)+sizeof(memoryTableEntry)*memTableEntries;
+
     for (i = 0; i < memTableEntries; i++)
     {
-        void *save = memTable[i].mtCurrentAddr;
-        memTable[i].mtCurrentAddr = (void*)addrOffset; // Set this to the relative address.
+        memoryTableEntry memt;
+        memset(&memt, 0, sizeof(memt));
+        memt.mtCurrentAddr = (void*)addrOffset; // Set this to the relative address.
         addrOffset += memTable[i].mtLength;
-        fwrite(&memTable[i], sizeof(memoryTableEntry), 1, exportFile);
-        memTable[i].mtCurrentAddr = save;
+        memt.mtOriginalAddr = memTable[i].mtOriginalAddr;
+        memt.mtLength = memTable[i].mtLength;
+        memt.mtFlags = memTable[i].mtFlags;
+        fwrite(&memt, sizeof(memoryTableEntry), 1, exportFile);
     }
 
     // Now the binary data.

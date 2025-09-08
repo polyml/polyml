@@ -75,6 +75,8 @@
 
 #include "pexport.h"
 
+#include "../polyexports.h" // For MT_FLAGS
+
 #ifdef HAVE_PECOFF
 #include "pecoffexport.h"
 #elif defined(HAVE_ELF_H) || defined(HAVE_ELF_ABI_H)
@@ -679,7 +681,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
     Exporter *exports = this;
 
     PolyObject *copiedRoot = 0;
-    CopyScan copyScan(isModule ? 1 : 0); // Exclude the parent state if this is a module
+    CopyScan copyScan(expModuleId != 0 ? 1 : 0); // Exclude the parent state if this is a module
 
     try {
         copyScan.initialise();
@@ -723,23 +725,23 @@ void Exporter::RunExport(PolyObject *rootFunction)
     // Copy the areas into the export object.
     size_t tableEntries = gMem.eSpaces.size();
     unsigned memEntry = 0;
-    if (isModule) tableEntries += gMem.pSpaces.size();
-    exports->memTable = new memoryTableEntry[tableEntries];
+    if (expModuleId != 0) tableEntries += gMem.pSpaces.size();
+    exports->memTable = new ExportMemTable[tableEntries];
 
     // If we're constructing a module we need to include the global spaces.
-    if (isModule)
+    if (expModuleId != 0)
     {
-        // Permanent spaces from the executable.
-        // TODO: This will include all other modules but we need to include some sort of module ID.
+        // Permanent spaces from the executable and any dependencies
         for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
         {
             PermanentMemSpace *space = *i;
             if (space->hierarchy == 0)
             {
-                memoryTableEntry *entry = &exports->memTable[memEntry++];
+                ExportMemTable* entry = &exports->memTable[memEntry++];
                 entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
                 entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
                 entry->mtIndex = space->index;
+                entry->mtModId = space->moduleTimeStamp;
                 entry->mtFlags = 0;
                 if (space->isMutable) entry->mtFlags |= MTF_WRITEABLE;
                 if (space->isCode) entry->mtFlags |= MTF_EXECUTABLE;
@@ -750,11 +752,12 @@ void Exporter::RunExport(PolyObject *rootFunction)
 
     for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
-        memoryTableEntry *entry = &exports->memTable[memEntry++];
+        ExportMemTable*entry = &exports->memTable[memEntry++];
         PermanentMemSpace *space = *i;
         entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
-        entry->mtIndex = ! isModule ? memEntry-1 : space->index;
+        entry->mtIndex = memEntry-newAreas-1;
+        entry->mtModId = expModuleId;
         entry->mtFlags = 0;
         if (space->isMutable)
         {
@@ -877,7 +880,7 @@ POLYUNSIGNED PolyExportPortable(POLYUNSIGNED threadId, POLYUNSIGNED fileName, PO
 
 // Helper functions for exporting.  We need to produce relocation information
 // and this code is common to every method.
-Exporter::Exporter(bool isMod): exportFile(NULL), errorMessage(0), isModule(isMod), memTable(0), newAreas(0)
+Exporter::Exporter(time_t modId): exportFile(NULL), errorMessage(0), expModuleId(modId), memTable(0), newAreas(0)
 {
 }
 

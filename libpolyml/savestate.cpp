@@ -170,7 +170,7 @@ private:
  */
 
 #define SAVEDSTATESIGNATURE "POLYSAVE"
-#define SAVEDSTATEVERSION   2
+#define SAVEDSTATEVERSION   3
 
 // File header for a saved state file.  This appears as the first entry
 // in the file.
@@ -206,6 +206,7 @@ typedef struct _savedStateSegmentDescr
     unsigned    segmentFlags;           // Segment flags (see SSF_ values)
     unsigned    segmentIndex;           // The index of this segment or the segment it overwrites
     void        *originalAddress;       // The base address when the segment was written.
+    time_t      moduleId;               // The module this came from.
 } SavedStateSegmentDescr;
 
 #define SSF_WRITABLE    1               // The segment contains mutable data
@@ -305,7 +306,7 @@ static bool sameFile(const char *x, const char *y)
 class SaveStateExport: public Exporter, public ScanAddress
 {
 public:
-    SaveStateExport(unsigned int h=0): Exporter(h), relocationCount(0) {}
+    SaveStateExport(time_t modId=0): Exporter(modId), relocationCount(0) {}
 public:
     virtual void exportStore(void) {} // Not used.
 
@@ -342,7 +343,8 @@ PolyWord SaveStateExport::createRelocation(PolyWord p, void *relocAddr)
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
     reloc.targetAddress = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
-    reloc.targetSegment = (unsigned)memTable[addrArea].mtIndex;
+    // Module exports use the offset in their own table.
+    reloc.targetSegment = expModuleId != 0 ? addrArea :  (unsigned)memTable[addrArea].mtIndex;
     reloc.relKind = PROCESS_RELOC_DIRECT;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -372,7 +374,8 @@ void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationK
     RelocationEntry reloc;
     setRelocationAddress(addr, &reloc.relocAddress);
     reloc.targetAddress = (POLYUNSIGNED)((char*)a - (char*)memTable[aArea].mtOriginalAddr);
-    reloc.targetSegment = (unsigned)memTable[aArea].mtIndex;
+    // Module exports use offsets in their own tables.
+    reloc.targetSegment = expModuleId != 0 ? aArea : (unsigned)memTable[aArea].mtIndex;
     reloc.relKind = code;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -526,7 +529,7 @@ void SaveRequest::Perform()
 
     // Copy the areas into the export object.  Make sufficient space for
     // the largest possible number of entries.
-    exports.memTable = new memoryTableEntry[gMem.eSpaces.size()+gMem.pSpaces.size()+1];
+    exports.memTable = new ExportMemTable[gMem.eSpaces.size()+gMem.pSpaces.size()+1];
     unsigned memTableCount = 0;
 
     // Permanent spaces at higher level.  These have to have entries although
@@ -536,7 +539,7 @@ void SaveRequest::Perform()
         PermanentMemSpace *space = *i;
         if (space->hierarchy < newHierarchy)
         {
-            memoryTableEntry *entry = &exports.memTable[memTableCount++];
+            ExportMemTable*entry = &exports.memTable[memTableCount++];
             entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
             entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
             entry->mtIndex = space->index;
@@ -556,7 +559,7 @@ void SaveRequest::Perform()
     // Newly created spaces.
     for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
-        memoryTableEntry *entry = &exports.memTable[memTableCount++];
+        ExportMemTable*entry = &exports.memTable[memTableCount++];
         PermanentMemSpace *space = *i;
         entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
@@ -671,12 +674,13 @@ void SaveRequest::Perform()
 
     for (unsigned j = 0; j < exports.memTableEntries; j++)
     {
-        memoryTableEntry *entry = &exports.memTable[j];
+        ExportMemTable*entry = &exports.memTable[j];
         memset(&descrs[j], 0, sizeof(SavedStateSegmentDescr));
         descrs[j].relocationSize = sizeof(RelocationEntry);
         descrs[j].segmentIndex = (unsigned)entry->mtIndex;
         descrs[j].segmentSize = entry->mtLength; // Set this even if we don't write it.
         descrs[j].originalAddress = entry->mtOriginalAddr;
+        descrs[j].moduleId = 0; // For the moment
         if (entry->mtFlags & MTF_WRITEABLE)
         {
             descrs[j].segmentFlags |= SSF_WRITABLE;
@@ -697,7 +701,7 @@ void SaveRequest::Perform()
     // Write out the relocations and the data.
     for (unsigned k = 1 /* Not IO area */; k < exports.memTableEntries; k++)
     {
-        memoryTableEntry *entry = &exports.memTable[k];
+        ExportMemTable*entry = &exports.memTable[k];
         // Write out the contents if this is new or if it is a normal, overwritable
         // mutable area.
         if (k >= permanentEntries ||
@@ -1255,7 +1259,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     for (unsigned i = 0; i < relocate.nDescrs; i++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[i];
-        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
+        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex, descr->moduleId);
         if (space != NULL) relocate.targetAddresses[descr->segmentIndex] = space->bottom;
 
         if (descr->segmentData == 0)
@@ -1281,7 +1285,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                 (descr->segmentFlags & SSF_BYTES ? MTF_BYTES : 0) |
                 (descr->segmentFlags & SSF_CODE ? MTF_EXECUTABLE : 0);
             PermanentMemSpace *newSpace =
-                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, hierarchyDepth + 1);
+                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, header.timeStamp, hierarchyDepth + 1);
             if (newSpace == 0)
             {
                 errorResult = "Unable to allocate memory";
@@ -1319,7 +1323,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     for (unsigned j = 0; j < relocate.nDescrs; j++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[j];
-        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
+        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex, descr->moduleId);
         ASSERT(space != NULL); // We should have created it.
         if (descr->segmentFlags & SSF_OVERWRITE)
         {
@@ -1363,7 +1367,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                     errorResult = "Unable to read relocation segment";
                     return false;
                 }
-                MemSpace *toSpace = gMem.SpaceForIndex(reloc.targetSegment);
+                MemSpace *toSpace = gMem.SpaceForIndex(reloc.targetSegment, 0);
                 if (toSpace == NULL)
                 {
                     errorResult = "Unknown space reference in relocation";
@@ -1387,7 +1391,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
         SavedStateSegmentDescr *descr = &relocate.descrs[j];
         if (descr->segmentData != 0)
         {
-            PermanentMemSpace* space = gMem.SpaceForIndex(descr->segmentIndex);
+            PermanentMemSpace* space = gMem.SpaceForIndex(descr->segmentIndex, 0);
             gMem.CompletePermanentSpaceAllocation(space);
         }
     }
@@ -1671,7 +1675,7 @@ POLYUNSIGNED PolyShowParent(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 
 // Module system
 #define MODULESIGNATURE "POLYMODU"
-#define MODULEVERSION   2
+#define MODULEVERSION   3
 
 typedef struct _moduleHeader
 {
@@ -1710,13 +1714,13 @@ public:
 class ModuleExport: public SaveStateExport
 {
 public:
-    ModuleExport(): SaveStateExport(1/* Everything EXCEPT the executable. */) {}
+    ModuleExport(time_t moduleId): SaveStateExport(moduleId) {}
     virtual void exportStore(void); // Write the data out.
 };
 
 void ModuleStorer::Perform()
 {
-    ModuleExport exporter;
+    ModuleExport exporter(getBuildTime());
 #if (defined(_WIN32) && defined(UNICODE))
     exporter.exportFile = _wfopen(fileName, L"wb");
 #else
@@ -1757,11 +1761,12 @@ void ModuleExport::exportStore(void)
     modHeader.executableTimeStamp = exportTimeStamp;
     {
         unsigned rootArea = findArea(this->rootFunction);
-        struct _memTableEntry *mt = &memTable[rootArea];
-        modHeader.rootSegment = mt->mtIndex;
+       ExportMemTable*mt = &memTable[rootArea];
+//        modHeader.rootSegment = mt->mtIndex;
+        modHeader.rootSegment = rootArea;
         modHeader.rootOffset = (POLYUNSIGNED)((char*)this->rootFunction - (char*)mt->mtOriginalAddr);
     }
-    modHeader.timeStamp = getBuildTime();
+    modHeader.timeStamp = expModuleId;
     modHeader.segmentDescrCount = this->memTableEntries; // One segment for each space.
     // Write out the header.
     fwrite(&modHeader, sizeof(modHeader), 1, this->exportFile);
@@ -1772,12 +1777,13 @@ void ModuleExport::exportStore(void)
     for (unsigned j = 0; j < this->memTableEntries; j++)
     {
         SavedStateSegmentDescr *thisDescr = &descrs[j];
-        memoryTableEntry *entry = &this->memTable[j];
+        ExportMemTable*entry = &this->memTable[j];
         memset(thisDescr, 0, sizeof(SavedStateSegmentDescr));
         thisDescr->relocationSize = sizeof(RelocationEntry);
-        thisDescr->segmentIndex = (unsigned)entry->mtIndex;
+        thisDescr->segmentIndex = j;
         thisDescr->segmentSize = entry->mtLength; // Set this even if we don't write it.
         thisDescr->originalAddress = entry->mtOriginalAddr;
+        thisDescr->moduleId = entry->mtModId;
         if (entry->mtFlags & MTF_WRITEABLE)
         {
             thisDescr->segmentFlags |= SSF_WRITABLE;
@@ -1799,7 +1805,7 @@ void ModuleExport::exportStore(void)
     for (unsigned k = 0; k < this->memTableEntries; k++)
     {
         SavedStateSegmentDescr *thisDescr = &descrs[k];
-        memoryTableEntry *entry = &this->memTable[k];
+        ExportMemTable*entry = &this->memTable[k];
         if (k >= newAreas) // Not permanent areas
         {
             thisDescr->relocations = ftell(this->exportFile);
@@ -1944,7 +1950,7 @@ void ModuleLoader::Perform()
     for (unsigned i = 0; i < relocate.nDescrs; i++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[i];
-        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
+        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex, descr->moduleId);
 
         if (descr->segmentData == 0)
         { // No data - just an entry in the index.
@@ -1972,7 +1978,7 @@ void ModuleLoader::Perform()
             // TODO: This creates the new space as though it existed in the original executable.
             // We need to distinguish it somehow so we know which module it came from.
             PermanentMemSpace* newSpace =
-                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, 0 /* Hierarchy 0 */);
+                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, header.timeStamp, 0 /* Hierarchy 0 */);
             if (newSpace == 0)
             {
                 errorResult = "Unable to allocate memory";
@@ -2115,11 +2121,12 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
 
     for (unsigned i = 0; i < exports->memTableEntries; i++)
     {
-        relocate.descrs[i].segmentIndex = memTable[i].mtIndex;
+        relocate.descrs[i].segmentIndex = i;
         relocate.descrs[i].originalAddress = memTable[i].mtOriginalAddr;
         relocate.descrs[i].segmentSize = memTable[i].mtLength;
         PermanentMemSpace *newSpace =
-            gMem.AllocateNewPermanentSpace(memTable[i].mtLength, (unsigned)memTable[i].mtFlags, (unsigned)memTable[i].mtIndex);
+            gMem.AllocateNewPermanentSpace(memTable[i].mtLength, (unsigned)memTable[i].mtFlags,
+                    i, 0 /* modId */, 0 /* Hierarchy */);
         if (newSpace == 0)
             Exit("Unable to initialise a permanent memory space");
 
@@ -2147,7 +2154,7 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
     for (unsigned j = 0; j < exports->memTableEntries; j++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[j];
-        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
+        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex, 0);
         // Any relative addresses have to be corrected by adding this.
         relocate.relativeOffset = (PolyWord*)descr->originalAddress - space->bottom;
         for (PolyWord *p = space->bottom; p < space->top; )
@@ -2171,7 +2178,7 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
     // Set the final permissions.
     for (unsigned j = 0; j < exports->memTableEntries; j++)
     {
-        PermanentMemSpace *space = gMem.SpaceForIndex(memTable[j].mtIndex);
+        PermanentMemSpace *space = gMem.SpaceForIndex(j, 0);
         gMem.CompletePermanentSpaceAllocation(space);
     }
 
@@ -2184,7 +2191,7 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
         if (gMem.NewPermanentSpace(
             (PolyWord*)memTable[i].mtCurrentAddr,
             memTable[i].mtLength / sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
-            (unsigned)memTable[i].mtIndex) == 0)
+            i, 0/* ModID */, 0 /* Heirarchy */) == 0)
             Exit("Unable to initialise a permanent memory space");
     }
     return (PolyObject *)exports->rootFunction;

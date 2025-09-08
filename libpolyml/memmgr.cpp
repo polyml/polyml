@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006-7, 2011-12, 2016-18 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-12, 2016-18, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -299,7 +299,7 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
 
 // Create an entry for a permanent space.
 PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
-                                             unsigned flags, unsigned index, unsigned hierarchy /*= 0*/)
+                                             unsigned flags, unsigned index, time_t sourceModule, unsigned hierarchy /*= 0*/)
 {
     try {
         PermanentMemSpace *space = new PermanentMemSpace(0/* Not freed */);
@@ -312,6 +312,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
         space->isCode = flags & MTF_EXECUTABLE ? true : false;
         space->index = index;
         space->hierarchy = hierarchy;
+        space->moduleTimeStamp = sourceModule;
         if (index >= nextIndex) nextIndex = index+1;
 
         // Extend the permanent memory table and add this space to it.
@@ -331,7 +332,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
     }
 }
 
-PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, unsigned hierarchy)
+PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, time_t sourceModule, unsigned hierarchy)
 {
     try {
         OSMem *alloc = flags & MTF_EXECUTABLE ? (OSMem*)&osCodeAlloc : (OSMem*)&osHeapAlloc;
@@ -357,6 +358,7 @@ PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigne
         space->isCode = flags & MTF_EXECUTABLE ? true : false;
         space->index = index;
         space->hierarchy = hierarchy;
+        space->moduleTimeStamp = sourceModule;
         if (index >= nextIndex) nextIndex = index + 1;
 
         // Extend the permanent memory table and add this space to it.
@@ -619,12 +621,12 @@ bool MemMgr::DemoteImportSpaces()
 }
 
 // Return the space for a given index
-PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index)
+PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index, time_t modId)
 {
     for (std::vector<PermanentMemSpace*>::iterator i = pSpaces.begin(); i < pSpaces.end(); i++)
     {
         PermanentMemSpace *space = *i;
-        if (space->index == index)
+        if (space->index == index && space->moduleTimeStamp == modId)
             return space;
     }
     return NULL;

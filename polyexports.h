@@ -1,7 +1,7 @@
 /*
     Title:  polyexports.h 
 
-    Copyright (c) 2006, 2011, 2015, 2019 David C.J. Matthews
+    Copyright (c) 2006, 2011, 2015, 2019, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,7 +55,6 @@ typedef struct _memTableEntry {
     void *mtOriginalAddr;            // The original address, for saved states and 32-in-64.
     uintptr_t mtLength;              // The length in bytes of the area
     unsigned mtFlags;               // Flags describing the area.
-    unsigned mtIndex;               // An index to identify permanent spaces.
 } memoryTableEntry;
 
 #define MTF_WRITEABLE         0x00000001  // The area is writeable by ML code
