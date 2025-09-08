@@ -1,7 +1,7 @@
 /*
     Title:  scanaddrs.h - Scan addresses in objects
 
-    Copyright (c) 2006-8, 2012, 2015, 2018, 2021 David C.J. Matthews
+    Copyright (c) 2006-8, 2012, 2015, 2018, 2021, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -29,7 +29,10 @@ typedef enum {
     PROCESS_RELOC_I386RELATIVE,         // 32 or 64 bit relative address
     PROCESS_RELOC_ARM64ADRPLDR64,       // Relative address for ADRP/LDR (64-bit) pair
     PROCESS_RELOC_ARM64ADRPLDR32,       // Relative address for ADRP/LDR (32-bit) pair
-    PROCESS_RELOC_ARM64ADRPADD          // Relative address for ADRP/ADD pair
+    PROCESS_RELOC_ARM64ADRPADD,         // Relative address for ADRP/ADD pair
+    // The relocations above have corresponding object module relocation types.
+    // The next one does not and is only used within Poly/ML modules.
+    PROCESS_RELOC_C32ADDR               // Compact 32-bit object identifier
 } ScanRelocationKind;
 
 class StackSpace;

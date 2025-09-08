@@ -318,7 +318,8 @@ private:
 
 protected:
     void setRelocationAddress(void *p, POLYUNSIGNED *reloc);
-    PolyWord createRelocation(PolyWord p, void *relocAddr);
+    PolyWord createRelocation(PolyWord p, void *relocAddr); // Override for Exporter
+    void createActualRelocation(void *addr, void* relocAddr, ScanRelocationKind kind);
     unsigned relocationCount;
 
     friend class SaveRequest;
@@ -333,21 +334,30 @@ void SaveStateExport::setRelocationAddress(void *p, POLYUNSIGNED *reloc)
     *reloc = offset;
 }
 
-
 // Create a relocation entry for an address at a given location.
-PolyWord SaveStateExport::createRelocation(PolyWord p, void *relocAddr)
+// In compact-32 bit mode this will only be called for modules.
+void SaveStateExport::createActualRelocation(void *addr, void* relocAddr, ScanRelocationKind kind)
 {
     RelocationEntry reloc;
     // Set the offset within the section we're scanning.
     setRelocationAddress(relocAddr, &reloc.relocAddress);
-    void *addr = p.AsAddress();
+
     unsigned addrArea = findArea(addr);
     reloc.targetAddress = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
     // Module exports use the offset in their own table.
     reloc.targetSegment = expModuleId != 0 ? addrArea :  (unsigned)memTable[addrArea].mtIndex;
-    reloc.relKind = PROCESS_RELOC_DIRECT;
+    reloc.relKind = kind;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
+}
+
+PolyWord SaveStateExport::createRelocation(PolyWord p, void* relocAddr)
+{
+#ifdef POLYML32IN64
+    createActualRelocation(p.AsAddress(), relocAddr, PROCESS_RELOC_C32ADDR);
+#else
+    createActualRelocation(p.AsAddress(), relocAddr, PROCESS_RELOC_DIRECT);
+#endif
     return p; // Don't change the contents
 }
 
@@ -1285,7 +1295,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                 (descr->segmentFlags & SSF_BYTES ? MTF_BYTES : 0) |
                 (descr->segmentFlags & SSF_CODE ? MTF_EXECUTABLE : 0);
             PermanentMemSpace *newSpace =
-                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, header.timeStamp, hierarchyDepth + 1);
+                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, descr->moduleId, hierarchyDepth + 1);
             if (newSpace == 0)
             {
                 errorResult = "Unable to allocate memory";
@@ -1716,6 +1726,10 @@ class ModuleExport: public SaveStateExport
 public:
     ModuleExport(time_t moduleId): SaveStateExport(moduleId) {}
     virtual void exportStore(void); // Write the data out.
+protected:
+    // These have to be overridden to work properly for compact 32-bit
+    virtual void relocateValue(PolyWord* pt);
+    virtual void relocateObject(PolyObject* p);
 };
 
 void ModuleStorer::Perform()
@@ -1848,6 +1862,29 @@ void ModuleExport::exportStore(void)
     // the exported spaces into permanent ones but we would then need to make sure
     // that any local addresses are redirected to the permanent area.  Currently
     // CopyScan uses FixForwarding to remove any references to the exported area.
+}
+
+void ModuleExport::relocateValue(PolyWord* pt)
+{
+    PolyWord q = *pt;
+    if (IS_INT(q) || q == PolyWord::FromUnsigned(0)) {}
+    else *gMem.SpaceForAddress(pt)->writeAble(pt) = createRelocation(*pt, pt);
+}
+
+// We need to override this since Exporter::relocateObject doesn't work 
+void ModuleExport::relocateObject(PolyObject* p)
+{
+    if (p->IsClosureObject())
+    {
+        POLYUNSIGNED length = p->Length();
+        // The first word is an absolute code address.
+        PolyWord* pt = p->Offset(0);
+        void* addr = *(void**)pt;
+        createActualRelocation(addr, pt, PROCESS_RELOC_DIRECT);
+
+        for (POLYUNSIGNED i = sizeof(uintptr_t)/sizeof(PolyWord); i < length; i++) relocateValue(p->Offset(i));
+    }
+    else Exporter::relocateObject(p);
 }
 
 // Store a module

@@ -66,8 +66,8 @@ public:
 
 protected:
     virtual PolyWord createRelocation(PolyWord p, void *relocAddr) = 0;
-    void relocateValue(PolyWord *pt);
-    void relocateObject(PolyObject *p);
+    virtual void relocateValue(PolyWord *pt); // Overridden in ModuleExport
+    virtual void relocateObject(PolyObject *p); // Overridden in ModuleExport
     void createRelocation(PolyWord *pt);
     unsigned findArea(void *p); // Find index of area that address is in.
     virtual void addExternalReference(void *p, const char *entryPoint, bool isFuncPtr) {}

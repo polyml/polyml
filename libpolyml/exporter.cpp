@@ -946,6 +946,10 @@ void Exporter::relocateObject(PolyObject *p)
     }
     else // Closure and ordinary objects
     {
+        // TODO: This doesn't work properly for closures in compact 32-bit since it
+        // treats the absolutely address of the code as two ordinary PolyWord values.
+        // That doesn't matter when exporting to an object file since in that case
+        // we never actually generate any relocations.
         POLYUNSIGNED length = p->Length();
         for (POLYUNSIGNED i = 0; i < length; i++) relocateValue(p->Offset(i));
     }
