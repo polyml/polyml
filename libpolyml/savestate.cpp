@@ -1794,7 +1794,7 @@ void ModuleExport::exportStore(void)
         ExportMemTable*entry = &this->memTable[j];
         memset(thisDescr, 0, sizeof(SavedStateSegmentDescr));
         thisDescr->relocationSize = sizeof(RelocationEntry);
-        thisDescr->segmentIndex = j;
+        thisDescr->segmentIndex = entry->mtIndex;
         thisDescr->segmentSize = entry->mtLength; // Set this even if we don't write it.
         thisDescr->originalAddress = entry->mtOriginalAddr;
         thisDescr->moduleId = entry->mtModId;
@@ -1973,14 +1973,9 @@ void ModuleLoader::Perform()
         errorResult = "Unable to read segment descriptors";
         return;
     }
-    {
-        unsigned maxIndex = 0;
-        for (unsigned i = 0; i < relocate.nDescrs; i++)
-            if (relocate.descrs[i].segmentIndex > maxIndex)
-                maxIndex = relocate.descrs[i].segmentIndex;
-        relocate.targetAddresses = new PolyWord*[maxIndex+1];
-        for (unsigned i = 0; i <= maxIndex; i++) relocate.targetAddresses[i] = 0;
-    }
+
+    relocate.targetAddresses = new PolyWord*[relocate.nDescrs];
+    for (unsigned i = 0; i < relocate.nDescrs; i++) relocate.targetAddresses[i] = 0;
 
     // Read in and create the new segments first.  If we have problems,
     // in particular if we have run out of memory, then it's easier to recover.  
@@ -1997,7 +1992,7 @@ void ModuleLoader::Perform()
                 errorResult = "Mismatch for existing memory space";
                 return;
             }
-            else relocate.targetAddresses[descr->segmentIndex] = space->bottom;
+            else relocate.targetAddresses[i] = space->bottom;
         }
         else
         { // New segment.
@@ -2031,7 +2026,7 @@ void ModuleLoader::Perform()
                 errorResult = "Unable to read segment";
                 return;
             }
-            relocate.targetAddresses[descr->segmentIndex] = newSpace->bottom;
+            relocate.targetAddresses[i] = newSpace->bottom;
             if (newSpace->isMutable && (descr->segmentFlags & SSF_BYTES) != 0)
             {
                 ClearVolatile cwbr;
@@ -2043,7 +2038,7 @@ void ModuleLoader::Perform()
     for (unsigned j = 0; j < relocate.nDescrs; j++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[j];
-        PolyWord *baseAddr = relocate.targetAddresses[descr->segmentIndex];
+        PolyWord *baseAddr = relocate.targetAddresses[j];
         ASSERT(baseAddr != NULL); // We should have created it.
         // Process explicit relocations.
         // If we get errors just skip the error and continue rather than leave
@@ -2058,6 +2053,7 @@ void ModuleLoader::Perform()
                 if (fread(&reloc, sizeof(reloc), 1, loadFile) != 1)
                     errorResult = "Unable to read relocation segment";
                 byte *setAddress = (byte*)baseAddr + reloc.relocAddress;
+                ASSERT(reloc.targetSegment < relocate.nDescrs);
                 byte *targetAddress = (byte*)relocate.targetAddresses[reloc.targetSegment] + reloc.targetAddress;
                 ScanAddress::SetConstantValue(setAddress, (PolyObject*)(targetAddress), reloc.relKind);
             }
@@ -2068,6 +2064,7 @@ void ModuleLoader::Perform()
     // newly created areas into local memory we could get a GC as soon as we
     // complete this root request.
     {
+        ASSERT(header.rootSegment < relocate.nDescrs);
         PolyWord *baseAddr = relocate.targetAddresses[header.rootSegment];
         rootHandle = callerTaskData->saveVec.push((PolyObject*)((byte*)baseAddr + header.rootOffset));
     }
