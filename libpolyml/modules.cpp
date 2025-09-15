@@ -35,14 +35,16 @@
 #include <stdio.h>
 #endif
 
+#ifdef HAVE_ERRNO_H
+#include <errno.h>
+#endif
+
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x)   assert(x)
 #else
 #define ASSERT(x)
 #endif
-
-#include <vector>
 
 #include "globals.h"
 #include "modules.h"
@@ -64,9 +66,14 @@
 #define SAVE(x) taskData->saveVec.push(x)
 
 #if (defined(_WIN32))
+#include <tchar.h>
 #define ERRORNUMBER _doserrno
 #define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
 #else
+typedef char TCHAR;
+#define _T(x) x
+#define _tfopen fopen
+#define _tcslen strlen
 #define ERRORNUMBER errno
 #define NOMEMORY ENOMEM
 #endif
@@ -76,6 +83,22 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadModule(POLYUNSIGNED threadId, POLYUNSIGNED arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetModuleDirectory(POLYUNSIGNED threadId);
 }
+
+// This is probably generally useful so may be moved into
+// a general header file.
+template<typename BASE> class AutoFree
+{
+public:
+    AutoFree(BASE p = 0) : m_value(p) {}
+    ~AutoFree() { free(m_value); }
+
+    // Automatic conversions to the base type.
+    operator BASE() { return m_value; }
+    BASE operator = (BASE p) { return (m_value = p); }
+
+private:
+    BASE m_value;
+};
 
 // Module system
 #define MODULESIGNATURE "POLYMODU"

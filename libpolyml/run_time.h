@@ -118,20 +118,4 @@ private:
     FILE* m_file;
 };
 
-// This is probably generally useful so may be moved into
-// a general header file.
-template<typename BASE> class AutoFree
-{
-public:
-    AutoFree(BASE p = 0) : m_value(p) {}
-    ~AutoFree() { free(m_value); }
-
-    // Automatic conversions to the base type.
-    operator BASE() { return m_value; }
-    BASE operator = (BASE p) { return (m_value = p); }
-
-private:
-    BASE m_value;
-};
-
 #endif /* _RUNTIME_H_DEFINED */

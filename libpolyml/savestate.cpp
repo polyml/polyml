@@ -126,6 +126,22 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadHierarchy(POLYUNSIGNED threadId, POLYUNSIGNED arg);
 }
 
+// This is probably generally useful so may be moved into
+// a general header file.
+template<typename BASE> class AutoFree
+{
+public:
+    AutoFree(BASE p = 0) : m_value(p) {}
+    ~AutoFree() { free(m_value); }
+
+    // Automatic conversions to the base type.
+    operator BASE() { return m_value; }
+    BASE operator = (BASE p) { return (m_value = p); }
+
+private:
+    BASE m_value;
+};
+
 #ifdef HAVE__FTELLI64
 // fseek and ftell are only 32-bits in Windows.
 #define off_t   __int64
