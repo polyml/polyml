@@ -101,4 +101,37 @@ extern Handle MakeVolatileWord(TaskData *taskData, uintptr_t p);
 
 extern struct _entrypts runTimeEPT[];
 
+#ifdef HAVE_STDIO_H
+#include <stdio.h>
+#endif
+
+// Helper class to close files on exit.
+class AutoClose {
+public:
+    AutoClose(FILE* f = 0) : m_file(f) {}
+    ~AutoClose() { if (m_file) ::fclose(m_file); }
+
+    operator FILE* () { return m_file; }
+    FILE* operator = (FILE* p) { return (m_file = p); }
+
+private:
+    FILE* m_file;
+};
+
+// This is probably generally useful so may be moved into
+// a general header file.
+template<typename BASE> class AutoFree
+{
+public:
+    AutoFree(BASE p = 0) : m_value(p) {}
+    ~AutoFree() { free(m_value); }
+
+    // Automatic conversions to the base type.
+    operator BASE() { return m_value; }
+    BASE operator = (BASE p) { return (m_value = p); }
+
+private:
+    BASE m_value;
+};
+
 #endif /* _RUNTIME_H_DEFINED */

@@ -25,5 +25,20 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports);
 
 extern struct _entrypts savestateEPT[];
 
+// Shared with modules system
+
+// Work around bug in Mac OS when reading into MAP_JIT memory.
+extern size_t readData(void* ptr, size_t size, FILE* stream);
+
+#include "scanaddrs.h"
+
+class ClearVolatile : public ScanAddress
+{
+public:
+    ClearVolatile() {}
+    virtual PolyObject* ScanObjectAddress(PolyObject* base) { return base; }
+    virtual void ScanAddressesInObject(PolyObject* base, POLYUNSIGNED lengthWord);
+};
+
 #endif
 

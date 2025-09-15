@@ -928,6 +928,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="modules.cpp" />
     <ClCompile Include="osmemwin.cpp" />
     <ClCompile Include="winbasicio.cpp" />
     <ClCompile Include="bitmap.cpp" />
@@ -1027,6 +1028,7 @@
     <ClInclude Include="bytecode.h" />
     <ClInclude Include="check_objects.h" />
     <ClInclude Include="gc_progress.h" />
+    <ClInclude Include="modules.h" />
     <ClInclude Include="ryu\common.h" />
     <ClInclude Include="ryu\digit_table.h" />
     <ClInclude Include="winguiconsole.h" />
