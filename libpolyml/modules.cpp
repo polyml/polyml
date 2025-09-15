@@ -389,6 +389,8 @@ void ModuleExport::exportStore(void)
     // CopyScan uses FixForwarding to remove any references to the exported area.
 }
 
+// Override for Exporter::relocateValue.  That function does not do anything for compact 32-bit because
+// the operating system object module formats do not support a suitable relocation format.
 void ModuleExport::relocateValue(PolyWord* pt)
 {
     PolyWord q = *pt;

@@ -290,7 +290,7 @@ static bool sameFile(const char *x, const char *y)
 class SaveStateExport: public Exporter, public ScanAddress
 {
 public:
-    SaveStateExport(time_t modId=0): Exporter(modId), relocationCount(0) {}
+    SaveStateExport(): Exporter(), relocationCount(0) {}
 public:
     virtual void exportStore(void) {} // Not used.
 
@@ -319,7 +319,8 @@ void SaveStateExport::setRelocationAddress(void *p, POLYUNSIGNED *reloc)
 }
 
 // Create a relocation entry for an address at a given location.
-// In compact-32 bit mode this will only be called for modules.
+// This is currently never called in compact 32-bit mode because Exporter::relocateValue does
+// not call createRelocation in 32-in-64 mode.
 void SaveStateExport::createActualRelocation(void *addr, void* relocAddr, ScanRelocationKind kind)
 {
     RelocationEntry reloc;
