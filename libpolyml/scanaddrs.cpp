@@ -329,6 +329,8 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
         break;
     }
 #endif
+    default:
+        ASSERT(false);
     }
 }
 
