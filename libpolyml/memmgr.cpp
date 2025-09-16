@@ -499,7 +499,7 @@ void MemMgr::DeleteExportSpaces(void)
 // If we have saved the state rather than exported a function we turn the exported
 // spaces into permanent ones, removing existing permanent spaces at the same or
 // lower level.
-bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
+bool MemMgr::DemoteOldPermanentSpaces(unsigned hierarchy)
 {
     // Save permanent spaces at a lower hierarchy.  Others are converted into
     // local spaces.  Most or all items will have been copied from these spaces
@@ -507,7 +507,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
     std::vector<PermanentMemSpace*>::iterator i = pSpaces.begin();
     while (i != pSpaces.end())
     {
-        PermanentMemSpace *pSpace = *i;
+        PermanentMemSpace* pSpace = *i;
         if (pSpace->hierarchy < hierarchy)
             i++;
         else
@@ -522,8 +522,8 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                     // Enable write access.  Permanent spaces are read-only.
  //                   osCodeAlloc.SetPermissions(pSpace->bottom, (char*)pSpace->top - (char*)pSpace->bottom,
  //                       PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
-                    CodeSpace *space = new CodeSpace(pSpace->bottom, pSpace->shadowSpace, pSpace->spaceSize(), &osCodeAlloc);
-                    if (! space->headerMap.Create(space->spaceSize()))
+                    CodeSpace* space = new CodeSpace(pSpace->bottom, pSpace->shadowSpace, pSpace->spaceSize(), &osCodeAlloc);
+                    if (!space->headerMap.Create(space->spaceSize()))
                     {
                         if (debugOptions & DEBUG_MEMMGR)
                             Log("MMGR: Unable to create header map for state space %p\n", pSpace);
@@ -538,26 +538,26 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                     if (debugOptions & DEBUG_MEMMGR)
                         Log("MMGR: Converted saved state space %p into code space %p\n", pSpace, space);
                     // Set the bits in the header map.
-                    for (PolyWord *ptr = space->bottom; ptr < space->top; )
+                    for (PolyWord* ptr = space->bottom; ptr < space->top; )
                     {
-                        PolyObject *obj = (PolyObject*)(ptr+1);
+                        PolyObject* obj = (PolyObject*)(ptr + 1);
                         // We may have forwarded this if this has been
                         // copied to the exported area. Restore the original length word.
                         if (obj->ContainsForwardingPtr())
                         {
 #ifdef POLYML32IN64
-                            PolyObject *forwardedTo = obj;
+                            PolyObject* forwardedTo = obj;
                             // This is relative to globalCodeBase not globalHeapBase
                             while (forwardedTo->ContainsForwardingPtr())
                                 forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
 #else
-                            PolyObject *forwardedTo = obj->FollowForwardingChain();
+                            PolyObject* forwardedTo = obj->FollowForwardingChain();
 #endif
                             obj->SetLengthWord(forwardedTo->LengthWord());
                         }
                         // Set the "start" bit if this is allocated.  It will be a byte seg if not.
                         if (obj->IsCodeObject())
-                            space->headerMap.SetBit(ptr-space->bottom);
+                            space->headerMap.SetBit(ptr - space->bottom);
                         ASSERT(!obj->IsClosureObject());
                         ptr += obj->Length() + 1;
                     }
@@ -567,7 +567,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                     // Enable write access.  Permanent spaces are read-only.
 //                    osHeapAlloc.SetPermissions(pSpace->bottom, (char*)pSpace->top - (char*)pSpace->bottom,
 //                        PERMISSION_READ | PERMISSION_WRITE);
-                    LocalMemSpace *space = new LocalMemSpace(&osHeapAlloc);
+                    LocalMemSpace* space = new LocalMemSpace(&osHeapAlloc);
                     space->top = pSpace->top;
                     // Space is allocated in local areas from the top down.  This area is full and
                     // all data is in the old generation.  The area can be recovered by a full GC.
@@ -575,7 +575,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                         space->fullGCLowerLimit = pSpace->bottom;
                     space->isMutable = pSpace->isMutable;
                     space->isCode = false;
-                    if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
+                    if (!space->bitmap.Create(space->top - space->bottom) || !AddLocalSpace(space))
                     {
                         if (debugOptions & DEBUG_MEMMGR)
                             Log("MMGR: Unable to convert saved state space %p into local space\n", pSpace);
@@ -584,7 +584,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
 
                     if (debugOptions & DEBUG_MEMMGR)
                         Log("MMGR: Converted saved state space %p into local %smutable space %p\n",
-                                pSpace, pSpace->isMutable ? "im": "", space);
+                            pSpace, pSpace->isMutable ? "im" : "", space);
                     currentHeapSize += space->spaceSize();
                     globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
                 }
@@ -595,6 +595,12 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
             }
         }
     }
+    return true;
+}
+
+// Turn export spaces into permanent spaces.  Used for saved states and also for modules.
+bool MemMgr::PromoteNewExportSpaces(unsigned hierarchy)
+{
     // Save newly exported spaces.
     for(std::vector<PermanentMemSpace *>::iterator j = eSpaces.begin(); j < eSpaces.end(); j++)
     {
@@ -612,12 +618,11 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
     return true;
 }
 
-
 // Before we import a hierarchical saved state we need to turn any previously imported
 // spaces into local spaces.
 bool MemMgr::DemoteImportSpaces()
 {
-    return PromoteExportSpaces(1); // Only truly permanent spaces are retained.
+    return DemoteOldPermanentSpaces(1); // Only truly permanent spaces are retained.
 }
 
 // Return the space for a given index

@@ -173,8 +173,10 @@ public:
 class ModuleExport : public Exporter, public ScanAddress
 {
 public:
-    ModuleExport(time_t modId) : Exporter(modId), relocationCount(0) {}
-    virtual void exportStore(void); // Write the data out.
+    ModuleExport(time_t modId) : expModuleId(modId), relocationCount(0) {}
+    void RunModuleExport(PolyObject* rootFunction);
+    virtual void exportStore(void) {}
+
 protected:
     // These have to be overridden to work properly for compact 32-bit
     virtual void relocateValue(PolyWord* pt);
@@ -186,6 +188,8 @@ private:
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject* ScanObjectAddress(PolyObject* base) { return base; }
 
+    time_t expModuleId;
+
 protected:
     void setRelocationAddress(void* p, POLYUNSIGNED* reloc);
     PolyWord createRelocation(PolyWord p, void* relocAddr); // Override for Exporter
@@ -194,6 +198,8 @@ protected:
 
     friend class SaveRequest;
 };
+
+
 // Generate the address relative to the start of the segment.
 void ModuleExport::setRelocationAddress(void* p, POLYUNSIGNED* reloc)
 {
@@ -258,6 +264,178 @@ void ModuleExport::ScanConstant(PolyObject* base, byte* addr, ScanRelocationKind
     relocationCount++;
 }
 
+// This is called by the initial thread to actually do the export.
+void ModuleExport::RunModuleExport(PolyObject* rootFn)
+{
+    PolyObject* copiedRoot = 0;
+    CopyScan copyScan(1); // Exclude the parent state
+
+    try {
+        copyScan.initialise();
+        // Copy the root and everything reachable from it into the temporary area.
+        copiedRoot = copyScan.ScanObjectAddress(rootFn);
+    }
+    catch (MemoryException&)
+    {
+        errorMessage = "Insufficient Memory";
+        // Reset the forwarding pointers so that the original data structure is in
+        // local storage.
+        revertToLocal();
+        return;
+    }
+
+    // Copy the areas into the export object.
+    size_t tableEntries = gMem.eSpaces.size();
+    unsigned memEntry = 0;
+    if (expModuleId != 0) tableEntries += gMem.pSpaces.size();
+    memTable = new ExportMemTable[tableEntries];
+
+    // If we're constructing a module we need to include the global spaces.
+    // Permanent spaces from the executable and any dependencies
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
+    {
+        PermanentMemSpace* space = *i;
+        if (space->hierarchy == 0)
+        {
+            ExportMemTable* entry = &memTable[memEntry++];
+            entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
+            entry->mtLength = (space->topPointer - space->bottom) * sizeof(PolyWord);
+            entry->mtIndex = space->index;
+            entry->mtModId = space->moduleTimeStamp;
+            entry->mtFlags = 0;
+            if (space->isMutable) entry->mtFlags |= MTF_WRITEABLE;
+            if (space->isCode) entry->mtFlags |= MTF_EXECUTABLE;
+        }
+    }
+    newAreas = memEntry;
+
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
+    {
+        ExportMemTable* entry = &memTable[memEntry++];
+        PermanentMemSpace* space = *i;
+        entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
+        entry->mtLength = (space->topPointer - space->bottom) * sizeof(PolyWord);
+        // The spaces need to be renumbered and the module id set.
+        space->index = memEntry - newAreas - 1;
+        space->moduleTimeStamp = expModuleId;
+        entry->mtIndex = space->index;
+        entry->mtModId = space->moduleTimeStamp;
+        entry->mtFlags = 0;
+        if (space->isMutable)
+        {
+            entry->mtFlags = MTF_WRITEABLE;
+            if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
+        }
+        if (space->isCode && !space->constArea) entry->mtFlags |= MTF_EXECUTABLE;
+        if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
+    }
+
+    ASSERT(memEntry == tableEntries);
+    memTableEntries = memEntry;
+    rootFunction = copiedRoot;
+
+    // Write the data out.  This handles memory exceptions but we should also
+    // handle write failures.  That could happen if the disc became full.
+    try {
+        ModuleHeader modHeader;
+        memset(&modHeader, 0, sizeof(modHeader));
+        modHeader.headerLength = sizeof(modHeader);
+        memcpy(modHeader.headerSignature,
+            MODULESIGNATURE, sizeof(modHeader.headerSignature));
+        modHeader.headerVersion = MODULEVERSION;
+        modHeader.segmentDescrLength = sizeof(ModuleSegmentDescr);
+        modHeader.executableTimeStamp = exportTimeStamp;
+        {
+            unsigned rootArea = findArea(this->rootFunction);
+            ExportMemTable* mt = &memTable[rootArea];
+            modHeader.rootSegment = rootArea;
+            modHeader.rootOffset = (POLYUNSIGNED)((char*)this->rootFunction - (char*)mt->mtOriginalAddr);
+        }
+        modHeader.timeStamp = expModuleId;
+        modHeader.segmentDescrCount = this->memTableEntries; // One segment for each space.
+        // Write out the header.
+        fwrite(&modHeader, sizeof(modHeader), 1, this->exportFile);
+
+        ModuleSegmentDescr* descrs = new ModuleSegmentDescr[this->memTableEntries];
+        // We need an entry in the descriptor tables for each segment in the executable because
+        // we may have relocations that refer to addresses in it.
+        for (unsigned j = 0; j < this->memTableEntries; j++)
+        {
+            ModuleSegmentDescr* thisDescr = &descrs[j];
+            ExportMemTable* entry = &this->memTable[j];
+            memset(thisDescr, 0, sizeof(ModuleSegmentDescr));
+            thisDescr->relocationSize = sizeof(ModRelocationEntry);
+            thisDescr->segmentIndex = entry->mtIndex;
+            thisDescr->segmentSize = entry->mtLength; // Set this even if we don't write it.
+            thisDescr->moduleId = entry->mtModId;
+            if (entry->mtFlags & MTF_WRITEABLE)
+            {
+                thisDescr->segmentFlags |= MSF_WRITABLE;
+                if (entry->mtFlags & MTF_NO_OVERWRITE)
+                    thisDescr->segmentFlags |= MSF_NOOVERWRITE;
+                if ((entry->mtFlags & MTF_NO_OVERWRITE) == 0)
+                    thisDescr->segmentFlags |= MSF_OVERWRITE;
+                if (entry->mtFlags & MTF_BYTES)
+                    thisDescr->segmentFlags |= MSF_BYTES;
+            }
+            if (entry->mtFlags & MTF_EXECUTABLE)
+                thisDescr->segmentFlags |= MSF_CODE;
+        }
+        // Write out temporarily. Will be overwritten at the end.
+        modHeader.segmentDescr = ftell(this->exportFile);
+        fwrite(descrs, sizeof(ModuleSegmentDescr), this->memTableEntries, this->exportFile);
+
+        // Write out the relocations and the data.
+        for (unsigned k = 0; k < this->memTableEntries; k++)
+        {
+            ModuleSegmentDescr* thisDescr = &descrs[k];
+            ExportMemTable* entry = &this->memTable[k];
+            if (k >= newAreas) // Not permanent areas
+            {
+                thisDescr->relocations = ftell(this->exportFile);
+                // Have to write this out.
+                this->relocationCount = 0;
+                // Create the relocation table.
+                char* start = (char*)entry->mtOriginalAddr;
+                char* end = start + entry->mtLength;
+                for (PolyWord* p = (PolyWord*)start; p < (PolyWord*)end; )
+                {
+                    p++;
+                    PolyObject* obj = (PolyObject*)p;
+                    POLYUNSIGNED length = obj->Length();
+                    // For saved states we don't include explicit relocations except
+                    // in code but it's easier if we do for modules.
+                    if (length != 0 && obj->IsCodeObject())
+                        machineDependent->ScanConstantsWithinCode(obj, this);
+                    relocateObject(obj);
+                    p += length;
+                }
+                thisDescr->relocationCount = this->relocationCount;
+                // Write out the data.
+                thisDescr->segmentData = ftell(exportFile);
+                fwrite(entry->mtOriginalAddr, entry->mtLength, 1, exportFile);
+            }
+        }
+
+        // Rewrite the header and the segment tables now they're complete.
+        fseek(exportFile, 0, SEEK_SET);
+        fwrite(&modHeader, sizeof(modHeader), 1, exportFile);
+        fwrite(descrs, sizeof(ModuleSegmentDescr), this->memTableEntries, exportFile);
+        delete[](descrs);
+
+        fclose(exportFile); exportFile = NULL;
+
+        // If it all succeeded we can switch over to the permanent spaces.
+        if (gMem.PromoteNewExportSpaces(0)) // Turn them into hierarchy zero.
+            switchLocalsToPermanent();
+        else revertToLocal();
+    }
+    catch (MemoryException&) {
+        errorMessage = "Insufficient Memory";
+        revertToLocal();
+    }
+}
+
 void ModuleStorer::Perform()
 {
     ModuleExport exporter(getBuildTime());
@@ -283,112 +461,8 @@ void ModuleStorer::Perform()
         errorMessage = "Module root is not an address";
         return;
     }
-    exporter.RunExport(root->WordP());
+    exporter.RunModuleExport(root->WordP());
     errorMessage = exporter.errorMessage; // This will be null unless there's been an error.
-}
-
-void ModuleExport::exportStore(void)
-{
-    // What we need to do here is implement the export in a similar way to e.g. PECOFFExport::exportStore
-    // This is copied from SaveRequest::Perform and should be common code.
-    ModuleHeader modHeader;
-    memset(&modHeader, 0, sizeof(modHeader));
-    modHeader.headerLength = sizeof(modHeader);
-    memcpy(modHeader.headerSignature,
-        MODULESIGNATURE, sizeof(modHeader.headerSignature));
-    modHeader.headerVersion = MODULEVERSION;
-    modHeader.segmentDescrLength = sizeof(ModuleSegmentDescr);
-    modHeader.executableTimeStamp = exportTimeStamp;
-    {
-        unsigned rootArea = findArea(this->rootFunction);
-        ExportMemTable* mt = &memTable[rootArea];
-        //        modHeader.rootSegment = mt->mtIndex;
-        modHeader.rootSegment = rootArea;
-        modHeader.rootOffset = (POLYUNSIGNED)((char*)this->rootFunction - (char*)mt->mtOriginalAddr);
-    }
-    modHeader.timeStamp = expModuleId;
-    modHeader.segmentDescrCount = this->memTableEntries; // One segment for each space.
-    // Write out the header.
-    fwrite(&modHeader, sizeof(modHeader), 1, this->exportFile);
-
-    ModuleSegmentDescr* descrs = new ModuleSegmentDescr[this->memTableEntries];
-    // We need an entry in the descriptor tables for each segment in the executable because
-    // we may have relocations that refer to addresses in it.
-    for (unsigned j = 0; j < this->memTableEntries; j++)
-    {
-        ModuleSegmentDescr* thisDescr = &descrs[j];
-        ExportMemTable* entry = &this->memTable[j];
-        memset(thisDescr, 0, sizeof(ModuleSegmentDescr));
-        thisDescr->relocationSize = sizeof(ModRelocationEntry);
-        thisDescr->segmentIndex = entry->mtIndex;
-        thisDescr->segmentSize = entry->mtLength; // Set this even if we don't write it.
-        thisDescr->moduleId = entry->mtModId;
-        if (entry->mtFlags & MTF_WRITEABLE)
-        {
-            thisDescr->segmentFlags |= MSF_WRITABLE;
-            if (entry->mtFlags & MTF_NO_OVERWRITE)
-                thisDescr->segmentFlags |= MSF_NOOVERWRITE;
-            if ((entry->mtFlags & MTF_NO_OVERWRITE) == 0)
-                thisDescr->segmentFlags |= MSF_OVERWRITE;
-            if (entry->mtFlags & MTF_BYTES)
-                thisDescr->segmentFlags |= MSF_BYTES;
-        }
-        if (entry->mtFlags & MTF_EXECUTABLE)
-            thisDescr->segmentFlags |= MSF_CODE;
-    }
-    // Write out temporarily. Will be overwritten at the end.
-    modHeader.segmentDescr = ftell(this->exportFile);
-    fwrite(descrs, sizeof(ModuleSegmentDescr), this->memTableEntries, this->exportFile);
-
-    // Write out the relocations and the data.
-    for (unsigned k = 0; k < this->memTableEntries; k++)
-    {
-        ModuleSegmentDescr* thisDescr = &descrs[k];
-        ExportMemTable* entry = &this->memTable[k];
-        if (k >= newAreas) // Not permanent areas
-        {
-            thisDescr->relocations = ftell(this->exportFile);
-            // Have to write this out.
-            this->relocationCount = 0;
-            // Create the relocation table.
-            char* start = (char*)entry->mtOriginalAddr;
-            char* end = start + entry->mtLength;
-            for (PolyWord* p = (PolyWord*)start; p < (PolyWord*)end; )
-            {
-                p++;
-                PolyObject* obj = (PolyObject*)p;
-                POLYUNSIGNED length = obj->Length();
-                // For saved states we don't include explicit relocations except
-                // in code but it's easier if we do for modules.
-                if (length != 0 && obj->IsCodeObject())
-                    machineDependent->ScanConstantsWithinCode(obj, this);
-                relocateObject(obj);
-                p += length;
-            }
-            thisDescr->relocationCount = this->relocationCount;
-            // Write out the data.
-            thisDescr->segmentData = ftell(exportFile);
-            fwrite(entry->mtOriginalAddr, entry->mtLength, 1, exportFile);
-        }
-    }
-
-    // Rewrite the header and the segment tables now they're complete.
-    fseek(exportFile, 0, SEEK_SET);
-    fwrite(&modHeader, sizeof(modHeader), 1, exportFile);
-    fwrite(descrs, sizeof(ModuleSegmentDescr), this->memTableEntries, exportFile);
-    delete[](descrs);
-
-    fclose(exportFile); exportFile = NULL;
-
-    // Currently we now delete the export spaces so anything that has been
-    // written to the module will still just exist in the local heap.
-    // That means that if we write a second module anything shared between the
-    // two modules will be duplicated into the second one.  We could easily turn
-    // the exported spaces into permanent ones but we would then need to make sure
-    // that any local addresses are redirected to the permanent area.  Currently
-    // Exporter uses FixForwarding to remove any references to the exported area.
-    // SaveState uses SaveFixupAddress to update external references to moved objects
-    // so that could be used here.
 }
 
 // Override for Exporter::relocateValue.  That function does not do anything for compact 32-bit because

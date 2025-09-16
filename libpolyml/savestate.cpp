@@ -290,7 +290,7 @@ static bool sameFile(const char *x, const char *y)
 class SaveStateExport: public Exporter, public ScanAddress
 {
 public:
-    SaveStateExport(): Exporter(), relocationCount(0) {}
+    SaveStateExport(): relocationCount(0) {}
 public:
     virtual void exportStore(void) {} // Not used.
 
@@ -329,8 +329,7 @@ void SaveStateExport::createActualRelocation(void *addr, void* relocAddr, ScanRe
 
     unsigned addrArea = findArea(addr);
     reloc.targetAddress = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
-    // Module exports use the offset in their own table.
-    reloc.targetSegment = expModuleId != 0 ? addrArea :  (unsigned)memTable[addrArea].mtIndex;
+    reloc.targetSegment = (unsigned)memTable[addrArea].mtIndex;
     reloc.relKind = kind;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -369,8 +368,7 @@ void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationK
     RelocationEntry reloc;
     setRelocationAddress(addr, &reloc.relocAddress);
     reloc.targetAddress = (POLYUNSIGNED)((char*)a - (char*)memTable[aArea].mtOriginalAddr);
-    // Module exports use offsets in their own tables.
-    reloc.targetSegment = expModuleId != 0 ? aArea : (unsigned)memTable[aArea].mtIndex;
+    reloc.targetSegment = (unsigned)memTable[aArea].mtIndex;
     reloc.relKind = code;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -628,7 +626,7 @@ void SaveRequest::Perform()
     // some objects there.
     if (debugOptions & DEBUG_SAVING)
         Log("SAVE: Promoting export spaces to permanent spaces.\n");
-    if (! gMem.PromoteExportSpaces(newHierarchy) || ! success)
+    if (! gMem.DemoteOldPermanentSpaces(newHierarchy) || !gMem.PromoteNewExportSpaces(newHierarchy) || ! success)
     {
         errorMessage = "Out of Memory";
         errCode = NOMEMORY;
@@ -646,6 +644,8 @@ void SaveRequest::Perform()
 
     if (debugOptions & DEBUG_SAVING)
         Log("SAVE: Writing out data.\n");
+
+    // TODO: We should handle write failures e.g. if the disc becomes full.
 
     // Write out the file header.
     SavedStateHeader saveHeader;

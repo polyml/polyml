@@ -27,10 +27,6 @@
 #include <stdio.h> // For FILE
 #endif
 
-#ifdef HAVE_TIME_H
-#include <time.h> // For time_t
-#endif
-
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
 class TaskData;
@@ -57,7 +53,7 @@ public:
 class Exporter
 {
 public:
-    Exporter(time_t modId = 0);
+    Exporter();
     virtual ~Exporter();
     virtual void exportStore(void) = 0;
 
@@ -78,7 +74,6 @@ public:
     const char *errorMessage;
 
 protected:
-    time_t expModuleId; // Zero except when exporting a module
     ExportMemTable *memTable;
     unsigned memTableEntries;
     PolyObject *rootFunction; // Address of the root function.

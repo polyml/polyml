@@ -295,7 +295,8 @@ public:
     // Create and delete export spaces
     PermanentMemSpace *NewExportSpace(uintptr_t size, bool mut, bool noOv, bool code);
     void DeleteExportSpaces(void);
-    bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
+    bool PromoteNewExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
+    bool DemoteOldPermanentSpaces(unsigned hierarchy); // Turn any old permanent spaces at this or higher hierarchy into local spaces.
     bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
 
     PermanentMemSpace *SpaceForIndex(unsigned index, time_t modId); // Return the space for a given index
