@@ -386,7 +386,9 @@ void ModuleExport::exportStore(void)
     // two modules will be duplicated into the second one.  We could easily turn
     // the exported spaces into permanent ones but we would then need to make sure
     // that any local addresses are redirected to the permanent area.  Currently
-    // CopyScan uses FixForwarding to remove any references to the exported area.
+    // Exporter uses FixForwarding to remove any references to the exported area.
+    // SaveState uses SaveFixupAddress to update external references to moved objects
+    // so that could be used here.
 }
 
 // Override for Exporter::relocateValue.  That function does not do anything for compact 32-bit because

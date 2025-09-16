@@ -468,6 +468,49 @@ void SaveFixupAddress::ScanCodeSpace(CodeSpace *space)
     }
 }
 
+// Exported function also used by the modules system.
+void switchLocalsToPermanent()
+{
+    // Update references to moved objects.
+    SaveFixupAddress fixup;
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
+    {
+        LocalMemSpace* space = *i;
+        fixup.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+        fixup.ScanAddressesInRegion(space->upperAllocPtr, space->top);
+    }
+    for (std::vector<CodeSpace*>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
+        fixup.ScanCodeSpace(*i);
+
+    GCModules(&fixup);
+
+    // Restore the length words in the code areas.
+    // Although we've updated any pointers to the start of the code we could have return addresses
+    // pointing to the original code.  GCModules updates the stack but doesn't update return addresses.
+    for (std::vector<CodeSpace*>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
+    {
+        CodeSpace* space = *i;
+        for (PolyWord* pt = space->bottom; pt < space->top; )
+        {
+            pt++;
+            PolyObject* obj = (PolyObject*)pt;
+            if (obj->ContainsForwardingPtr())
+            {
+#ifdef POLYML32IN64
+                PolyObject* forwardedTo = obj;
+                while (forwardedTo->ContainsForwardingPtr())
+                    forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+#else
+                PolyObject* forwardedTo = obj->FollowForwardingChain();
+#endif
+                POLYUNSIGNED lengthWord = forwardedTo->LengthWord();
+                space->writeAble(obj)->SetLengthWord(lengthWord);
+            }
+            pt += obj->Length();
+        }
+    }
+}
+
 // Called by the root thread to actually save the state and write the file.
 void SaveRequest::Perform()
 {
@@ -574,45 +617,9 @@ void SaveRequest::Perform()
 
     if (debugOptions & DEBUG_SAVING)
         Log("SAVE: Updating references to moved objects.\n");
-
-    // Update references to moved objects.
-    SaveFixupAddress fixup;
-    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
-    {
-        LocalMemSpace *space = *i;
-        fixup.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
-        fixup.ScanAddressesInRegion(space->upperAllocPtr, space->top);
-    }
-    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
-        fixup.ScanCodeSpace(*i);
-
-    GCModules(&fixup);
-
-    // Restore the length words in the code areas.
-    // Although we've updated any pointers to the start of the code we could have return addresses
-    // pointing to the original code.  GCModules updates the stack but doesn't update return addresses.
-    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
-    {
-        CodeSpace *space = *i;
-        for (PolyWord *pt = space->bottom; pt < space->top; )
-        {
-            pt++;
-            PolyObject *obj = (PolyObject*)pt;
-            if (obj->ContainsForwardingPtr())
-            {
-#ifdef POLYML32IN64
-                PolyObject *forwardedTo = obj;
-                while (forwardedTo->ContainsForwardingPtr())
-                    forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
-#else
-                PolyObject *forwardedTo = obj->FollowForwardingChain();
-#endif
-                POLYUNSIGNED lengthWord = forwardedTo->LengthWord();
-                space->writeAble(obj)->SetLengthWord(lengthWord);
-            }
-            pt += obj->Length();
-        }
-    }
+    // We always switch to the permanent space even if there's been a
+    // failure since it is possible to re-save.
+    switchLocalsToPermanent();
 
     // Update the global memory space table.  Old segments at the same level
     // or lower are removed.  The new segments become permanent.

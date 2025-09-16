@@ -71,6 +71,7 @@ protected:
     void createRelocation(PolyWord *pt);
     unsigned findArea(void *p); // Find index of area that address is in.
     virtual void addExternalReference(void *p, const char *entryPoint, bool isFuncPtr) {}
+    static void revertToLocal();
 
 public:
     FILE     *exportFile;

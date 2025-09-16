@@ -694,26 +694,10 @@ void Exporter::RunExport(PolyObject *rootFunction)
         copiedRoot = 0;
     }
 
-    // Fix the forwarding pointers.
-    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
-    {
-        LocalMemSpace *space = *i;
-        // Local areas only have objects from the allocation pointer to the top.
-        FixForwarding(space->bottom, space->lowerAllocPtr - space->bottom);
-        FixForwarding(space->upperAllocPtr, space->top - space->upperAllocPtr);
-    }
-    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
-    {
-        MemSpace *space = *i;
-        // Permanent areas are filled with objects from the bottom.
-        FixForwarding(space->bottom, space->top - space->bottom);
-    }
-    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
-    {
-        MemSpace *space = *i;
-        // Code areas are filled with objects from the bottom.
-        FixForwarding(space->bottom, space->top - space->bottom);
-    }
+    // Reset the forwarding pointers so that the original data structure is in
+    // local storage.
+    revertToLocal();
+
 
     // Reraise the exception after cleaning up the forwarding pointers.
     if (copiedRoot == 0)
@@ -952,6 +936,32 @@ void Exporter::relocateObject(PolyObject *p)
         // we never actually generate any relocations.
         POLYUNSIGNED length = p->Length();
         for (POLYUNSIGNED i = 0; i < length; i++) relocateValue(p->Offset(i));
+    }
+}
+
+// CopyScan makes a copy of everything reachable from the root into export spaces leaving
+// forwarding pointers in the original space.  This function reverts those forwarding pointers.
+void Exporter::revertToLocal()
+{
+    // Fix the forwarding pointers.
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
+    {
+        LocalMemSpace* space = *i;
+        // Local areas only have objects from the allocation pointer to the top.
+        FixForwarding(space->bottom, space->lowerAllocPtr - space->bottom);
+        FixForwarding(space->upperAllocPtr, space->top - space->upperAllocPtr);
+    }
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
+    {
+        MemSpace* space = *i;
+        // Permanent areas are filled with objects from the bottom.
+        FixForwarding(space->bottom, space->top - space->bottom);
+    }
+    for (std::vector<CodeSpace*>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
+    {
+        MemSpace* space = *i;
+        // Code areas are filled with objects from the bottom.
+        FixForwarding(space->bottom, space->top - space->bottom);
     }
 }
 
