@@ -285,17 +285,16 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
     }
 
     // Copy the areas into the export object.
-    size_t tableEntries = gMem.eSpaces.size();
+    size_t tableSize = gMem.eSpaces.size() + gMem.pSpaces.size();
     unsigned memEntry = 0;
-    if (expModuleId != 0) tableEntries += gMem.pSpaces.size();
-    memTable = new ExportMemTable[tableEntries];
+    memTable = new ExportMemTable[tableSize];
 
     // If we're constructing a module we need to include the global spaces.
-    // Permanent spaces from the executable and any dependencies
+    // Permanent spaces from the dependencies
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
         PermanentMemSpace* space = *i;
-        if (space->hierarchy == 0)
+        if (space->hierarchy == 0 && copyScan.externalRefs[space->moduleTimeStamp])
         {
             ExportMemTable* entry = &memTable[memEntry++];
             entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
@@ -307,7 +306,7 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
             if (space->isCode) entry->mtFlags |= MTF_EXECUTABLE;
         }
     }
-    newAreas = memEntry;
+    unsigned newAreas = memEntry;
 
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
@@ -330,7 +329,7 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
         if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
     }
 
-    ASSERT(memEntry == tableEntries);
+    ASSERT(memEntry <= tableSize);
     memTableEntries = memEntry;
     rootFunction = copiedRoot;
 

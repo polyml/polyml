@@ -296,7 +296,11 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     {
         PermanentMemSpace *pmSpace = (PermanentMemSpace*)space;
         if (pmSpace->hierarchy < hierarchy)
+        {
+            // Add it to the external references.
+            externalRefs[pmSpace->moduleTimeStamp] = true;
             return 0;
+        }
     }
 
     // Have we already scanned this?
@@ -717,7 +721,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
         PermanentMemSpace *space = *i;
         entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
-        entry->mtIndex = memEntry-newAreas-1;
+        entry->mtIndex = memEntry-1;
         entry->mtModId = 0;
         entry->mtFlags = 0;
         if (space->isMutable)
@@ -841,7 +845,7 @@ POLYUNSIGNED PolyExportPortable(POLYUNSIGNED threadId, POLYUNSIGNED fileName, PO
 
 // Helper functions for exporting.  We need to produce relocation information
 // and this code is common to every method.
-Exporter::Exporter(): exportFile(NULL), errorMessage(0), memTable(0), newAreas(0)
+Exporter::Exporter(): exportFile(NULL), errorMessage(0), memTable(0)
 {
 }
 

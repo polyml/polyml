@@ -27,6 +27,12 @@
 #include <stdio.h> // For FILE
 #endif
 
+#ifdef HAVE_TIME_H
+#include <time.h>
+#endif
+
+#include <map>
+
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
 class TaskData;
@@ -77,7 +83,6 @@ protected:
     ExportMemTable *memTable;
     unsigned memTableEntries;
     PolyObject *rootFunction; // Address of the root function.
-    unsigned newAreas;
 };
 
 // The object-code exporters all use a similar string table format
@@ -104,6 +109,8 @@ public:
     PolyWord *graves;
     PolyWord *startAddr, *endAddr;
 };
+
+class PermanentMemSpace;
 
 class CopyScan: public ScanAddress
 {
@@ -137,6 +144,9 @@ public:
 
     GraveYard *graveYard;
     unsigned tombs;
+
+    // The module IDs of the permanent spaces referenced.  This is currently only relevant for modules.
+    std::map<time_t, bool> externalRefs;
 };
 
 extern struct _entrypts exporterEPT[];
