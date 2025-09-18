@@ -1,7 +1,7 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006-7, 2015, 2016-21 David C.J. Matthews
+    Copyright (c) 2006-7, 2015, 2016-21, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -797,7 +797,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
         entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = memEntry-1;
-        entry->mtModId = { 0, 0 };
+        entry->mtModId = ModuleId(); // 0,0
         entry->mtFlags = 0;
         if (space->isMutable)
         {
