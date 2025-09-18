@@ -24,11 +24,8 @@
 #include "bitmap.h"
 #include "locking.h"
 #include "osmem.h"
+#include "../polyexports.h" // For struct _moduleId
 #include <vector>
-
-#ifdef HAVE_TIME_H
-#include <time.h>
-#endif
 
 // utility conversion macros
 #define Words_to_K(w) (w*sizeof(PolyWord))/1024
@@ -116,13 +113,47 @@ public:
     friend class MemMgr;
 };
 
+// Wrapper class for struct _moduleId.  polyexport.h needs to be compatible with C.
+class ModuleId
+{
+public:
+    ModuleId() : modId({ 0,0 }) {}
+    ModuleId(uint32_t a, uint32_t b) : modId({ a,b }) {}
+    ModuleId(struct _moduleId m) : modId(m) {}
+
+    operator struct _moduleId() const { return modId; }
+
+    ModuleId& operator=(const struct _moduleId& c)
+    {
+        modId = c;
+        return *this;
+    }
+
+    bool operator==(const ModuleId& b) const
+    {
+        return modId.modA == b.modId.modA && modId.modB == b.modId.modB;
+    }
+    bool operator<(const ModuleId& b) const
+    {
+        return modId.modA < b.modId.modA || (modId.modA == b.modId.modA && modId.modB < b.modId.modB);
+    }
+    bool operator!=(const ModuleId& b) const
+    {
+        return !(*this == b);
+    }
+
+    struct _moduleId modId;
+};
+
+
 // Permanent memory space.  Either linked into the executable program or
 // loaded from a saved state file.
 class PermanentMemSpace: public MemSpace
 {
 protected:
     PermanentMemSpace(OSMem *alloc): MemSpace(alloc), index(0), hierarchy(0), noOverwrite(false),
-        byteOnly(false), constArea(false), topPointer(0), moduleTimeStamp(0) {}
+        byteOnly(false), constArea(false), topPointer(0) {
+    }
 
 public:
     unsigned    index;      // An identifier for the space.  Used when saving and loading.
@@ -138,7 +169,7 @@ public:
     Bitmap      shareBitmap; // Used in sharedata
     Bitmap      profileCode; // Used when profiling
 
-    time_t      moduleTimeStamp; // The identifier of the source module, usually the executable itself.
+    ModuleId    moduleIdentifier; // The identifier of the source module, usually the executable itself.
 
     friend class MemMgr;
 };
@@ -248,12 +279,12 @@ public:
     LocalMemSpace *NewLocalSpace(uintptr_t size, bool mut);
     // Create an entry for a permanent space.
     PermanentMemSpace *NewPermanentSpace(PolyWord *base, uintptr_t words,
-        unsigned flags, unsigned index, time_t sourceModule, unsigned hierarchy);
+        unsigned flags, unsigned index, ModuleId sourceModule, unsigned hierarchy);
 
     // Create a permanent space but allocate memory for it.
     // Sets bottom and top to the actual memory size.
     PermanentMemSpace *AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags,
-                            unsigned index, time_t sourceModule, unsigned hierarchy);
+                            unsigned index, ModuleId sourceModule, unsigned hierarchy);
     // Called after an allocated permanent area has been filled in.
     bool CompletePermanentSpaceAllocation(PermanentMemSpace *space);
 
@@ -299,7 +330,7 @@ public:
     bool DemoteOldPermanentSpaces(unsigned hierarchy); // Turn any old permanent spaces at this or higher hierarchy into local spaces.
     bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
 
-    PermanentMemSpace *SpaceForIndex(unsigned index, time_t modId); // Return the space for a given index
+    PermanentMemSpace *SpaceForIndex(unsigned index, ModuleId modId); // Return the space for a given index
 
     // As a debugging check, write protect the immutable areas apart from during the GC.
     void ProtectImmutable(bool on);

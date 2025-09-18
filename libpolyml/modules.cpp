@@ -116,8 +116,8 @@ typedef struct _moduleHeader
     // These entries contain the real data.
     off_t       segmentDescr;           // Position of segment descriptor table
     unsigned    segmentDescrCount;      // Number of segment descriptors in the table
-    time_t      timeStamp;              // The time stamp for this file.
-    time_t      executableTimeStamp;    // The time stamp for the parent executable.
+    struct _moduleId timeStamp;              // The time stamp for this file.
+    struct _moduleId executableTimeStamp;    // The time stamp for the parent executable.
     // Root
     uintptr_t   rootSegment;
     POLYUNSIGNED     rootOffset;
@@ -134,7 +134,7 @@ typedef struct _moduleSegmentDescr
     unsigned    relocationSize;         // Size of a relocation entry
     unsigned    segmentFlags;           // Segment flags (see MSF_ values)
     unsigned    segmentIndex;           // The index of this segment or the segment it overwrites
-    time_t      moduleId;               // The module this came from.
+    struct _moduleId moduleIden;               // The module this came from.
 } ModuleSegmentDescr;
 
 #define MSF_WRITABLE    1               // The segment contains mutable data
@@ -173,7 +173,7 @@ public:
 class ModuleExport : public Exporter, public ScanAddress
 {
 public:
-    ModuleExport(time_t modId) : expModuleId(modId), relocationCount(0) {}
+    ModuleExport() : relocationCount(0) {}
     void RunModuleExport(PolyObject* rootFunction);
     virtual void exportStore(void) {}
 
@@ -187,8 +187,6 @@ private:
     virtual void ScanConstant(PolyObject* base, byte* addrOfConst, ScanRelocationKind code, intptr_t displacement);
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject* ScanObjectAddress(PolyObject* base) { return base; }
-
-    time_t expModuleId;
 
 protected:
     void setRelocationAddress(void* p, POLYUNSIGNED* reloc);
@@ -219,7 +217,7 @@ void ModuleExport::createActualRelocation(void* addr, void* relocAddr, ScanReloc
     unsigned addrArea = findArea(addr);
     reloc.targetAddress = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
     // Module exports use the offset in their own table.
-    reloc.targetSegment = expModuleId != 0 ? addrArea : (unsigned)memTable[addrArea].mtIndex;
+    reloc.targetSegment = addrArea;
     reloc.relKind = kind;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -257,8 +255,7 @@ void ModuleExport::ScanConstant(PolyObject* base, byte* addr, ScanRelocationKind
     ModRelocationEntry reloc;
     setRelocationAddress(addr, &reloc.relocAddress);
     reloc.targetAddress = (POLYUNSIGNED)((char*)a - (char*)memTable[aArea].mtOriginalAddr);
-    // Module exports use offsets in their own tables.
-    reloc.targetSegment = expModuleId != 0 ? aArea : (unsigned)memTable[aArea].mtIndex;
+    reloc.targetSegment = aArea;
     reloc.relKind = code;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -284,6 +281,8 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
         return;
     }
 
+    ModuleId expModuleId(copyScan.extractHash());
+
     // Copy the areas into the export object.
     size_t tableSize = gMem.eSpaces.size() + gMem.pSpaces.size();
     unsigned memEntry = 0;
@@ -294,13 +293,13 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
         PermanentMemSpace* space = *i;
-        if (space->hierarchy == 0 && copyScan.externalRefs[space->moduleTimeStamp])
+        if (space->hierarchy == 0 && copyScan.externalRefs[space->moduleIdentifier])
         {
             ExportMemTable* entry = &memTable[memEntry++];
             entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
             entry->mtLength = (space->topPointer - space->bottom) * sizeof(PolyWord);
             entry->mtIndex = space->index;
-            entry->mtModId = space->moduleTimeStamp;
+            entry->mtModId = space->moduleIdentifier;
             entry->mtFlags = 0;
             if (space->isMutable) entry->mtFlags |= MTF_WRITEABLE;
             if (space->isCode) entry->mtFlags |= MTF_EXECUTABLE;
@@ -316,9 +315,9 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
         entry->mtLength = (space->topPointer - space->bottom) * sizeof(PolyWord);
         // The spaces need to be renumbered and the module id set.
         space->index = memEntry - newAreas - 1;
-        space->moduleTimeStamp = expModuleId;
+        space->moduleIdentifier = ModuleId(expModuleId);
         entry->mtIndex = space->index;
-        entry->mtModId = space->moduleTimeStamp;
+        entry->mtModId = space->moduleIdentifier;
         entry->mtFlags = 0;
         if (space->isMutable)
         {
@@ -366,7 +365,7 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
             thisDescr->relocationSize = sizeof(ModRelocationEntry);
             thisDescr->segmentIndex = entry->mtIndex;
             thisDescr->segmentSize = entry->mtLength; // Set this even if we don't write it.
-            thisDescr->moduleId = entry->mtModId;
+            thisDescr->moduleIden = entry->mtModId;
             if (entry->mtFlags & MTF_WRITEABLE)
             {
                 thisDescr->segmentFlags |= MSF_WRITABLE;
@@ -437,7 +436,7 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
 
 void ModuleStorer::Perform()
 {
-    ModuleExport exporter(getBuildTime());
+    ModuleExport exporter;
 #if (defined(_WIN32) && defined(UNICODE))
     exporter.exportFile = _wfopen(fileName, L"wb");
 #else
@@ -583,7 +582,7 @@ void ModuleLoader::Perform()
         errorResult = "Unsupported version of module file";
         return;
     }
-    if (header.executableTimeStamp != exportTimeStamp)
+    if (ModuleId(header.executableTimeStamp) != exportTimeStamp)
     {
         // Time-stamp does not match executable.
         errorResult =
@@ -606,7 +605,7 @@ void ModuleLoader::Perform()
     for (unsigned i = 0; i < header.segmentDescrCount; i++)
     {
         ModuleSegmentDescr* descr = &modload.descrs[i];
-        MemSpace* space = gMem.SpaceForIndex(descr->segmentIndex, descr->moduleId);
+        MemSpace* space = gMem.SpaceForIndex(descr->segmentIndex, descr->moduleIden);
 
         if (descr->segmentData == 0)
         { // No data - just an entry in the index.

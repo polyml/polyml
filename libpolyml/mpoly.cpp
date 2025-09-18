@@ -104,7 +104,7 @@ NORETURNFN(static void Usage(const char *message, ...));
 
 struct _userOptions userOptions;
 
-time_t exportTimeStamp;
+ModuleId exportTimeStamp;
 
 enum {
     OPT_HEAPMIN,

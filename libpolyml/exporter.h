@@ -21,14 +21,11 @@
 #ifndef EXPORTER_H_INCLUDED
 #define EXPORTER_H_INCLUDED
 
-#include "globals.h" // For PolyWord
+#include "globals.h" // For PolyWord and also int types
+#include "memmgr.h" // For ModuleId
 
 #ifdef HAVE_STDIO_H
 #include <stdio.h> // For FILE
-#endif
-
-#ifdef HAVE_TIME_H
-#include <time.h>
 #endif
 
 #include <map>
@@ -44,7 +41,8 @@ class ExportMemTable
 {
 public:
     ExportMemTable() : mtCurrentAddr(0), mtOriginalAddr(0), mtLength(0), 
-        mtFlags(0), mtIndex(0), mtModId(0) {}
+        mtFlags(0), mtIndex(0) {
+    }
 
     // This previously used the memTable in polyexports.h
     void* mtCurrentAddr;             // The address of the area of memory
@@ -52,7 +50,7 @@ public:
     uintptr_t mtLength;              // The length in bytes of the area
     unsigned mtFlags;               // Flags describing the area.
     unsigned mtIndex;               // An index to identify permanent spaces.
-    time_t   mtModId;               // The source module
+    ModuleId mtModId;               // The source module
 };
 
 // This is the base class for the exporters for the various object-code formats.
@@ -83,6 +81,7 @@ protected:
     ExportMemTable *memTable;
     unsigned memTableEntries;
     PolyObject *rootFunction; // Address of the root function.
+    ModuleId exportModId;
 };
 
 // The object-code exporters all use a similar string table format
@@ -146,7 +145,16 @@ public:
     unsigned tombs;
 
     // The module IDs of the permanent spaces referenced.  This is currently only relevant for modules.
-    std::map<time_t, bool> externalRefs;
+    std::map<ModuleId, bool> externalRefs;
+
+private:
+    // Local values for hash computation
+    uint32_t hash_a, hash_b, hash_c;
+    unsigned hash_posn;
+    void addToHash(uint32_t v);
+    void addWordToHash(POLYUNSIGNED p);
+public:
+    struct _moduleId extractHash();
 };
 
 extern struct _entrypts exporterEPT[];

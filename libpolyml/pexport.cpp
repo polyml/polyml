@@ -379,7 +379,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         if (size <= objWords)
             size = objWords+1;
         memSpace =
-            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr, 0 /* Module ID*/, 0 /* Heirarchy*/);
+            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr, ModuleId() /* Module ID*/, 0 /* Heirarchy*/);
         (*spaceIndexCtr)++;
         // The memory is writable until CompletePermanentSpaceAllocation is called
         if (memSpace == 0)

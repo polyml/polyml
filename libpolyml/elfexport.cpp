@@ -40,10 +40,6 @@
 #include <errno.h>
 #endif
 
-#ifdef HAVE_TIME_H
-#include <time.h>
-#endif
-
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x) assert(x)
@@ -131,7 +127,6 @@
 #include "run_time.h"
 #include "version.h"
 #include "polystring.h"
-#include "timing.h"
 #include "memmgr.h"
 
 
@@ -843,7 +838,7 @@ void ELFExport::exportStore(void)
     // Set the value to be the offset relative to the base of the area.  We have set a relocation
     // already which will add the base of the area.
     exports.rootFunction = USE_RELA ? 0 : (void*)rootOffset;
-    exports.timeStamp = getBuildTime();
+    exports.execIdentifier = exportModId;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
 #ifdef POLYML32IN64

@@ -137,6 +137,8 @@ CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
     defaultImmSize = defaultMutSize = defaultCodeSize = defaultNoOverSize = 0;
     tombs = 0;
     graveYard = 0;
+    hash_a = hash_b = hash_c = 0xdeadbeef;
+    hash_posn = 0;
 }
 
 void CopyScan::initialise(bool isExport/*=true*/)
@@ -298,7 +300,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         if (pmSpace->hierarchy < hierarchy)
         {
             // Add it to the external references.
-            externalRefs[pmSpace->moduleTimeStamp] = true;
+            externalRefs[pmSpace->moduleIdentifier] = true;
             return 0;
         }
     }
@@ -363,7 +365,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     else naType = NAWord;
     PolyObject* newObj;
 #if((defined(HOSTARCHITECTURE_X86_64) || defined(HOSTARCHITECTURE_AARCH64)) && ! defined(POLYML32IN64) && !defined(CODEISNOTEXECUTABLE) && !defined(_WIN32))
-    // SELinux, OpenBSD and Mac OS, at least on the ARM, require or prefer executavle code segments without
+    // SELinux, OpenBSD and Mac OS, at least on the ARM, require or prefer executable code segments without
     // absolute addresses: position-independent code.
     // That means the constant area cannot be in the same segment as the code.  We have to split the constant area
     // out and put it into the read-only, non-executable area.
@@ -468,6 +470,24 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         machineDependent->ScanConstantsWithinCode(newObj, obj, newObj->Length(), newConstAddr, oldConstAddr, count, this);
     }
     *pt = newObj; // Update it to the newly copied object.
+
+    // Add byte data and tagged values to the hash.  Don't include addresses since
+    // these depend on storage allocation and may not be reproducible.
+    if (newObj->IsByteObject())
+    {
+        for (POLYUNSIGNED i = 0; i < words; i++)
+            addWordToHash(newObj->Get(i).AsUnsigned());
+    }
+    else if (newObj->IsWordObject())
+    {
+        for (POLYUNSIGNED i = 0; i < words; i++)
+        {
+            PolyWord p = newObj->Get(i);
+            if (p.IsTagged())
+                addWordToHash(p.AsUnsigned());
+        }
+    }
+
     return lengthWord;  // This new object needs to be scanned.
 }
 
@@ -569,7 +589,61 @@ PolyObject *CopyScan::ScanObjectAddress(PolyObject *base)
     return val.AsObjPtr();
 }
 
-#define MAX_EXTENSION   4 // The longest extension we may need to add is ".obj"
+// Hash code.  Modified from code by Bob Jenkins - https://burtleburtle.net/bob/c/lookup3.c
+
+static inline uint32_t rot(uint32_t x, uint32_t k)
+{
+    return (x << k) | (x >> (32 - k));
+}
+
+void CopyScan::addToHash(uint32_t p)
+{
+    switch (hash_posn)
+    {
+    case 0:
+        hash_a += p;
+        hash_posn = 1;
+        break;
+    case 1:
+        hash_b += p;
+        hash_posn = 2;
+        break;
+    case 2:
+        hash_c += p;
+        hash_posn = 0;
+        // Mix the values.
+        hash_a -= hash_c;  hash_a ^= rot(hash_c, 4);  hash_c += hash_b;
+        hash_b -= hash_a;  hash_b ^= rot(hash_a, 6);  hash_a += hash_c;
+        hash_c -= hash_b;  hash_c ^= rot(hash_b, 8);  hash_b += hash_a;
+        hash_a -= hash_c;  hash_a ^= rot(hash_c, 16);  hash_c += hash_b;
+        hash_b -= hash_a;  hash_b ^= rot(hash_a, 19);  hash_a += hash_c;
+        hash_c -= hash_b;  hash_c ^= rot(hash_b, 4);  hash_b += hash_a;
+        break;
+    }
+}
+
+void CopyScan::addWordToHash(POLYUNSIGNED p)
+{
+#if (SIZEOF_POLYWORD == 4)
+    addToHash(p);
+#else
+    addToHash(p & 0xffffffff);
+    addToHash((p >> 32) & 0xffffffff);
+#endif
+}
+
+struct _moduleId CopyScan::extractHash()
+{
+    uint32_t a = hash_a, b = hash_b, c = hash_c;
+    c ^= b; c -= rot(b, 14);
+    a ^= c; a -= rot(c, 11);
+    b ^= a; b -= rot(a, 25);
+    c ^= b; c -= rot(b, 16);
+    a ^= c; a -= rot(c, 4);
+    b ^= a; b -= rot(a, 14);
+    c ^= b; c -= rot(b, 24);
+    return { hash_c, hash_b };
+}
 
 // Convert the forwarding pointers in a region back into length words.
 
@@ -702,6 +776,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
     // local storage.
     revertToLocal();
 
+    exportModId = copyScan.extractHash();
 
     // Reraise the exception after cleaning up the forwarding pointers.
     if (copiedRoot == 0)
@@ -722,7 +797,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
         entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = memEntry-1;
-        entry->mtModId = 0;
+        entry->mtModId = { 0, 0 };
         entry->mtFlags = 0;
         if (space->isMutable)
         {

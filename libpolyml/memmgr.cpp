@@ -299,7 +299,7 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
 
 // Create an entry for a permanent space.
 PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
-                                             unsigned flags, unsigned index, time_t sourceModule, unsigned hierarchy /*= 0*/)
+                                             unsigned flags, unsigned index, ModuleId sourceModule, unsigned hierarchy /*= 0*/)
 {
     try {
         PermanentMemSpace *space = new PermanentMemSpace(0/* Not freed */);
@@ -312,7 +312,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
         space->isCode = flags & MTF_EXECUTABLE ? true : false;
         space->index = index;
         space->hierarchy = hierarchy;
-        space->moduleTimeStamp = sourceModule;
+        space->moduleIdentifier = sourceModule;
         if (index >= nextIndex) nextIndex = index+1;
 
         // Extend the permanent memory table and add this space to it.
@@ -332,7 +332,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
     }
 }
 
-PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, time_t sourceModule, unsigned hierarchy)
+PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, ModuleId sourceModule, unsigned hierarchy)
 {
     try {
         OSMem *alloc = flags & MTF_EXECUTABLE ? (OSMem*)&osCodeAlloc : (OSMem*)&osHeapAlloc;
@@ -358,7 +358,7 @@ PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigne
         space->isCode = flags & MTF_EXECUTABLE ? true : false;
         space->index = index;
         space->hierarchy = hierarchy;
-        space->moduleTimeStamp = sourceModule;
+        space->moduleIdentifier = sourceModule;
         if (index >= nextIndex) nextIndex = index + 1;
 
         // Extend the permanent memory table and add this space to it.
@@ -626,12 +626,12 @@ bool MemMgr::DemoteImportSpaces()
 }
 
 // Return the space for a given index
-PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index, time_t modId)
+PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index, ModuleId modId)
 {
     for (std::vector<PermanentMemSpace*>::iterator i = pSpaces.begin(); i < pSpaces.end(); i++)
     {
         PermanentMemSpace *space = *i;
-        if (space->index == index && space->moduleTimeStamp == modId)
+        if (space->index == index && space->moduleIdentifier == modId)
             return space;
     }
     return NULL;

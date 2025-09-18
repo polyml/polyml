@@ -43,10 +43,6 @@
 #include <errno.h>
 #endif
 
-#ifdef HAVE_TIME_H
-#include <time.h>
-#endif
-
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
@@ -173,8 +169,8 @@ typedef struct _savedStateHeader
     off_t       stringTable;            // Pointer to the string table (zero if none)
     size_t      stringTableSize;        // Size of string table
     unsigned    parentNameEntry;        // Position of parent name in string table (0 if top)
-    time_t      timeStamp;            // The time stamp for this file.
-    time_t      parentTimeStamp;      // The time stamp for the parent.
+    struct _moduleId      timeStamp;            // The time stamp for this file.
+    struct _moduleId      parentTimeStamp;      // The time stamp for the parent.
     void       *originalBaseAddr;        // Original base address (32-in-64 only)
 } SavedStateHeader;
 
@@ -190,7 +186,7 @@ typedef struct _savedStateSegmentDescr
     unsigned    segmentFlags;           // Segment flags (see SSF_ values)
     unsigned    segmentIndex;           // The index of this segment or the segment it overwrites
     void        *originalAddress;       // The base address when the segment was written.
-    time_t      moduleId;               // The module this came from.
+    struct _moduleId      moduleId;               // The module this came from.
 } SavedStateSegmentDescr;
 
 #define SSF_WRITABLE    1               // The segment contains mutable data
@@ -223,17 +219,17 @@ typedef struct _relocationEntry
 class HierarchyTable
 {
 public:
-    HierarchyTable(const TCHAR *file, time_t time):
+    HierarchyTable(const TCHAR *file, struct _moduleId time):
       fileName(_tcsdup(file)), timeStamp(time) { }
     AutoFree<TCHAR*> fileName;
-    time_t          timeStamp;
+    struct _moduleId    timeStamp;
 };
 
 HierarchyTable **hierarchyTable;
 
 static unsigned hierarchyDepth;
 
-static bool AddHierarchyEntry(const TCHAR *fileName, time_t timeStamp)
+static bool AddHierarchyEntry(const TCHAR *fileName, struct _moduleId timeStamp)
 {
     // Add an entry to the hierarchy table for this file.
     HierarchyTable *newEntry = new HierarchyTable(fileName, timeStamp);
@@ -662,7 +658,7 @@ void SaveRequest::Perform()
         saveHeader.parentTimeStamp = hierarchyTable[newHierarchy-2]->timeStamp;
         saveHeader.parentNameEntry = sizeof(TCHAR); // Always the first entry.
     }
-    saveHeader.timeStamp = getBuildTime();
+    saveHeader.timeStamp = copyScan.extractHash();
     saveHeader.segmentDescrCount = exports.memTableEntries; // One segment for each space.
 #ifdef POLYML32IN64
     saveHeader.originalBaseAddr = globalHeapBase;
@@ -682,7 +678,7 @@ void SaveRequest::Perform()
         descrs[j].segmentIndex = (unsigned)entry->mtIndex;
         descrs[j].segmentSize = entry->mtLength; // Set this even if we don't write it.
         descrs[j].originalAddress = entry->mtOriginalAddr;
-        descrs[j].moduleId = 0; // For the moment
+        descrs[j].moduleId = { 0,0 }; // For the moment
         if (entry->mtFlags & MTF_WRITEABLE)
         {
             descrs[j].segmentFlags |= SSF_WRITABLE;
@@ -805,7 +801,7 @@ public:
         isHierarchy(isH), fileNameList(files), errorResult(0), errNumber(0) { }
 
     virtual void Perform(void);
-    bool LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail);
+    bool LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail);
     bool isHierarchy;
     Handle fileNameList;
     const char *errorResult;
@@ -835,7 +831,7 @@ void StateLoader::Perform(void)
             errNumber = NOMEMORY;
             return;
         }
-        (void)LoadFile(true, 0, p->t);
+        (void)LoadFile(true, ModuleId(), p->t);
     }
     else
     {
@@ -846,7 +842,7 @@ void StateLoader::Perform(void)
             errNumber = NOMEMORY;
             return;
         }
-        (void)LoadFile(true, 0, TAGGED(0));
+        (void)LoadFile(true, ModuleId(), TAGGED(0));
     }
 }
 
@@ -1098,7 +1094,7 @@ size_t readData(void *ptr, size_t size, FILE *stream)
 }
 
 // Load a saved state file.  Calls itself to handle parent files.
-bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
+bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail)
 {
     LoadRelocate relocate;
     AutoFree<TCHAR*> thisFile(_tcsdup(fileName));
@@ -1133,7 +1129,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
 
     // Check that we have the required stamp before loading any children.
     // If a parent has been overwritten we could get a loop.
-    if (! isInitial && header.timeStamp != requiredStamp)
+    if (! isInitial && ModuleId(header.timeStamp) != requiredStamp)
     {
         // Time-stamps don't match.
         errorResult = "The parent for this saved state does not match or has been changed";
@@ -1201,7 +1197,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             errorResult = "Too many file names in the list";
             return false;
         }
-        if (header.parentTimeStamp != exportTimeStamp)
+        if (ModuleId(header.parentTimeStamp) != exportTimeStamp)
         {
             // Time-stamp does not match executable.
             errorResult = 
@@ -1361,7 +1357,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                     errorResult = "Unable to read relocation segment";
                     return false;
                 }
-                MemSpace *toSpace = gMem.SpaceForIndex(reloc.targetSegment, 0);
+                MemSpace *toSpace = gMem.SpaceForIndex(reloc.targetSegment, ModuleId());
                 if (toSpace == NULL)
                 {
                     errorResult = "Unknown space reference in relocation";
@@ -1385,7 +1381,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
         SavedStateSegmentDescr *descr = &relocate.descrs[j];
         if (descr->segmentData != 0)
         {
-            PermanentMemSpace* space = gMem.SpaceForIndex(descr->segmentIndex, 0);
+            PermanentMemSpace* space = gMem.SpaceForIndex(descr->segmentIndex, ModuleId());
             gMem.CompletePermanentSpaceAllocation(space);
         }
     }
@@ -1690,7 +1686,7 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
 #endif
     }
     // We could also check the RTS version and the architecture.
-    exportTimeStamp = exports->timeStamp; // Needed for load and save.
+    exportTimeStamp = exports->execIdentifier; // Needed for load and save.
 
     memoryTableEntry *memTable = exports->memTable;
 #ifdef POLYML32IN64
@@ -1777,7 +1773,7 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
         if (gMem.NewPermanentSpace(
             (PolyWord*)memTable[i].mtCurrentAddr,
             memTable[i].mtLength / sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
-            i, 0/* ModID */, 0 /* Heirarchy */) == 0)
+            i, ModuleId(), 0 /* Heirarchy */) == 0)
             Exit("Unable to initialise a permanent memory space");
     }
     return (PolyObject *)exports->rootFunction;
