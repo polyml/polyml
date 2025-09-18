@@ -1708,7 +1708,7 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
         relocate.descrs[i].segmentSize = memTable[i].mtLength;
         PermanentMemSpace *newSpace =
             gMem.AllocateNewPermanentSpace(memTable[i].mtLength, (unsigned)memTable[i].mtFlags,
-                    i, 0 /* modId */, 0 /* Hierarchy */);
+                    i, ModuleId(), 0 /* Hierarchy */);
         if (newSpace == 0)
             Exit("Unable to initialise a permanent memory space");
 
@@ -1736,7 +1736,7 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
     for (unsigned j = 0; j < exports->memTableEntries; j++)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[j];
-        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex, 0);
+        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex, ModuleId());
         // Any relative addresses have to be corrected by adding this.
         relocate.relativeOffset = (PolyWord*)descr->originalAddress - space->bottom;
         for (PolyWord *p = space->bottom; p < space->top; )
@@ -1760,7 +1760,7 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
     // Set the final permissions.
     for (unsigned j = 0; j < exports->memTableEntries; j++)
     {
-        PermanentMemSpace *space = gMem.SpaceForIndex(j, 0);
+        PermanentMemSpace *space = gMem.SpaceForIndex(j, ModuleId());
         gMem.CompletePermanentSpaceAllocation(space);
     }
 

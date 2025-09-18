@@ -2,7 +2,7 @@
     Title:     Export and import memory in a portable format
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006-7, 2015-8, 2020-21 David C. J. Matthews
+    Copyright (c) 2006-7, 2015-8, 2020-21, 2025 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -407,7 +407,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         if (size <= rounded)
             size = rounded + 1;
         memSpace =
-            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr, 0 /* Module ID*/, 0 /* Heirarchy*/);
+            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr, ModuleId(), 0 /* Heirarchy*/);
         (*spaceIndexCtr)++;
         // The memory is writable until CompletePermanentSpaceAllocation is called
         if (memSpace == 0)
