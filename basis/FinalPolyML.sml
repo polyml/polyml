@@ -2177,10 +2177,18 @@ in
             end
             
             local
-                val saveMod: string * Universal.universal list -> unit = RunCall.rtsCallFull2 "PolyStoreModule"
+                val saveNamedMod: string * string * Universal.universal list -> unit = RunCall.rtsCallFull3 "PolyStoreModule"
             in
-                fun saveModuleBasic(_, []) = raise Fail "Cannot create an empty module"
-                |   saveModuleBasic(name, contents) = saveMod(name, contents)
+                fun saveNamedModuleBasic{ contents=[], ...} = raise Fail "Cannot create an empty module"
+                |   saveNamedModuleBasic{fileName, moduleName, contents} = saveNamedMod(fileName, moduleName, contents)
+                
+                (* If the module is not named use the last component of the path as the module name. *)
+                fun saveModuleBasic(name, contents) =
+                let
+                    val {file=modName, ...} = OS.Path.splitDirFile name
+                in
+                    saveNamedModuleBasic{fileName=name, moduleName=modName, contents=contents}
+                end
             end
 
             fun saveModule(s, {structs, functors, sigs, onStartup}) =
@@ -2223,6 +2231,22 @@ in
                     types = extract Tags.typeTag ulist
                 }
             end
+            
+            val showLoadedModules: unit -> (string * Word8Vector.vector) list =
+                RunCall.rtsCallFull0 "PolyShowLoadedModules"
+
+            local
+                val getModInf: string -> string * Word8Vector.vector * (string * Word8Vector.vector) list =
+                    RunCall.rtsCallFull1 "PolyGetModuleInfo"
+            in
+                fun getModuleInfo fileName =
+                let
+                    val (modName, modSig, deps) = getModInf fileName
+                in
+                    {moduleName=modName, moduleSignature=modSig, dependencies=deps}
+                end
+            end
+
         end
         
         val loadModule = SaveState.loadModule

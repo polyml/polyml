@@ -920,7 +920,7 @@ POLYUNSIGNED PolyExportPortable(POLYUNSIGNED threadId, POLYUNSIGNED fileName, PO
 
 // Helper functions for exporting.  We need to produce relocation information
 // and this code is common to every method.
-Exporter::Exporter(): exportFile(NULL), errorMessage(0), memTable(0)
+Exporter::Exporter(): exportFile(NULL), errorMessage(0), errNumber(0), memTable(0), memTableEntries(0), rootFunction(0)
 {
 }
 
@@ -1019,6 +1019,19 @@ void Exporter::revertToLocal()
         // Code areas are filled with objects from the bottom.
         FixForwarding(space->bottom, space->top - space->bottom);
     }
+}
+
+bool Exporter::checkedFwrite(const void* buffer, size_t size, size_t count)
+{
+    size_t written = fwrite(buffer, size, count, exportFile);
+    if (written != count)
+    {
+        errNumber = ERRORNUMBER;
+        errorMessage = "Error in fwrite"; // Will be set to the appropriate string in raise_syscall.
+        return false;
+    }
+    return true;
+
 }
 
 ExportStringTable::ExportStringTable(): strings(0), stringSize(0), stringAvailable(0)

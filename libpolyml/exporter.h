@@ -73,9 +73,14 @@ protected:
     virtual void addExternalReference(void *p, const char *entryPoint, bool isFuncPtr) {}
     static void revertToLocal();
 
+    // Helper functions for subclasses.  These set errNumber and errorMessage if the
+    // system calls fail.
+    bool checkedFwrite(const void* buffer, size_t size, size_t count);
+
 public:
     FILE     *exportFile;
     const char *errorMessage;
+    int errNumber;
 
 protected:
     ExportMemTable *memTable;
