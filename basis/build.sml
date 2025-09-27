@@ -174,8 +174,8 @@ local
          "^", "before", "div", "mod", "o"]
 
     val sigs =
-       ["ARRAY", "ARRAY2", "ARRAY_SLICE", "BIN_IO", "BIT_FLAGS", "BOOL", "BYTE",
-        "CHAR", "COMMAND_LINE", "DATE", "GENERAL", "GENERIC_SOCK", "IEEE_REAL",
+       ["ARRAY", "ARRAY2", "ARRAY_SLICE", "ASN1", "BIN_IO", "BIT_FLAGS", "BOOL", "BYTE",
+        "CHAR", "COMMAND_LINE", "DATE", "FOREIGN", "GENERAL", "GENERIC_SOCK", "IEEE_REAL",
         "IMPERATIVE_IO", "INET6_SOCK", "INET_SOCK", "INTEGER", "INT_INF", "IO",
         "LIST", "LIST_PAIR", "MATH", "MONO_ARRAY", "MONO_ARRAY2",
         "MONO_ARRAY_SLICE", "MONO_VECTOR", "MONO_VECTOR_SLICE", "NET_HOST_DB",
