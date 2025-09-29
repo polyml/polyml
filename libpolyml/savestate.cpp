@@ -95,7 +95,7 @@ typedef char TCHAR;
 #include "scanaddrs.h"
 #include "arb.h"
 #include "memmgr.h"
-#include "mpoly.h" // For exportTimeStamp
+#include "mpoly.h" // For exportSignature
 #include "exporter.h" // For CopyScan
 #include "machine_dep.h"
 #include "osmem.h"
@@ -104,9 +104,6 @@ typedef char TCHAR;
 #include "rtsentry.h"
 #include "check_objects.h"
 #include "rtsentry.h"
-
-#include "../polyexports.h" // For InitHeaderFromExport
-#include "version.h" // For InitHeaderFromExport
 
 #ifdef _MSC_VER
 // Don't tell me about ISO C++ changes.
@@ -185,7 +182,6 @@ typedef struct _savedStateSegmentDescr
     unsigned    relocationSize;         // Size of a relocation entry
     unsigned    segmentFlags;           // Segment flags (see SSF_ values)
     unsigned    segmentIndex;           // The index of this segment or the segment it overwrites
-    void        *originalAddress;       // The base address when the segment was written.
     struct _moduleId      moduleId;               // The module this came from.
 } SavedStateSegmentDescr;
 
@@ -200,10 +196,10 @@ typedef struct _relocationEntry
     // Each entry indicates a location that has to be set to an address.
     // The location to be set is determined by adding "relocAddress" to the base address of
     // this segment (the one to which these relocations apply) and the value to store
-    // by adding "targetAddress" to the base address of the segment indicated by "targetSegment".
+    // by adding "targetAddress" to the base address of the segment indicated by targetIndex/targetModId.
     POLYUNSIGNED    relocAddress;       // The (byte) offset in this segment that we will set
     POLYUNSIGNED    targetAddress;      // The value to add to the base of the destination segment
-    unsigned        targetSegment;      // The base segment.  0 is IO segment. 
+    unsigned        targetSegment;      // Index into the address table
     ScanRelocationKind relKind;         // The kind of relocation (processor dependent).
 } RelocationEntry;
 
@@ -290,6 +286,11 @@ public:
 public:
     virtual void exportStore(void) {} // Not used.
 
+protected:
+    // These have to be overridden to work properly for compact 32-bit
+    virtual void relocateValue(PolyWord* pt);
+    virtual void relocateObject(PolyObject* p);
+
 private:
     // ScanAddress overrides
     virtual void ScanConstant(PolyObject *base, byte *addrOfConst, ScanRelocationKind code, intptr_t displacement);
@@ -325,7 +326,7 @@ void SaveStateExport::createActualRelocation(void *addr, void* relocAddr, ScanRe
 
     unsigned addrArea = findArea(addr);
     reloc.targetAddress = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
-    reloc.targetSegment = (unsigned)memTable[addrArea].mtIndex;
+    reloc.targetSegment = addrArea;
     reloc.relKind = kind;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -339,6 +340,31 @@ PolyWord SaveStateExport::createRelocation(PolyWord p, void* relocAddr)
     createActualRelocation(p.AsAddress(), relocAddr, PROCESS_RELOC_DIRECT);
 #endif
     return p; // Don't change the contents
+}
+
+// Override for Exporter::relocateValue.  That function does not do anything for compact 32-bit because
+// the operating system object module formats do not support a suitable relocation format.
+void SaveStateExport::relocateValue(PolyWord* pt)
+{
+    PolyWord q = *pt;
+    if (IS_INT(q) || q == PolyWord::FromUnsigned(0)) {}
+    else *gMem.SpaceForAddress(pt)->writeAble(pt) = createRelocation(*pt, pt);
+}
+
+// We need to override this since Exporter::relocateObject doesn't work 
+void SaveStateExport::relocateObject(PolyObject* p)
+{
+    if (p->IsClosureObject())
+    {
+        POLYUNSIGNED length = p->Length();
+        // The first word is an absolute code address.
+        PolyWord* pt = p->Offset(0);
+        void* addr = *(void**)pt;
+        createActualRelocation(addr, pt, PROCESS_RELOC_DIRECT);
+
+        for (POLYUNSIGNED i = sizeof(uintptr_t) / sizeof(PolyWord); i < length; i++) relocateValue(p->Offset(i));
+    }
+    else Exporter::relocateObject(p);
 }
 
 
@@ -364,7 +390,7 @@ void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationK
     RelocationEntry reloc;
     setRelocationAddress(addr, &reloc.relocAddress);
     reloc.targetAddress = (POLYUNSIGNED)((char*)a - (char*)memTable[aArea].mtOriginalAddr);
-    reloc.targetSegment = (unsigned)memTable[aArea].mtIndex;
+    reloc.targetSegment = aArea;
     reloc.relKind = code;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -576,6 +602,7 @@ void SaveRequest::Perform()
             entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
             entry->mtIndex = space->index;
             entry->mtFlags = 0;
+            entry->mtModId = space->moduleIdentifier;
             if (space->isMutable)
             {
                 entry->mtFlags |= MTF_WRITEABLE;
@@ -652,7 +679,7 @@ void SaveRequest::Perform()
     saveHeader.headerVersion = SAVEDSTATEVERSION;
     saveHeader.segmentDescrLength = sizeof(SavedStateSegmentDescr);
     if (newHierarchy == 1)
-        saveHeader.parentTimeStamp = exportTimeStamp;
+        saveHeader.parentTimeStamp = exportSignature;
     else
     {
         saveHeader.parentTimeStamp = hierarchyTable[newHierarchy-2]->timeStamp;
@@ -677,8 +704,7 @@ void SaveRequest::Perform()
         descrs[j].relocationSize = sizeof(RelocationEntry);
         descrs[j].segmentIndex = (unsigned)entry->mtIndex;
         descrs[j].segmentSize = entry->mtLength; // Set this even if we don't write it.
-        descrs[j].originalAddress = entry->mtOriginalAddr;
-        descrs[j].moduleId = { 0,0 }; // For the moment
+        descrs[j].moduleId = entry->mtModId;
         if (entry->mtFlags & MTF_WRITEABLE)
         {
             descrs[j].segmentFlags |= SSF_WRITABLE;
@@ -716,12 +742,10 @@ void SaveRequest::Perform()
                 p++;
                 PolyObject *obj = (PolyObject*)p;
                 POLYUNSIGNED length = obj->Length();
-                // Most relocations can be computed when the saved state is
-                // loaded so we only write out the difficult ones: those that
-                // occur within compiled code.
-                //  exports.relocateObject(obj);
+                // Now include all relocations rather than trying to sort them out when loading.
                 if (length != 0 && obj->IsCodeObject())
                     machineDependent->ScanConstantsWithinCode(obj, &exports);
+                exports.relocateObject(obj);
                 p += length;
             }
             descrs[k].relocationCount = exports.relocationCount;
@@ -812,6 +836,16 @@ public:
     int errNumber;
 };
 
+// Data needed for relocation during load.
+class StateLoadData {
+public:
+    StateLoadData() : relocations(0), relocationCount(0), targetAddr(0) {}
+
+    off_t       relocations;        // Copied from descriptor
+    unsigned    relocationCount;
+    PolyWord* targetAddr;           // Actual address of the segment
+};
+
 // Called by the main thread once all the ML threads have stopped.
 void StateLoader::Perform(void)
 {
@@ -871,208 +905,6 @@ void ClearVolatile::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthW
     }
 }
 
-// This is copied from the B-tree in MemMgr.  It probably should be
-// merged but will do for the moment.  It's intended to reduce the
-// cost of finding the segment for relocation.
-
-class SpaceBTree
-{
-public:
-    SpaceBTree(bool is, unsigned i = 0) : isLeaf(is), index(i) { }
-    virtual ~SpaceBTree() {}
-
-    bool isLeaf;
-    unsigned index; // The index if this is a leaf
-};
-
-// A non-leaf node in the B-tree
-class SpaceBTreeTree : public SpaceBTree
-{
-public:
-    SpaceBTreeTree();
-    virtual ~SpaceBTreeTree();
-
-    SpaceBTree *tree[256];
-};
-
-SpaceBTreeTree::SpaceBTreeTree() : SpaceBTree(false)
-{
-    for (unsigned i = 0; i < 256; i++)
-        tree[i] = 0;
-}
-
-SpaceBTreeTree::~SpaceBTreeTree()
-{
-    for (unsigned i = 0; i < 256; i++)
-        delete(tree[i]);
-}
-
-
-// This class is used to relocate addresses in areas that have been loaded.
-class LoadRelocate: public ScanAddress
-{
-public:
-    LoadRelocate(bool pcc = false): processCodeConstants(pcc), originalBaseAddr(0), descrs(0),
-        targetAddresses(0), nDescrs(0), spaceTree(0) {}
-    ~LoadRelocate();
-
-    void RelocateObject(PolyObject *p);
-    virtual PolyObject *ScanObjectAddress(PolyObject *base) { ASSERT(0); return base; } // Not used
-    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement);
-    void RelocateAddressAt(PolyWord *pt);
-    PolyObject *RelocateAddress(PolyObject *obj);
-    void AddTreeRange(SpaceBTree **t, unsigned index, uintptr_t startS, uintptr_t endS);
-
-    bool processCodeConstants;
-    PolyWord *originalBaseAddr;
-    SavedStateSegmentDescr *descrs;
-    PolyWord **targetAddresses;
-    unsigned nDescrs;
-    SpaceBTree *spaceTree;
-    intptr_t relativeOffset;
-};
-
-LoadRelocate::~LoadRelocate()
-{
-    if (descrs) delete[](descrs);
-    if (targetAddresses) delete[](targetAddresses);
-    delete(spaceTree);
-}
-
-// Add an entry to the space B-tree.
-void LoadRelocate::AddTreeRange(SpaceBTree **tt, unsigned index, uintptr_t startS, uintptr_t endS)
-{
-    if (*tt == 0)
-        *tt = new SpaceBTreeTree;
-    ASSERT(!(*tt)->isLeaf);
-    SpaceBTreeTree *t = (SpaceBTreeTree*)*tt;
-
-    const unsigned shift = (sizeof(void*) - 1) * 8; // Takes the high-order byte
-    uintptr_t r = startS >> shift;
-    ASSERT(r < 256);
-    const uintptr_t s = endS == 0 ? 256 : endS >> shift;
-    ASSERT(s >= r && s <= 256);
-
-    if (r == s) // Wholly within this entry
-        AddTreeRange(&(t->tree[r]), index, startS << 8, endS << 8);
-    else
-    {
-        // Deal with any remainder at the start.
-        if ((r << shift) != startS)
-        {
-            AddTreeRange(&(t->tree[r]), index, startS << 8, 0 /*End of range*/);
-            r++;
-        }
-        // Whole entries.
-        while (r < s)
-        {
-            ASSERT(t->tree[r] == 0);
-            t->tree[r] = new SpaceBTree(true, index);
-            r++;
-        }
-        // Remainder at the end.
-        if ((s << shift) != endS)
-            AddTreeRange(&(t->tree[r]), index, 0, endS << 8);
-    }
-}
-
-
-// Update the addresses in a group of words.
-void LoadRelocate::RelocateAddressAt(PolyWord *pt)
-{
-    PolyWord val = *pt;
-    if (! val.IsTagged())
-        *gMem.SpaceForAddress(pt)->writeAble(pt) = RelocateAddress(val.AsObjPtr(originalBaseAddr));
-}
-
-PolyObject *LoadRelocate::RelocateAddress(PolyObject *obj)
-{
-    // Which segment is this address in?
-    // N.B. As with SpaceForAddress we need to subtract 1 to point to the length word.
-    uintptr_t t = (uintptr_t)((PolyWord*)obj - 1);
-    SpaceBTree *tr = spaceTree;
-
-    // Each level of the tree is either a leaf or a vector of trees.
-    unsigned j = sizeof(void *) * 8;
-    for (;;)
-    {
-        if (tr == 0) break;
-        if (tr->isLeaf) {
-            // It's in this segment: relocate it to the current position.
-            unsigned i = tr->index;
-            SavedStateSegmentDescr *descr = &descrs[i];
-            PolyWord *newAddress = targetAddresses[descr->segmentIndex];
-            ASSERT((char*)obj > descr->originalAddress &&
-                (char*)obj <= (char*)descr->originalAddress + descr->segmentSize);
-            ASSERT(newAddress != 0);
-            byte *setAddress = (byte*)newAddress + ((char*)obj - (char*)descr->originalAddress);
-            return (PolyObject*)setAddress;
-        }
-        j -= 8;
-        tr = ((SpaceBTreeTree*)tr)->tree[(t >> j) & 0xff];
-    }
-
-    // This should never happen.
-    ASSERT(0);
-    return 0;
-}
-
-// This is based on Exporter::relocateObject but does the reverse.
-// It attempts to adjust all the addresses in the object when it has
-// been read in.
-void LoadRelocate::RelocateObject(PolyObject *p)
-{
-    if (p->IsByteObject())
-    {
-    }
-    else if (p->IsCodeObject())
-    {
-        POLYUNSIGNED constCount;
-        PolyWord *cp;
-        ASSERT(! p->IsMutable() );
-        machineDependent->GetConstSegmentForCode(p, cp, constCount);
-        /* Now the constant area. */
-        for (POLYUNSIGNED i = 0; i < constCount; i++) RelocateAddressAt(&(cp[i]));
-        // Saved states and modules have relocation entries for constants in the code.
-        // We can't use them when loading object files in 32-in-64 so have to process the
-        // constants here.
-        if (processCodeConstants)
-            machineDependent->ScanConstantsWithinCode(p, this);
-        // On 32-in-64 ARM we may have to update the global heap base in an FFI callback.
-        machineDependent->UpdateGlobalHeapReference(p);
-    }
-    else if (p->IsClosureObject())
-    {
-        // The first word is the address of the code.
-        POLYUNSIGNED length = p->Length();
-        *(PolyObject**)p = RelocateAddress(*(PolyObject**)p);
-        for (POLYUNSIGNED i = sizeof(PolyObject*)/sizeof(PolyWord); i < length; i++)
-            RelocateAddressAt(p->Offset(i));
-    }
-    else /* Ordinary objects, essentially tuples. */
-    {
-        POLYUNSIGNED length = p->Length();
-        for (POLYUNSIGNED i = 0; i < length; i++) RelocateAddressAt(p->Offset(i));
-    }
-}
-
-// Update addresses as constants within the code.
-void LoadRelocate::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code, intptr_t displacement)
-{
-    PolyObject *p = GetConstantValue(addressOfConstant, code, displacement);
-
-    if (p != 0)
-    {
-        // Relative addresses are computed by adding the CURRENT address.
-        // We have to convert them into addresses in original space before we
-        // can relocate them.
-        if (code == PROCESS_RELOC_I386RELATIVE)
-            p = (PolyObject*)((PolyWord*)p + relativeOffset);
-        PolyObject *newValue = RelocateAddress(p);
-        SetConstantValue(addressOfConstant, newValue, code);
-    }
-}
-
 // Work around bug in Mac OS when reading into MAP_JIT memory.
 size_t readData(void *ptr, size_t size, FILE *stream)
 {
@@ -1096,7 +928,6 @@ size_t readData(void *ptr, size_t size, FILE *stream)
 // Load a saved state file.  Calls itself to handle parent files.
 bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail)
 {
-    LoadRelocate relocate;
     AutoFree<TCHAR*> thisFile(_tcsdup(fileName));
 
     AutoClose loadFile(_tfopen(fileName, _T("rb")));
@@ -1197,7 +1028,7 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
             errorResult = "Too many file names in the list";
             return false;
         }
-        if (ModuleId(header.parentTimeStamp) != exportTimeStamp)
+        if (ModuleId(header.parentTimeStamp) != exportSignature)
         {
             // Time-stamp does not match executable.
             errorResult = 
@@ -1221,36 +1052,37 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
 
     // Now have a valid, matching saved state.
     // Load the segment descriptors.
-    relocate.nDescrs = header.segmentDescrCount;
-    relocate.descrs = new SavedStateSegmentDescr[relocate.nDescrs];
-    relocate.originalBaseAddr = (PolyWord*)header.originalBaseAddr;
-
-    if (fseek(loadFile, header.segmentDescr, SEEK_SET) != 0 ||
-        fread(relocate.descrs, sizeof(SavedStateSegmentDescr), relocate.nDescrs, loadFile) != relocate.nDescrs)
+    std::vector<SavedStateSegmentDescr> descrs;
+    descrs.reserve(header.segmentDescrCount);
+    if (fseek(loadFile, header.segmentDescr, SEEK_SET) != 0)
     {
         errorResult = "Unable to read segment descriptors";
         return false;
     }
+    for (unsigned i = 0; i < header.segmentDescrCount; i++)
     {
-        unsigned maxIndex = 0;
-        for (unsigned i = 0; i < relocate.nDescrs; i++)
+        SavedStateSegmentDescr msd;
+        if (fread(&msd, sizeof(SavedStateSegmentDescr), 1, loadFile) != 1)
         {
-            if (relocate.descrs[i].segmentIndex > maxIndex)
-                maxIndex = relocate.descrs[i].segmentIndex;
-            relocate.AddTreeRange(&relocate.spaceTree, i, (uintptr_t)relocate.descrs[i].originalAddress,
-                (uintptr_t)((char*)relocate.descrs[i].originalAddress + relocate.descrs[i].segmentSize-1));
+            errorResult = "Unable to read segment descriptors";
+            return false;
         }
-        relocate.targetAddresses = new PolyWord*[maxIndex+1];
-        for (unsigned i = 0; i <= maxIndex; i++) relocate.targetAddresses[i] = 0;
+        descrs.push_back(msd);
     }
+
+    std::vector<StateLoadData> loadData;
+    loadData.reserve(header.segmentDescrCount);
 
     // Read in and create the new segments first.  If we have problems,
     // in particular if we have run out of memory, then it's easier to recover.  
-    for (unsigned i = 0; i < relocate.nDescrs; i++)
+    for (std::vector<SavedStateSegmentDescr>::iterator descr = descrs.begin(); descr < descrs.end(); descr++)
     {
-        SavedStateSegmentDescr *descr = &relocate.descrs[i];
         MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex, descr->moduleId);
-        if (space != NULL) relocate.targetAddresses[descr->segmentIndex] = space->bottom;
+        StateLoadData load;
+        load.relocationCount = descr->relocationCount;
+        load.relocations = descr->relocations;
+        if (space != NULL) // An existing segment.  If it's mutable we might be overwriting it.
+            load.targetAddr = space->bottom;
 
         if (descr->segmentData == 0)
         { // No data - just an entry in the index.
@@ -1299,24 +1131,22 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
                 newSpace->spaceSize() - descr->segmentSize/sizeof(PolyWord));
             // Leave it writable until we've done the relocations.
 
-            relocate.targetAddresses[descr->segmentIndex] = mem;
             if (newSpace->noOverwrite)
             {
                 ClearVolatile cwbr;
                 cwbr.ScanAddressesInRegion(newSpace->bottom, newSpace->topPointer);
             }
+            load.targetAddr = newSpace->bottom;
         }
+        loadData.push_back(load);
     }
 
-    // Now read in the mutable overwrites and relocate.
-
-    for (unsigned j = 0; j < relocate.nDescrs; j++)
+    // Now read in the mutable overwrites.  This overwrites the muable areas with the values from the saved state.
+    for (std::vector<SavedStateSegmentDescr>::iterator descr = descrs.begin(); descr < descrs.end(); descr++)
     {
-        SavedStateSegmentDescr *descr = &relocate.descrs[j];
-        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex, descr->moduleId);
-        ASSERT(space != NULL); // We should have created it.
         if (descr->segmentFlags & SSF_OVERWRITE)
         {
+            MemSpace* space = gMem.SpaceForIndex(descr->segmentIndex, descr->moduleId);
             if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0 ||
                 fread(space->bottom, descr->segmentSize, 1, loadFile) != 1)
             {
@@ -1324,32 +1154,24 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
                 return false;
             }
         }
+    }
 
-        // Relocation.
-        if (descr->segmentData != 0)
-        {
-            // Adjust the addresses in the loaded segment.
-            for (PolyWord *p = space->bottom; p < space->top; )
-            {
-                p++;
-                PolyObject *obj = (PolyObject*)p;
-                POLYUNSIGNED length = obj->Length();
-                relocate.RelocateObject(obj);
-                p += length;
-            }
-        }
-
+    // Now the relocations.
+    for (std::vector<StateLoadData>::iterator i = loadData.begin(); i < loadData.end(); i++)
+    {
+        PolyWord* baseAddr = i->targetAddr;
+        ASSERT(baseAddr != NULL); // We should have created it.
         // Process explicit relocations.
         // If we get errors just skip the error and continue rather than leave
         // everything in an unstable state.
-        if (descr->relocations)
+        if (i->relocations)
         {
-            if (fseek(loadFile, descr->relocations, SEEK_SET) != 0)
+            if (fseek(loadFile, i->relocations, SEEK_SET) != 0)
             {
                 errorResult = "Unable to read relocation segment";
                 return false;
             }
-            for (unsigned k = 0; k < descr->relocationCount; k++)
+            for (unsigned k = 0; k < i->relocationCount; k++)
             {
                 RelocationEntry reloc;
                 if (fread(&reloc, sizeof(reloc), 1, loadFile) != 1)
@@ -1357,32 +1179,10 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
                     errorResult = "Unable to read relocation segment";
                     return false;
                 }
-                MemSpace *toSpace = gMem.SpaceForIndex(reloc.targetSegment, ModuleId());
-                if (toSpace == NULL)
-                {
-                    errorResult = "Unknown space reference in relocation";
-                    continue;
-                }
-                byte *setAddress = (byte*)space->bottom + reloc.relocAddress;
-                byte *targetAddress = (byte*)toSpace->bottom + reloc.targetAddress;
-                if (setAddress >= (byte*)space->top || targetAddress >= (byte*)toSpace->top)
-                {
-                    errorResult = "Bad relocation";
-                    continue;
-                }
+                byte *setAddress = (byte*)baseAddr + reloc.relocAddress;
+                byte *targetAddress = (byte*)loadData[reloc.targetSegment].targetAddr + reloc.targetAddress;
                 ScanAddress::SetConstantValue(setAddress, (PolyObject*)(targetAddress), reloc.relKind);
             }
-        }
-    }
-
-    // Set the final permissions.
-    for (unsigned j = 0; j < relocate.nDescrs; j++)
-    {
-        SavedStateSegmentDescr *descr = &relocate.descrs[j];
-        if (descr->segmentData != 0)
-        {
-            PermanentMemSpace* space = gMem.SpaceForIndex(descr->segmentIndex, ModuleId());
-            gMem.CompletePermanentSpaceAllocation(space);
         }
     }
 
@@ -1662,124 +1462,6 @@ POLYUNSIGNED PolyShowParent(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     if (result == 0) return TAGGED(0).AsUnsigned();
     else return result->Word().AsUnsigned();
 }
-
-
-
-PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
-{
-    // Check the structure sizes stored in the export structure match the versions
-    // used in this library.
-    if (exports->structLength != sizeof(exportDescription) ||
-        exports->memTableSize != sizeof(memoryTableEntry) ||
-        exports->rtsVersion < FIRST_supported_version ||
-        exports->rtsVersion > LAST_supported_version)
-    {
-#if (FIRST_supported_version == LAST_supported_version)
-        Exit("The exported object file has version %0.2f but this library supports %0.2f",
-            ((float)exports->rtsVersion) / 100.0,
-            ((float)FIRST_supported_version) / 100.0);
-#else
-        Exit("The exported object file has version %0.2f but this library supports %0.2f-%0.2f",
-            ((float)exports->rtsVersion) / 100.0,
-            ((float)FIRST_supported_version) / 100.0,
-            ((float)LAST_supported_version) / 100.0);
-#endif
-    }
-    // We could also check the RTS version and the architecture.
-    exportTimeStamp = exports->execIdentifier; // Needed for load and save.
-
-    memoryTableEntry *memTable = exports->memTable;
-#ifdef POLYML32IN64
-    // We need to copy this into the heap before beginning execution.
-    // This is very like loading a saved state and the code should probably
-    // be merged.
-    LoadRelocate relocate(true);
-    relocate.nDescrs = exports->memTableEntries;
-    relocate.descrs = new SavedStateSegmentDescr[relocate.nDescrs];
-    relocate.targetAddresses = new PolyWord*[exports->memTableEntries];
-    relocate.originalBaseAddr = (PolyWord*)exports->originalBaseAddr;
-
-    PolyObject *root = 0;
-
-    for (unsigned i = 0; i < exports->memTableEntries; i++)
-    {
-        relocate.descrs[i].segmentIndex = i;
-        relocate.descrs[i].originalAddress = memTable[i].mtOriginalAddr;
-        relocate.descrs[i].segmentSize = memTable[i].mtLength;
-        PermanentMemSpace *newSpace =
-            gMem.AllocateNewPermanentSpace(memTable[i].mtLength, (unsigned)memTable[i].mtFlags,
-                    i, ModuleId(), 0 /* Hierarchy */);
-        if (newSpace == 0)
-            Exit("Unable to initialise a permanent memory space");
-
-        PolyWord *mem = newSpace->bottom;
-        memcpy(newSpace->writeAble(mem), memTable[i].mtCurrentAddr, memTable[i].mtLength);
-        PolyWord* unused = mem + memTable[i].mtLength / sizeof(PolyWord);
-        gMem.FillUnusedSpace(newSpace->writeAble(unused),
-            newSpace->spaceSize() - memTable[i].mtLength / sizeof(PolyWord));
-
-        if (newSpace == 0)
-            Exit("Unable to initialise a permanent memory space");
-
-        relocate.targetAddresses[i] = mem;
-        relocate.AddTreeRange(&relocate.spaceTree, i, (uintptr_t)relocate.descrs[i].originalAddress,
-            (uintptr_t)((char*)relocate.descrs[i].originalAddress + relocate.descrs[i].segmentSize - 1));
-
-        // Relocate the root function.
-        if (exports->rootFunction >= memTable[i].mtCurrentAddr && exports->rootFunction < (char*)memTable[i].mtCurrentAddr + memTable[i].mtLength)
-        {
-            root = (PolyObject*)((char*)mem + ((char*)exports->rootFunction - (char*)memTable[i].mtCurrentAddr));
-        }
-    }
-
-    // Now relocate the addresses
-    for (unsigned j = 0; j < exports->memTableEntries; j++)
-    {
-        SavedStateSegmentDescr *descr = &relocate.descrs[j];
-        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex, ModuleId());
-        // Any relative addresses have to be corrected by adding this.
-        relocate.relativeOffset = (PolyWord*)descr->originalAddress - space->bottom;
-        for (PolyWord *p = space->bottom; p < space->top; )
-        {
-#ifdef POLYML32IN64
-            if ((((uintptr_t)p) & 4) == 0)
-            {
-                // Skip any padding.  The length word should be on an odd-word boundary.
-                p++;
-                continue;
-            }
-#endif
-            p++;
-            PolyObject *obj = (PolyObject*)p;
-            POLYUNSIGNED length = obj->Length();
-            relocate.RelocateObject(obj);
-            p += length;
-        }
-    }
-
-    // Set the final permissions.
-    for (unsigned j = 0; j < exports->memTableEntries; j++)
-    {
-        PermanentMemSpace *space = gMem.SpaceForIndex(j, ModuleId());
-        gMem.CompletePermanentSpaceAllocation(space);
-    }
-
-    return root;
-
-#else
-    for (unsigned i = 0; i < exports->memTableEntries; i++)
-    {
-        // Construct a new space for each of the entries.
-        if (gMem.NewPermanentSpace(
-            (PolyWord*)memTable[i].mtCurrentAddr,
-            memTable[i].mtLength / sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
-            i, ModuleId(), 0 /* Heirarchy */) == 0)
-            Exit("Unable to initialise a permanent memory space");
-    }
-    return (PolyObject *)exports->rootFunction;
-#endif
-}
-
 
 struct _entrypts savestateEPT[] =
 {

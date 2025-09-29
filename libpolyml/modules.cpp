@@ -62,7 +62,7 @@
 #include "memmgr.h"
 #include "savestate.h"
 
-#include "mpoly.h" // For exportTimeStamp - This may no longer be needed
+#include "mpoly.h" // For exportSignature
 
 #include "../polyexports.h"
 
@@ -172,7 +172,7 @@ typedef struct _modrelocationEntry
     // by adding "targetAddress" to the base address of the segment indicated by "targetSegment".
     POLYUNSIGNED    relocAddress;       // The (byte) offset in this segment that we will set
     POLYUNSIGNED    targetAddress;      // The value to add to the base of the destination segment
-    unsigned        targetSegment;      // The base segment.  0 is IO segment. 
+    unsigned        targetSegment;      // Index into the address table
     ScanRelocationKind relKind;         // The kind of relocation (processor dependent).
 } ModRelocationEntry;
 
@@ -258,7 +258,6 @@ void ModuleExport::createActualRelocation(void* addr, void* relocAddr, ScanReloc
 
     unsigned addrArea = findArea(addr);
     reloc.targetAddress = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
-    // Module exports use the offset in their own table.
     reloc.targetSegment = addrArea;
     reloc.relKind = kind;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -384,7 +383,7 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
             MODULESIGNATURE, sizeof(modHeader.headerSignature));
         modHeader.headerVersion = MODULEVERSION;
         modHeader.segmentDescrLength = sizeof(ModuleSegmentDescr);
-        modHeader.executableModId = exportTimeStamp;
+        modHeader.executableModId = exportSignature;
         {
             unsigned rootArea = findArea(this->rootFunction);
             ExportMemTable* mt = &memTable[rootArea];
@@ -677,7 +676,7 @@ void ModuleLoader::Perform()
             return;
         }
     }
-    if (ModuleId(header.executableModId) != exportTimeStamp)
+    if (ModuleId(header.executableModId) != exportSignature)
     {
         // Time-stamp does not match executable.
         errorResult =
@@ -1004,8 +1003,8 @@ static Handle GetModInfo(TaskData* taskData, Handle hFileName)
         raise_fail(taskData, "Unsupported version of module file");
     // Check that the module came from this executable.  We could include the
     // signature of the executable in the result but then we would also have to
-    // have some way to provide the current value of exportTimeStamp in order to check it.
-    if (ModuleId(header.executableModId) != exportTimeStamp)
+    // have some way to provide the current value of exportSignature in order to check it.
+    if (ModuleId(header.executableModId) != exportSignature)
         // Time-stamp does not match executable.
         raise_fail(taskData, "Module was exported from a different executable or the executable has changed");
 

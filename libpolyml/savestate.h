@@ -21,8 +21,6 @@
 #ifndef SAVESTATE_H_INCLUDED
 #define SAVESTATE_H_INCLUDED
 
-PolyObject *InitHeaderFromExport(struct _exportDescription *exports);
-
 extern struct _entrypts savestateEPT[];
 
 // Shared with modules system

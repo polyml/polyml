@@ -797,7 +797,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
         entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = memEntry-1;
-        entry->mtModId = ModuleId(); // 0,0
+        entry->mtModId = exportModId;
         entry->mtFlags = 0;
         if (space->isMutable)
         {
