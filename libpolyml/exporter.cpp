@@ -817,6 +817,77 @@ void Exporter::RunExport(PolyObject *rootFunction)
     }
 }
 
+
+// Generate the address relative to the start of the segment.
+void StateExport::setRelocationAddress(void* p, POLYUNSIGNED* reloc)
+{
+    unsigned area = findArea(p);
+    POLYUNSIGNED offset = (POLYUNSIGNED)((char*)p - (char*)memTable[area].mtOriginalAddr);
+    *reloc = offset;
+}
+
+PolyWord StateExport::createRelocation(PolyWord p, void* relocAddr)
+{
+#ifdef POLYML32IN64
+    createActualRelocation(p.AsAddress(), relocAddr, PROCESS_RELOC_C32ADDR);
+#else
+    createActualRelocation(p.AsAddress(), relocAddr, PROCESS_RELOC_DIRECT);
+#endif
+    return p; // Don't change the contents
+}
+
+// Override for Exporter::relocateValue.  That function does not do anything for compact 32-bit because
+// the operating system object module formats do not support a suitable relocation format.
+void StateExport::relocateValue(PolyWord* pt)
+{
+    PolyWord q = *pt;
+    if (IS_INT(q) || q == PolyWord::FromUnsigned(0)) {}
+    else *gMem.SpaceForAddress(pt)->writeAble(pt) = createRelocation(*pt, pt);
+}
+
+// We need to override this since Exporter::relocateObject doesn't work for compact 32-bits
+void StateExport::relocateObject(PolyObject* p)
+{
+    if (p->IsClosureObject())
+    {
+        POLYUNSIGNED length = p->Length();
+        // The first word is an absolute code address.
+        PolyWord* pt = p->Offset(0);
+        void* addr = *(void**)pt;
+        createActualRelocation(addr, pt, PROCESS_RELOC_DIRECT);
+
+        for (POLYUNSIGNED i = sizeof(uintptr_t) / sizeof(PolyWord); i < length; i++) relocateValue(p->Offset(i));
+    }
+    // Exporter::relocateObject clears weak mutable byte refs.  We mustn't do that
+    // because we're going to use the exported copy afterwards.  
+    else if (!p->IsByteObject())
+        Exporter::relocateObject(p);
+}
+
+
+/* This is called for each constant within the code.
+   Print a relocation entry for the word and return a value that means
+   that the offset is saved in original word. */
+void StateExport::ScanConstant(PolyObject* base, byte* addr, ScanRelocationKind code, intptr_t displacement)
+{
+    PolyObject* p = GetConstantValue(addr, code, displacement);
+
+    if (p == 0)
+        return;
+
+    void* a = p;
+    unsigned aArea = findArea(a);
+
+    // We don't need a relocation if this is relative to the current segment
+    // since the relative address will already be right.
+    if (code == PROCESS_RELOC_I386RELATIVE && aArea == findArea(addr))
+        return;
+
+    // Set the value at the address to the offset relative to the symbol.
+    createActualRelocation(a, addr, code);
+}
+
+
 // Functions called via the RTS call.
 Handle exportNative(TaskData *taskData, Handle args)
 {

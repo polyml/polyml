@@ -279,7 +279,7 @@ static bool sameFile(const char *x, const char *y)
 
 // This class is used to create the relocations.  It uses Exporter
 // for this but this may perhaps be too heavyweight.
-class SaveStateExport: public Exporter, public ScanAddress
+class SaveStateExport: public StateExport
 {
 public:
     SaveStateExport(): relocationCount(0) {}
@@ -287,33 +287,11 @@ public:
     virtual void exportStore(void) {} // Not used.
 
 protected:
-    // These have to be overridden to work properly for compact 32-bit
-    virtual void relocateValue(PolyWord* pt);
-    virtual void relocateObject(PolyObject* p);
-
-private:
-    // ScanAddress overrides
-    virtual void ScanConstant(PolyObject *base, byte *addrOfConst, ScanRelocationKind code, intptr_t displacement);
-    // At the moment we should only get calls to ScanConstant.
-    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
-
-protected:
-    void setRelocationAddress(void *p, POLYUNSIGNED *reloc);
-    PolyWord createRelocation(PolyWord p, void *relocAddr); // Override for Exporter
     void createActualRelocation(void *addr, void* relocAddr, ScanRelocationKind kind);
     unsigned relocationCount;
 
     friend class SaveRequest;
 };
-
-
-// Generate the address relative to the start of the segment.
-void SaveStateExport::setRelocationAddress(void *p, POLYUNSIGNED *reloc)
-{
-    unsigned area = findArea(p);
-    POLYUNSIGNED offset = (POLYUNSIGNED)((char*)p - (char*)memTable[area].mtOriginalAddr);
-    *reloc = offset;
-}
 
 // Create a relocation entry for an address at a given location.
 // This is currently never called in compact 32-bit mode because Exporter::relocateValue does
@@ -328,73 +306,6 @@ void SaveStateExport::createActualRelocation(void *addr, void* relocAddr, ScanRe
     reloc.targetAddress = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
     reloc.targetSegment = addrArea;
     reloc.relKind = kind;
-    fwrite(&reloc, sizeof(reloc), 1, exportFile);
-    relocationCount++;
-}
-
-PolyWord SaveStateExport::createRelocation(PolyWord p, void* relocAddr)
-{
-#ifdef POLYML32IN64
-    createActualRelocation(p.AsAddress(), relocAddr, PROCESS_RELOC_C32ADDR);
-#else
-    createActualRelocation(p.AsAddress(), relocAddr, PROCESS_RELOC_DIRECT);
-#endif
-    return p; // Don't change the contents
-}
-
-// Override for Exporter::relocateValue.  That function does not do anything for compact 32-bit because
-// the operating system object module formats do not support a suitable relocation format.
-void SaveStateExport::relocateValue(PolyWord* pt)
-{
-    PolyWord q = *pt;
-    if (IS_INT(q) || q == PolyWord::FromUnsigned(0)) {}
-    else *gMem.SpaceForAddress(pt)->writeAble(pt) = createRelocation(*pt, pt);
-}
-
-// We need to override this since Exporter::relocateObject doesn't work for compact 32-bits
-void SaveStateExport::relocateObject(PolyObject* p)
-{
-    if (p->IsClosureObject())
-    {
-        POLYUNSIGNED length = p->Length();
-        // The first word is an absolute code address.
-        PolyWord* pt = p->Offset(0);
-        void* addr = *(void**)pt;
-        createActualRelocation(addr, pt, PROCESS_RELOC_DIRECT);
-
-        for (POLYUNSIGNED i = sizeof(uintptr_t) / sizeof(PolyWord); i < length; i++) relocateValue(p->Offset(i));
-    }
-    // Exporter::relocateObject clears weak mutable byte refs.  We mustn't do that
-    // because we're going to use the exported copy afterwards.  
-    else if (! p->IsByteObject())
-        Exporter::relocateObject(p);
-}
-
-
-/* This is called for each constant within the code. 
-   Print a relocation entry for the word and return a value that means
-   that the offset is saved in original word. */
-void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code, intptr_t displacement)
-{
-    PolyObject *p = GetConstantValue(addr, code, displacement);
-
-    if (p == 0)
-        return;
-
-    void *a = p;
-    unsigned aArea = findArea(a);
-
-    // We don't need a relocation if this is relative to the current segment
-    // since the relative address will already be right.
-    if (code == PROCESS_RELOC_I386RELATIVE && aArea == findArea(addr))
-        return;
-
-    // Set the value at the address to the offset relative to the symbol.
-    RelocationEntry reloc;
-    setRelocationAddress(addr, &reloc.relocAddress);
-    reloc.targetAddress = (POLYUNSIGNED)((char*)a - (char*)memTable[aArea].mtOriginalAddr);
-    reloc.targetSegment = aArea;
-    reloc.relKind = code;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
 }

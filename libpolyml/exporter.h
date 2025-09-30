@@ -166,6 +166,33 @@ public:
     struct _moduleId extractHash();
 };
 
+// This is a version of Exporter that is used to create relocations for both the
+// state saver and module exporter.
+class StateExport : public Exporter, public ScanAddress
+{
+public:
+    StateExport() : relocationCount(0) {}
+public:
+    virtual void exportStore(void) {} // Not used.
+
+protected:
+    // These have to be overridden to work properly for compact 32-bit
+    virtual void relocateValue(PolyWord* pt) override;
+    virtual void relocateObject(PolyObject* p) override;
+
+private:
+    // ScanAddress overrides
+    virtual void ScanConstant(PolyObject* base, byte* addrOfConst, ScanRelocationKind code, intptr_t displacement);
+    // At the moment we should only get calls to ScanConstant.
+    virtual PolyObject* ScanObjectAddress(PolyObject* base) { return base; }
+
+protected:
+    void setRelocationAddress(void* p, POLYUNSIGNED* reloc);
+    PolyWord createRelocation(PolyWord p, void* relocAddr) override; // Override for Exporter
+    virtual void createActualRelocation(void* addr, void* relocAddr, ScanRelocationKind kind) = 0;
+    unsigned relocationCount;
+};
+
 extern struct _entrypts exporterEPT[];
 
 #endif
