@@ -299,7 +299,7 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
 
 // Create an entry for a permanent space.
 PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
-                                             unsigned flags, unsigned index, ModuleId sourceModule, unsigned hierarchy /*= 0*/)
+                                             unsigned flags, unsigned index, ModuleId sourceModule)
 {
     try {
         PermanentMemSpace *space = new PermanentMemSpace(0/* Not freed */);
@@ -311,7 +311,6 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
         space->byteOnly = flags & MTF_BYTES ? true : false;
         space->isCode = flags & MTF_EXECUTABLE ? true : false;
         space->index = index;
-        space->hierarchy = hierarchy;
         space->moduleIdentifier = sourceModule;
         if (index >= nextIndex) nextIndex = index+1;
 
@@ -332,7 +331,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
     }
 }
 
-PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, ModuleId sourceModule, unsigned hierarchy)
+PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, ModuleId sourceModule)
 {
     try {
         OSMem *alloc = flags & MTF_EXECUTABLE ? (OSMem*)&osCodeAlloc : (OSMem*)&osHeapAlloc;
@@ -357,7 +356,6 @@ PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigne
         space->byteOnly = flags & MTF_BYTES ? true : false;
         space->isCode = flags & MTF_EXECUTABLE ? true : false;
         space->index = index;
-        space->hierarchy = hierarchy;
         space->moduleIdentifier = sourceModule;
         if (index >= nextIndex) nextIndex = index + 1;
 
@@ -378,15 +376,16 @@ PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigne
     }
 }
 
+// Called to set the permissions on permanent spaces from the executable.
 bool MemMgr::CompletePermanentSpaceAllocation(PermanentMemSpace *space)
 {
     // Remove write access unless it is mutable.
-    // Don't remove write access unless this is top-level. Share-data assumes only hierarchy 0 is write-protected.
-    if (!space->isMutable && space->hierarchy == 0)
+    if (!space->isMutable)
     {
         if (space->isCode)
             osCodeAlloc.DisableWriteForCode(space->bottom, space->shadowSpace, (char*)space->top - (char*)space->bottom);
         else osHeapAlloc.EnableWrite(false, space->bottom, (char*)space->top - (char*)space->bottom);
+        space->isWriteProtected = true;
     }
     return true;
 }
@@ -499,7 +498,7 @@ void MemMgr::DeleteExportSpaces(void)
 // If we have saved the state rather than exported a function we turn the exported
 // spaces into permanent ones, removing existing permanent spaces at the same or
 // lower level.
-bool MemMgr::DemoteOldPermanentSpaces(unsigned hierarchy)
+bool MemMgr::DemoteOldPermanentSpaces(ModuleId modId)
 {
     // Save permanent spaces at a lower hierarchy.  Others are converted into
     // local spaces.  Most or all items will have been copied from these spaces
@@ -508,7 +507,7 @@ bool MemMgr::DemoteOldPermanentSpaces(unsigned hierarchy)
     while (i != pSpaces.end())
     {
         PermanentMemSpace* pSpace = *i;
-        if (pSpace->hierarchy < hierarchy)
+        if (pSpace->moduleIdentifier != modId)
             i++;
         else
         {
@@ -599,14 +598,14 @@ bool MemMgr::DemoteOldPermanentSpaces(unsigned hierarchy)
 }
 
 // Turn export spaces into permanent spaces.  Used for saved states and also for modules.
-bool MemMgr::PromoteNewExportSpaces(unsigned hierarchy)
+bool MemMgr::PromoteNewExportSpaces(ModuleId newModId)
 {
     // Save newly exported spaces.
     for(std::vector<PermanentMemSpace *>::iterator j = eSpaces.begin(); j < eSpaces.end(); j++)
     {
         PermanentMemSpace *space = *j;
-        space->hierarchy = hierarchy; // Set the hierarchy of the new spaces.
         space->spaceType = ST_PERMANENT;
+        space->moduleIdentifier = newModId;
         // Put a dummy object to fill up the unused space.
         if (space->topPointer != space->top)
             FillUnusedSpace(space->writeAble(space->topPointer), space->top - space->topPointer);
@@ -616,13 +615,6 @@ bool MemMgr::PromoteNewExportSpaces(unsigned hierarchy)
     eSpaces.clear();
 
     return true;
-}
-
-// Before we import a hierarchical saved state we need to turn any previously imported
-// spaces into local spaces.
-bool MemMgr::DemoteImportSpaces()
-{
-    return DemoteOldPermanentSpaces(1); // Only truly permanent spaces are retained.
 }
 
 // Return the space for a given index

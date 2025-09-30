@@ -379,7 +379,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         if (size <= objWords)
             size = objWords+1;
         memSpace =
-            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr, ModuleId() /* No sig yet */, 0 /* Heirarchy*/);
+            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr, ModuleId() /* No sig yet */);
         (*spaceIndexCtr)++;
         // The memory is writable until CompletePermanentSpaceAllocation is called
         if (memSpace == 0)
@@ -406,8 +406,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         size_t size = defaultSize;
         if (size <= rounded)
             size = rounded + 1;
-        memSpace =
-            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr, ModuleId(), 0 /* Heirarchy*/);
+        memSpace = gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr, ModuleId());
         (*spaceIndexCtr)++;
         // The memory is writable until CompletePermanentSpaceAllocation is called
         if (memSpace == 0)
@@ -872,9 +871,7 @@ bool PImport::DoImport()
             return false;
         }
     }
-    // Now remove write access from immutable spaces.
-    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
-        gMem.CompletePermanentSpaceAllocation(*i);
+    // There's no need to remove write permissions at this stage.
     return true;
 }
 

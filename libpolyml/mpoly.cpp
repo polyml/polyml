@@ -685,8 +685,7 @@ PolyObject* InitHeaderFromExport(struct _exportDescription* exports)
     for (unsigned i = 0; i < exports->memTableEntries; i++)
     {
         PermanentMemSpace* newSpace =
-            gMem.AllocateNewPermanentSpace(memTable[i].mtLength, (unsigned)memTable[i].mtFlags,
-                i, exportSignature, 0 /* Hierarchy */);
+            gMem.AllocateNewPermanentSpace(memTable[i].mtLength, (unsigned)memTable[i].mtFlags, i, exportSignature);
         if (newSpace == 0)
             Exit("Unable to initialise a permanent memory space");
 
@@ -752,7 +751,7 @@ PolyObject* InitHeaderFromExport(struct _exportDescription* exports)
         if (gMem.NewPermanentSpace(
             (PolyWord*)memTable[i].mtCurrentAddr,
             memTable[i].mtLength / sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
-            i, exportSignature, 0 /* Heirarchy */) == 0)
+            i, exportSignature) == 0)
             Exit("Unable to initialise a permanent memory space");
     }
     return (PolyObject*)exports->rootFunction;

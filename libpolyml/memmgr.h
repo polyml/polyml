@@ -147,17 +147,17 @@ public:
 
 
 // Permanent memory space.  Either linked into the executable program or
-// loaded from a saved state file.
+// loaded from a saved state file or module.
 class PermanentMemSpace: public MemSpace
 {
 protected:
-    PermanentMemSpace(OSMem *alloc): MemSpace(alloc), index(0), hierarchy(0), noOverwrite(false),
+    PermanentMemSpace(OSMem *alloc): MemSpace(alloc), index(0), isWriteProtected(false), noOverwrite(false),
         byteOnly(false), constArea(false), topPointer(0) {
     }
 
 public:
     unsigned    index;      // An identifier for the space.  Used when saving and loading.
-    unsigned    hierarchy;  // The hierarchy number: 0=from executable, 1=top level saved state, ...
+    bool        isWriteProtected; // Immutable spaces in the executable are really write protected
     bool        noOverwrite; // Don't save this in deeper hierarchies.
     bool        byteOnly; // Only contains byte data - no need to scan for addresses.
     bool        constArea; // Contains constants rather than code.  Special case for exporting PIE.
@@ -279,12 +279,11 @@ public:
     LocalMemSpace *NewLocalSpace(uintptr_t size, bool mut);
     // Create an entry for a permanent space.
     PermanentMemSpace *NewPermanentSpace(PolyWord *base, uintptr_t words,
-        unsigned flags, unsigned index, ModuleId sourceModule, unsigned hierarchy);
+        unsigned flags, unsigned index, ModuleId sourceModule);
 
     // Create a permanent space but allocate memory for it.
     // Sets bottom and top to the actual memory size.
-    PermanentMemSpace *AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags,
-                            unsigned index, ModuleId sourceModule, unsigned hierarchy);
+    PermanentMemSpace *AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, ModuleId sourceModule);
     // Called after an allocated permanent area has been filled in.
     bool CompletePermanentSpaceAllocation(PermanentMemSpace *space);
 
@@ -326,9 +325,8 @@ public:
     // Create and delete export spaces
     PermanentMemSpace *NewExportSpace(uintptr_t size, bool mut, bool noOv, bool code);
     void DeleteExportSpaces(void);
-    bool PromoteNewExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
-    bool DemoteOldPermanentSpaces(unsigned hierarchy); // Turn any old permanent spaces at this or higher hierarchy into local spaces.
-    bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
+    bool PromoteNewExportSpaces(ModuleId newModId); // Turn export spaces into permanent spaces.
+    bool DemoteOldPermanentSpaces(ModuleId modId); // Turn any old permanent spaces with this ID into local spaces.
 
     PermanentMemSpace *SpaceForIndex(unsigned index, ModuleId modId); // Return the space for a given index
 

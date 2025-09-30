@@ -72,13 +72,21 @@
 #include <tchar.h>
 #define ERRORNUMBER _doserrno
 #define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
+#ifdef _UNICODE
+#define std_tstring std::wstring
+#else
+#define std_tstring std::string
+#endif
 #else
 typedef char TCHAR;
 #define _T(x) x
 #define _tfopen fopen
 #define _tcslen strlen
+#define _fputtc fputc
+#define _fputts fputs
 #define ERRORNUMBER errno
 #define NOMEMORY ENOMEM
+#define std_tstring std::string
 #endif
 
 extern "C" {
@@ -134,7 +142,6 @@ typedef struct _moduleHeader
 
     off_t       stringTable;            // Pointer to the string table (zero if none)
     size_t      stringTableSize;        // Size of string table
-    unsigned    moduleNameEntry;        // Position in the string table of the name of this module
 
     off_t       dependencies;           // Location of dependency table, if any
     unsigned    dependencyCount;
@@ -187,35 +194,31 @@ typedef struct _modDependencyEntry
 
 // Information about currently loaded modules.  There will also
 // be permanent memory spaces with the same Ids in gMem.
-class LoadedModule {
+
+static std::vector<ModuleId> loadedModules;
+
+class ModIdAndName {
 public:
-    LoadedModule() {}
-    std::string moduleName;
-    ModuleId moduleIden;
+    std_tstring modName;
+    ModuleId modId;
 };
 
-static std::vector<LoadedModule> loadedModules;
-
-// Store a module
-class ModuleStorer : public MainThreadRequest
+class ModuleExporter : public MainThreadRequest, public Exporter, ScanAddress
 {
 public:
-    ModuleStorer(const TCHAR* file, const char* modName, Handle r) :
-        MainThreadRequest(MTP_STOREMODULE), fileName(file), moduleName(modName), root(r), errorMessage(0), errCode(0) {}
+    ModuleExporter(const TCHAR* file, Handle r) :
+        MainThreadRequest(MTP_STOREMODULE), fileName(file), root(r), errorMessage(0), errCode(0), relocationCount(0) {
+    }
 
     virtual void Perform();
 
     const TCHAR* fileName;
-    std::string moduleName;
     Handle root;
     const char* errorMessage;
     int errCode;
-};
 
-class ModuleExport : public Exporter, public ScanAddress
-{
-public:
-    ModuleExport(std::string mName) : relocationCount(0), moduleName(mName) {}
+    std::vector<ModIdAndName> dependencies;
+
     void RunModuleExport(PolyObject* rootFunction);
     virtual void exportStore(void) {}
 
@@ -235,13 +238,12 @@ protected:
     PolyWord createRelocation(PolyWord p, void* relocAddr); // Override for Exporter
     void createActualRelocation(void* addr, void* relocAddr, ScanRelocationKind kind);
     unsigned relocationCount;
-    std::string moduleName;
 
     friend class SaveRequest;
 };
 
 // Generate the address relative to the start of the segment.
-void ModuleExport::setRelocationAddress(void* p, POLYUNSIGNED* reloc)
+void ModuleExporter::setRelocationAddress(void* p, POLYUNSIGNED* reloc)
 {
     unsigned area = findArea(p);
     POLYUNSIGNED offset = (POLYUNSIGNED)((char*)p - (char*)memTable[area].mtOriginalAddr);
@@ -250,7 +252,7 @@ void ModuleExport::setRelocationAddress(void* p, POLYUNSIGNED* reloc)
 
 // Create a relocation entry for an address at a given location.
 // In compact-32 bit mode this will only be called for modules.
-void ModuleExport::createActualRelocation(void* addr, void* relocAddr, ScanRelocationKind kind)
+void ModuleExporter::createActualRelocation(void* addr, void* relocAddr, ScanRelocationKind kind)
 {
     ModRelocationEntry reloc;
     // Set the offset within the section we're scanning.
@@ -264,7 +266,7 @@ void ModuleExport::createActualRelocation(void* addr, void* relocAddr, ScanReloc
     relocationCount++;
 }
 
-PolyWord ModuleExport::createRelocation(PolyWord p, void* relocAddr)
+PolyWord ModuleExporter::createRelocation(PolyWord p, void* relocAddr)
 {
 #ifdef POLYML32IN64
     createActualRelocation(p.AsAddress(), relocAddr, PROCESS_RELOC_C32ADDR);
@@ -277,7 +279,7 @@ PolyWord ModuleExport::createRelocation(PolyWord p, void* relocAddr)
 /* This is called for each constant within the code.
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void ModuleExport::ScanConstant(PolyObject* base, byte* addr, ScanRelocationKind code, intptr_t displacement)
+void ModuleExporter::ScanConstant(PolyObject* base, byte* addr, ScanRelocationKind code, intptr_t displacement)
 {
     PolyObject* p = GetConstantValue(addr, code, displacement);
 
@@ -303,10 +305,14 @@ void ModuleExport::ScanConstant(PolyObject* base, byte* addr, ScanRelocationKind
 }
 
 // This is called by the initial thread to actually do the export.
-void ModuleExport::RunModuleExport(PolyObject* rootFn)
+void ModuleExporter::RunModuleExport(PolyObject* rootFn)
 {
     PolyObject* copiedRoot = 0;
-    CopyScan copyScan(1); // Exclude the parent state
+    CopyScan copyScan;
+    // Set the dependencies.
+    copyScan.dependencies[exportSignature] = true; // Always include the executable
+    for (std::vector<ModIdAndName>::iterator i = dependencies.begin(); i < dependencies.end(); i++)
+        copyScan.dependencies[i->modId] = true;
 
     try {
         copyScan.initialise();
@@ -322,7 +328,7 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
         return;
     }
 
-    ModuleId expModuleId(copyScan.extractHash());
+    exportModId = copyScan.extractHash();
 
     // Copy the areas into the export object.
     size_t tableSize = gMem.eSpaces.size() + gMem.pSpaces.size();
@@ -334,7 +340,7 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
         PermanentMemSpace* space = *i;
-        if (space->hierarchy == 0 && copyScan.externalRefs[space->moduleIdentifier])
+        if (copyScan.dependencies[space->moduleIdentifier])
         {
             ExportMemTable* entry = &memTable[memEntry++];
             entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
@@ -356,7 +362,7 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
         entry->mtLength = (space->topPointer - space->bottom) * sizeof(PolyWord);
         // The spaces need to be renumbered and the module id set.
         space->index = memEntry - newAreas - 1;
-        space->moduleIdentifier = ModuleId(expModuleId);
+        space->moduleIdentifier = ModuleId(exportModId);
         entry->mtIndex = space->index;
         entry->mtModId = space->moduleIdentifier;
         entry->mtFlags = 0;
@@ -390,7 +396,7 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
             modHeader.rootSegment = rootArea;
             modHeader.rootOffset = (POLYUNSIGNED)((char*)this->rootFunction - (char*)mt->mtOriginalAddr);
         }
-        modHeader.thisModuleId = expModuleId;
+        modHeader.thisModuleId = exportModId;
         modHeader.segmentDescrCount = this->memTableEntries; // One segment for each space.
         // Write out the header.
         if (!checkedFwrite(&modHeader, sizeof(modHeader), 1))
@@ -465,27 +471,20 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
 
         modHeader.stringTable = ftell(exportFile);
         unsigned stringPos = 0;
-        fputc(0, exportFile); // First byte of string table is zero
-        stringPos++;
-        modHeader.moduleNameEntry = stringPos; // Position of string
-        fputs(moduleName.c_str(), exportFile);
-        stringPos += (unsigned)moduleName.size();
-        fputc(0, exportFile); // A terminating null.
-        stringPos++;
-        for (std::vector<LoadedModule>::iterator i = loadedModules.begin(); i < loadedModules.end(); i++)
+        _fputtc(0, exportFile); // First byte of string table is zero
+        stringPos += sizeof(TCHAR);
+        for (std::vector<ModIdAndName>::iterator i = dependencies.begin(); i < dependencies.end(); i++)
         {
-            if (copyScan.externalRefs[i->moduleIden])
-            {
-                ModDependencyEntry depEntry;
-                depEntry.depNameEntry = stringPos;
-                fputs(i->moduleName.c_str(), exportFile);
-                stringPos += (unsigned)i->moduleName.size();
-                fputc(0, exportFile); // A terminating null.
-                stringPos++;
-                depEntry.depId = i->moduleIden;
-                dependencyTable.push_back(depEntry);
-            }
+            ModDependencyEntry depEntry;
+            depEntry.depNameEntry = stringPos;
+            _fputts(i->modName.c_str(), exportFile);
+            stringPos += (unsigned)(i->modName.size() * sizeof(TCHAR));
+            _fputtc(0, exportFile); // A terminating null.
+            stringPos += sizeof(TCHAR);
+            depEntry.depId = i->modId;
+            dependencyTable.push_back(depEntry);
         }
+
         modHeader.stringTableSize = stringPos;
         if (ferror(exportFile))
         {
@@ -512,15 +511,13 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
         fclose(exportFile); exportFile = NULL;
 
         // Add this to the loaded module table.
-        LoadedModule newModule;
-        newModule.moduleName = moduleName;
-        newModule.moduleIden = expModuleId;
-        loadedModules.push_back(newModule);
+        loadedModules.push_back(exportModId);
 
         // If it all succeeded we can switch over to the permanent spaces.
-        if (gMem.PromoteNewExportSpaces(0)) // Turn them into hierarchy zero.
+        if (gMem.PromoteNewExportSpaces(exportModId))
             switchLocalsToPermanent();
         else revertToLocal();
+
     }
     catch (IOException&)
     {
@@ -532,15 +529,14 @@ void ModuleExport::RunModuleExport(PolyObject* rootFn)
     }
 }
 
-void ModuleStorer::Perform()
+void ModuleExporter::Perform()
 {
-    ModuleExport exporter(moduleName);
 #if (defined(_WIN32) && defined(UNICODE))
-    exporter.exportFile = _wfopen(fileName, L"wb");
+    exportFile = _wfopen(fileName, L"wb");
 #else
-    exporter.exportFile = fopen(fileName, "wb");
+    exportFile = fopen(fileName, "wb");
 #endif
-    if (exporter.exportFile == NULL)
+    if (exportFile == NULL)
     {
         errorMessage = "Cannot open export file";
         errCode = ERRORNUMBER;
@@ -557,14 +553,12 @@ void ModuleStorer::Perform()
         errorMessage = "Module root is not an address";
         return;
     }
-    exporter.RunModuleExport(root->WordP());
-    errorMessage = exporter.errorMessage; // This will be null unless there's been an error.
-    errCode = exporter.errNumber;
+    RunModuleExport(root->WordP());
 }
 
 // Override for Exporter::relocateValue.  That function does not do anything for compact 32-bit because
 // the operating system object module formats do not support a suitable relocation format.
-void ModuleExport::relocateValue(PolyWord* pt)
+void ModuleExporter::relocateValue(PolyWord* pt)
 {
     PolyWord q = *pt;
     if (IS_INT(q) || q == PolyWord::FromUnsigned(0)) {}
@@ -572,7 +566,7 @@ void ModuleExport::relocateValue(PolyWord* pt)
 }
 
 // We need to override this since Exporter::relocateObject doesn't work 
-void ModuleExport::relocateObject(PolyObject* p)
+void ModuleExporter::relocateObject(PolyObject* p)
 {
     if (p->IsClosureObject())
     {
@@ -584,31 +578,79 @@ void ModuleExport::relocateObject(PolyObject* p)
 
         for (POLYUNSIGNED i = sizeof(uintptr_t) / sizeof(PolyWord); i < length; i++) relocateValue(p->Offset(i));
     }
-    else Exporter::relocateObject(p);
+    // Exporter::relocateObject clears weak mutable byte refs.  We mustn't do that
+    // because we're going to use the exported copy afterwards.  
+    else if (!p->IsByteObject())
+        Exporter::relocateObject(p);
+}
+
+static Handle moduleIdAsByteVector(TaskData* taskData, struct _moduleId modId)
+{
+    union {
+        struct _moduleId mId;
+        char chars[sizeof(struct _moduleId)];
+    } asVector;
+    asVector.mId = modId;
+    // Convert the module Id to a vector of bytes.  The representation is the same as a string.
+    return taskData->saveVec.push(C_string_to_Poly(taskData, asVector.chars, sizeof(struct _moduleId)));
 }
 
 // Store a module
-POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYUNSIGNED modName, POLYUNSIGNED contents)
+POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYUNSIGNED contents, POLYUNSIGNED depends)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
     Handle pushedContents = taskData->saveVec.push(contents);
+    Handle result = 0;
 
     try {
         TempString fileName(PolyWord::FromUnsigned(filename));
-        TempCString moduleName(PolyWord::FromUnsigned(modName));
-        ModuleStorer storer(fileName, moduleName, pushedContents);
+        ModuleExporter storer(fileName, pushedContents);
+
+        // Process the list of dependencies.  It is a list of moduleId*string pairs.
+        for (PolyWord l = PolyWord::FromUnsigned(depends); l.IsDataPtr(); l = ((ML_Cons_Cell*)l.AsObjPtr())->t)
+        {
+            PolyObject* p = ((ML_Cons_Cell*)l.AsObjPtr())->h.AsObjPtr();
+            union {
+                struct _moduleId mId;
+                char chars[sizeof(struct _moduleId)];
+            } asVector;
+            // Extract the module Id which is in Word8Vector.vector object.
+            PolyStringObject* str = (PolyStringObject*)p->Get(0).AsObjPtr();
+            if (str->length != sizeof(struct _moduleId))
+                raise_fail(taskData, "Incorrect format for module ID");
+            memcpy(asVector.chars, str->chars, sizeof(struct _moduleId));
+            // Check that this module is currently loaded.  This isn't strictly necessary
+            // but it's almost certainly a mistake.
+            std::vector<ModuleId>::iterator i = loadedModules.begin();
+            while (true)
+            {
+                if (i == loadedModules.end())
+                    raise_fail(taskData, "A dependency is listed but the module is not loaded");
+                if (*i == asVector.mId) break;
+                i++;
+            }
+            class ModIdAndName mn;
+            mn.modId = asVector.mId;
+            TempString depName(p->Get(1));
+            mn.modName = std_tstring(depName);
+            storer.dependencies.push_back(mn);
+        }
+
         processes->MakeRootRequest(taskData, &storer);
         if (storer.errorMessage)
             raise_syscall(taskData, storer.errorMessage, storer.errCode);
+
+        result = moduleIdAsByteVector(taskData, storer.getExportId());
     }
     catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
-    return TAGGED(0).AsUnsigned();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 // Load a module.
@@ -626,6 +668,7 @@ public:
     const char* errorResult;
     int errNumber;
     Handle rootHandle;
+    ModuleId loadedModId;
 };
 
 // Data needed for relocation during load.
@@ -668,9 +711,9 @@ void ModuleLoader::Perform()
         return;
     }
     // Check to see if this is already loaded
-    for (std::vector<LoadedModule>::iterator i = loadedModules.begin(); i < loadedModules.end(); i++)
+    for (std::vector<ModuleId>::iterator i = loadedModules.begin(); i < loadedModules.end(); i++)
     {
-        if (i->moduleIden == header.thisModuleId)
+        if (*i == header.thisModuleId)
         {
             errorResult = "A module with this signature is already loaded";
             return;
@@ -682,32 +725,6 @@ void ModuleLoader::Perform()
         errorResult =
             "Module was exported from a different executable or the executable has changed";
         return;
-    }
-
-    std::string thisModuleName;
-    if (header.stringTableSize == 0)
-        thisModuleName = "";
-    else
-    {
-        AutoFree<char*> stringTab = (char*)malloc(header.stringTableSize);
-        if (stringTab == 0)
-        {
-            errorResult = "Unable to allocate memory";
-            return;
-        }
-        if (fseek(loadFile, header.stringTable, SEEK_SET) != 0 ||
-            fread(stringTab, 1, header.stringTableSize, loadFile) != header.stringTableSize)
-        {
-            errorResult = "Unable to read string table";
-            return;
-        }
-        // Check that there is at least one terminator
-        if (stringTab[header.stringTableSize - 1] != '\0')
-        {
-            errorResult = "Malformed string table";
-            return;
-        }
-        thisModuleName = stringTab + header.moduleNameEntry;
     }
 
     // We could check the dependency table at this point but other than perhaps improving
@@ -770,7 +787,7 @@ void ModuleLoader::Perform()
             // TODO: This creates the new space as though it existed in the original executable.
             // We need to distinguish it somehow so we know which module it came from.
             PermanentMemSpace* newSpace =
-                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, header.thisModuleId, 0 /* Hierarchy 0 */);
+                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, header.thisModuleId);
             if (newSpace == 0)
             {
                 errorResult = "Unable to allocate memory";
@@ -828,12 +845,10 @@ void ModuleLoader::Perform()
         PolyWord* baseAddr = loadData[header.rootSegment].targetAddr;
         rootHandle = callerTaskData->saveVec.push((PolyObject*)((byte*)baseAddr + header.rootOffset));
     }
+    loadedModId = header.thisModuleId;
 
     // Add to the loaded module table
-    LoadedModule newMod;
-    newMod.moduleName = thisModuleName;
-    newMod.moduleIden = header.thisModuleId;
-    loadedModules.push_back(newMod);
+    loadedModules.push_back(header.thisModuleId);
 }
 
 static Handle LoadModule(TaskData* taskData, Handle args)
@@ -858,7 +873,11 @@ static Handle LoadModule(TaskData* taskData, Handle args)
         }
     }
 
-    return loader.rootHandle;
+    Handle result = alloc_and_save(taskData, 2);
+    result->WordP()->Set(0, loader.rootHandle->Word());
+    result->WordP()->Set(1, moduleIdAsByteVector(taskData, loader.loadedModId)->Word());
+
+    return result;
 }
 
 // Load a module
@@ -935,16 +954,6 @@ POLYUNSIGNED PolyGetModuleDirectory(POLYUNSIGNED threadId)
     else return result->Word().AsUnsigned();
 }
 
-static Handle moduleIdAsByteVector(TaskData *taskData, struct _moduleId modId)
-{
-    union {
-        struct _moduleId mId;
-        char chars[sizeof(struct _moduleId)];
-    } asVector;
-    asVector.mId = modId;
-    // Convert the module Id to a vector of bytes.  The representation is the same as a string.
-    return taskData->saveVec.push(C_string_to_Poly(taskData, asVector.chars, sizeof(struct _moduleId)));
-}
 
 // Return the list of loaded modules as a list of pairs of name and signature.
 POLYUNSIGNED PolyShowLoadedModules(POLYUNSIGNED threadId)
@@ -957,16 +966,12 @@ POLYUNSIGNED PolyShowLoadedModules(POLYUNSIGNED threadId)
 
     try {
         // Iterate over the table in reverse order so  the resulting list is in the order the modules were loaded.
-        for (std::vector<LoadedModule>::reverse_iterator i = loadedModules.rbegin(); i < loadedModules.rend(); i++)
+        for (std::vector<ModuleId>::reverse_iterator i = loadedModules.rbegin(); i < loadedModules.rend(); i++)
         {
             // Convert the module Id to a vector of bytes.  The representation is the same as a string.
-            Handle idHandle = moduleIdAsByteVector(taskData, i->moduleIden);
-            Handle nameHandle = taskData->saveVec.push(C_string_to_Poly(taskData, i->moduleName.c_str()));
-            Handle pairHandle = alloc_and_save(taskData, 2);
-            pairHandle->WordP()->Set(0, nameHandle->Word());
-            pairHandle->WordP()->Set(1, idHandle->Word());
+            Handle idHandle = moduleIdAsByteVector(taskData, *i);
             ML_Cons_Cell* next = (ML_Cons_Cell*)alloc(taskData, sizeof(ML_Cons_Cell) / sizeof(PolyWord));
-            next->h = pairHandle->Word();
+            next->h = idHandle->Word();
             next->t = result->Word();
             // Reset the save vec to keep it bounded
             taskData->saveVec.reset(reset);
@@ -1036,8 +1041,8 @@ static Handle GetModInfo(TaskData* taskData, Handle hFileName)
             raise_fail(taskData, "Invalid string table entry");
         Handle nameHandle = taskData->saveVec.push(C_string_to_Poly(taskData, ((const char *)stringTab) + modDepEntry.depNameEntry));
         Handle pairHandle = alloc_and_save(taskData, 2);
-        pairHandle->WordP()->Set(0, nameHandle->Word());
-        pairHandle->WordP()->Set(1, idHandle->Word());
+        pairHandle->WordP()->Set(0, idHandle->Word());
+        pairHandle->WordP()->Set(1, nameHandle->Word());
         ML_Cons_Cell* next = (ML_Cons_Cell*)alloc(taskData, sizeof(ML_Cons_Cell) / sizeof(PolyWord));
         next->h = pairHandle->Word();
         next->t = depListHandle->Word();
@@ -1046,15 +1051,11 @@ static Handle GetModInfo(TaskData* taskData, Handle hFileName)
         depListHandle = taskData->saveVec.push(next);
     }
 
-    if (header.moduleNameEntry >= header.stringTableSize)
-        raise_fail(taskData, "Invalid string table entry");
-    Handle modNameHandle = taskData->saveVec.push(C_string_to_Poly(taskData, ((const char*)stringTab) + header.moduleNameEntry));
     Handle modIdHandle = moduleIdAsByteVector(taskData, header.thisModuleId);
 
-    Handle resultHandle = alloc_and_save(taskData, 3);
-    resultHandle->WordP()->Set(0, modNameHandle->Word());
-    resultHandle->WordP()->Set(1, modIdHandle->Word());
-    resultHandle->WordP()->Set(2, depListHandle->Word());
+    Handle resultHandle = alloc_and_save(taskData, 2);
+    resultHandle->WordP()->Set(0, modIdHandle->Word());
+    resultHandle->WordP()->Set(1, depListHandle->Word());
 
     return resultHandle;
 }

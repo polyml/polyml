@@ -2101,13 +2101,15 @@ in
         (* Saving and loading state. *)
         structure SaveState =
         struct
+            type moduleId = Word8Vector.vector
+
             local
                 val getOS: int = LibrarySupport.getOSType()
 
-                val loadMod: string -> Universal.universal list = RunCall.rtsCallFull1 "PolyLoadModule"
+                val loadMod: string -> Universal.universal list * moduleId = RunCall.rtsCallFull1 "PolyLoadModule"
                 and systemDir: unit -> string = RunCall.rtsCallFull0 "PolyGetModuleDirectory"
             in
-                fun loadModuleBasic (fileName: string): Universal.universal list =
+                fun loadModuleBasic (fileName: string): Universal.universal list * moduleId =
                 (* If there is a path separator use the name and don't search further. *)
                 if OS.Path.dir fileName <> ""
                 then loadMod fileName
@@ -2163,7 +2165,7 @@ in
                    before the children.  It's easier for the RTS if this is reversed. *)
                 fun loadHierarchy (s: string list): unit = loadHier (List.rev s)
             end
-            
+
             (* Module loading and storing. *)
             structure Tags =
             struct
@@ -2175,23 +2177,21 @@ in
                 val fixityTag: (string * PolyML.NameSpace.Infixes.fixity) Universal.tag = Universal.tag()
                 val startupTag: (unit -> unit) Universal.tag = Universal.tag()
             end
-            
+
             local
-                val saveNamedMod: string * string * Universal.universal list -> unit = RunCall.rtsCallFull3 "PolyStoreModule"
+                val saveDepMod: string * Universal.universal list * (moduleId * string) list -> moduleId =
+                    RunCall.rtsCallFull3 "PolyStoreModule"
             in
-                fun saveNamedModuleBasic{ contents=[], ...} = raise Fail "Cannot create an empty module"
-                |   saveNamedModuleBasic{fileName, moduleName, contents} = saveNamedMod(fileName, moduleName, contents)
+                fun saveDependentModuleBasic(_, [], _) = raise Fail "Cannot create an empty module"
+                |   saveDependentModuleBasic(fileName, contents, dependencies) =
+                        saveDepMod(fileName, contents, dependencies)
                 
-                (* If the module is not named use the last component of the path as the module name. *)
+                (* Simple version without dependencies *)
                 fun saveModuleBasic(name, contents) =
-                let
-                    val {file=modName, ...} = OS.Path.splitDirFile name
-                in
-                    saveNamedModuleBasic{fileName=name, moduleName=modName, contents=contents}
-                end
+                        saveDependentModuleBasic(name, contents, [])
             end
 
-            fun saveModule(s, {structs, functors, sigs, onStartup}) =
+            fun saveDependentModule(s, {structs, functors, sigs, onStartup}, dependencies) =
             let
                 fun dolookup (look, tag, kind) s =
                     case look globalNameSpace s of
@@ -2205,12 +2205,14 @@ in
                         SOME f => [Universal.tagInject Tags.startupTag f]
                     |   NONE => []
             in
-                saveModuleBasic(s, structVals @ functorVals @ sigVals @ startVal)
+                saveDependentModuleBasic(s, structVals @ functorVals @ sigVals @ startVal, dependencies)
             end
             
-            fun loadModule s =
+            fun saveModule(s, contents) = saveDependentModule(s, contents, [])
+            
+            fun loadModule s : moduleId =
             let
-                val ulist = loadModuleBasic s
+                val (ulist, modId) = loadModuleBasic s
                 (* Find and run the start-up function.  If it raises an exception we
                    don't go further. *)
                 val startFn = List.find (Universal.tagIs Tags.startupTag) ulist
@@ -2229,23 +2231,16 @@ in
                     signatures = extract Tags.signatureTag ulist,
                     functors = extract Tags.functorTag ulist,
                     types = extract Tags.typeTag ulist
-                }
+                };
+                
+                modId
             end
             
-            val showLoadedModules: unit -> (string * Word8Vector.vector) list =
+            val showLoadedModules: unit -> moduleId list =
                 RunCall.rtsCallFull0 "PolyShowLoadedModules"
 
-            local
-                val getModInf: string -> string * Word8Vector.vector * (string * Word8Vector.vector) list =
-                    RunCall.rtsCallFull1 "PolyGetModuleInfo"
-            in
-                fun getModuleInfo fileName =
-                let
-                    val (modName, modSig, deps) = getModInf fileName
-                in
-                    {moduleName=modName, moduleSignature=modSig, dependencies=deps}
-                end
-            end
+            val getModuleInfo: string -> moduleId * (moduleId * string) list =
+                RunCall.rtsCallFull1 "PolyGetModuleInfo"
 
         end
         

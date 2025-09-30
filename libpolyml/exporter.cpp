@@ -132,8 +132,9 @@ public:
     POLYUNSIGNED mutSize, noOverSize;
 };
 
-CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
+CopyScan::CopyScan(bool isExp /*=false*/)
 {
+    isExport = isExp;
     defaultImmSize = defaultMutSize = defaultCodeSize = defaultNoOverSize = 0;
     tombs = 0;
     graveYard = 0;
@@ -141,7 +142,7 @@ CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
     hash_posn = 0;
 }
 
-void CopyScan::initialise(bool isExport/*=true*/)
+void CopyScan::initialise()
 {
     ASSERT(gMem.eSpaces.size() == 0);
     // Set the space sizes to a proportion of the space currently in use.
@@ -150,7 +151,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
     // want to use a smaller size because they are retained after we save
     // the state and if we have many child saved states it's important not
     // to waste memory.
-    if (hierarchy == 0)
+    if (isExport)
     {
         graveYard = new GraveYard[gMem.pSpaces.size()];
         if (graveYard == 0)
@@ -164,7 +165,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
         PermanentMemSpace *space = *i;
-        if (space->hierarchy >= hierarchy) {
+        if (! dependencies[space->moduleIdentifier]) {
             // Include this if we're exporting (hierarchy=0) or if we're saving a state
             // and will include this in the new state.
             size_t size = (space->top-space->bottom)/4;
@@ -176,7 +177,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
                 defaultCodeSize += size;
             else
                 defaultImmSize += size;
-            if (space->hierarchy == 0 && ! space->isMutable)
+            if (space->isWriteProtected)
             {
                 // We need a separate area for the tombstones because this is read-only
                 graveYard[tombs].graves = (PolyWord*)calloc(space->spaceSize(), sizeof(PolyWord));
@@ -297,12 +298,8 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     if (space->spaceType == ST_PERMANENT)
     {
         PermanentMemSpace *pmSpace = (PermanentMemSpace*)space;
-        if (pmSpace->hierarchy < hierarchy)
-        {
-            // Add it to the external references.
-            externalRefs[pmSpace->moduleIdentifier] = true;
+        if (dependencies[pmSpace->moduleIdentifier])
             return 0;
-        }
     }
 
     // Have we already scanned this?
@@ -400,7 +397,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         PolyObject* writAble = gMem.SpaceForObjectAddress(newObj)->writeAble(newObj);
         writAble->SetLengthWord(lengthWord); // copy length word
 
-        if (hierarchy == 0 /* Exporting object module */ && obj->IsNoOverwriteObject() && ! obj->IsByteObject())
+        if (isExport /* Exporting object module */ && obj->IsNoOverwriteObject() && ! obj->IsByteObject())
         {
             // These are not exported. They are used for special values e.g. mutexes
             // that should be set to 0/nil/NONE at start-up.
@@ -415,7 +412,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         else memcpy(writAble, obj, words * sizeof(PolyWord));
     }
 
-    if (space->spaceType == ST_PERMANENT && !space->isMutable && ((PermanentMemSpace*)space)->hierarchy == 0)
+    if (space->spaceType == ST_PERMANENT && ((PermanentMemSpace*)space)->isWriteProtected)
     {
         // The immutable permanent areas are read-only.
         unsigned m;
@@ -759,7 +756,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
     Exporter *exports = this;
 
     PolyObject *copiedRoot = 0;
-    CopyScan copyScan(0); // Exclude the parent state if this is a module
+    CopyScan copyScan(true); // Exclude the parent state if this is a module
 
     try {
         copyScan.initialise();

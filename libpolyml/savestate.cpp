@@ -351,7 +351,7 @@ void SaveStateExport::relocateValue(PolyWord* pt)
     else *gMem.SpaceForAddress(pt)->writeAble(pt) = createRelocation(*pt, pt);
 }
 
-// We need to override this since Exporter::relocateObject doesn't work 
+// We need to override this since Exporter::relocateObject doesn't work for compact 32-bits
 void SaveStateExport::relocateObject(PolyObject* p)
 {
     if (p->IsClosureObject())
@@ -364,7 +364,10 @@ void SaveStateExport::relocateObject(PolyObject* p)
 
         for (POLYUNSIGNED i = sizeof(uintptr_t) / sizeof(PolyWord); i < length; i++) relocateValue(p->Offset(i));
     }
-    else Exporter::relocateObject(p);
+    // Exporter::relocateObject clears weak mutable byte refs.  We mustn't do that
+    // because we're going to use the exported copy afterwards.  
+    else if (! p->IsByteObject())
+        Exporter::relocateObject(p);
 }
 
 
@@ -562,8 +565,14 @@ void SaveRequest::Perform()
 
     // Scan over the permanent mutable area copying all reachable data that is
     // not in a lower hierarchy into new permanent segments.
-    CopyScan copyScan(newHierarchy);
-    copyScan.initialise(false);
+    CopyScan copyScan;
+    // Set the dependencies.
+    copyScan.dependencies[exportSignature] = true; // Always include the executable
+    // Include any existing states at a higher level
+    for (unsigned i = 0; i < newHierarchy-1; i++)
+        copyScan.dependencies[hierarchyTable[i]->timeStamp] = true;
+    copyScan.initialise();
+
     bool success = true;
     try {
         for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
@@ -595,7 +604,7 @@ void SaveRequest::Perform()
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
         PermanentMemSpace *space = *i;
-        if (space->hierarchy < newHierarchy)
+        if (copyScan.dependencies[space->moduleIdentifier])
         {
             ExportMemTable*entry = &exports.memTable[memTableCount++];
             entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
@@ -635,6 +644,7 @@ void SaveRequest::Perform()
     }
 
     exports.memTableEntries = memTableCount;
+    exports.exportModId = copyScan.extractHash();
 
     if (debugOptions & DEBUG_SAVING)
         Log("SAVE: Updating references to moved objects.\n");
@@ -649,20 +659,27 @@ void SaveRequest::Perform()
     // some objects there.
     if (debugOptions & DEBUG_SAVING)
         Log("SAVE: Promoting export spaces to permanent spaces.\n");
-    if (! gMem.DemoteOldPermanentSpaces(newHierarchy) || !gMem.PromoteNewExportSpaces(newHierarchy) || ! success)
+    // Remove any deeper entries from the hierarchy table.
+    while (hierarchyDepth > newHierarchy - 1)
+    {
+        hierarchyDepth--;
+        if (!gMem.DemoteOldPermanentSpaces(hierarchyTable[hierarchyDepth]->timeStamp))
+        {
+            errorMessage = "Out of Memory";
+            errCode = NOMEMORY;
+            if (debugOptions & DEBUG_SAVING)
+                Log("SAVE: Unable to demote old spaces.\n");
+        }
+        delete(hierarchyTable[hierarchyDepth]);
+        hierarchyTable[hierarchyDepth] = 0;
+    }
+    if (!gMem.PromoteNewExportSpaces(exports.exportModId) || ! success)
     {
         errorMessage = "Out of Memory";
         errCode = NOMEMORY;
         if (debugOptions & DEBUG_SAVING)
             Log("SAVE: Unable to promote export spaces.\n");
         return;
-    }
-    // Remove any deeper entries from the hierarchy table.
-    while (hierarchyDepth > newHierarchy-1)
-    {
-        hierarchyDepth--;
-        delete(hierarchyTable[hierarchyDepth]);
-        hierarchyTable[hierarchyDepth] = 0;
     }
 
     if (debugOptions & DEBUG_SAVING)
@@ -1040,10 +1057,10 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
         // into local spaces.  We may have references from the stack to objects that
         // have previously been imported but otherwise these spaces are no longer
         // needed.
-        gMem.DemoteImportSpaces();
         // Clean out the hierarchy table.
         for (unsigned h = 0; h < hierarchyDepth; h++)
         {
+            gMem.DemoteOldPermanentSpaces(hierarchyTable[h]->timeStamp);
             delete(hierarchyTable[h]);
             hierarchyTable[h] = 0;
         }
@@ -1107,7 +1124,7 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
                 (descr->segmentFlags & SSF_BYTES ? MTF_BYTES : 0) |
                 (descr->segmentFlags & SSF_CODE ? MTF_EXECUTABLE : 0);
             PermanentMemSpace *newSpace =
-                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, descr->moduleId, hierarchyDepth + 1);
+                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, descr->moduleId);
             if (newSpace == 0)
             {
                 errorResult = "Unable to allocate memory";

@@ -1,7 +1,7 @@
 /*
     Title:  exporter.h - Export a function as an object or C file
 
-    Copyright (c) 2006, 2015-17, 2020-21 David C.J. Matthews
+    Copyright (c) 2006, 2015-17, 2020-21, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -64,6 +64,8 @@ public:
     // Called by the root thread to do the work.
     void RunExport(PolyObject *rootFunction);
 
+    ModuleId getExportId() const { return exportModId; }
+
 protected:
     virtual PolyWord createRelocation(PolyWord p, void *relocAddr) = 0;
     virtual void relocateValue(PolyWord *pt); // Overridden in ModuleExport
@@ -119,8 +121,8 @@ class PermanentMemSpace;
 class CopyScan: public ScanAddress
 {
 public:
-    CopyScan(unsigned h=0);
-    void initialise(bool isExport=true);
+    CopyScan(bool isExp=false);
+    void initialise();
     ~CopyScan();
 protected:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
@@ -139,18 +141,20 @@ private:
 
     PolyObject* newAddressForObject(POLYUNSIGNED words, enum _newAddrType naType);
 
+    bool isExport;
+
 public:
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 
     // Default sizes of the segments.
     uintptr_t defaultImmSize, defaultCodeSize, defaultMutSize, defaultNoOverSize;
-    unsigned hierarchy;
 
     GraveYard *graveYard;
     unsigned tombs;
 
-    // The module IDs of the permanent spaces referenced.  This is currently only relevant for modules.
-    std::map<ModuleId, bool> externalRefs;
+    // The space Ids for spaces that are dependencies.
+    // This is empty when exporting to an object module since everything must be included.
+    std::map<ModuleId, bool> dependencies;
 
 private:
     // Local values for hash computation
