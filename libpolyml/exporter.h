@@ -176,7 +176,7 @@ class StateExport : public Exporter, public ScanAddress
 public:
     StateExport() : relocationCount(0) {}
 public:
-    virtual void exportStore(void) {} // Not used.
+    virtual void exportStore(void) override {} // Not used.
 
 protected:
     // These have to be overridden to work properly for compact 32-bit
@@ -185,9 +185,9 @@ protected:
 
 private:
     // ScanAddress overrides
-    virtual void ScanConstant(PolyObject* base, byte* addrOfConst, ScanRelocationKind code, intptr_t displacement);
+    virtual void ScanConstant(PolyObject* base, byte* addrOfConst, ScanRelocationKind code, intptr_t displacement) override;
     // At the moment we should only get calls to ScanConstant.
-    virtual PolyObject* ScanObjectAddress(PolyObject* base) { return base; }
+    virtual PolyObject* ScanObjectAddress(PolyObject* base) override { return base; }
 
 protected:
     void setRelocationAddress(void* p, POLYUNSIGNED* reloc);
