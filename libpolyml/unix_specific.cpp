@@ -1,8 +1,8 @@
 /*
     Title:      Operating Specific functions: Unix version.
 
-    Copyright (c) 2000-8, 2016-17, 2019, 2020, 2021 David C. J. Matthews
-    Portions of this code are derived from the original stream io
+    Copyright (c) 2000-8, 2016-17, 2019, 2020, 2021, 2025 David C. J. Matthews
+    Portions of this code are derived from the original tream io
     package copyright CUTS 1983-2000.
 
     This library is free software; you can redistribute it and/or
@@ -1126,7 +1126,7 @@ static Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     default:
         {
             char msg[100];
-            sprintf(msg, "Unknown unix-specific function: %d", c);
+            snprintf(msg, sizeof(msg), "Unknown unix-specific function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
         }
     }

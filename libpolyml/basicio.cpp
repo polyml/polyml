@@ -1,7 +1,7 @@
 /*
     Title:      Basic IO for Unix and similar
 
-    Copyright (c) 2000, 2015-2020, 2022 David C. J. Matthews
+    Copyright (c) 2000, 2015-2020, 2022, 2025 David C. J. Matthews
 
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
@@ -1068,7 +1068,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     default:
         {
             char msg[100];
-            sprintf(msg, "Unknown io function: %d", c);
+            snprintf(msg, sizeof(msg), "Unknown io function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
             return 0;
         }

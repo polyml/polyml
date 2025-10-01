@@ -1,7 +1,7 @@
 /*
     Title:      Process environment.
 
-    Copyright (c) 2000-8, 2016-17, 2020
+    Copyright (c) 2000-8, 2016-17, 2020, 2025
 
         David C. J. Matthews
 
@@ -178,7 +178,7 @@ static Handle process_env_dispatch_c(TaskData *taskData, Handle args, Handle cod
     default:
         {
             char msg[100];
-            sprintf(msg, "Unknown environment function: %d", c);
+            snprintf(msg, sizeof(msg), "Unknown environment function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
             return 0;
         }
@@ -252,7 +252,7 @@ POLYUNSIGNED PolyProcessEnvErrorName(POLYUNSIGNED threadId, POLYUNSIGNED syserr)
         else
         { // If it isn't in the table.
             char buff[40];
-            sprintf(buff, "ERROR%0d", e);
+            snprintf(buff, sizeof(buff), "ERROR%0d", e);
             result = taskData->saveVec.push(C_string_to_Poly(taskData, buff));
         }
     }
