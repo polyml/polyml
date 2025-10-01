@@ -376,7 +376,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     // out and put it into the read-only, non-executable area.
     // Interpreted code and code for 32-in-64 aren't executable (32-in-64 code is copied during start-up).
     // We also don't need this on Windows, thankfully.
-    if (obj->IsCodeObject() && hierarchy == 0)
+    if (obj->IsCodeObject() && isExport)
     {
         PolyWord* constPtr;
         POLYUNSIGNED numConsts;
