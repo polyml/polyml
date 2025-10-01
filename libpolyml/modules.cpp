@@ -928,6 +928,8 @@ static Handle GetModInfo(TaskData* taskData, Handle hFileName)
 
     if (header.stringTableSize == 0)
         raise_fail(taskData, "Missing string table");
+    // String table.  All sizes and offsets are in bytes but the contents are wide chars if
+    // Unicode is being used.
     AutoFree<char*> stringTab = (char*)malloc(header.stringTableSize);
     if (stringTab == 0)
         raise_fail(taskData, "Unable to allocate memory");
@@ -935,7 +937,7 @@ static Handle GetModInfo(TaskData* taskData, Handle hFileName)
         fread(stringTab, 1, header.stringTableSize, loadFile) != header.stringTableSize)
         raise_fail(taskData, "Unable to read string table");
     // Check that there is at least one terminator
-    if (stringTab[header.stringTableSize - 1] != '\0')
+    if (stringTab[header.stringTableSize - 1] != 0)
         raise_fail(taskData, "Malformed string table");
 
     Handle reset = taskData->saveVec.mark();
@@ -952,7 +954,8 @@ static Handle GetModInfo(TaskData* taskData, Handle hFileName)
         Handle idHandle = moduleIdAsByteVector(taskData, modDepEntry.depId);
         if (modDepEntry.depNameEntry >= header.stringTableSize)
             raise_fail(taskData, "Invalid string table entry");
-        Handle nameHandle = taskData->saveVec.push(C_string_to_Poly(taskData, ((const char *)stringTab) + modDepEntry.depNameEntry));
+        const TCHAR* thisString = (TCHAR*)(stringTab + modDepEntry.depNameEntry);
+        Handle nameHandle = taskData->saveVec.push(C_string_to_Poly(taskData, thisString));
         Handle pairHandle = alloc_and_save(taskData, 2);
         pairHandle->WordP()->Set(0, idHandle->Word());
         pairHandle->WordP()->Set(1, nameHandle->Word());
