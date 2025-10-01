@@ -66,10 +66,17 @@
 #define ASSERT(x)
 #endif
 
+#include <string>
+
 #if (defined(_WIN32))
 #include <tchar.h>
 #define ERRORNUMBER _doserrno
 #define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
+#ifdef _UNICODE
+#define std_tstring std::wstring
+#else
+#define std_tstring std::string
+#endif
 #else
 typedef char TCHAR;
 #define _T(x) x
@@ -84,6 +91,7 @@ typedef char TCHAR;
 #endif
 #define ERRORNUMBER errno
 #define NOMEMORY ENOMEM
+#define std_tstring std::string
 #endif
 
 
@@ -217,26 +225,14 @@ class HierarchyTable
 public:
     HierarchyTable(const TCHAR *file, struct _moduleId time):
       fileName(_tcsdup(file)), timeStamp(time) { }
-    AutoFree<TCHAR*> fileName;
+
+    HierarchyTable() {}
+
+    std_tstring         fileName;
     struct _moduleId    timeStamp;
 };
 
-HierarchyTable **hierarchyTable;
-
-static unsigned hierarchyDepth;
-
-static bool AddHierarchyEntry(const TCHAR *fileName, struct _moduleId timeStamp)
-{
-    // Add an entry to the hierarchy table for this file.
-    HierarchyTable *newEntry = new HierarchyTable(fileName, timeStamp);
-    if (newEntry == 0) return false;
-    HierarchyTable **newTable =
-        (HierarchyTable **)realloc(hierarchyTable, sizeof(HierarchyTable *)*(hierarchyDepth+1));
-    if (newTable == 0) return false;
-    hierarchyTable = newTable;
-    hierarchyTable[hierarchyDepth++] = newEntry;
-    return true;
-}
+std::vector <HierarchyTable> hierarchyTable;
 
 // Test whether we're overwriting a parent of ourself.
 #if (defined(_WIN32) || defined(__CYGWIN__))
@@ -452,7 +448,7 @@ void SaveRequest::Perform()
         Log("SAVE: Beginning saving state.\n");
     // Check that we aren't overwriting our own parent.
     for (unsigned q = 0; q < newHierarchy-1; q++) {
-        if (sameFile(hierarchyTable[q]->fileName, fileName))
+        if (sameFile(hierarchyTable[q].fileName.c_str(), fileName))
         {
             errorMessage = "File being saved is used as a parent of this file";
             errCode = 0;
@@ -481,7 +477,7 @@ void SaveRequest::Perform()
     copyScan.dependencies[exportSignature] = true; // Always include the executable
     // Include any existing states at a higher level
     for (unsigned i = 0; i < newHierarchy-1; i++)
-        copyScan.dependencies[hierarchyTable[i]->timeStamp] = true;
+        copyScan.dependencies[hierarchyTable[i].timeStamp] = true;
     copyScan.initialise();
 
     bool success = true;
@@ -535,6 +531,8 @@ void SaveRequest::Perform()
     }
     unsigned permanentEntries = memTableCount; // Remember where new entries start.
 
+    exports.exportModId = copyScan.extractHash();
+
     // Newly created spaces.
     for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
@@ -544,6 +542,7 @@ void SaveRequest::Perform()
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = space->index;
         entry->mtFlags = 0;
+        entry->mtModId = exports.exportModId;
         if (space->isMutable)
         {
             entry->mtFlags |= MTF_WRITEABLE;
@@ -555,7 +554,6 @@ void SaveRequest::Perform()
     }
 
     exports.memTableEntries = memTableCount;
-    exports.exportModId = copyScan.extractHash();
 
     if (debugOptions & DEBUG_SAVING)
         Log("SAVE: Updating references to moved objects.\n");
@@ -571,19 +569,18 @@ void SaveRequest::Perform()
     if (debugOptions & DEBUG_SAVING)
         Log("SAVE: Promoting export spaces to permanent spaces.\n");
     // Remove any deeper entries from the hierarchy table.
-    while (hierarchyDepth > newHierarchy - 1)
+    for (unsigned i = newHierarchy - 1; i < hierarchyTable.size(); i++)
     {
-        hierarchyDepth--;
-        if (!gMem.DemoteOldPermanentSpaces(hierarchyTable[hierarchyDepth]->timeStamp))
+        if (!gMem.DemoteOldPermanentSpaces(hierarchyTable[i].timeStamp))
         {
             errorMessage = "Out of Memory";
             errCode = NOMEMORY;
             if (debugOptions & DEBUG_SAVING)
                 Log("SAVE: Unable to demote old spaces.\n");
         }
-        delete(hierarchyTable[hierarchyDepth]);
-        hierarchyTable[hierarchyDepth] = 0;
     }
+    hierarchyTable.resize(newHierarchy - 1);
+
     if (!gMem.PromoteNewExportSpaces(exports.exportModId) || ! success)
     {
         errorMessage = "Out of Memory";
@@ -610,7 +607,7 @@ void SaveRequest::Perform()
         saveHeader.parentTimeStamp = exportSignature;
     else
     {
-        saveHeader.parentTimeStamp = hierarchyTable[newHierarchy-2]->timeStamp;
+        saveHeader.parentTimeStamp = hierarchyTable[newHierarchy-2].timeStamp;
         saveHeader.parentNameEntry = sizeof(TCHAR); // Always the first entry.
     }
     saveHeader.timeStamp = copyScan.extractHash();
@@ -688,9 +685,9 @@ void SaveRequest::Perform()
     {
         saveHeader.stringTable = ftell(exports.exportFile);
         _fputtc(0, exports.exportFile); // First byte of string table is zero
-        _fputts(hierarchyTable[newHierarchy-2]->fileName, exports.exportFile);
+        _fputts(hierarchyTable[newHierarchy-2].fileName.c_str(), exports.exportFile);
         _fputtc(0, exports.exportFile); // A terminating null.
-        saveHeader.stringTableSize = (_tcslen(hierarchyTable[newHierarchy-2]->fileName) + 2)*sizeof(TCHAR);
+        saveHeader.stringTableSize = (_tcslen(hierarchyTable[newHierarchy-2].fileName.c_str()) + 2)*sizeof(TCHAR);
     }
 
     // Rewrite the header and the segment tables now they're complete.
@@ -702,7 +699,7 @@ void SaveRequest::Perform()
         Log("SAVE: Writing complete.\n");
 
     // Add an entry to the hierarchy table for this file.
-    (void)AddHierarchyEntry(fileName, saveHeader.timeStamp);
+    hierarchyTable.push_back(HierarchyTable(fileName, saveHeader.timeStamp));
 
     delete[](descrs);
 
@@ -722,7 +719,7 @@ POLYUNSIGNED PolySaveState(POLYUNSIGNED threadId, POLYUNSIGNED fileName, POLYUNS
         // The value of depth is zero for top-level save so we need to add one for hierarchy.
         unsigned newHierarchy = get_C_unsigned(taskData, PolyWord::FromUnsigned(depth)) + 1;
 
-        if (newHierarchy > hierarchyDepth + 1)
+        if (newHierarchy > hierarchyTable.size() + 1)
             raise_fail(taskData, "Depth must be no more than the current hierarchy plus one");
 
         // Request a full GC first.  The main reason is to avoid running out of memory as a
@@ -946,7 +943,7 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
                 return false;
         }
 
-        ASSERT(hierarchyDepth > 0 && hierarchyTable[hierarchyDepth-1] != 0);
+        ASSERT(hierarchyTable.size() > 0);
     }
     else // Top-level file
     {
@@ -969,13 +966,10 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
         // have previously been imported but otherwise these spaces are no longer
         // needed.
         // Clean out the hierarchy table.
-        for (unsigned h = 0; h < hierarchyDepth; h++)
-        {
-            gMem.DemoteOldPermanentSpaces(hierarchyTable[h]->timeStamp);
-            delete(hierarchyTable[h]);
-            hierarchyTable[h] = 0;
-        }
-        hierarchyDepth = 0;
+        for (std::vector<HierarchyTable>::iterator i = hierarchyTable.begin(); i != hierarchyTable.end(); i++)
+            gMem.DemoteOldPermanentSpaces(i->timeStamp);
+
+        hierarchyTable.clear();
     }
 
     // Now have a valid, matching saved state.
@@ -1115,8 +1109,7 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
     }
 
     // Add an entry to the hierarchy table for this file.
-    if (! AddHierarchyEntry(thisFile, header.timeStamp))
-        return false;
+    hierarchyTable.push_back(HierarchyTable(thisFile, header.timeStamp));
 
     return true; // Succeeded
 }
@@ -1198,9 +1191,9 @@ static Handle ShowHierarchy(TaskData *taskData)
     Handle list  = SAVE(ListNull);
 
     // Process this in reverse order.
-    for (unsigned i = hierarchyDepth; i > 0; i--)
+    for (std::vector<HierarchyTable>::reverse_iterator i = hierarchyTable.rbegin(); i != hierarchyTable.rend(); i++)
     {
-        Handle value = SAVE(C_string_to_Poly(taskData, hierarchyTable[i-1]->fileName));
+        Handle value = SAVE(C_string_to_Poly(taskData, i->fileName.c_str()));
         Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell)/sizeof(PolyWord));
         DEREFLISTHANDLE(next)->h = value->Word();
         DEREFLISTHANDLE(next)->t = list->Word();
