@@ -146,12 +146,14 @@ private:
 public:
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 
+private:
     // Default sizes of the segments.
     uintptr_t defaultImmSize, defaultCodeSize, defaultMutSize, defaultNoOverSize;
 
     GraveYard *graveYard;
     unsigned tombs;
 
+public:
     // The space Ids for spaces that are dependencies.
     // This is empty when exporting to an object module since everything must be included.
     std::map<ModuleId, bool> dependencies;
@@ -162,6 +164,7 @@ private:
     unsigned hash_posn;
     void addToHash(uint32_t v);
     void addWordToHash(POLYUNSIGNED p);
+    static uint32_t sequenceNo;
 public:
     struct _moduleId extractHash();
 };

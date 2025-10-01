@@ -72,6 +72,7 @@
 #include "processes.h" // For IO_SPACING
 #include "sys.h" // For EXC_Fail
 #include "rtsentry.h"
+#include "timing.h" // For getBuildTime
 
 #include "pexport.h"
 
@@ -139,8 +140,15 @@ CopyScan::CopyScan(bool isExp /*=false*/)
     tombs = 0;
     graveYard = 0;
     hash_a = hash_b = hash_c = 0xdeadbeef;
+
+    // Add extra randomness to the hash values.  This is still reproducible if SOURCE_DATE_EPOCH is set.
+    hash_a += (uint32_t)getBuildTime();
+    hash_b += sequenceNo++;
+
     hash_posn = 0;
 }
+
+uint32_t CopyScan::sequenceNo = 0;
 
 void CopyScan::initialise()
 {

@@ -55,6 +55,7 @@
 #include "../polyexports.h"
 #include "version.h"
 #include "polystring.h"
+#include "timing.h"
 
 #ifdef _DEBUG
 /* MS C defines _DEBUG for debug builds. */
@@ -286,6 +287,7 @@ void PECOFFExport::exportStore(void)
     IMAGE_RELOCATION reloc;
     // These are written out as the description of the data.
     exportDescription exports;
+    time_t now = getBuildTime();
 
     sections = new IMAGE_SECTION_HEADER [memTableEntries+1]; // Plus one for the tables.
 
@@ -294,9 +296,7 @@ void PECOFFExport::exportStore(void)
     memset(&fhdr, 0, sizeof(fhdr));
     fhdr.Machine = IMAGE_MACHINE_TYPE; // x86-64
     fhdr.NumberOfSections = memTableEntries+1; // One for each area plus one for the tables.
-    // Use the time function here.  This means that the build is not reproducible but that's
-    // not really an issue for Windows and there are tools that will fix this.
-    (void)time((time_t*)&fhdr.TimeDateStamp);
+    fhdr.TimeDateStamp = (DWORD)now;
     //fhdr.NumberOfSymbols = memTableEntries+1; // One for each area plus "poly_exports"
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
 

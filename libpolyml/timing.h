@@ -102,4 +102,6 @@ extern float timevalToSeconds(const struct timeval *x);
 
 extern struct _entrypts timingEPT[];
 
+extern time_t getBuildTime(void);
+
 #endif
