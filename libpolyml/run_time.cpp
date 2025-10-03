@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2009, 2012, 2015-18
+    Further work copyright David C. J. Matthews 2009, 2012, 2015-18, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -220,7 +220,6 @@ void raise_exception(TaskData *taskData, int id, Handle arg, const char *file, i
     /*NOTREACHED*/
 }
 
-
 void raiseException0WithLocation(TaskData *taskData, int id, const char *file, int line)
 /* Raise an exception with no arguments. */
 {
@@ -265,6 +264,15 @@ void raiseSycallWithLocation(TaskData *taskData, const char *errmsg, int err, co
 void raiseExceptionFailWithLocation(TaskData *taskData, const char *str, const char *file, int line)
 {
     raiseExceptionStringWithLocation(taskData, EXC_Fail, str, file, line);
+}
+
+// Set the exception packet as the result of a bad::alloc exception.
+// Does not throw a further C++ exception.
+void setMemoryExceptionWithLocation(TaskData* taskData, const char* file, int line)
+{
+    Handle str = SAVE(C_string_to_Poly(taskData, "Insufficient Memory: C++ allocation failed"));
+    Handle exn = make_exn(taskData, EXC_Fail, str, file, line);
+    taskData->SetException(DEREFEXNHANDLE(exn));
 }
 
 /* "Polymorphic" function to generate a list. */

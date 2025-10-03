@@ -444,81 +444,106 @@ void switchLocalsToPermanent()
 // Called by the root thread to actually save the state and write the file.
 void SaveRequest::Perform()
 {
-    if (debugOptions & DEBUG_SAVING)
-        Log("SAVE: Beginning saving state.\n");
-    // Check that we aren't overwriting our own parent.
-    for (unsigned q = 0; q < newHierarchy-1; q++) {
-        if (sameFile(hierarchyTable[q].fileName.c_str(), fileName))
-        {
-            errorMessage = "File being saved is used as a parent of this file";
-            errCode = 0;
-            if (debugOptions & DEBUG_SAVING)
-                Log("SAVE: File being saved is used as a parent of this file.\n");
-            return;
-        }
-    }
-
-    SaveStateExport exports;
-    // Open the file.  This could quite reasonably fail if the path is wrong.
-    exports.exportFile = _tfopen(fileName, _T("wb"));
-    if (exports.exportFile == NULL)
-    {
-        errorMessage = "Cannot open save file";
-        errCode = ERRORNUMBER;
-        if (debugOptions & DEBUG_SAVING)
-            Log("SAVE: Cannot open save file.\n");
-        return;
-    }
-
-    // Scan over the permanent mutable area copying all reachable data that is
-    // not in a lower hierarchy into new permanent segments.
-    CopyScan copyScan;
-    // Set the dependencies.
-    copyScan.dependencies[exportSignature] = true; // Always include the executable
-    // Include any existing states at a higher level
-    for (unsigned i = 0; i < newHierarchy-1; i++)
-        copyScan.dependencies[hierarchyTable[i].timeStamp] = true;
-    copyScan.initialise();
-
-    bool success = true;
     try {
-        for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
-        {
-            PermanentMemSpace *space = *i;
-            if (space->isMutable && !space->noOverwrite && !space->byteOnly)
+        if (debugOptions & DEBUG_SAVING)
+            Log("SAVE: Beginning saving state.\n");
+        // Check that we aren't overwriting our own parent.
+        for (unsigned q = 0; q < newHierarchy - 1; q++) {
+            if (sameFile(hierarchyTable[q].fileName.c_str(), fileName))
             {
+                errorMessage = "File being saved is used as a parent of this file";
+                errCode = 0;
                 if (debugOptions & DEBUG_SAVING)
-                    Log("SAVE: Scanning permanent mutable area %p allocated at %p size %lu\n",
-                        space, space->bottom, space->spaceSize());
-                copyScan.ScanAddressesInRegion(space->bottom, space->top);
+                    Log("SAVE: File being saved is used as a parent of this file.\n");
+                return;
             }
         }
-    }
-    catch (MemoryException &)
-    {
-        success = false;
-        if (debugOptions & DEBUG_SAVING)
-            Log("SAVE: Scan of permanent mutable area raised memory exception.\n");
-    }
 
-    // Copy the areas into the export object.  Make sufficient space for
-    // the largest possible number of entries.
-    exports.memTable = new ExportMemTable[gMem.eSpaces.size()+gMem.pSpaces.size()+1];
-    unsigned memTableCount = 0;
-
-    // Permanent spaces at higher level.  These have to have entries although
-    // only the mutable entries will be written.
-    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
-    {
-        PermanentMemSpace *space = *i;
-        if (copyScan.dependencies[space->moduleIdentifier])
+        SaveStateExport exports;
+        // Open the file.  This could quite reasonably fail if the path is wrong.
+        exports.exportFile = _tfopen(fileName, _T("wb"));
+        if (exports.exportFile == NULL)
         {
-            ExportMemTable*entry = &exports.memTable[memTableCount++];
+            errorMessage = "Cannot open save file";
+            errCode = ERRORNUMBER;
+            if (debugOptions & DEBUG_SAVING)
+                Log("SAVE: Cannot open save file.\n");
+            return;
+        }
+
+        // Scan over the permanent mutable area copying all reachable data that is
+        // not in a lower hierarchy into new permanent segments.
+        CopyScan copyScan;
+        // Set the dependencies.
+        copyScan.dependencies[exportSignature] = true; // Always include the executable
+        // Include any existing states at a higher level
+        for (unsigned i = 0; i < newHierarchy - 1; i++)
+            copyScan.dependencies[hierarchyTable[i].timeStamp] = true;
+        copyScan.initialise();
+
+        bool success = true;
+        try {
+            for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
+            {
+                PermanentMemSpace* space = *i;
+                if (space->isMutable && !space->noOverwrite && !space->byteOnly)
+                {
+                    if (debugOptions & DEBUG_SAVING)
+                        Log("SAVE: Scanning permanent mutable area %p allocated at %p size %lu\n",
+                            space, space->bottom, space->spaceSize());
+                    copyScan.ScanAddressesInRegion(space->bottom, space->top);
+                }
+            }
+        }
+        catch (MemoryException&)
+        {
+            success = false;
+            if (debugOptions & DEBUG_SAVING)
+                Log("SAVE: Scan of permanent mutable area raised memory exception.\n");
+        }
+
+        // Copy the areas into the export object.  Make sufficient space for
+        // the largest possible number of entries.
+        exports.memTable = new ExportMemTable[gMem.eSpaces.size() + gMem.pSpaces.size() + 1];
+        unsigned memTableCount = 0;
+
+        // Permanent spaces at higher level.  These have to have entries although
+        // only the mutable entries will be written.
+        for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
+        {
+            PermanentMemSpace* space = *i;
+            if (copyScan.dependencies[space->moduleIdentifier])
+            {
+                ExportMemTable* entry = &exports.memTable[memTableCount++];
+                entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
+                entry->mtLength = (space->topPointer - space->bottom) * sizeof(PolyWord);
+                entry->mtIndex = space->index;
+                entry->mtFlags = 0;
+                entry->mtModId = space->moduleIdentifier;
+                if (space->isMutable)
+                {
+                    entry->mtFlags |= MTF_WRITEABLE;
+                    if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
+                    if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
+                }
+                if (space->isCode)
+                    entry->mtFlags |= MTF_EXECUTABLE;
+            }
+        }
+        unsigned permanentEntries = memTableCount; // Remember where new entries start.
+
+        exports.exportModId = copyScan.extractHash();
+
+        // Newly created spaces.
+        for (std::vector<PermanentMemSpace*>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
+        {
+            ExportMemTable* entry = &exports.memTable[memTableCount++];
+            PermanentMemSpace* space = *i;
             entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
-            entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
+            entry->mtLength = (space->topPointer - space->bottom) * sizeof(PolyWord);
             entry->mtIndex = space->index;
             entry->mtFlags = 0;
-            entry->mtModId = space->moduleIdentifier;
+            entry->mtModId = exports.exportModId;
             if (space->isMutable)
             {
                 entry->mtFlags |= MTF_WRITEABLE;
@@ -528,182 +553,163 @@ void SaveRequest::Perform()
             if (space->isCode)
                 entry->mtFlags |= MTF_EXECUTABLE;
         }
-    }
-    unsigned permanentEntries = memTableCount; // Remember where new entries start.
 
-    exports.exportModId = copyScan.extractHash();
+        exports.memTableEntries = memTableCount;
 
-    // Newly created spaces.
-    for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
-    {
-        ExportMemTable*entry = &exports.memTable[memTableCount++];
-        PermanentMemSpace *space = *i;
-        entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
-        entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
-        entry->mtIndex = space->index;
-        entry->mtFlags = 0;
-        entry->mtModId = exports.exportModId;
-        if (space->isMutable)
+        if (debugOptions & DEBUG_SAVING)
+            Log("SAVE: Updating references to moved objects.\n");
+        // We always switch to the permanent space even if there's been a
+        // failure since it is possible to re-save.
+        switchLocalsToPermanent();
+
+        // Update the global memory space table.  Old segments at the same level
+        // or lower are removed.  The new segments become permanent.
+        // Try to promote the spaces even if we've had a failure because export
+        // spaces are deleted in ~CopyScan and we may have already copied
+        // some objects there.
+        if (debugOptions & DEBUG_SAVING)
+            Log("SAVE: Promoting export spaces to permanent spaces.\n");
+        // Remove any deeper entries from the hierarchy table.
+        for (unsigned i = newHierarchy - 1; i < hierarchyTable.size(); i++)
         {
-            entry->mtFlags |= MTF_WRITEABLE;
-            if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
-            if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
+            if (!gMem.DemoteOldPermanentSpaces(hierarchyTable[i].timeStamp))
+            {
+                errorMessage = "Out of Memory";
+                errCode = NOMEMORY;
+                if (debugOptions & DEBUG_SAVING)
+                    Log("SAVE: Unable to demote old spaces.\n");
+            }
         }
-        if (space->isCode)
-            entry->mtFlags |= MTF_EXECUTABLE;
-    }
+        hierarchyTable.resize(newHierarchy - 1);
 
-    exports.memTableEntries = memTableCount;
-
-    if (debugOptions & DEBUG_SAVING)
-        Log("SAVE: Updating references to moved objects.\n");
-    // We always switch to the permanent space even if there's been a
-    // failure since it is possible to re-save.
-    switchLocalsToPermanent();
-
-    // Update the global memory space table.  Old segments at the same level
-    // or lower are removed.  The new segments become permanent.
-    // Try to promote the spaces even if we've had a failure because export
-    // spaces are deleted in ~CopyScan and we may have already copied
-    // some objects there.
-    if (debugOptions & DEBUG_SAVING)
-        Log("SAVE: Promoting export spaces to permanent spaces.\n");
-    // Remove any deeper entries from the hierarchy table.
-    for (unsigned i = newHierarchy - 1; i < hierarchyTable.size(); i++)
-    {
-        if (!gMem.DemoteOldPermanentSpaces(hierarchyTable[i].timeStamp))
+        if (!gMem.PromoteNewExportSpaces(exports.exportModId) || !success)
         {
             errorMessage = "Out of Memory";
             errCode = NOMEMORY;
             if (debugOptions & DEBUG_SAVING)
-                Log("SAVE: Unable to demote old spaces.\n");
+                Log("SAVE: Unable to promote export spaces.\n");
+            return;
         }
-    }
-    hierarchyTable.resize(newHierarchy - 1);
 
-    if (!gMem.PromoteNewExportSpaces(exports.exportModId) || ! success)
-    {
-        errorMessage = "Out of Memory";
-        errCode = NOMEMORY;
         if (debugOptions & DEBUG_SAVING)
-            Log("SAVE: Unable to promote export spaces.\n");
-        return;
-    }
+            Log("SAVE: Writing out data.\n");
 
-    if (debugOptions & DEBUG_SAVING)
-        Log("SAVE: Writing out data.\n");
+        // TODO: We should handle write failures e.g. if the disc becomes full.
 
-    // TODO: We should handle write failures e.g. if the disc becomes full.
-
-    // Write out the file header.
-    SavedStateHeader saveHeader;
-    memset(&saveHeader, 0, sizeof(saveHeader));
-    saveHeader.headerLength = sizeof(saveHeader);
-    memcpy(saveHeader.headerSignature,
-        SAVEDSTATESIGNATURE, sizeof(saveHeader.headerSignature));
-    saveHeader.headerVersion = SAVEDSTATEVERSION;
-    saveHeader.segmentDescrLength = sizeof(SavedStateSegmentDescr);
-    if (newHierarchy == 1)
-        saveHeader.parentTimeStamp = exportSignature;
-    else
-    {
-        saveHeader.parentTimeStamp = hierarchyTable[newHierarchy-2].timeStamp;
-        saveHeader.parentNameEntry = sizeof(TCHAR); // Always the first entry.
-    }
-    saveHeader.timeStamp = copyScan.extractHash();
-    saveHeader.segmentDescrCount = exports.memTableEntries; // One segment for each space.
-#ifdef POLYML32IN64
-    saveHeader.originalBaseAddr = globalHeapBase;
-#endif
-    // Write out the header.
-    fwrite(&saveHeader, sizeof(saveHeader), 1, exports.exportFile);
-
-    // We need a segment header for each permanent area whether it is
-    // actually in this file or not.
-    SavedStateSegmentDescr *descrs = new SavedStateSegmentDescr [exports.memTableEntries];
-
-    for (unsigned j = 0; j < exports.memTableEntries; j++)
-    {
-        ExportMemTable*entry = &exports.memTable[j];
-        memset(&descrs[j], 0, sizeof(SavedStateSegmentDescr));
-        descrs[j].relocationSize = sizeof(RelocationEntry);
-        descrs[j].segmentIndex = (unsigned)entry->mtIndex;
-        descrs[j].segmentSize = entry->mtLength; // Set this even if we don't write it.
-        descrs[j].moduleId = entry->mtModId;
-        if (entry->mtFlags & MTF_WRITEABLE)
+        // Write out the file header.
+        SavedStateHeader saveHeader;
+        memset(&saveHeader, 0, sizeof(saveHeader));
+        saveHeader.headerLength = sizeof(saveHeader);
+        memcpy(saveHeader.headerSignature,
+            SAVEDSTATESIGNATURE, sizeof(saveHeader.headerSignature));
+        saveHeader.headerVersion = SAVEDSTATEVERSION;
+        saveHeader.segmentDescrLength = sizeof(SavedStateSegmentDescr);
+        if (newHierarchy == 1)
+            saveHeader.parentTimeStamp = exportSignature;
+        else
         {
-            descrs[j].segmentFlags |= SSF_WRITABLE;
-            if (entry->mtFlags & MTF_NO_OVERWRITE)
-                descrs[j].segmentFlags |= SSF_NOOVERWRITE;
-            if (j < permanentEntries && (entry->mtFlags & MTF_NO_OVERWRITE) == 0)
-                descrs[j].segmentFlags |= SSF_OVERWRITE;
-            if (entry->mtFlags & MTF_BYTES)
-                descrs[j].segmentFlags |= SSF_BYTES;
+            saveHeader.parentTimeStamp = hierarchyTable[newHierarchy - 2].timeStamp;
+            saveHeader.parentNameEntry = sizeof(TCHAR); // Always the first entry.
         }
-        if (entry->mtFlags & MTF_EXECUTABLE)
-            descrs[j].segmentFlags |= SSF_CODE;
-    }
-    // Write out temporarily. Will be overwritten at the end.
-    saveHeader.segmentDescr = ftell(exports.exportFile);
-    fwrite(descrs, sizeof(SavedStateSegmentDescr), exports.memTableEntries, exports.exportFile);
+        saveHeader.timeStamp = copyScan.extractHash();
+        saveHeader.segmentDescrCount = exports.memTableEntries; // One segment for each space.
+#ifdef POLYML32IN64
+        saveHeader.originalBaseAddr = globalHeapBase;
+#endif
+        // Write out the header.
+        fwrite(&saveHeader, sizeof(saveHeader), 1, exports.exportFile);
 
-    // Write out the relocations and the data.
-    for (unsigned k = 1 /* Not IO area */; k < exports.memTableEntries; k++)
-    {
-        ExportMemTable*entry = &exports.memTable[k];
-        // Write out the contents if this is new or if it is a normal, overwritable
-        // mutable area.
-        if (k >= permanentEntries ||
-            (entry->mtFlags & (MTF_WRITEABLE|MTF_NO_OVERWRITE)) == MTF_WRITEABLE)
+        // We need a segment header for each permanent area whether it is
+        // actually in this file or not.
+        SavedStateSegmentDescr* descrs = new SavedStateSegmentDescr[exports.memTableEntries];
+
+        for (unsigned j = 0; j < exports.memTableEntries; j++)
         {
-            descrs[k].relocations = ftell(exports.exportFile);
-            // Have to write this out.
-            exports.relocationCount = 0;
-            // Create the relocation table.
-            char *start = (char*)entry->mtOriginalAddr;
-            char *end = start + entry->mtLength;
-            for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
+            ExportMemTable* entry = &exports.memTable[j];
+            memset(&descrs[j], 0, sizeof(SavedStateSegmentDescr));
+            descrs[j].relocationSize = sizeof(RelocationEntry);
+            descrs[j].segmentIndex = (unsigned)entry->mtIndex;
+            descrs[j].segmentSize = entry->mtLength; // Set this even if we don't write it.
+            descrs[j].moduleId = entry->mtModId;
+            if (entry->mtFlags & MTF_WRITEABLE)
             {
-                p++;
-                PolyObject *obj = (PolyObject*)p;
-                POLYUNSIGNED length = obj->Length();
-                // Now include all relocations rather than trying to sort them out when loading.
-                if (length != 0 && obj->IsCodeObject())
-                    machineDependent->ScanConstantsWithinCode(obj, &exports);
-                exports.relocateObject(obj);
-                p += length;
+                descrs[j].segmentFlags |= SSF_WRITABLE;
+                if (entry->mtFlags & MTF_NO_OVERWRITE)
+                    descrs[j].segmentFlags |= SSF_NOOVERWRITE;
+                if (j < permanentEntries && (entry->mtFlags & MTF_NO_OVERWRITE) == 0)
+                    descrs[j].segmentFlags |= SSF_OVERWRITE;
+                if (entry->mtFlags & MTF_BYTES)
+                    descrs[j].segmentFlags |= SSF_BYTES;
             }
-            descrs[k].relocationCount = exports.relocationCount;
-            // Write out the data.
-            descrs[k].segmentData = ftell(exports.exportFile);
-            fwrite(entry->mtOriginalAddr, entry->mtLength, 1, exports.exportFile);
-       }
-    }
+            if (entry->mtFlags & MTF_EXECUTABLE)
+                descrs[j].segmentFlags |= SSF_CODE;
+        }
+        // Write out temporarily. Will be overwritten at the end.
+        saveHeader.segmentDescr = ftell(exports.exportFile);
+        fwrite(descrs, sizeof(SavedStateSegmentDescr), exports.memTableEntries, exports.exportFile);
 
-    // If this is a child we need to write a string table containing the parent name.
-    if (newHierarchy > 1)
+        // Write out the relocations and the data.
+        for (unsigned k = 1 /* Not IO area */; k < exports.memTableEntries; k++)
+        {
+            ExportMemTable* entry = &exports.memTable[k];
+            // Write out the contents if this is new or if it is a normal, overwritable
+            // mutable area.
+            if (k >= permanentEntries ||
+                (entry->mtFlags & (MTF_WRITEABLE | MTF_NO_OVERWRITE)) == MTF_WRITEABLE)
+            {
+                descrs[k].relocations = ftell(exports.exportFile);
+                // Have to write this out.
+                exports.relocationCount = 0;
+                // Create the relocation table.
+                char* start = (char*)entry->mtOriginalAddr;
+                char* end = start + entry->mtLength;
+                for (PolyWord* p = (PolyWord*)start; p < (PolyWord*)end; )
+                {
+                    p++;
+                    PolyObject* obj = (PolyObject*)p;
+                    POLYUNSIGNED length = obj->Length();
+                    // Now include all relocations rather than trying to sort them out when loading.
+                    if (length != 0 && obj->IsCodeObject())
+                        machineDependent->ScanConstantsWithinCode(obj, &exports);
+                    exports.relocateObject(obj);
+                    p += length;
+                }
+                descrs[k].relocationCount = exports.relocationCount;
+                // Write out the data.
+                descrs[k].segmentData = ftell(exports.exportFile);
+                fwrite(entry->mtOriginalAddr, entry->mtLength, 1, exports.exportFile);
+            }
+        }
+
+        // If this is a child we need to write a string table containing the parent name.
+        if (newHierarchy > 1)
+        {
+            saveHeader.stringTable = ftell(exports.exportFile);
+            _fputtc(0, exports.exportFile); // First byte of string table is zero
+            _fputts(hierarchyTable[newHierarchy - 2].fileName.c_str(), exports.exportFile);
+            _fputtc(0, exports.exportFile); // A terminating null.
+            saveHeader.stringTableSize = (_tcslen(hierarchyTable[newHierarchy - 2].fileName.c_str()) + 2) * sizeof(TCHAR);
+        }
+
+        // Rewrite the header and the segment tables now they're complete.
+        fseek(exports.exportFile, 0, SEEK_SET);
+        fwrite(&saveHeader, sizeof(saveHeader), 1, exports.exportFile);
+        fwrite(descrs, sizeof(SavedStateSegmentDescr), exports.memTableEntries, exports.exportFile);
+
+        if (debugOptions & DEBUG_SAVING)
+            Log("SAVE: Writing complete.\n");
+
+        // Add an entry to the hierarchy table for this file.
+        hierarchyTable.push_back(HierarchyTable(fileName, saveHeader.timeStamp));
+
+        delete[](descrs);
+
+        CheckMemory();
+    }
+    catch (const std::bad_alloc&)
     {
-        saveHeader.stringTable = ftell(exports.exportFile);
-        _fputtc(0, exports.exportFile); // First byte of string table is zero
-        _fputts(hierarchyTable[newHierarchy-2].fileName.c_str(), exports.exportFile);
-        _fputtc(0, exports.exportFile); // A terminating null.
-        saveHeader.stringTableSize = (_tcslen(hierarchyTable[newHierarchy-2].fileName.c_str()) + 2)*sizeof(TCHAR);
+        errorMessage = "Insufficient Memory: C++ allocation failed";
     }
-
-    // Rewrite the header and the segment tables now they're complete.
-    fseek(exports.exportFile, 0, SEEK_SET);
-    fwrite(&saveHeader, sizeof(saveHeader), 1, exports.exportFile);
-    fwrite(descrs, sizeof(SavedStateSegmentDescr), exports.memTableEntries, exports.exportFile);
-
-    if (debugOptions & DEBUG_SAVING)
-        Log("SAVE: Writing complete.\n");
-
-    // Add an entry to the hierarchy table for this file.
-    hierarchyTable.push_back(HierarchyTable(fileName, saveHeader.timeStamp));
-
-    delete[](descrs);
-
-    CheckMemory();
 }
 
 // Write a saved state file.
@@ -732,6 +738,7 @@ POLYUNSIGNED PolySaveState(POLYUNSIGNED threadId, POLYUNSIGNED fileName, POLYUNS
         if (request.errorMessage)
             raise_syscall(taskData, request.errorMessage, request.errCode);
     }
+    catch (const std::bad_alloc&) { setMemoryException(taskData); }
     catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
@@ -774,34 +781,40 @@ public:
 // Called by the main thread once all the ML threads have stopped.
 void StateLoader::Perform(void)
 {
-    // Copy the first file name into the buffer.
-    if (isHierarchy)
-    {
-        if (ML_Cons_Cell::IsNull(fileNameList->Word()))
+    try {
+        // Copy the first file name into the buffer.
+        if (isHierarchy)
         {
-            errorResult = "Hierarchy list is empty";
-            return;
+            if (ML_Cons_Cell::IsNull(fileNameList->Word()))
+            {
+                errorResult = "Hierarchy list is empty";
+                return;
+            }
+            ML_Cons_Cell* p = DEREFLISTHANDLE(fileNameList);
+            fileName = Poly_string_to_T_alloc(p->h);
+            if (fileName == NULL)
+            {
+                errorResult = "Insufficient memory";
+                errNumber = NOMEMORY;
+                return;
+            }
+            (void)LoadFile(true, ModuleId(), p->t);
         }
-        ML_Cons_Cell *p = DEREFLISTHANDLE(fileNameList);
-        fileName = Poly_string_to_T_alloc(p->h);
-        if (fileName == NULL)
+        else
         {
-            errorResult = "Insufficient memory";
-            errNumber = NOMEMORY;
-            return;
+            fileName = Poly_string_to_T_alloc(fileNameList->Word());
+            if (fileName == NULL)
+            {
+                errorResult = "Insufficient memory";
+                errNumber = NOMEMORY;
+                return;
+            }
+            (void)LoadFile(true, ModuleId(), TAGGED(0));
         }
-        (void)LoadFile(true, ModuleId(), p->t);
     }
-    else
+    catch (const std::bad_alloc&)
     {
-        fileName = Poly_string_to_T_alloc(fileNameList->Word());
-        if (fileName == NULL)
-        {
-            errorResult = "Insufficient memory";
-            errNumber = NOMEMORY;
-            return;
-        }
-        (void)LoadFile(true, ModuleId(), TAGGED(0));
+        errorResult = "Insufficient Memory: C++ allocation failed";
     }
 }
 
@@ -1151,6 +1164,7 @@ POLYUNSIGNED PolyLoadState(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     try {
         LoadState(taskData, false, pushedArg);
     }
+    catch (const std::bad_alloc&) { setMemoryException(taskData); }
     catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
@@ -1170,6 +1184,7 @@ POLYUNSIGNED PolyLoadHierarchy(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     try {
          LoadState(taskData, true, pushedArg);
     }
+    catch (const std::bad_alloc&) { setMemoryException(taskData); }
     catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
@@ -1215,6 +1230,7 @@ POLYUNSIGNED PolyShowHierarchy(POLYUNSIGNED threadId)
     try {
         result = ShowHierarchy(taskData);
     }
+    catch (const std::bad_alloc&) { setMemoryException(taskData); }
     catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
@@ -1292,6 +1308,7 @@ POLYUNSIGNED PolyRenameParent(POLYUNSIGNED threadId, POLYUNSIGNED childName, POL
     try {
         RenameParent(taskData, PolyWord::FromUnsigned(childName), PolyWord::FromUnsigned(parentName));
     }
+    catch (const std::bad_alloc&) { setMemoryException(taskData); }
     catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
@@ -1376,6 +1393,7 @@ POLYUNSIGNED PolyShowParent(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     try {
         result = ShowParent(taskData, pushedArg);
     }
+    catch (const std::bad_alloc&) { setMemoryException(taskData); }
     catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);

@@ -72,11 +72,6 @@
 #include <tchar.h>
 #define ERRORNUMBER _doserrno
 #define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
-#ifdef _UNICODE
-#define std_tstring std::wstring
-#else
-#define std_tstring std::string
-#endif
 #else
 typedef char TCHAR;
 #define _T(x) x
@@ -86,7 +81,6 @@ typedef char TCHAR;
 #define _fputts fputs
 #define ERRORNUMBER errno
 #define NOMEMORY ENOMEM
-#define std_tstring std::string
 #endif
 
 extern "C" {
@@ -472,29 +466,35 @@ void ModuleExporter::RunModuleExport(PolyObject* rootFn)
 
 void ModuleExporter::Perform()
 {
+    try {
 #if (defined(_WIN32) && defined(UNICODE))
-    exportFile = _wfopen(fileName, L"wb");
+        exportFile = _wfopen(fileName, L"wb");
 #else
-    exportFile = fopen(fileName, "wb");
+        exportFile = fopen(fileName, "wb");
 #endif
-    if (exportFile == NULL)
-    {
-        errorMessage = "Cannot open export file";
-        errCode = ERRORNUMBER;
-        return;
+        if (exportFile == NULL)
+        {
+            errorMessage = "Cannot open export file";
+            errCode = ERRORNUMBER;
+            return;
+        }
+        // RunExport copies everything reachable from the root, except data from
+        // the executable because we've set the hierarchy to 1, using CopyScan.
+        // It builds the tables in the export data structure then calls exportStore
+        // to actually write the data.
+        if (!root->Word().IsDataPtr())
+        {
+            // If we have a completely empty module the list may be null.
+            // This needs to be dealt with at a higher level.
+            errorMessage = "Module root is not an address";
+            return;
+        }
+        RunModuleExport(root->WordP());
     }
-    // RunExport copies everything reachable from the root, except data from
-    // the executable because we've set the hierarchy to 1, using CopyScan.
-    // It builds the tables in the export data structure then calls exportStore
-    // to actually write the data.
-    if (!root->Word().IsDataPtr())
+    catch (const std::bad_alloc&)
     {
-        // If we have a completely empty module the list may be null.
-        // This needs to be dealt with at a higher level.
-        errorMessage = "Module root is not an address";
-        return;
+        errorMessage = "Insufficient Memory : C++ allocation failed";
     }
-    RunModuleExport(root->WordP());
 }
 
 static Handle moduleIdAsByteVector(TaskData* taskData, struct _moduleId modId)
@@ -547,8 +547,7 @@ POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYU
             }
             class ModIdAndName mn;
             mn.modId = asVector.mId;
-            TempString depName(p->Get(1));
-            mn.modName = std_tstring(depName);
+            mn.modName = PolyStringToTString(p->Get(1));
             storer.dependencies.push_back(mn);
         }
 
@@ -558,6 +557,7 @@ POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYU
 
         result = moduleIdAsByteVector(taskData, storer.getExportId());
     }
+    catch (const std::bad_alloc&) { setMemoryException(taskData); }
     catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
@@ -570,14 +570,14 @@ POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYU
 class ModuleLoader : public MainThreadRequest
 {
 public:
-    ModuleLoader(TaskData* taskData, const TCHAR* file) :
+    ModuleLoader(TaskData* taskData, const std_tstring file) :
         MainThreadRequest(MTP_LOADMODULE), callerTaskData(taskData), fileName(file),
         errorResult(NULL), errNumber(0), rootHandle(0) {}
 
     virtual void Perform();
 
     TaskData* callerTaskData;
-    const TCHAR* fileName;
+    std_tstring fileName;
     const char* errorResult;
     int errNumber;
     Handle rootHandle;
@@ -596,177 +596,183 @@ public:
 
 void ModuleLoader::Perform()
 {
-    AutoClose loadFile(_tfopen(fileName, _T("rb")));
-    if ((FILE*)loadFile == NULL)
-    {
-        errorResult = "Cannot open load file";
-        errNumber = ERRORNUMBER;
-        return;
-    }
-
-    ModuleHeader header;
-    // Read the header and check the signature.
-    if (fread(&header, sizeof(ModuleHeader), 1, loadFile) != 1)
-    {
-        errorResult = "Unable to load header";
-        return;
-    }
-    if (strncmp(header.headerSignature, MODULESIGNATURE, sizeof(header.headerSignature)) != 0)
-    {
-        errorResult = "File is not a Poly/ML module";
-        return;
-    }
-    if (header.headerVersion != MODULEVERSION ||
-        header.headerLength != sizeof(ModuleHeader) ||
-        header.segmentDescrLength != sizeof(ModuleSegmentDescr))
-    {
-        errorResult = "Unsupported version of module file";
-        return;
-    }
-    // Check to see if this is already loaded
-    for (std::vector<ModuleId>::iterator i = loadedModules.begin(); i < loadedModules.end(); i++)
-    {
-        if (*i == header.thisModuleId)
+    try {
+        AutoClose loadFile(_tfopen(fileName.c_str(), _T("rb")));
+        if ((FILE*)loadFile == NULL)
         {
-            errorResult = "A module with this signature is already loaded";
+            errorResult = "Cannot open load file";
+            errNumber = ERRORNUMBER;
             return;
         }
-    }
-    if (ModuleId(header.executableModId) != exportSignature)
-    {
-        // Time-stamp does not match executable.
-        errorResult =
-            "Module was exported from a different executable or the executable has changed";
-        return;
-    }
 
-    // We could check the dependency table at this point but other than perhaps improving
-    // the error message if a dependency is missing there's no point.
- 
-    // Read all the descriptors first.  We need to be able to seek to the actual data for
-    // each space as we create them.
-    std::vector<ModuleSegmentDescr> descrs;
-    descrs.reserve(header.segmentDescrCount);
-    if (fseek(loadFile, header.segmentDescr, SEEK_SET) != 0)
-    {
-        errorResult = "Unable to read segment descriptors";
-        return;
-    }
-    for (unsigned i = 0; i < header.segmentDescrCount; i++)
-    {
-        ModuleSegmentDescr msd;
-        if (fread(&msd, sizeof(ModuleSegmentDescr), 1, loadFile) != 1)
+        ModuleHeader header;
+        // Read the header and check the signature.
+        if (fread(&header, sizeof(ModuleHeader), 1, loadFile) != 1)
+        {
+            errorResult = "Unable to load header";
+            return;
+        }
+        if (strncmp(header.headerSignature, MODULESIGNATURE, sizeof(header.headerSignature)) != 0)
+        {
+            errorResult = "File is not a Poly/ML module";
+            return;
+        }
+        if (header.headerVersion != MODULEVERSION ||
+            header.headerLength != sizeof(ModuleHeader) ||
+            header.segmentDescrLength != sizeof(ModuleSegmentDescr))
+        {
+            errorResult = "Unsupported version of module file";
+            return;
+        }
+        // Check to see if this is already loaded
+        for (std::vector<ModuleId>::iterator i = loadedModules.begin(); i < loadedModules.end(); i++)
+        {
+            if (*i == header.thisModuleId)
+            {
+                errorResult = "A module with this signature is already loaded";
+                return;
+            }
+        }
+        if (ModuleId(header.executableModId) != exportSignature)
+        {
+            // Time-stamp does not match executable.
+            errorResult =
+                "Module was exported from a different executable or the executable has changed";
+            return;
+        }
+
+        // We could check the dependency table at this point but other than perhaps improving
+        // the error message if a dependency is missing there's no point.
+
+        // Read all the descriptors first.  We need to be able to seek to the actual data for
+        // each space as we create them.
+        std::vector<ModuleSegmentDescr> descrs;
+        descrs.reserve(header.segmentDescrCount);
+        if (fseek(loadFile, header.segmentDescr, SEEK_SET) != 0)
         {
             errorResult = "Unable to read segment descriptors";
             return;
         }
-        descrs.push_back(msd);
-    }
-
-    std::vector<ModuleLoadData> loadData;
-    loadData.reserve(header.segmentDescrCount);
-
-    // Read in and create the new segments first.  If we have problems,
-    // in particular if we have run out of memory, then it's easier to recover.
-    for(std::vector<ModuleSegmentDescr>::iterator descr = descrs.begin(); descr < descrs.end(); descr++)
-    {
-        MemSpace* space = gMem.SpaceForIndex(descr->segmentIndex, descr->moduleIden);
-        ModuleLoadData load;
-        load.relocationCount = descr->relocationCount;
-        load.relocations = descr->relocations;
-
-        if (descr->segmentData == 0)
-        { // No data - just an entry in the index.
-            if (space == NULL)
-            {
-                errorResult = "Required memory space is not present";
-                return;
-            }
-            load.targetAddr = space->bottom;
-        }
-        else
-        { // New segment.
-            if (space != NULL)
-            {
-                errorResult = "Memory space with this signature already exists";
-                return;
-            }
-            // Allocate memory for the new segment.
-            unsigned mFlags =
-                (descr->segmentFlags & MSF_WRITABLE ? MTF_WRITEABLE : 0) |
-                (descr->segmentFlags & MSF_NOOVERWRITE ? MTF_NO_OVERWRITE : 0) |
-                (descr->segmentFlags & MSF_BYTES ? MTF_BYTES : 0) |
-                (descr->segmentFlags & MSF_CODE ? MTF_EXECUTABLE : 0);
-            // TODO: This creates the new space as though it existed in the original executable.
-            // We need to distinguish it somehow so we know which module it came from.
-            PermanentMemSpace* newSpace =
-                gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, header.thisModuleId);
-            if (newSpace == 0)
-            {
-                errorResult = "Unable to allocate memory";
-                return;
-            }
-            if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0)
-            {
-                errorResult = "Unable to seek to segment";
-                return;
-            }
-            if (readData(newSpace->bottom, descr->segmentSize, loadFile) != 1)
-            {
-                errorResult = "Unable to read segment";
-                return;
-            }
-            if (newSpace->isMutable && (descr->segmentFlags & MSF_BYTES) != 0)
-            {
-                ClearVolatile cwbr;
-                cwbr.ScanAddressesInRegion(newSpace->bottom, (PolyWord*)((byte*)newSpace->bottom + descr->segmentSize));
-            }
-            load.targetAddr = newSpace->bottom;
-        }
-        loadData.push_back(load);
-    }
-    // Now deal with relocation.
-    for (std::vector<ModuleLoadData>::iterator i = loadData.begin(); i < loadData.end(); i++)
-    {
-        PolyWord* baseAddr = i->targetAddr;
-        ASSERT(baseAddr != NULL); // We should have created it.
-        // Process explicit relocations.
-        // If we get errors just skip the error and continue rather than leave
-        // everything in an unstable state.
-        if (i->relocations)
+        for (unsigned i = 0; i < header.segmentDescrCount; i++)
         {
-            if (fseek(loadFile, i->relocations, SEEK_SET) != 0)
-                errorResult = "Unable to read relocation segment";
-            for (unsigned k = 0; k < i->relocationCount; k++)
+            ModuleSegmentDescr msd;
+            if (fread(&msd, sizeof(ModuleSegmentDescr), 1, loadFile) != 1)
             {
-                ModRelocationEntry reloc;
-                if (fread(&reloc, sizeof(reloc), 1, loadFile) != 1)
+                errorResult = "Unable to read segment descriptors";
+                return;
+            }
+            descrs.push_back(msd);
+        }
+
+        std::vector<ModuleLoadData> loadData;
+        loadData.reserve(header.segmentDescrCount);
+
+        // Read in and create the new segments first.  If we have problems,
+        // in particular if we have run out of memory, then it's easier to recover.
+        for (std::vector<ModuleSegmentDescr>::iterator descr = descrs.begin(); descr < descrs.end(); descr++)
+        {
+            MemSpace* space = gMem.SpaceForIndex(descr->segmentIndex, descr->moduleIden);
+            ModuleLoadData load;
+            load.relocationCount = descr->relocationCount;
+            load.relocations = descr->relocations;
+
+            if (descr->segmentData == 0)
+            { // No data - just an entry in the index.
+                if (space == NULL)
+                {
+                    errorResult = "Required memory space is not present";
+                    return;
+                }
+                load.targetAddr = space->bottom;
+            }
+            else
+            { // New segment.
+                if (space != NULL)
+                {
+                    errorResult = "Memory space with this signature already exists";
+                    return;
+                }
+                // Allocate memory for the new segment.
+                unsigned mFlags =
+                    (descr->segmentFlags & MSF_WRITABLE ? MTF_WRITEABLE : 0) |
+                    (descr->segmentFlags & MSF_NOOVERWRITE ? MTF_NO_OVERWRITE : 0) |
+                    (descr->segmentFlags & MSF_BYTES ? MTF_BYTES : 0) |
+                    (descr->segmentFlags & MSF_CODE ? MTF_EXECUTABLE : 0);
+                // TODO: This creates the new space as though it existed in the original executable.
+                // We need to distinguish it somehow so we know which module it came from.
+                PermanentMemSpace* newSpace =
+                    gMem.AllocateNewPermanentSpace(descr->segmentSize, mFlags, descr->segmentIndex, header.thisModuleId);
+                if (newSpace == 0)
+                {
+                    errorResult = "Unable to allocate memory";
+                    return;
+                }
+                if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0)
+                {
+                    errorResult = "Unable to seek to segment";
+                    return;
+                }
+                if (readData(newSpace->bottom, descr->segmentSize, loadFile) != 1)
+                {
+                    errorResult = "Unable to read segment";
+                    return;
+                }
+                if (newSpace->isMutable && (descr->segmentFlags & MSF_BYTES) != 0)
+                {
+                    ClearVolatile cwbr;
+                    cwbr.ScanAddressesInRegion(newSpace->bottom, (PolyWord*)((byte*)newSpace->bottom + descr->segmentSize));
+                }
+                load.targetAddr = newSpace->bottom;
+            }
+            loadData.push_back(load);
+        }
+        // Now deal with relocation.
+        for (std::vector<ModuleLoadData>::iterator i = loadData.begin(); i < loadData.end(); i++)
+        {
+            PolyWord* baseAddr = i->targetAddr;
+            ASSERT(baseAddr != NULL); // We should have created it.
+            // Process explicit relocations.
+            // If we get errors just skip the error and continue rather than leave
+            // everything in an unstable state.
+            if (i->relocations)
+            {
+                if (fseek(loadFile, i->relocations, SEEK_SET) != 0)
                     errorResult = "Unable to read relocation segment";
-                byte* setAddress = (byte*)baseAddr + reloc.relocAddress;
-                ASSERT(reloc.targetSegment < header.segmentDescrCount);
-                byte* targetAddress = (byte*)loadData[reloc.targetSegment].targetAddr + reloc.targetAddress;
-                ScanAddress::SetConstantValue(setAddress, (PolyObject*)(targetAddress), reloc.relKind);
+                for (unsigned k = 0; k < i->relocationCount; k++)
+                {
+                    ModRelocationEntry reloc;
+                    if (fread(&reloc, sizeof(reloc), 1, loadFile) != 1)
+                        errorResult = "Unable to read relocation segment";
+                    byte* setAddress = (byte*)baseAddr + reloc.relocAddress;
+                    ASSERT(reloc.targetSegment < header.segmentDescrCount);
+                    byte* targetAddress = (byte*)loadData[reloc.targetSegment].targetAddr + reloc.targetAddress;
+                    ScanAddress::SetConstantValue(setAddress, (PolyObject*)(targetAddress), reloc.relKind);
+                }
             }
         }
-    }
 
-    // Get the root address.  Push this to the caller's save vec.  If we put the
-    // newly created areas into local memory we could get a GC as soon as we
-    // complete this root request.
+        // Get the root address.  Push this to the caller's save vec.  If we put the
+        // newly created areas into local memory we could get a GC as soon as we
+        // complete this root request.
+        {
+            ASSERT(header.rootSegment < header.segmentDescrCount);
+            PolyWord* baseAddr = loadData[header.rootSegment].targetAddr;
+            rootHandle = callerTaskData->saveVec.push((PolyObject*)((byte*)baseAddr + header.rootOffset));
+        }
+        loadedModId = header.thisModuleId;
+
+        // Add to the loaded module table
+        loadedModules.push_back(header.thisModuleId);
+    }
+    catch (const std::bad_alloc&)
     {
-        ASSERT(header.rootSegment < header.segmentDescrCount);
-        PolyWord* baseAddr = loadData[header.rootSegment].targetAddr;
-        rootHandle = callerTaskData->saveVec.push((PolyObject*)((byte*)baseAddr + header.rootOffset));
+        errorResult = "Insufficient Memory : C++ allocation failed";
     }
-    loadedModId = header.thisModuleId;
-
-    // Add to the loaded module table
-    loadedModules.push_back(header.thisModuleId);
 }
 
 static Handle LoadModule(TaskData* taskData, Handle args)
 {
-    TempString fileName(args->Word());
+    std_tstring fileName = PolyStringToTString(args->Word());
     ModuleLoader loader(taskData, fileName);
     processes->MakeRootRequest(taskData, &loader);
 
@@ -776,11 +782,11 @@ static Handle LoadModule(TaskData* taskData, Handle args)
             raise_fail(taskData, loader.errorResult);
         else
         {
-            AutoFree<char*> buff((char*)malloc(strlen(loader.errorResult) + 2 + _tcslen(loader.fileName) * sizeof(TCHAR) + 1));
+            AutoFree<char*> buff((char*)malloc(strlen(loader.errorResult) + 2 + loader.fileName.size() * sizeof(TCHAR) + 1));
 #if (defined(_WIN32) && defined(UNICODE))
-            sprintf(buff, "%s: %S", loader.errorResult, loader.fileName);
+            sprintf(buff, "%s: %S", loader.errorResult, loader.fileName.c_str());
 #else
-            sprintf(buff, "%s: %s", loader.errorResult, loader.fileName);
+            sprintf(buff, "%s: %s", loader.errorResult, loader.fileName.c_str());
 #endif
             raise_syscall(taskData, buff, loader.errNumber);
         }
@@ -806,6 +812,7 @@ POLYUNSIGNED PolyLoadModule(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     try {
         result = LoadModule(taskData, pushedArg);
     }
+    catch (const std::bad_alloc&) { setMemoryException(taskData); }
     catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
@@ -901,11 +908,8 @@ POLYUNSIGNED PolyShowLoadedModules(POLYUNSIGNED threadId)
 
 static Handle GetModInfo(TaskData* taskData, Handle hFileName)
 {
-    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(hFileName->Word()));
-    if (fileNameBuff == NULL)
-        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-
-    AutoClose loadFile(_tfopen(fileNameBuff, _T("rb")));
+    std_tstring fileName = PolyStringToTString(hFileName->Word());
+    AutoClose loadFile(_tfopen(fileName.c_str(), _T("rb")));
     if ((FILE*)loadFile == NULL)
         raise_syscall(taskData, "Cannot open file", ERRORNUMBER); // The string will be set from the error code
     ModuleHeader header;
@@ -989,7 +993,8 @@ POLYUNSIGNED PolyGetModuleInfo(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     try {
         result = GetModInfo(taskData, pushedArg);
     }
-    catch (...) {} // If an ML exception is raised
+    catch (const std::bad_alloc&) { setMemoryException(taskData); }
+    catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();

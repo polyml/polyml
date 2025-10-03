@@ -3,7 +3,7 @@
 
     Copyright (c) 2000-9
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2016-17
+    Further development Copyright David C.J. Matthews 2016-17, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -74,6 +74,11 @@ NORETURNFN(extern void raiseExceptionFailWithLocation(TaskData *taskData, const 
 // Syscall exception.  The errmsg argument is ignored and replaced with the standard string unless err is zero.
 NORETURNFN(extern void raiseSycallWithLocation(TaskData *taskData, const char *errmsg, int err, const char *file, int line));
 #define raise_syscall(taskData, errMsg, err) raiseSycallWithLocation(taskData, errMsg, err, __FILE__, __LINE__)
+
+// Set the exception packet as the result of a bad::alloc exception.
+// Does not throw a further C++ exception.
+extern void setMemoryExceptionWithLocation(TaskData* taskData, const char* file, int line);
+#define setMemoryException(taskData) setMemoryExceptionWithLocation(taskData, __FILE__, __LINE__)
 
 // Construct an exception packet for future use
 poly_exn *makeExceptionPacket(TaskData *taskData, int id);
