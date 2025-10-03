@@ -867,7 +867,9 @@ void StateExport::relocateObject(PolyObject* p)
         for (POLYUNSIGNED i = sizeof(uintptr_t) / sizeof(PolyWord); i < length; i++) relocateValue(p->Offset(i));
     }
     // Exporter::relocateObject clears weak mutable byte refs.  We mustn't do that
-    // because we're going to use the exported copy afterwards.  
+    // because we're going to use the exported copy afterwards.  Instead
+    // weak byte refs are cleared and external refs set after states
+    // and modules are loaded: ClearVolatile class.
     else if (!p->IsByteObject())
         Exporter::relocateObject(p);
 }
