@@ -89,6 +89,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetModuleDirectory(POLYUNSIGNED threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowLoadedModules(POLYUNSIGNED threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetModuleInfo(POLYUNSIGNED threadId, POLYUNSIGNED arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyReleaseModule(POLYUNSIGNED threadId, POLYUNSIGNED arg);
 }
 
 // This is probably generally useful so may be moved into
@@ -508,6 +509,20 @@ static Handle moduleIdAsByteVector(TaskData* taskData, struct _moduleId modId)
     return taskData->saveVec.push(C_string_to_Poly(taskData, asVector.chars, sizeof(struct _moduleId)));
 }
 
+static ModuleId moduleIdFromByteVector(TaskData* taskData, PolyWord p)
+{
+    union {
+        struct _moduleId mId;
+        char chars[sizeof(struct _moduleId)];
+    } asVector;
+    // Extract the module Id which is in Word8Vector.vector object.
+    PolyStringObject* str = (PolyStringObject*)p.AsObjPtr();
+    if (str->length != sizeof(struct _moduleId))
+        raise_fail(taskData, "Incorrect format for module ID");
+    memcpy(asVector.chars, str->chars, sizeof(struct _moduleId));
+    return ModuleId(asVector.mId);
+}
+
 // Store a module
 POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYUNSIGNED contents, POLYUNSIGNED depends)
 {
@@ -525,16 +540,8 @@ POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYU
         // Process the list of dependencies.  It is a list of moduleId*string pairs.
         for (PolyWord l = PolyWord::FromUnsigned(depends); l.IsDataPtr(); l = ((ML_Cons_Cell*)l.AsObjPtr())->t)
         {
-            PolyObject* p = ((ML_Cons_Cell*)l.AsObjPtr())->h.AsObjPtr();
-            union {
-                struct _moduleId mId;
-                char chars[sizeof(struct _moduleId)];
-            } asVector;
-            // Extract the module Id which is in Word8Vector.vector object.
-            PolyStringObject* str = (PolyStringObject*)p->Get(0).AsObjPtr();
-            if (str->length != sizeof(struct _moduleId))
-                raise_fail(taskData, "Incorrect format for module ID");
-            memcpy(asVector.chars, str->chars, sizeof(struct _moduleId));
+            PolyObject *p = ((ML_Cons_Cell*)l.AsObjPtr())->h.AsObjPtr();
+            ModuleId mId = moduleIdFromByteVector(taskData, p->Get(0));
             // Check that this module is currently loaded.  This isn't strictly necessary
             // but it's almost certainly a mistake.
             std::vector<ModuleId>::iterator i = loadedModules.begin();
@@ -542,11 +549,11 @@ POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYU
             {
                 if (i == loadedModules.end())
                     raise_fail(taskData, "A dependency is listed but the module is not loaded");
-                if (*i == asVector.mId) break;
+                if (*i == mId) break;
                 i++;
             }
             class ModIdAndName mn;
-            mn.modId = asVector.mId;
+            mn.modId = mId;
             mn.modName = PolyStringToTString(p->Get(1));
             storer.dependencies.push_back(mn);
         }
@@ -1002,6 +1009,66 @@ POLYUNSIGNED PolyGetModuleInfo(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     else return result->Word().AsUnsigned();
 }
 
+class ModuleReleaser : public MainThreadRequest
+{
+public:
+    ModuleReleaser(ModuleId mId) : MainThreadRequest(MTP_RELEASEMODULE), moduleId(mId), errorMessage(0) {
+    }
+    virtual void Perform() override;
+
+    ModuleId moduleId;
+    const char* errorMessage;
+
+};
+
+void ModuleReleaser::Perform()
+{
+    try {
+        std::vector<ModuleId>::iterator mod = loadedModules.begin();
+        while (true)
+        {
+            if (mod == loadedModules.end())
+            {
+                errorMessage = "Module is not loaded";
+                return;
+            }
+            if (*mod == moduleId)
+                break;
+            else mod++;
+        }
+        loadedModules.erase(mod);
+        if (!gMem.DemoteOldPermanentSpaces(moduleId))
+            errorMessage = "Insufficient Memory";
+    }
+    catch (const std::bad_alloc&)
+    {
+        errorMessage = "Insufficient Memory : C++ allocation failed";
+    }
+}
+
+POLYUNSIGNED PolyReleaseModule(POLYUNSIGNED threadId, POLYUNSIGNED arg)
+{
+    TaskData* taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+
+    try {
+        ModuleId modId = moduleIdFromByteVector(taskData, PolyWord::FromUnsigned(arg));
+        ModuleReleaser modRelease(modId);
+        processes->MakeRootRequest(taskData, &modRelease);
+        if (modRelease.errorMessage != 0)
+            raise_fail(taskData, modRelease.errorMessage);
+    }
+    catch (const std::bad_alloc&) { setMemoryException(taskData); }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
 
 struct _entrypts modulesEPT[] =
 {
@@ -1010,6 +1077,7 @@ struct _entrypts modulesEPT[] =
     { "PolyGetModuleDirectory",         (polyRTSFunction)&PolyGetModuleDirectory },
     { "PolyShowLoadedModules",          (polyRTSFunction)&PolyShowLoadedModules },
     { "PolyGetModuleInfo",              (polyRTSFunction)&PolyGetModuleInfo },
+    { "PolyReleaseModule",              (polyRTSFunction)&PolyReleaseModule },
 
     { NULL, NULL } // End of list.
 };

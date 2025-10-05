@@ -217,6 +217,7 @@ extern enum _mainThreadPhase {
     MTP_CYGWINSPAWN,
     MTP_STOREMODULE,
     MTP_LOADMODULE,
+    MTP_RELEASEMODULE,
     MTP_MAXENTRY
 } mainThreadPhase;
 

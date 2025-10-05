@@ -1,7 +1,7 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019-21
+    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019-21, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -2183,6 +2183,8 @@ in
                 fun loadModuleBasic (fileName: string): Universal.universal list * moduleId =
                     loadDependencies(moduleFileName fileName, []);
             end
+            
+            val releaseModule: moduleId -> unit = RunCall.rtsCallFull1 "PolyReleaseModule"
 
             val saveChild: string * int -> unit = RunCall.rtsCallFull2 "PolySaveState"
 
