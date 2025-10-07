@@ -277,8 +277,8 @@ public:
     LocalMemSpace *CreateAllocationSpace(uintptr_t size);
     // Create and initialise a new local space and add it to the table.
     LocalMemSpace *NewLocalSpace(uintptr_t size, bool mut);
-    // Create an entry for a permanent space.
-    PermanentMemSpace *NewPermanentSpace(PolyWord *base, uintptr_t words,
+    // Create an entry for a permanent space from the executable.
+    PermanentMemSpace *PermanentSpaceFromExecutable(PolyWord *base, uintptr_t words,
         unsigned flags, unsigned index, ModuleId sourceModule);
 
     // Create a permanent space but allocate memory for it.

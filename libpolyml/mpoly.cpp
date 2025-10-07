@@ -748,7 +748,7 @@ PolyObject* InitHeaderFromExport(struct _exportDescription* exports)
     for (unsigned i = 0; i < exports->memTableEntries; i++)
     {
         // Construct a new space for each of the entries.
-        if (gMem.NewPermanentSpace(
+        if (gMem.PermanentSpaceFromExecutable(
             (PolyWord*)memTable[i].mtCurrentAddr,
             memTable[i].mtLength / sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
             i, exportSignature) == 0)

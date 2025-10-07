@@ -297,8 +297,8 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
     return true;
 }
 
-// Create an entry for a permanent space.
-PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
+// Create an entry for a permanent space that already exists in the executable.
+PermanentMemSpace* MemMgr::PermanentSpaceFromExecutable(PolyWord *base, uintptr_t words,
                                              unsigned flags, unsigned index, ModuleId sourceModule)
 {
     try {
@@ -312,6 +312,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
         space->isCode = flags & MTF_EXECUTABLE ? true : false;
         space->index = index;
         space->moduleIdentifier = sourceModule;
+        space->isWriteProtected = !space->isMutable;
         if (index >= nextIndex) nextIndex = index+1;
 
         // Extend the permanent memory table and add this space to it.
