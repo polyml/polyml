@@ -202,15 +202,13 @@ class ModuleExporter : public MainThreadRequest, public StateExport
 {
 public:
     ModuleExporter(const TCHAR* file, Handle r) :
-        MainThreadRequest(MTP_STOREMODULE), fileName(file), root(r), errorMessage(0), errCode(0), relocationCount(0) {
+        MainThreadRequest(MTP_STOREMODULE), fileName(file), root(r), relocationCount(0) {
     }
 
     virtual void Perform();
 
     const TCHAR* fileName;
     Handle root;
-    const char* errorMessage;
-    int errCode;
 
     std::vector<ModIdAndName> dependencies;
 
@@ -476,7 +474,7 @@ void ModuleExporter::Perform()
         if (exportFile == NULL)
         {
             errorMessage = "Cannot open export file";
-            errCode = ERRORNUMBER;
+            errNumber = ERRORNUMBER;
             return;
         }
         // RunExport copies everything reachable from the root, except data from
@@ -560,7 +558,7 @@ POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYU
 
         processes->MakeRootRequest(taskData, &storer);
         if (storer.errorMessage)
-            raise_syscall(taskData, storer.errorMessage, storer.errCode);
+            raise_syscall(taskData, storer.errorMessage, storer.errNumber);
 
         result = moduleIdAsByteVector(taskData, storer.getExportId());
     }
@@ -1052,7 +1050,6 @@ POLYUNSIGNED PolyReleaseModule(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    Handle pushedArg = taskData->saveVec.push(arg);
 
     try {
         ModuleId modId = moduleIdFromByteVector(taskData, PolyWord::FromUnsigned(arg));
