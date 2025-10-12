@@ -110,8 +110,7 @@ char *Poly_string_to_C_alloc(PolyWord ps, size_t extraChars)
 std::string PolyStringToCString(PolyWord ps)
 {
     PolyStringObject* str = (PolyStringObject*)ps.AsObjPtr();
-    POLYUNSIGNED chars = str->length;
-    return std::string(str->chars);
+    return std::string(str->chars, str->length);
 }
 
 TempCString::~TempCString()
