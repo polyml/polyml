@@ -482,6 +482,8 @@ void SaveRequest::Perform()
                     copyScan.ScanAddressesInRegion(space->bottom, space->top);
                 }
             }
+            // We may have copied data out of modules.  Restore forwarding pointers in them.
+            CopyScan::fixPermanentAreas();
         }
         catch (MemoryException&)
         {

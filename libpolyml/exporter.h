@@ -73,7 +73,6 @@ protected:
     void createRelocation(PolyWord *pt);
     unsigned findArea(void *p); // Find index of area that address is in.
     virtual void addExternalReference(void *p, const char *entryPoint, bool isFuncPtr) {}
-    static void revertToLocal();
 
     // Helper functions for subclasses.  These set errNumber and errorMessage if the
     // system calls fail.
@@ -167,6 +166,13 @@ private:
     static uint32_t sequenceNo;
 public:
     struct _moduleId extractHash();
+    // Restore forwarding pointers on permanent areas after copying
+    static void fixPermanentAreas();
+    // Restore forwarding pointers on local areas after copying.
+    // This is done when exporting to object files or after a fault.
+    // The alternative, with saved states and module, is to change references
+    // to local cells so that they are moved into the permanent area.
+    static void revertToLocal();
 };
 
 // This is a version of Exporter that is used to create relocations for both the

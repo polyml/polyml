@@ -659,7 +659,7 @@ struct _moduleId CopyScan::extractHash()
 // pointer and then that object has been moved to the export region.
 // We mustn't turn locally forwarded values back into ordinary objects
 // because they could contain addresses that are no longer valid.
-static POLYUNSIGNED GetObjLength(PolyObject *obj)
+static POLYUNSIGNED FixObjLength(PolyObject *obj)
 {
     if (obj->ContainsForwardingPtr())
     {
@@ -674,7 +674,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
 #else
         forwardedTo = obj->GetForwardingPtr();
 #endif
-        POLYUNSIGNED length = GetObjLength(forwardedTo);
+        POLYUNSIGNED length = FixObjLength(forwardedTo);
         MemSpace *space = gMem.SpaceForObjectAddress(forwardedTo);
         if (space->spaceType == ST_EXPORT)
         {
@@ -712,7 +712,7 @@ static void FixForwarding(PolyWord *pt, size_t space)
             continue; // We've added 1 to pt so just loop.
         }
 #endif
-        size_t length = OBJ_OBJECT_LENGTH(GetObjLength(obj));
+        size_t length = OBJ_OBJECT_LENGTH(FixObjLength(obj));
         pt += length;
         ASSERT(space > length);
         space -= length+1;
@@ -779,7 +779,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
 
     // Reset the forwarding pointers so that the original data structure is in
     // local storage.
-    revertToLocal();
+    CopyScan::revertToLocal();
 
     exportModId = copyScan.extractHash();
 
@@ -1075,7 +1075,17 @@ void Exporter::relocateObject(PolyObject *p)
 
 // CopyScan makes a copy of everything reachable from the root into export spaces leaving
 // forwarding pointers in the original space.  This function reverts those forwarding pointers.
-void Exporter::revertToLocal()
+void CopyScan::fixPermanentAreas()
+{
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
+    {
+        MemSpace* space = *i;
+        // Permanent areas are filled with objects from the bottom.
+        FixForwarding(space->bottom, space->top - space->bottom);
+    }
+}
+
+void CopyScan::revertToLocal()
 {
     // Fix the forwarding pointers.
     for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
@@ -1085,12 +1095,7 @@ void Exporter::revertToLocal()
         FixForwarding(space->bottom, space->lowerAllocPtr - space->bottom);
         FixForwarding(space->upperAllocPtr, space->top - space->upperAllocPtr);
     }
-    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
-    {
-        MemSpace* space = *i;
-        // Permanent areas are filled with objects from the bottom.
-        FixForwarding(space->bottom, space->top - space->bottom);
-    }
+    fixPermanentAreas();
     for (std::vector<CodeSpace*>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
         MemSpace* space = *i;
@@ -1098,6 +1103,7 @@ void Exporter::revertToLocal()
         FixForwarding(space->bottom, space->top - space->bottom);
     }
 }
+
 
 bool Exporter::checkedFwrite(const void* buffer, size_t size, size_t count)
 {

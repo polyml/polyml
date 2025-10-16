@@ -252,13 +252,16 @@ void ModuleExporter::RunModuleExport(PolyObject* rootFn)
         copyScan.initialise();
         // Copy the root and everything reachable from it into the temporary area.
         copiedRoot = copyScan.ScanObjectAddress(rootFn);
+        // Fix the permanent areas.  We may have copied cells from modules if they are
+        // not dependencies.
+        CopyScan::fixPermanentAreas();
     }
     catch (MemoryException&)
     {
         errorMessage = "Insufficient Memory";
         // Reset the forwarding pointers so that the original data structure is in
         // local storage.
-        revertToLocal();
+        CopyScan::revertToLocal();
         return;
     }
 
@@ -450,16 +453,16 @@ void ModuleExporter::RunModuleExport(PolyObject* rootFn)
         // If it all succeeded we can switch over to the permanent spaces.
         if (gMem.PromoteNewExportSpaces(exportModId))
             switchLocalsToPermanent();
-        else revertToLocal();
+        else CopyScan::revertToLocal();
 
     }
     catch (IOException&)
     {
-        revertToLocal();
+        CopyScan::revertToLocal();
     }
     catch (MemoryException&) {
         errorMessage = "Insufficient Memory";
-        revertToLocal();
+        CopyScan::revertToLocal();
     }
 }
 
