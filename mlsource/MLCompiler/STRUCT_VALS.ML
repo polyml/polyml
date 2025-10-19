@@ -607,24 +607,27 @@ struct
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
         enterFunct:   string * functors    -> unit,
-        allValNames:  unit -> string list
+        allValNames:  unit -> string list,
+        allStructNames: unit -> string list
     }
 
     (* This creates functions for entering and looking up names. *)
     fun makeEnv tab =
-        Env { lookupVal    = makeLook  valueVar      tab,
-          lookupType   = makeLook  typeConstrVar tab,
-          lookupFix    = makeLook  fixVar        tab,
-          lookupStruct = makeLook  structVar     tab,
-          lookupSig    = makeLook  signatureVar  tab,
-          lookupFunct  = makeLook  functorVar    tab,
-          enterVal     = makeEnter valueVar      tab,
-          enterType    = makeEnter typeConstrVar tab,
-          enterFix     = makeEnter fixVar        tab,
-          enterStruct  = makeEnter structVar     tab,
-          enterSig     = makeEnter signatureVar  tab,
-          enterFunct   = makeEnter functorVar    tab,
-          allValNames  = makeAllNames valueVar   tab
+        Env {
+            lookupVal      = makeLook  valueVar      tab,
+            lookupType     = makeLook  typeConstrVar tab,
+            lookupFix      = makeLook  fixVar        tab,
+            lookupStruct   = makeLook  structVar     tab,
+            lookupSig      = makeLook  signatureVar  tab,
+            lookupFunct    = makeLook  functorVar    tab,
+            enterVal       = makeEnter valueVar      tab,
+            enterType      = makeEnter typeConstrVar tab,
+            enterFix       = makeEnter fixVar        tab,
+            enterStruct    = makeEnter structVar     tab,
+            enterSig       = makeEnter signatureVar  tab,
+            enterFunct     = makeEnter functorVar    tab,
+            allValNames    = makeAllNames valueVar   tab,
+            allStructNames = makeAllNames structVar  tab
         }
 
     structure Sharing =

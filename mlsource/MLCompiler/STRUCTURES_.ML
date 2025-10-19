@@ -1582,7 +1582,8 @@ struct
                    are only processed again in this pass in order to get declarations
                    in the right order. *)
                 enterFix     = fn _ => (),
-                allValNames  = fn () => (#allValNames structEnv () @ #allValNames env ())
+                allValNames  = fn () => (#allValNames structEnv () @ #allValNames env ()),
+                allStructNames = fn () => (#allStructNames structEnv () @ #allStructNames env ())
             }
 
             (* process body of structure *)
@@ -1713,7 +1714,8 @@ struct
               enterStruct   = #enterStruct  newEnv,
               enterSig      = #enterSig     newEnv,
               enterFunct    = #enterFunct   newEnv,
-              allValNames  = fn () => (#allValNames newEnv () @ #allValNames env ())
+              allValNames  = fn () => (#allValNames newEnv () @ #allValNames env ()),
+              allStructNames = fn () => (#allStructNames newEnv () @ #allStructNames env ())
              };
              
             (* Process the local declarations. *)
@@ -1877,7 +1879,8 @@ struct
             enterStruct   = #enterStruct  newEnv,
             enterSig      = #enterSig     newEnv,
             enterFunct    = #enterFunct   newEnv,
-            allValNames  = fn () => (#allValNames newEnv () @ #allValNames env ())
+            allValNames  = fn () => (#allValNames newEnv () @ #allValNames env ()),
+            allStructNames = fn () => (#allStructNames newEnv () @ #allStructNames env ())
            };
         
         (* Process the local declarations. *)
@@ -1923,7 +1926,8 @@ struct
                 #enterSig env    pair
                ),
            enterFunct    = #enterFunct   localEnv,
-           allValNames   = #allValNames  localEnv
+           allValNames   = #allValNames  localEnv,
+           allStructNames = #allStructNames localEnv
           };
       in 
         (* Now the body. *)
@@ -1973,7 +1977,8 @@ struct
                  ), 
              enterSig      = #enterSig     env,
              enterFunct    = #enterFunct   env,
-             allValNames   = #allValNames  env
+             allValNames   = #allValNames  env,
+             allStructNames = #allStructNames env
            };
 
             (* Create a new type ID for each new datatype.  Add the structure path to the
@@ -2034,6 +2039,14 @@ struct
             !v @ #allValNames globals ()
         end
 
+        fun allStructNames () =
+        let
+            val v = ref []
+            val () = #apply newStrEnv (fn (s, _) => v := s :: ! v)
+        in
+            !v @ #allStructNames globals ()
+        end
+
         val env = 
         {
             lookupVal     = lookupVal,
@@ -2048,7 +2061,8 @@ struct
             enterStruct   = #enter newStrEnv,
             enterSig      = #enter newSigEnv,
             enterFunct    = #enter newFuncEnv,
-            allValNames   = allValNames
+            allValNames   = allValNames,
+            allStructNames = allStructNames
         };
         (* Create the free identifiers.  These are initially Bound but are replaced
            by Free after the code has been executed and we have the values for the
@@ -2276,7 +2290,8 @@ struct
                         enterStruct   = #enterStruct  env,
                         enterSig      = #enterSig     env,
                         enterFunct    = #enterFunct   env,
-                        allValNames  = fn () => (#allValNames argEnv () @ #allValNames env ())
+                        allValNames  = fn () => (#allValNames argEnv () @ #allValNames env ()),
+                        allStructNames = fn () => (#allStructNames argEnv () @ #allStructNames env ())
                     };
 
                     local

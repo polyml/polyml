@@ -102,6 +102,35 @@ sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
 ): TypeCheckParsetreeSig =
    
 struct
+
+    local
+        fun allValLongNamesFromStruct
+            (STRUCTVALS.Struct {name = structName, signat, ...} : STRUCTVALS.structVals) : string list =
+        let
+            val longNames = ref []
+            val tsvEnv : COPIER.tsvEnv = {
+                enterType = fn _ => (),
+                enterStruct = fn (_, structVal) =>
+                    (longNames := List.map (fn s => structName ^ "." ^ s) (allValLongNamesFromStruct structVal) @ !longNames),
+                enterVal = fn (name, _) =>
+                    (longNames := structName ^ "." ^ name :: !longNames)
+            }
+            val () = COPIER.openSignature (signat, tsvEnv, structName ^ ".");
+        in
+            !longNames
+        end
+    in
+        fun allValLongNames env =
+        let
+            fun longNamesFromStruct name =
+                (case #lookupStruct env name of
+                  NONE => []
+                | SOME structVal => allValLongNamesFromStruct structVal)
+        in
+            #allValNames env () @ List.concat (List.map longNamesFromStruct (#allStructNames env ()))
+        end
+    end
+
     open MISC
     open LEX
     open CODETREE
@@ -119,7 +148,7 @@ struct
   
     val emptyType            = EmptyType
     val badType              = BadType
-  
+
    (* Second pass of ML parse tree. *)
    
     (* This is pass 2 of the compiler. It walks over the parse tree
@@ -499,7 +528,7 @@ struct
                                 giveError (pat, lex, location))
 
                     (* Remember the possible names here. *)
-                    val () = possible := #allValNames env
+                    val () = possible := (fn () => allValLongNames env)
 
                     val instanceType = 
                         (* If the result is a constructor use it. *)
@@ -574,7 +603,7 @@ struct
                             let (* Look up the value and return the type. *)
                             
                                 (* Remember the possible names here. *)
-                                val () = possible := #allValNames env
+                                val () = possible := (fn () => allValLongNames env)
 
                                 val constrVal =
                                     lookupValue 
@@ -737,7 +766,7 @@ struct
                 |   _ => ();
                 expType := instanceType;
                 value  := expValue;
-                possible := #allValNames env;
+                possible := (fn () => allValLongNames env);
                 instanceType (* Result is the instance type. *)
             end
 
@@ -1180,7 +1209,8 @@ struct
                    enterStruct   = #enter newStrEnv,
                    enterSig      = #enterSig env,
                    enterFunct    = #enterFunct env,
-                   allValNames   = fn () => (stringsOfSearchList newValEnv () @ #allValNames env ())
+                   allValNames   = fn () => (stringsOfSearchList newValEnv () @ #allValNames env ()),
+                   allStructNames = fn () => #allStructNames env ()
                 };
         
               (* Process the local declarations and discard the result. *)
@@ -1215,7 +1245,8 @@ struct
                        #enterStruct env   pair),
                   enterSig      = #enterSig env,
                   enterFunct    = #enterFunct env,
-                  allValNames   = #allValNames localEnv
+                  allValNames   = #allValNames localEnv,
+                  allStructNames = #allStructNames localEnv
                 };
               (* Now the body, returning its result if it is an expression. *)
                 val resType = assignSeq(bodyEnv, newLetDepth, body, not isLocal)
@@ -1271,7 +1302,7 @@ struct
                                 |    _ => errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception.");
                                 prevValue := prev; (* Set the value of the looked-up identifier. *)
                                 expType := excType; (* And remember the type. *)
-                                possible := #allValNames env;
+                                possible := (fn () => allValLongNames env);
                                 (* The result is an exception with the same type. *)
                                 mkEx (name, excType, locations)
                             end
@@ -1450,7 +1481,8 @@ struct
                   enterSig      = #enterSig env,
                   enterFunct    = #enterFunct env,
                   allValNames   =
-                    fn () => (stringsOfSearchList newEnv () @ #allValNames env ())
+                    fn () => (stringsOfSearchList newEnv () @ #allValNames env ()),
+                  allStructNames = fn () => #allValNames env ()
                 };
         
               (* Now the body. *)
@@ -1553,7 +1585,8 @@ struct
                             allValNames   =
                                 if isRecursive
                                 then fn () => (stringsOfSearchList recEnv () @ #allValNames env ())
-                                else #allValNames env
+                                else #allValNames env,
+                            allStructNames = #allStructNames env
                         }
 
                         val expType = assignValues(newLevel, letDepth, newEnv, exp, exp);
@@ -1770,7 +1803,8 @@ struct
                             enterFunct    = #enterFunct env,
                             allValNames   =
                                 fn () => (stringsOfSearchList varEnv () @
-                                          stringsOfSearchList newEnv () @ #allValNames env ())
+                                          stringsOfSearchList newEnv () @ #allValNames env ()),
+                            allStructNames = fn () => #allStructNames env ()
                         };
            
                         (* Now the body. *)
@@ -2096,7 +2130,8 @@ struct
                             enterStruct   = #enterStruct env,
                             enterSig      = #enterSig env,
                             enterFunct    = #enterFunct env,
-                            allValNames   = allValNames
+                            allValNames   = allValNames,
+                            allStructNames = #allStructNames env
                         }
                     end;
   
@@ -2135,7 +2170,8 @@ struct
             enterStruct   = #enterStruct gEnv,
             enterSig      = #enterSig gEnv,
             enterFunct    = #enterFunct gEnv,
-            allValNames   = #allValNames gEnv
+            allValNames   = #allValNames gEnv,
+            allStructNames = #allStructNames gEnv
           };
     in
       assignValues(1, 0, env, v, v)
