@@ -120,14 +120,14 @@ struct
             !longNames
         end
     in
-        fun allValLongNames env =
+        fun allValLongNamesWithPrefix prefix env =
         let
             fun longNamesFromStruct name =
                 (case #lookupStruct env name of
                   NONE => []
                 | SOME structVal => allValLongNamesFromStruct structVal)
         in
-            #allValNames env () @ List.concat (List.map longNamesFromStruct (#allStructNames env ()))
+            List.filter (fn s => String.isPrefix prefix s) (#allValNames env () @ List.concat (List.map longNamesFromStruct (#allStructNames env ())))
         end
     end
 
@@ -528,7 +528,7 @@ struct
                                 giveError (pat, lex, location))
 
                     (* Remember the possible names here. *)
-                    val () = possible := (fn () => allValLongNames env)
+                    val () = possible := (fn () => allValLongNamesWithPrefix name env)
 
                     val instanceType = 
                         (* If the result is a constructor use it. *)
@@ -603,7 +603,7 @@ struct
                             let (* Look up the value and return the type. *)
                             
                                 (* Remember the possible names here. *)
-                                val () = possible := (fn () => allValLongNames env)
+                                val () = possible := (fn () => allValLongNamesWithPrefix name env)
 
                                 val constrVal =
                                     lookupValue 
@@ -766,7 +766,7 @@ struct
                 |   _ => ();
                 expType := instanceType;
                 value  := expValue;
-                possible := (fn () => allValLongNames env);
+                possible := (fn () => allValLongNamesWithPrefix name env);
                 instanceType (* Result is the instance type. *)
             end
 
@@ -1302,7 +1302,7 @@ struct
                                 |    _ => errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception.");
                                 prevValue := prev; (* Set the value of the looked-up identifier. *)
                                 expType := excType; (* And remember the type. *)
-                                possible := (fn () => allValLongNames env);
+                                possible := (fn () => allValLongNamesWithPrefix prevName env);
                                 (* The result is an exception with the same type. *)
                                 mkEx (name, excType, locations)
                             end
