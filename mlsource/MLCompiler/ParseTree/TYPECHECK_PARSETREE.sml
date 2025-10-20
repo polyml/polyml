@@ -1482,7 +1482,7 @@ struct
                   enterFunct    = #enterFunct env,
                   allValNames   =
                     fn () => (stringsOfSearchList newEnv () @ #allValNames env ()),
-                  allStructNames = fn () => #allValNames env ()
+                  allStructNames = fn () => #allStructNames env ()
                 };
         
               (* Now the body. *)
