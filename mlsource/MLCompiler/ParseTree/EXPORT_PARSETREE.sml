@@ -150,14 +150,7 @@ struct
                    have been set. *)
                 val (decProp, references, possProp) =
                     case value of
-                        ref (Value{name = "<undefined>", ...}) =>
-                        let
-                            (* Generate possible completions.  For the moment just consider
-                               simple prefixes. *)
-                            val completions = List.filter (String.isPrefix name) (! possible ())
-                        in
-                            ([], NONE, [PTcompletions completions])
-                        end
+                        ref (Value{name = "<undefined>", ...}) => ([], NONE, [PTcompletions (! possible ())])
                     |   ref (Value{locations, references, ...}) =>
                         let
                             (* If this is in a pattern it could be the defining location of the id.

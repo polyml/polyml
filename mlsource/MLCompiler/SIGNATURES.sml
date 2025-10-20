@@ -992,7 +992,8 @@ struct
                     enterFix      = fn _ => raise InternalError "Entering fixity in signature",
                     enterSig      = fn _ => raise InternalError "Entering signature in signature",
                     enterFunct    = fn _ => raise InternalError "Entering functor in signature",
-                    allValNames   = #allValNames structEnv
+                    allValNames   = #allValNames structEnv,
+                    allStructNames = #allStructNames structEnv
                 }
             end
 
@@ -1026,8 +1027,8 @@ struct
                           enterFix      = #enterFix structEnv,
                           enterSig      = #enterSig structEnv,
                           enterFunct    = #enterFunct structEnv,
-                          allValNames   = fn () => (#allValNames structEnv () @ #allValNames globalEnv ())
-
+                          allValNames   = fn () => (#allValNames structEnv () @ #allValNames globalEnv ()),
+                          allStructNames = fn () => (#allStructNames structEnv () @ #allStructNames globalEnv ())
                          };
                       val resSig = sigValue (sigStruct, Env newEnv, line, structPath ^ name ^ ".");
                       (* Process the rest of the list before declaring
@@ -1132,7 +1133,8 @@ struct
                             enterFix      = #enterFix structEnv,
                             enterSig      = #enterSig structEnv,
                             enterFunct    = #enterFunct structEnv,
-                            allValNames   = #allValNames structEnv
+                            allValNames   = #allValNames structEnv,
+                            allStructNames = #allStructNames structEnv
                         }
 
                         val resultSig = sigValue(str, Env includeEnv, lno, structPath)
@@ -1237,7 +1239,8 @@ struct
                   enterFix      = #enterFix structEnv,
                   enterSig      = #enterSig structEnv,
                   enterFunct    = #enterFunct structEnv,
-                  allValNames   = #allValNames structEnv
+                  allValNames   = #allValNames structEnv,
+                  allStructNames = #allStructNames structEnv
                  };
 
                 fun makeId (eq, isdt, (args, EmptyType), loc) =
