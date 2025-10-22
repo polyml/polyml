@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2016-17, 2020-3 David C.J. Matthews
+    Copyright (c) 2013, 2016-17, 2020-3, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1049,8 +1049,8 @@ struct
 
     and simpBinary(oper, arg1, arg2, context as {reprocess, ...}, tailDecs) =
     let
-        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, tailDecs)
-        val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
+        val (genArg1, decArg1, specArg1) = simpSpecial(arg1, context, tailDecs)
+        val (genArg2, decArgs, specArg2) = simpSpecial(arg2, context, decArg1)
     in
         case (oper, genArg1, genArg2) of
             (WordComparison{test, isSigned}, Constnt(v1, _), Constnt(v2, _)) =>
@@ -1075,11 +1075,29 @@ struct
             in
                 (if testResult then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
             end
-        
+
         |   (PointerEq, Constnt(v1, _), Constnt(v2, _)) =>
             (
                 reprocess := true;
                 (if RunCall.pointerEq(v1, v2) then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
+            )
+
+        |   (PointerEq, Constnt(v1, _), genArg2) =>
+            (
+                (* The pattern match test for nil generates a pointer equality test. That's different
+                   from the test for cons (::) which uses a test for short values.  Which test gets
+                   generated depends on which comes first. *)
+                case (specArg2, isShort v1) of
+                    (EnvSpecTuple _, true) => (CodeFalse, decArgs, EnvSpecNone) before reprocess := true
+                |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            )
+
+        |   (PointerEq, genArg1, Constnt(v2, _)) =>
+            (
+                (* This case probably never arises from pattern matching but include it anyway. *)
+                case (specArg1, isShort v2) of
+                    (EnvSpecTuple _, true) => (CodeFalse, decArgs, EnvSpecNone) before reprocess := true
+                |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             )
 
         |   (FixedPrecisionArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
