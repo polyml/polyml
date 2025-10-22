@@ -1,7 +1,7 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006-7, 2015, 2016-21 David C.J. Matthews
+    Copyright (c) 2006-7, 2015, 2016-21, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -72,8 +72,11 @@
 #include "processes.h" // For IO_SPACING
 #include "sys.h" // For EXC_Fail
 #include "rtsentry.h"
+#include "timing.h" // For getBuildTime
 
 #include "pexport.h"
+
+#include "../polyexports.h" // For MT_FLAGS
 
 #ifdef HAVE_PECOFF
 #include "pecoffexport.h"
@@ -130,14 +133,24 @@ public:
     POLYUNSIGNED mutSize, noOverSize;
 };
 
-CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
+CopyScan::CopyScan(bool isExp /*=false*/)
 {
+    isExport = isExp;
     defaultImmSize = defaultMutSize = defaultCodeSize = defaultNoOverSize = 0;
     tombs = 0;
     graveYard = 0;
+    hash_a = hash_b = hash_c = 0xdeadbeef;
+
+    // Add extra randomness to the hash values.  This is still reproducible if SOURCE_DATE_EPOCH is set.
+    hash_a += (uint32_t)getBuildTime();
+    hash_b += sequenceNo++;
+
+    hash_posn = 0;
 }
 
-void CopyScan::initialise(bool isExport/*=true*/)
+uint32_t CopyScan::sequenceNo = 0;
+
+void CopyScan::initialise()
 {
     ASSERT(gMem.eSpaces.size() == 0);
     // Set the space sizes to a proportion of the space currently in use.
@@ -146,7 +159,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
     // want to use a smaller size because they are retained after we save
     // the state and if we have many child saved states it's important not
     // to waste memory.
-    if (hierarchy == 0)
+    if (isExport)
     {
         graveYard = new GraveYard[gMem.pSpaces.size()];
         if (graveYard == 0)
@@ -160,7 +173,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
         PermanentMemSpace *space = *i;
-        if (space->hierarchy >= hierarchy) {
+        if (! dependencies[space->moduleIdentifier]) {
             // Include this if we're exporting (hierarchy=0) or if we're saving a state
             // and will include this in the new state.
             size_t size = (space->top-space->bottom)/4;
@@ -172,7 +185,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
                 defaultCodeSize += size;
             else
                 defaultImmSize += size;
-            if (space->hierarchy == 0 && ! space->isMutable)
+            if (space->isWriteProtected)
             {
                 // We need a separate area for the tombstones because this is read-only
                 graveYard[tombs].graves = (PolyWord*)calloc(space->spaceSize(), sizeof(PolyWord));
@@ -293,7 +306,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     if (space->spaceType == ST_PERMANENT)
     {
         PermanentMemSpace *pmSpace = (PermanentMemSpace*)space;
-        if (pmSpace->hierarchy < hierarchy)
+        if (dependencies[pmSpace->moduleIdentifier])
             return 0;
     }
 
@@ -357,13 +370,13 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     else naType = NAWord;
     PolyObject* newObj;
 #if((defined(HOSTARCHITECTURE_X86_64) || defined(HOSTARCHITECTURE_AARCH64)) && ! defined(POLYML32IN64) && !defined(CODEISNOTEXECUTABLE) && !defined(_WIN32))
-    // SELinux, OpenBSD and Mac OS, at least on the ARM, require or prefer executavle code segments without
+    // SELinux, OpenBSD and Mac OS, at least on the ARM, require or prefer executable code segments without
     // absolute addresses: position-independent code.
     // That means the constant area cannot be in the same segment as the code.  We have to split the constant area
     // out and put it into the read-only, non-executable area.
     // Interpreted code and code for 32-in-64 aren't executable (32-in-64 code is copied during start-up).
     // We also don't need this on Windows, thankfully.
-    if (obj->IsCodeObject() && hierarchy == 0)
+    if (obj->IsCodeObject() && isExport)
     {
         PolyWord* constPtr;
         POLYUNSIGNED numConsts;
@@ -392,7 +405,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         PolyObject* writAble = gMem.SpaceForObjectAddress(newObj)->writeAble(newObj);
         writAble->SetLengthWord(lengthWord); // copy length word
 
-        if (hierarchy == 0 /* Exporting object module */ && obj->IsNoOverwriteObject() && ! obj->IsByteObject())
+        if (isExport /* Exporting object module */ && obj->IsNoOverwriteObject() && ! obj->IsByteObject())
         {
             // These are not exported. They are used for special values e.g. mutexes
             // that should be set to 0/nil/NONE at start-up.
@@ -407,7 +420,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         else memcpy(writAble, obj, words * sizeof(PolyWord));
     }
 
-    if (space->spaceType == ST_PERMANENT && !space->isMutable && ((PermanentMemSpace*)space)->hierarchy == 0)
+    if (space->spaceType == ST_PERMANENT && ((PermanentMemSpace*)space)->isWriteProtected)
     {
         // The immutable permanent areas are read-only.
         unsigned m;
@@ -462,6 +475,24 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
         machineDependent->ScanConstantsWithinCode(newObj, obj, newObj->Length(), newConstAddr, oldConstAddr, count, this);
     }
     *pt = newObj; // Update it to the newly copied object.
+
+    // Add byte data and tagged values to the hash.  Don't include addresses since
+    // these depend on storage allocation and may not be reproducible.
+    if (newObj->IsByteObject())
+    {
+        for (POLYUNSIGNED i = 0; i < words; i++)
+            addWordToHash(newObj->Get(i).AsUnsigned());
+    }
+    else if (newObj->IsWordObject())
+    {
+        for (POLYUNSIGNED i = 0; i < words; i++)
+        {
+            PolyWord p = newObj->Get(i);
+            if (p.IsTagged())
+                addWordToHash(p.AsUnsigned());
+        }
+    }
+
     return lengthWord;  // This new object needs to be scanned.
 }
 
@@ -563,7 +594,61 @@ PolyObject *CopyScan::ScanObjectAddress(PolyObject *base)
     return val.AsObjPtr();
 }
 
-#define MAX_EXTENSION   4 // The longest extension we may need to add is ".obj"
+// Hash code.  Modified from code by Bob Jenkins - https://burtleburtle.net/bob/c/lookup3.c
+
+static inline uint32_t rot(uint32_t x, uint32_t k)
+{
+    return (x << k) | (x >> (32 - k));
+}
+
+void CopyScan::addToHash(uint32_t p)
+{
+    switch (hash_posn)
+    {
+    case 0:
+        hash_a += p;
+        hash_posn = 1;
+        break;
+    case 1:
+        hash_b += p;
+        hash_posn = 2;
+        break;
+    case 2:
+        hash_c += p;
+        hash_posn = 0;
+        // Mix the values.
+        hash_a -= hash_c;  hash_a ^= rot(hash_c, 4);  hash_c += hash_b;
+        hash_b -= hash_a;  hash_b ^= rot(hash_a, 6);  hash_a += hash_c;
+        hash_c -= hash_b;  hash_c ^= rot(hash_b, 8);  hash_b += hash_a;
+        hash_a -= hash_c;  hash_a ^= rot(hash_c, 16);  hash_c += hash_b;
+        hash_b -= hash_a;  hash_b ^= rot(hash_a, 19);  hash_a += hash_c;
+        hash_c -= hash_b;  hash_c ^= rot(hash_b, 4);  hash_b += hash_a;
+        break;
+    }
+}
+
+void CopyScan::addWordToHash(POLYUNSIGNED p)
+{
+#if (SIZEOF_POLYWORD == 4)
+    addToHash(p);
+#else
+    addToHash(p & 0xffffffff);
+    addToHash((p >> 32) & 0xffffffff);
+#endif
+}
+
+struct _moduleId CopyScan::extractHash()
+{
+    uint32_t a = hash_a, b = hash_b, c = hash_c;
+    c ^= b; c -= rot(b, 14);
+    a ^= c; a -= rot(c, 11);
+    b ^= a; b -= rot(a, 25);
+    c ^= b; c -= rot(b, 16);
+    a ^= c; a -= rot(c, 4);
+    b ^= a; b -= rot(a, 14);
+    c ^= b; c -= rot(b, 24);
+    return { hash_c, hash_b };
+}
 
 // Convert the forwarding pointers in a region back into length words.
 
@@ -574,7 +659,7 @@ PolyObject *CopyScan::ScanObjectAddress(PolyObject *base)
 // pointer and then that object has been moved to the export region.
 // We mustn't turn locally forwarded values back into ordinary objects
 // because they could contain addresses that are no longer valid.
-static POLYUNSIGNED GetObjLength(PolyObject *obj)
+static POLYUNSIGNED FixObjLength(PolyObject *obj)
 {
     if (obj->ContainsForwardingPtr())
     {
@@ -589,7 +674,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
 #else
         forwardedTo = obj->GetForwardingPtr();
 #endif
-        POLYUNSIGNED length = GetObjLength(forwardedTo);
+        POLYUNSIGNED length = FixObjLength(forwardedTo);
         MemSpace *space = gMem.SpaceForObjectAddress(forwardedTo);
         if (space->spaceType == ST_EXPORT)
         {
@@ -627,7 +712,7 @@ static void FixForwarding(PolyWord *pt, size_t space)
             continue; // We've added 1 to pt so just loop.
         }
 #endif
-        size_t length = OBJ_OBJECT_LENGTH(GetObjLength(obj));
+        size_t length = OBJ_OBJECT_LENGTH(FixObjLength(obj));
         pt += length;
         ASSERT(space > length);
         space -= length+1;
@@ -679,7 +764,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
     Exporter *exports = this;
 
     PolyObject *copiedRoot = 0;
-    CopyScan copyScan(hierarchy);
+    CopyScan copyScan(true); // Exclude the parent state if this is a module
 
     try {
         copyScan.initialise();
@@ -692,26 +777,11 @@ void Exporter::RunExport(PolyObject *rootFunction)
         copiedRoot = 0;
     }
 
-    // Fix the forwarding pointers.
-    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
-    {
-        LocalMemSpace *space = *i;
-        // Local areas only have objects from the allocation pointer to the top.
-        FixForwarding(space->bottom, space->lowerAllocPtr - space->bottom);
-        FixForwarding(space->upperAllocPtr, space->top - space->upperAllocPtr);
-    }
-    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
-    {
-        MemSpace *space = *i;
-        // Permanent areas are filled with objects from the bottom.
-        FixForwarding(space->bottom, space->top - space->bottom);
-    }
-    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
-    {
-        MemSpace *space = *i;
-        // Code areas are filled with objects from the bottom.
-        FixForwarding(space->bottom, space->top - space->bottom);
-    }
+    // Reset the forwarding pointers so that the original data structure is in
+    // local storage.
+    CopyScan::revertToLocal();
+
+    exportModId = copyScan.extractHash();
 
     // Reraise the exception after cleaning up the forwarding pointers.
     if (copiedRoot == 0)
@@ -723,37 +793,16 @@ void Exporter::RunExport(PolyObject *rootFunction)
     // Copy the areas into the export object.
     size_t tableEntries = gMem.eSpaces.size();
     unsigned memEntry = 0;
-    if (hierarchy != 0) tableEntries += gMem.pSpaces.size();
-    exports->memTable = new memoryTableEntry[tableEntries];
-
-    // If we're constructing a module we need to include the global spaces.
-    if (hierarchy != 0)
-    {
-        // Permanent spaces from the executable.
-        for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
-        {
-            PermanentMemSpace *space = *i;
-            if (space->hierarchy < hierarchy)
-            {
-                memoryTableEntry *entry = &exports->memTable[memEntry++];
-                entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
-                entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
-                entry->mtIndex = space->index;
-                entry->mtFlags = 0;
-                if (space->isMutable) entry->mtFlags |= MTF_WRITEABLE;
-                if (space->isCode) entry->mtFlags |= MTF_EXECUTABLE;
-            }
-        }
-        newAreas = memEntry;
-    }
+    exports->memTable = new ExportMemTable[tableEntries];
 
     for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
-        memoryTableEntry *entry = &exports->memTable[memEntry++];
+        ExportMemTable*entry = &exports->memTable[memEntry++];
         PermanentMemSpace *space = *i;
         entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
-        entry->mtIndex = hierarchy == 0 ? memEntry-1 : space->index;
+        entry->mtIndex = memEntry-1;
+        entry->mtModId = exportModId;
         entry->mtFlags = 0;
         if (space->isMutable)
         {
@@ -775,6 +824,79 @@ void Exporter::RunExport(PolyObject *rootFunction)
         exports->errorMessage = "Insufficient Memory";
     }
 }
+
+
+// Generate the address relative to the start of the segment.
+void StateExport::setRelocationAddress(void* p, POLYUNSIGNED* reloc)
+{
+    unsigned area = findArea(p);
+    POLYUNSIGNED offset = (POLYUNSIGNED)((char*)p - (char*)memTable[area].mtOriginalAddr);
+    *reloc = offset;
+}
+
+PolyWord StateExport::createRelocation(PolyWord p, void* relocAddr)
+{
+#ifdef POLYML32IN64
+    createActualRelocation(p.AsAddress(), relocAddr, PROCESS_RELOC_C32ADDR);
+#else
+    createActualRelocation(p.AsAddress(), relocAddr, PROCESS_RELOC_DIRECT);
+#endif
+    return p; // Don't change the contents
+}
+
+// Override for Exporter::relocateValue.  That function does not do anything for compact 32-bit because
+// the operating system object module formats do not support a suitable relocation format.
+void StateExport::relocateValue(PolyWord* pt)
+{
+    PolyWord q = *pt;
+    if (IS_INT(q) || q == PolyWord::FromUnsigned(0)) {}
+    else *gMem.SpaceForAddress(pt)->writeAble(pt) = createRelocation(*pt, pt);
+}
+
+// We need to override this since Exporter::relocateObject doesn't work for compact 32-bits
+void StateExport::relocateObject(PolyObject* p)
+{
+    if (p->IsClosureObject())
+    {
+        POLYUNSIGNED length = p->Length();
+        // The first word is an absolute code address.
+        PolyWord* pt = p->Offset(0);
+        void* addr = *(void**)pt;
+        createActualRelocation(addr, pt, PROCESS_RELOC_DIRECT);
+
+        for (POLYUNSIGNED i = sizeof(uintptr_t) / sizeof(PolyWord); i < length; i++) relocateValue(p->Offset(i));
+    }
+    // Exporter::relocateObject clears weak mutable byte refs.  We mustn't do that
+    // because we're going to use the exported copy afterwards.  Instead
+    // weak byte refs are cleared and external refs set after states
+    // and modules are loaded: ClearVolatile class.
+    else if (!p->IsByteObject())
+        Exporter::relocateObject(p);
+}
+
+
+/* This is called for each constant within the code.
+   Print a relocation entry for the word and return a value that means
+   that the offset is saved in original word. */
+void StateExport::ScanConstant(PolyObject* base, byte* addr, ScanRelocationKind code, intptr_t displacement)
+{
+    PolyObject* p = GetConstantValue(addr, code, displacement);
+
+    if (p == 0)
+        return;
+
+    void* a = p;
+    unsigned aArea = findArea(a);
+
+    // We don't need a relocation if this is relative to the current segment
+    // since the relative address will already be right.
+    if (code == PROCESS_RELOC_I386RELATIVE && aArea == findArea(addr))
+        return;
+
+    // Set the value at the address to the offset relative to the symbol.
+    createActualRelocation(a, addr, code);
+}
+
 
 // Functions called via the RTS call.
 Handle exportNative(TaskData *taskData, Handle args)
@@ -876,7 +998,7 @@ POLYUNSIGNED PolyExportPortable(POLYUNSIGNED threadId, POLYUNSIGNED fileName, PO
 
 // Helper functions for exporting.  We need to produce relocation information
 // and this code is common to every method.
-Exporter::Exporter(unsigned int h): exportFile(NULL), errorMessage(0), hierarchy(h), memTable(0), newAreas(0)
+Exporter::Exporter(): exportFile(NULL), errorMessage(0), errNumber(0), memTable(0), memTableEntries(0), rootFunction(0)
 {
 }
 
@@ -942,9 +1064,58 @@ void Exporter::relocateObject(PolyObject *p)
     }
     else // Closure and ordinary objects
     {
+        // TODO: This doesn't work properly for closures in compact 32-bit since it
+        // treats the absolutely address of the code as two ordinary PolyWord values.
+        // That doesn't matter when exporting to an object file since in that case
+        // we never actually generate any relocations.
         POLYUNSIGNED length = p->Length();
         for (POLYUNSIGNED i = 0; i < length; i++) relocateValue(p->Offset(i));
     }
+}
+
+// CopyScan makes a copy of everything reachable from the root into export spaces leaving
+// forwarding pointers in the original space.  This function reverts those forwarding pointers.
+void CopyScan::fixPermanentAreas()
+{
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
+    {
+        MemSpace* space = *i;
+        // Permanent areas are filled with objects from the bottom.
+        FixForwarding(space->bottom, space->top - space->bottom);
+    }
+}
+
+void CopyScan::revertToLocal()
+{
+    // Fix the forwarding pointers.
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
+    {
+        LocalMemSpace* space = *i;
+        // Local areas only have objects from the allocation pointer to the top.
+        FixForwarding(space->bottom, space->lowerAllocPtr - space->bottom);
+        FixForwarding(space->upperAllocPtr, space->top - space->upperAllocPtr);
+    }
+    fixPermanentAreas();
+    for (std::vector<CodeSpace*>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
+    {
+        MemSpace* space = *i;
+        // Code areas are filled with objects from the bottom.
+        FixForwarding(space->bottom, space->top - space->bottom);
+    }
+}
+
+
+bool Exporter::checkedFwrite(const void* buffer, size_t size, size_t count)
+{
+    size_t written = fwrite(buffer, size, count, exportFile);
+    if (written != count)
+    {
+        errNumber = ERRORNUMBER;
+        errorMessage = "Error in fwrite"; // Will be set to the appropriate string in raise_syscall.
+        return false;
+    }
+    return true;
+
 }
 
 ExportStringTable::ExportStringTable(): strings(0), stringSize(0), stringAvailable(0)

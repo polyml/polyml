@@ -2,7 +2,7 @@
     Title:     Export memory as a PE/COFF object
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006, 2011, 2016-18, 2020-21 David C. J. Matthews
+    Copyright (c) 2006, 2011, 2016-18, 2020-21, 2025 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -446,7 +446,7 @@ void PECOFFExport::exportStore(void)
     exports.memTableEntries = memTableEntries;
     exports.memTable = (memoryTableEntry *)sizeof(exports); // It follows immediately after this.
     exports.rootFunction = (void*)rootOffset; // Actual address is set by relocation
-    exports.timeStamp = now;
+    exports.execIdentifier = exportModId;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
 #ifdef POLYML32IN64
@@ -461,7 +461,17 @@ void PECOFFExport::exportStore(void)
         memTable[i].mtCurrentAddr = 0;
 
     fwrite(&exports, sizeof(exports), 1, exportFile);
-    fwrite(memTable, sizeof(memoryTableEntry), memTableEntries, exportFile);
+
+    for (unsigned i = 0; i < memTableEntries; i++)
+    {
+        memoryTableEntry memt;
+        memset(&memt, 0, sizeof(memt));
+        memt.mtCurrentAddr = memTable[i].mtCurrentAddr;
+        memt.mtOriginalAddr = memTable[i].mtOriginalAddr;
+        memt.mtLength = memTable[i].mtLength;
+        memt.mtFlags = memTable[i].mtFlags;
+        fwrite(&memt, sizeof(memoryTableEntry), 1, exportFile);
+    }
     // First the symbol table.  We have one entry for the exports and an additional
     // entry for each of the sections.
     fhdr.PointerToSymbolTable = ftell(exportFile);

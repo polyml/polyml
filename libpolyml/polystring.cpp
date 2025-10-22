@@ -1,7 +1,7 @@
 /*
     Title:  polystring.cpp - String functions and types
 
-    Copyright (c) 2006, 2015 David C.J. Matthews
+    Copyright (c) 2006, 2015, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -41,6 +41,8 @@
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
+
+#include <string>
 
 #include "globals.h"
 #include "polystring.h"
@@ -104,6 +106,12 @@ char *Poly_string_to_C_alloc(PolyWord ps, size_t extraChars)
     res[chars] = '\0';
     return res;
 } /* Poly_string_to_C_alloc */
+
+std::string PolyStringToCString(PolyWord ps)
+{
+    PolyStringObject* str = (PolyStringObject*)ps.AsObjPtr();
+    return std::string(str->chars, str->length);
+}
 
 TempCString::~TempCString()
 {
@@ -196,6 +204,22 @@ WCHAR *Poly_string_to_U_alloc(PolyWord ps, size_t extraChars)
     chars = MultiByteToWideChar(codePage, 0, iPtr, iLength, res, chars);
     res[chars] = 0;
     return res;
+}
+
+std::wstring PolyStringToUString(PolyWord ps)
+{
+    PolyStringObject* str = (PolyStringObject*)ps.AsObjPtr();
+    int iLength = (int)str->length;
+    if (iLength == 0) return std::wstring();
+    const char* iPtr = str->chars;
+
+    // Find the space required.
+    int chars = MultiByteToWideChar(codePage, 0, iPtr, iLength, NULL, 0);
+    if (chars <= 0) return std::wstring();
+    std::wstring result;
+    result.resize(chars);
+    MultiByteToWideChar(codePage, 0, iPtr, iLength, &result[0], (int)result.size());
+    return result;
 }
 
 // convert_string_list return a list of strings.

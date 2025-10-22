@@ -771,10 +771,10 @@ void Timing::Init(void)
 
 time_t getBuildTime(void)
 {
-    char *source_date_epoch = getenv("SOURCE_DATE_EPOCH");
+    char* source_date_epoch = getenv("SOURCE_DATE_EPOCH");
     if (source_date_epoch) {
         errno = 0;
-        char *endptr;
+        char* endptr;
         long long epoch = StrToLL(source_date_epoch, &endptr, 10);
         if ((errno == ERANGE && (epoch == LLONG_MIN || epoch == LLONG_MAX)) || (errno != 0 && epoch == 0)) {
             fprintf(polyStderr, "Environment variable $SOURCE_DATE_EPOCH: " XSTR(StrToLL) ": %s\n", strerror(errno));
@@ -796,7 +796,7 @@ time_t getBuildTime(void)
             fprintf(polyStderr, "Environment variable $SOURCE_DATE_EPOCH: value must be smaller than or equal to: %lld but was found to be: %lld\n", (long long)std::numeric_limits<time_t>::max(), epoch);
             goto err;
         }
-        return (time_t) epoch;
+        return (time_t)epoch;
     }
 err:
     return time(NULL);

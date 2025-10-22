@@ -71,6 +71,7 @@ noinst_HEADERS = \
 	machine_dep.h \
 	machoexport.h \
 	memmgr.h \
+    modules.h \
 	mpoly.h \
 	network.h \
 	noreturn.h \
@@ -123,6 +124,7 @@ libpolyml_la_SOURCES = \
     heapsizing.cpp \
     locking.cpp \
     memmgr.cpp \
+    modules.cpp \
     mpoly.cpp \
     network.cpp \
     objsize.cpp \

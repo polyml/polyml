@@ -2,7 +2,7 @@
     Title:     Write out a database as a Mach object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011-2, 2016-18, 2020-21 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-2, 2016-18, 2020-21, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -38,10 +38,6 @@
 
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
-#endif
-
-#ifdef HAVE_TIME_H
-#include <time.h>
 #endif
 
 #ifdef HAVE_ASSERT_H
@@ -83,7 +79,6 @@
 #include "run_time.h"
 #include "version.h"
 #include "polystring.h"
-#include "timing.h"
 
 // Mach-O seems to require each section to have a discrete virtual address range
 // so we have to adjust various offsets to fit.
@@ -504,7 +499,7 @@ void MachoExport::exportStore(void)
     // Set the value to be the offset relative to the base of the area.  We have set a relocation
     // already which will add the base of the area.
     exports.rootFunction = (void*)rootOffset;
-    exports.timeStamp = getBuildTime();
+    exports.execIdentifier = exportModId;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
 #ifdef POLYML32IN64
@@ -520,13 +515,17 @@ void MachoExport::exportStore(void)
     sections[memTableEntries].offset = ftell(exportFile);
     fwrite(&exports, sizeof(exports), 1, exportFile);
     size_t addrOffset = sizeof(exports)+sizeof(memoryTableEntry)*memTableEntries;
+
     for (i = 0; i < memTableEntries; i++)
     {
-        void *save = memTable[i].mtCurrentAddr;
-        memTable[i].mtCurrentAddr = (void*)addrOffset; // Set this to the relative address.
+        memoryTableEntry memt;
+        memset(&memt, 0, sizeof(memt));
+        memt.mtCurrentAddr = (void*)addrOffset; // Set this to the relative address.
         addrOffset += memTable[i].mtLength;
-        fwrite(&memTable[i], sizeof(memoryTableEntry), 1, exportFile);
-        memTable[i].mtCurrentAddr = save;
+        memt.mtOriginalAddr = memTable[i].mtOriginalAddr;
+        memt.mtLength = memTable[i].mtLength;
+        memt.mtFlags = memTable[i].mtFlags;
+        fwrite(&memt, sizeof(memoryTableEntry), 1, exportFile);
     }
 
     // Now the binary data.

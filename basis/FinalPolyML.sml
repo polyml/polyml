@@ -1,7 +1,7 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019-21
+    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019-21, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -2101,45 +2101,90 @@ in
         (* Saving and loading state. *)
         structure SaveState =
         struct
+            type moduleId = Word8Vector.vector
+
+            val showLoadedModules: unit -> moduleId list =
+                RunCall.rtsCallFull0 "PolyShowLoadedModules"
+
+            val getModuleInfo: string -> moduleId * (moduleId * string) list =
+                RunCall.rtsCallFull1 "PolyGetModuleInfo"
+
             local
                 val getOS: int = LibrarySupport.getOSType()
+                (* Path elements are separated by semicolons in Windows but colons in Unix. *)
+                val sepInPathList = if getOS = 1 then #";" else #":"
 
-                val loadMod: string -> Universal.universal list = RunCall.rtsCallFull1 "PolyLoadModule"
+                val loadMod: string -> Universal.universal list * moduleId = RunCall.rtsCallFull1 "PolyLoadModule"
                 and systemDir: unit -> string = RunCall.rtsCallFull0 "PolyGetModuleDirectory"
-            in
-                fun loadModuleBasic (fileName: string): Universal.universal list =
-                (* If there is a path separator use the name and don't search further. *)
-                if OS.Path.dir fileName <> ""
-                then loadMod fileName
-                else
-                let
-                    (* Path elements are separated by semicolons in Windows but colons in Unix. *)
-                    val sepInPathList = if getOS = 1 then #";" else #":"
-                    val pathList =
-                        case OS.Process.getEnv "POLYMODPATH" of
-                            NONE => []
-                        |   SOME s => String.fields (fn ch => ch = sepInPathList) s
 
-                    fun findFile [] = NONE
-                    |   findFile (hd::tl) =
-                        (* Try actually loading the file.  That way we really check we have a module. *)
-                        SOME(loadMod (OS.Path.joinDirFile{dir=hd, file=fileName}))
-                            handle Fail _ => findFile tl | OS.SysErr _ => findFile tl      
-                in
-                    case findFile pathList of
-                        SOME l => l (* Found *)
-                    |   NONE => 
-                        let
-                            val sysDir = systemDir()
-                            val inSysDir =
-                                if sysDir = "" then NONE else findFile[sysDir]
-                        in
-                            case inSysDir of
-                                SOME l => l
-                            |   NONE => raise Fail("Unable to find module ``" ^ fileName ^ "''")
-                        end
-                end
+                (* Get the full path name and the module info.  Raises an exception if the module
+                   cannot be found. *)
+                fun moduleFileName fileName =
+                    (* If there is a path separator in the name use the name and don't search further. *)
+                    if OS.Path.dir fileName <> ""
+                    then (fileName, #2 (getModuleInfo fileName))
+                    else
+                    let
+                        val pathList =
+                            case OS.Process.getEnv "POLYMODPATH" of
+                                NONE => []
+                            |   SOME s => String.fields (fn ch => ch = sepInPathList) s
+
+                        (* Append the system directory to the end unless it's empty *)
+                        val sysDir = systemDir()
+                        val fullPathList =
+                            if sysDir = "" then pathList else pathList @ [sysDir]
+
+                        fun findFile (hd::tl) =
+                            (* See if the file exists and is a valid module. *)
+                            let
+                                val fullName = OS.Path.joinDirFile{dir=hd, file=fileName}
+                            in
+                                (fullName, #2 (getModuleInfo fullName))
+                                    (* If this raises an exception keep looking. *)
+                                    handle Fail _ => findFile tl | OS.SysErr _ => findFile tl
+                            end
+                        |   findFile [] =
+                                raise Fail("Unable to find module ``" ^ fileName ^ "''")
+                    in
+                        findFile fullPathList
+                    end
+
+                (* Load the dependencies and then the module itself, accumulating the contents. *)
+                fun loadDependencies((fileName, []), otherContents) =
+                        (* All the dependencies have been loaded - load the module itself. *)
+                    let
+                        val (contents, modId) = loadMod fileName
+                    in
+                        (contents @ otherContents, modId)
+                    end
+
+                |   loadDependencies((fileName, (_, "")::otherModules), otherContents) =
+                        (* If the file name is empty we don't attempt to load it here.
+                           If it isn't already loaded we'll get an error when we attempt
+                           to load the parent. *)
+                        loadDependencies((fileName, otherModules), otherContents)
+
+                |   loadDependencies((fileName, (depModId, depFileName)::otherModules), otherContents) =
+                    let
+                        val loadedMods = showLoadedModules()
+
+                        val addContents =
+                            (* Have to load the module unless the module is already loaded *)
+                            if List.exists(fn id => id = depModId) loadedMods
+                            then otherContents
+                            else #1 (loadDependencies(moduleFileName depFileName, otherContents))
+                    in
+
+                        (* Get the other dependencies and finally the module itself. *)
+                        loadDependencies((fileName, otherModules), addContents)
+                    end
+            in
+                fun loadModuleBasic (fileName: string): Universal.universal list * moduleId =
+                    loadDependencies(moduleFileName fileName, []);
             end
+            
+            val releaseModule: moduleId -> unit = RunCall.rtsCallFull1 "PolyReleaseModule"
 
             val saveChild: string * int -> unit = RunCall.rtsCallFull2 "PolySaveState"
 
@@ -2163,7 +2208,7 @@ in
                    before the children.  It's easier for the RTS if this is reversed. *)
                 fun loadHierarchy (s: string list): unit = loadHier (List.rev s)
             end
-            
+
             (* Module loading and storing. *)
             structure Tags =
             struct
@@ -2175,15 +2220,21 @@ in
                 val fixityTag: (string * PolyML.NameSpace.Infixes.fixity) Universal.tag = Universal.tag()
                 val startupTag: (unit -> unit) Universal.tag = Universal.tag()
             end
-            
+
             local
-                val saveMod: string * Universal.universal list -> unit = RunCall.rtsCallFull2 "PolyStoreModule"
+                val saveDepMod: string * Universal.universal list * (moduleId * string) list -> moduleId =
+                    RunCall.rtsCallFull3 "PolyStoreModule"
             in
-                fun saveModuleBasic(_, []) = raise Fail "Cannot create an empty module"
-                |   saveModuleBasic(name, contents) = saveMod(name, contents)
+                fun saveDependentModuleBasic(_, [], _) = raise Fail "Cannot create an empty module"
+                |   saveDependentModuleBasic(fileName, contents, dependencies) =
+                        saveDepMod(fileName, contents, dependencies)
+                
+                (* Simple version without dependencies *)
+                fun saveModuleBasic(name, contents) =
+                        saveDependentModuleBasic(name, contents, [])
             end
 
-            fun saveModule(s, {structs, functors, sigs, onStartup}) =
+            fun saveDependentModule(s, {structs, functors, sigs, onStartup}, dependencies) =
             let
                 fun dolookup (look, tag, kind) s =
                     case look globalNameSpace s of
@@ -2197,12 +2248,14 @@ in
                         SOME f => [Universal.tagInject Tags.startupTag f]
                     |   NONE => []
             in
-                saveModuleBasic(s, structVals @ functorVals @ sigVals @ startVal)
+                saveDependentModuleBasic(s, structVals @ functorVals @ sigVals @ startVal, dependencies)
             end
             
-            fun loadModule s =
+            fun saveModule(s, contents) = saveDependentModule(s, contents, [])
+            
+            fun loadModule s : moduleId =
             let
-                val ulist = loadModuleBasic s
+                val (ulist, modId) = loadModuleBasic s
                 (* Find and run the start-up function.  If it raises an exception we
                    don't go further. *)
                 val startFn = List.find (Universal.tagIs Tags.startupTag) ulist
@@ -2221,8 +2274,11 @@ in
                     signatures = extract Tags.signatureTag ulist,
                     functors = extract Tags.functorTag ulist,
                     types = extract Tags.typeTag ulist
-                }
+                };
+                
+                modId
             end
+
         end
         
         val loadModule = SaveState.loadModule

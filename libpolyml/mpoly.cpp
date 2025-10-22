@@ -88,7 +88,6 @@
 #include "polystring.h"
 #include "statistics.h"
 #include "noreturn.h"
-#include "savestate.h"
 
 #if (defined(_WIN32))
 #include "winstartup.h"
@@ -101,10 +100,11 @@ FILE *polyStdout, *polyStderr; // Redirected in the Windows GUI
 
 NORETURNFN(static void Usage(const char *message, ...));
 
+static PolyObject* InitHeaderFromExport(struct _exportDescription* exports);
 
 struct _userOptions userOptions;
 
-time_t exportTimeStamp;
+ModuleId exportSignature;
 
 enum {
     OPT_HEAPMIN,
@@ -531,4 +531,229 @@ char *RTSArgHelp(void)
     }
     ASSERT((unsigned)(p - buff) < (unsigned)sizeof(buff));
     return buff;
+}
+
+#ifdef POLYML32IN64
+// The operating system places the object code in memory at an arbitrary address.  That's
+// fine for native address mode but doesn't work for compact 32-bit mode.  All the segments
+// have to be copied into parts of the memory that will work with 32-bit object pointers.
+// That requires relocating all the addresses.  This is further complicated because the
+// operating system will not have relocated the object pointers from their original
+// locations.
+
+typedef struct _SegmentDescr
+{
+    unsigned segmentIndex;
+    size_t segmentSize;
+    byte* originalAddress;              // The base address when the segment was created.
+    byte* newAddress;
+} SegmentDescr;
+
+// LoadRelocate was previously used when loading saved states
+// to reduce the need for relocations.
+
+// This class is used to relocate addresses in areas that have been loaded.
+class LoadRelocate : public ScanAddress
+{
+public:
+    LoadRelocate() : originalBaseAddr(0), relativeOffset(0) {
+    }
+
+    void RelocateObject(PolyObject* p);
+    virtual PolyObject* ScanObjectAddress(PolyObject* base) { ASSERT(0); return base; } // Not used
+    virtual void ScanConstant(PolyObject* base, byte* addressOfConstant, ScanRelocationKind code, intptr_t displacement);
+    void RelocateAddressAt(PolyWord* pt);
+    PolyObject* RelocateAddress(PolyObject* obj);
+
+    PolyWord* originalBaseAddr;
+    std::vector< SegmentDescr> descrs;
+
+    intptr_t relativeOffset;
+};
+
+// Update the addresses in a group of words.
+void LoadRelocate::RelocateAddressAt(PolyWord* pt)
+{
+    PolyWord val = *pt;
+    if (!val.IsTagged())
+        *gMem.SpaceForAddress(pt)->writeAble(pt) = RelocateAddress(val.AsObjPtr(originalBaseAddr));
+}
+
+PolyObject* LoadRelocate::RelocateAddress(PolyObject* obj)
+{
+    // Which segment is this address in?  N.B. The check is > the start and <= the end
+    byte *t = (byte*)obj;
+    for (std::vector<SegmentDescr>::iterator descr = descrs.begin(); descr < descrs.end(); descr++)
+    {
+        if (t > descr->originalAddress && t <= descr->originalAddress + descr->segmentSize)
+            return (PolyObject*)(t - descr->originalAddress + descr->newAddress);
+    }
+
+    // It should be in one of the segments.
+    ASSERT(0);
+    return 0;
+}
+
+// This is based on Exporter::relocateObject but does the reverse.
+// It attempts to adjust all the addresses in the object when it has
+// been read in.
+void LoadRelocate::RelocateObject(PolyObject* p)
+{
+    if (p->IsByteObject())
+    {
+    }
+    else if (p->IsCodeObject())
+    {
+        POLYUNSIGNED constCount;
+        PolyWord* cp;
+        ASSERT(!p->IsMutable());
+        machineDependent->GetConstSegmentForCode(p, cp, constCount);
+        /* Now the constant area. */
+        for (POLYUNSIGNED i = 0; i < constCount; i++) RelocateAddressAt(&(cp[i]));
+        // Saved states and modules have relocation entries for constants in the code.
+        // We can't use them when loading object files in 32-in-64 so have to process the
+        // constants here.
+        machineDependent->ScanConstantsWithinCode(p, this);
+        // On 32-in-64 ARM we may have to update the global heap base in an FFI callback.
+        machineDependent->UpdateGlobalHeapReference(p);
+    }
+    else if (p->IsClosureObject())
+    {
+        // The first word is the address of the code.
+        POLYUNSIGNED length = p->Length();
+        *(PolyObject**)p = RelocateAddress(*(PolyObject**)p);
+        for (POLYUNSIGNED i = sizeof(PolyObject*) / sizeof(PolyWord); i < length; i++)
+            RelocateAddressAt(p->Offset(i));
+    }
+    else /* Ordinary objects, essentially tuples. */
+    {
+        POLYUNSIGNED length = p->Length();
+        for (POLYUNSIGNED i = 0; i < length; i++) RelocateAddressAt(p->Offset(i));
+    }
+}
+
+// Update addresses as constants within the code.
+void LoadRelocate::ScanConstant(PolyObject* base, byte* addressOfConstant, ScanRelocationKind code, intptr_t displacement)
+{
+    PolyObject* p = GetConstantValue(addressOfConstant, code, displacement);
+
+    if (p != 0)
+    {
+        // Relative addresses are computed by adding the CURRENT address.
+        // We have to convert them into addresses in original space before we
+        // can relocate them.
+        if (code == PROCESS_RELOC_I386RELATIVE)
+            p = (PolyObject*)((PolyWord*)p + relativeOffset);
+        PolyObject* newValue = RelocateAddress(p);
+        SetConstantValue(addressOfConstant, newValue, code);
+    }
+}
+#endif
+
+PolyObject* InitHeaderFromExport(struct _exportDescription* exports)
+{
+    // Check the structure sizes stored in the export structure match the versions
+    // used in this library.
+    if (exports->structLength != sizeof(exportDescription) ||
+        exports->memTableSize != sizeof(memoryTableEntry) ||
+        exports->rtsVersion < FIRST_supported_version ||
+        exports->rtsVersion > LAST_supported_version)
+    {
+#if (FIRST_supported_version == LAST_supported_version)
+        Exit("The exported object file has version %0.2f but this library supports %0.2f",
+            ((float)exports->rtsVersion) / 100.0,
+            ((float)FIRST_supported_version) / 100.0);
+#else
+        Exit("The exported object file has version %0.2f but this library supports %0.2f-%0.2f",
+            ((float)exports->rtsVersion) / 100.0,
+            ((float)FIRST_supported_version) / 100.0,
+            ((float)LAST_supported_version) / 100.0);
+#endif
+    }
+    // We could also check the RTS version and the architecture.
+    exportSignature = exports->execIdentifier; // Needed for load and save.
+
+    memoryTableEntry* memTable = exports->memTable;
+#ifdef POLYML32IN64
+    // We need to copy this into the heap before beginning execution.
+    LoadRelocate relocate;
+    relocate.descrs.reserve(exports->memTableEntries);
+    relocate.originalBaseAddr = (PolyWord*)exports->originalBaseAddr;
+
+    PolyObject* root = 0;
+
+    for (unsigned i = 0; i < exports->memTableEntries; i++)
+    {
+        PermanentMemSpace* newSpace =
+            gMem.AllocateNewPermanentSpace(memTable[i].mtLength, (unsigned)memTable[i].mtFlags, i, exportSignature);
+        if (newSpace == 0)
+            Exit("Unable to initialise a permanent memory space");
+
+        PolyWord* mem = newSpace->bottom;
+        SegmentDescr descr;
+        descr.segmentIndex = i;
+        descr.originalAddress = (byte*)memTable[i].mtOriginalAddr;
+        descr.segmentSize = memTable[i].mtLength;
+        descr.newAddress = (byte*)mem;
+        relocate.descrs.push_back(descr);
+
+        memcpy(newSpace->writeAble(mem), memTable[i].mtCurrentAddr, memTable[i].mtLength);
+        PolyWord* unused = mem + memTable[i].mtLength / sizeof(PolyWord);
+        gMem.FillUnusedSpace(newSpace->writeAble(unused),
+            newSpace->spaceSize() - memTable[i].mtLength / sizeof(PolyWord));
+
+        if (newSpace == 0)
+            Exit("Unable to initialise a permanent memory space");
+
+        // Relocate the root function.
+        if (exports->rootFunction >= memTable[i].mtCurrentAddr && exports->rootFunction < (char*)memTable[i].mtCurrentAddr + memTable[i].mtLength)
+        {
+            root = (PolyObject*)((char*)mem + ((char*)exports->rootFunction - (char*)memTable[i].mtCurrentAddr));
+        }
+    }
+
+    // Now relocate the addresses
+    for (unsigned j = 0; j < exports->memTableEntries; j++)
+    {
+        SegmentDescr* descr = &relocate.descrs[j];
+        MemSpace* space = gMem.SpaceForIndex(descr->segmentIndex, exportSignature);
+        // Any relative addresses have to be corrected by adding this.
+        relocate.relativeOffset = (PolyWord*)descr->originalAddress - space->bottom;
+        for (PolyWord* p = space->bottom; p < space->top; )
+        {
+            if ((((uintptr_t)p) & 4) == 0)
+            {
+                // Skip any padding.  The length word should be on an odd-word boundary.
+                p++;
+                continue;
+            }
+            p++;
+            PolyObject* obj = (PolyObject*)p;
+            POLYUNSIGNED length = obj->Length();
+            relocate.RelocateObject(obj);
+            p += length;
+        }
+    }
+
+    // Set the final permissions.
+    for (unsigned j = 0; j < exports->memTableEntries; j++)
+    {
+        PermanentMemSpace* space = gMem.SpaceForIndex(j, exportSignature);
+        gMem.CompletePermanentSpaceAllocation(space);
+    }
+
+    return root;
+
+#else
+    for (unsigned i = 0; i < exports->memTableEntries; i++)
+    {
+        // Construct a new space for each of the entries.
+        if (gMem.PermanentSpaceFromExecutable(
+            (PolyWord*)memTable[i].mtCurrentAddr,
+            memTable[i].mtLength / sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
+            i, exportSignature) == 0)
+            Exit("Unable to initialise a permanent memory space");
+    }
+    return (PolyObject*)exports->rootFunction;
+#endif
 }
