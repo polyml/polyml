@@ -259,6 +259,11 @@ struct
                Also returns a flag indicating if the value came from a constant.
                Constants are already tupled so there's no advantage in untupling
                them unless there are other non-constant arguments as well. *)
+            
+            (* It's not clear how useful this is since it's just looking at the argument
+               that was passed in the call of a function and doesn't consider that the
+               more common case of a variable bound to a tuple that is then used as
+               the argument.  *)
             fun findTuple(Tuple{fields, isVariant=false}) = (List.length fields, false)
             |   findTuple(Constnt(w, _)) =
                     if isShort w orelse flags (toAddress w) <> F_words then (1, false)
@@ -273,7 +278,6 @@ struct
                     end
             |   findTuple(Newenv(_, e)) = findTuple e
             |   findTuple _ = (1, false)
-            
         in
             fun mapArg c =
             let
@@ -381,28 +385,6 @@ struct
            function arguments we have to check how it is applied. *)
         val usageForFunctionBody = usageToPattern CurryNoCheck
         and usageForFunctionArg  = usageToPattern CurryCheck
-
-        (* To decide whether we want to detuple the argument we look to see
-           if the function is ever applied to a tuple.  This is rather different
-           to currying where we only decurry if every application is to multiple
-           arguments.  This information is then merged with information about the
-           arguments within the function. *)
-        fun existTupling (use: codeUse list): functionArgPattern list =
-        let
-            val argListLists =
-                List.foldl (fn (UseApply(_, args), l) => map mapArg args :: l | (_, l) => l) [] use
-            fun orMerge [] = raise Empty
-            |   orMerge [hd] = hd
-            |   orMerge (hd1 :: hd2 :: tl) =
-                let
-                    fun merge(a as ArgPattTuple _, _) = a
-                    |   merge(_, b) = b
-                in
-                    orMerge(ListPair.mapEq merge (hd1, hd2) :: tl)
-                end
-        in
-            orMerge argListLists
-        end
 
         (* If the result of a function contains a tuple but it is not detupled on
            every path, see if it is detupled on at least one. *)
@@ -1071,8 +1053,6 @@ struct
                                     else ArgPattCurry([arg1], ArgPattSimple)
                             |   usage => usage
 
-                        val argPatterns = map (usageForFunctionArg o #2) argTypes
-
                         (* fullArgPattern is a list, one per level of currying, of a list, one per argument of
                            the patterns.  resultPattern is used to detect whether the result is a tuple that
                            is taken apart. *)
@@ -1080,19 +1060,15 @@ struct
                             case functionPattern of
                                 ArgPattCurry(_ :: rest, resPattern) =>
                                 let
+                                    val argPatterns = map (usageForFunctionArg o #2) argTypes
                                     (* The function is always applied at least to the first set of arguments.
-                                       (It's never just passed). Merge the applications of the function
-                                       with the use of the arguments.  Return the usage within the
-                                       function unless the function takes apart a tuple but no
-                                       application passes in a tuple. *)
-                                    fun merge(ArgPattTuple _, argUse as ArgPattTuple _) = argUse
-                                    |   merge(_, ArgPattTuple _) = ArgPattSimple
-                                    |   merge(_, argUse)  = argUse
+                                       (It's never just passed).
+                                       Previously this removed ArgPattTuple from an argument if it was never
+                                       actually applied to a tuple.  This meant that the argument would not be
+                                       detupled in that case.  The problem was that it only worked if the function
+                                       was applied directly to a tuple and not to a variable bound to a tuple. *)
+                                    val mergedArgs = argPatterns :: rest
 
-                                    val mergedArgs =
-                                        (ListPair.mapEq merge (existTupling use, argPatterns)) :: rest
-
-                                    (* *)
                                     val mergedResult =
                                         case (bodyReturnsTuple updatedBody, resPattern) of
                                             (bodyTuple as ArgPattTuple _, ArgPattSimple) =>
