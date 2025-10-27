@@ -885,7 +885,9 @@ struct
         let
             (* If an argument is a tuple and always taken apart within the loop we should
                replace it with arguments for the fields.  This is the same as detupling
-               function arguments. *)
+               function arguments.
+               Note: the simplifier lifts loop variables out of the loop if they are
+               passed through unchanged so we don't need to consider that here. *)
             fun checkArg(({use, addr, ...}, _) :: rest, argNo) =
                 if List.all (fn UseField _ => true | _ => false) use
                 then
