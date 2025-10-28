@@ -2122,7 +2122,7 @@ in
                 fun moduleFileName fileName =
                     (* If there is a path separator in the name use the name and don't search further. *)
                     if OS.Path.dir fileName <> ""
-                    then (fileName, #2 (getModuleInfo fileName))
+                    then (fileName, getModuleInfo fileName)
                     else
                     let
                         val pathList =
@@ -2140,7 +2140,7 @@ in
                             let
                                 val fullName = OS.Path.joinDirFile{dir=hd, file=fileName}
                             in
-                                (fullName, #2 (getModuleInfo fullName))
+                                (fullName, getModuleInfo fullName)
                                     (* If this raises an exception keep looking. *)
                                     handle Fail _ => findFile tl | OS.SysErr _ => findFile tl
                             end
@@ -2151,7 +2151,7 @@ in
                     end
 
                 (* Load the dependencies and then the module itself, accumulating the contents. *)
-                fun loadDependencies((fileName, []), otherContents) =
+                fun loadModAndDependencies(fileName, [], otherContents) =
                         (* All the dependencies have been loaded - load the module itself. *)
                     let
                         val (contents, modId) = loadMod fileName
@@ -2159,13 +2159,13 @@ in
                         (contents @ otherContents, modId)
                     end
 
-                |   loadDependencies((fileName, (_, "")::otherModules), otherContents) =
+                |   loadModAndDependencies(fileName, (_, "")::otherModules, otherContents) =
                         (* If the file name is empty we don't attempt to load it here.
                            If it isn't already loaded we'll get an error when we attempt
                            to load the parent. *)
-                        loadDependencies((fileName, otherModules), otherContents)
+                        loadModAndDependencies(fileName, otherModules, otherContents)
 
-                |   loadDependencies((fileName, (depModId, depFileName)::otherModules), otherContents) =
+                |   loadModAndDependencies(fileName, (depModId, depFileName)::otherModules, otherContents) =
                     let
                         val loadedMods = showLoadedModules()
 
@@ -2173,15 +2173,29 @@ in
                             (* Have to load the module unless the module is already loaded *)
                             if List.exists(fn id => id = depModId) loadedMods
                             then otherContents
-                            else #1 (loadDependencies(moduleFileName depFileName, otherContents))
+                            else
+                            let
+                                val (fname, (modId, modDeps)) = moduleFileName depFileName
+                            in
+                                (* If the moduleId does not match ignore it and its dependencies.
+                                   That could happen if the module has been moved or the file name
+                                   information in the parent module is wrong.  It is possible to get
+                                   an apparent dependency loop in that case. *)
+                                if modId = depModId
+                                then #1 (loadModAndDependencies(fname, modDeps, otherContents))
+                                else otherContents
+                            end
                     in
-
                         (* Get the other dependencies and finally the module itself. *)
-                        loadDependencies((fileName, otherModules), addContents)
+                        loadModAndDependencies(fileName, otherModules, addContents)
                     end
             in
                 fun loadModuleBasic (fileName: string): Universal.universal list * moduleId =
-                    loadDependencies(moduleFileName fileName, []);
+                let
+                    val (fname, (_, deps)) = moduleFileName fileName
+                in
+                    loadModAndDependencies(fname, deps, [])
+                end
             end
             
             val releaseModule: moduleId -> unit = RunCall.rtsCallFull1 "PolyReleaseModule"
