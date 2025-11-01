@@ -171,12 +171,14 @@ struct
 
         |   codeProps(Raise exp) = codeProps exp andb (Word.notb PROPWORD_NORAISE)
 
-            (* Treat these as unsafe at least for the moment. *)
+            (* Treat these as unsafe at least for the moment.
+               N.B. BeginLoop can raise Interrupt if it is interrupted externally. *)
         |   codeProps(BeginLoop _) = 0w0
 
         |   codeProps(Loop _) = 0w0
 
-        |   codeProps (SetContainer _) = 0w0
+        |   codeProps (SetContainer{ container, tuple, ...}) =
+                codeProps container andb codeProps tuple andb Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
 
         |   codeProps (LoadOperation {address, kind}) =
             let
@@ -217,6 +219,8 @@ struct
         fun sideEffectFree c = (codeProps c andb noSideEffect) = noSideEffect
         (* reorderable - does not raise an exception or access a reference. *)
         and reorderable c = codeProps c = applicative
+        (* exceptionFree does not raise an exception but could have a side-effect. *)
+        and exceptionFree c = (codeProps c andb PROPWORD_NORAISE) <> 0w0
     end
 
     (* Return the inline property if it is set. *)

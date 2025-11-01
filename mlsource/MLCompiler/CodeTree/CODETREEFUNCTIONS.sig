@@ -44,6 +44,7 @@ sig
     
     val sideEffectFree: codetree -> bool
     and reorderable: codetree -> bool
+    and exceptionFree: codetree -> bool
 
     val makeConstVal: codetree -> codetree
     
