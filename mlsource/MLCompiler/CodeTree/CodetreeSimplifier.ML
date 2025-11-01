@@ -451,14 +451,26 @@ struct
             SOME operation
         end
 
-    |   simpGeneral (context as {enterAddr, nextAddress, ...}) (Handle{exp, handler, exPacketAddr}) =
+    |   simpGeneral (context as {enterAddr, nextAddress, reprocess, ...}) (Handle{exp, handler, exPacketAddr}) =
         let (* We need to make a new binding for the exception packet. *)
             val expBody = simplify(exp, context)
             val newAddr = nextAddress()
             val () = enterAddr(exPacketAddr, (EnvGenLoad(LoadLocal newAddr), EnvSpecNone))
             val handleBody = simplify(handler, context)
         in
-            SOME(Handle{exp=expBody, handler=handleBody, exPacketAddr=newAddr})
+            (* If the expression cannot raise an exception we don't need the handler.  This could
+               arise from constant folding where we know that expression cannot raise, say, Overflow.
+               Similarly, if we know that the expression does raise an exception and the exception
+               packet is itself exception-free, we can evaluate the handler directly. *)
+            if exceptionFree expBody
+            then (reprocess := true; SOME expBody)
+            else case expBody of
+                Raise expPacket =>
+                    if exceptionFree expPacket
+                    then (reprocess := true; SOME(mkEnv([mkDec(newAddr, expPacket)], handleBody)))
+                    else SOME(Handle{exp=expBody, handler=handleBody, exPacketAddr=newAddr})
+
+            |   _ => SOME(Handle{exp=expBody, handler=handleBody, exPacketAddr=newAddr})
         end
 
     |   simpGeneral _ _ = NONE
