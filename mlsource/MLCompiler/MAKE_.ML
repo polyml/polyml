@@ -134,7 +134,9 @@ struct
                 enterFunct   = dbEnvEnter gEnv STRUCTVALS.functorVar,
                 
                 allValNames  =
-                    fn () => map #1 (dbEnvAll gEnv STRUCTVALS.valueVar ())
+                    fn () => map #1 (dbEnvAll gEnv STRUCTVALS.valueVar ()),
+                allStructNames =
+                    fn () => map #1 (dbEnvAll gEnv STRUCTVALS.structVar ())
                 };
 
         fun gEnvAsNameSpace gEnv: nameSpace =

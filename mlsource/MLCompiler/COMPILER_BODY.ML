@@ -134,7 +134,8 @@ struct
             enterStruct  = #enterStruct nameSpace,
             enterSig     = #enterSig nameSpace,
             enterFunct   = #enterFunct nameSpace,
-            allValNames  = fn () => map #1 (#allVal nameSpace ())
+            allValNames  = fn () => map #1 (#allVal nameSpace ()),
+            allStructNames = fn () => map #1 (#allStruct nameSpace ())
         }
 
         val startLocn = location lex
