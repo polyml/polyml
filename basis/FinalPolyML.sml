@@ -254,6 +254,7 @@ local
     and reportUnreferencedIds = ref false
     and reportExhaustiveHandlers = ref false
     and narrowOverloadFlexRecord = ref false
+    and languageExtensions = ref false
     and createPrintFunctions = ref true
     and reportDiscardFunction = ref true
     and reportDiscardNonUnit = ref false
@@ -535,6 +536,7 @@ local
                     tagInject reportUnreferencedIdsTag (! reportUnreferencedIds),
                     tagInject reportExhaustiveHandlersTag (! reportExhaustiveHandlers),
                     tagInject narrowOverloadFlexRecordTag (! narrowOverloadFlexRecord),
+                    tagInject languageExtensionsTag (! languageExtensions),
                     tagInject createPrintFunctionsTag (! createPrintFunctions),
                     tagInject reportDiscardedValuesTag
                         (if ! reportDiscardNonUnit then 2 else if ! reportDiscardFunction then 1 else 0)
@@ -1233,7 +1235,9 @@ in
             and codetreeAfterOpt = codetreeAfterOpt and icode = icode
             and parsetree = parsetree and reportUnreferencedIds = reportUnreferencedIds
             and lowlevelOptimise = lowlevelOptimise and reportExhaustiveHandlers = reportExhaustiveHandlers
-            and narrowOverloadFlexRecord = narrowOverloadFlexRecord and compilerDebug = compilerDebug
+            and narrowOverloadFlexRecord = narrowOverloadFlexRecord
+            and languageExtensions = languageExtensions
+            and compilerDebug = compilerDebug
             and createPrintFunctions = createPrintFunctions
             and reportDiscardFunction = reportDiscardFunction
             and reportDiscardNonUnit = reportDiscardNonUnit

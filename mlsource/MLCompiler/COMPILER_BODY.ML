@@ -40,24 +40,12 @@ sig
 end;
 
 structure LEX : LEXSIG
-
 structure CODETREE : CODETREE
 structure STRUCTVALS : STRUCTVALSIG; 
 structure VALUEOPS : VALUEOPSSIG;
 structure EXPORTTREE: EXPORTTREESIG
 structure STRUCTURES : STRUCTURESSIG
-
-structure PARSEDEC :
-sig
-  type lexan
-  type symset
-  type fixStatus
-  type program
-  
-  val parseDec: symset * lexan *
-    { enterFix:  string * fixStatus -> unit, lookupFix: string -> fixStatus option } -> program
-end;
-
+structure PARSEDEC : PARSEDECSIG
 structure DEBUG: DEBUG
 
 structure UTILITIES :
@@ -178,7 +166,13 @@ struct
    
             (* parse a program: a sequence of topdecs ending with a semicolon. *)
             val parseTree : STRUCTURES.program = 
-                PARSEDEC.parseDec (stopSyms, lex, {enterFix  = enterFix, lookupFix = lookupFix})
+                let
+                    val fixes : PARSEDEC.fixes = {enterFix  = enterFix, lookupFix = lookupFix}
+                    val params : PARSEDEC.params =
+                        {recordPunning = DEBUG.getParameter DEBUG.languageExtensionsTag debugSwitches}
+                in
+                    PARSEDEC.parseDec (stopSyms, lex, fixes, params)
+                end
 
             val () = 
                 if printParsetree
