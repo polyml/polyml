@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-22
+    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-22, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -239,9 +239,7 @@ struct
                         PrettyBreak(1, 2),
                         PrettyBlock(2, true, [],
                             [
-                                printList("", arglist, ","),
-                                PrettyBreak (0, 0),
-                                PrettyString (")")
+                                printList("", arglist, ",")
                             ]
                         )
                     ]
@@ -447,11 +445,20 @@ struct
         |   Handle {exp, handler, exPacketAddr} =>
             PrettyBlock (3, false, [],
                 [
-                    PrettyString "HANDLE(",
+                    PrettyString "exceptions(",
                     pretty exp,
-                    PrettyString ("WITH exid=" ^ Int.toString exPacketAddr),
                     PrettyBreak (1, 0),
-                    pretty handler,
+                    PrettyBlock(3, false, [],
+                        [
+                            PrettyBlock(0, false, [],
+                            [
+                                PrettyString ("handle"), PrettyBreak(1, 3),
+                                PrettyString ("Local" ^ Int.toString exPacketAddr ^ "=packet"), PrettyBreak(1, 3),
+                                PrettyString ("in")
+                            ]),
+                            PrettyBreak (1, 0),
+                            pretty handler
+                        ]),
                     PrettyString ")"
                 ]
             )

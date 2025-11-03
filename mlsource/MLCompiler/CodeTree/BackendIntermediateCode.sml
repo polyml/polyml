@@ -574,6 +574,7 @@ struct
                 [
                     PrettyString "HANDLE(",
                     pretty exp,
+                    PrettyBreak (1, 0),
                     PrettyString ("WITH exid=" ^ Int.toString exPacketAddr),
                     PrettyBreak (1, 0),
                     pretty handler,
