@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,16,18-22 David C.J. Matthews
+    Copyright (c) 2012,13,16,18-23, 25 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -50,15 +50,11 @@ struct
        (i.e. where its value depends only arguments and can safely
        be reordered). *)
 
-    (* The RTS has a table of properties for RTS functions.  The 103 call
-       returns these Or-ed into the register mask. *)
-    val PROPWORD_NORAISE  = 0wx40000000
-    and PROPWORD_NOUPDATE = 0wx20000000
-    and PROPWORD_NODEREF  = 0wx10000000
-
-    (* Since RTS calls are being eliminated leave residual versions of these. *)
-    fun earlyRtsCall _ = false
-    and sideEffectFreeRTSCall _ = false
+    (* These were originally explicitly defined to match information from the run-time
+       system about built-in functions.  That's no longer needed so these can be arbitrary values. *)
+    val PROPWORD_NORAISE  = 0wx4
+    and PROPWORD_NOUPDATE = 0wx2
+    and PROPWORD_NODEREF  = 0wx1
 
     local
         infix orb andb
@@ -123,6 +119,7 @@ struct
                     |   LockMutex => PROPWORD_NORAISE
                     |   TryLockMutex => PROPWORD_NORAISE
                     |   UnlockMutex => PROPWORD_NORAISE
+                    |   Log2Word => applicative
             in
                 operProps andb codeProps arg1
             end
@@ -174,12 +171,14 @@ struct
 
         |   codeProps(Raise exp) = codeProps exp andb (Word.notb PROPWORD_NORAISE)
 
-            (* Treat these as unsafe at least for the moment. *)
+            (* Treat these as unsafe at least for the moment.
+               N.B. BeginLoop can raise Interrupt if it is interrupted externally. *)
         |   codeProps(BeginLoop _) = 0w0
 
         |   codeProps(Loop _) = 0w0
 
-        |   codeProps (SetContainer _) = 0w0
+        |   codeProps (SetContainer{ container, tuple, ...}) =
+                codeProps container andb codeProps tuple andb Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
 
         |   codeProps (LoadOperation {address, kind}) =
             let
@@ -220,6 +219,8 @@ struct
         fun sideEffectFree c = (codeProps c andb noSideEffect) = noSideEffect
         (* reorderable - does not raise an exception or access a reference. *)
         and reorderable c = codeProps c = applicative
+        (* exceptionFree does not raise an exception but could have a side-effect. *)
+        and exceptionFree c = (codeProps c andb PROPWORD_NORAISE) <> 0w0
     end
 
     (* Return the inline property if it is set. *)

@@ -134,7 +134,7 @@ public:
     virtual void addProfileCount(POLYUNSIGNED words) = 0;
 
     // Functions called before and after an RTS call.
-    virtual void PreRTSCall(void) {}
+    virtual void PreRTSCall(void) { saveVec.init(); }
     virtual void PostRTSCall(void) {}
 
     SaveVec     saveVec;
@@ -217,6 +217,7 @@ extern enum _mainThreadPhase {
     MTP_CYGWINSPAWN,
     MTP_STOREMODULE,
     MTP_LOADMODULE,
+    MTP_RELEASEMODULE,
     MTP_MAXENTRY
 } mainThreadPhase;
 

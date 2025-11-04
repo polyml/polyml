@@ -507,6 +507,10 @@ void ThreadScanner::ScanOwnedAreas()
         }
     }
     // Release the spaces we're holding in case another thread wants to use them.
+    // Take the table lock before releasing them.  This is necessary on the ARM
+    // to act as a write barrier so that writes to the spaces and the space
+    // structure itself are seen by another thread that takes ownership.
+    PLocker l(&localTableLock);
     for (unsigned m = 0; m < nOwnedSpaces; m++)
     {
         LocalMemSpace *space = spaceTable[m];

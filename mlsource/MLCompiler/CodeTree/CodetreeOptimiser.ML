@@ -259,6 +259,11 @@ struct
                Also returns a flag indicating if the value came from a constant.
                Constants are already tupled so there's no advantage in untupling
                them unless there are other non-constant arguments as well. *)
+            
+            (* It's not clear how useful this is since it's just looking at the argument
+               that was passed in the call of a function and doesn't consider that the
+               more common case of a variable bound to a tuple that is then used as
+               the argument.  *)
             fun findTuple(Tuple{fields, isVariant=false}) = (List.length fields, false)
             |   findTuple(Constnt(w, _)) =
                     if isShort w orelse flags (toAddress w) <> F_words then (1, false)
@@ -273,7 +278,6 @@ struct
                     end
             |   findTuple(Newenv(_, e)) = findTuple e
             |   findTuple _ = (1, false)
-            
         in
             fun mapArg c =
             let
@@ -381,28 +385,6 @@ struct
            function arguments we have to check how it is applied. *)
         val usageForFunctionBody = usageToPattern CurryNoCheck
         and usageForFunctionArg  = usageToPattern CurryCheck
-
-        (* To decide whether we want to detuple the argument we look to see
-           if the function is ever applied to a tuple.  This is rather different
-           to currying where we only decurry if every application is to multiple
-           arguments.  This information is then merged with information about the
-           arguments within the function. *)
-        fun existTupling (use: codeUse list): functionArgPattern list =
-        let
-            val argListLists =
-                List.foldl (fn (UseApply(_, args), l) => map mapArg args :: l | (_, l) => l) [] use
-            fun orMerge [] = raise Empty
-            |   orMerge [hd] = hd
-            |   orMerge (hd1 :: hd2 :: tl) =
-                let
-                    fun merge(a as ArgPattTuple _, _) = a
-                    |   merge(_, b) = b
-                in
-                    orMerge(ListPair.mapEq merge (hd1, hd2) :: tl)
-                end
-        in
-            orMerge argListLists
-        end
 
         (* If the result of a function contains a tuple but it is not detupled on
            every path, see if it is detupled on at least one. *)
@@ -899,12 +881,123 @@ struct
         then SOME(optFields(code, context, use))
         else NONE
 
-    |   optimise (context, use) (code as BeginLoop _) =
-        (* If the result of the loop is taken apart we should push
-           this down as well. *)
+    |   optimise (context, use) (code as Handle _) =
+        (* Similarly for handlers: if the result is taken apart use a container. *)
         if List.all(fn UseField _ => true | _ => false) use
         then SOME(optFields(code, context, use))
         else NONE
+
+    |   optimise (context as { makeAddr, reprocess, ...}, use) (code as BeginLoop{loop, arguments}) =
+        let
+            (* If an argument is a tuple and always taken apart within the loop we should
+               replace it with arguments for the fields.  This is the same as detupling
+               function arguments.
+               Note: the simplifier lifts loop variables out of the loop if they are
+               passed through unchanged so we don't need to consider that here. *)
+            fun checkArg(({use, addr, ...}, _) :: rest, argNo) =
+                if List.all (fn UseField _ => true | _ => false) use
+                then
+                let
+                    fun maxField(UseField(i, _), n) = Int.max(i, n) | maxField(_, n) = n
+                    val tupleSize = (List.foldl maxField 0 use) + 1
+                in
+                    SOME (tupleSize, addr, argNo)
+                end
+                else checkArg(rest, argNo+1)
+
+            |   checkArg ([], _) = NONE
+            
+            val tupleArgument = checkArg(arguments, 0)
+            (* Replace the original arguments by completely new ones.
+               Before the start of the body add bindings that provide definitions
+               of the old arguments.  For the one we're detupling that will involve
+               making a tuple.  Then find every Loop.  For the Loop we need to
+               replace the original arguments with new ones which will involve
+               passing the original values except for the detupled argument where
+               we need to detuple the value being passed in.
+               To preserve the order of evaluation and ensure that the expression that
+               returns the tuple is evaluated only once we need to bind all the existing
+               arguments to variables and then use the variables in the Loop expression.
+               This appears to add many new bindings and tuples but they will nearly all
+               be eliminated by the simplifier.
+               We don't need to check which of the tuple arguments are used; that
+               can be done later. *)
+        in
+            case tupleArgument of
+                SOME (tupleSize, addrForTuple, argumentNo) =>
+                let
+                    val finalArgLength = List.length arguments + tupleSize - 1
+                    (* Create new addresses for the fields. *)
+                    val tupleAddrs = List.tabulate(tupleSize, fn _ => makeAddr())
+
+                    (* Deal with the initial values for the loop variables. *)
+                    fun replaceWithTuple [] = ([], [])
+                    |   replaceWithTuple((original as ({value, addr, ...}, _)) :: args) =
+                        let
+                            (* To preserve the evaluation order we have to bind each of the original
+                               arguments to a variable then pass a reference to this variable as the initial
+                               value of the loop variable.  The exception is that we replace the argument
+                               we're tupling with new variables and the value of each of these new variables
+                               is the tuple field. *)
+                            val newAddr = makeAddr()
+                            val dec = Declar{ addr = newAddr, use = [], value = value }
+                            val ext = Extract(LoadLocal newAddr) 
+                            val (restDecs, restArgs) = replaceWithTuple args
+                            
+                            fun mkFields([], _) = restArgs
+                            |   mkFields(a :: rest, n) =
+                                    ({addr=a, value=mkInd(n, ext), use=[UseGeneral]}, GeneralType) ::
+                                        mkFields(rest, n+1)
+                        in
+                            if addr = addrForTuple
+                            then (dec :: restDecs, mkFields(tupleAddrs, 0))
+                            else (dec :: restDecs, original :: restArgs)
+                        end
+                    val (decs, newArgs) = replaceWithTuple arguments
+
+                    fun replaceLoop(Loop l) =
+                        let
+                            (* To preserve the evaluation order we need to bind the original arguments
+                               to variables.  Then the transformed arguments are the original arguments
+                               except for detupled argument which is replaced by its fields. *)
+                            val newAddresses = map (fn _ => makeAddr()) l
+                            val extractTuple = Extract(LoadLocal(List.nth(newAddresses, argumentNo)))
+                            val newDecs = ListPair.mapEq(fn((c, _), a) => Declar{addr=a, value=c, use=[]})(l, newAddresses)
+                            fun replaceArgs([], _) = []
+                            |   replaceArgs(arg :: rest, n) =
+                                if n = argumentNo
+                                then List.tabulate(tupleSize, fn i => (mkInd(i, extractTuple), GeneralType)) @ replaceArgs(rest, n+1)
+                                else arg :: replaceArgs(rest, n+1)
+                            val newLoopArgs = replaceArgs(l, 0)
+                            val () = if List.length newLoopArgs <> finalArgLength then raise InternalError "Bad length 1" else ()
+                            val loopBody = Loop newLoopArgs
+                        in
+                            SOME(mkEnv(newDecs, loopBody))
+                        end
+                    |   replaceLoop(l as Lambda _) = SOME l (* Not inside functions *)
+                    |   replaceLoop(l as BeginLoop _) = SOME l (* And not inside inner loops *)
+                    |   replaceLoop _ = NONE
+                    
+                    (* Inside the body we have to construct a tuple for the original argument.
+                       The simplifier will then replace every use of this with a reference to
+                       the new argument. *)
+                    val tupleForBody = mkTuple(map(fn a => Extract(LoadLocal a)) tupleAddrs)
+                    val newLoop =
+                        mkEnv([Declar{addr=addrForTuple, value=tupleForBody, use=[UseGeneral]}], mapCodetree replaceLoop loop)
+
+                    val () = reprocess := true
+                    val () = if List.length newArgs <> finalArgLength then raise InternalError "Bad length 2" else ()
+                in
+                    SOME(mkEnv(decs, BeginLoop{loop=newLoop, arguments=newArgs}))
+                end
+
+            |   NONE =>
+                (* If the result of the loop is taken apart we should push
+                   this down as well. *)
+                if List.all(fn UseField _ => true | _ => false) use
+                then SOME(optFields(code, context, use))
+                else NONE
+        end
 
     |   optimise _ _ = NONE
     
@@ -1071,8 +1164,6 @@ struct
                                     else ArgPattCurry([arg1], ArgPattSimple)
                             |   usage => usage
 
-                        val argPatterns = map (usageForFunctionArg o #2) argTypes
-
                         (* fullArgPattern is a list, one per level of currying, of a list, one per argument of
                            the patterns.  resultPattern is used to detect whether the result is a tuple that
                            is taken apart. *)
@@ -1080,19 +1171,15 @@ struct
                             case functionPattern of
                                 ArgPattCurry(_ :: rest, resPattern) =>
                                 let
+                                    val argPatterns = map (usageForFunctionArg o #2) argTypes
                                     (* The function is always applied at least to the first set of arguments.
-                                       (It's never just passed). Merge the applications of the function
-                                       with the use of the arguments.  Return the usage within the
-                                       function unless the function takes apart a tuple but no
-                                       application passes in a tuple. *)
-                                    fun merge(ArgPattTuple _, argUse as ArgPattTuple _) = argUse
-                                    |   merge(_, ArgPattTuple _) = ArgPattSimple
-                                    |   merge(_, argUse)  = argUse
+                                       (It's never just passed).
+                                       Previously this removed ArgPattTuple from an argument if it was never
+                                       actually applied to a tuple.  This meant that the argument would not be
+                                       detupled in that case.  The problem was that it only worked if the function
+                                       was applied directly to a tuple and not to a variable bound to a tuple. *)
+                                    val mergedArgs = argPatterns :: rest
 
-                                    val mergedArgs =
-                                        (ListPair.mapEq merge (existTupling use, argPatterns)) :: rest
-
-                                    (* *)
                                     val mergedResult =
                                         case (bodyReturnsTuple updatedBody, resPattern) of
                                             (bodyTuple as ArgPattTuple _, ArgPattSimple) =>

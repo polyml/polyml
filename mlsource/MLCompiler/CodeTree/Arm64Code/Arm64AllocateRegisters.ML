@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-22
+    Copyright David C. J. Matthews 2016-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -150,6 +150,8 @@ struct
                 |   _ => ()
 
             (* Certain instructions are specific as to the real registers. *)
+            (* We cannot use X30 in any of the unpushed registers in a save set. *)
+            fun checkUnsaved{gcUpdate=_, noUpdate} = List.app(fn (PReg r) => addRealConflict(r, GenReg X30)) noUpdate
             val () =
                 case instr of
                     ReturnResultFromFunction{ returnReg=PReg retReg, results, ... } =>
@@ -165,10 +167,11 @@ struct
                 |   BeginHandler { packetReg, ...} =>
                         reserveRegister(regNo packetReg, GenReg X0)
                 
-                |   FunctionCall { dests, regArgs, ...} =>
+                |   FunctionCall { dests, regArgs, saveRegs, ...} =>
                         (* This is only needed if we are saving the registers rather
                            than marking them as "must push". *)
                     let
+                        val () = checkUnsaved saveRegs
                         val () = List.app(fn (PReg pr, r) => reserveRegister(pr, GenReg r)) dests
                         (* The argument registers also conflict.  In order to execute this call we need to load
                            the arguments into specific registers so we can't use them for values that we want after
@@ -180,10 +183,11 @@ struct
                     end
 
                     (* We can't use X30 as the result because it's needed for the return addr if we have to GC. *)
-                |   AllocateMemoryFixed{dest=PReg destReg, ...} => addRealConflict(destReg, GenReg X30)
-                |   AllocateMemoryVariable{dest=PReg destReg, ...} => addRealConflict(destReg, GenReg X30)
-                |   BoxLarge{dest=PReg destReg, ...} => addRealConflict(destReg, GenReg X30)
-                |   BoxTagFloat{dest=PReg destReg, ...} => addRealConflict(destReg, GenReg X30) (* Could exclude floats on native addr. *)
+                |   AllocateMemoryFixed{dest=PReg destReg, saveRegs, ...} => (addRealConflict(destReg, GenReg X30); checkUnsaved saveRegs)
+                |   AllocateMemoryVariable{dest=PReg destReg, saveRegs, ...} => (addRealConflict(destReg, GenReg X30); checkUnsaved saveRegs)
+                |   BoxLarge{dest=PReg destReg, saveRegs, ...} => (addRealConflict(destReg, GenReg X30); checkUnsaved saveRegs)
+                |   BoxTagFloat{dest=PReg destReg, saveRegs, ...} => (addRealConflict(destReg, GenReg X30) (* Could exclude floats on native addr. *); checkUnsaved saveRegs)
+                |   JumpLoop{checkInterrupt=SOME saveRegs, ...} => checkUnsaved saveRegs
 
                 |   _ => ()
         in
@@ -584,7 +588,16 @@ struct
             fun getAllocatedArg(ArgInReg reg) = ArgInReg(getAllocatedGenReg reg)
             |   getAllocatedArg(ArgOnStack stackLoc) = ArgOnStack stackLoc
 
-            val getSaveRegs = List.map getAllocatedGenReg
+            fun getSaveRegs{gcUpdate, noUpdate} =
+            let
+                fun checkX30(PReg r) =
+                    case Array.sub(allocatedRegs, r) of
+                        SOME(GenReg reg) => if reg = X30 then raise InternalError "X30 in noupdate set" else ()
+                    |   _ => () (* May be a floating point reg or unallocated. *)
+                val _ = List.app checkX30 noUpdate
+            in
+                List.map getAllocatedGenReg gcUpdate
+            end
 
             (* Reversed cons and append to make the code easier to read. *)
             infix 5 <::> <@>
@@ -742,7 +755,7 @@ struct
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        AllocateMemoryFixed { dest=destReg, bytesRequired=bytesRequired, saveRegs=saved})
+                        AllocateMemoryFixed { dest=destReg, bytesRequired=bytesRequired, saveRegs={gcUpdate=saved, noUpdate=[]}})
                 end
 
             |   absToConcrete({instr=AllocateMemoryVariable{size, dest, saveRegs}, ...} :: rest, cache, code) =
@@ -752,7 +765,7 @@ struct
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        AllocateMemoryVariable{size=getAllocatedGenReg size, dest=destReg, saveRegs=saved})
+                        AllocateMemoryVariable{size=getAllocatedGenReg size, dest=destReg, saveRegs={gcUpdate=saved, noUpdate=[]}})
                 end
 
             |   absToConcrete({instr=InitialiseMem{size, addr, init}, ...} :: rest, context, code) =
@@ -765,9 +778,11 @@ struct
                     fun getStackArg{src, wordOffset, stackloc} =
                             {src=getAllocatedArg src, wordOffset=wordOffset, stackloc=stackloc}
                     and getRegArg{src, dst} = {src=getAllocatedArg src, dst=getAllocatedGenReg dst}
+                    val saves =
+                        case checkInterrupt of NONE => NONE | SOME regs => SOME{gcUpdate=getSaveRegs regs, noUpdate=[]}
                 in
                     absToConcrete(rest, context, code <::> JumpLoop{ regArgs=map getRegArg regArgs, stackArgs=map getStackArg stackArgs,
-                              checkInterrupt=Option.map getSaveRegs checkInterrupt})
+                              checkInterrupt=saves})
                 end
 
             |   absToConcrete({instr=StoreWithConstantOffset { base, source, byteOffset, loadType}, ...} :: rest, context, code) =
@@ -835,6 +850,14 @@ struct
                                                direction=direction, opSize=opSize})
                 end
 
+            |   absToConcrete({instr=CountLeadingZeroBits{ dest, source, opSize}, ...} :: rest, cache, code) =
+                let
+                    val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
+                in
+                    absToConcrete(rest, newCache, code <::>
+                        CountLeadingZeroBits { source=getAllocatedGenReg source, dest=destReg, opSize=opSize})
+                end
+
             |   absToConcrete({instr=Multiplication{ kind, dest, sourceA, sourceM, sourceN }, ...} :: rest, cache, code) =
                 let
                     val (destReg, newCache) = allocateGenReg(dest, NONE, cache)
@@ -891,7 +914,7 @@ struct
                     absToConcrete(rest, [] (* Empty after a function call. *), code <::>
                         FunctionCall{ callKind=callKind, regArgs=map getRegArg regArgs, stackArgs=map getAllocatedArg stackArgs,
                                   dests=map (getResult allocateGenReg) dests, fpRegArgs=map getFPRegArg fpRegArgs,
-                                  fpDests=map (getResult allocateFPReg) fpDests, saveRegs=getSaveRegs saveRegs, containers=containers})
+                                  fpDests=map (getResult allocateFPReg) fpDests, saveRegs={gcUpdate=getSaveRegs saveRegs, noUpdate=[]}, containers=containers})
                 end
 
             |   absToConcrete({instr=TailRecursiveCall{callKind, regArgs, stackArgs, fpRegArgs, stackAdjust, currStackSize}, ...} :: rest, context, code) =
@@ -1036,7 +1059,7 @@ struct
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        BoxLarge{source=getAllocatedGenReg source, dest=destReg, saveRegs=saved})
+                        BoxLarge{source=getAllocatedGenReg source, dest=destReg, saveRegs={gcUpdate=saved, noUpdate=[]}})
                 end
 
             |   absToConcrete({instr=UnboxLarge{source as PReg rno, dest}, kill, ...} :: rest, cache, code) =
@@ -1070,7 +1093,7 @@ struct
                     val saved = cachedAddressRegs filteredCache @ getSaveRegs saveRegs
                 in
                     absToConcrete(rest, filteredCache, code <::>
-                        BoxTagFloat{floatSize=floatSize, source=getAllocatedFPReg source, dest=destReg, saveRegs=saved})
+                        BoxTagFloat{floatSize=floatSize, source=getAllocatedFPReg source, dest=destReg, saveRegs={gcUpdate=saved, noUpdate=[]}})
                 end
 
             |   absToConcrete({instr=UnboxTagFloat{floatSize, source as PReg rno, dest}, kill, ...} :: rest, cache, code) =

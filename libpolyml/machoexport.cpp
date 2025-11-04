@@ -2,7 +2,7 @@
     Title:     Write out a database as a Mach object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011-2, 2016-18, 2020-21 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-2, 2016-18, 2020-21, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -38,10 +38,6 @@
 
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
-#endif
-
-#ifdef HAVE_TIME_H
-#include <time.h>
 #endif
 
 #ifdef HAVE_ASSERT_H
@@ -83,7 +79,6 @@
 #include "run_time.h"
 #include "version.h"
 #include "polystring.h"
-#include "timing.h"
 
 // Mach-O seems to require each section to have a discrete virtual address range
 // so we have to adjust various offsets to fit.
@@ -238,25 +233,29 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
             // We need four relocations here.
             // The first instruction is ADRP
             setRelocationAddress(addr, &reloc.r_address);
-            reloc.r_pcrel = 1;
+            reloc.r_pcrel = 0;
             reloc.r_length = 2; // 4 bytes
             reloc.r_type = ARM64_RELOC_ADDEND;
             reloc.r_symbolnum = offset; // Used for offset
-            reloc.r_extern = 1; // Needed for ARM64_RELOC_PAGE21 and ARM64_RELOC_PAGEOFF12
+            reloc.r_extern = 0;
             fwrite(&reloc, sizeof(reloc), 1, exportFile);
             relocationCount++;
             reloc.r_type = ARM64_RELOC_PAGE21;
+            reloc.r_pcrel = 1;
             reloc.r_symbolnum = aArea+1; // Symbol number
+            reloc.r_extern = 1;
             fwrite(&reloc, sizeof(reloc), 1, exportFile);
             relocationCount++;
             // The second instruction is LDR
             setRelocationAddress(addr+4, &reloc.r_address);
             reloc.r_pcrel = 0; // This is an absolute 12-bit value
             reloc.r_type = ARM64_RELOC_ADDEND;
+            reloc.r_extern = 0;
             reloc.r_symbolnum = offset; // Used for offset
             fwrite(&reloc, sizeof(reloc), 1, exportFile);
             relocationCount++;
             reloc.r_type = ARM64_RELOC_PAGEOFF12;
+            reloc.r_extern = 1;
             reloc.r_symbolnum = aArea+1; // Symbol number
             fwrite(&reloc, sizeof(reloc), 1, exportFile);
             relocationCount++;
@@ -493,9 +492,55 @@ void MachoExport::exportStore(void)
     }
     sections[memTableEntries].nreloc = relocationCount;
 
-    // The symbol table.
+    // Write out the tables data.
+    exportDescription exports;
+    memset(&exports, 0, sizeof(exports));
+    exports.structLength = sizeof(exportDescription);
+    // Set the value to be the offset relative to the base of the area.  We have set a relocation
+    // already which will add the base of the area.
+    exports.rootFunction = (void*)rootOffset;
+    exports.execIdentifier = exportModId;
+    exports.architecture = machineDependent->MachineArchitecture();
+    exports.rtsVersion = POLY_version_number;
+#ifdef POLYML32IN64
+    exports.originalBaseAddr = globalHeapBase;
+#else
+    exports.originalBaseAddr = 0;
+#endif
+
+    exports.memTableSize = sizeof(memoryTableEntry);
+    exports.memTableEntries = memTableEntries;
+    exports.memTable = (memoryTableEntry *)sizeof(exportDescription); // It follows immediately after this.
+
+    sections[memTableEntries].offset = ftell(exportFile);
+    fwrite(&exports, sizeof(exports), 1, exportFile);
+    size_t addrOffset = sizeof(exports)+sizeof(memoryTableEntry)*memTableEntries;
+
+    for (i = 0; i < memTableEntries; i++)
+    {
+        memoryTableEntry memt;
+        memset(&memt, 0, sizeof(memt));
+        memt.mtCurrentAddr = (void*)addrOffset; // Set this to the relative address.
+        addrOffset += memTable[i].mtLength;
+        memt.mtOriginalAddr = memTable[i].mtOriginalAddr;
+        memt.mtLength = memTable[i].mtLength;
+        memt.mtFlags = memTable[i].mtFlags;
+        fwrite(&memt, sizeof(memoryTableEntry), 1, exportFile);
+    }
+
+    // Now the binary data.
+    for (i = 0; i < memTableEntries; i++)
+    {
+        alignFile(4);
+        sections[i].offset = ftell(exportFile);
+        fwrite(memTable[i].mtOriginalAddr, 1, memTable[i].mtLength, exportFile);
+    }
+
+    // The symbol table.  The newer (15.0) Xtools linker seems to like this after the data.
 
     symTab.symoff = ftell(exportFile);
+
+    stringTable.makeEntry(""); // Create a dummy string. Real strings must have offset > 0.
 
     // Global symbols: Just one.
     {
@@ -565,43 +610,6 @@ void MachoExport::exportStore(void)
     symTab.strsize = stringTable.stringSize;
     alignFile(4);
 
-    exportDescription exports;
-    memset(&exports, 0, sizeof(exports));
-    exports.structLength = sizeof(exportDescription);
-    exports.memTableSize = sizeof(memoryTableEntry);
-    exports.memTableEntries = memTableEntries;
-    exports.memTable = (memoryTableEntry *)sizeof(exportDescription); // It follows immediately after this.
-    // Set the value to be the offset relative to the base of the area.  We have set a relocation
-    // already which will add the base of the area.
-    exports.rootFunction = (void*)rootOffset;
-    exports.timeStamp = getBuildTime();
-    exports.architecture = machineDependent->MachineArchitecture();
-    exports.rtsVersion = POLY_version_number;
-#ifdef POLYML32IN64
-    exports.originalBaseAddr = globalHeapBase;
-#else
-    exports.originalBaseAddr = 0;
-#endif
-
-    sections[memTableEntries].offset = ftell(exportFile);
-    fwrite(&exports, sizeof(exports), 1, exportFile);
-    size_t addrOffset = sizeof(exports)+sizeof(memoryTableEntry)*memTableEntries;
-    for (i = 0; i < memTableEntries; i++)
-    {
-        void *save = memTable[i].mtCurrentAddr;
-        memTable[i].mtCurrentAddr = (void*)addrOffset; // Set this to the relative address.
-        addrOffset += memTable[i].mtLength;
-        fwrite(&memTable[i], sizeof(memoryTableEntry), 1, exportFile);
-        memTable[i].mtCurrentAddr = save;
-    }
-
-    // Now the binary data.
-    for (i = 0; i < memTableEntries; i++)
-    {
-        alignFile(4);
-        sections[i].offset = ftell(exportFile);
-        fwrite(memTable[i].mtOriginalAddr, 1, memTable[i].mtLength, exportFile);
-    }
     // Rewind to rewrite the headers with the actual offsets.
     rewind(exportFile);
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // File header

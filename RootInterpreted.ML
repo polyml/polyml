@@ -72,6 +72,7 @@ use "mlsource/MLCompiler/DATATYPEREPSIG.sml";
 use "mlsource/MLCompiler/VALUEOPSSIG.sml";
 use "mlsource/MLCompiler/EXPORTTREESIG.sml";
 use "mlsource/MLCompiler/STRUCTURESSIG.sml";
+use "mlsource/MLCompiler/PARSEDECSIG.sml";
 use "mlsource/MLCompiler/COMPILER_BODY.ML";
 use "mlsource/MLCompiler/SymSet.ML";
 use "mlsource/MLCompiler/TYPETREESIG.sml";

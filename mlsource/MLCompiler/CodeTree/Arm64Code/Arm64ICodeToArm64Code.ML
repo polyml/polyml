@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021-2
+    Copyright David C. J. Matthews 2021-3
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -397,10 +397,10 @@ struct
                 (shiftConstant{shift=0w2, regN=destReg, regD=destReg, direction=ShiftRightLogical, opSize=OpSize64})
             end
 
-        |   codeExtended _ (AllocateMemoryFixed{ bytesRequired, dest, saveRegs }, code) =
+        |   codeExtended _ (AllocateMemoryFixed{ bytesRequired, dest, saveRegs={gcUpdate=saveRegs, ...} }, code) =
                 code <::> AllocateMemoryFixedSize{ bytes=Word.fromLarge bytesRequired, dest=dest, save=saveRegs, work=workReg1 }
 
-        |   codeExtended _ (AllocateMemoryVariable{ size, dest, saveRegs }, code) =
+        |   codeExtended _ (AllocateMemoryVariable{ size, dest, saveRegs={gcUpdate=saveRegs, ...} }, code) =
                 code <::> AllocateMemoryVariableSize{ sizeReg=size, dest=dest, save=saveRegs, work=workReg1 }
 
         |   codeExtended _ (InitialiseMem{ size, addr, init}, code) =
@@ -440,7 +440,7 @@ struct
             in
                 case checkInterrupt of
                     NONE => code2
-                |   SOME saveRegs =>
+                |   SOME {gcUpdate=saveRegs, ...} =>
                     let
                         val skipCheck = createLabel labelMaker
                     in
@@ -540,6 +540,9 @@ struct
         |   codeExtended _ (ShiftRegister{ direction, dest, source, shift, opSize }, code) =
                 (ShiftRegisterVariable{regN=source, regM=shift, regD=dest,
                                               shiftDirection=direction, opSize=opSize}) :: code
+
+        |   codeExtended _ (CountLeadingZeroBits{ dest, source, opSize }, code) =
+                CountLeadingZeros{regN=source, regD=dest, opSize=opSize} :: code
 
         |   codeExtended _ (Multiplication{ kind, dest, sourceA, sourceM, sourceN }, code) =
             let
@@ -667,7 +670,7 @@ struct
                 jumpToFunctionCode @ setArgumentsCode
             end
 
-        |   codeExtended _ (FunctionCall{callKind, regArgs, stackArgs, dests, fpRegArgs, fpDests, saveRegs, ...}, code) =
+        |   codeExtended _ (FunctionCall{callKind, regArgs, stackArgs, dests, fpRegArgs, fpDests, saveRegs={gcUpdate=saveRegs, ...}, ...}, code) =
             let
                 local
                     fun pushStackArgs ([], _, code) = code
@@ -814,7 +817,7 @@ struct
                     shiftConstant{ direction=if isSigned then ShiftRightArithmetic else ShiftRightLogical,
                                     regD=dest, regN=source, shift=0w1, opSize=opSize }
 
-        |   codeExtended _ (BoxLarge{ source, dest, saveRegs }, code) =
+        |   codeExtended _ (BoxLarge{ source, dest, saveRegs={gcUpdate=saveRegs, ...} }, code) =
                boxSysWord({source=source, destination=dest,
                            workReg=workReg1, saveRegs=saveRegs}, code)
 
@@ -830,11 +833,11 @@ struct
                 else LoadRegScaled{regT=destReg, regN=srcReg, unitOffset=0, loadType=Load64} :: code
             end
 
-        |   codeExtended _ (BoxTagFloat{ floatSize=Double64, source, dest, saveRegs }, code) =
+        |   codeExtended _ (BoxTagFloat{ floatSize=Double64, source, dest, saveRegs={gcUpdate=saveRegs, ...} }, code) =
                 boxDouble({source=source, destination=dest,
                            workReg=workReg1, saveRegs=saveRegs}, code)
 
-        |   codeExtended _ (BoxTagFloat{ floatSize=Float32, source, dest, saveRegs }, code) =
+        |   codeExtended _ (BoxTagFloat{ floatSize=Float32, source, dest, saveRegs={gcUpdate=saveRegs, ...} }, code) =
             let
                 val floatReg = source
                 and fixedReg = dest

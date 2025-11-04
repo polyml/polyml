@@ -36,6 +36,7 @@ sig
     val lowlevelOptimiseTag : bool Universal.tag
     val maxInlineSizeTag : FixedInt.int Universal.tag
     val narrowOverloadFlexRecordTag : bool Universal.tag
+    val languageExtensionsTag : bool Universal.tag
     val offsetTag : (unit -> FixedInt.int) Universal.tag
     val parsetreeTag : bool Universal.tag
     val printDepthFunTag : (unit -> FixedInt.int) Universal.tag

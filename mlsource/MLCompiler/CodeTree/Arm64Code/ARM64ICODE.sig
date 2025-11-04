@@ -1,7 +1,7 @@
 (*
     Signature for the high-level ARM64 code
 
-    Copyright David C. J. Matthews 2021-2
+    Copyright David C. J. Matthews 2021-3
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -109,6 +109,11 @@ sig
     (* Function calls can have an unlimited number of arguments so it isn't always
        going to be possible to load them into registers. *)
     datatype 'genReg fnarg = ArgInReg of 'genReg | ArgOnStack of { wordOffset: int, container: stackLocn, field: int }
+    
+    (* When allocating memory we may garbage collect. Any registers containing addresses must be updated to contain
+       their new location.  All other registers are saved and restored without any update.  The exception is X30
+       and we must not use X30 for any value that contains an untagged value that is needed after the call. *)
+    type 'genReg saveSet = { gcUpdate: 'genReg list, noUpdate: 'genReg list }
 
     datatype ('genReg, 'optGenReg, 'fpReg) arm64ICode =
         (* Move the contents of one preg to another.  These are always 64-bits. *)
@@ -149,12 +154,12 @@ sig
            bytesRequired is the total number of bytes including the length word and any alignment
            necessary for 32-in-64. saveRegs is the list of registers that need to be saved if we
            need to do a garbage collection. *)
-    |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: 'genReg, saveRegs: 'genReg list }
+    |   AllocateMemoryFixed of { bytesRequired: Word64.word, dest: 'genReg, saveRegs: 'genReg saveSet }
 
         (* Allocate a piece of memory.  The size argument is an untagged value containing
            the number of words i.e. the same value used for InitialiseMemory and to store
            in the length word. *)
-    |   AllocateMemoryVariable of { size: 'genReg, dest: 'genReg, saveRegs: 'genReg list }
+    |   AllocateMemoryVariable of { size: 'genReg, dest: 'genReg, saveRegs: 'genReg saveSet }
 
         (* Initialise a piece of memory by writing "size" copies of the value
            in "init".  N.B. The size is an untagged value containing the
@@ -169,7 +174,7 @@ sig
     |   JumpLoop of
             { regArgs: {src: 'genReg fnarg, dst: 'genReg} list,
               stackArgs: {src: 'genReg fnarg, wordOffset: int, stackloc: stackLocn} list,
-              checkInterrupt: 'genReg list option }
+              checkInterrupt: 'genReg saveSet option }
 
         (* Store a register using a constant, signed, byte offset.  The offset
            is in the range of -256 to (+4095*unit size). *)
@@ -206,6 +211,10 @@ sig
         (* Shift a word by an amount specified in a register. *)
     |   ShiftRegister of { direction: shiftDirection, dest: 'genReg, source: 'genReg, shift: 'genReg, opSize: opSize }
 
+        (* Count leading zeros.  This could be expand to other single-source instruction but currently that is the
+           only one used. *)
+    |   CountLeadingZeroBits of { dest: 'genReg, source: 'genReg, opSize: opSize }
+
         (* The various forms of multiply all take three arguments and the general form is
            dest = M * N +/- A..   *)
     |   Multiplication of { kind: multKind, dest: 'genReg, sourceA: 'optGenReg, sourceM: 'genReg, sourceN: 'genReg }
@@ -230,7 +239,7 @@ sig
             { callKind: callKind, regArgs: ('genReg fnarg * xReg) list,
               stackArgs: 'genReg fnarg list, dests: ('genReg * xReg) list,
               fpRegArgs: ('fpReg * vReg) list, fpDests: ('fpReg * vReg) list,
-              saveRegs: 'genReg list, containers: stackLocn list}
+              saveRegs: 'genReg saveSet, containers: stackLocn list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
@@ -283,7 +292,7 @@ sig
            but keeping it separate makes optimisation easier.
            The result is always an address and needs to be converted to an
            object index on 32-in-64. *)
-    |   BoxLarge of { source: 'genReg, dest: 'genReg, saveRegs: 'genReg list }
+    |   BoxLarge of { source: 'genReg, dest: 'genReg, saveRegs: 'genReg saveSet }
 
         (* Load a value from a box.  This can be implemented using a load but
            is kept separate to simplify optimisation.  The source is always
@@ -293,7 +302,7 @@ sig
         (* Convert a floating point value into a value suitable for storing
            in the heap.  This normally involves boxing except that 32-bit
            floats can be tagged in native 64-bits. *)
-    |   BoxTagFloat of { floatSize: floatSize, source: 'fpReg, dest: 'genReg, saveRegs: 'genReg list }
+    |   BoxTagFloat of { floatSize: floatSize, source: 'fpReg, dest: 'genReg, saveRegs: 'genReg saveSet }
 
         (* The reverse of BoxTagFloat. *)
     |   UnboxTagFloat of { floatSize: floatSize, source: 'genReg, dest: 'fpReg }

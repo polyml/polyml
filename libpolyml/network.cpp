@@ -1,7 +1,7 @@
 /*
     Title:      Network functions.
 
-    Copyright (c) 2000-7, 2016, 2018, 2019 David C. J. Matthews
+    Copyright (c) 2000-7, 2016, 2018, 2019, 2022 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -466,7 +466,9 @@ struct sk_tab_struct {
     { "STREAM",     SOCK_STREAM },
     { "DGRAM",      SOCK_DGRAM },
     { "RAW",        SOCK_RAW },
+#ifdef SOCK_RDM
     { "RDM",        SOCK_RDM },
+#endif
     { "SEQPACKET",  SOCK_SEQPACKET },
 #ifdef SOCK_DCCP
     { "DCCP",       SOCK_DCCP },
@@ -505,6 +507,13 @@ static Handle getSocketOption(TaskData *taskData, Handle args, int level, int op
 #define CALLINTERRUPTED EINTR
 #endif
 
+// On Haiku, errors returned by getsockopt(SO_ERROR) will still be
+// negative, in spite of B_USE_POSITIVE_POSIX_ERRORS/posix_error_mapper
+#ifdef B_TO_POSITIVE_ERROR
+#define TRANSLATE_SO_ERROR(x) (B_TO_POSITIVE_ERROR(x))
+#else
+#define TRANSLATE_SO_ERROR(x) (x)
+#endif
 
 // Wait until "select" returns.  In Windows this is used only for networking.
 class WaitSelect: public Waiter
@@ -747,7 +756,7 @@ POLYUNSIGNED PolyNetworkGetSocketError(POLYUNSIGNED threadId, POLYUNSIGNED skt)
         socklen_t size = sizeof(int);
         if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&intVal, &size) != 0)
             raise_syscall(taskData, "getsockopt failed", GETERROR);
-        result = Make_sysword(taskData, intVal);
+        result = Make_sysword(taskData, TRANSLATE_SO_ERROR(intVal));
     }
     catch (...) {} // If an ML exception is raised
 
@@ -834,6 +843,9 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkSelect(POLYUNSIGNED threadId, POLYUNS
         DEREFHANDLE(result)->Set(0, rdResult->Word());
         DEREFHANDLE(result)->Set(1, wrResult->Word());
         DEREFHANDLE(result)->Set(2, exResult->Word());
+    }
+    catch (KillException&) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
     }
     catch (...) {} // If an ML exception is raised
 
@@ -2178,7 +2190,7 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkReturnIP4AddressAny",         (polyRTSFunction)&PolyNetworkReturnIP4AddressAny },
     { "PolyNetworkGetAddressAndPortFromIP6",    (polyRTSFunction)&PolyNetworkGetAddressAndPortFromIP6 },
     { "PolyNetworkCreateIP6Address",            (polyRTSFunction)&PolyNetworkCreateIP6Address },
-    { "PolyNetworkReturnIP6AddressAny",         (polyRTSFunction)&PolyNetworkReturnIP4AddressAny },
+    { "PolyNetworkReturnIP6AddressAny",         (polyRTSFunction)&PolyNetworkReturnIP6AddressAny },
     { "PolyNetworkIP6AddressToString",          (polyRTSFunction)&PolyNetworkIP6AddressToString },
     { "PolyNetworkStringToIP6Address",          (polyRTSFunction)&PolyNetworkStringToIP6Address },
 

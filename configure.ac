@@ -1,9 +1,9 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT([Poly/ML],[5.9],[polyml AT polyml DOT org],[polyml])
+AC_INIT([Poly/ML],[5.9.2],[polyml AT polyml DOT org],[polyml])
 AM_INIT_AUTOMAKE
-AC_PREREQ(2.69)
+AC_PREREQ([2.72])
 # libtoolize recommends this line.
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -45,6 +45,16 @@ case "${host_os}" in
     sunos* | solaris*)
         AC_SUBST([OSFLAG], [-DSOLARIS])
         ;;
+    haiku*)
+        # Haiku error codes are negative by default; defining
+        # B_USE_POSITIVE_POSIX_ERRORS translates the constants on header
+        # files, and posix_error_mapper takes care of ensuring error
+        # codes are positive at runtime.
+        AC_CHECK_LIB([posix_error_mapper], [_errnop],
+            [AC_SUBST([OSFLAG], [-DB_USE_POSITIVE_POSIX_ERRORS])
+             LIBS="-lposix_error_mapper $LIBS"],
+            [AC_MSG_FAILURE([Cannot link against posix_error_mapper])])
+        ;;
     *mingw* | *cygwin*)
         poly_no_undefined=yes
         poly_use_windowscc=yes
@@ -60,7 +70,7 @@ AM_MAINTAINER_MODE
 
 # Check we're in the right directory
 AC_CONFIG_SRCDIR([polyexports.h])
-AC_CONFIG_HEADER([config.h])
+AC_CONFIG_HEADERS([config.h])
 
 
 # Checks for programs.
@@ -100,7 +110,6 @@ fi
 
 AC_FUNC_ALLOCA
 AC_HEADER_DIRENT
-AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
 AC_CHECK_HEADERS([stdio.h time.h fcntl.h float.h limits.h locale.h malloc.h netdb.h netinet/in.h stddef.h])
 AC_CHECK_HEADERS([stdlib.h string.h sys/file.h sys/ioctl.h sys/param.h sys/socket.h sys/systeminfo.h])
@@ -110,8 +119,8 @@ AC_CHECK_HEADERS([ieeefp.h io.h math.h memory.h netinet/tcp.h arpa/inet.h poll.h
 AC_CHECK_HEADERS([stdarg.h sys/errno.h sys/filio.h sys/mman.h sys/resource.h])
 AC_CHECK_HEADERS([sys/sockio.h sys/stat.h termios.h sys/times.h])
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
-AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h sys/elf_amd64.h asm/elf.h machine/reloc.h i386/elf_machdep.h])
-AC_CHECK_HEADERS([mach-o/x86_64/reloc.h mach-o/arm64/reloc.h])
+AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h sys/elf_amd64.h machine/reloc.h i386/elf_machdep.h])
+AC_CHECK_HEADERS([mach-o/x86_64/reloc.h mach-o/arm64/reloc.h private/system/arch/x86_64/arch_elf.h])
 AC_CHECK_HEADERS([windows.h tchar.h semaphore.h])
 AC_CHECK_HEADERS([stdint.h inttypes.h])
 
@@ -193,9 +202,9 @@ else
             AC_MSG_FAILURE([pthread library is not installed])
         ])
 
-    # Solaris needs -lsocket, -lnsl and -lrt
+    # Solaris needs -lsocket, -lnsl and -lrt, Haiku needs -lnetwork
     AC_SEARCH_LIBS([gethostbyname], [nsl])
-    AC_SEARCH_LIBS([getsockopt], [socket])
+    AC_SEARCH_LIBS([getsockopt], [socket network])
     AC_SEARCH_LIBS([sem_wait], [rt])
 
     # Check for X and Motif headers and libraries
@@ -285,7 +294,6 @@ AC_TYPE_OFF_T
 AC_TYPE_PID_T
 AC_TYPE_SIZE_T
 AC_TYPE_SSIZE_T
-AC_HEADER_TIME
 AC_STRUCT_TM
 
 # Check for the various sub-second fields of the stat structure.
@@ -321,7 +329,6 @@ AC_C_BIGENDIAN
 AC_FUNC_ERROR_AT_LINE
 AC_FUNC_GETGROUPS
 AC_FUNC_GETPGRP
-AC_PROG_GCC_TRADITIONAL
 AC_FUNC_SELECT_ARGTYPES
 AC_FUNC_STAT
 AC_FUNC_STRTOD
@@ -452,6 +459,10 @@ case "${host_cpu}" in
             ;;
       riscv64)
             AC_DEFINE([HOSTARCHITECTURE_RISCV64], [1], [Define if the host is a RISC-V (64-bit)])
+            polyarch=interpret
+            ;;
+      loongarch64)
+            AC_DEFINE([HOSTARCHITECTURE_LOONGARCH64], [1], [Define if the host is a LoongArch (64-bit)])
             polyarch=interpret
             ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;

@@ -403,16 +403,6 @@ POLYUNSIGNED DepthVector::MergeSameItems()
                 bestShare = ptrVector[j];
                 bestSpace = space;
             }
-            else if (bestSpace->spaceType == ST_PERMANENT)
-            {
-                // Only update if the current space is also permanent and a lower hierarchy
-                if (space->spaceType == ST_PERMANENT &&
-                        ((PermanentMemSpace *)space)->hierarchy < ((PermanentMemSpace *)bestSpace)->hierarchy)
-                {
-                    bestShare = ptrVector[j];
-                    bestSpace = space;
-                }
-            }
             else if (bestSpace->spaceType == ST_LOCAL)
             {
                 // Update if the current space is not an allocation space
@@ -747,8 +737,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectToDepthVector(PolyObject *obj)
         return 0; // Level is zero
     }
 
-    if (space->spaceType == ST_PERMANENT &&
-             ((PermanentMemSpace*)space)->hierarchy == 0)
+    if (space->spaceType == ST_PERMANENT && ((PermanentMemSpace*)space)->isWriteProtected)
     {
         // Immutable data in the permanent area can't be merged
         // because it's read only.  We need to follow the addresses
@@ -934,7 +923,7 @@ bool ShareDataClass::RunShareData(PolyObject *root)
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
         PermanentMemSpace *space = *i;
-        if (!space->isMutable && space->hierarchy == 0)
+        if (space->isWriteProtected)
         {
             if (! space->shareBitmap.Create(space->spaceSize()))
                 return false;

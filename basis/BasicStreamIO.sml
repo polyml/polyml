@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: StreamIO functor
-    Copyright   David C.J. Matthews 2000, 2005, 2019
+    Copyright   David C.J. Matthews 2000, 2005, 2019, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -231,22 +231,23 @@ struct
             (Vector.concat vecs, f')
         end
 
-        (* Read the whole of the remaining input until we get an EOF. *)
+        (* Read the whole of the remaining input until we get an EOF.
+           The stream should then be positioned beyond that in case
+           there are multiple EOFs *)
         fun inputAll f =
         let
-            (* Find out the size of the file. *)
-            fun getSize(n, f) =
+            fun inputToEOF (l, f) =
             let
-                val (v, f') = input f
-                val vSize = Vector.length v
+                val (s, f') = input f
             in
-                if vSize = 0
-                then n (* Reached EOF. *)
-                else getSize (n + vSize, f')
+                if Vector.length s = 0
+                then (l, f')
+                else inputToEOF (s :: l, f')
             end
+    
+            val (all, f') = inputToEOF ([], f)
         in
-            (* Read the whole file. *)
-            inputN(f, getSize(0,f))
+            (Vector.concat(List.rev all), f')
         end
 
         (* Note a crucial difference between inputN and input1.  Because input1

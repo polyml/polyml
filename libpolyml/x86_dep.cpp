@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-21
+    Further work copyright David C. J. Matthews 2011-21, 23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1199,10 +1199,6 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 #ifdef HOSTARCHITECTURE_X86_64
     // Put in a relocation for the offset itself if necessary.
     process->RelocateOnly(addr, (byte*)end, PROCESS_RELOC_I386RELATIVE);
-    // There's a problem if the code and constant areas are allocated too
-    // far apart that the offsets exceeed 32-bits.  For testing just
-    // include this assertion.
-    ASSERT(constAdjustment >= -(POLYSIGNED)0x80000000 && constAdjustment <= 0x7fffffff);
 #endif
     // If this begins with enter-int it's interpreted code - ignore
     if (pt[0] == 0xff && pt[1] == 0x55 && (pt[2] == 0x48 || pt[2] == 0x24)) return;
@@ -1387,6 +1383,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 case 0xb1: // cmpxchg
                 case 0xb6: /* movzl */
                 case 0xb7: // movzw
+                case 0xbd: // bsr
                 case 0xbe: // movsx
                 case 0xbf: // movsx
                 case 0xc1: /* xaddl */

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021-2 David C. J. Matthews
+    Copyright (c) 2021-3 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -479,6 +479,18 @@ struct
         and andsShiftedReg32 = logicalShiftedReg(0w0, 0w3, 0w0)
         (* There are also versions that operate with an inverted version
            of the argument. *)
+    end
+
+    (* Single-source operations. *)
+    local
+        fun oneSourceInstr (sf, s, opcode2, opcode) {regN, regD} =
+            SimpleInstr(0wx5ac00000 orb (sf << 0w31) orb (s << 0w29) orb
+                (opcode2 << 0w16) orb (opcode << 0w10) orb
+                (word8ToWord32(xRegOnly regN) << 0w5) orb
+                word8ToWord32(xRegOnly regD))
+    in
+        val countLeadingZeros   = oneSourceInstr(0w1, 0w0, 0w0, 0w4)
+        and countLeadingZeros32 = oneSourceInstr(0w0, 0w0, 0w0, 0w4)
     end
 
     (* Two-source operations. *)
@@ -2284,6 +2296,27 @@ struct
                 );
                 printStream r; printStream(Word32.fmt StringCvt.DEC rN); printStream ",#0x";
                 printStream(Word64.toString(decodeBitPattern{sf=sf, n=nBit, immr=immr, imms=imms}))
+            end
+
+            else if (wordValue andb 0wx5fe00000) = 0wx5ac00000
+            then (* Single source instructions - currently just clz. *)
+            let
+                val sf = wordValue >> 0w31
+                val s = (wordValue >> 0w29) andb 0w1
+                val opcode2 = (wordValue >> 0w16) andb 0wx1f
+                val opcode = (wordValue >> 0w10) andb 0wx3f
+                val rN = (wordValue >> 0w5) andb 0wx1f
+                val rD = wordValue andb 0wx1f
+                val (oper, r) =
+                    case (sf, s, opcode2, opcode) of
+                        (0w1, 0w0, 0w0, 0w4) => ("clz", "x")
+                    |   (0w0, 0w0, 0w0, 0w4) => ("clz", "w")
+                    |   _ => ("??", "?")
+            in
+                printStream oper;
+                printStream "\t";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rD); printStream ",";
+                printStream r; printStream(Word32.fmt StringCvt.DEC rN)
             end
 
             else if (wordValue andb 0wx5fe00000) = 0wx1ac00000

@@ -2,7 +2,7 @@
     Title:     Export and import memory in a portable format
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006-7, 2015-8, 2020-21 David C. J. Matthews
+    Copyright (c) 2006-7, 2015-8, 2020-21, 2025 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -379,7 +379,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         if (size <= objWords)
             size = objWords+1;
         memSpace =
-            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr);
+            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr, ModuleId() /* No sig yet */);
         (*spaceIndexCtr)++;
         // The memory is writable until CompletePermanentSpaceAllocation is called
         if (memSpace == 0)
@@ -406,8 +406,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         size_t size = defaultSize;
         if (size <= rounded)
             size = rounded + 1;
-        memSpace =
-            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr);
+        memSpace = gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr, ModuleId());
         (*spaceIndexCtr)++;
         // The memory is writable until CompletePermanentSpaceAllocation is called
         if (memSpace == 0)
@@ -872,9 +871,7 @@ bool PImport::DoImport()
             return false;
         }
     }
-    // Now remove write access from immutable spaces.
-    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
-        gMem.CompletePermanentSpaceAllocation(*i);
+    // There's no need to remove write permissions at this stage.
     return true;
 }
 

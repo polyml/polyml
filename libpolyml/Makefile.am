@@ -8,7 +8,7 @@ AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 
 lib_LTLIBRARIES = libpolyml.la
-libpolyml_la_LDFLAGS = -version-info 13:0:0
+libpolyml_la_LDFLAGS = -version-info 16:0:0
 
 if NO_UNDEFINED
 # Force all references to be defined to build the DLL.
@@ -62,15 +62,16 @@ noinst_HEADERS = \
 	exporter.h \
 	gc.h \
 	gctaskfarm.h \
-    gc_progress.h \
+	gc_progress.h \
 	globals.h \
-    heapsizing.h \
+	heapsizing.h \
 	int_opcodes.h \
 	io_internal.h \
 	locking.h \
 	machine_dep.h \
 	machoexport.h \
 	memmgr.h \
+    modules.h \
 	mpoly.h \
 	network.h \
 	noreturn.h \
@@ -86,7 +87,6 @@ noinst_HEADERS = \
 	process_env.h \
 	processes.h \
 	profiling.h \
-	realconv.h \
 	reals.h \
 	rts_module.h \
 	rtsentry.h \
@@ -101,7 +101,7 @@ noinst_HEADERS = \
 	timing.h \
 	version.h \
 	winguiconsole.h \
-    winstartup.h \
+	winstartup.h \
 	xcall_numbers.h \
 	xwindows.h
 
@@ -124,6 +124,7 @@ libpolyml_la_SOURCES = \
     heapsizing.cpp \
     locking.cpp \
     memmgr.cpp \
+    modules.cpp \
     mpoly.cpp \
     network.cpp \
     objsize.cpp \
@@ -135,7 +136,6 @@ libpolyml_la_SOURCES = \
     processes.cpp \
     profiling.cpp \
     quick_gc.cpp \
-    realconv.cpp \
     reals.cpp \
     rts_module.cpp \
     rtsentry.cpp \

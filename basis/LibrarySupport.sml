@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Support functions
-    Copyright   David C.J. Matthews 2000, 2015-20
+    Copyright   David C.J. Matthews 2000, 2015-20, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -76,6 +76,8 @@ sig
     val volatileListRef: unit -> 'a list ref
     val volatileWordRef: unit -> word ref
     val volatileOptionRef: unit -> 'a option ref
+    
+    val log2Word: word -> word
 end
 =
 struct
@@ -229,5 +231,8 @@ struct
        at the start, unlike the onEntry list. *)
     val atExitList = volatileListRef()
     fun addAtExit f = atExitList := f :: !atExitList
+    
+    (* This is needed in IntInf so needs to be captured before LargeInt is redefined. *)
+    val log2Word = LargeInt.log2Word
 end;
 

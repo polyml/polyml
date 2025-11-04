@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2021-2 David C.J. Matthews
+    Copyright (c) 2021-3 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -146,6 +146,9 @@ struct
 
     |   getInstructionState(ShiftRegister{ source, shift, dest, ... }) =
         { sources=[source, shift], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+
+    |   getInstructionState(CountLeadingZeroBits{ source, dest, ... }) =
+        { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(Multiplication{ dest, sourceA, sourceM, sourceN, ... }) =
         { sources=getOptReg sourceA @ [sourceM, sourceN],
@@ -650,10 +653,10 @@ struct
                         fun getSaveSet includeReg =
                         let
                             val activeAfter = union(activeAfterThis, passThrough)
-                            (* Remove any registers marked - must-not-push.  These are
-                               registers holding non-address values.  They will actually
-                               be saved by the RTS across any GC but not checked or
-                               modified by the GC.
+                            (* The main save set contains registers that need to be updated
+                               across a GC.  In addition we need to record any registers
+                               containing non-address values.  These must not use X30 since
+                               that will contain the return address.
                                Exclude the result register. *)
                             fun getSave i =
                                 if includeReg i
@@ -665,8 +668,19 @@ struct
                                 |   RegPropCacheUntagged => NONE
                                 |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
                                 else NONE
+                            and getNoSave i =
+                                if includeReg i
+                                then case Vector.sub(pregProps, i) of
+                                    RegPropGeneral => NONE
+                                |   RegPropCacheTagged => NONE
+                                |   RegPropUntagged => SOME(PReg i)
+                                |   RegPropStack _ => NONE
+                                |   RegPropCacheUntagged => SOME(PReg i)
+                                |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
+                                else NONE
                         in
-                            List.mapPartial getSave (setToList activeAfter)
+                            {gcUpdate = List.mapPartial getSave (setToList activeAfter),
+                             noUpdate = List.mapPartial getNoSave (setToList activeAfter)}
                         end
                     in
                         (* Sometimes we need to modify the instruction e.g. to include the set
@@ -699,10 +713,19 @@ struct
                                     |   RegPropStack _ => NONE
                                     |   RegPropCacheUntagged => NONE
                                     |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
+                                    and getNoSave i =
+                                        case Vector.sub(pregProps, i) of
+                                        RegPropGeneral => NONE
+                                    |   RegPropCacheTagged => NONE
+                                    |   RegPropUntagged => SOME(PReg i)
+                                    |   RegPropStack _ => NONE
+                                    |   RegPropCacheUntagged => SOME(PReg i)
+                                    |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
                                     val currentRegs = union(activeAfterThis, passThrough)
                                     (* Have to include the loop registers.  These were previously included
                                        automatically because they were part of the import set. *)
-                                    val check = List.mapPartial getSave (map (regNo o #dst) regArgs @ setToList currentRegs)
+                                    val regsToCheck = (map (regNo o #dst) regArgs @ setToList currentRegs)
+                                    val check = {gcUpdate = List.mapPartial getSave regsToCheck, noUpdate = List.mapPartial getNoSave regsToCheck }
                                 in
                                     JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=SOME check}
                                 end

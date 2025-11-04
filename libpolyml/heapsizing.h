@@ -77,7 +77,7 @@ private:
     // GC time to application time.
     double costFunction(uintptr_t heapSize, bool withSharing, bool withSharingCost);
 
-    bool getCostAndSize(uintptr_t &heapSize, double &cost, bool withSharing);
+    bool getCostAndSize(uintptr_t &heapSize, uintptr_t wordsRequired, double &cost, bool withSharing);
 
     // Set if we should do a full GC next time instead of a minor GC.
     bool fullGCNextTime;

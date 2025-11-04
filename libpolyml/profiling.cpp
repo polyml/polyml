@@ -80,7 +80,8 @@ static const char* const mainThreadText[MTP_MAXENTRY] =
     "Setting signal handler",
     "Cygwin spawn",
     "Storing module",
-    "Loading module"
+    "Loading module",
+    "Releasing module"
 };
 
 // Entries for store profiling

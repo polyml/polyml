@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Commands to build the library
-    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018-21
+    Copyright   David C.J. Matthews 2000, 2005, 2015-16, 2018-21, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -78,12 +78,12 @@ val () = Bootstrap.use "basis/IntArray.sml";
 val () = Bootstrap.use "basis/RealArray.sml";
 val () = Bootstrap.use "basis/IEEE_REAL.sml";
 val () = Bootstrap.use "basis/IEEEReal.sml";
-val () = Bootstrap.use "basis/MATH.sml";
-val () = Bootstrap.use "basis/MATH.sml";
+val () = Bootstrap.use "basis/MATH.sig";
 structure LargeReal = struct type real = real end;
-val () = Bootstrap.use "basis/RealSignature.sml";
-val () = Bootstrap.use "basis/Real.sml";
-val () = Bootstrap.use "basis/Real32.sml";
+val () = Bootstrap.use "basis/RealNumbersAsBits.ML";
+val () = Bootstrap.use "basis/RealToDecimalConversion.ML";
+val () = Bootstrap.use "basis/REAL.sig";
+val () = Bootstrap.use "basis/Real.sml"; (* Includes Real32. *)
 val () = Bootstrap.use "basis/Time.sml";
 val () = Bootstrap.use "basis/DATE.sig";
 val () = Bootstrap.use "basis/Date.sml";
@@ -174,8 +174,8 @@ local
          "^", "before", "div", "mod", "o"]
 
     val sigs =
-       ["ARRAY", "ARRAY2", "ARRAY_SLICE", "BIN_IO", "BIT_FLAGS", "BOOL", "BYTE",
-        "CHAR", "COMMAND_LINE", "DATE", "GENERAL", "GENERIC_SOCK", "IEEE_REAL",
+       ["ARRAY", "ARRAY2", "ARRAY_SLICE", "ASN1", "BIN_IO", "BIT_FLAGS", "BOOL", "BYTE",
+        "CHAR", "COMMAND_LINE", "DATE", "FOREIGN", "GENERAL", "GENERIC_SOCK", "IEEE_REAL",
         "IMPERATIVE_IO", "INET6_SOCK", "INET_SOCK", "INTEGER", "INT_INF", "IO",
         "LIST", "LIST_PAIR", "MATH", "MONO_ARRAY", "MONO_ARRAY2",
         "MONO_ARRAY_SLICE", "MONO_VECTOR", "MONO_VECTOR_SLICE", "NET_HOST_DB",

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-22
+    Copyright David C. J. Matthews 2016-23
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -350,6 +350,11 @@ struct
 
         (* Pause instruction - used only in mutex spinlock *)
     |   PauseCPU
+
+        (* Find the bit position of the highest bit set. This is always applied
+           to a tagged value so it will return 63/31 if the argument is
+           (tagged) zero. *)
+    |   BitScanReverse of { source: argument, dest: preg }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -906,6 +911,9 @@ struct
             (stream "\tTouchArgument\t"; printReg(source, stream))
         
         |   printICode(PauseCPU, stream) = stream "\tPauseCPU"
+
+        |   printICode(BitScanReverse{source, dest}, stream) =
+            (stream "\tBitScanReverse"; printArg(source, stream); stream " => "; printReg(dest, stream))
 
         and printCondition(JO,  stream)  = stream "Overflow"
         |   printCondition(JNO, stream)  = stream "NoOverflow"

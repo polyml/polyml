@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Pack Real structures and signatures
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2015, 2021
+    Copyright   David Matthews 2000, 2015, 2021, 2023
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -144,12 +144,7 @@ struct
     end
 end;
 
-local
-    val realSizeCall: unit -> word = RunCall.rtsCallFast1 "PolyRealSize"
-    val realSize: word = realSizeCall ()
-in
-    structure PackRealBig: PACK_REAL =
-        PackRealBoxed(type realType = real val isBigEndian = true val realSize = realSize)
-    and PackRealLittle: PACK_REAL =
-        PackRealBoxed(type realType = real val isBigEndian = false val realSize = realSize)
-end;
+structure PackRealBig: PACK_REAL =
+    PackRealBoxed(type realType = real val isBigEndian = true val realSize = 0w8)
+and PackRealLittle: PACK_REAL =
+    PackRealBoxed(type realType = real val isBigEndian = false val realSize = 0w8);

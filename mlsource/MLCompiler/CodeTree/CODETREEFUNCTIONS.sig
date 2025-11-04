@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,17,20-1 David C.J. Matthews
+    Copyright (c) 2012,13,17,20-1, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -44,15 +44,13 @@ sig
     
     val sideEffectFree: codetree -> bool
     and reorderable: codetree -> bool
-    and sideEffectFreeRTSCall: int -> bool
+    and exceptionFree: codetree -> bool
 
     val makeConstVal: codetree -> codetree
     
     val evalue:    codetree -> machineWord option
     
     val findEntryInBlock: codetree * int * bool -> codetree
-    
-    val earlyRtsCall: int -> bool
 
     val partitionMutualBindings: codeBinding -> codeBinding list
 

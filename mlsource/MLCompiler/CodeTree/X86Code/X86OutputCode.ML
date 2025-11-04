@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-21
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-21, 2023
     
     Based on original code:    
     Copyright (c) 2000
@@ -608,6 +608,8 @@ struct
     |   CMOV32 of branchOps
     |   CMOV64 of branchOps
     |   PAUSE
+    |   BSR32 (* Needs escape code *)
+    |   BSR64 (* Needs escape code *)
 
 
     fun opToInt Group1_8_A32    =  0wx83
@@ -717,6 +719,8 @@ struct
     |   opToInt (CMOV32 opc)    = 0wx40 + branchOpToWord opc (* Needs 0F prefix *)
     |   opToInt (CMOV64 opc)    = 0wx40 + branchOpToWord opc (* Needs 0F prefix and rex.w *)
     |   opToInt PAUSE           = 0wx90 (* Needs F3 prefix *)
+    |   opToInt BSR32           = 0wxbd (* Needs 0F prefix *)
+    |   opToInt BSR64           = 0wxbd (* Needs 0F prefix *)
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -826,6 +830,8 @@ struct
     |   escapePrefix CVTTSS2SI64                = [0wx0f]
     |   escapePrefix(CMOV32 _)                  = [0wx0f]
     |   escapePrefix(CMOV64 _)                  = [0wx0f]
+    |   escapePrefix BSR32                      = [0wx0f]
+    |   escapePrefix BSR64                      = [0wx0f]
     |   escapePrefix _                          = []
 
     (* Generate an opCode byte after doing any pending operations. *)
@@ -876,6 +882,7 @@ struct
             |   CMOV64 _    => true
             |   MOVSXB64   => true
             |   MOVSXW64   => true
+            |   BSR64      => true
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
@@ -1134,6 +1141,7 @@ struct
     |   CondMove of { test: branchOps, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
     |   LoadAbsolute of { destination: genReg, value: machineWord }
     |   PauseForSpinLock
+    |   BitScanR of { output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
 
     and jumpSize = JumpSize2 | JumpSize8
 
@@ -1394,6 +1402,11 @@ struct
         |   LoadAbsolute { destination, value } =>
                 ( stream "LoadAbsolute "; printGReg destination; stream " <= "; stream(Address.stringOfWord value) )
         |   PauseForSpinLock => stream "PauseForSpinLock"
+        |   BitScanR { output, source, opSize } =>
+            (
+                stream "BitScanR"; stream(printOpSize opSize);
+                printGReg output; stream " <= "; printRegOrMemoryArg printGReg source
+            )
         ;
  
         stream "\n"
@@ -2324,6 +2337,22 @@ struct
         
         |   cgOp PauseForSpinLock = opCodeBytes(PAUSE, NONE)
 
+        |   cgOp (BitScanR { output, source=RegisterArg source, opSize=OpSize32 }) =
+                opReg(BSR32, output, source)
+
+        |   cgOp (BitScanR { output, source=RegisterArg source, opSize=OpSize64 }) =
+                opReg(BSR64, output, source)
+
+        |   cgOp (BitScanR { output, source=MemoryArg{base, offset, index}, opSize=OpSize32 }) =
+                opAddress(BSR32, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp (BitScanR { output, source=MemoryArg{base, offset, index}, opSize=OpSize64 }) =
+                opAddress(BSR64, LargeInt.fromInt offset, base, index, output)
+
+        |   cgOp (BitScanR _) =
+                raise InternalError "cgOp: BitScanR"
+                
+
     in
         List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
     end
@@ -3246,6 +3275,17 @@ struct
                                     print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
                                     print ",";
                                     printEA (rex, SZWord)
+                                end
+
+                            |   0wxBD =>
+                                let
+                                    val nb = codeVecGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    print "bsr\t";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                                    print ",";
+                                    printEA (rex, sizeFromRexW)
                                 end
 
                             |   0wxBE =>
