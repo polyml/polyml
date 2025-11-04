@@ -881,6 +881,12 @@ struct
         then SOME(optFields(code, context, use))
         else NONE
 
+    |   optimise (context, use) (code as Handle _) =
+        (* Similarly for handlers: if the result is taken apart use a container. *)
+        if List.all(fn UseField _ => true | _ => false) use
+        then SOME(optFields(code, context, use))
+        else NONE
+
     |   optimise (context as { makeAddr, reprocess, ...}, use) (code as BeginLoop{loop, arguments}) =
         let
             (* If an argument is a tuple and always taken apart within the loop we should
