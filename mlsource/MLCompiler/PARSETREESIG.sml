@@ -76,27 +76,15 @@ sig
     val mkCond   : parsetree * parsetree * parsetree * location -> parsetree;
     val mkTupleTree : parsetree list * location -> parsetree;
 
+    type bindEnv =
+        { lookup: string -> typeVarForm option,
+          apply: (string * typeVarForm -> unit) -> unit }
+
     val mkValDeclaration :
-       valbind list *
-       {
-         lookup: string -> typeVarForm option,
-         apply: (string * typeVarForm -> unit) -> unit
-       } *
-       {
-         lookup: string -> typeVarForm option,
-         apply: (string * typeVarForm -> unit) -> unit
-       } * location ->  parsetree;
+        valbind list * bindEnv * bindEnv * location ->  parsetree;
 
     val mkFunDeclaration :
-       fvalbind list *
-       {
-         lookup: string -> typeVarForm option,
-         apply: (string * typeVarForm -> unit) -> unit
-       } *
-       {
-         lookup: string -> typeVarForm option,
-         apply: (string * typeVarForm -> unit) -> unit
-       } * location ->  parsetree;
+        fvalbind list * bindEnv * bindEnv * location ->  parsetree;
 
     val mkOpenTree : structureIdentForm list * location -> parsetree;
     val mkStructureIdent : string * location -> structureIdentForm;
