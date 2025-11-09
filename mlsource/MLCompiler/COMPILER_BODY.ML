@@ -76,7 +76,6 @@ sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Shar
 (*                  COMPILERBODY functor body                                *)
 (*****************************************************************************)
 struct
-    open MISC;
     open STRUCTVALS;
 
     type exportTree = EXPORTTREE.exportTree
@@ -160,7 +159,7 @@ struct
             (* create a "throw away" compiling environment for this topdec *)
             val newFixEnv = UTILITIES.searchList ()
             val enterFix  = #enter newFixEnv
-            val lookupFix = lookupDefault (#lookup newFixEnv) (#lookupFix globals)
+            val lookupFix = MISC.lookupDefault (#lookup newFixEnv) (#lookupFix globals)
    
             (* parse a program: a sequence of topdecs ending with a semicolon. *)
             val parseTree : STRUCTURES.program = 
@@ -229,7 +228,7 @@ struct
             raise SML90.Interrupt
         )
          
-      | InternalError s =>
+      | MISC.InternalError s =>
         let
             val s' =
                 "Exception- InternalError: " ^ String.toString s ^ " raised while compiling"
