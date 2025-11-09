@@ -78,7 +78,6 @@ sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Shar
 struct
     open MISC;
     open STRUCTVALS;
-    open PRETTY;
 
     open STRUCTURES
     open EXPORTTREE
@@ -115,8 +114,7 @@ struct
              structures: (string * structVals) list, signatures: (string * signatures) list,
              functors: (string * functors) list, types: (string * typeConstrSet) list }) option =
     let (* let1 *)
-
-        val compilerOutput = getCompilerOutput debugSwitches
+        val compilerOutput = PRETTY.getCompilerOutput debugSwitches
         val printParsetree = DEBUG.getParameter DEBUG.parsetreeTag debugSwitches
 
         val globals =
@@ -148,7 +146,6 @@ struct
             case List.find (Universal.tagIs rootTreeTag) debugSwitches of
                 SOME opt => Universal.tagProject rootTreeTag opt
             |   NONE => { parent = NONE, next = NONE, previous = NONE }
-
     in
         (* An empty declaration (or end of file!) *)
         if SYMSET.inside (LEX.sy lex, stopSyms)
@@ -220,8 +217,8 @@ struct
     let
         val debugSwitches = parameters 
         val lex = LEX.initial(getChar, debugSwitches)
-        val compilerOutput = getCompilerOutput parameters
-        fun printReport s = compilerOutput(PrettyString s)
+        val compilerOutput = PRETTY.getCompilerOutput parameters
+        fun printReport s = compilerOutput(PRETTY.PrettyString s)
     in
         baseCompiler(lex, nameSpace, debugSwitches)
       handle
