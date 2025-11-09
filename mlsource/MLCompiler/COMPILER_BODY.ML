@@ -78,7 +78,9 @@ sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Shar
 struct
     open MISC;
     open STRUCTVALS;
-    open EXPORTTREE
+
+    type exportTree = EXPORTTREE.exportTree
+    type ptProperties = EXPORTTREE.ptProperties
 
     type nameSpace =
       { 
@@ -141,8 +143,8 @@ struct
             else ()
       
         val parentTreeNav =
-            case List.find (Universal.tagIs rootTreeTag) debugSwitches of
-                SOME opt => Universal.tagProject rootTreeTag opt
+            case List.find (Universal.tagIs EXPORTTREE.rootTreeTag) debugSwitches of
+                SOME opt => Universal.tagProject EXPORTTREE.rootTreeTag opt
             |   NONE => { parent = NONE, next = NONE, previous = NONE }
     in
         (* An empty declaration (or end of file!) *)
