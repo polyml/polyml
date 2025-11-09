@@ -79,7 +79,6 @@ struct
     open MISC;
     open STRUCTVALS;
     open PRETTY;
-    open LEX;
 
     open STRUCTURES
     open EXPORTTREE
@@ -138,11 +137,11 @@ struct
             allStructNames = fn () => map #1 (#allStruct nameSpace ())
         }
 
-        val startLocn = location lex
+        val startLocn = LEX.location lex
 
         val () =
-            if SYMSET.inside (sy lex, SYMSET.semicolon)
-            then insymbol lex
+            if SYMSET.inside (LEX.sy lex, SYMSET.semicolon)
+            then LEX.insymbol lex
             else ()
       
         val parentTreeNav =
@@ -152,10 +151,10 @@ struct
 
     in
         (* An empty declaration (or end of file!) *)
-        if SYMSET.inside (sy lex, stopSyms)
-        then if errorOccurred lex (* We could have, for example, an unterminated comment. *)
+        if SYMSET.inside (LEX.sy lex, stopSyms)
+        then if LEX.errorOccurred lex (* We could have, for example, an unterminated comment. *)
         then (NONE, NONE)
-        else (SOME(locSpan(startLocn, location lex), []), 
+        else (SOME(LEX.locSpan(startLocn, LEX.location lex), []),
                  SOME (fn () => { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] })
             ) (* Do nothing *)
         else
@@ -180,7 +179,7 @@ struct
                 then compilerOutput (STRUCTURES.displayProgram (parseTree, 10000))
                 else ()
         in
-            if errorOccurred lex
+            if LEX.errorOccurred lex
             then (NONE, NONE) (* Error: No result and the parse tree won't be useful. *)
             else
             let
@@ -189,14 +188,14 @@ struct
                 val () = STRUCTURES.pass2Structs (parseTree, lex, Env globals)
           
             in
-                if errorOccurred lex
+                if LEX.errorOccurred lex
                 then (SOME(structsExportTree(parentTreeNav, parseTree)), NONE)
                 else
                 let
                     (* Only code-generate if there were no errors and it's not a directive. *)
                     val (structCode, nLocals) = STRUCTURES.gencodeStructs (parseTree, lex)
                 in
-                    if errorOccurred lex
+                    if LEX.errorOccurred lex
                     then (* Errors can be produced during the code-generation phase. *)
                         (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
                     else
