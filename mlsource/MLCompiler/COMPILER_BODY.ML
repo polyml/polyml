@@ -156,16 +156,15 @@ struct
                  SOME (fn () => {fixes=[], values=[], structures=[], functors=[], types=[], signatures=[]}))
         else
         let
-            (* create a "throw away" compiling environment for this topdec *)
-            val newFixEnv = UTILITIES.searchList ()
-            val enterFix  = #enter newFixEnv
-            val lookupFix = MISC.lookupDefault (#lookup newFixEnv) (#lookupFix globals)
-   
             (* parse a program: a sequence of topdecs ending with a semicolon. *)
             val parseTree : STRUCTURES.program = 
                 let
-                    val fixes : PARSEDEC.fixes = {enterFix  = enterFix, lookupFix = lookupFix}
-                    val params : PARSEDEC.params =
+                    (* create a "throw away" compiling environment for this topdec *)
+                    val newFixEnv = UTILITIES.searchList ()
+                    val fixes : PARSEDEC.fixes =
+                        {enterFix = #enter newFixEnv,
+                         lookupFix = MISC.lookupDefault (#lookup newFixEnv) (#lookupFix globals)}
+                    and params : PARSEDEC.params =
                         {recordPunning = DEBUG.getParameter DEBUG.languageExtensionsTag debugSwitches}
                 in
                     PARSEDEC.parseDec (stopSyms, lex, fixes, params)
