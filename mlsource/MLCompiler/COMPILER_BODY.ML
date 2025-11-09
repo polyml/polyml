@@ -148,12 +148,13 @@ struct
             |   NONE => { parent = NONE, next = NONE, previous = NONE }
     in
         (* An empty declaration (or end of file!) *)
-        if SYMSET.inside (LEX.sy lex, stopSyms)
-        then if LEX.errorOccurred lex (* We could have, for example, an unterminated comment. *)
-        then (NONE, NONE)
-        else (SOME(LEX.locSpan(startLocn, LEX.location lex), []),
-                 SOME (fn () => { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] })
-            ) (* Do nothing *)
+        if SYMSET.inside (LEX.sy lex, stopSyms) then
+            if LEX.errorOccurred lex (* We could have, for example, an unterminated comment. *) then
+                (NONE, NONE)
+            else
+                (* Do nothing *)
+                (SOME (LEX.locSpan (startLocn, LEX.location lex), []),
+                 SOME (fn () => {fixes=[], values=[], structures=[], functors=[], types=[], signatures=[]}))
         else
         let
             (* create a "throw away" compiling environment for this topdec *)
