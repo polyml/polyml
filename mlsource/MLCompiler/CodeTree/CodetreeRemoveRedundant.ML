@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13, 17, 20-1 David C.J. Matthews
+    Copyright (c) 2012,13, 17, 20-1, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -40,9 +40,32 @@ struct
        bindings in case they are required.  That was originally its only function; hence the name. *)
     fun cleanProc (pt, procUses: codeUse list, prev: int * codeUse list -> loadForm, recursiveRef: codeUse list -> unit, localCount, checkArg) =
     let
+        (* Filter the use information so there is only a single instance of each kind of
+           usage.  The usage lists can blow up.  See #197. *)
+        fun addUsesToArray useArray addr uses =
+        let
+            fun match(UseGeneral, UseGeneral) = true
+            |   match(UseExport, UseExport) = true
+            |   match(UseField(i1, l1), UseField(i2, l2)) = i1 = i2 andalso matchList (l1, l2)
+            |   match _ = false
+            and matchList([], []) = true
+            |   matchList(h1::t1, h2::t2) = match(h1, h2) andalso matchList(t1, t2)
+            |   matchList _ = false
+
+            fun addUse newUse =
+            let
+                val currentUsage = Array.sub(useArray, addr)
+            in
+                if List.exists(fn u => match(u, newUse)) currentUsage
+                then ()
+                else Array.update(useArray, addr, newUse :: currentUsage)
+            end
+        in
+            List.app addUse uses
+        end
+        
         val locals = Array.array(localCount, [])
-        fun addLocalUse addr use =
-            Array.update(locals, addr, use @ Array.sub(locals, addr))
+        val addLocalUse: int -> codeUse list -> unit = addUsesToArray locals
 
         fun cleanLambda(lambda as {body, isInline, name, argTypes, resultType, localCount, closure, ...}: lambdaForm,
                         lambdaUse) =
