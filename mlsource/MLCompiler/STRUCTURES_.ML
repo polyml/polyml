@@ -83,7 +83,6 @@ struct
   open STRUCTVALS;
   open VALUEOPS;
   open TYPETREE;
-  open PARSETREE;
   open UTILITIES;
   open DEBUG;
   open UNIVERSALTABLE;
@@ -464,7 +463,7 @@ struct
                 )
 
           | CoreLang {dec, ...} =>
-              displayParsetree (dec, depth - 1)
+              PARSETREE.displayParsetree (dec, depth - 1)
 
     and displayStructValue (str, depth) =
         if depth <= 0 (* elide further text. *)
@@ -659,7 +658,7 @@ struct
             end
 
         |   CoreLang {dec, ...} => (* A value parse-tree entry. *)
-                getExportTree(navigation, dec)
+                PARSETREE.getExportTree(navigation, dec)
 
         |   Localdec {decs, body, line, ...} =>
                 (line, exportList(structExportTree, SOME asParent) (decs @ body) @ commonProps)
@@ -1991,7 +1990,7 @@ struct
                         (typeVars, decType))
 
             (* Process the body and discard the type. *)
-            val _ : types = pass2 (dec, makeId, Env newEnv, lex, fn _ => false);
+            val _ : types = PARSETREE.pass2 (dec, makeId, Env newEnv, lex, fn _ => false);
        in
          ()
        end (* pass2Singleton *)
@@ -2458,7 +2457,7 @@ struct
                     (* Declarations are independent so can be processed in order. *)
                     List.app (leastGenStructValue o #value) bindings
 
-            |   leastGenStructDec(CoreLang{dec, ...}) = setLeastGeneralTypes(dec, lex)
+            |   leastGenStructDec(CoreLang{dec, ...}) = PARSETREE.setLeastGeneralTypes(dec, lex)
 
             |   leastGenStructDec(Localdec{decs, body, ...}) =
                 (
@@ -2875,7 +2874,7 @@ struct
                 codeStrdecs (strName, sTail, newDebugEnv, mkAddr, level, newTypeVarMap,
                               newCode, processBody)
             val (code, debug) =
-                gencode (dec, lex, debugEnv, level, mkAddr, typeVarMap, strName, processTail)
+                PARSETREE.gencode (dec, lex, debugEnv, level, mkAddr, typeVarMap, strName, processTail)
         in
             (leadingDecs @ code, debug)
         end
