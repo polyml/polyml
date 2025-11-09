@@ -2020,16 +2020,11 @@ struct
         and newSigEnv   = UTILITIES.searchList()
         and newFuncEnv  = UTILITIES.searchList()
 
-        val lookupVal =
-            lookupDefault (#lookup newValEnv)  (#lookupVal globals)
-        and lookupType =
-            lookupDefault (#lookup newTypeEnv) (#lookupType globals)
-        and lookupStruct =
-            lookupDefault (#lookup newStrEnv)  (#lookupStruct globals)
-        and lookupSig =
-            lookupDefault (#lookup newSigEnv)  (#lookupSig globals)
-        and lookupFunct =
-            lookupDefault (#lookup newFuncEnv) (#lookupFunct globals)
+        val lookupVal = lookupDefault (#lookup newValEnv) (#lookupVal globals)
+        and lookupType = lookupDefault (#lookup newTypeEnv) (#lookupType globals)
+        and lookupStruct = lookupDefault (#lookup newStrEnv) (#lookupStruct globals)
+        and lookupSig = lookupDefault (#lookup newSigEnv) (#lookupSig globals)
+        and lookupFunct = lookupDefault (#lookup newFuncEnv) (#lookupFunct globals)
 
         fun allValNames () =
         let
