@@ -110,7 +110,7 @@ struct
 
     val stopSyms = let open SYMSET in op ++ (abortParse, semicolon) end
 
-    fun baseCompiler (lex : lexan, nameSpace: nameSpace, debugSwitches) :
+    fun baseCompiler (lex : lexan, nameSpace : nameSpace, debugSwitches : Universal.universal list) :
        exportTree option * (unit ->
            { fixes: (string * fixStatus) list, values: (string * values) list,
              structures: (string * structVals) list, signatures: (string * signatures) list,
