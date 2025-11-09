@@ -78,8 +78,6 @@ sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Shar
 struct
     open MISC;
     open STRUCTVALS;
-
-    open STRUCTURES
     open EXPORTTREE
 
     type nameSpace =
@@ -108,7 +106,7 @@ struct
 
     val stopSyms = let open SYMSET in op ++ (abortParse, semicolon) end
 
-    fun baseCompiler (lex : lexan, nameSpace : nameSpace, debugSwitches : Universal.universal list) :
+    fun baseCompiler (lex : LEX.lexan, nameSpace : nameSpace, debugSwitches : Universal.universal list) :
        exportTree option * (unit ->
            { fixes: (string * fixStatus) list, values: (string * values) list,
              structures: (string * structVals) list, signatures: (string * signatures) list,
@@ -187,7 +185,7 @@ struct
           
             in
                 if LEX.errorOccurred lex
-                then (SOME(structsExportTree(parentTreeNav, parseTree)), NONE)
+                then (SOME (STRUCTURES.structsExportTree (parentTreeNav, parseTree)), NONE)
                 else
                 let
                     (* Only code-generate if there were no errors and it's not a directive. *)
@@ -195,7 +193,7 @@ struct
                 in
                     if LEX.errorOccurred lex
                     then (* Errors can be produced during the code-generation phase. *)
-                        (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
+                        (SOME (STRUCTURES.structsExportTree (parentTreeNav, parseTree)), NONE) (* Error: No result. *)
                     else
                     let                      
                         val resultCode = CODETREE.genCode(structCode, debugSwitches, nLocals)
@@ -203,7 +201,7 @@ struct
                            the compilation. *)
                         fun executeCode() = STRUCTURES.pass4Structs (resultCode (), parseTree)
                     in
-                        (SOME(structsExportTree (parentTreeNav, parseTree)), SOME executeCode)
+                        (SOME (STRUCTURES.structsExportTree (parentTreeNav, parseTree)), SOME executeCode)
                     end
                 end
             end
