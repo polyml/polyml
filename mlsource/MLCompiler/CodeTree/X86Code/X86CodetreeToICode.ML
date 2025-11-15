@@ -1750,10 +1750,11 @@ struct
                         end
 
                     |   tuple =>
-                        let (* Copy a heap tuple.  It is possible that this is another container in which case
-                               we must load the fields directly.  We mustn't load its address and then copy
-                               because loading the address would be the last reference and might cause
-                               the container to be reused prematurely. *)
+                        let (* Copy a heap tuple.  If the source is a stack tuple we need to copy it using
+                               instructions that reference the container until the copy is complete.
+                               Taking the address and then copying can result in the space used by
+                               the container being reused for pushing registers after the address
+                               has been taken but before the copy. *)
                             val (codeTuple, loadField) =
                                 case getContainerIfPresent tuple of
                                     ContainerOnStack {container, stackOffset} =>
