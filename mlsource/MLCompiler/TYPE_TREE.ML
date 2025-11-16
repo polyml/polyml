@@ -9,7 +9,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2012-2018, 2020 David C.J. Matthews
+    Copyright (c) 2000-9, 2012-2018, 2020, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1992,7 +1992,13 @@ struct
                             let
                                 (* The level is the minimum of the two, and if we are unifying with
                                    an equality type variable we must make this into one. *)
-                                val minLev = Int.min (tvLevel var, tvLevel tvar)
+                                val minLev =
+                                    case (tvLevel var, tvLevel tvar) of
+                                        (NotGeneralisable v1, NotGeneralisable v2) =>
+                                            NotGeneralisable(Int.min (v1, v2))
+                                    |   (v1 as NotGeneralisable _, _) => v1
+                                    |   (_, v2 as NotGeneralisable _) => v2
+                                    |   (Generalisable, Generalisable) => Generalisable
                                 val oldValue = tvValue tvar
                             in
                                 if tvLevel tvar <> minLev
@@ -2819,7 +2825,7 @@ struct
                 TypeVar tvar =>
                 let
                     val argSet =
-                        if tvLevel tvar >= level andalso tvLevel tvar <> generalisable
+                        if (case tvLevel tvar of NotGeneralisable v => v >= level | Generalisable => false)
                             andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
                         then
                         let
@@ -2833,7 +2839,7 @@ struct
                                DCJM 1/9/00. *)
                             val nonCopiable = not nonExpansive
                             val newLevel =
-                               if nonCopiable then level-1 else generalisable (* copiable *);
+                               if nonCopiable then NotGeneralisable(level-1) else Generalisable (* copiable *);
 
                             val isOk =
                                 (* If the type variable has top-level scope then we have
@@ -2925,7 +2931,7 @@ struct
         ^ String.str (Char.chr (num mod 26 + Char.ord #"a"));
 
     fun checkTypes (TypeVar tvar) () =
-        if isEmpty(tvValue tvar) andalso tvLevel tvar = 1
+        if isEmpty(tvValue tvar) andalso tvLevel tvar = NotGeneralisable 1
         then (* The type variable is unbound (specifically, not
                 an overload set) and it is not generic i.e. it
                 must have come from an expansive expression. *)
@@ -3033,11 +3039,12 @@ struct
        as a global one. *)
     fun linkTypeVars (a, b) =
     let
-        val ta = typesTypeVar (eventual(TypeVar a)); (* Must both be type vars. *)
-        val tb = typesTypeVar (eventual(TypeVar b));
+        val ta = typesTypeVar (eventual(TypeVar a)) (* Must both be type vars. *)
+        val tb = typesTypeVar (eventual(TypeVar b))
     in  (* Set the one with the higher level to point to the one with the
          lower, so that the effective level is the lower. *)
-        if (tvLevel ta) > (tvLevel tb)
+        if (case (tvLevel ta, tvLevel tb) of
+                (Generalisable, _) => true | (_, Generalisable) => false | (NotGeneralisable l1, NotGeneralisable l2) => l1 > l2)
         then tvSetValue (ta, TypeVar b)
         else tvSetValue (tb, TypeVar a)
     end;
@@ -3258,5 +3265,6 @@ struct
         and  codetree   = codetree
         and  matchResult = matchResult
         and  generalMatch = generalMatch
+        and  tvLevel = tvLevel
     end
 end (* TYPETREE *);

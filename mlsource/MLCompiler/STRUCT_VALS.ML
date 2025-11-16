@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2009, 2012, 2015.
+    Modified David C. J. Matthews 2009, 2012, 2015, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -23,20 +23,11 @@
     Author:     Dave Matthews,Cambridge University Computer Laboratory
     Copyright   Cambridge University 1985
 *)
-
-(* This type contains the basic structures of global and local declarations.
-   Putting the global declarations in a separate type allows us to install a new
-   compiler (particularly to fix bugs) and still be compatible with declarations
-   made with the old compiler. It is also convenient to put local values in
-   here as well.  *) 
   
 functor STRUCT_VALS (
 
 structure CODETREE : CODETREE where type machineWord = Address.machineWord
 
-(*****************************************************************************)
-(*                  UNIVERSALTABLE                                           *)
-(*****************************************************************************)
 structure UNIVERSALTABLE :
 sig
   type 'a tag = 'a Universal.tag;
@@ -56,9 +47,6 @@ end
 ) :> STRUCTVALSIG where type codetree = CODETREE.codetree and type univTable = UNIVERSALTABLE.univTable and type level = CODETREE.level
 =  
 
-(*****************************************************************************)
-(*                  STRUCTVALS functor body                                  *)
-(*****************************************************************************)
 struct
     open CODETREE;
   
@@ -266,6 +254,8 @@ struct
     |   OpenedAt of location
     |   StructureAt of location
     |   SequenceNo of FixedInt.int
+
+    and tvLevel = Generalisable | NotGeneralisable of int
   
     withtype uniqueId = bool ref
         (* We use a ref here both because we can then set equality if we
@@ -274,6 +264,7 @@ struct
     and typeVarForm = 
     {
         value:    types ref,
+        level:    tvLevel,
         encoding: Word.word
     }
 
@@ -367,11 +358,6 @@ struct
                locations = locations  }
     
   (* Types. *)
-
-  (* Level at which type is generalisable. *)
-
-  val generalisable = 9999; 
-    
     
   (* Destructors, constructors and predicates for types *)
   val emptyType            = EmptyType;
@@ -427,17 +413,19 @@ struct
     in
         fun makeTv {value : types, level, equality, nonunifiable, printable} : typeVarForm =
             { value    = ref value, (* REF HOTSPOT - 400 *)
-              encoding = (fromInt level << 0w3)
-                           orb (if equality     then 0w4 else 0w0)
+              level    = level,
+              encoding =  (if equality     then 0w4 else 0w0)
                            orb (if nonunifiable then 0w2 else 0w0)
                            orb (if printable    then 0w1 else 0w0)}
         
-        fun tvSetValue ({ value, ...} : typeVarForm, t : types) = value := t
-        fun tvValue ({value = ref v, ...} : typeVarForm) : types = v
-        fun tvLevel ({encoding, ...} : typeVarForm) : int  = Word.toInt(encoding >> 0w3)
-        fun tvEquality ({encoding, ...} : typeVarForm)     = encoding andb 0w4 <> 0w0
-        fun tvNonUnifiable ({encoding, ...} : typeVarForm) = encoding andb 0w2 <> 0w0
-        fun tvPrintity ({encoding, ...} : typeVarForm)     = encoding andb 0w1 <> 0w0
+        and tvSetValue ({ value, ...} : typeVarForm, t : types) = value := t
+        and tvValue ({value = ref v, ...} : typeVarForm) : types = v
+        and tvLevel ({level, ...} : typeVarForm) : tvLevel  = level
+        and tvEquality ({encoding, ...} : typeVarForm)     = encoding andb 0w4 <> 0w0
+        and tvNonUnifiable ({encoding, ...} : typeVarForm) = encoding andb 0w2 <> 0w0
+        and tvPrintity ({encoding, ...} : typeVarForm)     = encoding andb 0w1 <> 0w0
+        
+        val generalisable = Generalisable
     end
 
     local
@@ -649,5 +637,6 @@ struct
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm
         and  level      = level
+        and  tvLevel    = tvLevel
     end
-end (* STRUCTVALS *);
+end;

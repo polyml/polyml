@@ -225,7 +225,9 @@ sig
     val tsConstr: typeConstrSet -> typeConstrs
     val tsConstructors: typeConstrSet -> values list
 
-    val tvLevel:        typeVarForm -> int
+    datatype tvLevel = Generalisable | NotGeneralisable of int
+
+    val tvLevel:        typeVarForm -> tvLevel
     val tvEquality:     typeVarForm -> bool
     val tvPrintity:     typeVarForm -> bool
     val tvNonUnifiable: typeVarForm -> bool
@@ -233,11 +235,11 @@ sig
     val tvSetValue:     typeVarForm * types -> unit
 
     val sameTv: typeVarForm * typeVarForm -> bool
-
+    
     val makeTv:
-        {value: types, level: int, equality: bool, nonunifiable: bool, printable: bool } -> typeVarForm
+        {value: types, level: tvLevel, equality: bool, nonunifiable: bool, printable: bool } -> typeVarForm
 
-    val generalisable: int
+    val generalisable: tvLevel (* Backwards compatibility. *)
 
     (* Access to values, structures etc. *)
     val makeGlobal:   codetree -> valAccess
@@ -328,6 +330,7 @@ sig
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm
         and  level = level
+        and  tvLevel    = tvLevel
     end
 end;
 

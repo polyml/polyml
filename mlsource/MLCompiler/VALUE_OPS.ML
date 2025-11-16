@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008-9, 2013, 2015-16, 2020-21.
+    Modified David C.J. Matthews 2008-9, 2013, 2015-16, 2020-21, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -927,7 +927,7 @@ struct
                         (* Each entry should be a function of type 'a * int -> pretty *)
                         fun mkFn arg = mkFunctionType(mkProductType[arg, TYPESTRUCT.fixedIntType], pretty)
                         (* Create non-unifiable type vars to ensure this is properly polymorphic. *)
-                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true, false))
+                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (NotGeneralisable 0, false, true, false))
                         val tupleType =
                             case typeVars of
                                 [] => (* No arg so must have unit. *)

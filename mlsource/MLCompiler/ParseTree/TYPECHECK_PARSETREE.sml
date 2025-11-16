@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2015 David C.J. Matthews
+    Copyright (c) 2013-2015, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -564,7 +564,7 @@ struct
                         else
                         let
                             val props = [DeclaredAt location, SequenceNo (newBindingId lex)]
-                            val var =  mkVar(name, mkTypeVar (level, false, false, false), props)
+                            val var =  mkVar(name, mkTypeVar (NotGeneralisable level, false, false, false), props)
                         in
                             checkForDots (name, lex, location); (* Must not be qualified *)
                             (* Must not be "true", "false" etc. *)
@@ -796,7 +796,7 @@ struct
                 val () =
                     if nonExpansive v
                     then ()
-                    else (unifyTypes (funType, mkTypeVar(level, false, false, false)); ())
+                    else (unifyTypes (funType, mkTypeVar(NotGeneralisable level, false, false, false)); ())
                 (* Test to see if we have a function. *)
                 val fType =
                     case eventual funType of
@@ -1498,10 +1498,10 @@ struct
         and assValDeclaration (valdecs: valbind list, explicit, implicit) =
         (* assignTypes for a val-declaration. *)
         let
-            val newLevel = level + 1;
+            val newLevel = level + 1
       
             (* Set the scope of explicit type variables. *)
-            val () = #apply explicit(fn (_, tv) => setTvarLevel (tv, newLevel));
+            val () = #apply explicit(fn (_, tv) => setTvarLevel (tv, NotGeneralisable newLevel));
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
@@ -1509,7 +1509,7 @@ struct
             val () = 
                 #apply implicit
                     (fn (name, tv) =>
-                        case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, newLevel));
+                        case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, NotGeneralisable newLevel));
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1652,7 +1652,7 @@ struct
       
             (* Set the scope of explicit type variables. *)
             val () =
-                #apply explicit(fn (_, tv) => setTvarLevel (tv, funLevel));
+                #apply explicit(fn (_, tv) => setTvarLevel (tv, NotGeneralisable funLevel));
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
@@ -1660,7 +1660,7 @@ struct
             val () = 
                 #apply implicit
                   (fn (name, tv) =>
-                      case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, funLevel));
+                      case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, NotGeneralisable funLevel));
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1687,7 +1687,7 @@ struct
                     (* Declare a new identifier with this name. *)
                     val locations = [DeclaredAt location, SequenceNo (newBindingId lex)]
                     val funVar =
-                        mkValVar (name, mkTypeVar (funLevel, false, false, false), locations)
+                        mkValVar (name, mkTypeVar (NotGeneralisable funLevel, false, false, false), locations)
 
                     val arity = case dec of { args, ...} => List.length args
                     val () = numOfPatts := arity;

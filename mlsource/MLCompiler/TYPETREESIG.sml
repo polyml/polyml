@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified David C. J. Matthews 2009, 2010, 2015, 2016, 2018.
+    Modified David C. J. Matthews 2009, 2010, 2015, 2016, 2018, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -41,13 +41,14 @@ sig
     type locationProp
     type structVals
     type codetree
+    type tvLevel
 
     type printTypeEnv =
         { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
           lookupStruct: string -> (structVals * (int->typeId) option) option}
     val emptyTypeEnv: printTypeEnv
 
-    val mkTypeVar:          int * bool * bool * bool -> types
+    val mkTypeVar:          tvLevel * bool * bool * bool -> types
     val mkTypeConstruction: string * typeConstrs * types list * locationProp list -> types;
     val mkProductType:      types list -> types;
     val mkFunctionType:     types * types -> types;
@@ -70,7 +71,7 @@ sig
    
     (* Unify two type variables which would otherwise be non-unifiable. *)
     val linkTypeVars: typeVarForm * typeVarForm -> unit;
-    val setTvarLevel: typeVarForm * int -> unit;
+    val setTvarLevel: typeVarForm * tvLevel -> unit
 
     (* Copy a type constructor. *)
     val copyTypeConstr:
@@ -254,6 +255,7 @@ sig
         and  typeVarForm = typeVarForm
         and  codetree   = codetree
         and  matchResult = matchResult
+        and  tvLevel = tvLevel
     end
 
 end;
