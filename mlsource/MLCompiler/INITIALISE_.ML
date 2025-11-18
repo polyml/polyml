@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-23
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-23, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -171,7 +171,7 @@ struct
         
         fun makeTypeAbbreviation(name, fullName, typeVars, typeResult, locations) =
             makeTypeConstructor(
-                name, typeVars, makeTypeFunction(basisDescription fullName, (typeVars, typeResult)),
+                name, typeVars, makeTypeFunction(typeVars, typeResult, basisDescription fullName),
                 locations)
 
         (* Make an opaque type and add it to an environment. *)

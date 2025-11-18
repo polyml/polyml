@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009-2015 David C.J. Matthews
+    Copyright (c) 2009-2015, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -102,7 +102,7 @@ struct
                 (* On the first pass we build datatypes, on the second type abbreviations
                    using the copied datatypes. *)
                 case tcIdentifier tcon of
-                    TypeId{idKind=TypeFn(args, equiv), access, description, ...} =>
+                    TypeId{idKind=TypeFn{tyVars=args, resType=equiv, ...}, access, description, ...} =>
                     if buildDatatypes then rest (* Not on this pass. *)
                     else (* Build a new entry whether the typeID has changed or not. *)
                     let
@@ -111,7 +111,7 @@ struct
                                 fn tcon =>
                                     copyTypeConstrWithCache(tcon, copyId, fn x => x, makeName, initialCache))
                         val copiedId =
-                            TypeId{idKind=TypeFn(args, copiedEquiv), access=access, description=description}
+                            makeGeneralTypeFunction(args, copiedEquiv, description, access)
                     in
                         makeTypeConstructor(makeName(tcName tcon), args, copiedId, tcLocations tcon) :: rest
                     end

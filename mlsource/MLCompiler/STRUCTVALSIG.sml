@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2009, 2015.
+    Modified David C. J. Matthews 2009, 2015, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -50,10 +50,31 @@ sig
     datatype typeId =
         TypeId of { access: valAccess, description: typeIdDescription, idKind: typeIdKind }
 
+    (* A type constructor can be one of these kinds.
+       Free ids are used for datatypes in the core language,
+       Bound ids are used in signatures,
+       Type functions (type abbreviations) refer to other types.
+       To allow type functions to be unified without unrolling first we need to record which
+       type variables are actually used and how they are used for equality.  It is possible
+       that a type variable is never used (e.g. type 'a t = int) in which case "bool t" and
+       "string t" both unify and "(int->int) t" admits equality.  The typeFunCount records
+       the depth of the sequence of type functions e.g. type s(*1*) = int*int type t(*2*) = s
+       so when unifying "x:s" and "y:t" we unwrap "t" rather than "s". *)
     and typeIdKind =
         Free of { uid: uniqueId, allowUpdate: bool, arity: int  }
     |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
-    |   TypeFn of typeVarForm list * types
+    |   TypeFn of
+        {
+            tyVars: typeVarForm list,
+            resType: types,
+            usedTvs: BoolVector.vector,
+            typeFunCount: int,
+            equality: typeFnEq ref,
+            uid: uniqueId
+        }
+
+    and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
+
 
         (* A type is the union of these different cases. *)
     and types = 
@@ -195,8 +216,9 @@ sig
     val makeFreeIdEqUpdate: int * valAccess * bool * typeIdDescription -> typeId
     val makeBoundId: int * valAccess * int * bool * bool * typeIdDescription -> typeId
     val makeBoundIdWithEqUpdate: int * valAccess * int * bool * bool * typeIdDescription -> typeId
-    val makeTypeFunction: typeIdDescription * (typeVarForm list * types) -> typeId
     
+    val makeUniqueId: unit -> uniqueId
+
     (* Types *)
     val badType:   types
     val emptyType: types
@@ -329,8 +351,10 @@ sig
         and  functors   = functors
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm
-        and  level = level
+        and  level      = level
         and  tvLevel    = tvLevel
+        and  typeFnEq   = typeFnEq
+
     end
 end;
 

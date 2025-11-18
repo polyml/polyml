@@ -163,7 +163,8 @@ struct
     in
         case (searchEnvs match (clist, rlist), typeid) of
             (SOME t, _) => t
-        |   (NONE, TypeId{description, idKind = TypeFn typeFn, ...}) => makeTypeFunction(description, typeFn)
+        |   (NONE, TypeId{description, idKind as TypeFn _, ...}) =>
+                TypeId { access=Global CodeZero, description = description, idKind = idKind}
 
         |   (NONE, typeid as TypeId{description, idKind = Bound{arity, ...}, ...}) =>
                 (* The type ID is missing.  Make a new temporary ID. *)

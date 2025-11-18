@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015-16, 2020-21 David C. J. Matthews
+    Copyright (c) 2009, 2013, 2015-16, 2020-21, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1072,7 +1072,7 @@ struct
        the implementation. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
-    fun codeGenerativeId{source=TypeId{idKind=TypeFn([], resType), ...}, isEq, mkAddr, level, ...} =
+    fun codeGenerativeId{source=TypeId{idKind=TypeFn{tyVars=[], resType, ...}, ...}, isEq, mkAddr, level, ...} =
         let (* Monotype abbreviation. *)
             (* Create a new type value cache. *)
             val typeVarMap = defaultTypeVarMap(mkAddr, level)
@@ -1100,7 +1100,7 @@ struct
                 })
         end
 
-    |   codeGenerativeId{source=TypeId{idKind=TypeFn(argTypes, resType), ...}, isEq, mkAddr, level, ...} =
+    |   codeGenerativeId{source=TypeId{idKind=TypeFn{tyVars=argTypes, resType, ...}, ...}, isEq, mkAddr, level, ...} =
         let (* Polytype abbreviation: All the entries in the tuple are functions that must
                be applied to the base type values when the type constructor is used. *)
             (* Create a new type value cache. *)

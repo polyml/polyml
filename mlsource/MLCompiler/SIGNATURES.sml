@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified D.C.J. Matthews 2001-2015, 2020
+    Modified D.C.J. Matthews 2001-2015, 2020, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -433,7 +433,8 @@ struct
 
     val makeEnv = fn x => let val Env e = makeEnv x in e end;
 
-    fun printId(TypeId{description, ...}) = printDesc description
+    fun printId(TypeId{idKind = TypeFn _, ...}) = PrettyString "a type function"
+    |   printId(TypeId{description, ...}) = printDesc description
 
     and printDesc{ location: location, name: string, description = "" } =
             PrettyBlock(0, false, [ContextLocation location], [PrettyString name])
@@ -583,7 +584,7 @@ struct
                                 reason
                             ]))
                 end
- 
+
                 fun alreadyBound(path, typeName, tcId) =
                     cantShare (
                         PrettyBlock(3, false, [],
@@ -928,9 +929,8 @@ struct
                                         else
                                         let
                                             val typeId =
-                                                makeTypeFunction(
-                                                    { location = line, description = "", name = typeName },
-                                                    (typeVars, realisation))
+                                                makeTypeFunction(typeVars, realisation,
+                                                    { location = line, description = "", name = typeName })
                                         in
                                             StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
                                         end
@@ -1247,15 +1247,15 @@ struct
                     makeVariableId(length args, eq, isdt, true, loc, structPath)
 
                 |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                        makeTypeFunction(
-                            { location = location, name = structPath ^ name, description = description },
-                            (typeVars, decType))
+                        makeTypeFunction(typeVars, decType, { location = location, name = structPath ^ name, description = description })
 
                 (* We need a map to look up types.  This is only used in one place:
                    if the item we're processing is a datatype then we need to look
                    at the bindings of type identifiers to compute equality correctly.
                    e.g. type t = int*int datatype s = X of t . *)
-                fun equalityForId(TypeId{idKind=TypeFn(_, equiv), ...}) = typePermitsEquality equiv
+                (* We shouldn't have a type function here because we only look up bound variables
+                   and we can't share with type functions. *)
+                fun equalityForId(TypeId{idKind=TypeFn _, ...}) = raise InternalError "equalityForId: type function"
                 |   equalityForId id = isEquality id
 
                 fun findEquality n =
@@ -1341,7 +1341,7 @@ struct
                         (newId :: distinctIds, newId :: mappedIds)
                     end
 
-                |   FreeSlot (TypeId{idKind=TypeFn(args, equiv), description, ...}) =>
+                |   FreeSlot (TypeId{idKind=TypeFn{tyVars=args, resType=equiv, ...}, description, ...}) =>
                     let
                         (* Generally, IDs in a FreeSlot will be either Bound or Free but
                            they could be TypeFunctions as a result of a "where type" and
@@ -1361,7 +1361,7 @@ struct
                             copyType(equiv, fn x => x,
                                 fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
                         (* For the moment always use a Free ID here. *)
-                        val copiedId = makeTypeFunction(description, (args, copiedEquiv))
+                        val copiedId = makeTypeFunction(args, copiedEquiv, description)
                         (* Update the array with this copied version.  If other subsequent type functions
                            use this entry they will then pick up the copied version.  Because "where type"
                            constraints can only refer to earlier types we have to process this from earlier

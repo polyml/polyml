@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015-16, 2020-21 David C.J. Matthews
+    Copyright (c) 2009, 2013, 2015-16, 2020-21, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -560,7 +560,7 @@ struct
         in
             val locationCons =
                 makeTypeConstructor("location", [],
-                    makeTypeFunction(basisDescription "PolyML.location", ([], mkLabelled(sortLabels fields, true))),
+                    makeTypeFunction([], mkLabelled(sortLabels fields, true), basisDescription "PolyML.location"),
                     [DeclaredAt inBasis])
             val locationConstr = TypeConstrSet(locationCons, [])
         end

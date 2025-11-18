@@ -101,7 +101,17 @@ struct
     and typeIdKind =
         Free of { uid: uniqueId, allowUpdate: bool, arity: int  }
     |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
-    |   TypeFn of typeVarForm list * types
+    |   TypeFn of
+        {
+            tyVars:     typeVarForm list,
+            resType:    types,
+            usedTvs:    BoolVector.vector,
+            typeFunCount: int,
+            equality:   typeFnEq ref,
+            uid:        uniqueId
+        }
+
+    and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
 
     (* A type is the union of these different cases. *)
     and types = 
@@ -316,9 +326,7 @@ struct
         TypeId { access=access, description = desc,
             idKind = Bound{offset=n, eqType=VariableRef(ref eq), isDatatype = isdt, arity=arity}}
 
-    (* Type functions currently always have Free ids. *)
-    fun makeTypeFunction(desc, typeFn) =
-        TypeId { access=Global CodeZero, description = desc, idKind = TypeFn typeFn};
+    fun makeUniqueId() = ref false (* Just for type functions *)
             
     (* Find the number - assuming it is bound. *)
     fun offsetId (TypeId{idKind=Bound {offset, ...}, ...}) = offset
@@ -455,7 +463,7 @@ struct
     fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
     |   tcIsAbbreviation _ = false
 
-    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn(args, _),...}, ...}) = length args
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
 
@@ -638,5 +646,6 @@ struct
         and  typeVarForm = typeVarForm
         and  level      = level
         and  tvLevel    = tvLevel
+        and  typeFnEq   = typeFnEq
     end
 end;

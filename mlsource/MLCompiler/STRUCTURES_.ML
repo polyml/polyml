@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified D.C.J. Matthews 2001-2016, 2020
+    Modified D.C.J. Matthews 2001-2016, 2020, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1987,9 +1987,8 @@ struct
                     makeLocalTypeId(List.length args, true, eq, isdt,
                         { location = location, name = structPath ^ name, description = description })
             |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                    makeTypeFunction(
-                        { location = location, name = structPath ^ name, description = description },
-                        (typeVars, decType))
+                    makeTypeFunction(typeVars, decType,
+                        { location = location, name = structPath ^ name, description = description })
 
             (* Process the body and discard the type. *)
             val _ : types = pass2 (dec, makeId, Env newEnv, lex, fn _ => false);

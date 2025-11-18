@@ -32,6 +32,7 @@ sig
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
           endLine: FixedInt.int, endPosition: FixedInt.int }
+    type typeIdDescription = { location: location, name: string, description: string }
     type exportTree = location * ptProperties list
     type navigation =
         {parent: (unit -> exportTree) option,
@@ -42,6 +43,7 @@ sig
     type structVals
     type codetree
     type tvLevel
+    type valAccess
 
     type printTypeEnv =
         { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
@@ -61,7 +63,10 @@ sig
     val recordWidth:        types -> int;
     val recordFieldMap:     (types -> 'a) -> types -> 'a list
     val makeEquivalent:     typeConstrs * types list -> types;
-    val firstArg:           types -> types;
+    val firstArg:           types -> types
+
+    val makeGeneralTypeFunction:   typeVarForm list * types * typeIdDescription * valAccess -> typeId
+    and makeTypeFunction:   typeVarForm list * types * typeIdDescription -> typeId
 
     (* Follow a chain of unified type variables *)
     val eventual:           types -> types
@@ -256,6 +261,7 @@ sig
         and  codetree   = codetree
         and  matchResult = matchResult
         and  tvLevel = tvLevel
+        and  valAccess  = valAccess
     end
 
 end;
