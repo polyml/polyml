@@ -1047,9 +1047,30 @@ struct
         
         val refArray = BoolArray.array(List.length tyVars, false)
         local
-            fun fRef(TypeVar tv) refArray = findRefs tv refArray | fRef _ a = a
+            fun processTypes typ =
+            let
+                val t = eventual typ
+            in
+                case t of
+                    TypeVar tv => (findRefs tv refArray; ())
+                |   FunctionType {arg, result} => (processTypes arg; processTypes result)
+                |   LabelledType {recList,...} => List.app (processTypes o #typeof) recList
+                    (* Type construction of type function.  Only include referenced variables. *)
+                |   TypeConstruction{constr=TypeConstrs{
+                        identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, args, ...} =>
+                    let
+                        fun process(arg, n) =
+                            (if BoolVector.sub(usedTvs, n) then processTypes arg else (); n+1)
+                        val _ = List.foldl process 0 args
+                    in
+                        ()
+                    end
+                    (* Type construction of datatype. *)
+                |   TypeConstruction {args, ...} => List.app processTypes args
+                |   _ => ()
+            end
         in
-            val _ = foldType fRef resType refArray
+            val _ = processTypes resType
             val refVector = BoolArray.vector refArray
         end
 
@@ -2105,12 +2126,20 @@ struct
                                 occursCheckFails oldValue (sameTv (tvar, var))
                             end
 
-                        |   TypeConstruction {args, constr, ...} =>
-                                (* If this is a type abbreviation we have to expand this before processing
-                                   any arguments.  We mustn't process arguments that are not actually used. *)
-                                if tcIsAbbreviation constr
-                                then occursCheckFails(makeEquivalent (constr, args)) false
-                                else List.foldr (fn (t, v) => occursCheckFails t v) false args
+                        |   TypeConstruction {args, constr=TypeConstrs{identifier = TypeId {idKind = TypeFn{usedTvs, ...}, ...}, ...}, ...} =>
+                            (* Type function: Only process arguments that are actually used in the type expression. *)
+                            let
+                                fun checkArgs([], _, b) = b
+                                |   checkArgs(arg::args, n, b) =
+                                        checkArgs(args, n+1, 
+                                            if BoolVector.sub(usedTvs, n) then occursCheckFails arg b else b)  
+                            in
+                                checkArgs(args, 0, false)
+                            end
+
+                        |   TypeConstruction {args, ...} =>
+                                (* Datatypes. *)
+                                List.foldr (fn (t, v) => occursCheckFails t v) false args
 
                         |   FunctionType {arg, result} =>
                                 occursCheckFails arg false orelse occursCheckFails result false
@@ -2125,23 +2154,31 @@ struct
                 val varVal = tvValue var (* Current value of the variable to be set. *)
 
                 local
-                    (* We need to process any type abbreviations before applying the occurs check.
-                       The type we're assigning could boil down to the same type variable we're
-                       trying to assign.  This doesn't breach the occurs check. *)
+                    (* Generally if the type we're assigning contains the type variable that
+                       is an "occurs check" failure.  If we have a type function it is possible
+                       that what looks like an occurs check failure is actually valid; either
+                       because the type variable is not actually used or because the function
+                       boils down to the variable itself.  We need to unwrap it sufficiently
+                       that any apparent occurs check has been eliminated.  We must not assign
+                       the original type to the type variable because that would create a loop. *)
                     fun followVarsAndTypeFunctions t =
                     case eventual t of
-                        ev as TypeConstruction{constr, args, ...} =>
-                        if tcIsAbbreviation constr
-                        then followVarsAndTypeFunctions(makeEquivalent (constr, args))
-                        else ev
+                        ev as TypeConstruction{constr as TypeConstrs{identifier = TypeId {idKind = TypeFn _, ...}, ...}, args, ...} =>
+                            let
+                                fun occurs(TypeVar tvar) b = b orelse sameTv(tvar, var) | occurs _ b = b
+                            in
+                                if List.foldl (fn (t, b) => foldType occurs t b) false args
+                                then followVarsAndTypeFunctions(makeEquivalent (constr, args))
+                                else ev
+                            end
                     |   ev => ev
                 in
                     val finalType = followVarsAndTypeFunctions t
                 end
       
-              (* We may actually have the same type variable after any type abbreviations
-                 have been followed. *)
-              val reallyTheSame =
+                (* We may actually have the same type variable after any type abbreviations
+                    have been followed. *)
+                val reallyTheSame =
                     case finalType of
                         TypeVar tv => sameTv (tv, var)
                     |   _ => false
@@ -2150,13 +2187,13 @@ struct
                 case varVal of
                     LabelledType _ =>
                     (* Flexible record. Check that the records are compatible. *)
-                        match (varVal, t)
+                        match (varVal, finalType)
                 |   OverloadSet _ =>
                      (* OverloadSet.  Check that the sets match.  This is only in the
                         case where t is something other than an overload set since
                         we remove the overload set from a variable when unifying two
                         sets. *)
-                        match (varVal, t)
+                        match (varVal, finalType)
                 |   _ => ();
  
                 if reallyTheSame
@@ -2225,7 +2262,7 @@ struct
                     (* If we are unifying a type with an equality type variable
                        we must ensure that equality is allowed for that type. This
                        will turn most type variables into equality type vars. *)
-                    if tvEquality var andalso computeEquality (t, fn _ => No, canMkEqTv, false) = No
+                    if tvEquality var andalso computeEquality (finalType, fn _ => No, canMkEqTv, false) = No
                     then cantMatch (Atype, Btype, "(Requires equality type)")
                       (* TODO: This can result in an unhelpful message if var is bound
                          to a flexible record since there is no indication in the
@@ -2259,7 +2296,7 @@ struct
 
                         |   makePrintity _ _ = ()
                     in
-                        foldType makePrintity t ()
+                        foldType makePrintity finalType ()
                     end
                     else ();
                     (* Actually make the assignment. It doesn't matter if var is 
@@ -2271,7 +2308,7 @@ struct
                        it could prevent us producing useful error information and it could
                        also result in unnecessary consequential errors. *)
                     case !matchResult of
-                        NONE => tvSetValue (var, t)
+                        NONE => if reallyTheSame then () else tvSetValue (var, finalType)
                     |   SOME _ => ()
                 end
             end (* assign *);
@@ -2967,8 +3004,10 @@ struct
                 in
                     general (tvValue tvar) argSet (* Process any flexible record. *)
                 end
-           
-            |   TypeConstruction {args, constr, ...} =>
+
+            |   TypeConstruction {args,
+                     constr=TypeConstrs{
+                        identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, ...} =>
                     (* There is a pathological case here.  If we have a type equivalence
                        which contains type variables that do not occur on the RHS
                        (e.g. type 'a t = int) then we generalise over them even with an
@@ -2976,16 +3015,17 @@ struct
                        abbreviations as type functions and so any type variables that
                        are eliminated by the function application do not appear in the
                        "type" that the semantics applies to the expression. *)
-                    if tcIsAbbreviation constr
-                    then
                     let
-                        val (r1, _) = general(makeEquivalent (constr, args)) genArgs
+                        fun processArg(tvar, ((showError, nonExpansive), n)) =
+                            (general tvar (showError, nonExpansive orelse not(BoolVector.sub(usedTvs, n))), n+1)
                         (* Process any arguments that have not been processed in the equivalent. *)
-                        val (r2, _) = List.foldr (fn (t, v) => general t v) (r1, true) args
+                        val (r, _) = List.foldr processArg (genArgs, 0) args
                     in
-                        (r2, nonExpansive)
+                        r
                     end
-                    else List.foldr (fn (t, v) => general t v) genArgs args
+
+            |   TypeConstruction {args, ...} =>
+                    List.foldr (fn (t, v) => general t v) genArgs args
 
             |   FunctionType {arg, result} => general arg (general result genArgs)
 
