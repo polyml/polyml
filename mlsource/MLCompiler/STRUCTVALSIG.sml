@@ -37,7 +37,7 @@ sig
     (* Standard type constructors. *)
   
     type typeVarForm
-    type uniqueId
+    eqtype uniqueId
     
     type typeIdDescription = { location: location, name: string, description: string }
     type references =

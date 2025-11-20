@@ -1936,26 +1936,22 @@ struct
     let
         fun checkTypes (typ: types) (ok: bool) : bool =
         case typ of
-            TypeConstruction {constr, args, ...} =>
-                if tcIsAbbreviation constr
-                then (* May be an alias for a type that contains a local datatype. *)
-                    foldType checkTypes (makeEquivalent (constr, args)) ok
-                else if ok
-                then
+            TypeConstruction {constr as TypeConstrs
+                {identifier=TypeId{access=Local{addr, ...}, ...}, ...}, ...} =>
+                if ok andalso !addr < 0
+                then 
                 (
-                    case tcIdentifier constr of
-                        TypeId{access=Local{addr, ...}, ...} =>
-                            if !addr < 0
-                            then 
-                            (
-                                errorFn("Type of expression contains local datatype (" ^ tcName constr
-                                        ^") outside its definition.");
-                                false
-                            )
-                            else true
-                    |   _ => true (* Could we have a "selected" entry with a local datatype? *)
+                    errorFn("Type of expression contains local datatype (" ^ tcName constr
+                            ^") outside its definition.");
+                    false
                 )
-                else false
+                else ok (* Could we have a "selected" entry with a local datatype? *)
+
+        |    TypeConstruction {constr=TypeConstrs
+                {identifier = TypeId{idKind = TypeFn{resType, ...}, ...},...}, ...} =>
+                    (* May be an alias for a type that contains a local datatype. *)
+                    foldType checkTypes resType ok
+
         |   _ => ok
     in
         foldType checkTypes ty true;
@@ -2467,28 +2463,45 @@ struct
                           | typB => match (tA, typB)
                         )
                 )
-          
+
+            |   (TypeConstruction({constr = tACons as
+                    TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidA, typeFunCount=tfCA, usedTvs, ...}, ...},...}, args=tAargs, ...}), 
+                 TypeConstruction ({constr = tBCons as
+                    TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidB, typeFunCount=tfCB, ...}, ...},...}, args=tBargs, ...})) =>
+                    if uuidA = uuidB
+                    then (* They are the same ID: simply match the used type variables. *)
+                    let
+                        fun matchArgs(a, b, n) = (if BoolVector.sub(usedTvs, n) then match(a, b) else (); n+1)
+                        val _ = ListPair.foldl matchArgs 0 (tAargs, tBargs);
+                    in
+                        ()
+                    end
+                    else if tfCA >= tfCB
+                        (* They are different: unwrap the one with the larger count.  It may refer to
+                           the other one.  If they're equal we'll come back and unwrap the other later. *)
+                    then match (makeEquivalent (tACons, tAargs), tB)
+                    else match (tA, makeEquivalent (tBCons, tBargs))
+
+            |   (TypeConstruction({constr = tACons as
+                    TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args=tAargs, ...}),
+                 TypeConstruction ({constr = tBCons, ...})) =>
+                    if isUndefined tBCons
+                    then ()
+                    else (* We need to unwrap A. *)
+                        match (makeEquivalent (tACons, tAargs), tB)
+
+            |   (TypeConstruction({constr = tACons, ...}), 
+                 TypeConstruction ({constr = tBCons as
+                    TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args=tBargs, ...})) =>
+                    if isUndefined tACons
+                    then ()
+                    else match (tA, makeEquivalent (tBCons, tBargs))
+
             |   (TypeConstruction({constr = tACons, args=tAargs, ...}), 
                  TypeConstruction ({constr = tBCons, args=tBargs, ...})) =>
                 (
-                    (* We may have a number of possibilities here.
-                     a) If tA is an alias we simply expand it out and recurse (even
-                     if tB is the same alias). e.g. if we have string t where
-                     type 'a t = int*'a we expand string t into int*string and
-                     try to unify that.
-                     b) map it and see if the result is an alias. -- NOW REMOVED
-                     c) If tB is a type construction and it is an alias we expand
-                     that e.g. unifying "int list" and "int t" where type
-                     'a t = 'a list (particularly common in signature/structure
-                     matching.)
-                     d) Finally we try to unify the stamps and the arguments. *)
                     if isUndefined tACons orelse isUndefined tBCons
                     then () (* If we've had an undefined type constructor don't try to check further. *)
-                    else if tcIsAbbreviation tACons
-                    (* Candidate is an alias - expand it. *)
-                    then match (makeEquivalent (tACons, tAargs), tB)
-                    else if tcIsAbbreviation tBCons (* If the typeB is an alias it must be expanded. *)
-                    then match (tA, makeEquivalent (tBCons, tBargs))
                     else if sameTypeId (tcIdentifier tACons, tcIdentifier tBCons)
                     then
                     let (* Same type constructor - do the arguments match? *)
