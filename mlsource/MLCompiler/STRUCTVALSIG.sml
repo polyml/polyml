@@ -203,11 +203,9 @@ sig
         fullList: labelFieldList
     }
 
-
     (* type identifiers. *)
     val isEquality:   typeId -> bool
     val offsetId:     typeId -> int
-    val idAccess:     typeId -> valAccess
     val sameTypeId:   typeId * typeId -> bool
     val setEquality:  typeId * bool -> unit
 
@@ -229,23 +227,8 @@ sig
     val recordFields   : labelledRec -> string list
     val recordIsFrozen : labelledRec -> bool
 
-    val tcName:            typeConstrs -> string
-    val tcArity:           typeConstrs -> int
-    val tcTypeVars:        typeConstrs -> typeVarForm list
-    val tcEquality:        typeConstrs -> bool
-    val tcSetEquality:     typeConstrs * bool -> unit
-    val tcIdentifier:      typeConstrs -> typeId
-    val tcLocations:       typeConstrs -> locationProp list
-    val tcIsAbbreviation:  typeConstrs -> bool
-
-    val makeTypeConstructor:
-        string * typeVarForm list * typeId * locationProp list -> typeConstrs
-
     datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
-
-    val tsConstr: typeConstrSet -> typeConstrs
-    val tsConstructors: typeConstrSet -> values list
 
     datatype tvLevel = Generalisable | NotGeneralisable of int
 
@@ -264,12 +247,8 @@ sig
     val generalisable: tvLevel (* Backwards compatibility. *)
 
     (* Access to values, structures etc. *)
-    val makeGlobal:   codetree -> valAccess
     val makeLocal:    unit -> valAccess
     val makeSelected: int * structVals -> valAccess
-
-    val vaGlobal:   valAccess -> codetree
-    val vaLocal:    valAccess -> { addr: int ref, level: level ref }
 
     val makeEmptyGlobal:   string -> structVals
     val makeGlobalStruct:  string * signatures * codetree * locationProp list -> structVals
@@ -286,12 +265,8 @@ sig
     val makeSignature: string * univTable * int * locationProp list * (int -> typeId) * typeId list -> signatures
 
     (* Values. *)
-    val valName: values -> string
-    val valTypeOf: values -> types
     val undefinedValue: values
     val isUndefinedValue: values -> bool
-    val isConstructor: values -> bool
-    val isValueConstructor: values -> bool
 
     val makeOverloaded: string * types * typeDependent -> values
     val makeValueConstr: string * types * bool * int * valAccess * locationProp list -> values

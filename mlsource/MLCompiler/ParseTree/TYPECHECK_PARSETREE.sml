@@ -351,6 +351,22 @@ struct
             applyList badType l
         end
 
+        fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
+        fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
+        fun tcLocations  (TypeConstrs {locations, ...}) = locations
+
+        val tcEquality = isEquality o tcIdentifier;
+        fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
+
+        fun valName (Value{name, ...}) = name
+        fun valTypeOf (Value{typeOf, ...}) = typeOf
+
+        fun tsConstr(TypeConstrSet(ts, _)) = ts
+
+        fun isConstructor (Value{class=Constructor _, ...}) = true
+        |   isConstructor (Value{class=Exception, ...})     = true
+        |   isConstructor _                                  = false;
+
         (* Variables, constructors and fn are non-expansive.
            [] is a derived form of "nil" so must be included.
            Integer and string constants are also constructors but
@@ -496,6 +512,15 @@ struct
         |   instanceType(Value{typeOf, ...}) = #1 (generalise typeOf)
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
+
+        fun makeTypeConstructor (name, typeVars, uid, locations) =
+            TypeConstrs
+            {
+                name       = name,
+                typeVars   = typeVars,
+                identifier = uid,
+                locations = locations
+            }
 
         fun processPattern(pat, enterResult, level, notConst, mkVar, isRec) =
         let

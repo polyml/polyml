@@ -126,6 +126,35 @@ struct
         end
     end
 
+    (* Helper functions copied from STRUCT_VALS.  Not exported.   These should
+       generally be replaced by the direct pattern matching. *)
+    fun tcName       (TypeConstrs {name,...})       = name
+    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
+    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
+    fun tcLocations  (TypeConstrs {locations, ...}) = locations
+    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
+    |   tcIsAbbreviation _ = false
+
+    val tcEquality = isEquality o tcIdentifier;
+    fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
+
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
+
+    fun makeTypeConstructor (name, typeVars, uid, locations) =
+        TypeConstrs
+        {
+            name       = name,
+            typeVars   = typeVars,
+            identifier = uid,
+            locations = locations
+        }
+
+    fun tsConstr(TypeConstrSet(ts, _)) = ts
+    and tsConstructors(TypeConstrSet(_, tvs)) = tvs
+
+
   fun mkFunctionType (arg, result) = 
       FunctionType {arg = arg, result = result};
 
@@ -903,7 +932,9 @@ struct
         fun stateProcessed (Processed x) = x | stateProcessed _ = raise Match;
         fun stateNotSeen   (NotSeen   x) = x | stateNotSeen   _ = raise Match;
     
-        val {enter:typeId * state -> unit,lookup} = mapTable sameTypeId;
+        val {enter:typeId * state -> unit,lookup} = mapTable sameTypeId
+
+        fun valTypeOf (Value{typeOf, ...}) = typeOf
 
         (* Look at each of the constructors in the list. Equality testing is
            only allowed if it is allowed for each of the alternatives. *)
@@ -2828,7 +2859,10 @@ struct
                         )
                     ]
             end
-          
+
+            fun valName (Value{name, ...}) = name
+            fun valTypeOf (Value{typeOf, ...}) = typeOf
+
             (* Print a sequence of constructors (unblocked) *)
             fun pValConstrRest ([],     _    ): pretty list = []
             |   pValConstrRest (H :: T, depth): pretty list =

@@ -853,6 +853,22 @@ struct
         }
     end;
 
+    fun idAccess (TypeId { access, ...}) = access 
+    fun tcName       (TypeConstrs {name,...})       = name
+    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
+    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
+    fun tcLocations  (TypeConstrs {locations, ...}) = locations
+    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
+    |   tcIsAbbreviation _ = false
+
+    val tcEquality = isEquality o tcIdentifier;
+
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
+
+    fun tsConstructors(TypeConstrSet(_, tvs)) = tvs
+
     (* TODO: If the item being errored is in a substructure it currently doesn't report
        the name of the substructure. *)
     (* Report an error about signature-structure matching. *)
@@ -1629,6 +1645,14 @@ struct
                                         ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=typeOf}) :: matches))
                         end
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
+                        fun makeTypeConstructor (name, typeVars, uid, locations) =
+                            TypeConstrs
+                            {
+                                name       = name,
+                                typeVars   = typeVars,
+                                identifier = uid,
+                                locations = locations
+                            }
                         val newConstructor =
                             makeTypeConstructor(
                                 tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, tcLocations typConstr)
@@ -2100,8 +2124,8 @@ struct
            structure declarations to freeze the types (there's an example on p90 of the
            Definition) but we can't functors to get access to unfrozen free variables because
            that can break the type system.  *)
-        fun checkValueForFreeTypeVariables(name: string, v: values) =
-            checkForFreeTypeVariables(name, valTypeOf v, lex, codeForUniqueId)
+        fun checkValueForFreeTypeVariables(name: string, Value{typeOf, ...}) =
+            checkForFreeTypeVariables(name, typeOf, lex, codeForUniqueId)
 
         (* Find all the values in the structure. *)
         fun checkStructSigForFreeTypeVariables(name: string, s: signatures) =
@@ -2687,6 +2711,8 @@ struct
         #1 (matchSubStructure (code, actions))
     end (* applyMatchActions *)
 
+    fun vaLocal (Local x) = x | vaLocal _ = raise InternalError "not local"
+
     (* If we are declaring a structure with an opaque signature we need to create
        the run-time IDs for newly generated IDs. *)
     fun loadOpaqueIds (opaqueIds, mkAddr, level) =
@@ -3244,7 +3270,7 @@ struct
                         makeSignature(name, tab, firstBoundIndex, locations, composeMaps(typeIdMap, newMap), boundIds)
                 end
                 val funcTree = 
-                    makeFunctor(functorName, copiedArg, functorSigResult, makeGlobal code, functorLocations)
+                    makeFunctor(functorName, copiedArg, functorSigResult, Global code, functorLocations)
             in
                 (addr + 1, (name, funcTree) :: funcs)
             end

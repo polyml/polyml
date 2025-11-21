@@ -337,8 +337,6 @@ struct
     |   sameTypeId (TypeId{idKind=Bound{offset=a, ...}, ...}, TypeId{idKind=Bound{offset=b, ...}, ...}) = a = b
     |   sameTypeId _ = false (* Includes type functions. *)
 
-    fun idAccess (TypeId { access, ...}) = access
-
     fun isEquality (TypeId { idKind = Free{uid = ref eq, ...}, ...}) = eq
     |   isEquality (TypeId { idKind = Bound{eqType, ...}, ...}) = pling eqType
     |   isEquality (TypeId { idKind = TypeFn _, ...}) = raise InternalError "isEquality: TypeFn"
@@ -452,39 +450,6 @@ struct
      constructors is for aliasing types. In this case "typeVars" points to a list 
      of type variables which are used in the "equivalent" type. ``equality'' is a 
      flag indicating if the values can be tested for equality. *)
-      
-    fun tcName       (TypeConstrs {name,...})       = name
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
-    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
-    fun tcLocations  (TypeConstrs {locations, ...}) = locations
-
-    (* Is this a type function?  N.B. It is possible, though unlikely, that it
-       is a datatype as well i.e. has value constructors. *)
-    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
-    |   tcIsAbbreviation _ = false
-
-    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
-    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
-    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
-
-    (* Equality and "equivalence" are now properties of the type id.  Retain these functions for the moment. *)
-
-    val tcEquality = isEquality o tcIdentifier;
-    fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
-
-    (* Construct a type constructor.  We need typeVars here purely to be
-       able to print datatypes with equality type variables e.g. datatype ''a t. *)
-    fun makeTypeConstructor (name, typeVars, uid, locations) =
-        TypeConstrs
-        {
-            name       = name,
-            typeVars   = typeVars,
-            identifier = uid,
-            locations = locations
-        }
-
-    fun tsConstr(TypeConstrSet(ts, _)) = ts
-    and tsConstructors(TypeConstrSet(_, tvs)) = tvs
 
     val inBasis =
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
@@ -498,12 +463,6 @@ struct
     |   Nonfix
 
     datatype fixStatus = FixStatus of string * infixity
-
-    fun vaGlobal   (Global   x) = x | vaGlobal   _ = raise Match
-    fun vaLocal    (Local    x) = x | vaLocal    _ = raise Match
-
-    val makeGlobal = Global;
-    val makeFormal = Formal;
   
     fun makeLocal () = Local { addr = ref ~1 (* Invalid addr - catch errors *), level = ref baseLevel }
        
@@ -514,7 +473,7 @@ struct
     
     (* Global structure *)
     fun makeGlobalStruct (name, signat, code, locations) =
-        makeStruct (name, signat, makeGlobal code, locations)
+        makeStruct (name, signat, Global code, locations)
 
     (* These are used in INITIALISE so must be mutable. *)
     fun makeEmptyGlobal name =
@@ -525,7 +484,7 @@ struct
                    firstBoundIndex   = 0, 
                    boundIds   = [],
                    locations =  [DeclaredAt inBasis] },
-            makeGlobal CodeZero, [DeclaredAt inBasis])
+            Global CodeZero, [DeclaredAt inBasis])
      
     (* Local structure. *)
     fun makeLocalStruct (name, signat, location) = 
@@ -541,7 +500,7 @@ struct
       | _          => selected
   
     fun makeFormalStruct (name, signat, addr, location) =
-      makeStruct (name, signat, makeFormal addr, location);
+      makeStruct (name, signat, Formal addr, location);
      
     (* Values. *)  
     fun makeOverloaded (name, typeOf, operation) : values =
@@ -553,17 +512,6 @@ struct
            locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE };
 
     fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false
-
-    fun valName (Value{name, ...}) = name
-    fun valTypeOf (Value{typeOf, ...}) = typeOf
-
-    fun isConstructor (Value{class=Constructor _, ...}) = true
-    | isConstructor (Value{class=Exception, ...})     = true
-    | isConstructor _                                  = false;
-
-    fun isValueConstructor (Value{class=Constructor _, ...}) = true
-    | isValueConstructor _                                 = false;
-
 
     (* Functor value. *)
     fun makeFunctor (name, arg, result, access, locations) = 

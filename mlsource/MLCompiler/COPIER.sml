@@ -60,6 +60,15 @@ struct
                   enterStruct: string * structVals  -> unit,
                   enterVal   : string * values      -> unit };
 
+    (* Helper function from STRUCT_VALS.  Should be replaced by patterns. *)
+    fun tcName       (TypeConstrs {name,...})       = name
+    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
+    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
+    fun tcLocations  (TypeConstrs {locations, ...}) = locations
+
+    fun tsConstr(TypeConstrSet(ts, _)) = ts
+    and tsConstructors(TypeConstrSet(_, tvs)) = tvs
+
     (* Type constructor cache.  This maps typeIDs in the copied signature to
        type constructors.  More importantly, it identifies a type constructor
        that carries that type ID so that when we copy the values the string
@@ -98,6 +107,14 @@ struct
                 fun makeName s = strName ^ s
                 fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
                 |   copyId _ = NONE
+                fun makeTypeConstructor (name, typeVars, uid, locations) =
+                    TypeConstrs
+                    {
+                        name       = name,
+                        typeVars   = typeVars,
+                        identifier = uid,
+                        locations = locations
+                    }
             in
                 (* On the first pass we build datatypes, on the second type abbreviations
                    using the copied datatypes. *)
