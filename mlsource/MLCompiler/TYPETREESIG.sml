@@ -114,9 +114,7 @@ sig
     (* Pretty print the error message. *)
     val unifyTypesErrorReport: lexan * printTypeEnv * printTypeEnv * string -> matchResult -> pretty
 
-    (* Check that a type constructor permits equality. *)
-    val permitsEquality: typeConstrs -> bool
-    (* And whether a type admits equality. *)
+    (* Check whether a type admits equality. *)
     val typePermitsEquality: types -> bool
 
     (* Generate new copies of all unbound type variables - this is used on all

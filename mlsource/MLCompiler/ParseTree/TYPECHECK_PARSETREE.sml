@@ -2035,10 +2035,11 @@ struct
             in
                 tcRef := tset;
                 enterType(tset, name); (* Checks for duplicates. *)
-                #enterType env (name, tset) (* Put in the global environment. *)
+                #enterType env (name, tset); (* Put in the global environment. *)
+                tset
             end
 
-            val () = ListPair.app enterWithType (withtypes, decTypes);
+            val withTypeConstrSets = ListPair.map enterWithType (withtypes, decTypes)
         
             (* For the constructors *)
             fun messFn (name, _, Value{locations, ...}) =
@@ -2100,8 +2101,9 @@ struct
                 tcon := tset;
                 tset
             end (* genValueConstrs *)
-      
-            val listOfTypeSets = ListPair.map genValueConstrs (typeList, listOfTypes);
+
+            val listOfTypeSets =
+                ListPair.map genValueConstrs (typeList, listOfTypes) @ withTypeConstrSets
 
             (* Third pass - Check to see if equality testing is allowed for
                these types. *)

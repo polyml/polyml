@@ -1102,6 +1102,10 @@ struct
                 val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
                 fun displayType t = displayTypeConstrs(t, errorDepth lex, printTypeEnv)
                 val typeError = sigStructMatchMsg(lex, near, lno, structPath) displayType
+                (* Condition for a candidate type to match an eqtype. *)
+                fun permitsEquality(TypeConstrs {identifier=TypeId{idKind = TypeFn{equality=ref(TypeFnEq _), ...}, ...}, ...}) = true
+                |   permitsEquality(TypeConstrs {identifier=TypeId{idKind = TypeFn{equality=ref TypeFnEqNever, ...}, ...}, ...}) = false
+                |   permitsEquality(TypeConstrs{identifier, ...}) = isEquality identifier
             in (* Match up the types. This does certain checks but
                   does not check sharing. Equality is checked for. *)
                 case univLookup (sigTab candidate, typeConstrVar, dName) of
