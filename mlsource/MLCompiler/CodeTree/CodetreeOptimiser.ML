@@ -806,7 +806,7 @@ struct
     fun optimise (context, use) (Lambda lambda) =
             SOME(mapLambdaResult(optLambda(context, use, lambda, LCNormal)))
 
-    |   optimise (context, use) (Newenv(envDecs, envExp)) =
+    |   optimise (context as { reprocess, makeAddr, ... }, use) (Newenv(envDecs, envExp)) =
         let
             fun mapExp mapUse = mapCodetree (optimise(context, mapUse))
 
@@ -825,7 +825,63 @@ struct
                 end
             |   mapbinding(NullBinding exp) = NullBinding(mapExp [UseGeneral] exp)
             |   mapbinding(Container{addr, use, size, setter}) =
-                    Container{addr=addr, use=use, size=size, setter = mapExp [UseGeneral] setter}
+                let
+                    fun returnsContainer (Newenv(_, exp)) = returnsContainer exp
+                      | returnsContainer (Cond(_, t, e)) = returnsContainer t andalso returnsContainer e
+                      | returnsContainer (Raise _) =  true
+                      | returnsContainer (BeginLoop {loop, ...}) = returnsContainer loop
+                      | returnsContainer (Loop _) = true
+                      | returnsContainer (SetContainer _) = true
+                      | returnsContainer _ = false
+
+                    val redundant_fields   =
+                        if List.all(fn UseField _ => true | _ => false) use
+                        then
+                        let val newFilter = BoolVector.tabulate(size,
+                                  (fn i => List.exists (fn UseField(n,_) => n = i
+                                                         | _ => false) use))
+                        in
+                           if BoolVector.all (fn i => i) newFilter then NONE
+                           else SOME newFilter
+                        end
+                        else NONE
+                in
+                   case redundant_fields of
+                        NONE => Container{addr=addr, use=use, size=size, setter = mapExp [UseGeneral] setter}
+                   |    SOME newFilter =>
+                        if returnsContainer setter then
+                        let
+                            val newAddr = makeAddr()
+                            val newContainer = Extract(LoadLocal newAddr)
+                            fun updateContainer (Newenv(envDecs, exp)) =
+                                      Newenv(envDecs, updateContainer exp)
+                              | updateContainer (Cond(i, t, e)) =
+                                      Cond(i,updateContainer t,updateContainer e)
+                              | updateContainer (BeginLoop {loop, arguments}) =
+                                      BeginLoop {loop = updateContainer loop,arguments = arguments}
+                              | updateContainer (SetContainer {container,tuple,...}) =
+                                      SetContainer{container = newContainer ,tuple = tuple,filter= newFilter}
+                              | updateContainer exp = exp
+                            val newSize = BoolVector.foldl (fn (true, n) => n+1 | (false, n) => n) 0 newFilter
+                            val newSetter = updateContainer setter
+                            val makeContainer = Container{addr=newAddr, use=[], size=newSize, setter = newSetter}
+                            val fields = List.rev (#2 (BoolVector.foldl
+                                    (fn (true,(a,l)) => (a+1,(mkIndContainer(a,newContainer))::l)
+                                      | (false,(a,l)) => (a,CodeZero::l)) (0,[]) newFilter))
+                            val container = SetContainer{container= Extract(LoadLocal addr),
+                                                         tuple= Tuple{fields =fields ,isVariant=false},
+                                                         filter=BoolVector.tabulate(size,fn _ => true)}
+
+                        in
+                             (* Disable optimization when the new size is 1 for now. *)
+                             if newSize = 1 then
+                             Container{addr=addr, use=use, size=size, setter = mapExp [UseGeneral] setter}
+                             else
+                            (reprocess := true;
+                             Container{addr=addr, use=use, size=size, setter=mkEnv([makeContainer], container)})
+                        end
+                        else Container{addr=addr, use=use, size=size, setter = mapExp [UseGeneral] setter}
+                end
         in
             SOME(Newenv(map mapbinding envDecs, mapExp use envExp))
         end

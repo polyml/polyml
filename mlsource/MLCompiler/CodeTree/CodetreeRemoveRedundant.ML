@@ -282,11 +282,14 @@ struct
                 (* Select a field from a tuple or container.  We can't do this for selection from datatypes because
                    some fields may not be present on all paths. *)
             |   doClean codeUse (Indirect{base, offset, indKind}) =
+                let
                     (* Try to pass down the use.  If the "base" is an Extract or another Indirect
                        we may be able to record this information.  If it is something else we can't. *)
+                in
                     case indKind of
                          IndVariant => NONE
                     |    other => SOME(Indirect{base=cleanCode(base, [UseField(offset, codeUse)]), offset=offset, indKind = indKind})
+                end
 
             |   doClean codeUse (Tuple{ fields, isVariant = false}) =
                 let
