@@ -129,8 +129,8 @@ struct
     fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref EmptyType }
 
     type bindEnv =
-        { lookup: string -> typeVarForm option,
-          apply: (string * typeVarForm -> unit) -> unit }
+        { lookup: string -> parseTypeVar option,
+          apply: (string * parseTypeVar -> unit) -> unit }
     
     fun mkValDeclaration (dec, explicit, implicit, location) : parsetree = 
         ValDeclaration 
@@ -497,6 +497,7 @@ struct
         and  structVals = structVals
         and  typeConstrs= typeConstrs
         and  typeVarForm=typeVarForm
+        and  parseTypeVar=parseTypeVar
         and  env        = env
         and  infixity   = infixity
         and  structureIdentForm = structureIdentForm
