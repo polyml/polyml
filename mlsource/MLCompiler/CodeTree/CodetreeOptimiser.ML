@@ -851,34 +851,47 @@ struct
                    |    SOME newFilter =>
                         if returnsContainer setter then
                         let
-                            val newAddr = makeAddr()
-                            val newContainer = Extract(LoadLocal newAddr)
-                            fun updateContainer (Newenv(envDecs, exp)) =
-                                      Newenv(envDecs, updateContainer exp)
-                              | updateContainer (Cond(i, t, e)) =
-                                      Cond(i,updateContainer t,updateContainer e)
-                              | updateContainer (BeginLoop {loop, arguments}) =
-                                      BeginLoop {loop = updateContainer loop,arguments = arguments}
-                              | updateContainer (SetContainer {container,tuple,...}) =
-                                      SetContainer{container = newContainer ,tuple = tuple,filter= newFilter}
-                              | updateContainer exp = exp
+                            fun updateContainer leafFn (Newenv(envDecs, exp)) =
+                                      Newenv(envDecs, updateContainer leafFn exp)
+                              | updateContainer leafFn (Cond(i, t, e)) =
+                                      Cond(i,updateContainer leafFn t,updateContainer leafFn e)
+                              | updateContainer leafFn (BeginLoop {loop, arguments}) =
+                                      BeginLoop {loop = updateContainer leafFn loop,arguments = arguments}
+                              | updateContainer leafFn (SetContainer {tuple,...}) = leafFn tuple
+                              | updateContainer leafFn exp = exp
                             val newSize = BoolVector.foldl (fn (true, n) => n+1 | (false, n) => n) 0 newFilter
-                            val newSetter = updateContainer setter
-                            val makeContainer = Container{addr=newAddr, use=[], size=newSize, setter = newSetter}
-                            val fields = List.rev (#2 (BoolVector.foldl
-                                    (fn (true,(a,l)) => (a+1,(mkIndContainer(a,newContainer))::l)
-                                      | (false,(a,l)) => (a,CodeZero::l)) (0,[]) newFilter))
-                            val container = SetContainer{container= Extract(LoadLocal addr),
-                                                         tuple= Tuple{fields =fields ,isVariant=false},
-                                                         filter=BoolVector.tabulate(size,fn _ => true)}
-
                         in
-                             (* Disable optimization when the new size is 1 for now. *)
-                             if newSize = 1 then
-                             Container{addr=addr, use=use, size=size, setter = mapExp [UseGeneral] setter}
-                             else
-                            (reprocess := true;
-                             Container{addr=addr, use=use, size=size, setter=mkEnv([makeContainer], container)})
+                            if newSize = 1
+                            then
+                            let
+                                (* Find the offset *)
+                                val (offset,_) = valOf (BoolVector.findi (fn (i,b) => b) newFilter)
+                                val field = updateContainer (fn tuple => mkInd(offset, tuple)) setter
+                                fun mkFields n = if n = offset then field else CodeZero
+                                val fields = List.tabulate(BoolVector.length newFilter, mkFields)
+                                val container = SetContainer{container= Extract(LoadLocal addr),
+                                                             tuple= Tuple{fields =fields ,isVariant=false},
+                                                             filter=BoolVector.tabulate(size,fn _ => true)}
+                            in
+                                reprocess := true;
+                                Container{addr=addr, use=use, size=size, setter = container}
+                            end
+                            else
+                            let
+                                val newAddr = makeAddr()
+                                val newContainer = Extract(LoadLocal newAddr)
+                                val newSetter = updateContainer (fn tuple => SetContainer{container = newContainer ,tuple = tuple,filter= newFilter}) setter
+                                val makeContainer = Container{addr=newAddr, use=[], size=newSize, setter = newSetter}
+                                val fields = List.rev (#2 (BoolVector.foldl
+                                        (fn (true,(a,l)) => (a+1,(mkIndContainer(a,newContainer))::l)
+                                          | (false,(a,l)) => (a,CodeZero::l)) (0,[]) newFilter))
+                                val container = SetContainer{container= Extract(LoadLocal addr),
+                                                             tuple= Tuple{fields =fields ,isVariant=false},
+                                                             filter=BoolVector.tabulate(size,fn _ => true)}
+                            in
+                                reprocess := true;
+                                Container{addr=addr, use=use, size=size, setter=mkEnv([makeContainer], container)}
+                            end
                         end
                         else Container{addr=addr, use=use, size=size, setter = mapExp [UseGeneral] setter}
                 end
