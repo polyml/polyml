@@ -828,6 +828,7 @@ struct
                 let
                     fun returnsContainer (Newenv(_, exp)) = returnsContainer exp
                       | returnsContainer (Cond(_, t, e)) = returnsContainer t andalso returnsContainer e
+                      | returnsContainer (Handle {exp, handler, ...}) = returnsContainer exp andalso returnsContainer handler
                       | returnsContainer (Raise _) =  true
                       | returnsContainer (BeginLoop {loop, ...}) = returnsContainer loop
                       | returnsContainer (Loop _) = true
@@ -855,6 +856,8 @@ struct
                                       Newenv(envDecs, updateContainer leafFn exp)
                               | updateContainer leafFn (Cond(i, t, e)) =
                                       Cond(i,updateContainer leafFn t,updateContainer leafFn e)
+                              | updateContainer leafFn (Handle {exp, handler, exPacketAddr}) =
+                                      Handle{exp= updateContainer leafFn exp, handler = updateContainer leafFn exp, exPacketAddr},
                               | updateContainer leafFn (BeginLoop {loop, arguments}) =
                                       BeginLoop {loop = updateContainer leafFn loop,arguments = arguments}
                               | updateContainer leafFn (SetContainer {tuple,...}) = leafFn tuple
