@@ -2587,7 +2587,7 @@ struct
             |   applyAction
                 ((destAddr,
                     ValueMatch { sourceValue as Value{typeOf=ValueType(sourceValType as (sourceTypeOf, _)), name, ...},
-                    coercion, targetType as (targetTypeOf, _) }),
+                    coercion, targetType }),
                  (otherCode, allSame)) =
                 let
                     (* Set up a new type variable environment in case this needs to create type
@@ -2638,10 +2638,11 @@ struct
 
                     local
                         val (copiedCandidate, sourceVars) = generalise sourceValType
+                        val copiedTarget = createMatchType targetType
                         val sourceVars =
                             List.filter (fn {equality, ...} => not justForEqualityTypes orelse equality) sourceVars
                         val () = 
-                            case unifyTypes(copiedCandidate, targetTypeOf) of
+                            case unifyTypes(copiedCandidate, copiedTarget) of
                                 NONE => ()
                             |   SOME report => (print(name ^ ":\n"); PolyML.print report; raise InternalError "unifyTypes failed in pass 3")
                         val filterTypeVars = List.filter (fn tv => not justForEqualityTypes orelse tvEquality tv)
