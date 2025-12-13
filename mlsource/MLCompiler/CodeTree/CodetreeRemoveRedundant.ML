@@ -355,19 +355,15 @@ struct
                     then
                     let
                         fun splitArgs([], []) = ([], [])
-                        |   splitArgs((arg, _) :: args, ({use=[], ...}, _) :: arguments) =
+                        |   splitArgs((arg as (argVal, _)) :: args, ({addr, ...}, _) :: arguments) =
                             let
                                 val (useArgs, discards) = splitArgs(args, arguments)
                             in
                                 (* We actually only need to keep this argument if it might have
                                    a side-effect but keep it anyway. *)
-                                (useArgs, NullBinding arg :: discards)
-                            end
-                        |   splitArgs(arg :: args, _ :: arguments) =
-                            let
-                                val (useArgs, discards) = splitArgs(args, arguments)
-                            in
-                                (arg :: useArgs, discards)
+                                case Array.sub(locals, addr) of
+                                    [] => (useArgs, NullBinding argVal :: discards)
+                                |   _ => (arg :: useArgs, discards)
                             end
                         |   splitArgs _ = raise InternalError "splitArgs"
 

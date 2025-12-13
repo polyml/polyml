@@ -2581,8 +2581,7 @@ struct
 
             |   applyAction
                 ((destAddr,
-                    ValueMatch { sourceValue as Value{typeOf=ValueType(sourceValType as (sourceTypeOf, _)), name, ...},
-                    coercion, targetType }),
+                    ValueMatch { sourceValue as Value{typeOf=ValueType((sourceTypeOf, _)), name, ...}, coercion, targetType }),
                  (otherCode, allSame)) =
                 let
                     (* Set up a new type variable environment in case this needs to create type
@@ -2624,11 +2623,11 @@ struct
                             (
                                 case coercion of
                                     NoCoercion =>
-                                        codeVal (sourceValue, localLevel, typeVarMap, [], lex, LEX.location LEX.nullLex)
+                                        codeVal (sourceValue, localLevel, [], lex, LEX.location LEX.nullLex)
                                 |   ExceptionToValue =>
-                                        codeExFunction(sourceValue, localLevel, typeVarMap, [], lex, LEX.location LEX.nullLex)
+                                        codeExFunction(sourceValue, localLevel, [], lex, LEX.location LEX.nullLex)
                                 |   ConstructorToValue =>
-                                        mkInd(1, codeVal (sourceValue, localLevel, typeVarMap, [], lex, LEX.location LEX.nullLex))
+                                        mkInd(1, codeVal (sourceValue, localLevel, [], lex, LEX.location LEX.nullLex))
                             )
 
                         val (polyCode, justCopy) =
@@ -2881,14 +2880,13 @@ struct
              that has been declared.
              Since value declarations may be mutually recursive we have
              to code-generate the declarations first then return the values. *)
-            val typeVarMap = TypeVarMap.defaultTypeVarMap(fn _ => raise InternalError "typeVarMap", level)
-            fun loadVals (CoreValue v, rest)  = codeVal (v, level, typeVarMap, [], LEX.nullLex, LEX.location LEX.nullLex) :: rest
+            fun loadVals (CoreValue v, rest)  = codeVal (v, level, [], LEX.nullLex, LEX.location LEX.nullLex) :: rest
             |   loadVals (CoreStruct s, rest) = codeStruct (s, level) :: rest
             |   loadVals (CoreType (TypeConstrSet(_, tcConstructors)), rest) =
                     (* Type IDs are handled separately but we need to load the value constructors if
                        this is a datatype.  This is really only because of datatype replication where
                        we need to be able to get the value constructors from the datatype. *)
-                    List.rev(List.map( fn v => codeVal (v, level, typeVarMap, [], LEX.nullLex, LEX.location LEX.nullLex)) tcConstructors)
+                    List.rev(List.map( fn v => codeVal (v, level, [], LEX.nullLex, LEX.location LEX.nullLex)) tcConstructors)
                         @ rest
             |   loadVals (_, rest) = rest
         in
@@ -2932,9 +2930,8 @@ struct
                             makeTypeIdDebugEntries(sigBoundIds (structSignat argVal), debugEnv, level, lex, mkAddr)
                         val (structDebugDecs, structDebugEnv) =
                             makeStructDebugEntries(! debugArgStructs, typeIdDebugEnv, level, lex, mkAddr)
-                        val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level) (* ???Check??? *)
                         val (valDebugDecs, valDebugEnv) =
-                            makeValDebugEntries(! debugArgVals, structDebugEnv, level, lex, mkAddr, typeVarMap)
+                            makeValDebugEntries(! debugArgVals, structDebugEnv, level, lex, mkAddr)
                         val (typeDebugDecs, typeDebugEnv) =
                             makeTypeConstrDebugEntries(! debugArgTypeConstrs, valDebugEnv, level, lex, mkAddr)
                     in
