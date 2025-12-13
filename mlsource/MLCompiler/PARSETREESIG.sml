@@ -57,7 +57,6 @@ sig
      type of the value will be 'a * 'a -> bool but the type of a particular
      occurence, i.e. the type of the identifier must be int * int -> bool,
      say, after all the unification has been done. *)
-
     type parsetree and valbind and fvalbind and fvalclause and typebind
     and datatypebind and exbind and labelRecEntry and matchtree;
 
@@ -102,7 +101,7 @@ sig
         { newType: string, oldType: string,
           newLoc: location, oldLoc: location, location: location } -> parsetree;
     val mkAbstypeDeclaration :
-    datatypebind list * typebind list * parsetree list * location -> parsetree;
+      datatypebind list * typebind list * parsetree list * location -> parsetree;
     val mkTypeBinding : string * parseTypeVar list * typeParsetree option * bool * location * location -> typebind;
     val mkDatatypeBinding : string * parseTypeVar list * valueConstr list * location * location -> datatypebind
     val mkValueConstr : string * typeParsetree option * location -> valueConstr
@@ -127,8 +126,6 @@ sig
     val pass2:
         parsetree * (bool * bool * (parseTypeVar list * types) * typeIdDescription -> typeId) *
         env * lexan * (int -> bool) -> types
-
-    val setLeastGeneralTypes: parsetree * lexan -> unit
 
     (* Inherited from PrintAndExportParsetree *)
     val displayParsetree: parsetree * FixedInt.int -> pretty;
