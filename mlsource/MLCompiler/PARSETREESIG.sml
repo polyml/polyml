@@ -39,6 +39,8 @@ sig
     type level
     type valueConstr
     type parseTypeVar
+    type instanceType
+
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
           endLine: FixedInt.int, endPosition: FixedInt.int }
@@ -125,7 +127,7 @@ sig
 
     val pass2:
         parsetree * (bool * bool * (parseTypeVar list * types option) * typeIdDescription -> typeId) *
-        env * lexan * (int -> bool) -> types
+        env * lexan * (int -> bool) -> instanceType
 
     (* Inherited from PrintAndExportParsetree *)
     val displayParsetree: parsetree * FixedInt.int -> pretty;
@@ -168,5 +170,6 @@ sig
         and  matchtree   = matchtree
         and  level = level
         and  debuggerStatus = debuggerStatus
+        and  instanceType = instanceType
     end
 end (* PARSETREE export signature *);
