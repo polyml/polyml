@@ -130,7 +130,7 @@ static size_t GetPhysicalMemorySize(void);
 #if (SIZEOF_VOIDP == 4)
 #   define MAXIMUMADDRESS   0x3fffffff /* 4Gbytes as words */
 #elif defined(POLYML32IN64)
-#   define MAXIMUMADDRESS   0xffffffff /* 16Gbytes as words */
+#   define MAXIMUMADDRESS   (0x80000000*POLYML32IN64-1) /* 16/32Gbytes as words */ 
 #else
 #   define MAXIMUMADDRESS   0x1fffffffffffffff
 #endif
@@ -220,11 +220,11 @@ LocalMemSpace *HeapSizeParameters::AddSpaceInMinorGC(uintptr_t space, bool isMut
     // necessary for the object.
     uintptr_t spaceSize = gMem.DefaultSpaceSize();
 #ifdef POLYML32IN64
-    // When we allocate a space in NewLocalSpace we take one word to ensure
+    // When we allocate a space in NewLocalSpace we take one or more words to ensure
     // the that the first length word is on an odd-word boundary.
     // We need to add one here to ensure there is sufficient space to do that.
     // See AllocHeapSpace
-    space++;
+    space += POLYML32IN64-1;
 #endif
     if (space > spaceSize) spaceSize = space;
 

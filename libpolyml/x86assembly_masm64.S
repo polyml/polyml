@@ -145,7 +145,7 @@ X86AsmSwitchToPoly  PROC FRAME
     mov     rax,[ArgVector.SaveRAX+rbp]
     cld                                     ; Clear this just in case
 #ifdef  POLYML32IN64
-    jmp     qword ptr [rbx+rdx*4]
+    jmp     qword ptr [rbx+rdx*(POLYML32IN64*2)]
 #else
     jmp     qword ptr [rdx]
 #endif
