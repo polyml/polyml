@@ -206,8 +206,8 @@ POLYUNSIGNED parseSize(const TCHAR *p, const TCHAR *arg)
         Usage("Malformed %s option\n", arg);
     // The sizes must not exceed the possible heap size.
 #ifdef POLYML32IN64
-    if (result > 16 * 1024 * 1024)
-        Usage("Value of %s option must not exceeed 16Gbytes\n", arg);
+    if (result > 8 * POLYML32IN64 * 1024 * 1024)
+        Usage("Value of %s option must not exceeed %uGbytes\n", arg, 8 * POLYML32IN64);
 #elif (SIZEOF_VOIDP == 4)
     if (result > 4 * 1024 * 1024)
         Usage("Value of %s option must not exceeed 4Gbytes\n", arg);
@@ -721,9 +721,9 @@ PolyObject* InitHeaderFromExport(struct _exportDescription* exports)
         relocate.relativeOffset = (PolyWord*)descr->originalAddress - space->bottom;
         for (PolyWord* p = space->bottom; p < space->top; )
         {
-            if ((((uintptr_t)p) & 4) == 0)
+            if ( ((p-(PolyWord*)0) & (POLYML32IN64 - 1)) != POLYML32IN64 - 1)
             {
-                // Skip any padding.  The length word should be on an odd-word boundary.
+                // Skip any padding.  The length word should be on the correct boundary.
                 p++;
                 continue;
             }
