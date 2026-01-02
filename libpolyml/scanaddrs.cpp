@@ -164,9 +164,9 @@ void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
     while (pt < end)
     {
 #ifdef POLYML32IN64
-        if ((((uintptr_t)pt) & 4) == 0)
+        if (((pt - (PolyWord*)0) & (POLYML32IN64-1)) != POLYML32IN64 - 1)
         {
-            // Skip any padding.  The length word should be on an odd-word boundary.
+            // Skip any padding.  The length word should be in the last word of the unit.
             pt++;
             continue;
         }
@@ -244,6 +244,20 @@ PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocatio
             addr = addr & -4096; // Clear the bottom 12 bits
             return (PolyObject*)(addr + disp);
         }
+#ifdef POLYML32IN64
+    case PROCESS_RELOC_C32ADDR:
+    {
+        uint32_t valu;
+        byte* pt = addressOfConstant;
+        if (pt[sizeof(uint32_t) - 1] & 0x80) valu = (uint32_t)0 - 1; else valu = 0;
+        for (unsigned i = sizeof(uint32_t); i > 0; i--)
+            valu = (valu << 8) | pt[i - 1];
+        PolyWord wVal = PolyWord::FromUnsigned((POLYUNSIGNED)valu);
+        if (valu == 0 || wVal.IsTagged())
+            return 0;
+        else return wVal.AsObjPtr();
+    }
+#endif
     default:
         ASSERT(false);
         return 0;

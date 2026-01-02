@@ -1,7 +1,7 @@
 /*
     Title:      Quick copying garbage collector
 
-    Copyright (c) 2011-12, 2016-17, 2019 David C. J. Matthews
+    Copyright (c) 2011-12, 2016-17, 2019, 2025 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -216,8 +216,8 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
 
     lSpace->lowerAllocPtr += n+1;
 #ifdef POLYML32IN64
-    // Maintain the odd-word alignment of lowerAllocPtr
-    if ((n & 1) == 0 && lSpace->lowerAllocPtr < lSpace->upperAllocPtr)
+    // Maintain the correct alignment of lowerAllocPtr
+    while (lSpace->lowerAllocPtr < lSpace->upperAllocPtr && ((lSpace->lowerAllocPtr - (PolyWord*)0) & (POLYML32IN64 - 1)) != POLYML32IN64 - 1)
     {
         *lSpace->lowerAllocPtr = PolyWord::FromUnsigned(0);
         lSpace->lowerAllocPtr++;
@@ -465,9 +465,9 @@ void ThreadScanner::ScanOwnedAreas()
                     while (p < mid)
                     {
 #ifdef POLYML32IN64
-                        if ((((uintptr_t)p) & 4) == 0)
+                        if (((p-(PolyWord*)0) & (POLYML32IN64-1)) != POLYML32IN64 - 1)
                         {
-                            p++; // Should be on an odd-word boundary
+                            p++; // Should be on the correct boundary 
                             continue;
                         }
 #endif
@@ -486,14 +486,16 @@ void ThreadScanner::ScanOwnedAreas()
                             break;
                     }
                 }
-                PolyObject *obj = (PolyObject*)(space->partialGCScan+1);
+
 #ifdef POLYML32IN64
-                if ((((uintptr_t)obj) & 4) != 0)  // Should be on an even-word boundary
+                // Align so that the cell starts on the correct boundary
+                if (((space->partialGCScan - (PolyWord*)0) & (POLYML32IN64 - 1)) != POLYML32IN64 - 1)
                 {
                     space->partialGCScan++;
                     continue;
                 }
 #endif
+                PolyObject* obj = (PolyObject*)(space->partialGCScan + 1);
                 ASSERT(obj->ContainsNormalLengthWord());
                 POLYUNSIGNED length = obj->Length();
                 ASSERT(space->partialGCScan+length+1 <= space->lowerAllocPtr);
@@ -658,11 +660,10 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
             uintptr_t free;
             if (lSpace->allocationSpace)
             {
-#ifdef POLYML32IN64
-                lSpace->lowerAllocPtr = lSpace->bottom + 1;
-                lSpace->lowerAllocPtr[-1] = PolyWord::FromUnsigned(0);
-#else
                 lSpace->lowerAllocPtr = lSpace->bottom;
+#ifdef POLYML32IN64
+                for (unsigned i = 0; i < POLYML32IN64-1; i++)
+                    *(lSpace->lowerAllocPtr++) = PolyWord::FromUnsigned(0);
 #endif
                 free = lSpace->freeSpace();
 #ifdef FILL_UNUSED_MEMORY
