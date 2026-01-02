@@ -2,7 +2,7 @@
     Title:  Globals for the system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright David C. J. Matthews 2017-22
+    Copyright David C. J. Matthews 2017-22, 2026
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
@@ -169,7 +169,7 @@ public:
     POLYUNSIGNED UnTaggedUnsigned(void) const { return contents.unsignedInt >> POLY_TAGSHIFT; }
 #ifdef POLYML32IN64
     PolyWord(POLYOBJPTR p) { contents.objectPtr = AddressToObjectPtr(p); }
-    PolyWord *AsStackAddr(PolyWord *base = globalHeapBase) const { return base + (contents.objectPtr * (POLYML32IN64/2)); }
+    PolyWord *AsStackAddr(PolyWord *base = globalHeapBase) const { return base + (((uintptr_t)contents.objectPtr) * (POLYML32IN64/2)); }
     POLYOBJPTR AsObjPtr(PolyWord *base = globalHeapBase) const { return (POLYOBJPTR)AsStackAddr(base); }
 #else
     // An object pointer can become a word directly.
@@ -291,8 +291,8 @@ inline bool OBJ_IS_WEAKREF_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_WEAK
 /* case 2 - forwarding pointer */
 inline bool OBJ_IS_POINTER(POLYUNSIGNED L)  { return (L & _OBJ_TOMBSTONE_BIT) != 0; }
 #ifdef POLYML32IN64
-inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64)); }
-inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return (PolyWord::AddressToObjectPtr(pt)/POLYML32IN64) | _OBJ_TOMBSTONE_BIT; }
+inline PolyObject* OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + (((uintptr_t)L & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64)); }
+inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject* pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_TOMBSTONE_BIT; }
 #else
 inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_TOMBSTONE_BIT) <<2); }
 inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_TOMBSTONE_BIT; }

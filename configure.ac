@@ -504,7 +504,11 @@ AC_ARG_ENABLE([compact32bit],
 
 if test "x$enable_compact32bit" = "xyes"; then
     if test X"$ac_cv_sizeof_voidp" = X8 ; then
-        AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
+        if test "x$enable_large_heap" = "xyes"; then
+            AC_DEFINE([POLYML32IN64], [4], [Define if this should use 32-bit values in 64-bit architectures and set to the unit size])
+        else
+            AC_DEFINE([POLYML32IN64], [2], [Define if this should use 32-bit values in 64-bit architectures and set to the unit size])
+        fi
         bootstrap64="no"
     else
         AC_MSG_ERROR([--enable-compact32bit is only available on a 64-bit architecture])

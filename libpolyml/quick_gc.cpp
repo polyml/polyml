@@ -177,7 +177,6 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
     if (lSpace == 0)
         return 0; // Unable to move it.
     PolyObject *newObject = (PolyObject*)(lSpace->lowerAllocPtr+1);
-
     // It's possible that another thread may have actually copied the 
     // object since we loaded the length word so we check it again.
     // If this is a mutable we must ensure that checking the forwarding
@@ -213,15 +212,11 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
         }
         else obj->SetForwardingPtr(newObject);
     }
-
     lSpace->lowerAllocPtr += n+1;
 #ifdef POLYML32IN64
     // Maintain the correct alignment of lowerAllocPtr
     while (lSpace->lowerAllocPtr < lSpace->upperAllocPtr && ((lSpace->lowerAllocPtr - (PolyWord*)0) & (POLYML32IN64 - 1)) != POLYML32IN64 - 1)
-    {
-        *lSpace->lowerAllocPtr = PolyWord::FromUnsigned(0);
-        lSpace->lowerAllocPtr++;
-    }
+        *lSpace->lowerAllocPtr++ = PolyWord::FromUnsigned(0);
 #endif
     CopyObjectToNewAddress(obj, newObject, L);
     objectCopied = true;

@@ -317,7 +317,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #ifdef POLYML32IN64
         PolyObject *newAddr;
         if (space->isCode)
-            newAddr = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
+            newAddr = (PolyObject*)(globalCodeBase + (((uintptr_t)(obj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
         else newAddr = obj->GetForwardingPtr();
 #else
         PolyObject *newAddr = obj->GetForwardingPtr();
@@ -340,7 +340,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #ifdef POLYML32IN64
                     PolyObject *newAddr;
                     if (space->isCode)
-                        newAddr = (PolyObject*)(globalCodeBase + ((tombObject->LengthWord() & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
+                        newAddr = (PolyObject*)(globalCodeBase + (((uintptr_t)(tombObject->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
                     else newAddr = tombObject->GetForwardingPtr();
 #else
                     PolyObject *newAddr = tombObject->GetForwardingPtr();
@@ -434,7 +434,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #ifdef POLYML32IN64
                 if (naType == NACode)
                 {
-                    POLYUNSIGNED ll = (POLYUNSIGNED)( (((PolyWord*)newObj - globalCodeBase) / POLYML32IN64) | _OBJ_TOMBSTONE_BIT);
+                    POLYUNSIGNED ll = (POLYUNSIGNED)((((PolyWord*)newObj - globalCodeBase) / POLYML32IN64) | _OBJ_TOMBSTONE_BIT);
                     tombObject->SetLengthWord(ll);
                 }
                 else tombObject->SetForwardingPtr(newObj);
@@ -451,7 +451,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     // If this is a code address we can't use the usual forwarding pointer format.
     // Instead we have to compute the offset relative to the base of the code.
     {
-        POLYUNSIGNED ll = (POLYUNSIGNED)((((PolyWord*)newObj-globalCodeBase) / POLYML32IN64) | _OBJ_TOMBSTONE_BIT);
+        POLYUNSIGNED ll = (POLYUNSIGNED)((((PolyWord*)newObj - globalCodeBase) / POLYML32IN64) | _OBJ_TOMBSTONE_BIT);
         gMem.SpaceForObjectAddress(obj)->writeAble(obj)->SetLengthWord(ll);
     }
 #else
@@ -668,7 +668,7 @@ static POLYUNSIGNED FixObjLength(PolyObject *obj)
         {
             MemSpace *space = gMem.SpaceForObjectAddress(obj);
             if (space->isCode)
-                forwardedTo = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
+                forwardedTo = (PolyObject*)(globalCodeBase + (((uintptr_t)(obj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
             else forwardedTo = obj->GetForwardingPtr();
         }
 #else
