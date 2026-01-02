@@ -1222,7 +1222,7 @@ ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|x64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64=2 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug32in64|ARM64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
@@ -1246,7 +1246,7 @@ ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|x64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64=2 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release32in64|ARM64'">cl /nologo /EP  /I. /D_MSC_VER /DPOLYML32IN64 "%(FullPath)" &gt; $(IntDir)%(Filename).asm
 ml64 /nologo /Fo $(IntDir)%(Filename).obj /c $(IntDir)%(Filename).asm</Command>

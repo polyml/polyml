@@ -548,7 +548,7 @@ bool MemMgr::DemoteOldPermanentSpaces(ModuleId modId)
                             PolyObject* forwardedTo = obj;
                             // This is relative to globalCodeBase not globalHeapBase
                             while (forwardedTo->ContainsForwardingPtr())
-                                forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
+                                forwardedTo = (PolyObject*)(globalCodeBase + (((uintptr_t)(forwardedTo->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
                             PolyObject* forwardedTo = obj->FollowForwardingChain();
 #endif
@@ -1254,7 +1254,7 @@ void MemMgr::ReportHeapSizes(const char *phase)
 #ifdef POLYML32IN64
                 // This is relative to globalCodeBase not globalHeapBase
                 while (obj->ContainsForwardingPtr())
-                    obj = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
+                    obj = (PolyObject*)(globalCodeBase + (((uintptr_t)(obj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
                 obj = obj->FollowForwardingChain();
 #endif
@@ -1329,7 +1329,7 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
         PolyObject *lastObj = obj;
         // This is relative to globalCodeBase not globalHeapBase.
         while (lastObj->ContainsForwardingPtr())
-            lastObj = (PolyObject*)(globalCodeBase + ((lastObj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
+            lastObj = (PolyObject*)(globalCodeBase + (((uintptr_t)(lastObj->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
         PolyObject *lastObj = obj->FollowForwardingChain();
 #endif
@@ -1368,8 +1368,9 @@ POLYOBJECTPTR PolyWord::AddressToObjectPtr(void *address)
 {
     ASSERT(address >= globalHeapBase);
     uintptr_t offset = (PolyWord*)address - globalHeapBase;
-    ASSERT(offset <= 0x7fffffff); // Currently limited to 8Gbytes
-    ASSERT((offset & 1) == 0);
+    ASSERT((offset & 1) == 0); // The tag bit should not be set
+    offset = offset / (POLYML32IN64 / 2);
+    ASSERT(offset < (uintptr_t)0x100000000);
     return (POLYOBJECTPTR)offset;
 }
 #endif
