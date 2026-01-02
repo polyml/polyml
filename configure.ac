@@ -501,10 +501,14 @@ fi
 AC_ARG_ENABLE([compact32bit],
         [AS_HELP_STRING([--enable-compact32bit],
             [use 32-bit values rather than native 64-bits.])])
+AC_ARG_ENABLE([largeheap],
+	[AS_HELP_STRING([--enable-largeheap],
+            [use larger heap size when enable-compact32bit is set.])])
+
 
 if test "x$enable_compact32bit" = "xyes"; then
     if test X"$ac_cv_sizeof_voidp" = X8 ; then
-        if test "x$enable_large_heap" = "xyes"; then
+        if test "x$enable_largeheap" = "xyes"; then
             AC_DEFINE([POLYML32IN64], [4], [Define if this should use 32-bit values in 64-bit architectures and set to the unit size])
         else
             AC_DEFINE([POLYML32IN64], [2], [Define if this should use 32-bit values in 64-bit architectures and set to the unit size])
