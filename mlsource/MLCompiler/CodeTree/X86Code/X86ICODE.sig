@@ -1,6 +1,6 @@
 (*
     Signature for the high-level X86 code
-    Copyright David C. J. Matthews 2016-23
+    Copyright David C. J. Matthews 2016-23, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -37,8 +37,8 @@ sig
     val nReg:   reg -> int
 
     val is32bit: LargeInt.int -> bool
-    
-    datatype targetArch = Native32Bit | Native64Bit | ObjectId32Bit
+
+    datatype targetArch = Native32Bit | Native64Bit | ObjectId32Bit2Word | ObjectId32Bit4Word
     val targetArch: targetArch
 
     (* Should we use SSE2 or X87 floating point? *)
@@ -108,7 +108,7 @@ sig
        object index. *)
     and memoryIndex =
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg |
-        MemIndex4 of preg | MemIndex8 of preg | ObjectIndex
+        MemIndex4 of preg | MemIndex8 of preg | ObjectIndex2 | ObjectIndex4
 
     (* Kinds of moves.
        Move32Bit - 32-bit loads and stores
