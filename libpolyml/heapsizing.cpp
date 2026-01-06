@@ -130,7 +130,7 @@ static size_t GetPhysicalMemorySize(void);
 #if (SIZEOF_VOIDP == 4)
 #   define MAXIMUMADDRESS   0x3fffffff /* 4Gbytes as words */
 #elif defined(POLYML32IN64)
-#   define MAXIMUMADDRESS   (0x80000000*POLYML32IN64-1) /* 16/32Gbytes as words */ 
+#   define MAXIMUMADDRESS   ((uintptr_t)0x80000000*POLYML32IN64-1) /* 16/32Gbytes as words */ 
 #else
 #   define MAXIMUMADDRESS   0x1fffffffffffffff
 #endif
@@ -143,16 +143,14 @@ void HeapSizeParameters::SetHeapParameters(uintptr_t minsize, uintptr_t maxsize,
     maxHeapSize = K_to_words(maxsize);
     uintptr_t initialSize = K_to_words(initialsize);
 
-    uintptr_t memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
+//   uintptr_t memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
 
     // If no maximum is given default it to 80% of the physical memory.
     // This allows some space for the OS and other things.
     // We now check maxsize so it should never exceed the maximum.
     if (maxHeapSize == 0 || maxHeapSize > MAXIMUMADDRESS)
     {
-        if (memsize != 0)
-            maxHeapSize = memsize - memsize / 5;
-        else maxHeapSize = MAXIMUMADDRESS;
+        maxHeapSize = MAXIMUMADDRESS;
         // But if this must not be smaller than the minimum size.
         if (maxHeapSize < minHeapSize) maxHeapSize = minHeapSize;
         if (maxHeapSize < initialSize) maxHeapSize = initialSize;
@@ -228,21 +226,26 @@ LocalMemSpace *HeapSizeParameters::AddSpaceInMinorGC(uintptr_t space, bool isMut
 #endif
     if (space > spaceSize) spaceSize = space;
 
-    // We allow for extension if the total heap size after extending it
-    // plus one allocation area of the default size would not be more
-    // than the allowed heap size.
-    if (spaceAllocated + spaceSize + gMem.DefaultSpaceSize() <= gMem.SpaceForHeap())
-    {
-        LocalMemSpace *sp = gMem.NewLocalSpace(spaceSize, isMutable); // Return the space or zero if it failed
-        // If this is the first time the allocation failed report it.
-        if (sp == 0 && (debugOptions & DEBUG_HEAPSIZE) && lastAllocationSucceeded)
+    // The heap may become fragmented in 32-in-64 so try a smaller allocation
+    do {
+        // We allow for extension if the total heap size after extending it
+        // plus one allocation area of the default size would not be more
+        // than the allowed heap size.
+        if (spaceAllocated + spaceSize + gMem.DefaultSpaceSize() <= gMem.SpaceForHeap())
         {
-            Log("Heap: Allocation of new heap segment size ");
-            LogSize(spaceSize);
-            Log(" failed.  Limit reached?\n");
+            LocalMemSpace* sp = gMem.NewLocalSpace(spaceSize, isMutable); // Return the space or zero if it failed
+            lastAllocationSucceeded = sp != 0;
+            if (sp != 0) return sp;
         }
-        lastAllocationSucceeded = sp != 0;
-        return sp;
+        spaceSize = spaceSize / 2;
+    } while (spaceSize > space);
+
+    // If this is the first time the allocation failed report it.
+    if ((debugOptions & DEBUG_HEAPSIZE) && lastAllocationSucceeded)
+    {
+        Log("Heap: Allocation of new heap segment size ");
+        LogSize(spaceSize);
+        Log(" failed.  Limit reached?\n");
     }
     return 0; // Insufficient space
 }
