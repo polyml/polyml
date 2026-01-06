@@ -1,7 +1,7 @@
 /*
     Title:  heapsizing.cpp - parameters to adjust heap size
 
-    Copyright (c) Copyright David C.J. Matthews 2012, 2015, 2017, 2023
+    Copyright (c) Copyright David C.J. Matthews 2012, 2015, 2017, 2023, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -114,6 +114,12 @@ HeapSizeParameters::HeapSizeParameters()
     // Initial values until we've actually done a sharing pass.
     sharingRecoveryRate = 0.5; // The structure sharing recovers half the heap.
     sharingCostFactor = 2; // It doubles the cost
+    allowGCSharing = false;
+    currentSpaceUsed = 0;
+    heapSizeAtStart = 0;
+    lastMajorGCRatio = 0;
+    majorGCPageFaults = minorGCPageFaults = minorGCsSinceMajor = 0;
+    predictedRatio = userGCRatio = 0;
 }
 
 // These macros were originally in globals.h and used more generally.
@@ -137,7 +143,7 @@ static size_t GetPhysicalMemorySize(void);
 
 // Set the initial size based on any parameters specified on the command line.
 // Any of these can be zero indicating they should default.
-void HeapSizeParameters::SetHeapParameters(uintptr_t minsize, uintptr_t maxsize, uintptr_t initialsize, unsigned percent)
+void HeapSizeParameters::SetHeapParameters(uintptr_t minsize, uintptr_t maxsize, uintptr_t initialsize, unsigned percent, bool gcshare)
 {
     minHeapSize = K_to_words(minsize); // If these overflow assume the result will be zero
     maxHeapSize = K_to_words(maxsize);
@@ -172,6 +178,8 @@ void HeapSizeParameters::SetHeapParameters(uintptr_t minsize, uintptr_t maxsize,
     }
     // Together with the constraints on user settings that ensures this holds.
     ASSERT(initialSize >= minHeapSize && initialSize <= maxHeapSize);
+
+    allowGCSharing = gcshare;
 
     // Initially we divide the space equally between the major and
     // minor heaps.  That means that there will definitely be space
@@ -385,13 +393,13 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
         performSharingPass = false;
         cumulativeSharingSaving = 0;
     }
-    else
+    else if (allowGCSharing)
     {
         uintptr_t newHeapSizeWithSharing;
         double costWithSharing;
         // Get the cost and heap size if sharing was enabled.  If we are at the
         // limit, though, we need to work using the size we can achieve.
-        if (! allocationFailedBeforeLastMajorGC)
+        if (!allocationFailedBeforeLastMajorGC)
             (void)getCostAndSize(newHeapSizeWithSharing, wordsRequired, costWithSharing, true);
         else
         {
@@ -428,6 +436,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
             }
         }
     }
+    else performSharingPass = false;
 
     if (debugOptions & DEBUG_HEAPSIZE)
     {
