@@ -857,18 +857,18 @@ struct
                               | updateContainer leafFn (Cond(i, t, e)) =
                                       Cond(i,updateContainer leafFn t,updateContainer leafFn e)
                               | updateContainer leafFn (Handle {exp, handler, exPacketAddr}) =
-                                      Handle{exp= updateContainer leafFn exp, handler = updateContainer leafFn exp, exPacketAddr},
+                                      Handle{exp= updateContainer leafFn exp, handler = updateContainer leafFn handler, exPacketAddr=exPacketAddr}
                               | updateContainer leafFn (BeginLoop {loop, arguments}) =
                                       BeginLoop {loop = updateContainer leafFn loop,arguments = arguments}
                               | updateContainer leafFn (SetContainer {tuple,...}) = leafFn tuple
-                              | updateContainer leafFn exp = exp
+                              | updateContainer _ exp = exp
                             val newSize = BoolVector.foldl (fn (true, n) => n+1 | (false, n) => n) 0 newFilter
                         in
                             if newSize = 1
                             then
                             let
                                 (* Find the offset *)
-                                val (offset,_) = valOf (BoolVector.findi (fn (i,b) => b) newFilter)
+                                val (offset,_) = valOf (BoolVector.findi (fn (_, b) => b) newFilter)
                                 val field = updateContainer (fn tuple => mkInd(offset, tuple)) setter
                                 fun mkFields n = if n = offset then field else CodeZero
                                 val fields = List.tabulate(BoolVector.length newFilter, mkFields)
