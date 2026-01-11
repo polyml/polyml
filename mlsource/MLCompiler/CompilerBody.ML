@@ -35,7 +35,6 @@ structure CompilerBody =
     structure PARSEDEC   = ParseDec
     structure DEBUG      = Debug
     structure UTILITIES  = Utilities
-    structure MISC       = Misc
     structure PRETTY     = Pretty
     structure EXPORTTREE = ExportTreeStruct
 ) ;
