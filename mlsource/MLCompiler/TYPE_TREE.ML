@@ -49,7 +49,6 @@ functor TYPE_TREE (
 (*                  TYPETREE functor body                                    *)
 (*****************************************************************************)
 struct
-  open Misc;
   open PRETTY;
   
   open STRUCTVALS;
@@ -85,7 +84,7 @@ struct
 
     (* This is really left over from an old definition. *)
     fun tcEquivalent(TypeConstrs{identifier = TypeId {idKind = TypeFn{resType, ...}, ...}, ...}) = resType
-    |   tcEquivalent _ = raise InternalError "tcEquivalent: Not a type function"
+    |   tcEquivalent _ = raise Misc.InternalError "tcEquivalent: Not a type function"
 
   (* A type construction is the application of a type constructor to
      a sequence of types to yield a type. A construction may have a nil
@@ -691,7 +690,7 @@ struct
                 BadType
         
         |   OverloadSet _ =>
-                raise InternalError "copyType: OverloadSet found"
+                raise Misc.InternalError "copyType: OverloadSet found"
 
     end (* copyType *)
 
@@ -778,7 +777,7 @@ struct
                 #1 (generaliseTypes(typeResult, getArg))
             end
 
-        |   TypeId _ => raise InternalError "makeEquivalent: Not a type function"
+        |   TypeId _ => raise Misc.InternalError "makeEquivalent: Not a type function"
 
   (* This 3-valued logic is used because in a few cases we may not be sure
      if equality testing is allowed. If we have 2 mutually recursive datatypes
@@ -896,7 +895,7 @@ struct
         |   OverloadSet _ =>
                 (* This should not happen because all overload sets should be pointed
                    to by type variables and so should be handled in the TypeVar case. *)
-                raise InternalError "equality - Overloadset found"
+                raise Misc.InternalError "equality - Overloadset found"
 
         |   BadType => No
 
@@ -1962,7 +1961,7 @@ struct
         in
             #1 (generaliseTypes(arg, getArg))
         end
-    | constructorResult _ = raise InternalError "Not a function type"
+    | constructorResult _ = raise Misc.InternalError "Not a function type"
 
     (* Look for the occurrence of locally declared datatypes in the type of a value. *)
     fun checkForEscapingDatatypes(ty: types, errorFn: string->unit) : unit =
@@ -2603,7 +2602,7 @@ struct
                                 tACons, prefType))
                 )
 
-            |   (OverloadSet _ , OverloadSet _) => raise InternalError "Unification: OverloadSet/OverloadSet"
+            |   (OverloadSet _ , OverloadSet _) => raise Misc.InternalError "Unification: OverloadSet/OverloadSet"
                 (* (OverloadSet , OverloadSet) should not occur because that should be
                  handled in the (TypeVar, TypeVar) case. *)
     
@@ -2744,7 +2743,7 @@ struct
     let
         (* Returns the result type of a function. *)
         fun getResult(FunctionType{result, ...}) = eventual result
-        |   getResult _ = raise InternalError "getResult - not a function";
+        |   getResult _ = raise Misc.InternalError "getResult - not a function";
 
         val arg = if isConverter then getResult t else firstArg t
     in
@@ -2759,7 +2758,7 @@ struct
             in
                 (t, [newSet])
             end
-          | _ => raise InternalError "generaliseOverload - arg is not a type var"
+          | _ => raise Misc.InternalError "generaliseOverload - arg is not a type var"
     end
     (* Prints out a type constructor e.g. type 'a fred = 'a * 'a
        or datatype 'a joe = bill of 'a list | mary of 'a * int or
@@ -2925,9 +2924,9 @@ struct
                     in
                         case preferredOverload typeset of
                             SOME tycons => freezeType tycons
-                        |   NONE => raise InternalError "typeConstrFromOverload: No matching type"
+                        |   NONE => raise Misc.InternalError "typeConstrFromOverload: No matching type"
                     end
-              | _ => raise InternalError "typeConstrFromOverload: No matching type" (* Unbound or flexible record. *)
+              | _ => raise Misc.InternalError "typeConstrFromOverload: No matching type" (* Unbound or flexible record. *)
             )
      |  prefType(TypeConstruction{constr, args, ...}) =
             if not (tcIsAbbreviation constr)
@@ -2935,7 +2934,7 @@ struct
                            in the special case of looking for an equality
                            function for 'a ref or 'a array it may not be.  *)
             else prefType (makeEquivalent (constr, args))
-     |  prefType _ = raise InternalError "typeConstrFromOverload: No matching type"
+     |  prefType _ = raise Misc.InternalError "typeConstrFromOverload: No matching type"
     in
         prefType(firstArg(eventual f))
     end;
@@ -3044,7 +3043,7 @@ struct
                                         SOME tycons =>
                                             tvSetValue(tvar,
                                                 mkTypeConstruction(tcName tycons, tycons, [], []))
-                                    |   NONE => raise InternalError "general: No matching type"
+                                    |   NONE => raise Misc.InternalError "general: No matching type"
                                 )
                             |   _ => ();
                             (isOk, nonExpansive)
@@ -3175,7 +3174,7 @@ struct
         entryNumber (label, tcEquivalent constr)
       
    | entryNumber _ =
-        raise InternalError "entryNumber - not a record"
+        raise Misc.InternalError "entryNumber - not a record"
 
   (* Size of a labelled record. *)
 
@@ -3189,12 +3188,12 @@ struct
         recordWidth (tcEquivalent constr)
       
    | recordWidth _ =
-        raise InternalError "entryNumber - not a record"
+        raise Misc.InternalError "entryNumber - not a record"
 
     fun recordFieldMap f (LabelledType{recList, ...}) = List.map (f o (fn {typeof, ...} => typeof)) recList
     |   recordFieldMap f (TypeVar tvar) = recordFieldMap f (tvValue tvar)
     |   recordFieldMap f (TypeConstruction{constr, ...}) = recordFieldMap f (tcEquivalent constr)
-    |   recordFieldMap _ _ = raise InternalError "entryNumber - not a record"
+    |   recordFieldMap _ _ = raise Misc.InternalError "entryNumber - not a record"
 
     (* Unify two type variables which would otherwise be non-unifiable.
        Used when we have found a local type variable with the same name
