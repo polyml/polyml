@@ -29,7 +29,6 @@ struct
     open CodeArray
     open Debug
     open Address
-    open Misc
 
     infix 5 << <<+ <<- >> >>+ >>- ~>> ~>>+ ~>>- (* Shift operators *)
     infix 3 andb orb xorb andbL orbL xorbL andb8 orb8 xorb8
