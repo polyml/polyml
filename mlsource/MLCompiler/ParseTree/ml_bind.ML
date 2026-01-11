@@ -99,7 +99,6 @@ local
             structure VALUEOPS   = ValueOps
             structure DATATYPEREP = DatatypeRep
             structure DEBUG      = Debug
-            structure MISC          = Misc
             structure ADDRESS    = Address
         )
     
