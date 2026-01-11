@@ -1020,14 +1020,12 @@ struct
                          we use this environment and not the signature we're creating. *)
                       val newEnv = 
                          {
-                          lookupVal     = #lookupVal    structEnv,
-                          lookupType    =
-                            Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
-                          lookupFix     = #lookupFix    structEnv,
-                          lookupStruct  =
-                            Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
-                          lookupSig     = #lookupSig    structEnv,
-                          lookupFunct   = #lookupFunct  structEnv,
+                          lookupVal     = #lookupVal structEnv,
+                          lookupType    = Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
+                          lookupFix     = #lookupFix structEnv,
+                          lookupStruct  = Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
+                          lookupSig     = #lookupSig structEnv,
+                          lookupFunct   = #lookupFunct structEnv,
                           enterVal      = #enterVal structEnv,
                           enterType     = #enterType structEnv,
                           enterStruct   = #enterStruct structEnv,
@@ -1059,10 +1057,8 @@ struct
                     fun lookup(s, locn) =
                     lookupTyp
                       ({
-                        lookupType   =
-                            Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
-                        lookupStruct =
-                            Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)
+                        lookupType   = Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
+                        lookupStruct = Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)
                        },
                      s,
                      giveSpecError (signat, locn, lex));
@@ -1093,10 +1089,8 @@ struct
                   fun lookup(s, _) =
                     lookupTyp
                       ({
-                        lookupType   =
-                            Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
-                        lookupStruct =
-                            Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)
+                        lookupType   = Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
+                        lookupStruct = Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)
                        },
                      s,
                      errorFn);
@@ -1129,13 +1123,11 @@ struct
                         val includeEnv =
                         {
                             lookupVal     = #lookupVal structEnv,
-                            lookupType    =
-                                Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
+                            lookupType    = Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
                             lookupFix     = #lookupFix structEnv,
-                            lookupStruct  =
-                                Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
-                            lookupSig     = #lookupSig    structEnv,
-                            lookupFunct   = #lookupFunct  structEnv,
+                            lookupStruct  = Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
+                            lookupSig     = #lookupSig structEnv,
+                            lookupFunct   = #lookupFunct structEnv,
                             enterVal      = #enterVal structEnv,
                             enterType     = #enterType structEnv,
                             enterStruct   = #enterStruct structEnv,
