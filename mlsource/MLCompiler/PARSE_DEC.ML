@@ -72,8 +72,6 @@ sharing type SYMSET.symset = SKIPS.symset
 (*                  PARSEDEC functor body                                    *)
 (*****************************************************************************)
 struct
- open Misc;
- 
  open SYMBOLS
  open SYMSET;   infix 9 ++; infix 4 inside;
  open LEX;
@@ -125,7 +123,7 @@ struct
   in
     {
       enterFix      = #enter newFixEnv,
-      lookupFix     = lookupDefault (#lookup newFixEnv) lookupFix,
+      lookupFix     = Misc.lookupDefault (#lookup newFixEnv) lookupFix,
       lookupTvar    = lookupTvar
     }
   end;
