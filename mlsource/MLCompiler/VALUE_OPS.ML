@@ -64,7 +64,6 @@ sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing = LEX.Sharing = PRETTY.Sharing
 (*                  VALUEOPS functor body                                    *)
 (*****************************************************************************)
 struct
-  open Misc;
   open PRETTY;
   
   open LEX;
@@ -526,7 +525,7 @@ struct
                         (* Sort the list and print it. *)
                         List.foldl
                             (fn (a, l) => displaySpec a @ l)
-                            [] (quickSort order (!declist))
+                            [] (Misc.quickSort order (!declist))
                     end
                 )
                 @ [PrettyBreak (1, 0), PrettyString "end"]
@@ -656,7 +655,7 @@ struct
     |   codeAccess (Selected{addr, base}, level) = (* Select from a structure. *)
             mkInd (addr, codeAccess (base, level))
      
-    | codeAccess _ = raise InternalError "No access"
+    | codeAccess _ = raise Misc.InternalError "No access"
 
 (*****************************************************************************)
 (*                  datatype access functions                                *)
@@ -670,7 +669,7 @@ struct
     let
         val constr as TypeConstrs {name=tcName,...} = typeConstrFromOverload(instance, isConv)
     in
-        (getOverload(name, constr, fn _ => raise InternalError "getOverloadInstance: Missing"), tcName)
+        (getOverload(name, constr, fn _ => raise Misc.InternalError "getOverloadInstance: Missing"), tcName)
     end
 
     (* This is only used in addPrettyPrint.  There's no point in
@@ -745,7 +744,7 @@ struct
        applyToInstanceType(instance, class, level, typeVarMap, fn level => mkInd (addr, codeAccess (base, level)))
 
   |  codeVal (Value{access = Formal _, ...}, _, _, _, _, _) =
-          raise InternalError "codeVal - Formal"
+          raise Misc.InternalError "codeVal - Formal"
 
   |  codeVal (Value{access = Overloaded Print, ...}, _, _, [], lex, _) =
         (* If this appears in a structure return a null printer function.
@@ -811,7 +810,7 @@ struct
         end
 
   |  codeVal (Value{access = Overloaded Print, ...}, _, _, _, _, _) =
-        raise InternalError "Overloaded Print - wrong instance type"
+        raise Misc.InternalError "Overloaded Print - wrong instance type"
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, [], _, _) =
         let
@@ -842,7 +841,7 @@ struct
         end
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, _, _, _) =
-        raise InternalError "Overloaded MakeString - wrong instance type"
+        raise Misc.InternalError "Overloaded MakeString - wrong instance type"
 
   |  codeVal (Value{access = Overloaded GetPretty, ...}, level, typeVarMap, [], _, _) =
         let
@@ -857,7 +856,7 @@ struct
             printerForType(argType, level, typeVarMap)
 
   |  codeVal (Value{access = Overloaded GetPretty, ...}, _, _, _, _, _) =
-        raise InternalError "Overloaded GetPretty - wrong instance type"
+        raise Misc.InternalError "Overloaded GetPretty - wrong instance type"
 
   |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, [], _, _) =
         let
@@ -1001,7 +1000,7 @@ struct
         end
 
   |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, _, _, _) =
-        raise InternalError "Overloaded AddPretty - wrong instance type"
+        raise Misc.InternalError "Overloaded AddPretty - wrong instance type"
 
   |  codeVal (Value{access = Overloaded GetLocation, ...}, _, _, _, _, _) =
         (* This can't be used a value: It must be called immediately. *)
@@ -1059,7 +1058,7 @@ struct
                 val argType =
                     case instance of
                         [{value, ...}] => value
-                    |   _ => raise InternalError "Overload Equal"
+                    |   _ => raise Misc.InternalError "Overload Equal"
                 (* The instance type is a function so we have to get the first argument. *)
                 val code = equalityForType(argType, level, typeVarMap)
             in
@@ -1072,7 +1071,7 @@ struct
                 val argType =
                     case instance of
                         [{value, ...}] => value
-                    |   _ => raise InternalError "Overload NotEqual"
+                    |   _ => raise Misc.InternalError "Overload NotEqual"
                 (* Use the "=" function to provide inequality as well as equality. *)
                 val code = equalityForType(argType, level, typeVarMap)
                 val isEqual = mkEval (code, [argument])
@@ -1085,7 +1084,7 @@ struct
                 val argType =
                     case instance of
                         [{value, ...}] => value
-                    |   _ => raise InternalError "Overload TypeDep"
+                    |   _ => raise Misc.InternalError "Overload TypeDep"
              val (code, _) = getOverloadInstance(valName, argType, false)
            in
              mkEval (code, [argument])
@@ -1208,7 +1207,7 @@ struct
         mkEqualPointerOrWord (mkInd (0, testing),
                         codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
 
-    |   makeGuard _ = raise InternalError "makeGuard"
+    |   makeGuard _ = raise Misc.InternalError "makeGuard"
 
     (* Code to invert a constructor. i.e. return the value originally used as the argument.
        Apply to any polymorphic variables and construct a result. *)
@@ -1235,7 +1234,7 @@ struct
                on the exception id. *)
             mkVarField (2,arg)
 
-    |   makeInverse _ = raise InternalError "makeInverse"
+    |   makeInverse _ = raise Misc.InternalError "makeInverse"
 
     (* Work out the polymorphism and the mapping between the formal
        type variables and the actual types.  Because flexible records
@@ -1276,7 +1275,7 @@ struct
         in
             SOME(RunCall.unsafeCast(valOf(evalue conv)) literal)
                 handle Match => NONE (* Overload error *)
-                  | Conversion s =>
+                  | Misc.Conversion s =>
                         (
                             error("Conversion exception ("^s^") raised while converting " ^
                                     literal ^ " to " ^ name);
