@@ -249,10 +249,40 @@ void ModuleExporter::RunModuleExport(PolyObject* rootFn)
 {
     PolyObject* copiedRoot = 0;
     CopyScan copyScan;
-    // Set the dependencies.
+
+    // Set the dependencies.  These are included first since the caller may have provided names.
     copyScan.dependencies[exportSignature] = true; // Always include the executable
     for (std::vector<ModIdAndName>::iterator i = dependencies.begin(); i < dependencies.end(); i++)
         copyScan.dependencies[i->modId] = true;
+    // Add any further dependencies to produce the transitive closure.
+    // Can't use an iterator here because the size may increase.  Actually, every dependency will
+    // already include the transitive closure of its dependencies so it isn't necessary to look
+    // deeper.
+    for (std::vector<ModIdAndName>::size_type i = 0; i < dependencies.size(); i++)
+    {
+        ModuleId m = dependencies[i].modId;
+        for (std::vector<LoadedModuleData>::const_iterator j = loadedModules.cbegin(); j != loadedModules.cend(); j++)
+        {
+            // Find the entry in the loaded module table.  It should be there somewhere.
+            if (j->modId == m)
+            {
+                // Add all the dependencies if they're not already there.
+                for (std::vector<ModuleId>::const_iterator k = j->modDependencies.cbegin(); k < j->modDependencies.cend(); k++)
+                {
+                    if (!copyScan.dependencies[k->modId])
+                    {
+                        ModIdAndName m;
+                        m.modId = k->modId;
+                        // Add this to the end.  It will be processed later but the sub-dependencies should already be there.
+                        dependencies.push_back(m);
+                        copyScan.dependencies[k->modId] = true; // Don't need to add it again.
+                    }
+                }
+
+                break; // Don't need to search further
+            }
+        }
+    }
 
     try {
         copyScan.initialise();
