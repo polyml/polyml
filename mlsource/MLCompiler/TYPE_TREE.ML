@@ -40,22 +40,15 @@ functor TYPE_TREE (
         val splitString:   string -> { first:string, second:string }
     end;
 
-    structure MISC :
-    sig
-        exception InternalError of string;
-  
-        val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
-    end;
-
     sharing LEX.Sharing = PRETTY.Sharing = EXPORTTREE.Sharing = STRUCTVALS.Sharing
           = CODETREE.Sharing
 
 ) :  TYPETREESIG =
 
 struct
-  open MISC;
     open PRETTY;
-
+    open Misc;
+    open PRETTY;
     open STRUCTVALS;
     open LEX;
     open UTILITIES;
