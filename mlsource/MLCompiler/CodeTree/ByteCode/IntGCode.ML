@@ -43,7 +43,6 @@ struct
     open CodeCons
     open Address
     open BackendTree
-    open Misc
     open CodeArray
 
     val word0 = toMachineWord 0;
