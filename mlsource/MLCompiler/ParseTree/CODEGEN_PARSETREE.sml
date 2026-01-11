@@ -70,7 +70,6 @@ struct
     open DEBUG
     open STRUCTVALS
     open VALUEOPS
-    open Misc
     open DATATYPEREP
     open DEBUGGER
 
@@ -106,7 +105,7 @@ struct
     fun mkArgTuple(from, nTuple) =
         if nTuple = 1 (* "tuple" is a singleton *)
         then mkLoadArgument from
-        else if nTuple <= 0 then raise InternalError "mkArgTuple"
+        else if nTuple <= 0 then raise Misc.InternalError "mkArgTuple"
         else mkTuple(List.tabulate(nTuple, fn n => mkLoadArgument(n+from)))
 
     (* Load args by selecting from a tuple. *)
@@ -159,7 +158,7 @@ struct
            executed. *)
           tupleWidth exp
 
-    |  tupleWidth(Localdec{body=[], ...}) = raise InternalError "tupleWidth: empty localdec"
+    |  tupleWidth(Localdec{body=[], ...}) = raise Misc.InternalError "tupleWidth: empty localdec"
 
     |  tupleWidth(Localdec{body, ...}) =
           (* We are only interested in the last expression. *)
@@ -357,7 +356,7 @@ struct
                 (* Make an argument list from the variables bound in the pattern. *)
                 fun makeArg(Value{access=Local{addr=ref lvAddr, ...}, ...}) =
                         mkLoadLocal lvAddr
-                |   makeArg _ = raise InternalError "makeArg"
+                |   makeArg _ = raise Misc.InternalError "makeArg"
                 val argsForCall = List.map makeArg thisVars
             in
                 mkEval(mkLoadLocal (baseAddr + pattChosenIndex), argsForCall)
@@ -431,7 +430,7 @@ struct
                        same time create a debugging environment if required. *)
                     fun setAddr (Value{access=Local{addr=lvAddr, level=lvLevel}, ...}, localAddr) =
                         (lvAddr  := localAddr; lvLevel := functionLevel)
-                    |   setAddr _ = raise InternalError "setAddr"
+                    |   setAddr _ = raise Misc.InternalError "setAddr"
                 in
                     val _ = ListPair.appEq setAddr (pattVars, localAddresses)
                 end
@@ -528,7 +527,7 @@ struct
             (* There was previously a special case to optimise unary tuples but I can't
                understand how they can occur.  Check this and remove the special case
                if it really doesn't. *)
-            raise InternalError "codegen: Unary tuple" (*codegen (pt, context)*)
+            raise Misc.InternalError "codegen: Unary tuple" (*codegen (pt, context)*)
 
     |   codeGenerate(TupleTree{fields, ...}, context as { debugEnv, ...}) = (* Construct a vector of objects. *)
             (mkTuple(map (fn x => codegen (x, context)) fields), debugEnv)
@@ -564,7 +563,7 @@ struct
                 end
         in
             (* Create the record and package it up as a block. *)
-            (mkEnv (declist recList (fn _ => raise InternalError "missing in record")), debugEnv)
+            (mkEnv (declist recList (fn _ => raise Misc.InternalError "missing in record")), debugEnv)
         end
 
     |   codeGenerate(c as Selector {name, labType, location, ...}, { decName, lex, debugEnv, ...}) =
@@ -652,7 +651,7 @@ struct
     |   codeGenerate(ExpSeq(ptl, _), context as { debugEnv, ...}) =
           (* Sequence of expressions. Discard results of all except the last.*)
             let
-                fun codeList ([], _) = raise InternalError "ExpSeq: empty sequence"
+                fun codeList ([], _) = raise Misc.InternalError "ExpSeq: empty sequence"
                  |  codeList ((p, bpt)::tl, d) =
                     let
                         val (bptCode, newEnv) =
@@ -754,7 +753,7 @@ struct
         fun getFnBody (Constraint {value, ...}) = getFnBody value
         |   getFnBody (Fn{matches, ...})  = matches
         |   getFnBody (Parenthesised(p, _)) = getFnBody p
-        |   getFnBody _ = raise InternalError "getFnBody: not a constrained fn-expression";
+        |   getFnBody _ = raise Misc.InternalError "getFnBody: not a constrained fn-expression";
 
         val f        = getFnBody c;
         (* This function comprises a new declaration level *)
@@ -770,7 +769,7 @@ struct
         val (firstPat, resType, argType) = 
             case f of 
                 MatchTree {vars, resType = ref rtype, argType = ref atype, ...} :: _  => (vars, rtype, atype)
-            |   _ => raise InternalError "codeLambda: body of fn is not a clause list";
+            |   _ => raise Misc.InternalError "codeLambda: body of fn is not a clause list";
 
         val tupleSize = List.length(tupleWidth firstPat)
     in
@@ -920,7 +919,7 @@ struct
                 val (lvAddr, lvLevel, exType) =
                     case ex of
                         Value{access=Local{addr, level}, typeOf=ValueType(typeOf, _), ...} => (addr, level, typeOf)
-                    |   _ => raise InternalError "lvAddr"
+                    |   _ => raise Misc.InternalError "lvAddr"
             in
                 lvAddr  := mkAddr 1;
                 lvLevel := level;
@@ -940,7 +939,7 @@ struct
                           (* Copy the previous value. N.B. We want the exception
                            identifier here so we can't call codegen. *)
                         codeVal (prevVal, level, [], lex, location)
-                  | _ => raise InternalError "codeEx"
+                  | _ => raise Misc.InternalError "codeEx"
                  )
             end  (* codeEx *);
 
@@ -996,7 +995,7 @@ struct
                             lev := level;
                             mkDec(newAddr, repr)
                         end
-                    |   decCons _ = raise InternalError "decCons: Not local"
+                    |   decCons _ = raise Misc.InternalError "decCons: Not local"
                     val constrDecs = ListPair.map decCons (constrs, reprs)
                     val (newDecs, newDebug) =
                         makeDebugEntries(constrs, codeSeqContext |> repDebugEnv debugEnv)
@@ -1105,7 +1104,7 @@ struct
             fun setValueAddress(
                   FValBind{functVar = ref(Value{access=Local{addr, level}, ...}), ...}, ad, lev) =
                     (addr := ad; level := lev)
-            |   setValueAddress _ = raise InternalError "setValueAddress"
+            |   setValueAddress _ = raise Misc.InternalError "setValueAddress"
 
             (* Create a list of addresses for the functions.  This is the address
                used for the most general case.  Also set the variable addresses.
@@ -1122,8 +1121,7 @@ struct
                 let
                     (* Make up the function, and if there are several mutually
                        recursive functions, put it in the vector. *)
-                    val procName  = decName ^ name;
-
+                    val procName  = decName ^ name
                     (* Produce a list of the size of any tuples or labelled records
                        in the first clause. Tuples in the first clause are passed as
                        separate arguments. We could look at the other clauses and only
@@ -1139,7 +1137,7 @@ struct
                     val tupleSeq : argumentType list list =
                         case clauses of
                             (FValClause{dec= { args, ...}, ...} :: _) => List.map tupleWidth args
-                        |   _ => raise InternalError "badly formed parse tree";
+                        |   _ => raise Misc.InternalError "badly formed parse tree";
 
                     local
                         fun getResultTuple(FValClause{exp, ...}) = tupleWidth exp
@@ -1156,7 +1154,7 @@ struct
                             else resultTuples
                     in
                         val resTupleLength = List.length resultTuple
-                        (*val _ = resTupleLength = 1 orelse raise InternalError "resTupleLength <> 1"*)
+                        (*val _ = resTupleLength = 1 orelse raise Misc.InternalError "resTupleLength <> 1"*)
                         (* If there's a single argument return the type of that otherwise if we're tupling the
                            result is general. *)
                         val (resultType, extraArg) = case resultTuple of [one] => (one, 0) | _ => (GeneralType, 1)
@@ -1316,7 +1314,7 @@ struct
                         end
 
                         val () =
-                            if List.length argTypes = totalArgs then () else raise InternalError "Argument length problem"
+                            if List.length argTypes = totalArgs then () else raise Misc.InternalError "Argument length problem"
                     in
                         val innerFun =
                             mkFunction{
@@ -1419,7 +1417,7 @@ struct
                 fun getMatches (Fn { matches: matchtree list, ... })  = matches
                 |   getMatches (Constraint {value, ...}) = getMatches value
                 |   getMatches (Parenthesised(p, _)) = getMatches p
-                |   getMatches _       = raise InternalError "getMatches"
+                |   getMatches _       = raise Misc.InternalError "getMatches"
 
                 fun matchTreeToClause(MatchTree{vars, exp, location, breakPoint, ...}) =
                 let
@@ -1438,7 +1436,7 @@ struct
                     and resultType = mkTypeVar(Generalisable, false)
                     val () =
                         if isSome(unifyTypes(SimpleInstance typeOf, SimpleInstance(mkFunctionType(argType, resultType))))
-                        then raise InternalError "mkFValBind"
+                        then raise Misc.InternalError "mkFValBind"
                         else ()
                 in
                     FValBind { clauses=clauses, numOfPatts=ref 1, functVar=ref var,
@@ -1489,7 +1487,7 @@ struct
                     if getParameter reportUnreferencedIdsTag (debugParams lex)
                     then List.app (reportUnreferencedValue lex) (getVariablesInPatt(vbDec, []))
                     else ()
-                
+
                 val resultCode = #dec decCode @ bindCode
             in
                 otherDecs @ resultCode
