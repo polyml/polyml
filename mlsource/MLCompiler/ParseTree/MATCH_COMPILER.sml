@@ -63,7 +63,6 @@ struct
     open DEBUG
     open STRUCTVALS
     open VALUEOPS
-    open Misc
     open DATATYPEREP
 
     datatype environEntry = datatype DEBUGGER.environEntry
@@ -295,7 +294,7 @@ struct
                 makeAot (Cons (addClist pl, width), defaults, vars)
             end
 
-        |   addConstr _ = raise InternalError "addConstr: badly-formed and-or tree"
+        |   addConstr _ = raise Misc.InternalError "addConstr: badly-formed and-or tree"
 
             (* Add a special constructor to the tree.  Very similar to preceding. *)
         fun addSconstr(eqFun, cval, Aot {patts = Wild, defaults, vars, ...}, patNo, _) =
@@ -328,7 +327,7 @@ struct
                 makeAot (Scons (addClist pl), defaults, vars)
             end
 
-        |   addSconstr _ = raise InternalError "addSconstr: badly-formed and-or tree"
+        |   addSconstr _ = raise Misc.InternalError "addSconstr: badly-formed and-or tree"
 
         (* Return the exception id if it is a constant.  It may be a
            top-level exception or it could be in a top-level structure. *)
@@ -380,7 +379,7 @@ struct
                 makeAot (Excons (addClist cl), defaults, vars)
             end
       
-        |   addExconstr _ = raise InternalError "addExconstr: badly-formed and-or tree"
+        |   addExconstr _ = raise Misc.InternalError "addExconstr: badly-formed and-or tree"
     in
 
         (* Take a pattern and merge it into an andOrTree. *)
@@ -423,7 +422,7 @@ struct
 
 
         |   buildAot (TupleTree _, _, _, _, _) =
-                raise InternalError "pattern is not a tuple in a-o-t"
+                raise Misc.InternalError "pattern is not a tuple in a-o-t"
 
         |   buildAot (vars as Labelled {recList, expType=ref expType, location, ...},
                       tree, patNo, _, context as { lex, ...}) =
@@ -449,7 +448,7 @@ struct
                 (* Take a pattern and add it into the list. *)
                 fun mergen (_ :: t) 0 pat = pat :: t
                 |   mergen (h :: t) n pat = h :: mergen t (n - 1) pat
-                |   mergen []       _ _   = raise InternalError "mergen";
+                |   mergen []       _ _   = raise Misc.InternalError "mergen";
 
                 fun enterLabel ({name, valOrPat, ...}, l) = 
                     (* Put this label in the appropriate place in the tree. *)
@@ -509,7 +508,7 @@ struct
                                 makeAot (TupleField tlist, defaults, vars)
                             end
                         | mkConsPat _ = 
-                            raise InternalError "mkConsPat: badly-formed parse-tree"
+                            raise Misc.InternalError "mkConsPat: badly-formed parse-tree"
                     in
                         addConstr(consConstructor, 2, mkConsPat, tree, patNo)
                     end
@@ -577,7 +576,7 @@ struct
                 lvLevel := level
             )
 
-        | setAddr _ = raise InternalError "setAddr"
+        | setAddr _ = raise Misc.InternalError "setAddr"
 
         val () = List.app setAddr vars
      in
@@ -1027,7 +1026,7 @@ struct
                                 (* This is the last pattern and we have done all the others.
                                    We don't need to test this one and we don't use the default. *)
                                 let
-                                    val _ = null rest orelse raise InternalError "doPattern: not at end"
+                                    val _ = null rest orelse raise Misc.InternalError "doPattern: not at end"
                                     val invertCode = makeInverse (cons, declLoad, level)
                                 in
                                     codeMatch(code, invertCode, tupleMap)
@@ -1050,7 +1049,7 @@ struct
                     |   PattCodeNaive patterns =>
                         let
 
-                            fun makePatterns [] = raise InternalError "makeTests: empty"
+                            fun makePatterns [] = raise Misc.InternalError "makeTests: empty"
                             |   makePatterns ({ tests, pattNo} :: rest) =
                                 let
                                     val pattDecs = makeLoads(tests, pattNo, arg, tupleMap, context)
@@ -1091,7 +1090,7 @@ struct
                 declDec :: testCode @ pattDecs
             end
 
-        |   codeBinding _ = raise InternalError "codeBinding: should be naive pattern match"
+        |   codeBinding _ = raise Misc.InternalError "codeBinding: should be naive pattern match"
     end
 
     fun containsNonConstException(Aot{patts = TupleField fields, ...}) =
@@ -1146,7 +1145,7 @@ struct
 
         fun firePatt 0 =
         (
-            exhaustive andalso raise InternalError "codeDefault called but exhaustive";
+            exhaustive andalso raise Misc.InternalError "codeDefault called but exhaustive";
             if isHandlerMatch
             then mkRaise arg
             else raiseMatchException lineNo
