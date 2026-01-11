@@ -80,7 +80,6 @@ struct
     open CODETREE;
     open ADDRESS;
     open MAKE;
-    open Misc;
     open EXPORTTREE
     open DATATYPEREP
 
@@ -1138,7 +1137,7 @@ struct
                     then StringCvt.HEX else StringCvt.DEC
                 in
                     case StringCvt.scanString (Int.scan radix) s of
-                        NONE => raise Conversion "Invalid integer constant"
+                        NONE => raise Misc.Conversion "Invalid integer constant"
                       | SOME res => res
                 end
         
@@ -1149,7 +1148,7 @@ struct
                     then StringCvt.HEX else StringCvt.DEC
                 in
                     case StringCvt.scanString (Word.scan radix) s of
-                        NONE => raise Conversion "Invalid word constant"
+                        NONE => raise Misc.Conversion "Invalid word constant"
                       | SOME res => res
                 end
             
@@ -1161,19 +1160,19 @@ struct
             in
                 case Char.scan rdr 0 of
                     NONE => (* Bad conversion *)
-                        raise Conversion "Invalid string constant"
+                        raise Misc.Conversion "Invalid string constant"
                 |   SOME(res, _) => res
             end
             
             open PRINTTABLE
             
-            val convstringCode = genCode(mkConst(toMachineWord unescapeString), [], 0) ()
+            val convstringCode = genCode(mkConst(toMachineWord Misc.unescapeString), [], 0) ()
             val convintCode = genCode(mkConst(toMachineWord intOfString), [], 0) ()
             val convwordCode = genCode(mkConst(toMachineWord wordOfString), [], 0) ()
             val convcharCode = genCode(mkConst(toMachineWord unescapeChar), [], 0) ()
         in
             (* We need this for compatibility with the 5.8.2 bootstrap. *)
-            val () = addVal ("convString", unescapeString: string -> string, String ->> String)
+            val () = addVal ("convString", Misc.unescapeString: string -> string, String ->> String)
             (* Flag to indicate which version of Int to compile *)
             val () = addVal ("intIsArbitraryPrecision", intIsArbitraryPrecision, Bool)
             (* Install the overloads now. *)
