@@ -37,8 +37,6 @@ sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing
 ) : DATATYPEREPSIG =
 
 struct
-    open Misc;
-
     open CODETREE;
     open TYPESTRUCT; (* Open this first because unitType is in STRUCTVALS as well. *)
     open Universal; (* for tag etc. *)
@@ -390,7 +388,7 @@ struct
         val valConstrsAndDecs = mkValConstrs dtype
         (* The constructors have to be ordered as in genValueConstrs in PARSE_TREE. *)
         fun leq (Value{name=xname, ...}, _) (Value{name=yname, ...}, _) = xname < yname;
-        val sortedConstrs = quickSort leq valConstrsAndDecs;
+        val sortedConstrs = Misc.quickSort leq valConstrsAndDecs;
         val initialTypeSet = TypeConstrSet(dtype, (List.map #1 valConstrsAndDecs))
         val addrs = ref 0
         fun mkAddrs n = ! addrs before (addrs := !addrs+n)
@@ -403,7 +401,7 @@ struct
                 level := baseLevel;
                 (mkDec(newAddr, repr), mkLoadLocal newAddr)
             end
-        |   declConstr _ = raise InternalError "declConstr: not local"
+        |   declConstr _ = raise Misc.InternalError "declConstr: not local"
         val (declConstrs, loadConstrs) = ListPair.unzip(List.map declConstr sortedConstrs)
 
         (* Create the datatype.  Sets the address of the local in "id". *)
@@ -467,7 +465,7 @@ struct
             case listConstr of
                 TypeConstrSet(_, [consC as Value{name="::", ...}, nilC as Value{name="nil", ...}]) =>
                         (nilC, consC)
-            |   _ => raise InternalError "nil and cons in wrong order"
+            |   _ => raise Misc.InternalError "nil and cons in wrong order"
     end
 
     local
@@ -492,7 +490,7 @@ struct
         val (noneConstructor, someConstructor) =
             case optionConstr of
                 TypeConstrSet(_, [noneC as Value{name="NONE", ...}, someC as Value{name="SOME", ...}]) => (noneC, someC)
-            |   _ => raise InternalError "NONE and SOME in wrong order"
+            |   _ => raise Misc.InternalError "NONE and SOME in wrong order"
     end
 
     local
