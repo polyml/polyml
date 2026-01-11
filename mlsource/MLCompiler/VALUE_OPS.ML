@@ -40,15 +40,6 @@ sig
 end;
 
 structure DEBUG : DEBUG
-
-structure MISC :
-sig
-    exception InternalError of string; (* compiler error *)
-    exception Conversion of string     (* string to int conversion failure *)
-
-    val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
-end;
-
 structure PRETTY : PRETTY
 structure ADDRESS : AddressSig
 
@@ -64,7 +55,7 @@ structure TYPEIDCODE: TYPEIDCODESIG
 structure DATATYPEREP: DATATYPEREPSIG
 
 sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing = LEX.Sharing = PRETTY.Sharing
-      = COPIER.Sharing = CODETREE.Sharing = PRINTTABLE = ADDRESS = UNIVERSALTABLE = MISC
+      = COPIER.Sharing = CODETREE.Sharing = PRINTTABLE = ADDRESS = UNIVERSALTABLE
       = TYPEIDCODE.Sharing = DATATYPEREP.Sharing
 
 ) : VALUEOPSSIG =
@@ -73,7 +64,7 @@ sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing = LEX.Sharing = PRETTY.Sharing
 (*                  VALUEOPS functor body                                    *)
 (*****************************************************************************)
 struct
-  open MISC; 
+  open Misc;
   open PRETTY;
   
   open LEX;

@@ -27,7 +27,6 @@ structure ValueOps =
     structure UNIVERSALTABLE = UniversalTable
     structure DEBUG      = Debug
     structure ADDRESS    = Address
-    structure MISC        = Misc
     structure PRETTY     = Pretty
     structure UNIVERSAL     = Universal
     structure UTILITIES     = Utilities
