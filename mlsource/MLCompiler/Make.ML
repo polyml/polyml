@@ -22,7 +22,6 @@ structure Make =
     structure STRUCTVALS = StructVals;
     structure LEX = Lex;
     structure COMPILERBODY = CompilerBody;
-    structure MISC = Misc;
     structure UNIVERSALTABLE = UniversalTable
     structure DEBUG = Debug
     structure PRETTY = Pretty
