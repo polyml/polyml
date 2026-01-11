@@ -68,7 +68,6 @@ functor SIGNATURES (
 
 ) : SIGNATURESSIG =
 struct
-    open Misc (* Open this first because it contains Value. *)
     open LEX STRUCTVALS EXPORTTREE PRETTY COPIER TYPETREE PARSETREE UNIVERSALTABLE DEBUG
     open VALUEOPS UTILITIES Universal
 
@@ -500,7 +499,7 @@ struct
             case StretchArray.sub(mapArray, n) of
                 SharedWith m =>
                     if m >= n
-                    then raise InternalError "realId: Sharing loop"
+                    then raise Misc.InternalError "realId: Sharing loop"
                     else realId m
             |   id => id
 
@@ -511,7 +510,7 @@ struct
                 case realId(offset-initTypeId) of
                     VariableSlot _ => true
                 |   FreeSlot _ => false
-                |   _ => raise InternalError "isVar"
+                |   _ => raise Misc.InternalError "isVar"
             )
         |   isVariableId _ (* Free or TypeFunction *) = false
 
@@ -547,7 +546,7 @@ struct
                 val resOffset = Int.min(off1, off2)
                 val setOffset = Int.max(off1, off2)
                 val isDatatype = isDatatype1 orelse isDatatype2
-                val _ = arity1 = arity2 orelse raise InternalError "linkFlexibleTypeIds: different arities"
+                val _ = arity1 = arity2 orelse raise Misc.InternalError "linkFlexibleTypeIds: different arities"
                 val newId =
                     makeBoundId(arity1, Formal 0, resOffset, pling eqType1 orelse pling eqType2,
                                 isDatatype, description (* Not used *))
@@ -557,9 +556,9 @@ struct
                 StretchArray.update(mapArray, resOffset-initTypeId, newEntry);
                 StretchArray.update(mapArray, setOffset-initTypeId, SharedWith(resOffset-initTypeId))
             end
-            |   _ => raise InternalError "linkFlexibleTypeIds: not variable"
+            |   _ => raise Misc.InternalError "linkFlexibleTypeIds: not variable"
         )
-        |   _ => raise InternalError "linkFlexibleTypeIds: not bound"
+        |   _ => raise Misc.InternalError "linkFlexibleTypeIds: not bound"
 
         local (* Sharing *)
             fun shareTypes(typeA as TypeConstrSet(constrA, _), aPath, aMap,
@@ -654,7 +653,7 @@ struct
                    same name so this means that we are bringing together items from
                    different structures.  Then filter the result to produce sets of items
                    with the same name.  Discard singletons in the result. *)
-                val sortedEntries = quickSort (fn (s1, _) => fn (s2, _) => s1 <= s2) entries
+                val sortedEntries = Misc.quickSort (fn (s1, _) => fn (s2, _) => s1 <= s2) entries
                 (* *)
                 fun getEquals([], _, [], res) = res (* End of empty list. *)
                 |   getEquals([], _, [_], res) = res (* Last item was singleton: discard *)
@@ -785,7 +784,7 @@ struct
                     newId :: makeNewIds(rest, newMap)
                 end
 
-            |   makeNewIds _ = raise InternalError "Map does not return Bound Id"
+            |   makeNewIds _ = raise Misc.InternalError "Map does not return Bound Id"
 
             val v = Vector.fromList(makeNewIds(boundIds, fn _ => NONE))
             (* Map bound IDs only. *)
@@ -944,9 +943,9 @@ struct
                                             StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
                                         end
                             )
-                        |   _ => (* Already checked. *) raise InternalError "setWhereType"
+                        |   _ => (* Already checked. *) raise Misc.InternalError "setWhereType"
                     )
-                |   _ => (* Already checked. *) raise InternalError "setWhereType"
+                |   _ => (* Already checked. *) raise Misc.InternalError "setWhereType"
             end;
             resSig
         end (* signatureWhereType *)
@@ -999,9 +998,9 @@ struct
                     enterStruct   =
                       checkAndEnter (#enterStruct structEnv, #lookupStruct structEnv, "Structure", fn Struct{locations, ...} => locations),
                     (* These next three can't occur. *)
-                    enterFix      = fn _ => raise InternalError "Entering fixity in signature",
-                    enterSig      = fn _ => raise InternalError "Entering signature in signature",
-                    enterFunct    = fn _ => raise InternalError "Entering functor in signature",
+                    enterFix      = fn _ => raise Misc.InternalError "Entering fixity in signature",
+                    enterSig      = fn _ => raise Misc.InternalError "Entering signature in signature",
+                    enterFunct    = fn _ => raise Misc.InternalError "Entering functor in signature",
                     allValNames   = #allValNames structEnv,
                     allStructNames = #allStructNames structEnv
                 }
@@ -1025,10 +1024,10 @@ struct
                          {
                           lookupVal     = #lookupVal    structEnv,
                           lookupType    =
-                            lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
+                            Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
                           lookupFix     = #lookupFix    structEnv,
                           lookupStruct  =
-                            lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
+                            Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
                           lookupSig     = #lookupSig    structEnv,
                           lookupFunct   = #lookupFunct  structEnv,
                           enterVal      = #enterVal structEnv,
@@ -1063,9 +1062,9 @@ struct
                     lookupTyp
                       ({
                         lookupType   =
-                            lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
+                            Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
                         lookupStruct =
-                            lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)
+                            Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)
                        },
                      s,
                      giveSpecError (signat, locn, lex));
@@ -1095,9 +1094,9 @@ struct
                     lookupTyp
                       ({
                         lookupType   =
-                            lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
+                            Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
                         lookupStruct =
-                            lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)
+                            Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)
                        },
                      s,
                      errorFn);
@@ -1131,10 +1130,10 @@ struct
                         {
                             lookupVal     = #lookupVal structEnv,
                             lookupType    =
-                                lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
+                                Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
                             lookupFix     = #lookupFix structEnv,
                             lookupStruct  =
-                                lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
+                                Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
                             lookupSig     = #lookupSig    structEnv,
                             lookupFunct   = #lookupFunct  structEnv,
                             enterVal      = #enterVal structEnv,
@@ -1153,7 +1152,7 @@ struct
                            into the surrounding signature. *)
                         fun newAccess(Formal _) =
                             let val addr = !address in address := addr+1; Formal addr end
-                        |   newAccess _ = raise InternalError "newAccess: Not Formal"
+                        |   newAccess _ = raise Misc.InternalError "newAccess: Not Formal"
 
                         fun enterType(name, tySet as TypeConstrSet(ty, tcConstructors)) =
                         let
@@ -1244,11 +1243,11 @@ struct
                  {
                   lookupVal     = #lookupVal    structEnv,
                   lookupType    =
-                    lookupDefault (#lookup datatypeList)
-                        (lookupDefault (#lookupType structEnv) (#lookupType globalEnv)),
+                    Misc.lookupDefault (#lookup datatypeList)
+                        (Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv)),
                   lookupFix     = #lookupFix    structEnv,
                   lookupStruct  =
-                    lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
+                    Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
                   lookupSig     = #lookupSig    structEnv,
                   lookupFunct   = #lookupFunct  structEnv,
                   enterVal      = enterVal,
@@ -1273,7 +1272,7 @@ struct
                    e.g. type t = int*int datatype s = X of t . *)
                 (* We shouldn't have a type function here because we only look up bound variables
                    and we can't share with type functions. *)
-                fun equalityForId(TypeId{idKind=TypeFn _, ...}) = raise InternalError "equalityForId: type function"
+                fun equalityForId(TypeId{idKind=TypeFn _, ...}) = raise Misc.InternalError "equalityForId: type function"
                 |   equalityForId id = isEquality id
 
                 fun findEquality n =
@@ -1282,7 +1281,7 @@ struct
                     else case realId(n-initTypeId) of
                         FreeSlot t => equalityForId t
                     |   VariableSlot { boundId, ...} => equalityForId boundId
-                    |   _ => raise InternalError "internalMap: Not bound or Free"
+                    |   _ => raise Misc.InternalError "internalMap: Not bound or Free"
 
                 val _ : types = pass2 (dec, makeId, Env newEnv, lex, findEquality);
                 (* Replace the constructor list for the datatype with a new set.
@@ -1371,7 +1370,7 @@ struct
                             (
                                 case realId(offset-initTypeId) of
                                     FreeSlot id => SOME id
-                                |   _ => raise InternalError "mapIds:copyTypeConstr"
+                                |   _ => raise Misc.InternalError "mapIds:copyTypeConstr"
                             )
                         |   copyId _ = NONE
                                     
@@ -1397,7 +1396,7 @@ struct
                         (distinctIds, id :: mappedIds)
                     end
 
-                |   _ => raise InternalError "mapIds"
+                |   _ => raise Misc.InternalError "mapIds"
             )
             val (distinctIds, mappedIds) = mapIds 0
             val mapVector = Vector.fromList mappedIds
