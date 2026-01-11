@@ -40,12 +40,6 @@ functor INITIALISE_ (
     structure DEBUGGER : DEBUGGER
     structure PRETTY : PRETTY
 
-    structure MISC :
-    sig
-      val unescapeString : string -> string
-      exception Conversion of string;     (* string to int conversion failure *)
-    end
-
     structure VERSION:
     sig
        val compilerVersion: string
@@ -80,7 +74,7 @@ struct
     open CODETREE;
     open ADDRESS;
     open MAKE;
-    open MISC;
+    open Misc;
     open EXPORTTREE
     open DATATYPEREP
 

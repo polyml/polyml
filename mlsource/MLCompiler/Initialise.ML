@@ -28,7 +28,6 @@ structure Initialise =
         structure ADDRESS    = Address
         structure DEBUG      = Debug
         structure MAKE       = Make
-        structure MISC       = Misc
         structure DEBUGGER   = Debugger
         structure VERSION    = CompilerVersion
         structure PRETTY     = Pretty
