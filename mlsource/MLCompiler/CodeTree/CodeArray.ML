@@ -21,7 +21,6 @@
 structure CodeArray :> CODEARRAY = 
 struct
     open Address
-    open Misc
 
     datatype csegStatus =
         Bytes
@@ -50,7 +49,7 @@ struct
 
     fun codeAddressFromClosure closure =
         if nativeWordSize <> wordSize
-        then raise InternalError "codeAddressFromClosure" (* Not valid in 32-in-64 *)
+        then raise Misc.InternalError "codeAddressFromClosure" (* Not valid in 32-in-64 *)
         else loadWord(closure, 0w0)
     
     fun closureAsAddress closure = toMachineWord closure
