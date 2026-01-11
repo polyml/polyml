@@ -39,17 +39,6 @@ functor MATCH_COMPILER (
     structure VALUEOPS : VALUEOPSSIG
     structure DATATYPEREP: DATATYPEREPSIG
     structure DEBUG: DEBUG
-
-
-    structure MISC :
-    sig
-        (* These are handled in the compiler *)
-        exception Conversion of string     (* string to int conversion failure *)
-  
-        (* This isn't handled at all (except generically) *)
-        exception InternalError of string (* compiler error *)
-    end
-
     structure ADDRESS : AddressSig
 
     sharing BASEPARSETREE.Sharing
@@ -74,7 +63,7 @@ struct
     open DEBUG
     open STRUCTVALS
     open VALUEOPS
-    open MISC
+    open Misc
     open DATATYPEREP
 
     datatype environEntry = datatype DEBUGGER.environEntry
