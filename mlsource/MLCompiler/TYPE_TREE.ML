@@ -47,7 +47,6 @@ functor TYPE_TREE (
 
 struct
     open PRETTY;
-    open Misc;
     open PRETTY;
     open STRUCTVALS;
     open LEX;
@@ -432,10 +431,9 @@ struct
                 (
                     case List.find (fn (TypeConstrs {identifier=tId,...}, _) => sameTypeId (consId, tId)) constrAndCode of
                         SOME(_, v) => v
-                    |   NONE => raise InternalError "getOverload: not overloaded on this type"
+                    |   NONE => raise Misc.InternalError "getOverload: not overloaded on this type"
                 )
-            |   NONE => raise InternalError "getOverload: unknown overload"
-
+            |   NONE => raise Misc.InternalError "getOverload: unknown overload"
       end
 
     (* Expand the field list of a flexible record to include all the fields that
@@ -538,7 +536,7 @@ struct
             let
             in
                 case typ of
-                    TypeVar _=> raise InternalError "TypeVar"
+                    TypeVar _=> raise Misc.InternalError "TypeVar"
                 |   BoundTypeVar(_, TVIndex n) => BoolArray.update(refArray, n, true)
                 |   FunctionType {arg, result} => (processTypes arg; processTypes result)
                 |   LabelledRecord recList => List.app (processTypes o #typeOf) recList
@@ -622,7 +620,7 @@ struct
                 case followRefChainToEnd l of
                     SOME(Instance(arg, argTypeMap)) =>
                         computeEqualityWithinTypeConstructor (arg, lookupTypId, argTypeMap, referenceBoundId)
-                |   _ => raise InternalError "computeEqualityWithinTypeConstructor: bad typevar"
+                |   _ => raise Misc.InternalError "computeEqualityWithinTypeConstructor: bad typevar"
             )
 
         |   FunctionType {...} => No  (* No equality on function types! *)
@@ -681,13 +679,13 @@ struct
             in 
                 if s = No then No else eqForList (args, s)
             end (* TypeConstruction *)
-         
+
         |   LabelledRecord recList => (* Record equality if all subtypes *)
                 eqForList (map #typeOf recList, Yes)
 
         |   BadType => Yes
 
-        |   _ => raise InternalError "computeEqualityWithinTypeConstructor: bad type"
+        |   _ => raise Misc.InternalError "computeEqualityWithinTypeConstructor: bad type"
     end
 
     and getCanonical(Instance(ty, bvMap)) = canonicalise(ty, bvMap)
@@ -827,13 +825,13 @@ struct
             }
 
     (* Create a map for type variables.  Optimise the most common cases *)
-    fun createTypeVariableMap [] = (fn _ => raise InternalError "createTypeVariableMap")
+    fun createTypeVariableMap [] = (fn _ => raise Misc.InternalError "createTypeVariableMap")
 
     |   createTypeVariableMap [a] =
         let
             val tv = createTypeVariable a
         in
-            fn TVIndex 0 => tv | _ => raise InternalError "createTypeVariableMap"
+            fn TVIndex 0 => tv | _ => raise Misc.InternalError "createTypeVariableMap"
         end
 
     |   createTypeVariableMap [a, b] =
@@ -841,7 +839,7 @@ struct
             val tvA = createTypeVariable a
             and tvB = createTypeVariable b
         in
-            fn TVIndex 0 => tvA | TVIndex 1 => tvB | _ => raise InternalError "createTypeVariableMap"
+            fn TVIndex 0 => tvA | TVIndex 1 => tvB | _ => raise Misc.InternalError "createTypeVariableMap"
         end
 
     |   createTypeVariableMap [a, b, c] =
@@ -850,7 +848,7 @@ struct
             and tvB = createTypeVariable b
             and tvC = createTypeVariable c
         in
-            fn TVIndex 0 => tvA | TVIndex 1 => tvB | TVIndex 2 => tvC | _ => raise InternalError "createTypeVariableMap"
+            fn TVIndex 0 => tvA | TVIndex 1 => tvB | TVIndex 2 => tvC | _ => raise Misc.InternalError "createTypeVariableMap"
         end
 
     |   createTypeVariableMap templs =
@@ -1261,7 +1259,7 @@ struct
                    variables in the structure. *)
                 FreeTypeVar{ name = makeTypeVariableName(n, equality), equality=equality, level=Generalisable, uid=makeUniqueId() } ::
                         createFreeTypeVariables(templs, n+1)
-        |   createFreeTypeVariables _ = raise InternalError "createNonGeneralisableInstance: template"
+        |   createFreeTypeVariables _ = raise Misc.InternalError "createNonGeneralisableInstance: template"
         
         val freeVars = createFreeTypeVariables(templs, 0)
         fun boundVarMap(TVIndex n) = SOME(List.nth(freeVars, n))
@@ -1734,7 +1732,7 @@ struct
             reduceToType(Instance(typeResult, getArg))
         end
 
-    |   makeEquivalent _ = raise InternalError "makeEquivalent: Not a type function"
+    |   makeEquivalent _ = raise Misc.InternalError "makeEquivalent: Not a type function"
 
     datatype matchResult =
         SimpleError of types * types * string
@@ -1831,8 +1829,7 @@ struct
         |   (BadType, _) => true (* To prevent further errors. *)
 
         |   (BoundTypeVar _, _) => (* This should have been looked up in canonicalise. *)
-                raise InternalError "computeEqualityForInstance: Bound"
-
+                raise Misc.InternalError "computeEqualityForInstance: Bound"
     end
 
     (* Type matching algorithm for both unification and signature matching. *)
@@ -2034,9 +2031,9 @@ struct
 
             |   (_, TypeVar typeBVar) => (* and typeA is not *) assign (typeBVar, tA, bvMapA, typeA, tB) (* set typeB to typeA *)
 
-            |   (BoundTypeVar _, _) => raise InternalError "match: bound variable in type"
+            |   (BoundTypeVar _, _) => raise Misc.InternalError "match: bound variable in type"
 
-            |   (_, BoundTypeVar _) => raise InternalError "match: bound variable in type"
+            |   (_, BoundTypeVar _) => raise Misc.InternalError "match: bound variable in type"
 
                 (* Type functions (type abbreviations).  We need to deal with these first because unwrapping
                    them could allow a valid match.  Try to avoid unwrapping unnecessarily. *)
@@ -2567,7 +2564,7 @@ struct
                 (
                     case preferredOverload types of
                         SOME tycons => tycons
-                    |   NONE => raise InternalError "typeConstrFromOverload: No matching type"
+                    |   NONE => raise Misc.InternalError "typeConstrFromOverload: No matching type"
                 )
             )
 
@@ -2576,7 +2573,7 @@ struct
 
         |   prefType(TypeConstruction{constr, ...}) = constr
 
-        |   prefType _ = raise InternalError "typeConstrFromOverload: No matching type"
+        |   prefType _ = raise Misc.InternalError "typeConstrFromOverload: No matching type"
 
         (* Given a function type returns the first argument if the
            function takes a tuple otherwise returns the only argument.
@@ -2642,7 +2639,7 @@ struct
                     |   SOME(_, index) => (BoundTypeVar(name, index), templates, nextBvCount)
                 )  
          
-        |   (FreeTypeVar{level=Generalisable, ...}, _) => raise InternalError "createGeneric: generalisable free"
+        |   (FreeTypeVar{level=Generalisable, ...}, _) => raise Misc.InternalError "createGeneric: generalisable free"
 
         |   (b as BoundTypeVar(_, index), bvMap) =>
             (
@@ -2664,7 +2661,7 @@ struct
                         (TypeConstruction{constr=constr, args=[], locations=locations, name=name}, templates, nextBvCount)
                     )
 
-                |   NONE => raise InternalError "general: No matching type"
+                |   NONE => raise Misc.InternalError "general: No matching type"
             end
             else (* Normal setting: find overloading from full context. Return the current overload set. *)
                 (typ, templates, nextBvCount)
@@ -2774,7 +2771,7 @@ struct
             (
                 case bvMap index of
                     SOME ty => checkFree(ty, bvMap) v
-                |   NONE => raise InternalError "containsLocalFreeVariables: boundvar"
+                |   NONE => raise Misc.InternalError "containsLocalFreeVariables: boundvar"
             )
 
             (* Explicit type variables at outer levels are allowed but not at this level. *)
@@ -2875,7 +2872,7 @@ struct
         |   getFieldList(TypeConstruction{
                     constr as TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...}, args, ...}) =
                 getFieldList(makeEquivalent(constr, args)) (* Type function *)
-        |   getFieldList _ = raise InternalError "getFieldList - not a record"
+        |   getFieldList _ = raise Misc.InternalError "getFieldList - not a record"
     in
         (* Returns the number of the entry in the list. Used to find out the
            location of fields in a labelled record for expressions and pattern
@@ -2885,7 +2882,7 @@ struct
             val fields = getFieldList rcrd
 
             fun entry (name :: l) n = if name = label then n else entry l (n + 1)
-            |   entry [] _ = raise InternalError "entryNumber: label not present"
+            |   entry [] _ = raise Misc.InternalError "entryNumber: label not present"
         in
             entry fields 0
         end
