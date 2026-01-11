@@ -1,7 +1,7 @@
 /*
     Title:  modules.cpp - Load and save modules
 
-    Copyright (c) 2015, 2017-19, 2021, 2025 David C.J. Matthews
+    Copyright (c) 2015, 2017-19, 2021, 2025-6 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -927,10 +927,10 @@ POLYUNSIGNED PolyShowLoadedModules(POLYUNSIGNED threadId)
 
     try {
         // Iterate over the table in reverse order so  the resulting list is in the order the modules were loaded.
-        for (std::vector<ModuleId>::reverse_iterator i = loadedModules.rbegin(); i < loadedModules.rend(); i++)
+        for (std::vector<LoadedModuleData>::reverse_iterator i = loadedModules.rbegin(); i < loadedModules.rend(); i++)
         {
             // Convert the module Id to a vector of bytes.  The representation is the same as a string.
-            Handle idHandle = moduleIdAsByteVector(taskData, *i);
+            Handle idHandle = moduleIdAsByteVector(taskData, i->modId);
             ML_Cons_Cell* next = (ML_Cons_Cell*)alloc(taskData, sizeof(ML_Cons_Cell) / sizeof(PolyWord));
             next->h = idHandle->Word();
             next->t = result->Word();
