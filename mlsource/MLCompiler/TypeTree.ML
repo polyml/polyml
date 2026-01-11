@@ -25,7 +25,6 @@ structure TypeTree =
       structure LEX        = Lex
       structure STRUCTVALS = StructVals
       structure UTILITIES  = Utilities
-      structure MISC       = Misc
       structure PRETTY     = Pretty
       structure CODETREE   = CodeTree
       structure EXPORTTREE = ExportTreeStruct
