@@ -37,7 +37,6 @@ structure DEBUG: DEBUG
 (*****************************************************************************)
 struct
 
-  open Misc;
   open PRETTY;
   open SYMBOLS;              infix 8 eq neq;
   
@@ -597,7 +596,7 @@ struct
         (
             setSymbolStart state;
             lexError(state, "unexpected end of file encountered");
-            raise InternalError "end of file"
+            raise Misc.InternalError "end of file"
         )
         else ();
       
@@ -609,7 +608,7 @@ struct
     fun pushBackSymbol ({pushedSym,...}:lexan, sym) =
     (* TODO: This does not restore the location so parses such as val () = ... get the wrong
        location for the opening parenthesis. *)
-        if !pushedSym <> Othersy then raise InternalError "Attempt to push two parentheses"
+        if !pushedSym <> Othersy then raise Misc.InternalError "Attempt to push two parentheses"
         else pushedSym := sym
 
    (* exported version of sy and id. *)
