@@ -85,15 +85,6 @@ sig
     end
 end;
 
-structure MISC :
-sig  
-    exception InternalError of string; (* compiler error *)
-
-    val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list;
-
-    val lookupDefault :  ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
-end
-
 sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
        = VALUEOPS.Sharing = UTILITIES.Sharing = PRETTY.Sharing
        = CODETREE.Sharing = PRINTTABLE.Sharing = DATATYPEREP.Sharing
@@ -131,7 +122,7 @@ struct
         end
     end
 
-    open MISC
+    open Misc
     open LEX
     open CODETREE
     open STRUCTVALS

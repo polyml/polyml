@@ -59,7 +59,6 @@ local
             structure TYPETREE   = TypeTree
             structure VALUEOPS   = ValueOps
             structure UTILITIES  = Utilities
-            structure MISC          = Misc
             structure PRETTY     = Pretty
             structure COPIER     = CopierStruct
             structure PRINTTABLE = PrintTable
