@@ -50,7 +50,6 @@ end
 struct
     open CODETREE;
   
-    open Misc;
     open Universal;
     open UNIVERSALTABLE;
   
@@ -412,7 +411,7 @@ struct
             
     (* Find the number - assuming it is bound. *)
     fun offsetId (TypeId{idKind=Bound {offset, ...}, ...}) = offset
-    |   offsetId _       = raise InternalError "offsetId: not a Bound";
+    |   offsetId _       = raise Misc.InternalError "offsetId: not a Bound";
 
     (* Are two type constructors the same? *)
     fun sameTypeId (TypeId{idKind=Free{uid = a, ...}, ...}, TypeId{idKind=Free {uid = b, ...}, ...}) = a = b
@@ -421,14 +420,14 @@ struct
 
     fun isEquality (TypeId { idKind = Free{uid = ref eq, ...}, ...}) = eq
     |   isEquality (TypeId { idKind = Bound{eqType, ...}, ...}) = pling eqType
-    |   isEquality (TypeId { idKind = TypeFn _, ...}) = raise InternalError "isEquality: TypeFn"
+    |   isEquality (TypeId { idKind = TypeFn _, ...}) = raise Misc.InternalError "isEquality: TypeFn"
 
     (* Set the equality property.   Currently, free IDs are used for abstypes and
        datatypes that are local to a function as well as the usual case of using them
        for top-level types. *)
     fun setEquality(TypeId{idKind = Free{uid, allowUpdate=true, ...}, ...}, eq) = uid := eq
     |   setEquality(TypeId{idKind = Bound{eqType=VariableRef id, ...}, ...}, eq) = id := eq
-    |   setEquality _ = raise InternalError "setEquality: can't set equality attribute"
+    |   setEquality _ = raise Misc.InternalError "setEquality: can't set equality attribute"
 
     (* Signatures: Used for both signatures of local structures and for global structures 
        (name spaces). Strictly signatures do not contain fix-status functors
