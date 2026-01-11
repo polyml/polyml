@@ -94,11 +94,6 @@ sig
     
 end;
 
-structure MISC :
-sig
-  val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
-end;
-
 sharing STRUCTVALS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing = STRUCTURES.Sharing
       = LEX.Sharing = SIGNATURES.Sharing
       = UTILITIES
@@ -131,7 +126,7 @@ sharing type
 (*                  PARSEDEC functor body                                    *)
 (*****************************************************************************)
 struct
- open MISC;
+ open Misc;
  
  open SYMBOLS
  open SYMSET;   infix 9 ++; infix 4 inside;
