@@ -40,7 +40,6 @@ sig
 end =
 
 struct
-    open Misc;
     open HashTable;
     open Universal;
 
