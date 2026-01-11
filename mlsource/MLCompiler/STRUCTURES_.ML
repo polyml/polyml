@@ -1683,13 +1683,10 @@ struct
             (* The environment for the local declarations. *)
             val localEnv =
              { 
-              lookupVal     =
-                Misc.lookupDefault (#lookupVal    newEnv) (#lookupVal    env),
-              lookupType    =
-                Misc.lookupDefault (#lookupType   newEnv) (#lookupType   env),
+              lookupVal     = Misc.lookupDefault (#lookupVal newEnv) (#lookupVal env),
+              lookupType    = Misc.lookupDefault (#lookupType newEnv) (#lookupType env),
               lookupFix     = #lookupFix    newEnv,
-              lookupStruct  =
-                Misc.lookupDefault (#lookupStruct newEnv) (#lookupStruct env),
+              lookupStruct  = Misc.lookupDefault (#lookupStruct newEnv) (#lookupStruct env),
               lookupSig     = #lookupSig    env,
               lookupFunct   = #lookupFunct  env,  (* Sigs and functs are global *)
               enterVal      = #enterVal     newEnv,
@@ -1851,13 +1848,10 @@ struct
          (* The environment for the local declarations. *)
          val localEnv =
            {
-            lookupVal     =
-              Misc.lookupDefault (#lookupVal    newEnv) (#lookupVal    env),
-            lookupType    =
-              Misc.lookupDefault (#lookupType   newEnv) (#lookupType   env),
+            lookupVal     = Misc.lookupDefault (#lookupVal newEnv) (#lookupVal env),
+            lookupType    = Misc.lookupDefault (#lookupType newEnv) (#lookupType env),
             lookupFix     = #lookupFix    newEnv,
-            lookupStruct  =
-              Misc.lookupDefault (#lookupStruct newEnv) (#lookupStruct env),
+            lookupStruct  = Misc.lookupDefault (#lookupStruct newEnv) (#lookupStruct env),
             lookupSig     = #lookupSig    env,
             lookupFunct   = #lookupFunct  env,
             enterVal      = #enterVal     newEnv,
@@ -2256,13 +2250,10 @@ struct
                            the arguments to the functor and the global environment. *)
                     val envWithArgs = 
                     {
-                        lookupVal     =
-                          Misc.lookupDefault (#lookupVal    argEnv) (#lookupVal    env),
-                        lookupType    =
-                          Misc.lookupDefault (#lookupType   argEnv) (#lookupType   env),
+                        lookupVal     = Misc.lookupDefault (#lookupVal argEnv) (#lookupVal env),
+                        lookupType    = Misc.lookupDefault (#lookupType argEnv) (#lookupType env),
                         lookupFix     = #lookupFix    env,
-                        lookupStruct  =
-                          Misc.lookupDefault (#lookupStruct argEnv) (#lookupStruct env),
+                        lookupStruct  = Misc.lookupDefault (#lookupStruct argEnv) (#lookupStruct env),
                         lookupSig     = #lookupSig    env,
                         lookupFunct   = #lookupFunct  env,
                         enterVal      = #enterVal     env,
