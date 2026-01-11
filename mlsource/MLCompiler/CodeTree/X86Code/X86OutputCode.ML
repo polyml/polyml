@@ -44,7 +44,6 @@ struct
     open CodeArray
     open Debug
     open Address
-    open Misc
 
     (* May be targeted at native 32-bit, native 64-bit or X86/64 with 32-bit words
        and addresses as object Ids. *)
@@ -55,7 +54,7 @@ struct
             "I386"      => Native32Bit
         |   "X86_64"    => Native64Bit
         |   "X86_64_32" => ObjectId32Bit
-        |   _ => raise InternalError "Unknown target architecture"
+        |   _ => raise Misc.InternalError "Unknown target architecture"
     
     (* Some checks - *)
     val () =
@@ -63,7 +62,7 @@ struct
             (Native32Bit, 0w4, 0w4) => ()
         |   (Native64Bit, 0w8, 0w8) => ()
         |   (ObjectId32Bit, 0w4, 0w8) => ()
-        |   _ => raise InternalError "Mismatch of architecture and word-length"
+        |   _ => raise Misc.InternalError "Mismatch of architecture and word-length"
 
     val hostIsX64 = targetArch <> Native32Bit
 
@@ -103,7 +102,7 @@ struct
             then 0w2
             else if wordSize = 0w8
             then 0w3
-            else raise InternalError "Invalid word size for x86_32 or x86+64"
+            else raise Misc.InternalError "Invalid word size for x86_32 or x86+64"
     in
         fun wordsToBytes n = n << shift
         and bytesToWords n = n >> shift
@@ -201,7 +200,7 @@ struct
     fun byteSigned ival =
         if ~0x80 <= ival andalso ival < 0x80
         then Word8.fromInt ival
-        else raise InternalError "byteSigned: invalid byte"
+        else raise Misc.InternalError "byteSigned: invalid byte"
     
     (* Convert a large-word value to a little-endian byte sequence. *)
     fun largeWordToBytes(_, 0) = []
@@ -213,7 +212,7 @@ struct
     fun int32Signed(ival: LargeInt.int) =
         if is32bit ival
         then word32Unsigned(LargeWord.fromLargeInt ival)
-        else raise InternalError "int32Signed: invalid word"
+        else raise Misc.InternalError "int32Signed: invalid word"
 
     (* Registers. *)
     datatype genReg = GeneralReg of Word8.word * bool
@@ -293,7 +292,7 @@ struct
             else XMMReg(SSE2Reg(Word8.fromInt(i-23)))
         val regVec = Vector.tabulate(regs, regN)
     in
-        fun regN i = Vector.sub(regVec, i) handle Subscript => raise InternalError "Bad register number"
+        fun regN i = Vector.sub(regVec, i) handle Subscript => raise Misc.InternalError "Bad register number"
     end
  
     (* The number of the register. *)
@@ -731,8 +730,8 @@ struct
     (* Put together the three fields which make up the mod r/m byte. *)
     fun modrm (md : mode, rg: Word8.word, rm : Word8.word) : Word8.word =
     let
-        val _ = if rg > 0w7 then raise InternalError "modrm: bad rg" else ()
-        val _ = if rm > 0w7 then raise InternalError "modrm: bad rm" else ()
+        val _ = if rg > 0w7 then raise Misc.InternalError "modrm: bad rg" else ()
+        val _ = if rm > 0w7 then raise Misc.InternalError "modrm: bad rm" else ()
         val modField: Word8.word = 
             case md of 
                 Based0   => 0w0
@@ -842,7 +841,7 @@ struct
                 NONE => []
             |   SOME rxx =>
                 if hostIsX64 then [rex rxx]
-                else raise InternalError "opCodeBytes: rex prefix in 32 bit mode";
+                else raise Misc.InternalError "opCodeBytes: rex prefix in 32 bit mode";
     in
         opcodePrefix opb @ rexByte @ escapePrefix opb @ [opToInt opb]
     end
@@ -1530,7 +1529,7 @@ struct
             (
                 (* The constant area is currently PolyWords.  That means we MUST use
                    a 32-bit load in 32-in-64. *)
-                targetArch = Native64Bit orelse raise InternalError "Move64 in 32-bit";
+                targetArch = Native64Bit orelse raise Misc.InternalError "Move64 in 32-bit";
                 (* Put address constants in the constant area. *)
                 opConstantOperand(MOVL_A_R64, output)
             )
@@ -1538,7 +1537,7 @@ struct
         |   cgOp(Move{ source=AddressConstArg _, destination=RegisterArg output, moveSize=Move32 }) =
             (
                 case targetArch of
-                    Native64Bit => raise InternalError "Move32 - AddressConstArg"
+                    Native64Bit => raise Misc.InternalError "Move32 - AddressConstArg"
                 
                 |   ObjectId32Bit =>
                         (* Put address constants in the constant area. *)
@@ -1602,7 +1601,7 @@ struct
                     then NONE
                     else if hostIsX64
                     then SOME {w=false, r=rrX, b=rbX, x=false}
-                    else raise InternalError "Move8 with esi/edi"
+                    else raise Misc.InternalError "Move8 with esi/edi"
             in
                 opCodeBytes(MOVZB, rexByte) @ [modrm(Register, rrC, rbC)]
             end
@@ -1633,7 +1632,7 @@ struct
                 (* We should have a REX.W bit here. *)
                 opAddress(MOVSXD, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(Move{moveSize=Move32X64, ...}) = raise InternalError "cgOp: LoadNonWord Size32Bit"
+        |   cgOp(Move{moveSize=Move32X64, ...}) = raise Misc.InternalError "cgOp: LoadNonWord Size32Bit"
 
         |   cgOp(LoadAddress{ offset, base, index, output, opSize }) =
                 (* This provides a mixture of addition and multiplication in a single
@@ -1653,7 +1652,7 @@ struct
                 val _ =
                     if hostIsX64 orelse is8BitL source orelse opc <> CMP orelse IntInf.andb(source, 1) = 1
                     then ()
-                    else raise InternalError "CMP with constant that looks like an address"
+                    else raise Misc.InternalError "CMP with constant that looks like an address"
             in
                 immediateOperand(opc, output, source, opSize)
             end
@@ -1694,7 +1693,7 @@ struct
                 (* Currently this is always a comparison.  It is only valid in 32-bit mode because
                    the constant is only 32-bits. *)
                 if hostIsX64
-                then raise InternalError "ArithMemLongConst in 64-bit mode"
+                then raise Misc.InternalError "ArithMemLongConst in 64-bit mode"
                 else 
                 let
                     val opb = opIndexedPlus2 (Group1_32_A32, LargeInt.fromInt offset, base, index, arithOpToWord opc)
@@ -1751,7 +1750,7 @@ struct
                 (* Test the tag bit and set the condition code. *)
                 opIndexedPlus2(Group3_a, LargeInt.fromInt offset, base, index, 0w0 (* test *)) @ [ bits]
 
-        |   cgOp(TestByteBits _) = raise InternalError "cgOp: TestByteBits"                
+        |   cgOp(TestByteBits _) = raise Misc.InternalError "cgOp: TestByteBits"
 
         |   cgOp(ConditionalBranch{ test=opc, ... }) = opCodeBytes(CondJump32 opc, NONE) @ word32Unsigned 0w0
         
@@ -1770,7 +1769,7 @@ struct
                 in
                     opb @ [mdrm]
                 end
-                else raise InternalError "High byte register"
+                else raise Misc.InternalError "High byte register"
             end
 
         |   cgOp(CallRTS{rtsEntry, saveRegs}) = rtsCall(rtsEntry, saveRegs)
@@ -1842,7 +1841,7 @@ struct
                 |   ObjectId32Bit =>
                     (* We can't do this.  The constant area contains 32-bit quantities
                        and 32-bit literals are sign-extended rather than zero-extended. *)
-                        raise InternalError "PushToStack:AddressConstArg"
+                        raise Misc.InternalError "PushToStack:AddressConstArg"
            )
 
         |   cgOp(PopR reg ) =
@@ -1868,7 +1867,7 @@ struct
                    There's a special check for using this to set the length word on newly allocated
                    memory. *)
                 targetArch <> Native32Bit orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~ (Word.toInt wordSize)
-                    orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
+                    orelse raise Misc.InternalError "cgOp: StoreConstToMemory not tagged";
                 opAddressPlus2(MOVL_32_A64, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed toStore
             )
 
@@ -1879,18 +1878,18 @@ struct
                    There's a special check for using this to set the length word on newly allocated
                    memory. *)
                 targetArch <> Native32Bit orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~ (Word.toInt wordSize)
-                    orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
+                    orelse raise Misc.InternalError "cgOp: StoreConstToMemory not tagged";
                 opAddressPlus2(MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed toStore
             )
 
         |   cgOp(Move{source=AddressConstArg _, destination=MemoryArg{offset, base, index}, moveSize=Move32}) =
                 (* This is not used for addresses even in 32-in-64.  We don't scan for addresses after MOVL_32_A. *)
                 if targetArch <> Native32Bit
-                then raise InternalError "StoreLongConstToMemory in 64-bit mode"
+                then raise Misc.InternalError "StoreLongConstToMemory in 64-bit mode"
                 else opAddressPlus2(MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed (tag 0)
 
         |   cgOp(Move{source=AddressConstArg _, destination=MemoryArg _, ...}) =
-                raise InternalError "cgOp: Move - AddressConstArg => MemoryArg"
+                raise Misc.InternalError "cgOp: Move - AddressConstArg => MemoryArg"
 
         |   cgOp(Move{ moveSize = Move8, source=RegisterArg toStore, destination=MemoryArg{offset, base, index} }) =
             let
@@ -1900,7 +1899,7 @@ struct
                 val opcode =
                     if hostIsX64 then MOVB_R_A64{forceRex= rrC >= 0w4}
                     else if rrC < 0w4 then MOVB_R_A32
-                    else raise InternalError "High byte register"
+                    else raise Misc.InternalError "High byte register"
             in
                 opAddress(opcode, LargeInt.fromInt offset, base, index, toStore)
             end
@@ -1912,14 +1911,14 @@ struct
                 opAddressPlus2(MOVB_8_A, LargeInt.fromInt offset, base, index, 0w0) @
                     [Word8.fromLargeInt toStore]
 
-        |   cgOp(Move _) = raise InternalError "Move: Unimplemented arguments"
+        |   cgOp(Move _) = raise Misc.InternalError "Move: Unimplemented arguments"
 
             (* Allocation is dealt with by expanding the code. *)
-        |   cgOp(AllocStore _) = raise InternalError "cgOp: AllocStore"
+        |   cgOp(AllocStore _) = raise Misc.InternalError "cgOp: AllocStore"
 
-        |   cgOp(AllocStoreVariable _) = raise InternalError "cgOp: AllocStoreVariable"
+        |   cgOp(AllocStoreVariable _) = raise Misc.InternalError "cgOp: AllocStoreVariable"
 
-        |   cgOp StoreInitialised = raise InternalError "cgOp: StoreInitialised"
+        |   cgOp StoreInitialised = raise Misc.InternalError "cgOp: StoreInitialised"
 
         |   cgOp(CallAddress(NonAddressConstArg _)) = (* Call to the start of the code.  Offset is patched in later. *)
                 opCodeBytes (CALL_32, NONE) @ int32Signed 0
@@ -2120,7 +2119,7 @@ struct
                 else opConstantOperand(case opSize of OpSize64 => IMUL64 | OpSize32 => IMUL32, output)
 
         |   cgOp(MultiplyR {source=AddressConstArg _, ...}) =
-                raise InternalError "Multiply - address constant"
+                raise Misc.InternalError "Multiply - address constant"
 
         |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index}, output }) =
                 mMXAddress(SSE2Ops opc, LargeInt.fromInt offset, base, index, output)
@@ -2152,7 +2151,7 @@ struct
 
         |   cgOp (XMMArith { opc, source=NonAddressConstArg _, output=SSE2Reg rrC }) =
             let
-                val _ = hostIsX64 orelse raise InternalError "XMMArith-NonAddressConstArg in 32-bit mode"
+                val _ = hostIsX64 orelse raise Misc.InternalError "XMMArith-NonAddressConstArg in 32-bit mode"
                 (* This is currently used for 32-bit float arguments but can equally be
                    used for 64-bit values since the actual argument will always be put
                    in the 64-bit constant area. *)
@@ -2201,14 +2200,14 @@ struct
         |   cgOp (XChng { reg, arg=MemoryArg{offset, base, index}, opSize }) =
                 opAddress(case opSize of OpSize64 => XCHNG64 | OpSize32 => XCHNG32, LargeInt.fromInt offset, base, index, reg)
                 
-        |   cgOp (XChng _) = raise InternalError "cgOp: XChng"
+        |   cgOp (XChng _) = raise Misc.InternalError "cgOp: XChng"
 
         |   cgOp (Negative {output, opSize}) =
                 opRegPlus2(case opSize of OpSize64 => Group3_A64 | OpSize32 => Group3_A32, output, 0w3 (* neg *))
 
         |   cgOp (JumpTable{cases, jumpSize=ref jumpSize}) =
             let
-                val _ = jumpSize = JumpSize8 orelse raise InternalError "cgOp: JumpTable"
+                val _ = jumpSize = JumpSize8 orelse raise Misc.InternalError "cgOp: JumpTable"
                 (* Make one jump for each case and pad it 8 bytes with Nops. *)
                 fun makeJump (_, l) = opToInt JMP_32 :: word32Unsigned 0w0 @ [opToInt NOP, opToInt NOP, opToInt NOP] @ l
             in
@@ -2217,7 +2216,7 @@ struct
 
         |   cgOp(IndexedJumpCalc{ addrReg, indexReg, jumpSize=ref jumpSize }) =
             (
-                jumpSize = JumpSize8 orelse raise InternalError "cgOp: IndexedJumpCalc";
+                jumpSize = JumpSize8 orelse raise Misc.InternalError "cgOp: IndexedJumpCalc";
                 (* Should currently be JumpSize8 which requires a multiplier of 4 and
                    4 to be subtracted to remove the shifted tag. *)
                 opAddress(if hostIsX64 then LEAL64 else LEAL32, ~4, addrReg, Index4 indexReg, addrReg)
@@ -2293,7 +2292,7 @@ struct
                 |   RegisterArg(SSE2Reg rrS) =>
                         opcodePrefix oper @ rexByte(oper, rbX, false, false) @
                             escapePrefix oper @ [opToInt oper, modrm(Register, rbC, rrS)]
-                |   _ => raise InternalError "XMMStoreInt: Not register or memory"
+                |   _ => raise Misc.InternalError "XMMStoreInt: Not register or memory"
             end
 
         |   cgOp(CondMove { test, output, source=RegisterArg source, opSize=OpSize32 }) =
@@ -2310,7 +2309,7 @@ struct
                    put the constant in a single-word object and put its absolute
                    address into the code. *)
                 targetArch <> Native32Bit orelse
-                            raise InternalError "CondMove: constant in 32-bit mode";
+                            raise Misc.InternalError "CondMove: constant in 32-bit mode";
                 opConstantOperand((case opSize of OpSize32 => CMOV32 | OpSize64 => CMOV64) test, output)
             )
 
@@ -2318,14 +2317,14 @@ struct
                 (* An address constant.  The opSize must match the size of a polyWord since
                    the value it going into the constant area. *)
             (
-                targetArch = Native64Bit orelse raise InternalError "CondMove: AddressConstArg";
+                targetArch = Native64Bit orelse raise Misc.InternalError "CondMove: AddressConstArg";
                 opConstantOperand(CMOV64 test, output)
             )
 
         |   cgOp(CondMove { test, output, source=AddressConstArg _, opSize=OpSize32 }) =
             (
                 (* We only support address constants in 32-in-64. *)
-                targetArch = ObjectId32Bit orelse raise InternalError "CondMove: AddressConstArg";
+                targetArch = ObjectId32Bit orelse raise Misc.InternalError "CondMove: AddressConstArg";
                 opConstantOperand(CMOV32 test, output)
             )
 
@@ -2350,7 +2349,7 @@ struct
                 opAddress(BSR64, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp (BitScanR _) =
-                raise InternalError "cgOp: BitScanR"
+                raise Misc.InternalError "cgOp: BitScanR"
                 
 
     in
@@ -2411,7 +2410,7 @@ struct
                 then (* It's a short branch.  Take the original operand and set the relative offset. *)
                     Word8Vector.fromList [opToInt JMP_8, byteSigned diff] :: list
                 else if brLength <> 5
-                then raise InternalError "fixupAddress"
+                then raise Misc.InternalError "fixupAddress"
                 else (* 32-bit offset.  If it will fit in a byte we can use a short branch.
                         If this is a reverse branch we can actually use values up to -131
                         here because we've calculated using the end of the long branch. *)
@@ -2431,7 +2430,7 @@ struct
                 then (* It's a short branch.  Take the original operand and set the relative offset. *)
                     Word8Vector.fromList [opToInt(CondJump test), byteSigned diff]  :: list
                 else if brLength <> 6
-                then raise InternalError "fixupAddress"
+                then raise Misc.InternalError "fixupAddress"
                 else if diff <= 127 andalso diff >= ~(128+4)
                 then Word8Vector.fromList[opToInt(CondJump test), 0w0 (* Fixed on next pass *)] :: list
                 else Word8Vector.fromList(opCodeBytes(CondJump32 test, NONE) @ int32Signed(LargeInt.fromInt diff))  :: list
@@ -2541,7 +2540,7 @@ struct
             if newCodeSize = lastCodeSize
             then (fixedList, lastCodeSize)
             else if newCodeSize > lastCodeSize
-            then raise InternalError "reprocess - size increased"
+            then raise Misc.InternalError "reprocess - size increased"
             else reprocess(fixedList, newCodeSize)
         end
     in
@@ -2573,7 +2572,7 @@ struct
             (* This may be a boxed real or, in 32-in-64 mode, a boxed float. *)
             val cLength = length cAsAddr * wordSize
             val _ = ((cLength = 0w8 orelse cLength = 0w4) andalso flags cAsAddr = F_bytes) orelse
-                        raise InternalError "realConst: Not a real number"
+                        raise Misc.InternalError "realConst: Not a real number"
             fun getBytes(i, a) =
                 if i = 0w0 then a
                 else getBytes(i-0w1, a*0w256 + Word8.toLargeWord(loadByte(cAsAddr, i-0w1)))
@@ -2756,8 +2755,8 @@ struct
 
         |   doExpansion(AllocStore {size, output, saveRegs} :: instrs, code, inAllocation) =
             let
-                val _ = inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
-                val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ()
+                val _ = inAllocation andalso raise Misc.InternalError "doExpansion: Allocation started but not complete"
+                val () = if List.exists (fn r => r = output) saveRegs then raise Misc.InternalError "AllocStore: in set" else ()
 
                 val startCode =
                     case targetArch of
@@ -2793,14 +2792,14 @@ struct
         |   doExpansion(AllocStoreVariable {size, output, saveRegs} :: instrs, code, inAllocation) =
             let
                 (* Allocates memory.  The "size" register contains the number of words as a tagged int. *)
-                val _ = inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
-                val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ()
+                val _ = inAllocation andalso raise Misc.InternalError "doExpansion: Allocation started but not complete"
+                val () = if List.exists (fn r => r = output) saveRegs then raise Misc.InternalError "AllocStore: in set" else ()
                 (* Negate the length and add it to the current heap pointer. *)
                 (* Compute the number of bytes into dReg. The length in sReg is the number
                    of words as a tagged value so we need to multiply it, add wordSize to
                    include one word for the header then subtract the, multiplied, tag.
                    We use LEA here but want to avoid having an empty base register. *)
-                val _ = size = output andalso raise InternalError "AllocStoreVariable : same register for size and output"
+                val _ = size = output andalso raise Misc.InternalError "AllocStoreVariable : same register for size and output"
                 val startCode =
                     if wordSize = 0w8 (* 8-byte words *)
                     then
@@ -3921,7 +3920,7 @@ struct
             val () = List.app putNonAddrConst nonAddressConstants
         end
 
-        val _ = bytesToWords(! ic) = endOfByteArea orelse raise InternalError "mismatch"
+        val _ = bytesToWords(! ic) = endOfByteArea orelse raise Misc.InternalError "mismatch"
         
         (* Put in the number of constants. This must go in before we actually put
            in any constants.  In 32-bit mode there are only two constants: the 
