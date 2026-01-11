@@ -26,26 +26,18 @@ functor DATATYPE_REP (
 structure CODETREE : CODETREE
 structure STRUCTVALS : STRUCTVALSIG;
 structure TYPESTRUCT : TYPETREESIG
-
-structure MISC :
-sig
-  exception InternalError of string; (* compiler error *)
-  
-  val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
-end;
-
 structure ADDRESS : AddressSig
 structure COPIER: COPIERSIG
 structure TYPEIDCODE: TYPEIDCODESIG
 
 sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing
-      = COPIER.Sharing = CODETREE.Sharing = ADDRESS = MISC
+      = COPIER.Sharing = CODETREE.Sharing = ADDRESS
       = TYPEIDCODE.Sharing
 
 ) : DATATYPEREPSIG =
 
 struct
-    open MISC; 
+    open Misc;
 
     open CODETREE;
     open TYPESTRUCT; (* Open this first because unitType is in STRUCTVALS as well. *)

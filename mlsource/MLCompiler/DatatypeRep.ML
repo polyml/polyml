@@ -22,7 +22,6 @@ structure DatatypeRep =
     structure STRUCTVALS = StructVals
     structure TYPESTRUCT = TypeTree
     structure ADDRESS    = Address
-    structure MISC        = Misc
     structure COPIER     = CopierStruct
     structure TYPEIDCODE = TypeIDCodeStruct
   ) ;
