@@ -75,7 +75,6 @@ sharing LEX.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing
 (*                  STRUCTURES functor body                                  *)
 (*****************************************************************************)
 struct
-  open Misc; 
   open PRETTY;
 
   open COPIER;
@@ -1031,7 +1030,7 @@ struct
             val _ =
                 case boundIds of
                     [] => ()
-                |   _ => raise InternalError "Candidate structure with non-empty bound ID list"
+                |   _ => raise Misc.InternalError "Candidate structure with non-empty bound ID list"
         in
             if isUndefinedSignature originalCandidate
             then undefinedSignature
@@ -1394,7 +1393,7 @@ struct
         |   matchTypeIds(n, (typeId as TypeId{ access = Formal addr, ...}) :: rest) =
                 (addr, TypeIdMatch{ sourceIdNo=n, isEquality=isEquality typeId }) ::
                     matchTypeIds(n+1, rest)
-        |   matchTypeIds(_, _) = raise InternalError "matchTypeIds: Not Formal"
+        |   matchTypeIds(_, _) = raise Misc.InternalError "matchTypeIds: Not Formal"
     in
         fun makeMatchTypeIds destIds = matchTypeIds(0, destIds)
     end
@@ -1499,7 +1498,7 @@ struct
                             in
                                 { source = oldId, dest = newId }
                             end
-                            |   makeNewTypeId _ = raise InternalError "Not Bound"
+                            |   makeNewTypeId _ = raise Misc.InternalError "Not Bound"
                             (* The resIds list tells the code-generator where to find the source of each
                                ID in the result structure and where to save the generative ID. *)
                             val sdList = List.map makeNewTypeId (sigBoundIds functorResSig)
@@ -1559,11 +1558,11 @@ struct
                 enterType = #enterType structEnv,
                 enterVal = #enterVal structEnv,
                 enterStruct = #enterStruct structEnv,
-                enterSig = fn _ => raise InternalError "Signature in Struct End",
-                enterFunct = fn _ => raise InternalError "Functor in Struct End",
-                lookupVal = lookupDefault (#lookupVal structEnv) (#lookupVal env),
-                lookupType = lookupDefault (#lookupType structEnv) (#lookupType env),
-                lookupStruct = lookupDefault (#lookupStruct structEnv) (#lookupStruct env),
+                enterSig = fn _ => raise Misc.InternalError "Signature in Struct End",
+                enterFunct = fn _ => raise Misc.InternalError "Functor in Struct End",
+                lookupVal = Misc.lookupDefault (#lookupVal structEnv) (#lookupVal env),
+                lookupType = Misc.lookupDefault (#lookupType structEnv) (#lookupType env),
+                lookupStruct = Misc.lookupDefault (#lookupStruct structEnv) (#lookupStruct env),
                 lookupSig    = #lookupSig   env, (* Global *)
                 lookupFunct  = #lookupFunct env, (* Global *)
                 lookupFix    = #lookupFix   env,
@@ -1685,12 +1684,12 @@ struct
             val localEnv =
              { 
               lookupVal     =
-                lookupDefault (#lookupVal    newEnv) (#lookupVal    env),
+                Misc.lookupDefault (#lookupVal    newEnv) (#lookupVal    env),
               lookupType    =
-                lookupDefault (#lookupType   newEnv) (#lookupType   env),
+                Misc.lookupDefault (#lookupType   newEnv) (#lookupType   env),
               lookupFix     = #lookupFix    newEnv,
               lookupStruct  =
-                lookupDefault (#lookupStruct newEnv) (#lookupStruct env),
+                Misc.lookupDefault (#lookupStruct newEnv) (#lookupStruct env),
               lookupSig     = #lookupSig    env,
               lookupFunct   = #lookupFunct  env,  (* Sigs and functs are global *)
               enterVal      = #enterVal     newEnv,
@@ -1757,7 +1756,7 @@ struct
                         in
                             newTypeId(arity, false, isEquality oldId, isDatatype, description)
                         end
-                        |   makeNewId _ = raise InternalError "Not Bound"
+                        |   makeNewId _ = raise Misc.InternalError "Not Bound"
 
                         val sources = List.tabulate(maxExplicitSig-minExplicitSig, fn n => matchResults(n+minExplicitSig))
                         val dests = List.map makeNewId (sigBoundIds explicitSig)
@@ -1853,12 +1852,12 @@ struct
          val localEnv =
            {
             lookupVal     =
-              lookupDefault (#lookupVal    newEnv) (#lookupVal    env),
+              Misc.lookupDefault (#lookupVal    newEnv) (#lookupVal    env),
             lookupType    =
-              lookupDefault (#lookupType   newEnv) (#lookupType   env),
+              Misc.lookupDefault (#lookupType   newEnv) (#lookupType   env),
             lookupFix     = #lookupFix    newEnv,
             lookupStruct  =
-              lookupDefault (#lookupStruct newEnv) (#lookupStruct env),
+              Misc.lookupDefault (#lookupStruct newEnv) (#lookupStruct env),
             lookupSig     = #lookupSig    env,
             lookupFunct   = #lookupFunct  env,
             enterVal      = #enterVal     newEnv,
@@ -2007,11 +2006,11 @@ struct
         and newSigEnv   = UTILITIES.searchList()
         and newFuncEnv  = UTILITIES.searchList()
 
-        val lookupVal = lookupDefault (#lookup newValEnv) (#lookupVal globals)
-        and lookupType = lookupDefault (#lookup newTypeEnv) (#lookupType globals)
-        and lookupStruct = lookupDefault (#lookup newStrEnv) (#lookupStruct globals)
-        and lookupSig = lookupDefault (#lookup newSigEnv) (#lookupSig globals)
-        and lookupFunct = lookupDefault (#lookup newFuncEnv) (#lookupFunct globals)
+        val lookupVal = Misc.lookupDefault (#lookup newValEnv) (#lookupVal globals)
+        and lookupType = Misc.lookupDefault (#lookup newTypeEnv) (#lookupType globals)
+        and lookupStruct = Misc.lookupDefault (#lookup newStrEnv) (#lookupStruct globals)
+        and lookupSig = Misc.lookupDefault (#lookup newSigEnv) (#lookupSig globals)
+        and lookupFunct = Misc.lookupDefault (#lookup newFuncEnv) (#lookupFunct globals)
 
         fun allValNames () =
         let
@@ -2184,7 +2183,7 @@ struct
                                         description=description
                                     },
                                     access = makeSelected(addr, resArg)}
-                        |   mkId _ = raise InternalError "mkId: Not Bound or not Formal"                            
+                        |   mkId _ = raise Misc.InternalError "mkId: Not Bound or not Formal"
                     in
                         (* argIDVector is part of the environment now. *)
                         val argIDVector = Vector.fromList(List.map mkId (sigBoundIds argumentSignature))
@@ -2258,12 +2257,12 @@ struct
                     val envWithArgs = 
                     {
                         lookupVal     =
-                          lookupDefault (#lookupVal    argEnv) (#lookupVal    env),
+                          Misc.lookupDefault (#lookupVal    argEnv) (#lookupVal    env),
                         lookupType    =
-                          lookupDefault (#lookupType   argEnv) (#lookupType   env),
+                          Misc.lookupDefault (#lookupType   argEnv) (#lookupType   env),
                         lookupFix     = #lookupFix    env,
                         lookupStruct  =
-                          lookupDefault (#lookupStruct argEnv) (#lookupStruct env),
+                          Misc.lookupDefault (#lookupStruct argEnv) (#lookupStruct env),
                         lookupSig     = #lookupSig    env,
                         lookupFunct   = #lookupFunct  env,
                         enterVal      = #enterVal     env,
@@ -2570,7 +2569,7 @@ struct
         #1 (matchSubStructure (code, actions))
     end (* applyMatchActions *)
 
-    fun vaLocal (Local x) = x | vaLocal _ = raise InternalError "not local"
+    fun vaLocal (Local x) = x | vaLocal _ = raise Misc.InternalError "not local"
 
     (* If we are declaring a structure with an opaque signature we need to create
        the run-time IDs for newly generated IDs. *)
@@ -2622,7 +2621,7 @@ struct
                         source = TypeId{idKind, access = Formal addr, description}, dest } =
                     { source = TypeId{idKind=idKind, access = makeSelected(addr, dummyResStruct), description = description },
                       dest = dest }
-                |   mkSelected _ = raise InternalError "makeSelected: Not Bound or not Formal"
+                |   mkSelected _ = raise Misc.InternalError "makeSelected: Not Bound or not Formal"
                 val resultIds = List.map mkSelected resIds
             in
                 val loadIds = loadOpaqueIds(resultIds, mkAddr, level)
@@ -2631,7 +2630,7 @@ struct
             val functorCode =
                 case functs of
                     SOME(Functor{access=functorAccess, ...}) => codeAccess (functorAccess, level)
-                |   NONE => raise InternalError "FunctorAppl: undefined"
+                |   NONE => raise Misc.InternalError "FunctorAppl: undefined"
         in
             (* Evaluate the functor. *)
             {
@@ -3055,7 +3054,7 @@ struct
             in
                 (n+1, newId :: ids)
             end
-            |   loadId _ = raise InternalError "Not Bound"
+            |   loadId _ = raise Misc.InternalError "Not Bound"
 
             (* Construct the IDs and reverse the list so the first ID is first*)
             val (newAddr, mappedIds) = List.foldl loadId (addr, []) typeIds
