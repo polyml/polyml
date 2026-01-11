@@ -58,13 +58,6 @@ end;
 
 structure PRETTY : PRETTY
 
-structure MISC :
-sig
-  exception InternalError of string
-  val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
-  val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
-end;
-
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Sharing
       = LEX.Sharing = EXPORTTREE.Sharing = SYMSET = PARSEDEC = CODETREE
 
@@ -77,6 +70,8 @@ sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Shar
 (*****************************************************************************)
 struct
     open STRUCTVALS;
+
+    structure MISC = Misc
 
     type exportTree = EXPORTTREE.exportTree
     type ptProperties = EXPORTTREE.ptProperties
