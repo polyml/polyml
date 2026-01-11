@@ -126,8 +126,6 @@ sharing type
 (*                  PARSEDEC functor body                                    *)
 (*****************************************************************************)
 struct
- open Misc;
- 
  open SYMBOLS
  open SYMSET;   infix 9 ++; infix 4 inside;
  open LEX;
@@ -179,7 +177,7 @@ struct
   in
     {
       enterFix      = #enter newFixEnv,
-      lookupFix     = lookupDefault (#lookup newFixEnv) lookupFix,
+      lookupFix     = Misc.lookupDefault (#lookup newFixEnv) lookupFix,
       lookupTvar    = lookupTvar
     }
   end;
@@ -362,7 +360,7 @@ struct
         val (typeName, idLocn)   = getShortId (ident, fsys ++ equalsSign, lex);
         (*
         val typeVarEnv =
-            { lookupTvar = lookupDefault (#lookup newTVenv) lookupTvar }
+            { lookupTvar = Misc.lookupDefault (#lookup newTVenv) lookupTvar }
         *)
         val typeVarEnv = genTypeVarEnv newTVenv;
         val (matchedType, endLocn) =
@@ -462,7 +460,7 @@ struct
            reinstating the old behaviour. *)
         (*
         val typeVarEnv =
-        { lookupTvar = lookupDefault (#lookup newTVenv) (#lookupTvar env) }
+        { lookupTvar = Misc.lookupDefault (#lookup newTVenv) (#lookupTvar env) }
         *)
         val typeVarEnv = genTypeVarEnv newTVenv;
 
