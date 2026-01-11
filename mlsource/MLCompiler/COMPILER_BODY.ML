@@ -72,8 +72,6 @@ sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Shar
 struct
     open STRUCTVALS;
 
-    structure MISC = Misc
-
     type exportTree = EXPORTTREE.exportTree
     type ptProperties = EXPORTTREE.ptProperties
 
@@ -158,7 +156,7 @@ struct
                     val newFixEnv = UTILITIES.searchList ()
                     val fixes : PARSEDEC.fixes =
                         {enterFix = #enter newFixEnv,
-                         lookupFix = MISC.lookupDefault (#lookup newFixEnv) (#lookupFix globals)}
+                         lookupFix = Misc.lookupDefault (#lookup newFixEnv) (#lookupFix globals)}
                     and params : PARSEDEC.params =
                         {recordPunning = DEBUG.getParameter DEBUG.languageExtensionsTag debugSwitches}
 
@@ -224,7 +222,7 @@ struct
             raise SML90.Interrupt
         )
          
-      | MISC.InternalError s =>
+      | Misc.InternalError s =>
         let
             val s' =
                 "Exception- InternalError: " ^ String.toString s ^ " raised while compiling"
